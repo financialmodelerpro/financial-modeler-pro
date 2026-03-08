@@ -1,33 +1,33 @@
 // ════════════════════════════════════════════════════════════
-//  BRANDING — Financial Modeler Pro
-//  Portal branding defaults, persistence, platform registry,
-//  helper functions, and BrandingSettingsPanel component.
+//  PORTAL LAYER — Financial Modeler Pro Hub
+//  Wraps all platforms. Currently hosts REFM.
+//  Structure prepared for future platform additions.
 // ════════════════════════════════════════════════════════════
 
+// ── User subscription (future: backend-driven) ──────────────
+const userSubscription = {
+    userId:    'user_001',
+    plan:      'Professional',
+    platforms: ['refm'],
+};
+
+// ── Branding persistence ─────────────────────────────────────
 const BRANDING_KEY = 'fmp_portal_branding_v1';
 
 const DEFAULT_BRANDING = {
     portalTitle:       'Financial Modeler Pro',
     portalSubtitle:    'Platform Hub',
     portalDescription: 'A professional suite of financial modeling and planning tools — built for real estate developers, corporate finance teams, and FP&A professionals. Select a platform below to begin.',
-    footerText:        'Powered by Financial Modeler Pro — \u00a9 PaceMakers Advisory',
+    footerText:        'Professional Financial Modeling Suite',
     portalLogoType:    'emoji',   // 'emoji' | 'image'
-    portalLogoEmoji:   '\ud83d\udcbc',
+    portalLogoEmoji:   '💼',
     portalLogoImage:   null,      // base64 data-URL or null
     platformName:      'REFM Platform',   // platform toolbar display name
     platformLogoType:  'emoji',   // 'emoji' | 'image'
-    platformLogoEmoji: '\ud83c\udfd7\ufe0f',
+    platformLogoEmoji: '🏗️',
     platformLogoImage: null,
     // Editable platform card registry (mirrors PLATFORM_REGISTRY defaults)
     platforms: null,  // null = use PLATFORM_REGISTRY defaults; array = custom overrides
-    // White Label settings
-    whiteLabelEnabled:     false,
-    whiteLabelCompany:     '',
-    whiteLabelLogoType:    'emoji',
-    whiteLabelLogoEmoji:   '\ud83c\udfe2',
-    whiteLabelLogoImage:   null,
-    whiteLabelFooterText:  '',
-    whiteLabelHidePowered: true,
 };
 
 function loadBranding() {
@@ -110,28 +110,6 @@ function getEffectivePlatforms(branding) {
     });
 }
 
-// ── Helper: resolve white-label overrides at render time ────
-// Call this in portal/platform renders instead of using branding directly.
-// Returns a branding object with white-label values merged in when enabled.
-function getEffectiveBranding(branding) {
-    if (!branding.whiteLabelEnabled) return branding;
-    return {
-        ...branding,
-        // Replace title/logo with client values when white-label is on
-        portalTitle:      branding.whiteLabelCompany   || branding.portalTitle,
-        portalLogoType:   branding.whiteLabelLogoType  || branding.portalLogoType,
-        portalLogoEmoji:  branding.whiteLabelLogoEmoji || branding.portalLogoEmoji,
-        portalLogoImage:  branding.whiteLabelLogoImage || branding.portalLogoImage,
-        platformLogoType:  branding.whiteLabelLogoType  || branding.platformLogoType,
-        platformLogoEmoji: branding.whiteLabelLogoEmoji || branding.platformLogoEmoji,
-        platformLogoImage: branding.whiteLabelLogoImage || branding.platformLogoImage,
-        // Footer: use client footer if set, otherwise fall back to standard footerText
-        footerText: branding.whiteLabelFooterText || branding.footerText,
-        // Signal to portal/footer that powered-by line should be hidden
-        _hidePoweredBy: !!branding.whiteLabelHidePowered,
-    };
-}
-
 // ════════════════════════════════════════════════════════════
 //  BRANDING SETTINGS PANEL — Admin-only, full branding control
 //  Steps 3 & 4: consolidated portal + logo settings, RBAC guard
@@ -165,30 +143,21 @@ function BrandingSettingsPanel({ branding, onSave, onClose, isAdmin }) {
 
     // ── State ──
     const initDraft = () => {
-        const d = { ...DEFAULT_BRANDING, ...branding };
+        const d = { ...branding };
         if (!d.platforms || !Array.isArray(d.platforms) || d.platforms.length === 0) {
             d.platforms = PLATFORM_REGISTRY.map(p => ({
                 id: p.id, name: p.name, description: p.description, status: p.status,
             }));
         }
         if (!d.platformName) d.platformName = 'REFM Platform';
-        // Ensure white-label fields always exist in draft
-        if (d.whiteLabelEnabled    === undefined) d.whiteLabelEnabled    = false;
-        if (d.whiteLabelCompany    === undefined) d.whiteLabelCompany    = '';
-        if (d.whiteLabelLogoType   === undefined) d.whiteLabelLogoType   = 'emoji';
-        if (d.whiteLabelLogoEmoji  === undefined) d.whiteLabelLogoEmoji  = '\ud83c\udfe2';
-        if (d.whiteLabelLogoImage  === undefined) d.whiteLabelLogoImage  = null;
-        if (d.whiteLabelFooterText === undefined) d.whiteLabelFooterText = '';
-        if (d.whiteLabelHidePowered=== undefined) d.whiteLabelHidePowered= true;
         return d;
     };
     const [draft, setDraft]           = React.useState(() => initDraft());
     const [saved, setSaved]           = React.useState(false);
     const [activeSection, setSection] = React.useState('portal');
-    const [dragOver, setDragOver]     = React.useState(null); // 'portal' | 'platform' | 'whiteLabel' | null
+    const [dragOver, setDragOver]     = React.useState(null); // 'portal' | 'platform' | null
     const portalLogoInputRef          = React.useRef(null);
     const platformLogoInputRef        = React.useRef(null);
-    const whiteLabelLogoInputRef      = React.useRef(null);
 
     const upd = (key, val) => setDraft(d => ({ ...d, [key]: val }));
 
@@ -216,13 +185,6 @@ function BrandingSettingsPanel({ branding, onSave, onClose, isAdmin }) {
                 platforms: PLATFORM_REGISTRY.map(p => ({
                     id: p.id, name: p.name, description: p.description, status: p.status,
                 })),
-                whiteLabelEnabled:     false,
-                whiteLabelCompany:     '',
-                whiteLabelLogoType:    'emoji',
-                whiteLabelLogoEmoji:   '\ud83c\udfe2',
-                whiteLabelLogoImage:   null,
-                whiteLabelFooterText:  '',
-                whiteLabelHidePowered: true,
             });
         }
     };
@@ -254,12 +216,12 @@ function BrandingSettingsPanel({ branding, onSave, onClose, isAdmin }) {
                         marginBottom:'16px', display:'flex', alignItems:'center', gap:'7px' },
     };
 
-    // ── Logo upload zone component (used for portal, platform, and white-label logos) ──
+    // ── Logo upload zone component (used for both portal + platform logos) ──
     const LogoUploadZone = ({ prefix, title }) => {
         const isImg  = draft[prefix + 'LogoType'] === 'image';
         const imgSrc = draft[prefix + 'LogoImage'];
-        const emoji  = draft[prefix + 'LogoEmoji'] || (prefix === 'portal' ? '\ud83d\udcbc' : prefix === 'whiteLabel' ? '\ud83c\udfe2' : '\ud83c\udfd7\ufe0f');
-        const ref    = prefix === 'portal' ? portalLogoInputRef : prefix === 'whiteLabel' ? whiteLabelLogoInputRef : platformLogoInputRef;
+        const emoji  = draft[prefix + 'LogoEmoji'] || (prefix === 'portal' ? '💼' : '🏗️');
+        const ref    = prefix === 'portal' ? portalLogoInputRef : platformLogoInputRef;
         const isDrag = dragOver === prefix;
 
         return (
@@ -407,10 +369,9 @@ function BrandingSettingsPanel({ branding, onSave, onClose, isAdmin }) {
                              background:'#F9FAFB', paddingLeft:'8px', flexShrink:0,
                              overflowX:'auto'}}>
                     {[
-                        { id:'portal',     label:'🏠 Portal Branding' },
-                        { id:'platform',   label:'⚙️ Platform Toolbar' },
-                        { id:'platforms',  label:'🗂️ Platform Cards' },
-                        { id:'whitelabel', label:'🏷️ White Label' },
+                        { id:'portal',    label:'🏠 Portal Branding' },
+                        { id:'platform',  label:'⚙️ Platform Toolbar' },
+                        { id:'platforms', label:'🗂️ Platform Cards' },
                     ].map(s => (
                         <button key={s.id} onClick={() => setSection(s.id)}
                                 style={S.sectionBtn(activeSection === s.id)}>
@@ -700,144 +661,6 @@ function BrandingSettingsPanel({ branding, onSave, onClose, isAdmin }) {
                         );
                     })()}
 
-                    {/* ══════════════════════════════════════════
-                        TAB 4: WHITE LABEL
-                        Client branding, hide FMP references
-                    ══════════════════════════════════════════ */}
-                    {activeSection === 'whitelabel' && (<>
-
-                        {/* Enable toggle */}
-                        <div style={{
-                            display:'flex', alignItems:'center', justifyContent:'space-between',
-                            background: draft.whiteLabelEnabled ? '#F0FDF4' : '#F9FAFB',
-                            border: `1.5px solid ${draft.whiteLabelEnabled ? '#86EFAC' : '#E5E7EB'}`,
-                            borderRadius:'10px', padding:'14px 18px', marginBottom:'22px',
-                            transition:'all 0.2s',
-                        }}>
-                            <div>
-                                <div style={{fontWeight:700, fontSize:'13px', color: draft.whiteLabelEnabled ? '#166534' : '#111827'}}>
-                                    {draft.whiteLabelEnabled ? '✅ White Label Mode is ON' : '⬜ White Label Mode is OFF'}
-                                </div>
-                                <div style={{fontSize:'12px', color:'#6B7280', marginTop:'3px', lineHeight:1.5}}>
-                                    When enabled, Financial Modeler Pro and PaceMakers branding is hidden and replaced with your client's identity.
-                                </div>
-                            </div>
-                            <button
-                                onClick={() => upd('whiteLabelEnabled', !draft.whiteLabelEnabled)}
-                                style={{
-                                    flexShrink:0, marginLeft:'16px',
-                                    width:'48px', height:'26px', borderRadius:'999px', border:'none',
-                                    cursor:'pointer', position:'relative', transition:'background 0.2s',
-                                    background: draft.whiteLabelEnabled ? '#166534' : '#D1D5DB',
-                                }}>
-                                <span style={{
-                                    position:'absolute', top:'3px',
-                                    left: draft.whiteLabelEnabled ? '24px' : '3px',
-                                    width:'20px', height:'20px', borderRadius:'50%',
-                                    background:'white', transition:'left 0.2s',
-                                    boxShadow:'0 1px 3px rgba(0,0,0,0.2)',
-                                }} />
-                            </button>
-                        </div>
-
-                        {/* Fields — always visible so admin can pre-fill before enabling */}
-                        <div style={S.sectionTitle}>
-                            <span style={{background:'#F0FDF4',color:'#166534',padding:'3px 8px',borderRadius:'5px',fontSize:'10px'}}>CLIENT</span>
-                            Client Identity
-                        </div>
-
-                        <div style={S.field}>
-                            <label style={S.label}>Client Company Name <span style={{fontWeight:400,color:'#9CA3AF',textTransform:'none',letterSpacing:0}}>(replaces portal title when enabled)</span></label>
-                            <input style={S.input} value={draft.whiteLabelCompany}
-                                onChange={e => upd('whiteLabelCompany', e.target.value)}
-                                placeholder="e.g. Acme Capital Partners" />
-                        </div>
-
-                        <div style={S.field}>
-                            <label style={S.label}>Client Footer Text <span style={{fontWeight:400,color:'#9CA3AF',textTransform:'none',letterSpacing:0}}>(overrides footer when enabled)</span></label>
-                            <input style={S.input} value={draft.whiteLabelFooterText}
-                                onChange={e => upd('whiteLabelFooterText', e.target.value)}
-                                placeholder="e.g. Powered by Acme Capital Partners" />
-                        </div>
-
-                        <div style={S.field}>
-                            <label style={S.label} style={{...S.label, display:'flex', alignItems:'center', gap:'8px', marginBottom:'10px'}}>
-                                <input type="checkbox"
-                                    checked={!!draft.whiteLabelHidePowered}
-                                    onChange={e => upd('whiteLabelHidePowered', e.target.checked)}
-                                    style={{width:'15px', height:'15px', accentColor:'#1E3A8A', cursor:'pointer'}} />
-                                Hide "Powered by Financial Modeler Pro" and PaceMakers references
-                            </label>
-                        </div>
-
-                        <div style={S.divider} />
-
-                        <div style={S.sectionTitle}>
-                            <span style={{background:'#F0FDF4',color:'#166534',padding:'3px 8px',borderRadius:'5px',fontSize:'10px'}}>LOGO</span>
-                            Client Logo
-                        </div>
-                        <div style={{fontSize:'12px', color:'#6B7280', lineHeight:1.55, marginBottom:'16px'}}>
-                            This logo replaces both the portal and platform logos when White Label Mode is on.
-                        </div>
-                        <LogoUploadZone prefix="whiteLabel" title="Client Logo" />
-
-                        <div style={S.divider} />
-
-                        {/* Preview */}
-                        <div style={S.sectionTitle}>
-                            <span style={{background:'#FFF7ED',color:'#92400E',padding:'3px 8px',borderRadius:'5px',fontSize:'10px'}}>PREVIEW</span>
-                            White Label Preview
-                        </div>
-
-                        {!draft.whiteLabelEnabled && (
-                            <div style={{background:'#FFFBEB', border:'1px solid #FDE68A', borderRadius:'8px',
-                                         padding:'10px 14px', fontSize:'12px', color:'#92400E',
-                                         marginBottom:'14px', lineHeight:1.5}}>
-                                ⚠️ Toggle White Label Mode ON above to see the preview applied on the portal.
-                            </div>
-                        )}
-
-                        {/* Header preview */}
-                        <div style={{background:'var(--color-primary-deep)', borderRadius:'8px',
-                                     padding:'11px 16px', display:'flex', alignItems:'center',
-                                     gap:'10px', marginBottom:'8px'}}>
-                            <div style={{width:'32px', height:'32px', background:'var(--color-primary)',
-                                         borderRadius:'8px', display:'flex', alignItems:'center',
-                                         justifyContent:'center', flexShrink:0, overflow:'hidden',
-                                         border:'1px solid rgba(255,255,255,0.15)'}}>
-                                {draft.whiteLabelLogoType === 'image' && draft.whiteLabelLogoImage
-                                    ? <img src={draft.whiteLabelLogoImage} style={{width:'100%',height:'100%',objectFit:'contain'}} />
-                                    : <span style={{fontSize:'16px'}}>{draft.whiteLabelLogoEmoji || '\ud83c\udfe2'}</span>}
-                            </div>
-                            <div>
-                                <div style={{fontWeight:700, color:'white', fontSize:'13px'}}>
-                                    {draft.whiteLabelEnabled
-                                        ? (draft.whiteLabelCompany || 'Client Company Name')
-                                        : (draft.portalTitle || 'Portal Title')}
-                                </div>
-                                <div style={{fontSize:'9.5px', color:'rgba(255,255,255,0.38)',
-                                             textTransform:'uppercase', letterSpacing:'0.06em'}}>
-                                    {draft.portalSubtitle || 'Platform Hub'}
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Footer preview */}
-                        <div style={{background:'#F9FAFB', border:'1px solid #E5E7EB',
-                                     borderRadius:'8px', padding:'10px 16px',
-                                     textAlign:'center', fontSize:'11px', color:'#9CA3AF'}}>
-                            {draft.whiteLabelEnabled
-                                ? (draft.whiteLabelFooterText || draft.whiteLabelCompany || 'Client Footer Text')
-                                : draft.footerText}
-                            {draft.whiteLabelEnabled && !draft.whiteLabelHidePowered && (
-                                <span style={{marginLeft:'8px', color:'#CBD5E1'}}>
-                                    · Powered by Financial Modeler Pro
-                                </span>
-                            )}
-                        </div>
-
-                    </>)}
-
                 </div>
 
                 {/* ── Footer Actions ── */}
@@ -876,5 +699,3 @@ function BrandingSettingsPanel({ branding, onSave, onClose, isAdmin }) {
     );
 }
 
-// ════════════════════════════════════════════════════════════
-//  PORTAL APP COMPONENT

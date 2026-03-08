@@ -1,12 +1,3 @@
-// ════════════════════════════════════════════════════════════
-//  REFM PLATFORM — Real Estate Financial Modeling
-//  AppRoot: portal ↔ platform router + branding state.
-//  RealEstatePlatform: full REFM modeling workspace including
-//  sidebar nav, all modules, project/version management,
-//  export (JSON/Excel/PDF), and financial modeling engine.
-//  Depends on: settings.js, branding.js, portal.js, projects.js
-// ════════════════════════════════════════════════════════════
-
 const { useState, useEffect, useMemo } = React;
 
 function AppRoot() {
@@ -119,16 +110,6 @@ function AppRoot() {
     const [countrySearch, setCountrySearch] = useState('');
     const [countryOpen, setCountryOpen] = useState(false);
     const [currency, setCurrency] = useState('SAR');
-    // ── New engine state variables (for new modules) ─────────
-    const [inflationRate, setInflationRate]             = useState(3);
-    const [discountRate, setDiscountRate]               = useState(12);
-    const [gracePeriod, setGracePeriod]                 = useState(0);
-    const [equityContribution, setEquityContribution]   = useState(0);
-    const [setupLandArea, setSetupLandArea]             = useState(0);
-    const [setupBuildableArea, setSetupBuildableArea]   = useState(0);
-    const [revenueStreams, setRevenueStreams]            = useState([]);
-    const [landAcquisitionDate, setLandAcquisitionDate] = useState('');
-    const [constructionStartDate, setConstructionStartDate] = useState('');
     const [modelType, setModelType] = useState('annual');
     const [projectStart, setProjectStart] = useState('2025-01-01');
     const [constructionPeriods, setConstructionPeriods] = useState(4);
@@ -1062,8 +1043,7 @@ function AppRoot() {
     // }
 
     const [pmModal, setPmModal] = useState(null);
-    // pmModal values: null | 'templatePicker' | 'newProject' | 'projects' | 'versions' | 'compare' | 'renameProject' | 'newVersion' | 'renameVersion' | 'editProject' | 'deleteConfirm' | 'saveAsVersion'
-    const [pmTemplateId, setPmTemplateId] = useState(null); // selected template id during new-project flow
+    // pmModal values: null | 'projects' | 'versions' | 'compare' | 'newProject' | 'renameProject' | 'newVersion' | 'renameVersion' | 'editProject' | 'deleteConfirm' | 'saveAsVersion'
     const [pmDeleteProjectId, setPmDeleteProjectId] = useState(null);
     const [pmSaveVersionLabel, setPmSaveVersionLabel] = useState('');
     const [pmSaveVersionBumpMajor, setPmSaveVersionBumpMajor] = useState(false);
@@ -1096,8 +1076,6 @@ function AppRoot() {
         setTimeout(() => setPmToast(null), 3200);
     };
 
-    // ── Storage helpers: STORAGE_KEY, loadStorage, saveStorage, genId
-    // ── Defined in js/projects.js (module scope) and available globally.
 
     // ── snapshot (reuses existing getSnapshot / applySnapshot) ──
     const getSnapshot = () => ({
@@ -2873,116 +2851,16 @@ function AppRoot() {
         showToast('📄 PDF: ' + _pdfProjName + ' › ' + _pdfVerName + ' (' + totalPages + ' pages)', '#c0392b');
     };
     const noProject = !activeProjectId;
-
-    // ── REFM Model Inputs — thin adapter over existing per-module state ──────
-    // This assembles the full inputs object from existing state variables so
-    // that all new engine modules receive a consistent inputs snapshot.
-    // It does NOT replace the existing Module 1 state — it reads from it.
-    const refmInputs = {
-        // Identity
-        projectName,
-        projectType,
-        currency,
-        // Timeline
-        modelType,
-        projectStart,
-        constructionPeriods,
-        operationsPeriods,
-        overlapPeriods,
-        // Area
-        projectFAR,
-        projectRoadsPct,
-        projectNonEnclosedPct,
-        // Asset mix
-        residentialPercent,
-        hospitalityPercent,
-        retailPercent,
-        residentialDeductPct,
-        residentialEfficiency,
-        hospitalityDeductPct,
-        hospitalityEfficiency,
-        retailDeductPct,
-        retailEfficiency,
-        // Land
-        landParcels,
-        // Cost stacks
-        residentialCosts,
-        hospitalityCosts,
-        retailCosts,
-        nextCostId,
-        // Financing
-        globalDebtPct,
-        interestRate,
-        capitalizeInterest,
-        repaymentPeriods,
-        repaymentMethod,
-        financingMode,
-        // New model inputs (stored in React state below)
-        inflationRate,
-        discountRate,
-        gracePeriod,
-        equityContribution,
-        setupLandArea,
-        setupBuildableArea,
-        // Revenue streams (new)
-        revenueStreams,
-        // Date fields
-        landAcquisitionDate,
-        constructionStartDate,
-    };
-
-    // onChange handler for new module inputs — merges patch into existing state setters
-    const handleModelInputChange = (patch) => {
-        Object.entries(patch).forEach(([key, val]) => {
-            switch(key) {
-                case 'projectName':         setProjectName(val); break;
-                case 'projectType':         setProjectType(val); break;
-                case 'currency':            setCurrency(val); break;
-                case 'modelType':           setModelType(val); break;
-                case 'projectStart':        setProjectStart(val); break;
-                case 'constructionPeriods': setConstructionPeriods(val); break;
-                case 'operationsPeriods':   setOperationsPeriods(val); break;
-                case 'overlapPeriods':      setOverlapPeriods(val); break;
-                case 'projectFAR':          setProjectFAR(val); break;
-                case 'projectRoadsPct':     setProjectRoadsPct(val); break;
-                case 'landParcels':         setLandParcels(val); break;
-                case 'residentialCosts':    setResidentialCosts(val); break;
-                case 'hospitalityCosts':    setHospitalityCosts(val); break;
-                case 'retailCosts':         setRetailCosts(val); break;
-                case 'nextCostId':          setNextCostId(val); break;
-                case 'globalDebtPct':       setGlobalDebtPct(val); break;
-                case 'interestRate':        setInterestRate(val); break;
-                case 'capitalizeInterest':  setCapitalizeInterest(val); break;
-                case 'repaymentPeriods':    setRepaymentPeriods(val); break;
-                case 'repaymentMethod':     setRepaymentMethod(val); break;
-                case 'financingMode':       setFinancingMode(val); break;
-                case 'inflationRate':       setInflationRate(val); break;
-                case 'discountRate':        setDiscountRate(val); break;
-                case 'gracePeriod':         setGracePeriod(val); break;
-                case 'equityContribution':  setEquityContribution(val); break;
-                case 'setupLandArea':       setSetupLandArea(val); break;
-                case 'setupBuildableArea':  setSetupBuildableArea(val); break;
-                case 'revenueStreams':       setRevenueStreams(val); break;
-                case 'landAcquisitionDate': setLandAcquisitionDate(val); break;
-                case 'constructionStartDate': setConstructionStartDate(val); break;
-                default: break; // unknown key — silently ignore
-            }
-        });
-    };
-
     const sidebarModules = [
-        { key: "dashboard",    label: "Dashboard",            icon: "🏠", badge: null,     badgeClass: "" },
-        { key: "projects",     label: "Projects",             icon: "🏗️", badge: null,     badgeClass: "" },
-        { key: "overview",     label: "Overview",             icon: "📊", badge: null,     badgeClass: "",           disabled: noProject, disabledReason: "Select a project first" },
-        { key: "proj-setup",   label: "Project Setup",        icon: "📋", badge: null,     badgeClass: "",           disabled: noProject, disabledReason: "Select a project first" },
-        { key: "dev-timeline", label: "Dev Timeline",         icon: "📅", badge: null,     badgeClass: "",           disabled: noProject, disabledReason: "Select a project first" },
-        { key: "revenue",      label: "Revenue",              icon: "💰", badge: null,     badgeClass: "",           disabled: noProject, disabledReason: "Select a project first" },
-        { key: "dev-costs",    label: "Development Costs",    icon: "🏗️", badge: null,     badgeClass: "",           disabled: noProject, disabledReason: "Select a project first" },
-        { key: "financing",    label: "Financing",            icon: "🏦", badge: null,     badgeClass: "",           disabled: noProject, disabledReason: "Select a project first" },
-        { key: "cashflow",     label: "Cash Flow",            icon: "📊", badge: null,     badgeClass: "",           disabled: noProject, disabledReason: "Select a project first" },
-        { key: "returns",      label: "Returns",              icon: "📈", badge: null,     badgeClass: "",           disabled: noProject, disabledReason: "Select a project first" },
-        { key: "sensitivity",  label: "Sensitivity",          icon: "🔬", badge: null,     badgeClass: "",           disabled: noProject, disabledReason: "Select a project first" },
-        { key: "module1",      label: "Legacy: Setup",        icon: "⚙️", badge: "LEGACY", badgeClass: "badge-soon", disabled: noProject, disabledReason: "Select a project first" },
+        { key: "dashboard", label: "Dashboard",           icon: "🏠", badge: null,     badgeClass: "" },
+        { key: "projects",  label: "Projects",            icon: "🏗️", badge: null,     badgeClass: "" },
+        { key: "overview",  label: "Overview",            icon: "📊", badge: null,     badgeClass: "",          disabled: noProject, disabledReason: "Select a project first" },
+        { key: "module1",   label: "Module 1: Setup",     icon: "📋", badge: "ACTIVE", badgeClass: "badge-active", disabled: noProject, disabledReason: "Select a project first" },
+        { key: "module2",   label: "Module 2: Revenue",   icon: "💰", badge: "SOON",   badgeClass: "badge-soon", disabled: noProject, disabledReason: "Select a project first" },
+        { key: "module3",   label: "Module 3: OpEx",      icon: "📉", badge: "SOON",   badgeClass: "badge-soon", disabled: noProject, disabledReason: "Select a project first" },
+        { key: "module4",   label: "Module 4: Returns",   icon: "📈", badge: "SOON",   badgeClass: "badge-soon", disabled: noProject, disabledReason: "Select a project first" },
+        { key: "module5",   label: "Module 5: Financials",icon: "🏦", badge: "SOON",   badgeClass: "badge-soon", disabled: noProject, disabledReason: "Select a project first" },
+        { key: "module6",   label: "Module 6: Reports",   icon: "📄", badge: "SOON",   badgeClass: "badge-soon", disabled: noProject, disabledReason: "Select a project first" },
     ];
     const m1Tabs = [
         { key: "timeline", label: "Timeline", icon: "📅" },
@@ -3231,7 +3109,7 @@ function AppRoot() {
                         </div>
                         <div className="pm-modal-body">
                             {/* New project button */}
-                            <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmTemplateId(null); setPmModal('templatePicker'); }}
+                            <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmModal('newProject'); }}
                                 style={{width:'100%',padding:'0.55rem 1rem',background:'var(--color-primary)',color:'white',border:'none',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)',marginBottom:'var(--sp-2)'}}>
                                 + New Project
                             </button>
@@ -3433,7 +3311,7 @@ function AppRoot() {
                             <div className="pm-modal-footer">
                                 <button onClick={()=>setPmModal(null)} style={{padding:'var(--sp-1) var(--sp-2)',border:'1px solid #d1d5db',borderRadius:'var(--radius-sm)',background:'white',cursor:'pointer',fontSize:'var(--font-body)'}}>Cancel</button>
                                 <button onClick={()=>{setPmModal(null);setActiveModule('projects');}} style={{padding:'var(--sp-1) var(--sp-2)',background:'var(--color-primary)',color:'white',border:'none',borderRadius:'var(--radius-sm)',cursor:'pointer',fontSize:'var(--font-body)',fontWeight:'var(--fw-semibold)'}}>Go to Projects</button>
-                                <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmTemplateId(null); setPmModal('templatePicker'); }} style={{padding:'var(--sp-1) var(--sp-2)',background:'var(--color-success)',color:'white',border:'none',borderRadius:'var(--radius-sm)',cursor:'pointer',fontSize:'var(--font-body)',fontWeight:'var(--fw-semibold)'}}>+ New Project</button>
+                                <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmModal('newProject'); }} style={{padding:'var(--sp-1) var(--sp-2)',background:'var(--color-success)',color:'white',border:'none',borderRadius:'var(--radius-sm)',cursor:'pointer',fontSize:'var(--font-body)',fontWeight:'var(--fw-semibold)'}}>+ New Project</button>
                             </div>
                         </div>
                     </div>
@@ -3515,532 +3393,6 @@ function AppRoot() {
 
 
             {/* ===== NEW PROJECT MODAL ===== */}
-            {/* ══════════════════════════════════════════════════════════
-                TEMPLATE PICKER MODAL  (v3 — with structure preview)
-                Two layers inside one sheet:
-                  Layer 1 — card grid (always rendered)
-                  Layer 2 — structure preview panel (shown when previewTpl ≠ null)
-                No new pmModal value needed; previewTpl is local state.
-            ══════════════════════════════════════════════════════════ */}
-            {pmModal === 'templatePicker' && (() => {
-                const templates = (typeof MODEL_TEMPLATES !== 'undefined') ? MODEL_TEMPLATES : [];
-
-                // Local state — preview overlay
-                const [previewTpl, setPreviewTpl] = React.useState(null);
-                // Local state — card hover
-                const [hoveredId, setHoveredId]   = React.useState(null);
-
-                // Click "Create Model" on either the card CTA or the preview CTA
-                const selectAndAdvance = (id) => {
-                    setPmTemplateId(id);
-                    setPmModal('newProject');
-                };
-
-                // Type badge config
-                const TYPE_META = {
-                    input:  { label: 'Input',       bg: '#EFF6FF', color: '#1D4ED8', border: '#BFDBFE' },
-                    calc:   { label: 'Calculation',  bg: '#F0FDF4', color: '#15803D', border: '#BBF7D0' },
-                    output: { label: 'Output',       bg: '#FFF7ED', color: '#C2410C', border: '#FED7AA' },
-                    custom: { label: 'Custom',       bg: '#F5F3FF', color: '#6D28D9', border: '#DDD6FE' },
-                };
-
-                // ── Style tokens ──────────────────────────────────────────
-                const S = {
-                    overlay: {
-                        position:'fixed', inset:0,
-                        background:'rgba(8,12,24,0.82)',
-                        zIndex:9999, display:'flex', alignItems:'center',
-                        justifyContent:'center',
-                        backdropFilter:'blur(6px)',
-                        WebkitBackdropFilter:'blur(6px)',
-                        padding:'24px 16px',
-                    },
-                    sheet: {
-                        background:'#F8FAFC',
-                        borderRadius:'20px',
-                        boxShadow:'0 32px 96px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.06)',
-                        width:'940px',
-                        maxWidth:'98vw',
-                        maxHeight:'94vh',
-                        display:'flex',
-                        flexDirection:'column',
-                        overflow:'hidden',
-                        position:'relative', // needed for preview panel absolute positioning
-                    },
-                    // ── Main header ──
-                    header: {
-                        background:'linear-gradient(135deg,#0F1E3C 0%,#1E3A8A 60%,#1E40AF 100%)',
-                        padding:'22px 32px 20px',
-                        display:'flex', alignItems:'center', justifyContent:'space-between',
-                        flexShrink:0,
-                        position:'relative', overflow:'hidden',
-                    },
-                    headerOverlay: {
-                        position:'absolute', inset:0,
-                        backgroundImage:'radial-gradient(ellipse 60% 80% at 90% -10%, rgba(96,165,250,0.18) 0%, transparent 70%)',
-                        pointerEvents:'none',
-                    },
-                    body: {
-                        flex:1, overflowY:'auto', padding:'28px 32px 8px',
-                    },
-                    grid: {
-                        display:'grid',
-                        gridTemplateColumns:'repeat(2, 1fr)',
-                        gap:'16px',
-                        paddingBottom:'24px',
-                    },
-                    // ── Card ──
-                    card: (id, accentColor) => {
-                        const isHov = hoveredId === id;
-                        return {
-                            background:'white', borderRadius:'14px',
-                            border:`1.5px solid ${isHov ? accentColor : '#E2E8F0'}`,
-                            boxShadow: isHov
-                                ? `0 8px 32px ${accentColor}28, 0 2px 8px rgba(0,0,0,0.06)`
-                                : '0 2px 8px rgba(0,0,0,0.05)',
-                            display:'flex', flexDirection:'column', overflow:'hidden',
-                            transition:'border-color 0.18s, box-shadow 0.18s, transform 0.18s',
-                            transform: isHov ? 'translateY(-3px)' : 'translateY(0)',
-                            cursor:'default',
-                        };
-                    },
-                    cardHeader: (grad) => ({
-                        background:grad, padding:'18px 20px 16px',
-                        position:'relative', overflow:'hidden',
-                    }),
-                    cardHeaderSheen: {
-                        position:'absolute', inset:0,
-                        backgroundImage:'radial-gradient(ellipse 80% 60% at 100% 0%, rgba(255,255,255,0.12) 0%, transparent 60%)',
-                        pointerEvents:'none',
-                    },
-                    cardBody:    { flex:1, padding:'18px 20px 0', display:'flex', flexDirection:'column' },
-                    divider:     { height:'1px', background:'#F1F5F9', margin:'14px 20px 0' },
-                    featureArea: { padding:'14px 20px 0', flex:1 },
-                    ctaArea:     { padding:'12px 20px 16px', display:'flex', flexDirection:'column', gap:'8px' },
-                };
-
-                return (
-                    <div style={S.overlay} onClick={() => { setPreviewTpl(null); setPmModal(null); }}>
-                        <div style={S.sheet} onClick={e => e.stopPropagation()}>
-
-                            {/* ── Main header ── */}
-                            <div style={S.header}>
-                                <div style={S.headerOverlay} />
-                                <div style={{position:'relative', zIndex:1}}>
-                                    <div style={{
-                                        fontSize:'11px', fontWeight:700, letterSpacing:'0.12em',
-                                        color:'rgba(147,197,253,0.85)', textTransform:'uppercase',
-                                        marginBottom:'5px',
-                                        fontFamily:'ui-monospace,SFMono-Regular,monospace',
-                                    }}>New Project</div>
-                                    <div style={{
-                                        fontWeight:800, color:'white', fontSize:'20px',
-                                        letterSpacing:'-0.02em', lineHeight:'1.2',
-                                        fontFamily:'Georgia,"Times New Roman",serif',
-                                    }}>Choose a Model Template</div>
-                                    <div style={{fontSize:'13px', color:'rgba(186,219,255,0.65)', marginTop:'5px'}}>
-                                        Select a starting point — all assumptions can be customised after creation
-                                    </div>
-                                </div>
-                                <button onClick={() => { setPreviewTpl(null); setPmModal(null); }}
-                                    style={{
-                                        position:'relative', zIndex:1,
-                                        background:'rgba(255,255,255,0.1)',
-                                        border:'1px solid rgba(255,255,255,0.18)',
-                                        borderRadius:'10px', width:'36px', height:'36px',
-                                        cursor:'pointer', color:'rgba(255,255,255,0.7)',
-                                        fontSize:'15px', display:'flex',
-                                        alignItems:'center', justifyContent:'center',
-                                    }}>✕</button>
-                            </div>
-
-                            {/* ── Scrollable card grid ── */}
-                            <div style={S.body}>
-                                <div style={{marginBottom:'22px'}}>
-                                    <p style={{margin:0, fontSize:'13px', color:'#64748B', lineHeight:'1.6'}}>
-                                        Each template pre-loads a complete set of assumptions, cost structures, and financing
-                                        defaults. Use <strong style={{color:'#1E3A8A'}}>Preview Model Structure</strong> to
-                                        see the sections before you commit.
-                                    </p>
-                                </div>
-
-                                <div style={S.grid}>
-                                    {templates.map(tpl => (
-                                        <div key={tpl.id}
-                                             style={S.card(tpl.id, tpl.accentColor)}
-                                             onMouseEnter={() => setHoveredId(tpl.id)}
-                                             onMouseLeave={() => setHoveredId(null)}>
-
-                                            {/* Coloured header band */}
-                                            <div style={S.cardHeader(tpl.headerGrad || `linear-gradient(135deg,${tpl.accentColor} 0%,${tpl.accentColor}CC 100%)`)}>
-                                                <div style={S.cardHeaderSheen} />
-
-                                                {tpl.badge && (
-                                                    <div style={{
-                                                        display:'inline-flex', alignItems:'center',
-                                                        background:'rgba(255,255,255,0.18)',
-                                                        border:'1px solid rgba(255,255,255,0.3)',
-                                                        borderRadius:'999px', padding:'2px 10px',
-                                                        fontSize:'10px', fontWeight:700,
-                                                        letterSpacing:'0.06em', color:'white',
-                                                        textTransform:'uppercase', marginBottom:'10px',
-                                                        fontFamily:'ui-monospace,SFMono-Regular,monospace',
-                                                    }}>★ {tpl.badge}</div>
-                                                )}
-                                                {!tpl.badge && <div style={{height:'0px', marginBottom:'10px'}} />}
-
-                                                <div style={{display:'flex', alignItems:'center', gap:'12px'}}>
-                                                    <div style={{
-                                                        width:'44px', height:'44px', borderRadius:'10px',
-                                                        background:'rgba(255,255,255,0.15)',
-                                                        border:'1px solid rgba(255,255,255,0.25)',
-                                                        display:'flex', alignItems:'center',
-                                                        justifyContent:'center', fontSize:'22px',
-                                                        flexShrink:0, backdropFilter:'blur(4px)',
-                                                    }}>{tpl.icon}</div>
-                                                    <div>
-                                                        <div style={{
-                                                            fontWeight:800, color:'white', fontSize:'15px',
-                                                            lineHeight:'1.2', letterSpacing:'-0.01em',
-                                                            fontFamily:'Georgia,"Times New Roman",serif',
-                                                        }}>{tpl.name || tpl.label}</div>
-                                                        <div style={{fontSize:'11px', color:'rgba(255,255,255,0.55)', marginTop:'2px', fontWeight:500}}>
-                                                            {tpl.id === 'development_feasibility' && 'Mixed-use · 4 yr construction · Annual'}
-                                                            {tpl.id === 'rental_investment'       && 'Residential · 10 yr hold · Annual'}
-                                                            {tpl.id === 'mixed_use'               && 'Multi-asset · 5 yr construction · Annual'}
-                                                            {tpl.id === 'blank'                   && 'All asset types · Fully custom'}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Description */}
-                                            <div style={S.cardBody}>
-                                                <p style={{margin:0, fontSize:'12.5px', color:'#475569', lineHeight:'1.6', fontStyle:'italic'}}>
-                                                    {tpl.description}
-                                                </p>
-                                            </div>
-
-                                            <div style={S.divider} />
-
-                                            {/* Key Features */}
-                                            <div style={S.featureArea}>
-                                                <div style={{
-                                                    fontSize:'10px', fontWeight:700, letterSpacing:'0.1em',
-                                                    color:'#94A3B8', textTransform:'uppercase', marginBottom:'8px',
-                                                    fontFamily:'ui-monospace,SFMono-Regular,monospace',
-                                                }}>Key Features</div>
-                                                <ul style={{margin:0, padding:0, listStyle:'none'}}>
-                                                    {(tpl.features || tpl.detail || []).map((f, i) => (
-                                                        <li key={i} style={{display:'flex', alignItems:'flex-start', gap:'8px', marginBottom:'5px'}}>
-                                                            <div style={{
-                                                                width:'16px', height:'16px', borderRadius:'50%',
-                                                                background:`${tpl.accentColor}14`,
-                                                                border:`1.5px solid ${tpl.accentColor}50`,
-                                                                display:'flex', alignItems:'center', justifyContent:'center',
-                                                                flexShrink:0, marginTop:'1px',
-                                                                fontSize:'9px', color:tpl.accentColor, fontWeight:800,
-                                                            }}>✓</div>
-                                                            <span style={{fontSize:'12px', color:'#334155', lineHeight:'1.5', fontWeight:500}}>{f}</span>
-                                                        </li>
-                                                    ))}
-                                                </ul>
-                                            </div>
-
-                                            {/* CTA area — Preview + Create */}
-                                            <div style={S.ctaArea}>
-                                                {/* Ghost preview button */}
-                                                <button
-                                                    onClick={() => setPreviewTpl(tpl)}
-                                                    style={{
-                                                        width:'100%', padding:'8px 0',
-                                                        background:'transparent',
-                                                        color:tpl.accentColor,
-                                                        border:`1.5px solid ${tpl.accentColor}60`,
-                                                        borderRadius:'9px', cursor:'pointer',
-                                                        fontWeight:600, fontSize:'12px',
-                                                        display:'flex', alignItems:'center',
-                                                        justifyContent:'center', gap:'6px',
-                                                        transition:'background 0.15s, border-color 0.15s',
-                                                        fontFamily:'inherit',
-                                                    }}
-                                                    onMouseEnter={e => { e.currentTarget.style.background=`${tpl.accentColor}10`; e.currentTarget.style.borderColor=tpl.accentColor; }}
-                                                    onMouseLeave={e => { e.currentTarget.style.background='transparent'; e.currentTarget.style.borderColor=`${tpl.accentColor}60`; }}
-                                                >
-                                                    <span style={{fontSize:'13px'}}>🔍</span>
-                                                    Preview Model Structure
-                                                </button>
-
-                                                {/* Primary create button */}
-                                                <button
-                                                    onClick={() => selectAndAdvance(tpl.id)}
-                                                    style={{
-                                                        width:'100%', padding:'10px 0',
-                                                        background:tpl.headerGrad || tpl.accentColor,
-                                                        color:'white', border:'none',
-                                                        borderRadius:'9px', cursor:'pointer',
-                                                        fontWeight:700, fontSize:'13px',
-                                                        letterSpacing:'0.01em',
-                                                        display:'flex', alignItems:'center',
-                                                        justifyContent:'center', gap:'7px',
-                                                        boxShadow:`0 4px 14px ${tpl.accentColor}40`,
-                                                        transition:'opacity 0.15s, transform 0.15s',
-                                                        fontFamily:'inherit',
-                                                    }}
-                                                    onMouseEnter={e => { e.currentTarget.style.opacity='0.88'; e.currentTarget.style.transform='scale(0.99)'; }}
-                                                    onMouseLeave={e => { e.currentTarget.style.opacity='1'; e.currentTarget.style.transform='scale(1)'; }}
-                                                >
-                                                    <span style={{fontSize:'14px'}}>{tpl.id === 'blank' ? '📄' : '🚀'}</span>
-                                                    Create Model
-                                                    <span style={{fontSize:'12px', opacity:0.75}}>→</span>
-                                                </button>
-                                            </div>
-
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            {/* ── Slim footer ── */}
-                            <div style={{
-                                borderTop:'1px solid #E2E8F0', background:'white',
-                                padding:'12px 32px', display:'flex',
-                                alignItems:'center', justifyContent:'space-between', flexShrink:0,
-                            }}>
-                                <div style={{fontSize:'12px', color:'#94A3B8', display:'flex', alignItems:'center', gap:'6px'}}>
-                                    <span style={{fontSize:'14px'}}>💡</span>
-                                    All assumptions can be edited after the project is created
-                                </div>
-                                <button onClick={() => { setPreviewTpl(null); setPmModal(null); }}
-                                    style={{
-                                        padding:'7px 16px', border:'1.5px solid #CBD5E1',
-                                        borderRadius:'8px', background:'white', cursor:'pointer',
-                                        fontSize:'12px', color:'#64748B', fontWeight:600, fontFamily:'inherit',
-                                    }}>Cancel</button>
-                            </div>
-
-                            {/* ══════════════════════════════════════════════════════
-                                STRUCTURE PREVIEW PANEL
-                                Rendered as an absolute overlay on top of the sheet.
-                                Slides in when previewTpl !== null.
-                                zIndex: 10 (above card grid, below outer overlay).
-                            ══════════════════════════════════════════════════════ */}
-                            {previewTpl && (() => {
-                                const pt = previewTpl;
-                                const structure = pt.modelStructure || [];
-                                const typeMeta = TYPE_META;
-
-                                return (
-                                    <div
-                                        onClick={() => setPreviewTpl(null)}
-                                        style={{
-                                            position:'absolute', inset:0,
-                                            background:'rgba(8,12,24,0.60)',
-                                            zIndex:10, display:'flex',
-                                            alignItems:'center', justifyContent:'center',
-                                            backdropFilter:'blur(3px)',
-                                            WebkitBackdropFilter:'blur(3px)',
-                                            borderRadius:'20px',
-                                            padding:'24px',
-                                        }}
-                                    >
-                                        <div
-                                            onClick={e => e.stopPropagation()}
-                                            style={{
-                                                background:'white',
-                                                borderRadius:'16px',
-                                                boxShadow:'0 24px 72px rgba(0,0,0,0.45)',
-                                                width:'560px',
-                                                maxWidth:'100%',
-                                                maxHeight:'100%',
-                                                display:'flex', flexDirection:'column',
-                                                overflow:'hidden',
-                                            }}
-                                        >
-                                            {/* Preview header — uses template accent */}
-                                            <div style={{
-                                                background: pt.headerGrad || `linear-gradient(135deg,${pt.accentColor} 0%,${pt.accentColor}CC 100%)`,
-                                                padding:'20px 24px 18px',
-                                                position:'relative', overflow:'hidden', flexShrink:0,
-                                            }}>
-                                                <div style={{
-                                                    position:'absolute', inset:0,
-                                                    backgroundImage:'radial-gradient(ellipse 70% 60% at 100% 0%, rgba(255,255,255,0.13) 0%, transparent 60%)',
-                                                    pointerEvents:'none',
-                                                }} />
-                                                <div style={{position:'relative', zIndex:1, display:'flex', alignItems:'flex-start', justifyContent:'space-between'}}>
-                                                    <div>
-                                                        <div style={{
-                                                            fontSize:'10px', fontWeight:700, letterSpacing:'0.12em',
-                                                            color:'rgba(255,255,255,0.55)', textTransform:'uppercase',
-                                                            marginBottom:'4px',
-                                                            fontFamily:'ui-monospace,SFMono-Regular,monospace',
-                                                        }}>Model Structure Preview</div>
-                                                        <div style={{
-                                                            display:'flex', alignItems:'center', gap:'10px',
-                                                        }}>
-                                                            <span style={{fontSize:'20px'}}>{pt.icon}</span>
-                                                            <span style={{
-                                                                fontWeight:800, color:'white', fontSize:'17px',
-                                                                letterSpacing:'-0.01em',
-                                                                fontFamily:'Georgia,"Times New Roman",serif',
-                                                            }}>{pt.name || pt.label}</span>
-                                                        </div>
-                                                        <p style={{
-                                                            margin:'6px 0 0', fontSize:'12px',
-                                                            color:'rgba(255,255,255,0.60)',
-                                                            lineHeight:'1.5', fontStyle:'italic',
-                                                        }}>{pt.description}</p>
-                                                    </div>
-                                                    <button
-                                                        onClick={() => setPreviewTpl(null)}
-                                                        style={{
-                                                            background:'rgba(255,255,255,0.12)',
-                                                            border:'1px solid rgba(255,255,255,0.2)',
-                                                            borderRadius:'8px', width:'30px', height:'30px',
-                                                            cursor:'pointer', color:'rgba(255,255,255,0.75)',
-                                                            fontSize:'14px', display:'flex',
-                                                            alignItems:'center', justifyContent:'center',
-                                                            flexShrink:0,
-                                                        }}>✕</button>
-                                                </div>
-                                            </div>
-
-                                            {/* Structure section list */}
-                                            <div style={{flex:1, overflowY:'auto', padding:'24px'}}>
-                                                <div style={{
-                                                    fontSize:'11px', fontWeight:700, letterSpacing:'0.1em',
-                                                    color:'#94A3B8', textTransform:'uppercase', marginBottom:'16px',
-                                                    fontFamily:'ui-monospace,SFMono-Regular,monospace',
-                                                }}>Sections Included</div>
-
-                                                <div style={{display:'flex', flexDirection:'column', gap:'0'}}>
-                                                    {structure.map((item, idx) => {
-                                                        const tm = typeMeta[item.type] || typeMeta.custom;
-                                                        const isLast = idx === structure.length - 1;
-                                                        return (
-                                                            <div key={idx} style={{display:'flex', gap:'0', alignItems:'stretch'}}>
-
-                                                                {/* Left rail: step number + connector line */}
-                                                                <div style={{display:'flex', flexDirection:'column', alignItems:'center', width:'40px', flexShrink:0}}>
-                                                                    <div style={{
-                                                                        width:'28px', height:'28px', borderRadius:'50%',
-                                                                        background: pt.accentColor,
-                                                                        color:'white', fontWeight:800, fontSize:'11px',
-                                                                        display:'flex', alignItems:'center', justifyContent:'center',
-                                                                        flexShrink:0, zIndex:1,
-                                                                        fontFamily:'ui-monospace,SFMono-Regular,monospace',
-                                                                    }}>{idx + 1}</div>
-                                                                    {!isLast && (
-                                                                        <div style={{
-                                                                            width:'2px', flex:1, minHeight:'16px',
-                                                                            background:`${pt.accentColor}30`,
-                                                                            margin:'4px 0',
-                                                                        }} />
-                                                                    )}
-                                                                    {isLast && <div style={{flex:1}} />}
-                                                                </div>
-
-                                                                {/* Right content */}
-                                                                <div style={{
-                                                                    flex:1, paddingLeft:'12px',
-                                                                    paddingBottom: isLast ? '0' : '16px',
-                                                                    paddingTop:'2px',
-                                                                }}>
-                                                                    <div style={{display:'flex', alignItems:'center', gap:'8px', marginBottom:'3px', flexWrap:'wrap'}}>
-                                                                        <span style={{
-                                                                            fontWeight:700, fontSize:'13.5px',
-                                                                            color:'#1E293B',
-                                                                        }}>{item.section}</span>
-                                                                        <span style={{
-                                                                            fontSize:'10px', fontWeight:700,
-                                                                            padding:'1px 7px', borderRadius:'999px',
-                                                                            background:tm.bg, color:tm.color,
-                                                                            border:`1px solid ${tm.border}`,
-                                                                            letterSpacing:'0.04em',
-                                                                            fontFamily:'ui-monospace,SFMono-Regular,monospace',
-                                                                        }}>{tm.label}</span>
-                                                                    </div>
-                                                                    {item.description && (
-                                                                        <p style={{
-                                                                            margin:0, fontSize:'12px',
-                                                                            color:'#64748B', lineHeight:'1.5',
-                                                                        }}>{item.description}</p>
-                                                                    )}
-                                                                </div>
-
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-
-                                                {/* Legend */}
-                                                <div style={{
-                                                    marginTop:'20px', paddingTop:'16px',
-                                                    borderTop:'1px solid #F1F5F9',
-                                                    display:'flex', gap:'10px', flexWrap:'wrap',
-                                                }}>
-                                                    <div style={{fontSize:'11px', color:'#94A3B8', fontWeight:600, marginRight:'4px', alignSelf:'center'}}>Section type:</div>
-                                                    {Object.entries(TYPE_META).filter(([k]) => k !== 'custom' || pt.id === 'blank').map(([k, v]) => (
-                                                        <div key={k} style={{
-                                                            fontSize:'10px', fontWeight:700,
-                                                            padding:'2px 9px', borderRadius:'999px',
-                                                            background:v.bg, color:v.color,
-                                                            border:`1px solid ${v.border}`,
-                                                            fontFamily:'ui-monospace,SFMono-Regular,monospace',
-                                                        }}>{v.label}</div>
-                                                    ))}
-                                                </div>
-                                            </div>
-
-                                            {/* Preview footer */}
-                                            <div style={{
-                                                padding:'16px 24px', borderTop:'1px solid #E2E8F0',
-                                                background:'#F8FAFC', display:'flex',
-                                                alignItems:'center', justifyContent:'space-between',
-                                                flexShrink:0, gap:'10px',
-                                            }}>
-                                                <button
-                                                    onClick={() => setPreviewTpl(null)}
-                                                    style={{
-                                                        padding:'8px 18px',
-                                                        border:'1.5px solid #CBD5E1',
-                                                        borderRadius:'9px', background:'white',
-                                                        cursor:'pointer', fontSize:'12px',
-                                                        color:'#64748B', fontWeight:600,
-                                                        fontFamily:'inherit',
-                                                    }}>← Back to Templates</button>
-                                                <button
-                                                    onClick={() => selectAndAdvance(pt.id)}
-                                                    style={{
-                                                        padding:'9px 22px',
-                                                        background: pt.headerGrad || pt.accentColor,
-                                                        color:'white', border:'none',
-                                                        borderRadius:'9px', cursor:'pointer',
-                                                        fontWeight:700, fontSize:'13px',
-                                                        display:'flex', alignItems:'center', gap:'7px',
-                                                        boxShadow:`0 4px 14px ${pt.accentColor}40`,
-                                                        fontFamily:'inherit',
-                                                    }}
-                                                    onMouseEnter={e => { e.currentTarget.style.opacity='0.88'; }}
-                                                    onMouseLeave={e => { e.currentTarget.style.opacity='1'; }}
-                                                >
-                                                    <span style={{fontSize:'14px'}}>{pt.id === 'blank' ? '📄' : '🚀'}</span>
-                                                    Use This Template
-                                                    <span style={{fontSize:'12px', opacity:0.75}}>→</span>
-                                                </button>
-                                            </div>
-
-                                        </div>
-                                    </div>
-                                );
-                            })()}
-
-                        </div>
-                    </div>
-                );
-            })()}
-
             {pmModal === 'newProject' && (() => {
                 const assetTypes = [
                     { label: 'Residential', icon: '🏠' },
@@ -4052,15 +3404,11 @@ function AppRoot() {
                 ];
                 const doCreate = () => {
                     if (!pmInputVal.trim()) return;
-                    // ── Apply template defaults before creating the project ──
-                    const tpl = (typeof getTemplate === 'function') ? getTemplate(pmTemplateId) : null;
-                    if (tpl) {
-                        const snap = buildSnapshotFromTemplate(tpl, pmInputVal.trim());
-                        applySnapshot(snap);
-                    }
-                    // Apply project name explicitly (overrides template default)
+                    // Create the project
+                    const { projId, verId } = createProject(pmInputVal.trim(), pmLocationVal.trim(), pmAssetMix);
+                    // Apply project name to modeling state
                     setProjectName(pmInputVal.trim());
-                    // Derive projectType from chosen asset mix (overrides template if user picked assets)
+                    // Derive projectType from chosen asset mix
                     if (pmAssetMix.length > 0) {
                         const hasRes  = pmAssetMix.includes('Residential');
                         const hasHosp = pmAssetMix.includes('Hospitality');
@@ -4072,37 +3420,19 @@ function AppRoot() {
                         else if (hasHosp && !hasRes && !hasRet) derived = 'hospitality';
                         setProjectType(derived);
                     }
-                    // Create the project — snapshot now contains template defaults
-                    const { projId, verId } = createProject(pmInputVal.trim(), pmLocationVal.trim(), pmAssetMix);
                     // Reset form state
-                    setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmTemplateId(null);
+                    setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]);
                     setPmModal(null);
                     // Redirect to Overview module
                     setActiveModule('overview');
-                    const tplLabel = tpl ? tpl.label : 'Blank';
-                    showToast('\u2705 Project "' + pmInputVal.trim() + '" created from ' + tplLabel + ' template', 'var(--color-success)');
+                    showToast('✅ Project "' + pmInputVal.trim() + '" created — you\'re in Overview', 'var(--color-success)');
                 };
                 const nameValid = pmInputVal.trim().length > 0;
                 return (
                 <div className="pm-modal-overlay" onClick={() => setPmModal(null)}>
                     <div className="pm-modal" style={{maxWidth:'500px'}} onClick={e=>e.stopPropagation()}>
                         <div className="pm-modal-header">
-                            <div style={{display:'flex',flexDirection:'column',gap:'2px'}}>
-                                <span style={{fontWeight:'var(--fw-bold)',fontSize:'var(--font-section)'}}>🏗️ New Project</span>
-                                {pmTemplateId && (() => {
-                                    const tpl = (typeof getTemplate === 'function') ? getTemplate(pmTemplateId) : null;
-                                    return tpl ? (
-                                        <div style={{display:'flex',alignItems:'center',gap:'6px',fontSize:'11px',color:'rgba(255,255,255,0.55)'}}>
-                                            <span>{tpl.icon} {tpl.label}</span>
-                                            <button onClick={() => setPmModal('templatePicker')}
-                                                style={{background:'none',border:'none',color:'rgba(255,255,255,0.45)',cursor:'pointer',
-                                                        fontSize:'10px',padding:'0',textDecoration:'underline',fontFamily:'Inter,sans-serif'}}>
-                                                ← change
-                                            </button>
-                                        </div>
-                                    ) : null;
-                                })()}
-                            </div>
+                            <span style={{fontWeight:'var(--fw-bold)',fontSize:'var(--font-section)'}}>🏗️ New Project</span>
                             <button onClick={()=>setPmModal(null)} style={{background:'none',border:'none',color:'white',cursor:'pointer',fontSize:'1.2rem'}}>✕</button>
                         </div>
                         <div className="pm-modal-body" style={{display:'flex',flexDirection:'column',gap:'1.25rem'}}>
@@ -4796,23 +4126,15 @@ function AppRoot() {
                     <div>
                         <h1 style={{fontSize:"1.35rem",fontWeight:'var(--fw-bold)',letterSpacing:"-0.01em"}}>Real Estate Financial Modeling Platform</h1>
                         <p style={{fontSize:"0.7rem",color:"var(--color-muted)",marginTop:"2px",letterSpacing:"0.02em"}}>{
-                            activeModule === 'dashboard'    ? 'Dashboard — Projects & Activity Overview' :
-                            activeModule === 'projects'     ? 'Projects — Manage & Switch Active Project' :
-                            activeModule === 'overview'     ? 'Overview — Project Summary & Key Metrics' :
-                            activeModule === 'proj-setup'   ? 'Project Setup — Core Parameters & Assumptions' :
-                            activeModule === 'dev-timeline' ? 'Development Timeline — Periods & Phase Schedule' :
-                            activeModule === 'revenue'      ? 'Revenue — Sales Streams & Absorption Schedules' :
-                            activeModule === 'dev-costs'    ? 'Development Costs — Cost Stack & Phasing' :
-                            activeModule === 'financing'    ? 'Financing — Debt Structure & Draw Schedule' :
-                            activeModule === 'cashflow'     ? 'Cash Flow — Project & Equity Statements' :
-                            activeModule === 'returns'      ? 'Returns — IRR, NPV & Investment Metrics' :
-                            activeModule === 'sensitivity'  ? 'Sensitivity — Stress Testing Key Assumptions' :
-                            activeModule === 'module1'      ? 'Legacy Module 1: Project Setup & Financial Structure' :
-                            activeModule === 'module2'      ? 'Module 2: Revenue & Sales Projections' :
-                            activeModule === 'module3'      ? 'Module 3: Operating Expenses & Cash Flow' :
-                            activeModule === 'module4'      ? 'Module 4: Returns & Valuation Analysis' :
-                            activeModule === 'module5'      ? 'Module 5: Financial Statements' :
-                            activeModule === 'module6'      ? 'Module 6: Reports & Visualizations' :
+                            activeModule === 'dashboard' ? 'Dashboard — Projects & Activity Overview' :
+                            activeModule === 'projects'  ? 'Projects — Manage & Switch Active Project' :
+                            activeModule === 'overview'  ? 'Overview — Project Summary & Key Metrics' :
+                            activeModule === 'module1'   ? 'Module 1: Project Setup & Financial Structure' :
+                            activeModule === 'module2'   ? 'Module 2: Revenue & Sales Projections' :
+                            activeModule === 'module3'   ? 'Module 3: Operating Expenses & Cash Flow' :
+                            activeModule === 'module4'   ? 'Module 4: Returns & Valuation Analysis' :
+                            activeModule === 'module5'   ? 'Module 5: Financial Statements' :
+                            activeModule === 'module6'   ? 'Module 6: Reports & Visualizations' :
                             'Real Estate Financial Modeling Platform'
                         }</p>
                     </div>
@@ -4905,7 +4227,7 @@ function AppRoot() {
                             </div>
                             <div style={{display:'flex',gap:'0.75rem',flexShrink:0}}>
                                 <button onClick={() => setActiveModule('projects')} style={{padding:'0.5rem 1.1rem',background:'rgba(255,255,255,0.15)',color:'white',border:'1px solid rgba(255,255,255,0.35)',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-medium)',fontSize:'var(--font-body)'}}>View Projects</button>
-                                <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmTemplateId(null); setPmModal('templatePicker'); }} style={{padding:'0.5rem 1.1rem',background:'white',color:'var(--color-primary)',border:'none',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)'}}>+ New Project</button>
+                                <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmModal('newProject'); }} style={{padding:'0.5rem 1.1rem',background:'white',color:'var(--color-primary)',border:'none',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)'}}>+ New Project</button>
                             </div>
                         </div>
                     )}
@@ -4916,7 +4238,7 @@ function AppRoot() {
                                 <h2 style={{fontSize:'1.4rem',fontWeight:'var(--fw-bold)',color:'var(--color-primary-deep)',marginBottom:'0.2rem'}}>Platform Dashboard</h2>
                                 <p style={{fontSize:'var(--font-meta)',color:'var(--color-meta)'}}>Portfolio overview · {activeProjects.length} active project{activeProjects.length!==1?'s':''}</p>
                             </div>
-                            <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmTemplateId(null); setPmModal('templatePicker'); }} style={{padding:'0.6rem 1.25rem',background:'var(--color-primary)',color:'white',border:'none',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)',display:'flex',alignItems:'center',gap:'0.4rem'}}>+ New Project</button>
+                            <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmModal('newProject'); }} style={{padding:'0.6rem 1.25rem',background:'var(--color-primary)',color:'white',border:'none',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)',display:'flex',alignItems:'center',gap:'0.4rem'}}>+ New Project</button>
                         </div>
 
                         <div style={{fontSize:'0.65rem',fontWeight:'var(--fw-bold)',color:'var(--color-muted)',textTransform:'uppercase',letterSpacing:'0.08em',marginBottom:'0.6rem'}}>Portfolio Summary</div>
@@ -4946,7 +4268,7 @@ function AppRoot() {
                                 <div style={{fontSize:'3rem',marginBottom:'1rem'}}>🏗️</div>
                                 <h3 style={{fontSize:'1.1rem',fontWeight:'var(--fw-bold)',color:'var(--color-primary-deep)',marginBottom:'0.5rem'}}>Create your first project to begin modeling</h3>
                                 <p style={{fontSize:'var(--font-meta)',color:'var(--color-meta)',marginBottom:'1.5rem'}}>REFM Platform helps you model, version, and compare real estate development scenarios.</p>
-                                <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmTemplateId(null); setPmModal('templatePicker'); }} style={{padding:'0.65rem 1.5rem',background:'var(--color-primary)',color:'white',border:'none',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)'}}>+ Create First Project</button>
+                                <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmModal('newProject'); }} style={{padding:'0.65rem 1.5rem',background:'var(--color-primary)',color:'white',border:'none',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)'}}>+ Create First Project</button>
                             </div>
                         ) : (
                             <table style={{width:'100%',borderCollapse:'collapse',fontSize:'var(--font-body)'}}>
@@ -5037,7 +4359,7 @@ function AppRoot() {
                                 <h2 style={{fontSize:'1.4rem',fontWeight:'var(--fw-bold)',color:'var(--color-primary-deep)',marginBottom:'0.25rem'}}>All Projects</h2>
                                 <p style={{fontSize:'var(--font-meta)',color:'var(--color-meta)'}}>{allProjects.length} project{allProjects.length!==1?'s':''} total</p>
                             </div>
-                            <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmTemplateId(null); setPmModal('templatePicker'); }}
+                            <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmModal('newProject'); }}
                                 style={{padding:'0.6rem 1.25rem',background:'var(--color-primary)',color:'white',border:'none',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)'}}>
                                 + New Project
                             </button>
@@ -5070,7 +4392,7 @@ function AppRoot() {
                                 <div style={{fontSize:'3rem',marginBottom:'1rem'}}>🏗️</div>
                                 <h3 style={{fontSize:'1.1rem',fontWeight:'var(--fw-bold)',color:'var(--color-primary-deep)',marginBottom:'0.5rem'}}>Create your first project to begin modeling</h3>
                                 <p style={{fontSize:'var(--font-meta)',color:'var(--color-meta)',marginBottom:'1.5rem'}}>Projects let you organize and version multiple real estate development scenarios.</p>
-                                <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmTemplateId(null); setPmModal('templatePicker'); }}
+                                <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmModal('newProject'); }}
                                     style={{padding:'0.65rem 1.5rem',background:'var(--color-primary)',color:'white',border:'none',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)'}}>
                                     + Create First Project
                                 </button>
@@ -5220,7 +4542,7 @@ function AppRoot() {
                             <p style={{fontSize:'var(--font-meta)',color:'var(--color-meta)',marginBottom:'1.5rem'}}>Select or create a project to view its overview metrics.</p>
                             <div style={{display:'flex',gap:'0.75rem',justifyContent:'center'}}>
                                 <button onClick={() => setActiveModule('projects')} style={{padding:'0.6rem 1.25rem',background:'var(--color-primary)',color:'white',border:'none',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)'}}>Go to Projects</button>
-                                <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmTemplateId(null); setPmModal('templatePicker'); }} style={{padding:'0.6rem 1.25rem',background:'white',color:'var(--color-primary)',border:'1px solid var(--color-primary)',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)'}}>+ New Project</button>
+                                <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmModal('newProject'); }} style={{padding:'0.6rem 1.25rem',background:'white',color:'var(--color-primary)',border:'1px solid var(--color-primary)',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)'}}>+ New Project</button>
                             </div>
                         </div>
                     )}
@@ -5423,7 +4745,7 @@ function AppRoot() {
                                 style={{padding:'0.6rem 1.25rem',background:'white',color:'var(--color-primary)',border:'1.5px solid var(--color-primary)',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)'}}>
                                 View Projects
                             </button>
-                            <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmTemplateId(null); setPmModal('templatePicker'); }}
+                            <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmModal('newProject'); }}
                                 style={{padding:'0.6rem 1.25rem',background:'var(--color-primary)',color:'white',border:'none',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)'}}>
                                 + New Project
                             </button>
@@ -8218,7 +7540,7 @@ function AppRoot() {
                                         style={{padding:'0.6rem 1.25rem',background:'var(--color-primary)',color:'white',border:'none',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)'}}>
                                         Go to Projects
                                     </button>
-                                    <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmTemplateId(null); setPmModal('templatePicker'); }}
+                                    <button onClick={() => { if(!can('canCreateProject')){ showToast(`🔒 ${ROLE_META[currentUserRole].label} role cannot create projects`, '#991B1B'); return; } setPmInputVal(''); setPmLocationVal(''); setPmAssetMix([]); setPmModal('newProject'); }}
                                         style={{padding:'0.6rem 1.25rem',background:'white',color:'var(--color-primary)',border:'1px solid var(--color-primary)',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)'}}>
                                         + New Project
                                     </button>
@@ -8259,139 +7581,13 @@ function AppRoot() {
                 );
             })}
 
-
-            {/* ══════════════════════════════════════════════════════
-                REFM CORE MODEL MODULES
-                Each module routes on activeModule key.
-                All share refmInputs + handleModelInputChange.
-            ══════════════════════════════════════════════════════ */}
-
-            {activeModule === 'proj-setup' && (
-                <div className="module-view">
-                    {typeof ModProjectSetup !== 'undefined'
-                        ? <ModProjectSetup
-                            inputs={refmInputs}
-                            onChange={handleModelInputChange}
-                            currency={currency}
-                            canEdit={can('canEditInputs')}
-                            activeProjectId={activeProjectId}
-                            onGoToProjects={() => setActiveModule('projects')}
-                          />
-                        : <div style={{padding:'2rem',color:'#9A3412'}}>⚠️ ModProjectSetup not loaded — check index.html script order.</div>
-                    }
-                </div>
-            )}
-
-            {activeModule === 'dev-timeline' && (
-                <div className="module-view">
-                    {typeof ModDevTimeline !== 'undefined'
-                        ? <ModDevTimeline
-                            inputs={refmInputs}
-                            onChange={handleModelInputChange}
-                            currency={currency}
-                            canEdit={can('canEditInputs')}
-                            activeProjectId={activeProjectId}
-                            onGoToProjects={() => setActiveModule('projects')}
-                          />
-                        : <div style={{padding:'2rem',color:'#9A3412'}}>⚠️ ModDevTimeline not loaded.</div>
-                    }
-                </div>
-            )}
-
-            {activeModule === 'revenue' && (
-                <div className="module-view">
-                    {typeof ModRevenue !== 'undefined'
-                        ? <ModRevenue
-                            inputs={refmInputs}
-                            onChange={handleModelInputChange}
-                            currency={currency}
-                            canEdit={can('canEditInputs')}
-                            activeProjectId={activeProjectId}
-                            onGoToProjects={() => setActiveModule('projects')}
-                          />
-                        : <div style={{padding:'2rem',color:'#9A3412'}}>⚠️ ModRevenue not loaded.</div>
-                    }
-                </div>
-            )}
-
-            {activeModule === 'dev-costs' && (
-                <div className="module-view">
-                    {typeof ModDevCosts !== 'undefined'
-                        ? <ModDevCosts
-                            inputs={refmInputs}
-                            onChange={handleModelInputChange}
-                            currency={currency}
-                            canEdit={can('canEditInputs')}
-                            activeProjectId={activeProjectId}
-                            onGoToProjects={() => setActiveModule('projects')}
-                          />
-                        : <div style={{padding:'2rem',color:'#9A3412'}}>⚠️ ModDevCosts not loaded.</div>
-                    }
-                </div>
-            )}
-
-            {activeModule === 'financing' && (
-                <div className="module-view">
-                    {typeof ModFinancing !== 'undefined'
-                        ? <ModFinancing
-                            inputs={refmInputs}
-                            onChange={handleModelInputChange}
-                            currency={currency}
-                            canEdit={can('canEditInputs')}
-                            activeProjectId={activeProjectId}
-                            onGoToProjects={() => setActiveModule('projects')}
-                          />
-                        : <div style={{padding:'2rem',color:'#9A3412'}}>⚠️ ModFinancing not loaded.</div>
-                    }
-                </div>
-            )}
-
-            {activeModule === 'cashflow' && (
-                <div className="module-view">
-                    {typeof ModCashFlow !== 'undefined'
-                        ? <ModCashFlow
-                            inputs={refmInputs}
-                            currency={currency}
-                            activeProjectId={activeProjectId}
-                            onGoToProjects={() => setActiveModule('projects')}
-                          />
-                        : <div style={{padding:'2rem',color:'#9A3412'}}>⚠️ ModCashFlow not loaded.</div>
-                    }
-                </div>
-            )}
-
-            {activeModule === 'returns' && (
-                <div className="module-view">
-                    {typeof ModReturns !== 'undefined'
-                        ? <ModReturns
-                            inputs={refmInputs}
-                            currency={currency}
-                            activeProjectId={activeProjectId}
-                            onGoToProjects={() => setActiveModule('projects')}
-                          />
-                        : <div style={{padding:'2rem',color:'#9A3412'}}>⚠️ ModReturns not loaded.</div>
-                    }
-                </div>
-            )}
-
-            {activeModule === 'sensitivity' && (
-                <div className="module-view">
-                    {typeof ModSensitivity !== 'undefined'
-                        ? <ModSensitivity
-                            inputs={refmInputs}
-                            currency={currency}
-                            activeProjectId={activeProjectId}
-                            onGoToProjects={() => setActiveModule('projects')}
-                          />
-                        : <div style={{padding:'2rem',color:'#9A3412'}}>⚠️ ModSensitivity not loaded.</div>
-                    }
-                </div>
-            )}
-
             </div>{/* end .main-content */}
             </div>{/* end .app-shell */}
         </div>
     );
 }
 
-// Initialization is handled by js/app.js
+
+// Mount the app
+ReactDOM.render(<AppRoot />, document.getElementById('root'));
+if (window._fmpLoaderDone) setTimeout(window._fmpLoaderDone, 100);

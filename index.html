@@ -4,8 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Financial Modeler Pro — Platform Hub</title>
-
-    <!-- External Libraries -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -14,45 +12,72 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-
-    <!-- Application Styles -->
     <link rel="stylesheet" href="styles.css">
+
+    <style>
+        /* Loading screen */
+        #fmp-loader {
+            position: fixed; inset: 0; background: #0F2B46;
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; gap: 20px; z-index: 99999;
+            font-family: Inter, sans-serif; transition: opacity 0.5s ease;
+        }
+        #fmp-loader.fade-out { opacity: 0; pointer-events: none; }
+        .fmp-logo  { font-size: 52px; animation: fmp-pulse 1.8s ease-in-out infinite; }
+        .fmp-title { font-size: 22px; font-weight: 700; color: #fff; letter-spacing: -0.01em; }
+        .fmp-sub   { font-size: 13px; color: rgba(255,255,255,0.4); margin-top: -12px; }
+        .fmp-track { width: 220px; height: 3px; background: rgba(255,255,255,0.1); border-radius: 99px; overflow: hidden; margin-top: 4px; }
+        .fmp-bar   { height: 100%; width: 0%; background: linear-gradient(90deg,#3b82f6,#60a5fa); border-radius: 99px; transition: width 0.3s ease; }
+        @keyframes fmp-pulse { 0%,100%{transform:scale(1);opacity:1} 50%{transform:scale(1.1);opacity:0.7} }
+    </style>
 </head>
 <body>
+
+    <!-- Loading screen — shown immediately while Babel compiles -->
+    <div id="fmp-loader">
+        <div class="fmp-logo">💼</div>
+        <div class="fmp-title">Financial Modeler Pro</div>
+        <div class="fmp-sub">Initialising platform…</div>
+        <div class="fmp-track"><div class="fmp-bar" id="fmp-bar"></div></div>
+    </div>
+
     <div id="root"></div>
 
+    <!-- Animate progress bar while Babel compiles -->
+    <script>
+        var _bar = document.getElementById('fmp-bar');
+        var _pct = 0;
+        var _iv  = setInterval(function() {
+            _pct = Math.min(_pct + Math.random() * 7, 90);
+            _bar.style.width = _pct + '%';
+        }, 250);
+        window._fmpLoaderDone = function() {
+            clearInterval(_iv);
+            _bar.style.width = '100%';
+            setTimeout(function() {
+                var el = document.getElementById('fmp-loader');
+                if (el) { el.classList.add('fade-out'); setTimeout(function(){ el.remove(); }, 500); }
+            }, 300);
+        };
+    </script>
+
     <!--
-    ════════════════════════════════════════════════════════
+    ══════════════════════════════════════════════════════
      LOAD ORDER — must follow this exact sequence:
-       1. settings.js      → ROLES, PERMISSIONS, userSubscription
-       2. projects.js      → loadStorage, saveStorage, genId
-       3. branding.js      → loadBranding, PLATFORM_REGISTRY, hasAccess, getEffectivePlatforms, BrandingSettings
+       1. settings.js      → ROLES, PERMISSIONS, MODULE_VISIBILITY
+       2. projects.js      → STORAGE_KEY, loadStorage, saveStorage, genId
+       3. branding.js      → userSubscription, PLATFORM_REGISTRY, loadBranding,
+                             saveBranding, hasAccess, getEffectivePlatforms,
+                             BrandingSettingsPanel
        4. portal.js        → PortalApp
-       5. templates.js     → template data / helpers
-       6. refm-platform.js → AppRoot + RealEstatePlatform (all modules are self-contained inside)
-       7. app.js           → validates globals and mounts React (must be LAST)
-    ════════════════════════════════════════════════════════
+       5. refm-platform.js → AppRoot + RealEstatePlatform (ReactDOM.render inside)
+    ══════════════════════════════════════════════════════
     -->
-
-    <!-- 1. Settings & RBAC -->
     <script type="text/babel" src="js/settings.js"></script>
-
-    <!-- 2. Project storage helpers -->
     <script type="text/babel" src="js/projects.js"></script>
-
-    <!-- 3. Branding config + BrandingSettings panel -->
     <script type="text/babel" src="js/branding.js"></script>
-
-    <!-- 4. Portal hub (platform selection screen) -->
     <script type="text/babel" src="js/portal.js"></script>
-
-    <!-- 5. Templates -->
-    <script type="text/babel" src="js/templates.js"></script>
-
-    <!-- 6. Platform shell + ALL modelling modules (self-contained) -->
     <script type="text/babel" src="js/refm-platform.js"></script>
 
-    <!-- 7. App initialisation — MUST be last -->
-    <script type="text/babel" src="js/app.js"></script>
 </body>
 </html>

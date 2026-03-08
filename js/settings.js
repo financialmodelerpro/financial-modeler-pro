@@ -1,10 +1,6 @@
 // ════════════════════════════════════════════════════════════
-//  SETTINGS & CONFIGURATION — Financial Modeler Pro
-//  Role-Based Access Control, permissions, module visibility,
-//  and user subscription settings.
-//  Future: white-label config, subscription tiers.
+//  ROLE-BASED ACCESS CONTROL — Configuration
 // ════════════════════════════════════════════════════════════
-
 const ROLES = {
     ADMIN:    'admin',
     ANALYST:  'analyst',
@@ -27,10 +23,10 @@ const ROLE_META = {
 //   REVIEWER → Dashboard, Projects, Module 6 (Reports)
 //   VIEWER   → Dashboard, Module 6 (Reports only)
 const MODULE_VISIBILITY = {
-    admin:    ['dashboard','projects','overview','proj-setup','dev-timeline','revenue','dev-costs','financing','cashflow','returns','sensitivity','module1','module2','module3','module4','module5','module6'],
-    analyst:  ['dashboard','projects','overview','proj-setup','dev-timeline','revenue','dev-costs','financing','cashflow','returns','sensitivity','module1','module2','module3','module4','module6'],
-    reviewer: ['dashboard','projects','cashflow','returns','module6'],
-    viewer:   ['dashboard','returns','module6'],
+    admin:    ['dashboard','projects','overview','module1','module2','module3','module4','module5','module6'],
+    analyst:  ['dashboard','projects','overview','module1','module2','module3','module4','module6'],
+    reviewer: ['dashboard','projects','module6'],
+    viewer:   ['dashboard','module6'],
 };
 
 const PERMISSIONS = {
@@ -42,7 +38,6 @@ const PERMISSIONS = {
         canEditInputs:       true,
         canSave:             true,
         canChangeBranding:   true,
-        canManageWhiteLabel: true,   // white-label config access
         canViewReports:      true,
         canAddComments:      true,
         canExport:           true,
@@ -56,7 +51,6 @@ const PERMISSIONS = {
         canEditInputs:       true,
         canSave:             true,
         canChangeBranding:   false,
-        canManageWhiteLabel: false,
         canViewReports:      true,
         canAddComments:      true,
         canExport:           true,
@@ -70,7 +64,6 @@ const PERMISSIONS = {
         canEditInputs:       false,
         canSave:             false,
         canChangeBranding:   false,
-        canManageWhiteLabel: false,
         canViewReports:      true,
         canAddComments:      true,
         canExport:           true,
@@ -84,7 +77,6 @@ const PERMISSIONS = {
         canEditInputs:       false,
         canSave:             false,
         canChangeBranding:   false,
-        canManageWhiteLabel: false,
         canViewReports:      true,
         canAddComments:      false,
         canExport:           false,
@@ -92,22 +84,3 @@ const PERMISSIONS = {
     },
 };
 
-// ── User subscription (future: backend-driven) ──────────────
-const userSubscription = {
-    userId:    'user_001',
-    plan:      'Professional',
-    platforms: ['refm'],
-};
-
-// ── White Label configuration defaults ──────────────────────
-// These are the factory defaults. Actual values live in branding
-// localStorage under the whiteLabelEnabled / whiteLabelCompany
-// / whiteLabelFooterText / whiteLabelLogo* keys.
-// To resolve which values the UI should display at runtime,
-// call getEffectiveBranding(branding) from branding.js.
-const WHITE_LABEL_DEFAULTS = {
-    enabled:     false,
-    company:     '',
-    footerText:  '',
-    hidePowered: true,   // hide "Powered by Financial Modeler Pro" line
-};

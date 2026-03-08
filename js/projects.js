@@ -1,30 +1,6 @@
 // ════════════════════════════════════════════════════════════
-//  PROJECTS — Financial Modeler Pro / REFM Platform
-//  Project & version storage helpers: key, load/save,
-//  and ID generator. These are module-scoped utilities
-//  used by refm-platform.js (RealEstatePlatform component).
-//
-//  Storage schema (localStorage key: STORAGE_KEY):
-//  {
-//    projects: {
-//      [projectId]: {
-//        name:       string,
-//        location:   string,
-//        assetMix:   string[],
-//        status:     string,
-//        createdAt:  ISO string,
-//        versions: {
-//          [versionId]: {
-//            name:      string,
-//            createdAt: ISO string,
-//            data:      snapshot object
-//          }
-//        }
-//      }
-//    },
-//    lastActiveProjectId: string | null,
-//    lastActiveVersionId: string | null
-//  }
+//  PROJECTS — Storage helpers
+//  Global scope so RealEstatePlatform can reference them.
 // ════════════════════════════════════════════════════════════
 
 const STORAGE_KEY = 'refm_v2';

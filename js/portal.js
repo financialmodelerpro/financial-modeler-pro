@@ -1,9 +1,6 @@
 // ════════════════════════════════════════════════════════════
-//  PORTAL — Financial Modeler Pro Hub
-//  PortalApp component: renders the platform selection hub,
-//  platform cards, welcome banner, and upgrade modal.
+//  PORTAL APP COMPONENT
 // ════════════════════════════════════════════════════════════
-
 function PortalApp({ onLaunch, branding, onOpenBrandingSettings, isAdmin }) {
     const [upgradeTarget, setUpgradeTarget] = React.useState(null);
 
