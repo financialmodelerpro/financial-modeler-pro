@@ -7587,7 +7587,3 @@ function AppRoot() {
     );
 }
 
-
-// Mount the app
-ReactDOM.render(<AppRoot />, document.getElementById('root'));
-if (window._fmpLoaderDone) setTimeout(window._fmpLoaderDone, 100);

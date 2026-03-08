@@ -13,9 +13,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="styles.css">
-
     <style>
-        /* Loading screen */
         #fmp-loader {
             position: fixed; inset: 0; background: #0F2B46;
             display: flex; flex-direction: column; align-items: center;
@@ -33,7 +31,6 @@
 </head>
 <body>
 
-    <!-- Loading screen — shown immediately while Babel compiles -->
     <div id="fmp-loader">
         <div class="fmp-logo">💼</div>
         <div class="fmp-title">Financial Modeler Pro</div>
@@ -43,7 +40,6 @@
 
     <div id="root"></div>
 
-    <!-- Animate progress bar while Babel compiles -->
     <script>
         var _bar = document.getElementById('fmp-bar');
         var _pct = 0;
@@ -61,23 +57,14 @@
         };
     </script>
 
-    <!--
-    ══════════════════════════════════════════════════════
-     LOAD ORDER — must follow this exact sequence:
-       1. settings.js      → ROLES, PERMISSIONS, MODULE_VISIBILITY
-       2. projects.js      → STORAGE_KEY, loadStorage, saveStorage, genId
-       3. branding.js      → userSubscription, PLATFORM_REGISTRY, loadBranding,
-                             saveBranding, hasAccess, getEffectivePlatforms,
-                             BrandingSettingsPanel
-       4. portal.js        → PortalApp
-       5. refm-platform.js → AppRoot + RealEstatePlatform (ReactDOM.render inside)
-    ══════════════════════════════════════════════════════
-    -->
+    <!-- Load order matters: each file depends on globals from files above it -->
     <script type="text/babel" src="js/settings.js"></script>
     <script type="text/babel" src="js/projects.js"></script>
     <script type="text/babel" src="js/branding.js"></script>
     <script type="text/babel" src="js/portal.js"></script>
     <script type="text/babel" src="js/refm-platform.js"></script>
+    <!-- app.js polls for AppRoot then mounts React — must be last -->
+    <script type="text/babel" src="js/app.js"></script>
 
 </body>
 </html>
