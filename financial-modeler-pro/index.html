@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Financial Modeler Pro — Platform Hub</title>
+
+    <!-- External Libraries -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- Application Styles -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div id="root"></div>
+
+    <!--
+    ════════════════════════════════════════════════════════
+     LOAD ORDER — must follow this exact sequence:
+       1. settings.js      → ROLES, PERMISSIONS, userSubscription
+       2. projects.js      → loadStorage, saveStorage, genId
+       3. branding.js      → loadBranding, PLATFORM_REGISTRY, hasAccess, getEffectivePlatforms, BrandingSettings
+       4. portal.js        → PortalApp
+       5. templates.js     → template data / helpers
+       6. refm-platform.js → AppRoot + RealEstatePlatform (all modules are self-contained inside)
+       7. app.js           → validates globals and mounts React (must be LAST)
+    ════════════════════════════════════════════════════════
+    -->
+
+    <!-- 1. Settings & RBAC -->
+    <script type="text/babel" src="js/settings.js"></script>
+
+    <!-- 2. Project storage helpers -->
+    <script type="text/babel" src="js/projects.js"></script>
+
+    <!-- 3. Branding config + BrandingSettings panel -->
+    <script type="text/babel" src="js/branding.js"></script>
+
+    <!-- 4. Portal hub (platform selection screen) -->
+    <script type="text/babel" src="js/portal.js"></script>
+
+    <!-- 5. Templates -->
+    <script type="text/babel" src="js/templates.js"></script>
+
+    <!-- 6. Platform shell + ALL modelling modules (self-contained) -->
+    <script type="text/babel" src="js/refm-platform.js"></script>
+
+    <!-- 7. App initialisation — MUST be last -->
+    <script type="text/babel" src="js/app.js"></script>
+</body>
+</html>
