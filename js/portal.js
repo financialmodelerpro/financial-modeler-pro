@@ -11,6 +11,14 @@ function PortalApp({ onLaunch, branding, onOpenBrandingSettings, isAdmin }) {
 
     // Resolve portal logo for display
     const PortalLogoEl = () => {
+        if (branding.whiteLabel && branding.clientLogo) {
+            return (
+                <div className="portal-header-logo-icon" style={{padding:0, overflow:'hidden'}}>
+                    <img src={branding.clientLogo}
+                         style={{width:'100%', height:'100%', objectFit:'contain'}} />
+                </div>
+            );
+        }
         if (branding.portalLogoType === 'image' && branding.portalLogoImage) {
             return (
                 <div className="portal-header-logo-icon" style={{padding:0, overflow:'hidden'}}>
@@ -29,8 +37,12 @@ function PortalApp({ onLaunch, branding, onOpenBrandingSettings, isAdmin }) {
                 <div className="portal-header-logo">
                     <PortalLogoEl />
                     <div>
-                        <div className="portal-header-title">{branding.portalTitle}</div>
-                        <div className="portal-header-subtitle">{branding.portalSubtitle}</div>
+                        <div className="portal-header-title">
+                            {branding.whiteLabel ? (branding.clientName || 'Client Company') : branding.portalTitle}
+                        </div>
+                        <div className="portal-header-subtitle">
+                            {branding.whiteLabel ? '' : branding.portalSubtitle}
+                        </div>
                     </div>
                 </div>
                 <div className="portal-header-spacer" />
@@ -56,7 +68,7 @@ function PortalApp({ onLaunch, branding, onOpenBrandingSettings, isAdmin }) {
                 {/* Welcome Banner */}
                 <div className="portal-welcome">
                     <div>
-                        <h1>Welcome to {branding.portalTitle}</h1>
+                        <h1>Welcome to {branding.whiteLabel ? (branding.clientName || 'Client Company') : branding.portalTitle}</h1>
                         <p>{branding.portalDescription}</p>
                     </div>
                 </div>
@@ -121,11 +133,24 @@ function PortalApp({ onLaunch, branding, onOpenBrandingSettings, isAdmin }) {
 
                 {/* Footer */}
                 <div className="portal-footer">
-                    <strong>{branding.portalTitle}</strong> · {branding.footerText} ·{' '}
-                    <span>{userSubscription.plan} Plan</span> ·{' '}
-                    <span style={{color:'var(--color-success)',fontWeight:'var(--fw-semibold)'}}>
-                        {userSubscription.platforms.length} Platform{userSubscription.platforms.length !== 1 ? 's' : ''} Active
-                    </span>
+                    {branding.whiteLabel ? (
+                        <span>
+                            {branding.clientLogo && (
+                                <img src={branding.clientLogo}
+                                     style={{height:'16px', verticalAlign:'middle',
+                                             objectFit:'contain', marginRight:'6px'}} />
+                            )}
+                            © {branding.clientName || 'Client Company'}
+                        </span>
+                    ) : (
+                        <>
+                            <strong>{branding.portalTitle}</strong> · {branding.footerText} ·{' '}
+                            <span>{userSubscription.plan} Plan</span> ·{' '}
+                            <span style={{color:'var(--color-success)',fontWeight:'var(--fw-semibold)'}}>
+                                {userSubscription.platforms.length} Platform{userSubscription.platforms.length !== 1 ? 's' : ''} Active
+                            </span>
+                        </>
+                    )}
                 </div>
             </main>
 

@@ -7582,6 +7582,50 @@ function AppRoot() {
             })}
 
             </div>{/* end .main-content */}
+
+            {/* ── Platform Footer ── */}
+            {(() => {
+                const b = rootBranding || {};
+                const isWL = b.whiteLabel;
+                return (
+                    <div style={{
+                        gridColumn: '1 / -1',
+                        background: 'var(--color-primary-deep)',
+                        borderTop: '1px solid rgba(255,255,255,0.07)',
+                        padding: '8px 24px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        fontSize: '11px',
+                        color: 'rgba(255,255,255,0.38)',
+                        fontFamily: 'Inter, sans-serif',
+                        letterSpacing: '0.01em',
+                        flexShrink: 0,
+                    }}>
+                        {isWL ? (
+                            <>
+                                {b.clientLogo && (
+                                    <img src={b.clientLogo}
+                                         style={{height:'14px', objectFit:'contain',
+                                                 opacity:0.75, verticalAlign:'middle'}} />
+                                )}
+                                <span style={{color:'rgba(255,255,255,0.55)', fontWeight:500}}>
+                                    © {b.clientName || 'Client Company'}
+                                </span>
+                            </>
+                        ) : (
+                            <>
+                                <span style={{fontWeight:600, color:'rgba(255,255,255,0.55)'}}>
+                                    {b.portalTitle || 'Financial Modeler Pro'}
+                                </span>
+                                <span style={{color:'rgba(255,255,255,0.2)'}}>·</span>
+                                <span>{b.footerText || 'Powered by Financial Modeler Pro — © PaceMakers Advisory'}</span>
+                            </>
+                        )}
+                    </div>
+                );
+            })()}
             </div>{/* end .app-shell */}
         </div>
     );
