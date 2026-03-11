@@ -1,5 +1,74 @@
 const { useState, useEffect, useMemo } = React;
 
+function AppRoot() {
+    const [activePlatform, setActivePlatform]       = React.useState(null);
+    const [branding, setBranding]                   = React.useState(() => loadBranding());
+    const [brandingPanelOpen, setBrandingPanelOpen] = React.useState(false);
+    // Mirror the platform role so portal knows if admin
+    const [currentUserRole, setCurrentUserRole]     = React.useState(ROLES.ADMIN);
+    const isAdmin = currentUserRole === ROLES.ADMIN;
+
+    const launchPlatform = (platformId) => {
+        setActivePlatform(platformId);
+        document.body.classList.add('refm-active');
+    };
+
+    const backToPortal = (role) => {
+        setActivePlatform(null);
+        document.body.classList.remove('refm-active');
+        // Sync role back so branding button visibility stays consistent
+        if (role) setCurrentUserRole(role);
+    };
+
+    const handleBrandingSave = (newBranding) => {
+        setBranding(newBranding);
+        saveBranding(newBranding);
+    };
+
+    // Portal view
+    if (activePlatform === null) {
+        return (
+            <>
+                <PortalApp
+                    onLaunch={launchPlatform}
+                    branding={branding}
+                    isAdmin={isAdmin}
+                    onOpenBrandingSettings={() => setBrandingPanelOpen(true)}
+                />
+                {brandingPanelOpen && (
+                    <BrandingSettingsPanel
+                        branding={branding}
+                        onSave={handleBrandingSave}
+                        onClose={() => setBrandingPanelOpen(false)}
+                        isAdmin={isAdmin}
+                    />
+                )}
+            </>
+        );
+    }
+
+    // REFM platform
+    if (activePlatform === 'refm') {
+        return <RealEstatePlatform
+            onBackToPortal={backToPortal}
+            branding={branding}
+            onBrandingChange={handleBrandingSave}
+            initialRole={currentUserRole}
+        />;
+    }
+
+    // Fallback (future platforms)
+    return (
+        <div style={{display:'flex',alignItems:'center',justifyContent:'center',height:'100vh',flexDirection:'column',gap:'var(--sp-2)'}}>
+            <div style={{fontSize:'3rem'}}>🚧</div>
+            <div style={{fontWeight:'var(--fw-bold)',color:'var(--color-heading)'}}>Platform not yet available</div>
+            <button onClick={() => backToPortal()} style={{marginTop:'var(--sp-1)',padding:'var(--sp-1) var(--sp-2)',background:'var(--color-primary)',color:'white',border:'none',borderRadius:'var(--radius-sm)',cursor:'pointer',fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)'}}>
+                ← Back to Portal
+            </button>
+        </div>
+    );
+}
+
         function RealEstatePlatform({ onBackToPortal, branding: rootBranding, onBrandingChange, initialRole }) {
     // State Management
     const [activeModule, setActiveModule] = useState('dashboard');
@@ -2032,8 +2101,7 @@ const { useState, useEffect, useMemo } = React;
             doc.rect(PW-52,0,52,HDR_H,'F');
             doc.setTextColor(255,255,255);
             doc.setFont('helvetica','bold'); doc.setFontSize(12);
-            const _pdfBrand = (rootBranding && rootBranding.whiteLabel && rootBranding.clientName) ? rootBranding.clientName : brandName;
-            doc.text(_pdfBrand + '  ·  ' + _pdfProjName + '  ›  ' + _pdfVerName, ML, 8);
+            doc.text('REFM Platform  ·  ' + _pdfProjName + '  ›  ' + _pdfVerName, ML, 8);
             doc.setFont('helvetica','normal'); doc.setFontSize(7);
             doc.text(subtitle, ML, 14.5);
             doc.setFont('helvetica','bold'); doc.setFontSize(8);
@@ -2048,7 +2116,7 @@ const { useState, useEffect, useMemo } = React;
             doc.setFillColor(240,244,248);
             doc.rect(0,PH-FTR_H,PW,FTR_H,'F');
             doc.setFontSize(6); doc.setTextColor(120,120,120);
-            doc.text(_pdfBrand + '  |  ' + _pdfProjName + '  ›  ' + _pdfVerName + '  |  Module 1  |  Confidential', ML, PH-2.5);
+            doc.text('REFM Platform  |  ' + _pdfProjName + '  ›  ' + _pdfVerName + '  |  Module 1  |  Confidential', ML, PH-2.5);
             doc.text('Page ' + n + ' of ' + total, PW-ML, PH-2.5, {align:'right'});
             doc.setTextColor(0,0,0);
         };
@@ -2816,7 +2884,7 @@ const { useState, useEffect, useMemo } = React;
                     {onBackToPortal && (
                         <button
                             className="portal-back-btn"
-                            title={`Return to ${(rootBranding && rootBranding.whiteLabel && rootBranding.clientName) ? rootBranding.clientName : (rootBranding && rootBranding.portalTitle) || 'Portal'}`}
+                            title="Return to Financial Modeler Pro Portal"
                             onClick={onBackToPortal}
                         >
                             ◂ Portal
@@ -2832,23 +2900,19 @@ const { useState, useEffect, useMemo } = React;
                             onMouseEnter={e=>e.currentTarget.style.background='rgba(255,255,255,0.12)'}
                             onMouseLeave={e=>e.currentTarget.style.background='none'}
                         >
-                            {(rootBranding && rootBranding.whiteLabel && rootBranding.clientLogo)
-                                ? <img src={rootBranding.clientLogo} style={{width:'18px',height:'18px',objectFit:'contain',borderRadius:'3px',flexShrink:0}} />
-                                : rootBranding && rootBranding.platformLogoType === 'image' && rootBranding.platformLogoImage
-                                    ? <img src={rootBranding.platformLogoImage} style={{width:'18px',height:'18px',objectFit:'contain',borderRadius:'3px',flexShrink:0}} />
-                                    : <span>{brandIcon}</span>
+                            {rootBranding && rootBranding.platformLogoType === 'image' && rootBranding.platformLogoImage
+                                ? <img src={rootBranding.platformLogoImage} style={{width:'18px',height:'18px',objectFit:'contain',borderRadius:'3px',flexShrink:0}} />
+                                : <span>{brandIcon}</span>
                             }
-                            {(rootBranding && rootBranding.whiteLabel && rootBranding.clientName) ? rootBranding.clientName : brandName}<span style={{fontSize:'8px',opacity:0.5,marginLeft:'2px'}}>✏️</span>
+                            {brandName}<span style={{fontSize:'8px',opacity:0.5,marginLeft:'2px'}}>✏️</span>
                         </button>
                     ) : (
                         <span className="pm-brand" style={{display:'inline-flex',alignItems:'center',gap:'6px'}}>
-                            {(rootBranding && rootBranding.whiteLabel && rootBranding.clientLogo)
-                                ? <img src={rootBranding.clientLogo} style={{width:'18px',height:'18px',objectFit:'contain',borderRadius:'3px',flexShrink:0}} />
-                                : rootBranding && rootBranding.platformLogoType === 'image' && rootBranding.platformLogoImage
-                                    ? <img src={rootBranding.platformLogoImage} style={{width:'18px',height:'18px',objectFit:'contain',borderRadius:'3px',flexShrink:0}} />
-                                    : <span>{brandIcon}</span>
+                            {rootBranding && rootBranding.platformLogoType === 'image' && rootBranding.platformLogoImage
+                                ? <img src={rootBranding.platformLogoImage} style={{width:'18px',height:'18px',objectFit:'contain',borderRadius:'3px',flexShrink:0}} />
+                                : <span>{brandIcon}</span>
                             }
-                            {(rootBranding && rootBranding.whiteLabel && rootBranding.clientName) ? rootBranding.clientName : brandName}
+                            {brandName}
                         </span>
                     )}
                     <div className="pm-divider"></div>
@@ -7518,50 +7582,6 @@ const { useState, useEffect, useMemo } = React;
             })}
 
             </div>{/* end .main-content */}
-
-            {/* ── Platform Footer ── */}
-            {(() => {
-                const b = rootBranding || {};
-                const isWL = b.whiteLabel;
-                return (
-                    <div style={{
-                        gridColumn: '1 / -1',
-                        background: 'var(--color-primary-deep)',
-                        borderTop: '1px solid rgba(255,255,255,0.07)',
-                        padding: '8px 24px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '6px',
-                        fontSize: '11px',
-                        color: 'rgba(255,255,255,0.38)',
-                        fontFamily: 'Inter, sans-serif',
-                        letterSpacing: '0.01em',
-                        flexShrink: 0,
-                    }}>
-                        {isWL ? (
-                            <>
-                                {b.clientLogo && (
-                                    <img src={b.clientLogo}
-                                         style={{height:'14px', objectFit:'contain',
-                                                 opacity:0.75, verticalAlign:'middle'}} />
-                                )}
-                                <span style={{color:'rgba(255,255,255,0.55)', fontWeight:500}}>
-                                    © {b.clientName || 'Client Company'}
-                                </span>
-                            </>
-                        ) : (
-                            <>
-                                <span style={{fontWeight:600, color:'rgba(255,255,255,0.55)'}}>
-                                    {b.platformName || b.portalTitle || 'Platform'}
-                                </span>
-                                <span style={{color:'rgba(255,255,255,0.2)'}}>·</span>
-                                <span>{b.footerText || 'Professional Financial Modeling Suite'}</span>
-                            </>
-                        )}
-                    </div>
-                );
-            })()}
             </div>{/* end .app-shell */}
         </div>
     );

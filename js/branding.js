@@ -28,10 +28,6 @@ const DEFAULT_BRANDING = {
     platformLogoImage: null,
     // Editable platform card registry (mirrors PLATFORM_REGISTRY defaults)
     platforms: null,  // null = use PLATFORM_REGISTRY defaults; array = custom overrides
-    // White Label
-    whiteLabel:        false,
-    clientName:        '',
-    clientLogo:        null,  // base64 data-URL or null
 };
 
 function loadBranding() {
@@ -373,10 +369,9 @@ function BrandingSettingsPanel({ branding, onSave, onClose, isAdmin }) {
                              background:'#F9FAFB', paddingLeft:'8px', flexShrink:0,
                              overflowX:'auto'}}>
                     {[
-                        { id:'portal',     label:'🏠 Portal Branding' },
-                        { id:'platform',   label:'⚙️ Platform Toolbar' },
-                        { id:'platforms',  label:'🗂️ Platform Cards' },
-                        { id:'whitelabel', label:'🏷️ White Label' },
+                        { id:'portal',    label:'🏠 Portal Branding' },
+                        { id:'platform',  label:'⚙️ Platform Toolbar' },
+                        { id:'platforms', label:'🗂️ Platform Cards' },
                     ].map(s => (
                         <button key={s.id} onClick={() => setSection(s.id)}
                                 style={S.sectionBtn(activeSection === s.id)}>
@@ -502,14 +497,9 @@ function BrandingSettingsPanel({ branding, onSave, onClose, isAdmin }) {
                         <div style={{background:'#F9FAFB', border:'1px solid #E5E7EB',
                                      borderRadius:'8px', padding:'10px 16px',
                                      textAlign:'center', fontSize:'11px', color:'#9CA3AF'}}>
-                            {draft.whiteLabel
-                                ? <span>© {draft.clientName || 'Client Company Name'}</span>
-                                : <>
-                                    <strong style={{color:'#374151'}}>{draft.portalTitle || '—'}</strong>
-                                    {' · '}{draft.footerText || '—'}
-                                    {' · '}<span style={{color:'var(--color-success)',fontWeight:600}}>{userSubscription.platforms.length} Platform Active</span>
-                                  </>
-                            }
+                            <strong style={{color:'#374151'}}>{draft.portalTitle || '—'}</strong>
+                            {' · '}{draft.footerText || '—'}
+                            {' · '}<span style={{color:'var(--color-success)',fontWeight:600}}>{userSubscription.platforms.length} Platform Active</span>
                         </div>
                     </>)}
 
@@ -673,137 +663,7 @@ function BrandingSettingsPanel({ branding, onSave, onClose, isAdmin }) {
 
                 </div>
 
-                {/* ══════════════════════════════════════════
-                        TAB 4: WHITE LABEL
-                        Hide FMP branding, show client branding
-                    ══════════════════════════════════════════ */}
-                    {activeSection === 'whitelabel' && (() => {
-                        const clientLogoInputRef = React.useRef(null);
-
-                        const handleClientLogoUpload = (file) => {
-                            if (!file || !file.type.startsWith('image/')) return;
-                            const reader = new FileReader();
-                            reader.onload = (e) => upd('clientLogo', e.target.result);
-                            reader.readAsDataURL(file);
-                        };
-
-                        return (
-                            <>
-                                <div style={{background:'#F5F3FF', border:'1px solid #DDD6FE',
-                                             borderRadius:'8px', padding:'10px 14px',
-                                             fontSize:'12px', color:'#5B21B6', lineHeight:1.55,
-                                             marginBottom:'22px'}}>
-                                    White label mode hides all <strong>Financial Modeler Pro</strong> and <strong>PaceMakers</strong> references and replaces them with your client's brand.
-                                </div>
-
-                                {/* Toggle */}
-                                <div style={{display:'flex', alignItems:'center', justifyContent:'space-between',
-                                             border:'1.5px solid #E5E7EB', borderRadius:'10px',
-                                             padding:'14px 18px', background:'#FAFAFA',
-                                             marginBottom:'20px'}}>
-                                    <div>
-                                        <div style={{fontWeight:700, fontSize:'13px', color:'#111827', marginBottom:'4px'}}>
-                                            Enable White Label Mode
-                                        </div>
-                                        <div style={{fontSize:'12px', color:'#6B7280', lineHeight:1.5}}>
-                                            Replace FMP branding with client company name and logo
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => upd('whiteLabel', !draft.whiteLabel)}
-                                        style={{
-                                            width:'52px', height:'28px', borderRadius:'999px',
-                                            border:'none', cursor:'pointer', transition:'background 0.2s',
-                                            background: draft.whiteLabel ? '#166534' : '#D1D5DB',
-                                            position:'relative', flexShrink:0,
-                                        }}>
-                                        <span style={{
-                                            position:'absolute', top:'3px',
-                                            left: draft.whiteLabel ? '27px' : '3px',
-                                            width:'22px', height:'22px', borderRadius:'50%',
-                                            background:'white', transition:'left 0.2s',
-                                            boxShadow:'0 1px 4px rgba(0,0,0,0.18)',
-                                        }} />
-                                    </button>
-                                </div>
-
-                                {/* Client fields — only shown when white label is on */}
-                                <div style={{opacity: draft.whiteLabel ? 1 : 0.4, pointerEvents: draft.whiteLabel ? 'auto' : 'none',
-                                             transition:'opacity 0.2s'}}>
-
-                                    <div style={S.field}>
-                                        <label style={S.label}>Client Company Name</label>
-                                        <input style={S.input} value={draft.clientName || ''}
-                                            onChange={e => upd('clientName', e.target.value)}
-                                            placeholder="e.g. Acme Real Estate Partners" />
-                                        <div style={{fontSize:'11px', color:'#9CA3AF', marginTop:'5px'}}>
-                                            Replaces "Financial Modeler Pro" in headers and footers.
-                                        </div>
-                                    </div>
-
-                                    <div style={S.field}>
-                                        <label style={S.label}>Client Logo</label>
-                                        <div style={{display:'flex', gap:'14px', alignItems:'flex-start',
-                                                     border:'1.5px solid #E5E7EB', borderRadius:'10px',
-                                                     padding:'14px 16px', background:'#FAFAFA'}}>
-                                            {/* Preview */}
-                                            <div style={{width:'56px', height:'56px', borderRadius:'10px',
-                                                         background:'#F3F4F6', border:'1px solid #E5E7EB',
-                                                         display:'flex', alignItems:'center', justifyContent:'center',
-                                                         flexShrink:0, overflow:'hidden', fontSize:'24px'}}>
-                                                {draft.clientLogo
-                                                    ? <img src={draft.clientLogo} style={{width:'100%',height:'100%',objectFit:'contain'}} />
-                                                    : '🏢'}
-                                            </div>
-                                            <div style={{flex:1}}>
-                                                <input type="file" accept="image/png,image/jpeg,image/svg+xml,image/gif,image/webp"
-                                                    ref={clientLogoInputRef} style={{display:'none'}}
-                                                    onChange={e => handleClientLogoUpload(e.target.files[0])} />
-                                                <div
-                                                    onClick={() => clientLogoInputRef.current && clientLogoInputRef.current.click()}
-                                                    style={{border:'2px dashed #D1D5DB', borderRadius:'8px',
-                                                            padding:'14px 16px', background:'#F9FAFB',
-                                                            cursor:'pointer', textAlign:'center', marginBottom:'8px'}}>
-                                                    <div style={{fontSize:'18px', marginBottom:'3px'}}>⬆️</div>
-                                                    <div style={{fontSize:'12px', fontWeight:600, color:'#374151'}}>
-                                                        {draft.clientLogo ? 'Click to replace logo' : 'Click to upload logo'}
-                                                    </div>
-                                                    <div style={{fontSize:'11px', color:'#9CA3AF'}}>PNG, JPG, SVG, WebP · max 2 MB</div>
-                                                </div>
-                                                {draft.clientLogo && (
-                                                    <button onClick={() => upd('clientLogo', null)}
-                                                        style={{padding:'5px 12px', border:'1px solid #FECACA',
-                                                                borderRadius:'6px', background:'#FEF2F2', color:'#991B1B',
-                                                                cursor:'pointer', fontSize:'11px', fontWeight:600,
-                                                                fontFamily:'Inter,sans-serif'}}>
-                                                        ✕ Remove Logo
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    {/* Preview */}
-                                    <div style={{...S.sectionTitle, marginTop:'4px'}}>
-                                        <span style={{background:'#FFF7ED',color:'#92400E',padding:'3px 8px',
-                                                      borderRadius:'5px',fontSize:'10px'}}>PREVIEW</span>
-                                        Footer Preview
-                                    </div>
-                                    <div style={{background:'#F9FAFB', border:'1px solid #E5E7EB',
-                                                 borderRadius:'8px', padding:'10px 16px',
-                                                 textAlign:'center', fontSize:'11px', color:'#9CA3AF'}}>
-                                        {draft.whiteLabel
-                                            ? <span>© {draft.clientName || 'Client Company Name'}</span>
-                                            : <span><strong style={{color:'#374151'}}>{draft.portalTitle || 'Financial Modeler Pro'}</strong>
-                                                {' · '}{draft.footerText || '—'}</span>
-                                        }
-                                    </div>
-                                </div>
-                            </>
-                        );
-                    })()}
-
-
+                {/* ── Footer Actions ── */}
                 <div style={{padding:'14px 24px', borderTop:'1px solid #E5E7EB',
                              display:'flex', alignItems:'center', justifyContent:'space-between',
                              background:'#F9FAFB', flexShrink:0}}>

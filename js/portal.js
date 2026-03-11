@@ -11,14 +11,6 @@ function PortalApp({ onLaunch, branding, onOpenBrandingSettings, isAdmin }) {
 
     // Resolve portal logo for display
     const PortalLogoEl = () => {
-        if (branding.whiteLabel && branding.clientLogo) {
-            return (
-                <div className="portal-header-logo-icon" style={{padding:0, overflow:'hidden'}}>
-                    <img src={branding.clientLogo}
-                         style={{width:'100%', height:'100%', objectFit:'contain'}} />
-                </div>
-            );
-        }
         if (branding.portalLogoType === 'image' && branding.portalLogoImage) {
             return (
                 <div className="portal-header-logo-icon" style={{padding:0, overflow:'hidden'}}>
@@ -37,12 +29,8 @@ function PortalApp({ onLaunch, branding, onOpenBrandingSettings, isAdmin }) {
                 <div className="portal-header-logo">
                     <PortalLogoEl />
                     <div>
-                        <div className="portal-header-title">
-                            {branding.whiteLabel ? (branding.clientName || 'Client Company') : branding.portalTitle}
-                        </div>
-                        <div className="portal-header-subtitle">
-                            {branding.whiteLabel ? '' : branding.portalSubtitle}
-                        </div>
+                        <div className="portal-header-title">{branding.portalTitle}</div>
+                        <div className="portal-header-subtitle">{branding.portalSubtitle}</div>
                     </div>
                 </div>
                 <div className="portal-header-spacer" />
@@ -68,7 +56,7 @@ function PortalApp({ onLaunch, branding, onOpenBrandingSettings, isAdmin }) {
                 {/* Welcome Banner */}
                 <div className="portal-welcome">
                     <div>
-                        <h1>Welcome to {branding.whiteLabel ? (branding.clientName || 'Client Company') : branding.portalTitle}</h1>
+                        <h1>Welcome to {branding.portalTitle}</h1>
                         <p>{branding.portalDescription}</p>
                     </div>
                 </div>
@@ -133,24 +121,11 @@ function PortalApp({ onLaunch, branding, onOpenBrandingSettings, isAdmin }) {
 
                 {/* Footer */}
                 <div className="portal-footer">
-                    {branding.whiteLabel ? (
-                        <span>
-                            {branding.clientLogo && (
-                                <img src={branding.clientLogo}
-                                     style={{height:'16px', verticalAlign:'middle',
-                                             objectFit:'contain', marginRight:'6px'}} />
-                            )}
-                            © {branding.clientName || 'Client Company'}
-                        </span>
-                    ) : (
-                        <>
-                            <strong>{branding.portalTitle}</strong> · {branding.footerText} ·{' '}
-                            <span>{userSubscription.plan} Plan</span> ·{' '}
-                            <span style={{color:'var(--color-success)',fontWeight:'var(--fw-semibold)'}}>
-                                {userSubscription.platforms.length} Platform{userSubscription.platforms.length !== 1 ? 's' : ''} Active
-                            </span>
-                        </>
-                    )}
+                    <strong>{branding.portalTitle}</strong> · {branding.footerText} ·{' '}
+                    <span>{userSubscription.plan} Plan</span> ·{' '}
+                    <span style={{color:'var(--color-success)',fontWeight:'var(--fw-semibold)'}}>
+                        {userSubscription.platforms.length} Platform{userSubscription.platforms.length !== 1 ? 's' : ''} Active
+                    </span>
                 </div>
             </main>
 
@@ -201,125 +176,4 @@ function PortalApp({ onLaunch, branding, onOpenBrandingSettings, isAdmin }) {
 // ════════════════════════════════════════════════════════════
 //  APP ROOT — manages portal ↔ platform routing
 //  Holds branding state at the root level (persisted).
-//  refm-platform.js is lazy-loaded on demand so the portal
-//  renders instantly without waiting for the full engine.
 // ════════════════════════════════════════════════════════════
-function AppRoot() {
-    const [activePlatform, setActivePlatform]       = React.useState(null);
-    const [branding, setBranding]                   = React.useState(() => loadBranding());
-    const [brandingPanelOpen, setBrandingPanelOpen] = React.useState(false);
-    const [currentUserRole, setCurrentUserRole]     = React.useState(ROLES.ADMIN);
-    const [refmReady, setRefmReady]                 = React.useState(false);
-    const [refmLoading, setRefmLoading]             = React.useState(false);
-    const isAdmin = currentUserRole === ROLES.ADMIN;
-
-    const loadRefm = () => {
-        if (typeof RealEstatePlatform !== 'undefined') { setRefmReady(true); return; }
-        if (refmLoading) return;
-        setRefmLoading(true);
-        // refm-platform.js is already being compiled by Babel (loaded as script tag).
-        // Poll until it finishes — works on file:// with no server required.
-        const iv = setInterval(() => {
-            if (typeof RealEstatePlatform !== 'undefined') {
-                clearInterval(iv);
-                setRefmReady(true);
-                setRefmLoading(false);
-            }
-        }, 200);
-        // Safety timeout — stop spinner after 90s if something went wrong
-        setTimeout(() => clearInterval(iv), 90000);
-    };
-
-    const launchPlatform = (platformId) => {
-        setActivePlatform(platformId);
-        document.body.classList.add('refm-active');
-        if (platformId === 'refm') loadRefm();
-    };
-
-    const backToPortal = (role) => {
-        setActivePlatform(null);
-        document.body.classList.remove('refm-active');
-        if (role) setCurrentUserRole(role);
-    };
-
-    const handleBrandingSave = (newBranding) => {
-        setBranding(newBranding);
-        saveBranding(newBranding);
-    };
-
-    // Portal view
-    if (activePlatform === null) {
-        return (
-            <>
-                <PortalApp
-                    onLaunch={launchPlatform}
-                    branding={branding}
-                    isAdmin={isAdmin}
-                    onOpenBrandingSettings={() => setBrandingPanelOpen(true)}
-                />
-                {brandingPanelOpen && (
-                    <BrandingSettingsPanel
-                        branding={branding}
-                        onSave={handleBrandingSave}
-                        onClose={() => setBrandingPanelOpen(false)}
-                        isAdmin={isAdmin}
-                    />
-                )}
-            </>
-        );
-    }
-
-    // REFM platform — compiling
-    if (activePlatform === 'refm' && !refmReady) {
-        return (
-            <div style={{display:'flex',alignItems:'center',justifyContent:'center',
-                         height:'100vh',flexDirection:'column',gap:'16px',
-                         background:'#0F2B46',fontFamily:'Inter,sans-serif'}}>
-                <div style={{fontSize:'3rem'}}>🏗️</div>
-                <div style={{fontWeight:700,color:'white',fontSize:'16px'}}>Loading REFM Platform…</div>
-                <div style={{fontSize:'12px',color:'rgba(255,255,255,0.4)',marginTop:'-8px'}}>
-                    Compiling financial modeling engine
-                </div>
-                <div style={{width:'220px',height:'3px',background:'rgba(255,255,255,0.1)',
-                             borderRadius:'99px',overflow:'hidden'}}>
-                    <div style={{height:'100%',width:'100%',
-                                 background:'linear-gradient(90deg,#3b82f6,#60a5fa)',
-                                 borderRadius:'99px',animation:'fmp-pulse 1.5s ease-in-out infinite'}} />
-                </div>
-                <button onClick={() => backToPortal()}
-                    style={{marginTop:'8px',padding:'6px 16px',
-                            background:'rgba(255,255,255,0.1)',color:'rgba(255,255,255,0.7)',
-                            border:'1px solid rgba(255,255,255,0.2)',borderRadius:'6px',
-                            cursor:'pointer',fontSize:'12px',fontFamily:'Inter,sans-serif'}}>
-                    ← Back to Portal
-                </button>
-            </div>
-        );
-    }
-
-    // REFM platform — ready
-    if (activePlatform === 'refm') {
-        return <RealEstatePlatform
-            onBackToPortal={backToPortal}
-            branding={branding}
-            onBrandingChange={handleBrandingSave}
-            initialRole={currentUserRole}
-        />;
-    }
-
-    // Fallback (future platforms)
-    return (
-        <div style={{display:'flex',alignItems:'center',justifyContent:'center',
-                     height:'100vh',flexDirection:'column',gap:'var(--sp-2)'}}>
-            <div style={{fontSize:'3rem'}}>🚧</div>
-            <div style={{fontWeight:'var(--fw-bold)',color:'var(--color-heading)'}}>Platform not yet available</div>
-            <button onClick={() => backToPortal()}
-                style={{marginTop:'var(--sp-1)',padding:'var(--sp-1) var(--sp-2)',
-                        background:'var(--color-primary)',color:'white',border:'none',
-                        borderRadius:'var(--radius-sm)',cursor:'pointer',
-                        fontWeight:'var(--fw-semibold)',fontSize:'var(--font-body)'}}>
-                ← Back to Portal
-            </button>
-        </div>
-    );
-}
