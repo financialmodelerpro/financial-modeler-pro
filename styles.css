@@ -886,15 +886,7 @@
     .sidebar-item:hover { background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.85); }
     /* Refinement 2: Active Nav State - subtle bg + left accent border + fw600 */
     .sidebar-item.active { background: rgba(255,255,255,0.08); color: white; font-weight: 600; }
-    .sidebar-item.active::before {
-        content: ""; position: absolute; left: 0; top: 50%;
-        transform: translateY(-50%); width: 3px; height: 60%;
-        background: #3B82F6; border-radius: 0 3px 3px 0;
-    }
     .sidebar.collapsed .sidebar-item { justify-content: center; padding: 9px 0; }
-    .sidebar.collapsed .sidebar-item.active::before {
-        height: 50%;
-    }
     .sidebar-item.disabled { opacity: 0.35; cursor: not-allowed; }
     .sidebar-item.disabled:hover { background: none; color: rgba(255,255,255,0.6); }
     .sidebar-icon { font-size: 15px; flex-shrink: 0; width: 20px; text-align: center; }
