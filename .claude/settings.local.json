@@ -28,7 +28,9 @@
       "Bash(npx kill-port:*)",
       "Bash(npx tsc:*)",
       "Bash(find:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm install:*)"
     ]
   }
 }

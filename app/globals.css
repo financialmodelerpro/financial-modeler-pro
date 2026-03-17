@@ -1,4 +1,26 @@
 @import "tailwindcss";
+@import "../src/styles/design-tokens.css";
+
+/* ── Tailwind v4 Named Color Utilities ── */
+@theme {
+  --color-fmp-navy-darkest:  #0D2E5A;
+  --color-fmp-navy-dark:     #1B3A6B;
+  --color-fmp-navy:          #1B4F8A;
+  --color-fmp-navy-mid:      #2D6BA8;
+  --color-fmp-navy-light:    #E8F0FB;
+  --color-fmp-navy-pale:     #F4F7FC;
+  --color-fmp-green:         #2EAA4A;
+  --color-fmp-green-dark:    #1A7A30;
+  --color-fmp-green-light:   #E8F7EC;
+  --color-fmp-gold:          #C9A84C;
+  --color-fmp-gold-dark:     #92400E;
+  --color-fmp-gold-light:    #FDF6E3;
+  --color-fmp-negative:      #DC2626;
+  --color-fmp-grey-dark:     #374151;
+  --color-fmp-grey-mid:      #6B7280;
+  --color-fmp-grey-light:    #D1D5DB;
+  --color-fmp-grey-pale:     #F5F7FA;
+}
 
 /* ════════════════════════════════════════════════════
    DESIGN TOKEN SYSTEM — Financial Modeler Pro v2.0
@@ -333,6 +355,8 @@ tbody tr:hover td:first-child { background-color: var(--color-row-hover) !import
     background: var(--color-surface);
     border-bottom: 1px solid var(--color-border);
     box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    margin-left: calc(-1 * var(--sp-3));
+    margin-right: calc(-1 * var(--sp-3));
 }
 /* Yellow input styling for assumptions */
 .input-assumption {
@@ -770,7 +794,7 @@ textarea[disabled] {
 
 /* Refinement 7: Module transitions - subtle opacity fade only */
 @keyframes moduleFade { from{opacity:0} to{opacity:1} }
-.module-view { animation: moduleFade 0.15s ease forwards; padding: var(--sp-3); }
+.module-view { animation: moduleFade 0.15s ease forwards; padding: 0 var(--sp-3) var(--sp-3); }
 
 /* Refinement 6: Content area padding via token */
 /* content-padded: use .module-view for token-based content padding */

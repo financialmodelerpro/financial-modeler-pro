@@ -3,6 +3,7 @@
 import React from 'react';
 import { useRouter } from 'next/navigation';
 import { useSession, signOut } from 'next-auth/react';
+import type { Session } from 'next-auth';
 import type { PlatformEntry } from '@/src/types/branding.types';
 import { UserSubscription } from '@/src/types/subscription.types';
 import {
@@ -15,14 +16,152 @@ import { useBrandingStore } from '@/src/core/core-state';
 import { useWhiteLabel } from '@/src/hooks/useWhiteLabel';
 import BrandingSettingsPanel from '@/src/components/BrandingSettingsPanel';
 
+// ── UserDropdown ─────────────────────────────────────────────────────────────
+
+interface UserDropdownProps {
+  session: Session;
+  isAdmin: boolean;
+}
+
+function UserDropdown({ session, isAdmin }: UserDropdownProps) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  React.useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  const name  = session.user?.name  ?? session.user?.email ?? 'User';
+  const email = session.user?.email ?? '';
+  const initials = (session.user?.name ?? session.user?.email ?? 'U')
+    .charAt(0)
+    .toUpperCase();
+
+  return (
+    <div ref={ref} style={{ position: 'relative', marginRight: 8 }}>
+      {/* Avatar button */}
+      <button
+        onClick={() => setOpen(o => !o)}
+        style={{
+          width: 30, height: 30,
+          borderRadius: '50%',
+          background: 'rgba(255,255,255,0.15)',
+          border: '1.5px solid rgba(255,255,255,0.35)',
+          color: '#fff',
+          fontSize: 13,
+          fontWeight: 700,
+          cursor: 'pointer',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: 'Inter, sans-serif',
+          letterSpacing: '0.02em',
+          transition: 'background 0.15s',
+        }}
+        aria-label="User menu"
+      >
+        {initials}
+      </button>
+
+      {/* Dropdown */}
+      {open && (
+        <div style={{
+          position: 'absolute',
+          top: 'calc(100% + 8px)',
+          right: 0,
+          width: 220,
+          background: '#fff',
+          borderRadius: 10,
+          boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+          border: '1px solid #E8F0FB',
+          zIndex: 9999,
+          overflow: 'hidden',
+          fontFamily: 'Inter, sans-serif',
+        }}>
+          {/* User info */}
+          <div style={{ padding: '14px 16px', borderBottom: '1px solid #F3F4F6' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</div>
+            <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</div>
+          </div>
+
+          {/* Menu items */}
+          <div style={{ padding: '6px 0' }}>
+            <a
+              href="/settings"
+              onClick={() => setOpen(false)}
+              style={{ display: 'block', padding: '8px 16px', fontSize: 13, color: '#374151', textDecoration: 'none', fontWeight: 500 }}
+            >
+              My Profile
+            </a>
+            <a
+              href="/portal"
+              onClick={() => setOpen(false)}
+              style={{ display: 'block', padding: '8px 16px', fontSize: 13, color: '#374151', textDecoration: 'none', fontWeight: 500 }}
+            >
+              My Projects
+            </a>
+            <a
+              href="/settings"
+              onClick={() => setOpen(false)}
+              style={{ display: 'block', padding: '8px 16px', fontSize: 13, color: '#374151', textDecoration: 'none', fontWeight: 500 }}
+            >
+              Billing &amp; Plan
+            </a>
+            {isAdmin && (
+              <a
+                href="/admin/cms"
+                onClick={() => setOpen(false)}
+                style={{ display: 'block', padding: '8px 16px', fontSize: 13, color: '#1A7A30', textDecoration: 'none', fontWeight: 700 }}
+              >
+                Admin Panel →
+              </a>
+            )}
+          </div>
+
+          {/* Divider + Sign Out */}
+          <div style={{ borderTop: '1px solid #F3F4F6', padding: '6px 0 8px' }}>
+            <button
+              onClick={() => { setOpen(false); signOut({ callbackUrl: '/' }); }}
+              style={{
+                display: 'block',
+                width: '100%',
+                padding: '8px 16px',
+                fontSize: 13,
+                color: '#DC2626',
+                fontWeight: 600,
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                textAlign: 'left',
+                fontFamily: 'Inter, sans-serif',
+              }}
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── PortalPage ────────────────────────────────────────────────────────────────
+
 export default function PortalPage() {
   const router = useRouter();
   const { data: session } = useSession();
 
   const { branding, setBranding, fetchRemote } = useBrandingStore();
   const { footerText } = useWhiteLabel();
-  const [upgradeTarget, setUpgradeTarget]       = React.useState<string | null>(null);
-  const [brandingPanelOpen, setBrandingPanel]   = React.useState(false);
+  const [upgradeTarget, setUpgradeTarget] = React.useState<string | null>(null);
+  const [brandingPanelOpen, setBrandingPanel] = React.useState(false);
 
   // Hydrate from Supabase on mount (falls back to localStorage silently)
   React.useEffect(() => { fetchRemote(); }, [fetchRemote]);
@@ -61,50 +200,20 @@ export default function PortalPage() {
         </div>
         <div className="portal-header-spacer" />
         {isAdmin && (
-          <button onClick={() => setBrandingPanel(true)}
-              style={{marginRight:'10px', display:'inline-flex', alignItems:'center',
-                      gap:'5px', height:'28px', padding:'0 12px',
-                      borderRadius:'var(--radius-sm)', fontSize:'11px',
-                      fontWeight:700, cursor:'pointer', letterSpacing:'0.03em',
-                      border:'1px solid rgba(255,255,255,0.22)',
-                      background:'rgba(255,255,255,0.09)',
-                      color:'rgba(255,255,255,0.85)',
-                      transition:'var(--transition)', fontFamily:'Inter,sans-serif'}}>
-            🎨 Branding Settings
-          </button>
+          <a href="/admin/cms" style={{
+            marginRight: '8px',
+            display: 'inline-flex', alignItems: 'center',
+            gap: '5px', height: '28px', padding: '0 10px',
+            borderRadius: 'var(--radius-sm)', fontSize: '11px', fontWeight: 600,
+            border: '1px solid rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.12)',
+            color: '#fca5a5', textDecoration: 'none',
+            transition: 'var(--transition)', fontFamily: 'Inter,sans-serif',
+          }}>
+            🛡️ Admin
+          </a>
         )}
         {session?.user && (
-          <>
-            <a href="/settings" style={{marginRight:'8px', display:'inline-flex', alignItems:'center',
-                gap:'5px', height:'28px', padding:'0 10px',
-                borderRadius:'var(--radius-sm)', fontSize:'11px', fontWeight:600,
-                border:'1px solid rgba(255,255,255,0.18)', background:'rgba(255,255,255,0.07)',
-                color:'rgba(255,255,255,0.75)', textDecoration:'none',
-                transition:'var(--transition)', fontFamily:'Inter,sans-serif'}}>
-              ⚙️ Settings
-            </a>
-            {session.user.role === 'admin' && (
-              <a href="/admin" style={{marginRight:'8px', display:'inline-flex', alignItems:'center',
-                  gap:'5px', height:'28px', padding:'0 10px',
-                  borderRadius:'var(--radius-sm)', fontSize:'11px', fontWeight:600,
-                  border:'1px solid rgba(239,68,68,0.35)', background:'rgba(239,68,68,0.12)',
-                  color:'#fca5a5', textDecoration:'none',
-                  transition:'var(--transition)', fontFamily:'Inter,sans-serif'}}>
-                🛡️ Admin
-              </a>
-            )}
-            <button onClick={() => signOut({ callbackUrl: '/' })}
-                style={{marginRight:'10px', display:'inline-flex', alignItems:'center',
-                        gap:'5px', height:'28px', padding:'0 12px',
-                        borderRadius:'var(--radius-sm)', fontSize:'11px',
-                        fontWeight:700, cursor:'pointer', letterSpacing:'0.03em',
-                        border:'1px solid rgba(239,68,68,0.4)',
-                        background:'rgba(239,68,68,0.12)',
-                        color:'#fca5a5',
-                        transition:'var(--transition)', fontFamily:'Inter,sans-serif'}}>
-              Sign Out
-            </button>
-          </>
+          <UserDropdown session={session} isAdmin={isAdmin} />
         )}
         <span className="portal-header-version-pill">{userSubscription.plan} Plan</span>
       </header>
