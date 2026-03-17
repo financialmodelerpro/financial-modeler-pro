@@ -1,0 +1,204 @@
+'use client';
+
+import React from 'react';
+import type { ProjectType } from '@/src/types/project.types';
+import type { PermissionMap } from '@/src/types/settings.types';
+import { formatCurrency, formatNumber } from '@/src/core/core-formatters';
+import type { StorageShape } from './RealEstatePlatform';
+
+interface OverviewScreenProps {
+  storageData: StorageShape;
+  activeProjectId: string | null;
+  activeVersionId: string | null;
+  projectName: string;
+  projectType: ProjectType;
+  currency: string;
+  totalLandValue: number;
+  totalProjectGFA: number;
+  totalCapex: number;
+  onLoadVersion: (pid: string, vid: string) => void;
+  onSaveVersion: () => void;
+  setActiveModule: (m: string) => void;
+  setActiveTab: (t: string) => void;
+  can: (permission: keyof PermissionMap) => boolean;
+}
+
+export default function OverviewScreen({
+  storageData, activeProjectId, activeVersionId,
+  projectName, projectType, currency,
+  totalLandValue, totalProjectGFA, totalCapex,
+  onLoadVersion, onSaveVersion,
+  setActiveModule, setActiveTab, can,
+}: OverviewScreenProps) {
+  if (!activeProjectId) {
+    return (
+      <div className="module-view">
+        <div className="state-empty">
+          📋 No project selected. Go to Projects and select a project first.
+        </div>
+        <div style={{ marginTop: 'var(--sp-2)', textAlign: 'center' }}>
+          <button className="btn-primary" onClick={() => setActiveModule('projects')}>
+            → Go to Projects
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const proj = storageData.projects[activeProjectId];
+  if (!proj) return null;
+
+  const versions = Object.entries(proj.versions || {});
+
+  const quickLinks = [
+    { icon: '📅', label: 'Timeline',    tab: 'timeline',  desc: 'Project schedule & model type' },
+    { icon: '🗺️', label: 'Land & Area', tab: 'area',      desc: 'Land parcels & GFA hierarchy' },
+    { icon: '💸', label: 'Dev Costs',   tab: 'costs',     desc: 'Construction cost items' },
+    { icon: '🏦', label: 'Financing',   tab: 'financing', desc: 'Debt/equity structure' },
+  ];
+
+  return (
+    <div className="module-view">
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 'var(--sp-3)' }}>
+        <div>
+          <h1 style={{
+            fontSize: 'var(--font-h1)', fontWeight: 'var(--fw-bold)',
+            color: 'var(--color-heading)', margin: 0, letterSpacing: '-0.02em',
+          }}>
+            {proj.name}
+          </h1>
+          <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-body)', marginTop: '6px' }}>
+            {proj.status} · {projectType} · {proj.location || 'No location set'}
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {can('canSave') && (
+            <button className="btn-primary" onClick={onSaveVersion}>
+              💾 Save Version
+            </button>
+          )}
+          <button className="btn-secondary" onClick={() => setActiveModule('module1')}>
+            Edit Model →
+          </button>
+        </div>
+      </div>
+
+      {/* Summary KPIs */}
+      <div style={{
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
+        gap: 'var(--sp-2)',
+        marginBottom: 'var(--sp-3)',
+      }}>
+        {[
+          { label: 'Land Value',  value: formatCurrency(totalLandValue, currency), color: 'var(--color-green-dark)' },
+          { label: 'Total GFA',   value: `${formatNumber(totalProjectGFA)} sqm`,   color: '#7C2D12' },
+          { label: 'Total CapEx', value: formatCurrency(totalCapex, currency),      color: 'var(--color-navy)' },
+          { label: 'Versions',    value: String(versions.length),                  color: 'var(--color-grey-mid)' },
+        ].map((kpi, i) => (
+          <div key={i} className="kpi-card">
+            <div className="kpi-card__accent" style={{ background: kpi.color }} />
+            <div className="kpi-card__body">
+              <div className="kpi-card__label">{kpi.label}</div>
+              <div className="kpi-card__value">{kpi.value}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Quick links to module tabs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 'var(--sp-1)', marginBottom: 'var(--sp-3)' }}>
+        {quickLinks.map(ql => (
+          <div
+            key={ql.tab}
+            className="module-card"
+            style={{ padding: 'var(--sp-2)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}
+            onClick={() => { setActiveModule('module1'); setActiveTab(ql.tab); }}
+          >
+            <span style={{ fontSize: '1.5rem', flexShrink: 0 }}>{ql.icon}</span>
+            <div>
+              <div style={{ fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)', fontSize: 'var(--font-body)' }}>
+                {ql.label}
+              </div>
+              <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)' }}>{ql.desc}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Version history */}
+      <div className="module-card" style={{ padding: 'var(--sp-3)' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          marginBottom: 'var(--sp-2)',
+        }}>
+          <h3 style={{
+            fontSize: '11px', fontWeight: 'var(--fw-bold)',
+            color: 'var(--color-heading)', margin: 0,
+            textTransform: 'uppercase', letterSpacing: '0.06em',
+          }}>
+            Version History
+          </h3>
+          {can('canSave') && (
+            <button className="btn-primary" style={{ fontSize: '12px', padding: '5px 12px' }} onClick={onSaveVersion}>
+              + Save Version
+            </button>
+          )}
+        </div>
+
+        {versions.length === 0 ? (
+          <div style={{ color: 'var(--color-muted)', fontSize: 'var(--font-meta)', padding: 'var(--sp-2) 0' }}>
+            No saved versions yet. Save a version to track changes.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {[...versions].reverse().map(([vid, ver]) => {
+              const isActive = vid === activeVersionId;
+              return (
+                <div
+                  key={vid}
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                    padding: '10px 12px', borderRadius: 'var(--radius-sm)',
+                    border: isActive ? '1px solid rgba(22,101,52,0.4)' : '1px solid var(--color-border)',
+                    background: isActive ? 'rgba(22,101,52,0.06)' : 'transparent',
+                  }}
+                >
+                  <div>
+                    <div style={{
+                      fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)',
+                      fontSize: 'var(--font-body)', marginBottom: '2px',
+                      display: 'flex', alignItems: 'center', gap: '8px',
+                    }}>
+                      {ver.name}
+                      {isActive && (
+                        <span style={{
+                          fontSize: '9px', fontWeight: 700, padding: '1px 7px',
+                          borderRadius: '20px', background: 'rgba(22,101,52,0.15)',
+                          color: 'var(--color-green-dark)',
+                        }}>LOADED</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-muted)' }}>
+                      {new Date(ver.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                  {can('canManageVersions') && !isActive && (
+                    <button
+                      className="btn-secondary"
+                      style={{ fontSize: '12px', padding: '5px 12px' }}
+                      onClick={() => onLoadVersion(activeProjectId, vid)}
+                    >
+                      Load
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

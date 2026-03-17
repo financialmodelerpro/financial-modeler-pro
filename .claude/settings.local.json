@@ -1,0 +1,34 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"C:/fmp\" && npm run build 2>&1)",
+      "Bash(cd \"C:/fmp\" && npm run build 2>&1 | tail -30)",
+      "Bash(taskkill /F /IM node.exe 2>/dev/null; sleep 2; rm -rf \"C:/Users/HP/OneDrive - PaceMakers Business Consultants/Ahmad Data/3 Financial Modeler Pro/Financial Modeling Platform/Claude Code Data Base/financial-modeler-pro/.next/dev/lock\" 2>/dev/null; echo \"cleared\")",
+      "Bash(curl -s http://localhost:3001/api/health && echo \"\" && curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3001/)",
+      "Bash(taskkill /F /PID 13876 2>/dev/null\ntaskkill /F /IM node.exe 2>/dev/null\nsleep 2\nrm -rf \"C:/Users/HP/OneDrive - PaceMakers Business Consultants/Ahmad Data/3 Financial Modeler Pro/Financial Modeling Platform/Claude Code Data Base/financial-modeler-pro/.next/dev/lock\" 2>/dev/null\necho \"all clear\")",
+      "Bash(sleep 18 && curl -s http://localhost:3000/ -o /dev/null -w \"Portal HTTP: %{http_code}\\\\n\" && curl -s http://localhost:3000/api/health)",
+      "Bash(taskkill /F /IM node.exe 2>/dev/null\nsleep 2\nrm -rf \"C:/Users/HP/OneDrive - PaceMakers Business Consultants/Ahmad Data/3 Financial Modeler Pro/Financial Modeling Platform/Claude Code Data Base/financial-modeler-pro/.next\"\necho \"Deleted .next: $?\")",
+      "Bash(netstat -ano | grep \":3000\" | head -5)",
+      "Bash(wmic process:*)",
+      "Bash(tasklist /FI \"PID eq 13876\" 2>/dev/null)",
+      "Bash(powershell -Command \"Stop-Process -Id 13876 -Force -ErrorAction SilentlyContinue; Start-Sleep 2; netstat -ano | Select-String ':3000'\" 2>/dev/null)",
+      "Bash(netstat -ano | grep \":3000 \" | head -3)",
+      "Bash(taskkill /F /IM node.exe 2>/dev/null; sleep 2; echo \"ok\")",
+      "Bash(sleep 2\ncurl -s http://localhost:3000/api/health\necho \"\"\ncurl -s http://localhost:3000/ -o /dev/null -w \"Portal: HTTP %{http_code}\\\\n\"\ncurl -s http://localhost:3000/api/projects -o /dev/null -w \"API projects: HTTP %{http_code}\\\\n\")",
+      "Bash(cd \"C:\\\\Users\\\\HP\\\\OneDrive - PaceMakers Business Consultants\\\\Ahmad Data\\\\3 Financial Modeler Pro\\\\Financial Modeling Platform\\\\Claude Code Data Base\\\\financial-modeler-pro\" && npx tsc --noEmit 2>&1 | head -80)",
+      "Bash(cd \"C:\\\\Users\\\\HP\\\\OneDrive - PaceMakers Business Consultants\\\\Ahmad Data\\\\3 Financial Modeler Pro\\\\Financial Modeling Platform\\\\Claude Code Data Base\\\\financial-modeler-pro\" && npx tsc --noEmit 2>&1; echo \"Exit code: $?\")",
+      "Bash(cd C:/fmp && rm -rf .next && echo \"Cache cleared\")",
+      "Bash(cd C:/fmp && taskkill /F /IM node.exe 2>&1; sleep 2; rmdir /s /q .next 2>&1; echo \"Done\")",
+      "Bash(taskkill /F /IM node.exe 2>&1 | head -5; echo \"---\"; sleep 2)",
+      "Bash(powershell -Command \"Stop-Process -Name node -Force -ErrorAction SilentlyContinue; Start-Sleep 2; Remove-Item -Recurse -Force 'C:\\\\fmp\\\\.next' -ErrorAction SilentlyContinue; Write-Host 'Done'\")",
+      "Bash(cd:*)",
+      "Bash(ls:*)",
+      "Bash(npm run:*)",
+      "Bash(del:*)",
+      "Bash(npx kill-port:*)",
+      "Bash(npx tsc:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)"
+    ]
+  }
+}

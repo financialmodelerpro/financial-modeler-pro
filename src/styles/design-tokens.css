@@ -1,0 +1,38 @@
+/* ─────────────────────────────────────────────────────────────────────────────
+   Financial Modeler Pro — Design Tokens
+   Single source of truth for all brand colors and design primitives.
+   Import this file in app/globals.css
+───────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  /* ── Navy Palette ── */
+  --fmp-navy-darkest:  #0D2E5A;   /* sidebar bg, deepest chrome — NEVER in content */
+  --fmp-navy-dark:     #1B3A6B;   /* page-level headers, footers, hero backgrounds */
+  --fmp-navy:          #1B4F8A;   /* table headers, primary buttons, active states */
+  --fmp-navy-mid:      #2D6BA8;   /* hover states, sub-headers, secondary elements */
+  --fmp-navy-light:    #E8F0FB;   /* card borders, sub-section backgrounds */
+  --fmp-navy-pale:     #F4F7FC;   /* alternate table rows, light card backgrounds */
+
+  /* ── Green Palette ── */
+  --fmp-green:         #2EAA4A;   /* positive values, success, "Free" badges */
+  --fmp-green-dark:    #1A7A30;   /* green hover, equity schedule headers */
+  --fmp-green-light:   #E8F7EC;   /* success panel backgrounds, training section bg */
+
+  /* ── Gold / Amber ── */
+  --fmp-gold:          #C9A84C;   /* logo accent, premium badge, dividers — max 3 uses */
+  --fmp-gold-dark:     #92400E;   /* P0 / pre-construction rows, finance cost text */
+  --fmp-gold-light:    #FDF6E3;   /* input bg tint, warning alert background */
+
+  /* ── Semantic ── */
+  --fmp-negative:      #DC2626;   /* all negative numbers — always red */
+  --fmp-positive:      #2EAA4A;   /* alias for green */
+  --fmp-input-bg:      #FFFBEB;   /* hardcoded assumption / input cells */
+  --fmp-input-border:  #F59E0B;   /* input cell amber border */
+
+  /* ── Grey Scale ── */
+  --fmp-grey-dark:     #374151;   /* primary body text */
+  --fmp-grey-mid:      #6B7280;   /* secondary text, placeholders */
+  --fmp-grey-light:    #D1D5DB;   /* borders, dividers */
+  --fmp-grey-pale:     #F5F7FA;   /* total rows, card backgrounds */
+  --fmp-grey-white:    #FFFFFF;
+}
