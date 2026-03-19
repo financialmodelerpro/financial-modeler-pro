@@ -54,12 +54,19 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  const { error } = await serverClient
-    .from('branding_config')
-    .upsert({ scope, config }, { onConflict: 'scope' });
+  let upsertError: { message: string } | null = null;
+  try {
+    const { error } = await serverClient
+      .from('branding_config')
+      .upsert({ scope, config }, { onConflict: 'scope' });
+    upsertError = error;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (upsertError) {
+    return NextResponse.json({ error: upsertError.message }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

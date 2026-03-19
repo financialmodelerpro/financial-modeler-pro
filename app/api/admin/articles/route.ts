@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
+import { authOptions } from '@/src/lib/auth';
 import { getServerClient } from '@/src/lib/supabase';
 
 async function checkAdmin() {
-  const session = await getServerSession();
+  const session = await getServerSession(authOptions);
   if (!session?.user || (session.user as any).role !== 'admin') return false;
   return true;
 }
@@ -27,7 +28,7 @@ export async function POST(req: NextRequest) {
     const { title, slug, body: articleBody, cover_url, category, status, featured, seo_title, seo_description } = body;
     if (!title || !slug) return NextResponse.json({ error: 'title and slug required' }, { status: 400 });
     const sb = getServerClient();
-    const session = await getServerSession();
+    const session = await getServerSession(authOptions);
     const insert: Record<string, unknown> = { title, slug, body: articleBody ?? '', category: category ?? 'General', status: status ?? 'draft', featured: featured ?? false, seo_title: seo_title ?? null, seo_description: seo_description ?? null, author_id: (session?.user as any)?.id ?? null };
     if (cover_url) insert.cover_url = cover_url;
     if (status === 'published') insert.published_at = new Date().toISOString();

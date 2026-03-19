@@ -3,52 +3,138 @@ import { useState, useEffect, useCallback } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { useSession } from 'next-auth/react';
 
-interface User { id: string; email: string; name: string | null; role: string; created_at: string }
+interface User {
+  id: string;
+  email: string;
+  name: string | null;
+  role: string;
+  subscription_plan: 'free' | 'professional' | 'enterprise';
+  subscription_status: 'active' | 'trial' | 'expired' | 'cancelled';
+  created_at: string;
+}
+
+const PLAN_COLORS: Record<string, string> = {
+  free:         '#6B7280',
+  professional: '#2563EB',
+  enterprise:   '#7C3AED',
+};
+
+const STATUS_COLORS: Record<string, string> = {
+  active:    '#1A7A30',
+  trial:     '#D97706',
+  expired:   '#DC2626',
+  cancelled: '#DC2626',
+};
+
+function PlanBadge({ plan }: { plan: string }) {
+  const color = PLAN_COLORS[plan] ?? '#6B7280';
+  return (
+    <span style={{
+      display: 'inline-block',
+      padding: '2px 9px',
+      borderRadius: 12,
+      fontSize: 11,
+      fontWeight: 700,
+      color: '#fff',
+      background: color,
+      letterSpacing: '0.03em',
+      textTransform: 'capitalize',
+    }}>
+      {plan}
+    </span>
+  );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const color = STATUS_COLORS[status] ?? '#6B7280';
+  return (
+    <span style={{
+      display: 'inline-block',
+      padding: '2px 9px',
+      borderRadius: 12,
+      fontSize: 11,
+      fontWeight: 700,
+      color: '#fff',
+      background: color,
+      letterSpacing: '0.03em',
+      textTransform: 'capitalize',
+    }}>
+      {status}
+    </span>
+  );
+}
 
 export default function AdminUsersPage() {
   const { data: session } = useSession();
-  const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState('');
+  const [users, setUsers]           = useState<User[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [search, setSearch]         = useState('');
+  const [planFilter, setPlanFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('all');
-  const [page, setPage] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [updating, setUpdating] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const [page, setPage]             = useState(0);
+  const [total, setTotal]           = useState(0);
+  const [updating, setUpdating]     = useState<string | null>(null);
+  const [toast, setToast]           = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const PAGE_SIZE = 20;
+
+  const showToast = (msg: string, type: 'success' | 'error') => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 2500);
+  };
 
   const fetchUsers = useCallback(() => {
     setLoading(true);
     const params = new URLSearchParams({ page: String(page), size: String(PAGE_SIZE) });
-    if (search) params.set('search', search);
-    if (roleFilter !== 'all') params.set('role', roleFilter);
+    if (search)                params.set('search', search);
+    if (roleFilter !== 'all')  params.set('role', roleFilter);
+    if (planFilter !== 'all')  params.set('plan', planFilter);
     fetch(`/api/admin/users?${params}`)
       .then(r => r.json())
       .then(j => { setUsers(j.users ?? []); setTotal(j.total ?? 0); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [page, search, roleFilter]);
+  }, [page, search, roleFilter, planFilter]);
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
-  async function changeRole(userId: string, newRole: string) {
-    if (userId === (session?.user as any)?.id) return;
-    setUpdating(userId);
+  async function patchUser(userId: string, patch: { role?: string; plan?: string; status?: string }) {
+    setUpdating(userId + ':' + Object.keys(patch)[0]);
     try {
       const res = await fetch('/api/admin/users', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: userId, role: newRole }),
+        body: JSON.stringify({ id: userId, reason: '', ...patch }),
       });
       if (res.ok) {
-        setUsers(prev => prev.map(u => u.id === userId ? { ...u, role: newRole } : u));
-        setToast({ msg: 'Role updated', type: 'success' });
-        setTimeout(() => setToast(null), 2500);
+        setUsers(prev => prev.map(u => {
+          if (u.id !== userId) return u;
+          const next = { ...u };
+          if (patch.role)   next.role = patch.role;
+          if (patch.plan)   next.subscription_plan   = patch.plan as User['subscription_plan'];
+          if (patch.status) next.subscription_status = patch.status as User['subscription_status'];
+          return next;
+        }));
+        showToast('Saved', 'success');
+      } else {
+        showToast('Update failed', 'error');
       }
-    } catch { setToast({ msg: 'Update failed', type: 'error' }); setTimeout(() => setToast(null), 2500); }
-    finally { setUpdating(null); }
+    } catch {
+      showToast('Update failed', 'error');
+    } finally {
+      setUpdating(null);
+    }
   }
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
+  const selfId = (session?.user as { id?: string } | undefined)?.id;
+
+  const selectStyle: React.CSSProperties = {
+    padding: '4px 8px',
+    border: '1px solid #D1D5DB',
+    borderRadius: 5,
+    fontSize: 12,
+    background: '#fff',
+    cursor: 'pointer',
+  };
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter', sans-serif", background: '#F4F7FC' }}>
@@ -60,11 +146,18 @@ export default function AdminUsersPage() {
         {/* Filters */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
           <input
-            placeholder="Search by email…"
+            placeholder="Search by email or name…"
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(0); }}
-            style={{ padding: '8px 14px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, width: 260, background: '#fff' }}
+            style={{ padding: '8px 14px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, width: 280, background: '#fff' }}
           />
+          <select value={planFilter} onChange={e => { setPlanFilter(e.target.value); setPage(0); }}
+            style={{ padding: '8px 14px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, background: '#fff', cursor: 'pointer' }}>
+            <option value="all">All Plans</option>
+            <option value="free">Free</option>
+            <option value="professional">Professional</option>
+            <option value="enterprise">Enterprise</option>
+          </select>
           <select value={roleFilter} onChange={e => { setRoleFilter(e.target.value); setPage(0); }}
             style={{ padding: '8px 14px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, background: '#fff', cursor: 'pointer' }}>
             <option value="all">All Roles</option>
@@ -77,38 +170,91 @@ export default function AdminUsersPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#1B4F8A' }}>
-                {['Email', 'Name', 'Role', 'Joined', 'Actions'].map(h => (
+                {['Email', 'Name', 'Role', 'Plan', 'Status', 'Joined', 'Actions'].map(h => (
                   <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.05em', textTransform: 'uppercase' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={5} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>Loading…</td></tr>
+                <tr><td colSpan={7} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>Loading…</td></tr>
               ) : users.length === 0 ? (
-                <tr><td colSpan={5} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>No users found.</td></tr>
+                <tr><td colSpan={7} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>No users found.</td></tr>
               ) : users.map((u, i) => {
-                const isSelf = u.id === (session?.user as any)?.id;
+                const isSelf      = u.id === selfId;
+                const savingField = updating?.startsWith(u.id) ? updating.split(':')[1] : null;
+
                 return (
                   <tr key={u.id} style={{ borderTop: '1px solid #E8F0FB', background: i % 2 === 1 ? '#F9FAFB' : '#fff' }}>
+
+                    {/* Email */}
                     <td style={{ padding: '12px 16px', fontSize: 13, color: '#374151' }}>{u.email}</td>
+
+                    {/* Name */}
                     <td style={{ padding: '12px 16px', fontSize: 13, color: '#374151' }}>{u.name ?? '—'}</td>
+
+                    {/* Role dropdown */}
                     <td style={{ padding: '12px 16px' }}>
-                      <select
-                        value={u.role ?? 'user'}
-                        disabled={isSelf || updating === u.id}
-                        onChange={e => changeRole(u.id, e.target.value)}
-                        style={{ padding: '4px 8px', border: '1px solid #D1D5DB', borderRadius: 5, fontSize: 12, background: '#fff', cursor: isSelf ? 'not-allowed' : 'pointer' }}
-                        title={isSelf ? 'Cannot change your own role' : undefined}
-                      >
-                        <option value="user">user</option>
-                        <option value="admin">admin</option>
-                      </select>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <select
+                          value={u.role ?? 'user'}
+                          disabled={isSelf || savingField === 'role'}
+                          onChange={e => patchUser(u.id, { role: e.target.value })}
+                          style={{ ...selectStyle, cursor: isSelf ? 'not-allowed' : 'pointer' }}
+                          title={isSelf ? 'Cannot change your own role' : undefined}
+                        >
+                          <option value="user">user</option>
+                          <option value="admin">admin</option>
+                        </select>
+                        {savingField === 'role' && <span style={{ fontSize: 11, color: '#6B7280' }}>Saving…</span>}
+                      </div>
                     </td>
-                    <td style={{ padding: '12px 16px', fontSize: 12, color: '#6B7280' }}>{new Date(u.created_at).toLocaleDateString()}</td>
+
+                    {/* Plan dropdown + badge */}
+                    <td style={{ padding: '12px 16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <select
+                          value={u.subscription_plan ?? 'free'}
+                          disabled={savingField === 'plan'}
+                          onChange={e => patchUser(u.id, { plan: e.target.value })}
+                          style={selectStyle}
+                        >
+                          <option value="free">free</option>
+                          <option value="professional">professional</option>
+                          <option value="enterprise">enterprise</option>
+                        </select>
+                        <PlanBadge plan={u.subscription_plan ?? 'free'} />
+                        {savingField === 'plan' && <span style={{ fontSize: 11, color: '#6B7280' }}>Saving…</span>}
+                      </div>
+                    </td>
+
+                    {/* Status dropdown + badge */}
+                    <td style={{ padding: '12px 16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <select
+                          value={u.subscription_status ?? 'active'}
+                          disabled={savingField === 'status'}
+                          onChange={e => patchUser(u.id, { status: e.target.value })}
+                          style={selectStyle}
+                        >
+                          <option value="active">active</option>
+                          <option value="trial">trial</option>
+                          <option value="expired">expired</option>
+                          <option value="cancelled">cancelled</option>
+                        </select>
+                        <StatusBadge status={u.subscription_status ?? 'active'} />
+                        {savingField === 'status' && <span style={{ fontSize: 11, color: '#6B7280' }}>Saving…</span>}
+                      </div>
+                    </td>
+
+                    {/* Joined */}
+                    <td style={{ padding: '12px 16px', fontSize: 12, color: '#6B7280' }}>
+                      {new Date(u.created_at).toLocaleDateString()}
+                    </td>
+
+                    {/* Actions */}
                     <td style={{ padding: '12px 16px' }}>
                       {isSelf && <span style={{ fontSize: 11, color: '#9CA3AF' }}>You</span>}
-                      {updating === u.id && <span style={{ fontSize: 11, color: '#6B7280' }}>Saving…</span>}
                     </td>
                   </tr>
                 );
@@ -120,14 +266,28 @@ export default function AdminUsersPage() {
         {/* Pagination */}
         {totalPages > 1 && (
           <div style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 24 }}>
-            <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0} style={{ padding: '7px 16px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>← Prev</button>
+            <button onClick={() => setPage(p => Math.max(0, p - 1))} disabled={page === 0}
+              style={{ padding: '7px 16px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>
+              ← Prev
+            </button>
             <span style={{ padding: '7px 16px', fontSize: 13, color: '#6B7280' }}>Page {page + 1} of {totalPages}</span>
-            <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1} style={{ padding: '7px 16px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>Next →</button>
+            <button onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))} disabled={page >= totalPages - 1}
+              style={{ padding: '7px 16px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 13 }}>
+              Next →
+            </button>
           </div>
         )}
       </main>
+
+      {/* Toast */}
       {toast && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, background: toast.type === 'success' ? '#1A7A30' : '#DC2626', color: '#fff', fontWeight: 700, fontSize: 13, padding: '12px 24px', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.2)', zIndex: 9999 }}>
+        <div style={{
+          position: 'fixed', bottom: 24, right: 24,
+          background: toast.type === 'success' ? '#1A7A30' : '#DC2626',
+          color: '#fff', fontWeight: 700, fontSize: 13,
+          padding: '12px 24px', borderRadius: 8,
+          boxShadow: '0 4px 16px rgba(0,0,0,0.2)', zIndex: 9999,
+        }}>
           {toast.type === 'success' ? '✓' : '✗'} {toast.msg}
         </div>
       )}

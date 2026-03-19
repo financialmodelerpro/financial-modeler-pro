@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import ReactPDF, { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
+import { renderToBuffer, Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
 import React from 'react';
 
 // ── Types (minimal) ───────────────────────────────────────────────────────────
@@ -309,7 +309,7 @@ export async function POST(req: NextRequest) {
 
   // renderToBuffer is simpler than stream for server routes
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pdf: Buffer = await ReactPDF.renderToBuffer(React.createElement(REFMReport, { d }) as any);
+  const pdf: Buffer = await renderToBuffer(React.createElement(REFMReport, { d }) as any);
 
   return new NextResponse(pdf as unknown as BodyInit, {
     headers: {

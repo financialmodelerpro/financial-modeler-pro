@@ -15,6 +15,7 @@ import {
   setUserPermissionOverride,
 } from '@/src/lib/permissions';
 import { getServerClient } from '@/src/lib/supabase';
+import { writeAuditLog } from '@/src/lib/audit';
 
 // ── Admin guard helper ────────────────────────────────────────────────────────
 async function requireAdmin() {
@@ -67,11 +68,20 @@ export async function PATCH(req: NextRequest) {
     reason?: string | null;
   };
 
+  const adminId = session.user.id;
+
   if (body.type === 'plan') {
     if (!body.plan || !body.feature_key || body.enabled === undefined) {
       return NextResponse.json({ error: 'Missing plan, feature_key, or enabled' }, { status: 400 });
     }
-    await setPlanPermission(body.plan, body.feature_key, body.enabled, session.user.id);
+    await setPlanPermission(body.plan, body.feature_key, body.enabled, adminId);
+    await writeAuditLog({
+      adminId,
+      action:      'plan_permission_change',
+      beforeValue: { plan: body.plan, feature_key: body.feature_key, enabled: !body.enabled },
+      afterValue:  { plan: body.plan, feature_key: body.feature_key, enabled: body.enabled },
+      reason:      body.reason ?? null,
+    });
     return NextResponse.json({ ok: true });
   }
 
@@ -79,13 +89,35 @@ export async function PATCH(req: NextRequest) {
     if (!body.user_id || !body.feature_key) {
       return NextResponse.json({ error: 'Missing user_id or feature_key' }, { status: 400 });
     }
+
+    // Fetch the current override value before changing it
+    const db = getServerClient();
+    const { data: existing } = await db
+      .from('user_permissions')
+      .select('override_value')
+      .eq('user_id', body.user_id)
+      .eq('feature_key', body.feature_key)
+      .maybeSingle();
+
+    const oldOverride = (existing as { override_value: boolean | null } | null)?.override_value ?? null;
+
     await setUserPermissionOverride(
       body.user_id,
       body.feature_key,
       body.override_value ?? null,
       body.reason ?? null,
-      session.user.id,
+      adminId,
     );
+
+    await writeAuditLog({
+      adminId,
+      action:        'user_permission_override',
+      targetUserId:  body.user_id,
+      beforeValue:   { feature_key: body.feature_key, override_value: oldOverride },
+      afterValue:    { feature_key: body.feature_key, override_value: body.override_value ?? null },
+      reason:        body.reason ?? null,
+    });
+
     return NextResponse.json({ ok: true });
   }
 

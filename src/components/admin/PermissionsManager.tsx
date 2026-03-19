@@ -74,12 +74,12 @@ function Toggle({
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
-export default function PermissionsManager({ users }: { users: UserOption[] }) {
+export default function PermissionsManager({ users, initialTab = 'plans' }: { users: UserOption[], initialTab?: 'plans' | 'users' }) {
   const [data,    setData]    = useState<MatrixData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving,  setSaving]  = useState<Record<string, boolean>>({});
   const [toast,   setToast]   = useState('');
-  const [tab,     setTab]     = useState<'plans' | 'users'>('plans');
+  const [tab,     setTab]     = useState<'plans' | 'users'>(initialTab);
 
   // User override tab state
   const [selectedUserId, setSelectedUserId] = useState<string>('');

@@ -174,6 +174,30 @@ export async function getFounderProfile(): Promise<Record<string, Record<string,
   }
 }
 
+// ── Site Pages ────────────────────────────────────────────────────────────────
+
+export interface SitePage { id: string; label: string; href: string; visible: boolean; display_order: number; can_toggle: boolean }
+
+export async function getSitePages(): Promise<SitePage[]> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb.from('site_pages').select('*').eq('visible', true).order('display_order');
+    return (data as SitePage[]) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function getAllSitePages(): Promise<SitePage[]> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb.from('site_pages').select('*').order('display_order');
+    return (data as SitePage[]) ?? [];
+  } catch {
+    return [];
+  }
+}
+
 // ── YouTube URL parser ────────────────────────────────────────────────────────
 
 export function extractYouTubeId(url: string): string | null {

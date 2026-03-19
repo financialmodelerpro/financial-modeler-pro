@@ -4,16 +4,33 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
 
-const NAV_ITEMS = [
-  { label: 'Dashboard',       href: '/admin/cms',         icon: '🏠' },
-  { label: 'Content',         href: '/admin/content',     icon: '📝' },
-  { label: 'Modules',         href: '/admin/modules',     icon: '🧩' },
-  { label: 'Articles',        href: '/admin/articles',    icon: '📰' },
-  { label: 'Training',        href: '/admin/training',    icon: '🎓' },
-  { label: 'Founder Profile', href: '/admin/founder',     icon: '👤' },
-  { label: 'Users',           href: '/admin/users',       icon: '👥' },
-  { label: 'Media Library',   href: '/admin/media',       icon: '🖼️' },
-  { label: 'Settings',        href: '/admin/settings',    icon: '⚙️' },
+type NavItem =
+  | { type?: undefined; label: string; href: string; icon: string }
+  | { type: 'divider'; label: string };
+
+const NAV_ITEMS: NavItem[] = [
+  { label: 'Dashboard',       href: '/admin/cms',              icon: '🏠' },
+  { type: 'divider',          label: 'Content' },
+  { label: 'Page Content',    href: '/admin/content',          icon: '📝' },
+  { label: 'Pages & Nav',     href: '/admin/pages',            icon: '🗂️' },
+  { label: 'Modules',         href: '/admin/modules',          icon: '🧩' },
+  { label: 'Articles',        href: '/admin/articles',         icon: '📰' },
+  { label: 'Training',        href: '/admin/training',         icon: '🎓' },
+  { label: 'Founder Profile', href: '/admin/founder',          icon: '👤' },
+  { label: 'Media Library',   href: '/admin/media',            icon: '🖼️' },
+  { type: 'divider',          label: 'Users & Platform' },
+  { label: 'Users',           href: '/admin/users',            icon: '👥' },
+  { label: 'Plan Config',     href: '/admin/plans',            icon: '📋' },
+  { label: 'User Overrides',  href: '/admin/overrides',        icon: '🎯' },
+  { label: 'Permissions',     href: '/admin/permissions',      icon: '🔐' },
+  { label: 'White-Label',     href: '/admin/whitelabel',       icon: '🏷️' },
+  { label: 'Branding',        href: '/admin/branding',         icon: '🎨' },
+  { label: 'Announcements',   href: '/admin/announcements',    icon: '📢' },
+  { label: 'Projects',        href: '/admin/projects',         icon: '📁' },
+  { type: 'divider',          label: 'System' },
+  { label: 'Audit Log',       href: '/admin/audit',            icon: '📋' },
+  { label: 'System Health',   href: '/admin/health',           icon: '❤️' },
+  { label: 'Settings',        href: '/admin/settings',         icon: '⚙️' },
 ];
 
 interface Props {
@@ -47,12 +64,19 @@ export function CmsAdminNav({ active: activeProp }: Props) {
 
       {/* Nav */}
       <nav style={{ padding: '10px 8px', flex: 1 }}>
-        {NAV_ITEMS.map(({ label, href, icon }) => {
-          const isActive = active === href || active?.startsWith(href + '/');
+        {NAV_ITEMS.map((item) => {
+          if (item.type === 'divider') {
+            return (
+              <div key={item.label} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)', padding: '12px 12px 4px', marginTop: 4 }}>
+                {item.label}
+              </div>
+            );
+          }
+          const isActive = active === item.href || active?.startsWith(item.href + '/');
           return (
             <Link
-              key={href}
-              href={href}
+              key={item.href}
+              href={item.href}
               style={{
                 display: 'flex', alignItems: 'center', gap: 10,
                 padding: '9px 12px', borderRadius: 7, marginBottom: 2,
@@ -63,8 +87,8 @@ export function CmsAdminNav({ active: activeProp }: Props) {
                 borderLeft: isActive ? '3px solid #2EAA4A' : '3px solid transparent',
               }}
             >
-              <span style={{ fontSize: 15, width: 20, textAlign: 'center' }}>{icon}</span>
-              {label}
+              <span style={{ fontSize: 15, width: 20, textAlign: 'center' }}>{item.icon}</span>
+              {item.label}
             </Link>
           );
         })}
