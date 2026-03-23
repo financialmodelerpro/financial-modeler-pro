@@ -1,43 +1,30 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { Navbar } from '@/src/components/layout/Navbar';
 
 export const revalidate = 60;
 
 export const metadata: Metadata = {
   title: 'About — Financial Modeler Pro',
-  description: 'Learn about Financial Modeler Pro — the professional real estate financial modeling platform built for developers, analysts, and investors.',
+  description: 'Learn about Financial Modeler Pro — the professional financial modeling platform built for developers, analysts, and investors across all disciplines.',
 };
 
 export default function AboutPage() {
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
 
-      {/* Navbar */}
-      <nav style={{ display: 'flex', alignItems: 'center', padding: '0 40px', height: 64, background: 'rgba(13,46,90,0.97)', borderBottom: '1px solid rgba(255,255,255,0.08)', backdropFilter: 'blur(12px)' }}>
-        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-          <span style={{ fontSize: 22 }}>📐</span>
-          <span style={{ fontWeight: 800, fontSize: 14, color: '#fff' }}>Financial Modeler Pro</span>
-        </Link>
-        <div style={{ flex: 1 }} />
-        <div style={{ display: 'flex', gap: 8 }}>
-          {[['Articles', '/articles'], ['Training', '/training'], ['Portal', '/portal']].map(([l, h]) => (
-            <Link key={h} href={h} style={{ padding: '6px 14px', fontSize: 13, color: 'rgba(255,255,255,0.65)', textDecoration: 'none' }}>{l}</Link>
-          ))}
-          <Link href="/login" style={{ padding: '6px 16px', background: '#1B4F8A', borderRadius: 7, fontSize: 13, fontWeight: 700, color: '#fff', textDecoration: 'none' }}>
-            Launch Platform →
-          </Link>
-        </div>
-      </nav>
+      <Navbar />
+      <div style={{ height: 64 }} />
 
       {/* Hero */}
       <section style={{ padding: '80px 40px 64px', textAlign: 'center', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
         <div style={{ maxWidth: 720, margin: '0 auto' }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: '#4A90D9', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 16 }}>About</div>
           <h1 style={{ fontSize: 'clamp(28px, 4vw, 48px)', fontWeight: 800, color: '#fff', marginBottom: 20, lineHeight: 1.15 }}>
-            Built for Real Estate Finance Professionals
+            Built for Financial Modeling Professionals
           </h1>
           <p style={{ fontSize: 17, color: 'rgba(255,255,255,0.5)', lineHeight: 1.7 }}>
-            Financial Modeler Pro was built to solve a real problem: professional real estate financial modeling shouldn't require 5 years of Excel wizardry. It should be structured, auditable, and presentation-ready from day one.
+            Financial Modeler Pro was built to solve a real problem: professional financial modeling shouldn&apos;t require 5 years of Excel wizardry. It should be structured, auditable, and presentation-ready from day one.
           </p>
         </div>
       </section>
@@ -48,19 +35,19 @@ export default function AboutPage() {
           <div>
             <h2 style={{ fontSize: 26, fontWeight: 800, color: '#fff', marginBottom: 16 }}>Our Mission</h2>
             <p style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.55)', lineHeight: 1.75, marginBottom: 16 }}>
-              To make professional-grade real estate financial modeling accessible to every developer, analyst, and investor — regardless of their spreadsheet skill level.
+              To make professional-grade financial modeling accessible to every developer, analyst, and investor — regardless of their spreadsheet skill level.
             </p>
             <p style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.45)', lineHeight: 1.75 }}>
-              We believe that the quality of a financial model shouldn't be limited by the tools available. Financial Modeler Pro provides the structure, the logic, and the output formats that deal-makers actually need.
+              We believe that the quality of a financial model shouldn&apos;t be limited by the tools available. Financial Modeler Pro provides the structure, the logic, and the output formats that deal-makers actually need.
             </p>
           </div>
           <div>
             <h2 style={{ fontSize: 26, fontWeight: 800, color: '#fff', marginBottom: 16 }}>Who We Serve</h2>
             {[
-              { icon: '🏗️', role: 'Real Estate Developers', desc: 'Underwrite new projects with full development cost, financing, and returns modeling.' },
-              { icon: '📊', role: 'Financial Analysts',     desc: 'Build audit-ready models with traceable assumptions and structured outputs.' },
-              { icon: '💼', role: 'Investment Managers',    desc: 'Analyze deals faster with pre-built frameworks for IRR, NPV, and equity structuring.' },
-              { icon: '🏢', role: 'Advisory Firms',         desc: 'White-label the platform for your clients with custom branding and workflows.' },
+              { icon: '🏗️', role: 'Real Estate Developers',  desc: 'Underwrite new projects with full development cost, financing, and returns modeling.' },
+              { icon: '📊', role: 'Financial Analysts',       desc: 'Build audit-ready models with traceable assumptions and structured outputs.' },
+              { icon: '💼', role: 'Investment Managers',      desc: 'Analyze deals faster with pre-built frameworks for IRR, NPV, and equity structuring.' },
+              { icon: '🏢', role: 'Advisory Firms',           desc: 'White-label the platform for your clients with custom branding and workflows.' },
             ].map(({ icon, role, desc }) => (
               <div key={role} style={{ display: 'flex', gap: 12, marginBottom: 20 }}>
                 <span style={{ fontSize: 22, flexShrink: 0, marginTop: 2 }}>{icon}</span>
@@ -81,7 +68,7 @@ export default function AboutPage() {
           <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', textAlign: 'center', marginBottom: 48 }}>Each module builds on the last. Your assumptions cascade automatically.</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 18 }}>
             {[
-              { n: '01', icon: '🏗️', name: 'Project Setup & Financing', status: 'Live', desc: 'Timeline, land & area, development costs, debt/equity structure, and interest schedules.' },
+              { n: '01', icon: '🏗️', name: 'Project Setup & Financing', status: 'Live',        desc: 'Timeline, land & area, development costs, debt/equity structure, and interest schedules.' },
               { n: '02', icon: '💰', name: 'Revenue Analysis',           status: 'Coming Soon', desc: 'Unit-level sales, rental pricing, phased delivery, and revenue recognition.' },
               { n: '03', icon: '📉', name: 'Operating Expenses',          status: 'Coming Soon', desc: 'Property management, maintenance, staff costs, and overheads.' },
               { n: '04', icon: '📈', name: 'Returns & Valuation',         status: 'Coming Soon', desc: 'IRR, NPV, equity multiple, cap rate, and multi-scenario comparison.' },
@@ -108,14 +95,14 @@ export default function AboutPage() {
       <section style={{ padding: '80px 40px', maxWidth: 700, margin: '0 auto', textAlign: 'center' }}>
         <h2 style={{ fontSize: 26, fontWeight: 800, color: '#fff', marginBottom: 16 }}>Built by a Practitioner</h2>
         <p style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.5)', lineHeight: 1.75, marginBottom: 32 }}>
-          Financial Modeler Pro was founded by Ahmad Din — a real estate finance professional with 15+ years of experience structuring deals across GCC and international markets. Every feature is designed around how deals actually get done.
+          Financial Modeler Pro was founded by Ahmad Din — a corporate finance and transaction advisory professional with 12+ years of experience structuring deals across KSA, Pakistan, and international markets. Every feature is designed around how deals actually get done.
         </p>
         <Link href="/about/ahmad-din" style={{
           display: 'inline-flex', alignItems: 'center', gap: 8,
           background: 'rgba(27,79,138,0.25)', border: '1px solid rgba(27,79,138,0.5)',
           color: '#fff', fontSize: 13, fontWeight: 700, padding: '10px 24px', borderRadius: 7, textDecoration: 'none',
         }}>
-          Read Ahmad's Profile →
+          Read Ahmad&apos;s Profile →
         </Link>
       </section>
 

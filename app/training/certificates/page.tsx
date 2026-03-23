@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
+import { Navbar } from '@/src/components/layout/Navbar';
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -203,17 +204,8 @@ export default function CertificatesPage() {
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#F4F7FC', minHeight: '100vh' }}>
 
-      {/* Navbar */}
-      <nav style={{ background: '#fff', borderBottom: '1px solid #E8F0FB', padding: '0 40px', height: 60, display: 'flex', alignItems: 'center', gap: 16 }}>
-        <Link href="/training" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
-          <span style={{ fontSize: 18 }}>📐</span>
-          <span style={{ fontSize: 14, fontWeight: 800, color: '#1B3A6B' }}>Financial Modeler Pro</span>
-        </Link>
-        <span style={{ color: '#E5E7EB', fontSize: 18 }}>/</span>
-        <Link href="/training" style={{ fontSize: 13, color: '#6B7280', textDecoration: 'none' }}>Training Library</Link>
-        <span style={{ color: '#E5E7EB', fontSize: 18 }}>/</span>
-        <span style={{ fontSize: 13, color: '#1B3A6B', fontWeight: 600 }}>My Certificates</span>
-      </nav>
+      <Navbar />
+      <div style={{ height: 64 }} />
 
       <main style={{ maxWidth: 960, margin: '0 auto', padding: '40px 24px' }}>
 

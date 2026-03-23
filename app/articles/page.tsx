@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { getPublishedArticles } from '@/src/lib/cms';
 import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/ArticleCard';
 import { CategoryFilter } from '@/src/components/landing/CategoryFilter';
+import { Navbar } from '@/src/components/layout/Navbar';
 
 export const revalidate = 60;
 
@@ -32,19 +33,8 @@ export default async function ArticlesPage({ searchParams }: Props) {
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
 
-      {/* Navbar */}
-      <nav style={{ display: 'flex', alignItems: 'center', padding: '0 40px', height: 64, background: 'rgba(13,46,90,0.97)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-          <span style={{ fontSize: 22 }}>📐</span>
-          <span style={{ fontWeight: 800, fontSize: 14, color: '#fff' }}>Financial Modeler Pro</span>
-        </Link>
-        <div style={{ flex: 1 }} />
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Link href="/training" style={{ padding: '6px 14px', fontSize: 13, color: 'rgba(255,255,255,0.65)', textDecoration: 'none' }}>Training</Link>
-          <Link href="/about"    style={{ padding: '6px 14px', fontSize: 13, color: 'rgba(255,255,255,0.65)', textDecoration: 'none' }}>About</Link>
-          <Link href="/login"    style={{ padding: '6px 16px', background: '#1B4F8A', borderRadius: 7, fontSize: 13, fontWeight: 700, color: '#fff', textDecoration: 'none' }}>Launch Platform →</Link>
-        </div>
-      </nav>
+      <Navbar />
+      <div style={{ height: 64 }} />
 
       {/* Hero */}
       <section style={{ padding: '72px 40px 56px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>

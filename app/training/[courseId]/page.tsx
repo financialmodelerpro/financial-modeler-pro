@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getCourseWithLessons } from '@/src/lib/cms';
 import { VideoPlayer } from '@/src/components/landing/VideoPlayer';
+import { Navbar } from '@/src/components/layout/Navbar';
 
 export const revalidate = 60;
 
@@ -34,16 +35,8 @@ export default async function CourseDetailPage({ params }: Props) {
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
 
-      {/* Navbar */}
-      <nav style={{ display: 'flex', alignItems: 'center', padding: '0 40px', height: 64, background: 'rgba(13,46,90,0.97)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
-        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-          <span style={{ fontSize: 22 }}>📐</span>
-          <span style={{ fontWeight: 800, fontSize: 14, color: '#fff' }}>Financial Modeler Pro</span>
-        </Link>
-        <div style={{ flex: 1 }} />
-        <Link href="/training" style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', textDecoration: 'none', marginRight: 16 }}>← Training Library</Link>
-        <Link href="/login" style={{ padding: '6px 16px', background: '#1B4F8A', borderRadius: 7, fontSize: 13, fontWeight: 700, color: '#fff', textDecoration: 'none' }}>Launch Platform</Link>
-      </nav>
+      <Navbar />
+      <div style={{ height: 64 }} />
 
       {/* Course Header */}
       <section style={{ padding: '48px 40px 36px', borderBottom: '1px solid rgba(255,255,255,0.07)', background: 'rgba(0,0,0,0.15)' }}>

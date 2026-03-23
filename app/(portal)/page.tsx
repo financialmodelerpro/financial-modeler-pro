@@ -15,6 +15,7 @@ import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/Ar
 import { CourseCard } from '@/src/components/landing/CourseCard';
 import { InlineEdit } from '@/src/components/landing/InlineEdit';
 import { AdminEditBar } from '@/src/components/landing/AdminEditBar';
+import { Navbar } from '@/src/components/layout/Navbar';
 
 export const revalidate = 60;
 
@@ -48,17 +49,17 @@ export default async function LandingPage() {
 
   // ── Hero ──────────────────────────────────────────────────────────────────
   const heroBadge     = cms(content, 'hero', 'badge_text',   '🚀 The Professional Hub for Financial Modeling');
-  const heroHeadline  = cms(content, 'hero', 'headline',     'The Professional Hub\nfor Financial Modeling');
-  const heroSub       = cms(content, 'hero', 'subheadline',  'From real estate to business valuation — structured models, free training, and professional-grade exports. All in one platform.');
+  const heroHeadline  = cms(content, 'hero', 'headline',     'The Operating System\nfor Financial Modeling');
+  const heroSub       = cms(content, 'hero', 'subheadline',  'Learn. Build. Execute. — structured models, free training, and professional-grade outputs. All in one platform.');
   const heroCta1      = cms(content, 'hero', 'cta1',         'Launch Platform Free →');
   const heroCta2      = cms(content, 'hero', 'cta2',         'Explore Platforms ↓');
 
   // ── Stats ──────────────────────────────────────────────────────────────────
   const stats = [
-    { v: cms(content,'stats','stat1_value','10+'),         vk:'stat1_value', l: cms(content,'stats','stat1_label','Modeling Platforms'),  lk:'stat1_label' },
-    { v: cms(content,'stats','stat2_value','100%'),        vk:'stat2_value', l: cms(content,'stats','stat2_label','Free Training'),        lk:'stat2_label' },
-    { v: cms(content,'stats','stat3_value','Excel + PDF'), vk:'stat3_value', l: cms(content,'stats','stat3_label','Export Formats'),       lk:'stat3_label' },
-    { v: cms(content,'stats','stat4_value','20+'),         vk:'stat4_value', l: cms(content,'stats','stat4_label','Currencies Supported'), lk:'stat4_label' },
+    { v: cms(content,'stats','stat1_value','12+'),  vk:'stat1_value', l: cms(content,'stats','stat1_label','Years of Experience'),        lk:'stat1_label' },
+    { v: cms(content,'stats','stat2_value','10+'),  vk:'stat2_value', l: cms(content,'stats','stat2_label','Modeling Platforms'),          lk:'stat2_label' },
+    { v: cms(content,'stats','stat3_value','20+'),  vk:'stat3_value', l: cms(content,'stats','stat3_label','Currencies Supported'),        lk:'stat3_label' },
+    { v: cms(content,'stats','stat4_value','100%'), vk:'stat4_value', l: cms(content,'stats','stat4_label','Free Training — No Paywall'), lk:'stat4_label' },
   ];
 
   // ── About ─────────────────────────────────────────────────────────────────
@@ -159,23 +160,7 @@ export default async function LandingPage() {
       {isAdmin && <AdminEditBar />}
 
       {/* ── Navbar ─────────────────────────────────────────────────────────── */}
-      <nav style={{ position:'fixed', top:isAdmin?44:0, left:0, right:0, zIndex:100, display:'flex', alignItems:'center', padding:'0 40px', height:64, background:'rgba(13,46,90,0.97)', borderBottom:'1px solid rgba(255,255,255,0.08)', backdropFilter:'blur(12px)', boxShadow:'0 2px 20px rgba(0,0,0,0.4)' }}>
-        <Link href="/" style={{ display:'flex', alignItems:'center', gap:10, textDecoration:'none' }}>
-          <span style={{ fontSize:24 }}>📐</span>
-          <div>
-            <div style={{ fontWeight:800, fontSize:14, color:'#fff', letterSpacing:'0.01em', lineHeight:1 }}>Financial Modeler Pro</div>
-            <div style={{ fontSize:9, color:'rgba(255,255,255,0.4)', letterSpacing:'0.1em', textTransform:'uppercase', marginTop:2 }}>Structured Modeling. Real-World Finance.</div>
-          </div>
-        </Link>
-        <div style={{ flex:1 }} />
-        <div style={{ display:'flex', alignItems:'center', gap:2 }}>
-          {navPages.map(({ id, label, href }) => (
-            <Link key={id} href={href} style={{ padding:'6px 12px', borderRadius:6, fontSize:13, fontWeight:500, color:'rgba(255,255,255,0.75)', textDecoration:'none' }}>{label}</Link>
-          ))}
-          <div style={{ width:1, height:20, background:'rgba(255,255,255,0.15)', margin:'0 8px' }} />
-          <Link href="/portal" style={{ display:'inline-flex', alignItems:'center', padding:'7px 16px', borderRadius:7, fontSize:13, fontWeight:700, textDecoration:'none', background:'#1B4F8A', color:'#fff' }}>Go to Portal →</Link>
-        </div>
-      </nav>
+      <Navbar navPages={navPages} topOffset={isAdmin ? 44 : 0} />
 
       {/* ── Spacer for fixed navbar ────────────────────────────────────────── */}
       <div style={{ height: isAdmin ? 108 : 64 }} />
@@ -203,6 +188,9 @@ export default async function LandingPage() {
               <InlineEdit tag="span" section="hero" fieldKey="cta2" value={heroCta2} isAdmin={isAdmin} darkBg />
             </Link>
           </div>
+          <p style={{ fontSize:12, color:'rgba(255,255,255,0.3)', marginTop:24, letterSpacing:'0.02em' }}>
+            Built by Corporate Finance Professionals · 12+ Years of Experience · Trusted across KSA &amp; Pakistan
+          </p>
         </div>
       </section>
 
@@ -425,6 +413,46 @@ export default async function LandingPage() {
                   <a href={founderLinkedIn} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'transparent', border:'1px solid rgba(255,255,255,0.15)', color:'rgba(255,255,255,0.65)', fontSize:13, fontWeight:600, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>LinkedIn ↗</a>
                 )}
               </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── PaceMakers ─────────────────────────────────────────────────────── */}
+      <section style={{ padding:'88px 40px', background:'#0A2248', color:'#fff' }}>
+        <div style={{ maxWidth:1100, margin:'0 auto' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:56, alignItems:'center' }}>
+            <div>
+              <div style={{ fontSize:12, fontWeight:700, color:'#4A90D9', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>
+                The Firm Behind the Platform
+              </div>
+              <h2 style={{ fontSize:'clamp(22px,3vw,32px)', fontWeight:800, color:'#fff', marginBottom:20, lineHeight:1.2 }}>
+                Powered by PaceMakers Business Consultants
+              </h2>
+              <p style={{ fontSize:15, color:'rgba(255,255,255,0.6)', lineHeight:1.75, marginBottom:32 }}>
+                Financial Modeler Pro is a product of PaceMakers — a corporate finance advisory firm with 12+ years of experience delivering institutional-grade financial solutions across KSA and Pakistan.
+              </p>
+              <a
+                href="https://www.pacemakersglobal.com"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#1B4F8A', color:'#fff', fontWeight:700, fontSize:13, padding:'10px 24px', borderRadius:7, textDecoration:'none' }}
+              >
+                Visit PaceMakers →
+              </a>
+            </div>
+            <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+              {[
+                'Financial Modeling & Valuation',
+                'Transaction Advisory & Due Diligence',
+                'Fractional CFO Services',
+                'Investment Analysis & Feasibility',
+              ].map((service) => (
+                <div key={service} style={{ display:'flex', alignItems:'center', gap:14, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'16px 20px' }}>
+                  <span style={{ width:22, height:22, borderRadius:'50%', flexShrink:0, background:'rgba(27,79,138,0.4)', border:'1px solid rgba(74,144,217,0.4)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:'#4A90D9' }}>✓</span>
+                  <span style={{ fontSize:14, fontWeight:600, color:'rgba(255,255,255,0.85)' }}>{service}</span>
+                </div>
+              ))}
             </div>
           </div>
         </div>

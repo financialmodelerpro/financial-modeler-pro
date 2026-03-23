@@ -40,7 +40,8 @@
       "Bash(powershell -Command \"Remove-Item -Path 'D:/FMP/financial-modeler-pro/.next/dev/lock' -Force -ErrorAction SilentlyContinue; Write-Host 'lock removed'\")",
       "Bash(powershell -Command \"Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force; Write-Host 'All node processes killed'\")",
       "Bash(node -e \"require\\(''''@react-pdf/renderer''''\\)\")",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npm audit:*)"
     ]
   }
 }
