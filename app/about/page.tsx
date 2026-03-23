@@ -1,6 +1,20 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { getModules, type Module } from '@/src/lib/cms';
 import { Navbar } from '@/src/components/layout/Navbar';
+
+const FALLBACK_MODULES: Module[] = [
+  { id:'1',  name:'Real Estate Financial Modeling', slug:'real-estate',        description:'Multi-asset development models covering residential, hospitality, retail, commercial, industrial, and more.', icon:'🏗️', status:'live',        display_order:1,  launch_date:null },
+  { id:'2',  name:'Business Valuation',             slug:'business-valuation', description:'DCF analysis, comparable companies, precedent transactions, sum of parts, and LBO quick check.',            icon:'💼', status:'coming_soon', display_order:2,  launch_date:null },
+  { id:'3',  name:'FP&A Modeling',                  slug:'fpa-modeling',       description:'Annual budgets, rolling forecasts, budget vs actual variance analysis, and department P&L.',               icon:'📊', status:'coming_soon', display_order:3,  launch_date:null },
+  { id:'4',  name:'Equity Research',                slug:'equity-research',    description:'Financial model templates, initiation of coverage reports, earnings models, and sector-specific models.',  icon:'📈', status:'coming_soon', display_order:4,  launch_date:null },
+  { id:'5',  name:'Project Finance',                slug:'project-finance',    description:'Infrastructure PPP, power and energy models, concession modeling, DSCR analysis, and debt sculpting.',   icon:'🏦', status:'coming_soon', display_order:5,  launch_date:null },
+  { id:'6',  name:'LBO Modeling',                   slug:'lbo-modeling',       description:'Full leveraged buyout models — sources and uses, debt schedule, management equity, returns waterfall.',   icon:'🔄', status:'coming_soon', display_order:6,  launch_date:null },
+  { id:'7',  name:'Corporate Finance',              slug:'corporate-finance',  description:'M&A models, merger consequences, accretion/dilution analysis, synergy modeling, fairness opinions.',      icon:'🌍', status:'coming_soon', display_order:7,  launch_date:null },
+  { id:'8',  name:'Energy & Utilities',             slug:'energy-utilities',   description:'Solar, wind, oil and gas, utility rate models, carbon credits, and power purchase agreements.',           icon:'⚡', status:'coming_soon', display_order:8,  launch_date:null },
+  { id:'9',  name:'Startup & Venture',              slug:'startup-venture',    description:'SaaS unit economics, runway and burn analysis, cap table modeling, cohort analysis, VC returns.',         icon:'🚀', status:'coming_soon', display_order:9,  launch_date:null },
+  { id:'10', name:'Banking & Credit',               slug:'banking-credit',     description:'Credit analysis, loan modeling, NPL workout, Basel compliance, portfolio stress testing.',                icon:'🏛️', status:'coming_soon', display_order:10, launch_date:null },
+];
 
 export const revalidate = 60;
 
@@ -9,7 +23,8 @@ export const metadata: Metadata = {
   description: 'Learn about Financial Modeler Pro — the professional financial modeling platform built for developers, analysts, and investors across all disciplines.',
 };
 
-export default function AboutPage() {
+export default async function AboutPage() {
+  const modules = await getModules();
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
 
@@ -104,6 +119,31 @@ export default function AboutPage() {
         }}>
           Read Ahmad&apos;s Profile →
         </Link>
+      </section>
+
+      {/* Our Platforms */}
+      <section style={{ padding: '80px 40px', background: '#0A2248' }}>
+        <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+          <div style={{ textAlign: 'center', marginBottom: 48 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#4A90D9', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 14 }}>Our Platforms</div>
+            <h2 style={{ fontSize: 'clamp(22px,3vw,32px)', fontWeight: 800, color: '#fff', marginBottom: 12 }}>10+ Professional Modeling Platforms</h2>
+            <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)' }}>Live now and launching soon — one destination for every financial modeling discipline.</p>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16 }}>
+            {(modules.length > 0 ? modules : FALLBACK_MODULES).map((mod) => (
+              <div key={mod.id} style={{ background: mod.status === 'live' ? 'rgba(27,79,138,0.2)' : 'rgba(255,255,255,0.03)', border: mod.status === 'live' ? '1px solid rgba(27,79,138,0.4)' : '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '20px', borderLeft: mod.status === 'live' ? '3px solid #1B4F8A' : '3px solid rgba(255,255,255,0.1)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <span style={{ fontSize: 24 }}>{mod.icon}</span>
+                  {mod.status === 'live'
+                    ? <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'rgba(22,101,52,0.3)', color: '#86EFAC', border: '1px solid rgba(134,239,172,0.25)' }}>✓ LIVE</span>
+                    : <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'rgba(120,53,15,0.3)', color: '#FCD34D', border: '1px solid rgba(252,211,77,0.2)' }}>COMING SOON</span>}
+                </div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: mod.status === 'live' ? '#fff' : 'rgba(255,255,255,0.55)', marginBottom: 6 }}>{mod.name}</div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', lineHeight: 1.6 }}>{mod.description.substring(0, 80)}{mod.description.length > 80 ? '…' : ''}</div>
+              </div>
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* CTA */}

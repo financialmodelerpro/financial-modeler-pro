@@ -48,9 +48,9 @@ export default async function LandingPage() {
   const founderPhotoUrl = cms(founder, 'bio', 'photo_url',    '');
 
   // ── Hero ──────────────────────────────────────────────────────────────────
-  const heroBadge     = cms(content, 'hero', 'badge_text',   '🚀 The Professional Hub for Financial Modeling');
+  const heroBadge     = cms(content, 'hero', 'badge_text',   '🚀 Now Live — Free to Use');
   const heroHeadline  = cms(content, 'hero', 'headline',     'The Operating System\nfor Financial Modeling');
-  const heroSub       = cms(content, 'hero', 'subheadline',  'Learn. Build. Execute. — structured models, free training, and professional-grade outputs. All in one platform.');
+  const heroSub       = cms(content, 'hero', 'subheadline',  'Learn. Build. Execute. — structured financial models, free professional training, and investor-ready outputs. All in one platform.');
   const heroCta1      = cms(content, 'hero', 'cta1',         'Launch Platform Free →');
   const heroCta2      = cms(content, 'hero', 'cta2',         'Explore Platforms ↓');
 
@@ -246,7 +246,12 @@ export default async function LandingPage() {
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:24 }}>
             {/* Modeling card */}
             <div style={{ background:'#fff', border:'1px solid #C7D9F2', borderTop:'4px solid #1B4F8A', borderRadius:16, padding:'36px 32px', boxShadow:'0 2px 12px rgba(27,79,138,0.06)' }}>
-              <div style={{ fontSize:40, marginBottom:16 }}>🏗️</div>
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginBottom:16, display:'block' }}>
+                <rect x="4" y="26" width="10" height="18" rx="3" fill="#1B4F8A"/>
+                <rect x="19" y="16" width="10" height="28" rx="3" fill="#1B4F8A" fillOpacity="0.65"/>
+                <rect x="34" y="6" width="10" height="38" rx="3" fill="#1B4F8A" fillOpacity="0.35"/>
+                <line x1="2" y1="46" x2="46" y2="46" stroke="#1B4F8A" strokeWidth="2.5" strokeLinecap="round"/>
+              </svg>
               <InlineEdit tag="h3" section="pillars" fieldKey="model_title" value={modelTitle} isAdmin={isAdmin}
                 style={{ fontSize:22, fontWeight:800, color:'#1B3A6B', marginBottom:12 }} />
               <InlineEdit tag="p" section="pillars" fieldKey="model_desc" value={modelDesc} isAdmin={isAdmin}
@@ -260,7 +265,12 @@ export default async function LandingPage() {
             </div>
             {/* Training card */}
             <div style={{ background:'#fff', border:'1px solid #C3E9CE', borderTop:'4px solid #1A7A30', borderRadius:16, padding:'36px 32px', boxShadow:'0 2px 12px rgba(26,122,48,0.06)' }}>
-              <div style={{ fontSize:40, marginBottom:16 }}>🎓</div>
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginBottom:16, display:'block' }}>
+                <path d="M24 10L6 20L24 30L42 20L24 10Z" fill="#1A7A30"/>
+                <path d="M13 25.5V35C13 35 17.5 40 24 40C30.5 40 35 35 35 35V25.5" stroke="#1A7A30" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
+                <line x1="42" y1="20" x2="42" y2="32" stroke="#1A7A30" strokeWidth="3" strokeLinecap="round"/>
+                <circle cx="42" cy="33.5" r="2.5" fill="#1A7A30"/>
+              </svg>
               <InlineEdit tag="h3" section="pillars" fieldKey="training_title" value={trainingTitle} isAdmin={isAdmin}
                 style={{ fontSize:22, fontWeight:800, color:'#1B3A6B', marginBottom:12 }} />
               <InlineEdit tag="p" section="pillars" fieldKey="training_desc" value={trainingDesc} isAdmin={isAdmin}
@@ -367,11 +377,11 @@ export default async function LandingPage() {
               style={{ fontSize:15, color:'#6B7280', maxWidth:560, margin:'0 auto' }} />
           </div>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', gap:20 }}>
-            {displayAssets.map((a)=>(
-              <div key={a.id} style={{ background:a.visible?'#fff':'#F9FAFB', border:a.visible?'1px solid #C7D9F2':'1px solid #E5E7EB', borderLeft:a.visible?'4px solid #1B4F8A':'4px solid #D1D5DB', borderRadius:14, padding:'28px 24px', opacity:a.visible?1:0.75, position:'relative' }}>
+            {displayAssets.filter(a => isAdmin || a.visible).map((a)=>(
+              <div key={a.id} style={{ background:a.visible?'#fff':'#F3F4F6', border:a.visible?'1px solid #C7D9F2':'1px solid #E5E7EB', borderLeft:a.visible?'4px solid #1B4F8A':'4px solid #D1D5DB', borderRadius:14, padding:'28px 24px', opacity:a.visible?1:0.7, position:'relative' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
                   <span style={{ fontSize:36 }}>{a.icon}</span>
-                  {!a.visible && <span style={{ fontSize:10, fontWeight:700, padding:'3px 10px', borderRadius:20, background:'#F3F4F6', color:'#6B7280', border:'1px solid #E5E7EB', letterSpacing:'0.04em' }}>COMING SOON</span>}
+                  {!a.visible && <span style={{ fontSize:10, fontWeight:700, padding:'3px 10px', borderRadius:20, background:'#F3F4F6', color:'#6B7280', border:'1px solid #E5E7EB', letterSpacing:'0.04em' }}>{isAdmin ? '🔒 HIDDEN' : 'COMING SOON'}</span>}
                 </div>
                 <h3 style={{ fontSize:16, fontWeight:800, color:a.visible?'#1B3A6B':'#6B7280', marginBottom:10 }}>{a.name}</h3>
                 <p style={{ fontSize:13, color:'#9CA3AF', lineHeight:1.7, margin:0 }}>{a.description}</p>
@@ -383,7 +393,7 @@ export default async function LandingPage() {
       </section>
 
       {/* ── Founder ────────────────────────────────────────────────────────── */}
-      <section style={{ padding:'88px 40px', background:'#1B3A6B', color:'#fff' }}>
+      <section style={{ padding:'64px 40px 80px', background:'#1B3A6B', color:'#fff' }}>
         <div style={{ maxWidth:1100, margin:'0 auto' }}>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:56, alignItems:'center' }}>
             <div style={{ display:'flex', justifyContent:'center' }}>
@@ -393,7 +403,9 @@ export default async function LandingPage() {
                   <img src={founderPhotoUrl} alt={founderName} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
                 </div>
               ) : (
-                <div style={{ width:220, height:220, borderRadius:'50%', background:'linear-gradient(135deg,#1B4F8A,#2D6BA8)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:80, border:'3px solid rgba(255,255,255,0.2)', boxShadow:'0 8px 40px rgba(0,0,0,0.4)' }}>👤</div>
+                <div style={{ width:220, height:220, borderRadius:'50%', background:'linear-gradient(135deg,#0D2E5A,#1B4F8A)', display:'flex', alignItems:'center', justifyContent:'center', border:'3px solid rgba(255,255,255,0.2)', boxShadow:'0 8px 40px rgba(0,0,0,0.4)' }}>
+                  <span style={{ fontSize:56, fontWeight:800, color:'rgba(255,255,255,0.9)', letterSpacing:'-2px', fontFamily:"'Inter',sans-serif" }}>AD</span>
+                </div>
               )}
             </div>
             <div>
@@ -403,15 +415,27 @@ export default async function LandingPage() {
               <div style={{ fontSize:14, color:'#93C5FD', fontWeight:600, marginBottom:20, lineHeight:1.4 }}>
                 Corporate Finance &amp; Transaction Advisory Specialist | Financial Modeling Expert
               </div>
-              <p style={{ fontSize:14.5, color:'rgba(255,255,255,0.65)', lineHeight:1.75, marginBottom:isAdmin?8:28 }}>{founderShortBio}</p>
+              <p style={{ fontSize:14.5, color:'rgba(255,255,255,0.65)', lineHeight:1.75, marginBottom:16 }}>{founderShortBio}</p>
+              <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:isAdmin?8:24 }}>
+                {[
+                  '12+ years in Corporate Finance & Advisory',
+                  'Experience across KSA & Pakistan',
+                  'Lender-grade models: IRR, DSCR, Feasibility',
+                  'Real estate, energy, infrastructure & industrial sectors',
+                  'Transaction advisory & investment support',
+                ].map(text=>(
+                  <div key={text} style={{ display:'flex', alignItems:'center', gap:10 }}>
+                    <span style={{ color:'#4A90D9', fontWeight:700, fontSize:12, flexShrink:0 }}>✓</span>
+                    <span style={{ fontSize:13.5, color:'rgba(255,255,255,0.6)' }}>{text}</span>
+                  </div>
+                ))}
+              </div>
               {isAdmin && (
                 <Link href="/admin/founder" target="_blank" style={{ fontSize:11, color:'#93C5FD', textDecoration:'none', display:'block', marginBottom:20 }}>✏️ Edit founder profile in Admin →</Link>
               )}
               <div style={{ display:'flex', gap:14, flexWrap:'wrap' }}>
-                <Link href="/about/ahmad-din" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.25)', color:'#fff', fontSize:13, fontWeight:600, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>Read Full Profile →</Link>
-                {founderLinkedIn && (
-                  <a href={founderLinkedIn} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'transparent', border:'1px solid rgba(255,255,255,0.15)', color:'rgba(255,255,255,0.65)', fontSize:13, fontWeight:600, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>LinkedIn ↗</a>
-                )}
+                <Link href="/about/ahmad-din" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1B4F8A', border:'1px solid #1B4F8A', color:'#fff', fontSize:13, fontWeight:700, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>Read Full Profile →</Link>
+                <a href={founderLinkedIn || 'https://linkedin.com/in/ahmaddin'} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'transparent', border:'1px solid rgba(255,255,255,0.25)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:600, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>Connect on LinkedIn →</a>
               </div>
             </div>
           </div>
@@ -495,8 +519,8 @@ export default async function LandingPage() {
               <div key={p.name} style={{ background:p.featured?'#1B4F8A':'#fff', border:p.featured?'none':'1px solid #E5E7EB', borderRadius:14, padding:'32px 28px', position:'relative', boxShadow:p.featured?'0 8px 40px rgba(27,79,138,0.25)':'0 2px 8px rgba(0,0,0,0.04)' }}>
                 {p.featured && <div style={{ position:'absolute', top:-12, left:'50%', transform:'translateX(-50%)', background:'#1A7A30', color:'#fff', fontSize:10, fontWeight:700, padding:'3px 14px', borderRadius:20, letterSpacing:'0.08em', whiteSpace:'nowrap' }}>MOST POPULAR</div>}
                 <h3 style={{ fontSize:13, fontWeight:700, color:p.featured?'rgba(255,255,255,0.7)':'#6B7280', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:14 }}>{p.name}</h3>
-                <div style={{ marginBottom:8 }}><span style={{ fontSize:22, fontWeight:800, color:p.featured?'#fff':'#1B3A6B', fontStyle:'italic' }}>Pricing Coming Soon</span></div>
-                <p style={{ fontSize:12, color:p.featured?'rgba(255,255,255,0.5)':'#9CA3AF', marginBottom:24 }}>We are finalising our pricing plans</p>
+                <div style={{ marginBottom:8 }}><span style={{ fontSize:15, fontWeight:700, color:p.featured?'rgba(255,255,255,0.55)':'#9CA3AF' }}>Price: Coming Soon</span></div>
+                <p style={{ fontSize:12, color:p.featured?'rgba(255,255,255,0.4)':'#9CA3AF', marginBottom:24 }}>Finalising pricing — currently free for all users.</p>
                 <ul style={{ listStyle:'none', padding:0, margin:'0 0 28px', display:'flex', flexDirection:'column', gap:10 }}>
                   {p.features.map((f)=>(
                     <li key={f} style={{ fontSize:13, color:p.featured?'rgba(255,255,255,0.8)':'#4B5563', display:'flex', alignItems:'center', gap:8 }}>
@@ -566,7 +590,7 @@ export default async function LandingPage() {
 }
 
 const PLANS = [
-  { name:'Free',         featured:false, features:['Up to 3 projects','Module 1 — Project Setup','JSON save & load','Community support'] },
-  { name:'Professional', featured:true,  features:['Up to 20 projects','All modeling modules','Excel + PDF export','Priority support'] },
-  { name:'Enterprise',   featured:false, features:['Unlimited projects','All modules','White-label branding','Team collaboration','Dedicated support'] },
+  { name:'Free',         featured:false, features:['Up to 3 projects','Module 1 Project Setup','Basic PDF export','Community support'] },
+  { name:'Professional', featured:true,  features:['Up to 10 projects','All modeling modules','Excel + PDF export','AI Assist','Priority support'] },
+  { name:'Enterprise',   featured:false, features:['Unlimited projects','All modules','Formula Excel export','White-label branding','AI Research','Dedicated support'] },
 ];

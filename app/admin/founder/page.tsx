@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 
 /* ─── tab definitions ─── */
@@ -125,6 +125,38 @@ export default function AdminFounderPage() {
     setTimeout(() => setToast(''), 2500);
   }
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadPreview, setUploadPreview] = useState('');
+  const [uploading, setUploading] = useState(false);
+
+  function handlePhotoFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const base64 = ev.target?.result as string;
+      setUploadPreview(base64);
+      setValues(p => ({ ...p, 'bio__photo_url': base64 }));
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function savePhoto() {
+    const val = values['bio__photo_url'] ?? '';
+    if (!val) return;
+    setUploading(true);
+    try {
+      await fetch('/api/admin/founder', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section: 'bio', key: 'photo_url', value: val }),
+      });
+      showToast('Photo saved!');
+    } finally {
+      setUploading(false);
+    }
+  }
+
   const fields = FIELDS_BY_TAB[activeTab] ?? [];
 
   return (
@@ -212,6 +244,43 @@ export default function AdminFounderPage() {
                   );
                 })}
               </div>
+
+              {/* Photo Upload — only shown on Basic Info tab */}
+              {activeTab === 'basic' && (
+                <div style={{ marginTop: 24, padding: 20, background: '#F4F7FC', border: '1px solid #E8F0FB', borderRadius: 10 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>Upload Profile Photo</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                    {/* Preview */}
+                    <div style={{ width: 72, height: 72, borderRadius: '50%', overflow: 'hidden', border: '2px solid #C7D9F2', background: '#E8F0FB', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {(uploadPreview || values['bio__photo_url']) ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={uploadPreview || values['bio__photo_url']} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      ) : (
+                        <span style={{ fontSize: 24, fontWeight: 800, color: '#1B4F8A' }}>AD</span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoFile} style={{ display: 'none' }} />
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        style={{ padding: '7px 18px', fontSize: 12, fontWeight: 700, borderRadius: 7, border: '1px solid #C7D9F2', background: '#fff', cursor: 'pointer', color: '#1B4F8A' }}
+                      >
+                        Choose File…
+                      </button>
+                      <button
+                        onClick={savePhoto}
+                        disabled={uploading || !values['bio__photo_url']}
+                        style={{ padding: '7px 18px', fontSize: 12, fontWeight: 700, borderRadius: 7, border: 'none', background: '#1B4F8A', color: '#fff', cursor: 'pointer', opacity: uploading || !values['bio__photo_url'] ? 0.5 : 1 }}
+                      >
+                        {uploading ? 'Saving…' : 'Save Photo'}
+                      </button>
+                    </div>
+                    <div style={{ fontSize: 11, color: '#9CA3AF', lineHeight: 1.5 }}>
+                      JPG / PNG / WebP<br />Stored as base64 in DB.<br />Also paste a URL in the field above.
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div style={{ marginTop: 28, paddingTop: 20, borderTop: '1px solid #E5E7EB', display: 'flex', justifyContent: 'flex-end' }}>
                 <button

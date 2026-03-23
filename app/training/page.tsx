@@ -35,7 +35,7 @@ export default async function TrainingPage() {
             Free Training Library
           </h1>
           <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.5)', lineHeight: 1.65 }}>
-            Video courses on real estate financial modeling taught by practitioners. From first principles to advanced deal structuring.
+            Financial modeling courses across real estate, valuation, FP&amp;A, and more — taught by practitioners.
           </p>
         </div>
       </section>
@@ -49,18 +49,19 @@ export default async function TrainingPage() {
             ))}
           </div>
         ) : (
-          <div style={{ textAlign: 'center', padding: '80px 24px' }}>
-            <div style={{ fontSize: 56, marginBottom: 20 }}>🎓</div>
-            <h2 style={{ fontSize: 22, fontWeight: 700, color: '#fff', marginBottom: 12 }}>Courses Coming Soon</h2>
-            <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', marginBottom: 32, maxWidth: 480, margin: '0 auto 32px' }}>
-              Free video training on real estate financial modeling is in production. The first course will cover Module 1 end-to-end — from project setup to debt/equity scheduling.
-            </p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: 20, maxWidth: 880 }}>
+          <div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 24 }}>
               {PLACEHOLDER_COURSES.map((c) => (
-                <div key={c.title} style={{ background: 'rgba(26,122,48,0.07)', border: '1px dashed rgba(26,122,48,0.25)', borderRadius: 12, padding: 24 }}>
-                  <div style={{ fontSize: 32, marginBottom: 12 }}>{c.icon}</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#fff', marginBottom: 8 }}>{c.title}</div>
-                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.4)' }}>{c.lessons} lessons · Coming Soon</div>
+                <div key={c.title} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '28px 24px', display: 'flex', flexDirection: 'column', gap: 0 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+                    <div style={{ width: 48, height: 48, borderRadius: 12, background: 'rgba(26,122,48,0.2)', border: '1px solid rgba(26,122,48,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22 }}>🎓</div>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: 'rgba(251,191,36,0.15)', color: '#FCD34D', border: '1px solid rgba(252,211,77,0.25)', letterSpacing: '0.06em' }}>COMING SOON</span>
+                  </div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#fff', marginBottom: 8, lineHeight: 1.4 }}>{c.title}</div>
+                  <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', marginBottom: 24 }}>{c.lessons} lessons · Free</div>
+                  <button style={{ marginTop: 'auto', padding: '9px 0', borderRadius: 7, border: '1px solid rgba(255,255,255,0.15)', background: 'rgba(255,255,255,0.06)', color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 600, cursor: 'pointer', width: '100%' }}>
+                    Notify Me
+                  </button>
                 </div>
               ))}
             </div>
@@ -88,7 +89,7 @@ export default async function TrainingPage() {
 }
 
 const PLACEHOLDER_COURSES = [
-  { icon: '🏗️', title: 'Module 1: Project Setup & Development Finance', lessons: 12 },
-  { icon: '💰', title: 'Revenue Modeling for Real Estate', lessons: 8 },
-  { icon: '📈', title: 'Returns Analysis: IRR, NPV & Equity Multiple', lessons: 10 },
+  { title: 'Real Estate Financial Modeling — Module 1', lessons: 12 },
+  { title: 'Business Valuation & DCF Analysis', lessons: 8 },
+  { title: 'Returns Analysis: IRR, NPV & Equity Multiple', lessons: 10 },
 ];
