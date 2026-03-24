@@ -45,7 +45,14 @@ export default async function LandingPage() {
   const founderName     = cms(founder, 'bio', 'name',         'Ahmad Din');
   const founderShortBio = cms(founder, 'bio', 'short_bio',    'Corporate Finance and Transaction Advisory specialist with deep expertise in financial modeling across real estate, business valuation, and corporate finance.');
   const founderLinkedIn = cms(founder, 'bio', 'linkedin_url', '');
-  const founderPhotoUrl = cms(founder, 'bio', 'photo_url',    '');
+  const _founderPhotoRaw = cms(founder, 'bio', 'photo_url', '');
+  // Normalise: FileReader.readAsDataURL() always returns a full data URI.
+  // Guard against raw base64 strings (no prefix) that may have been stored directly.
+  const founderPhotoUrl = _founderPhotoRaw.startsWith('data:') || _founderPhotoRaw.startsWith('http')
+    ? _founderPhotoRaw
+    : _founderPhotoRaw
+      ? `data:image/jpeg;base64,${_founderPhotoRaw}`
+      : '';
 
   // ── Hero ──────────────────────────────────────────────────────────────────
   const heroBadge     = cms(content, 'hero', 'badge_text',   '🚀 Now Live — Free to Use');

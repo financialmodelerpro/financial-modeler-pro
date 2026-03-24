@@ -21,7 +21,8 @@ const FIELDS_BASIC: FieldDef[] = [
   { section: 'bio', key: 'title',        label: 'Title / Role',     placeholder: 'Founder & Lead Instructor' },
   { section: 'bio', key: 'organisation', label: 'Organisation',     placeholder: 'CEO & Founder — Financial Modeler Pro | PaceMakers Business Consultants' },
   { section: 'bio', key: 'location',     label: 'Location',         placeholder: 'Lahore, Pakistan' },
-  { section: 'bio', key: 'photo_url',    label: 'Profile Photo URL',placeholder: 'https://...' },
+  // photo_url is managed exclusively by the Upload widget below — omitting here prevents
+  // saveTab() from overwriting the base64 value with whatever appears in a text input.
 ];
 
 const FIELDS_SUMMARY: FieldDef[] = [
