@@ -152,6 +152,169 @@ function UserDropdown({ session, isAdmin }: UserDropdownProps) {
   );
 }
 
+// ── MyCertificates ────────────────────────────────────────────────────────────
+// Additive-only section. Fetches training certs independently — never blocks portal.
+
+interface CertCard {
+  certificateId: string;
+  studentName: string;
+  course: string;
+  issuedAt: string;
+  certifierUrl: string;
+}
+
+function courseLabel(courseId: string): string {
+  const map: Record<string, string> = {
+    '3sfm': '3-Statement Financial Modeling',
+    'bvm':  'Business Valuation Modeling',
+    'both': 'Financial Modeling',
+  };
+  return map[courseId] ?? courseId.toUpperCase();
+}
+
+function formatCertDate(iso: string): string {
+  try {
+    return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  } catch { return iso; }
+}
+
+function MyCertificates({ userEmail }: { userEmail: string | null | undefined }) {
+  const [certs,   setCerts]   = React.useState<CertCard[] | null>(null); // null = loading, [] = none
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    if (!userEmail) { setLoading(false); setCerts([]); return; }
+    let cancelled = false;
+    fetch(`/api/training/certificate?email=${encodeURIComponent(userEmail)}`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then((j: { success: boolean; data?: CertCard[] }) => {
+        if (!cancelled) setCerts(j.success && Array.isArray(j.data) ? j.data : []);
+      })
+      .catch(() => { if (!cancelled) setCerts(null); }) // silently hide on any error
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [userEmail]);
+
+  // Silently hide section on API error
+  if (!loading && certs === null) return null;
+
+  const linkedInUrl = (certifierUrl: string) =>
+    `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(certifierUrl)}`;
+
+  return (
+    <div style={{ marginBottom: 28 }}>
+      {/* Section label — same style as portal */}
+      <div className="portal-section-label">My Certificates 🏆</div>
+
+      {/* Loading skeleton */}
+      {loading && (
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          {[1, 2].map(i => (
+            <div key={i} style={{
+              flex: '1 1 280px', maxWidth: 360,
+              height: 112, borderRadius: 10,
+              background: 'linear-gradient(90deg,rgba(255,255,255,0.06) 25%,rgba(255,255,255,0.12) 50%,rgba(255,255,255,0.06) 75%)',
+              backgroundSize: '200% 100%',
+              animation: 'shimmer 1.4s infinite',
+              border: '1px solid rgba(255,255,255,0.08)',
+            }} />
+          ))}
+        </div>
+      )}
+
+      {/* Certificates found */}
+      {!loading && certs && certs.length > 0 && (
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          {certs.map(cert => (
+            <div key={cert.certificateId} style={{
+              flex: '1 1 280px', maxWidth: 400,
+              background: 'var(--color-surface)',
+              borderRadius: 10,
+              border: '1px solid var(--color-border)',
+              borderLeft: '4px solid #C9A84C',
+              padding: '16px 18px',
+              boxShadow: '0 2px 12px rgba(0,0,0,0.08)',
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', marginBottom: 3 }}>
+                {courseLabel(cert.course)}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--color-meta)', marginBottom: 2 }}>
+                Completed {formatCertDate(cert.issuedAt)}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--color-meta)', marginBottom: 14, fontFamily: 'monospace' }}>
+                ID: {cert.certificateId}
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <a
+                  href={cert.certifierUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                    background: '#2EAA4A', color: '#fff', textDecoration: 'none',
+                  }}
+                >
+                  View Certificate →
+                </a>
+                <a
+                  href={linkedInUrl(cert.certifierUrl)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                    padding: '6px 12px', borderRadius: 6, fontSize: 11, fontWeight: 700,
+                    background: '#0A66C2', color: '#fff', textDecoration: 'none',
+                  }}
+                >
+                  Share on LinkedIn →
+                </a>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* No certificates yet — soft prompt */}
+      {!loading && certs && certs.length === 0 && (
+        <div style={{
+          border: '2px dashed rgba(255,255,255,0.15)',
+          borderRadius: 10,
+          padding: '20px 24px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 14,
+          background: 'rgba(255,255,255,0.03)',
+        }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-heading)', marginBottom: 4 }}>
+              Earn a free FMP certificate
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--color-meta)', lineHeight: 1.55, maxWidth: 440 }}>
+              Complete a free training course and earn a verified certificate from Financial Modeler Pro.
+            </div>
+          </div>
+          <a
+            href="/training"
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '9px 18px', borderRadius: 7, fontSize: 12, fontWeight: 700,
+              background: '#2EAA4A', color: '#fff', textDecoration: 'none',
+              whiteSpace: 'nowrap', flexShrink: 0,
+            }}
+          >
+            Visit Training Academy →
+          </a>
+        </div>
+      )}
+
+      <style>{`@keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }`}</style>
+    </div>
+  );
+}
+
 // ── PortalPage ────────────────────────────────────────────────────────────────
 
 export default function PortalPage() {
@@ -228,6 +391,9 @@ export default function PortalPage() {
             <p>{branding.portalDescription}</p>
           </div>
         </div>
+
+        {/* My Certificates — additive section, loads independently */}
+        <MyCertificates userEmail={session?.user?.email} />
 
         {/* Platform Cards */}
         <div className="portal-section-label">Available Platforms</div>
