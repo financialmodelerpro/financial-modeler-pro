@@ -398,9 +398,9 @@ export default async function LandingPage() {
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:56, alignItems:'center' }}>
             <div style={{ display:'flex', justifyContent:'center' }}>
               {founderPhotoUrl ? (
-                <div style={{ width:220, height:220, borderRadius:'50%', overflow:'hidden', border:'3px solid rgba(255,255,255,0.2)', boxShadow:'0 8px 40px rgba(0,0,0,0.4)' }}>
+                <div style={{ width:220, height:220, borderRadius:'50%', overflow:'hidden', position:'relative', border:'3px solid rgba(255,255,255,0.2)', boxShadow:'0 8px 40px rgba(0,0,0,0.4)' }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={founderPhotoUrl} alt={founderName} style={{ width:'100%', height:'100%', objectFit:'cover' }} />
+                  <img src={founderPhotoUrl} alt={founderName} style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'center' }} />
                 </div>
               ) : (
                 <div style={{ width:220, height:220, borderRadius:'50%', background:'linear-gradient(135deg,#0D2E5A,#1B4F8A)', display:'flex', alignItems:'center', justifyContent:'center', border:'3px solid rgba(255,255,255,0.2)', boxShadow:'0 8px 40px rgba(0,0,0,0.4)' }}>
@@ -435,7 +435,9 @@ export default async function LandingPage() {
               )}
               <div style={{ display:'flex', gap:14, flexWrap:'wrap' }}>
                 <Link href="/about/ahmad-din" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1B4F8A', border:'1px solid #1B4F8A', color:'#fff', fontSize:13, fontWeight:700, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>Read Full Profile →</Link>
-                <a href={founderLinkedIn || 'https://linkedin.com/in/ahmaddin'} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'transparent', border:'1px solid rgba(255,255,255,0.25)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:600, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>Connect on LinkedIn →</a>
+                {founderLinkedIn && (
+                  <a href={founderLinkedIn} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'transparent', border:'1px solid rgba(255,255,255,0.25)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:600, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>Connect on LinkedIn →</a>
+                )}
               </div>
             </div>
           </div>

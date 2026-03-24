@@ -4,6 +4,7 @@ import React from 'react';
 import type { Role } from '@/src/types/settings.types';
 import { ROLE_META } from '@/src/core/core-state';
 import { sidebarModules, m1Tabs } from './RealEstatePlatform';
+import PlanBadge from './PlanBadge';
 
 interface SidebarProps {
   activeModule: string;
@@ -19,6 +20,9 @@ interface SidebarProps {
   activeProjectName: string | null;
   activeVersionName: string | null;
   canSeeModule: (key: string) => boolean;
+  canAccess: (featureKey: string) => boolean;
+  subLoaded: boolean;
+  onLockedModuleClick: (featureKey: string, requiredPlan: 'professional' | 'enterprise') => void;
   onOpenProjects: () => void;
   onOpenRbac: () => void;
 }
@@ -31,6 +35,7 @@ export default function Sidebar({
   currentUserRole,
   activeProjectId, activeProjectName, activeVersionName,
   canSeeModule,
+  canAccess, subLoaded, onLockedModuleClick,
   onOpenProjects, onOpenRbac,
 }: SidebarProps) {
   const roleMeta = ROLE_META[currentUserRole];
@@ -83,16 +88,23 @@ export default function Sidebar({
         <div className="sidebar-section-label">Platform</div>
 
         {sidebarModules.map(mod => {
+          // Use type cast for optional properties that only exist on some union members
+          const modAny = mod as { disabled?: boolean; disabledReason?: string; badge?: string | null; badgeClass?: string };
           const isDisabledByPermission = !canSeeModule(mod.key);
-          const isDisabledByConfig = mod.disabled === true;
+          const isDisabledByConfig = modAny.disabled === true;
           const isOverviewDisabled = mod.key === 'overview' && !activeProjectId;
-          const isDisabled = isDisabledByPermission || isDisabledByConfig || isOverviewDisabled;
+          const isFeatureLocked = subLoaded && !!mod.featureKey && !canAccess(mod.featureKey);
+
+          // Feature lock overrides "coming soon" disabled — user sees upgrade CTA instead
+          const isDisabled = isFeatureLocked
+            ? false
+            : isDisabledByPermission || isDisabledByConfig || isOverviewDisabled;
 
           const disabledReason = isDisabledByPermission
             ? `Your role cannot view this module`
             : isOverviewDisabled
             ? 'Select a project first'
-            : mod.disabledReason;
+            : modAny.disabledReason;
 
           const isActive = activeModule === mod.key;
           const isModule1 = mod.key === 'module1';
@@ -100,19 +112,30 @@ export default function Sidebar({
           return (
             <div key={mod.key} className="sidebar-item-wrap">
               <button
-                className={`sidebar-item${isActive ? ' active' : ''}${isDisabled ? ' disabled' : ''}`}
+                className={`sidebar-item${isActive ? ' active' : ''}${isDisabled ? ' disabled' : ''}${isFeatureLocked ? ' feature-locked' : ''}`}
                 onClick={() => {
+                  if (isFeatureLocked && mod.featureKey && (mod.requiredPlan === 'professional' || mod.requiredPlan === 'enterprise')) {
+                    onLockedModuleClick(mod.featureKey, mod.requiredPlan);
+                    return;
+                  }
                   if (isDisabled) return;
                   setActiveModule(mod.key);
                   if (isModule1) setSidebarSubOpen(true);
                 }}
                 disabled={isDisabled}
-                title={isDisabled ? disabledReason : mod.label}
+                title={isFeatureLocked ? `Requires ${mod.requiredPlan} plan` : isDisabled ? disabledReason : mod.label}
               >
                 <span className="sidebar-icon">{mod.icon}</span>
                 <span className="sidebar-label">{mod.label}</span>
-                {mod.badge && (
-                  <span className={`sidebar-badge ${mod.badgeClass}`}>{mod.badge}</span>
+                {isFeatureLocked ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto', flexShrink: 0 }}>
+                    <span style={{ fontSize: 10 }}>🔒</span>
+                    {(mod.requiredPlan === 'professional' || mod.requiredPlan === 'enterprise') && (
+                      <PlanBadge requiredPlan={mod.requiredPlan} />
+                    )}
+                  </span>
+                ) : (
+                  modAny.badge && <span className={`sidebar-badge ${modAny.badgeClass}`}>{modAny.badge}</span>
                 )}
                 {isModule1 && !sidebarCollapsed && (
                   <span
@@ -132,7 +155,7 @@ export default function Sidebar({
               {/* Tooltip when collapsed */}
               {sidebarCollapsed && (
                 <div className="sidebar-tooltip">
-                  {isDisabled ? disabledReason : mod.label}
+                  {isFeatureLocked ? `Requires ${mod.requiredPlan} plan` : isDisabled ? disabledReason : mod.label}
                 </div>
               )}
 

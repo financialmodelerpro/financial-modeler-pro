@@ -23,10 +23,7 @@ interface TopbarProps {
   onOpenProjects: () => void;
   onOpenVersions: () => void;
   onOpenRbac: () => void;
-  onExportExcel?: () => void;
-  onExportPdf?: () => void;
-  exportingExcel?: boolean;
-  exportingPdf?: boolean;
+  onExportClick?: () => void;
 }
 
 // ── Quick Colour Panel ────────────────────────────────────────────────────────
@@ -103,7 +100,7 @@ export default function Topbar({
   hasUnsaved, lastSavedAt,
   currentUserRole, can,
   onSave, onOpenProjects, onOpenVersions, onOpenRbac,
-  onExportExcel, onExportPdf, exportingExcel, exportingPdf,
+  onExportClick,
 }: TopbarProps) {
   const roleMeta = ROLE_META[currentUserRole];
   const { displayName, displayLogo, displayLogoEmoji } = useWhiteLabel();
@@ -196,24 +193,13 @@ export default function Topbar({
       )}
 
       {can('canExport') && (
-        <>
-          <button
-            className="pm-btn export-excel"
-            title="Export Excel"
-            onClick={onExportExcel}
-            disabled={exportingExcel}
-          >
-            {exportingExcel ? '⏳ Excel…' : '📊 Excel'}
-          </button>
-          <button
-            className="pm-btn export-pdf"
-            title="Export PDF"
-            onClick={onExportPdf}
-            disabled={exportingPdf}
-          >
-            {exportingPdf ? '⏳ PDF…' : '📄 PDF'}
-          </button>
-        </>
+        <button
+          className="pm-btn export-excel"
+          title="Export"
+          onClick={onExportClick}
+        >
+          📤 Export
+        </button>
       )}
 
       {can('canChangeBranding') && (

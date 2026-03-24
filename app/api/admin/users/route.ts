@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
     let q = sb
       .from('users')
       .select(
-        'id, email, name, role, subscription_plan, subscription_status, created_at',
+        'id, email, name, role, subscription_plan, subscription_status, created_at, projects(count)',
         { count: 'exact' },
       );
 

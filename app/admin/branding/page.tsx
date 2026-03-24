@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { useRequireAdmin } from '@/src/hooks/useRequireAdmin';
 import type { BrandingConfig } from '@/src/types/branding.types';
 
 // ── Default config ─────────────────────────────────────────────────────────────
@@ -349,6 +350,7 @@ function ColorField({ label, value, onChange }: ColorFieldProps) {
 
 // ── Main page ──────────────────────────────────────────────────────────────────
 export default function BrandingAdminPage() {
+  const { loading: authLoading } = useRequireAdmin();
   const [config, setConfig] = useState<BrandingConfig>(DEFAULT);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -417,6 +419,8 @@ export default function BrandingAdminPage() {
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
+  if (authLoading) return null;
+
   return (
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter', sans-serif", background: '#F4F7FC' }}>
       <CmsAdminNav active="/admin/branding" />

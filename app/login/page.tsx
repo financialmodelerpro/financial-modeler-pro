@@ -17,6 +17,7 @@ function LoginInner() {
   const [name,     setName]     = useState('');
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
+  const [confirm,  setConfirm]  = useState('');
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState('');
   const [success,  setSuccess]  = useState('');
@@ -48,6 +49,10 @@ function LoginInner() {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (password !== confirm) {
+      setError('Passwords do not match.');
+      return;
+    }
     setLoading(true);
     setError('');
     setSuccess('');
@@ -181,7 +186,12 @@ function LoginInner() {
                 />
               </div>
               <div>
-                <label style={labelStyle}>Password</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+                  <label style={{ ...labelStyle, marginBottom: 0 }}>Password</label>
+                  <a href="/forgot-password" style={{ fontSize: 'var(--font-micro)', color: 'var(--color-primary)', textDecoration: 'none' }}>
+                    Forgot password?
+                  </a>
+                </div>
                 <input
                   type="password"
                   value={password}
@@ -232,6 +242,19 @@ function LoginInner() {
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  autoComplete="new-password"
+                  placeholder="••••••••"
+                  style={inputStyle}
+                />
+              </div>
+              <div>
+                <label style={labelStyle}>Confirm password</label>
+                <input
+                  type="password"
+                  value={confirm}
+                  onChange={(e) => setConfirm(e.target.value)}
                   required
                   minLength={8}
                   autoComplete="new-password"

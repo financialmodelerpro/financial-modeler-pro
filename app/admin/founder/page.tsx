@@ -251,10 +251,10 @@ export default function AdminFounderPage() {
                   <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>Upload Profile Photo</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
                     {/* Preview */}
-                    <div style={{ width: 72, height: 72, borderRadius: '50%', overflow: 'hidden', border: '2px solid #C7D9F2', background: '#E8F0FB', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <div style={{ width: 72, height: 72, borderRadius: '50%', overflow: 'hidden', position: 'relative', border: '2px solid #C7D9F2', background: '#E8F0FB', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       {(uploadPreview || values['bio__photo_url']) ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={uploadPreview || values['bio__photo_url']} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <img src={uploadPreview || values['bio__photo_url']} alt="Preview" style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }} />
                       ) : (
                         <span style={{ fontSize: 24, fontWeight: 800, color: '#1B4F8A' }}>AD</span>
                       )}

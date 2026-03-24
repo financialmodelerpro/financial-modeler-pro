@@ -16,6 +16,7 @@ interface Module1TimelineProps {
   overlapPeriods: number; setOverlapPeriods: (v: number) => void;
   getProjectEndDate: () => string;
   readOnly: boolean;
+  showAiButtons?: boolean;
 }
 
 const inputStyle: React.CSSProperties = {
@@ -53,6 +54,7 @@ export default function Module1Timeline({
   overlapPeriods, setOverlapPeriods,
   getProjectEndDate,
   readOnly,
+  showAiButtons = false,
 }: Module1TimelineProps) {
   const [countrySearch, setCountrySearch] = useState('');
   const [countryOpen, setCountryOpen] = useState(false);
@@ -93,7 +95,24 @@ export default function Module1Timeline({
           </h3>
 
           <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={labelStyle}>Project Name</label>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+              <label style={{ ...labelStyle, marginBottom: 0 }}>Project Name</label>
+              {showAiButtons && (
+                <button
+                  onClick={() => {/* AI assist — coming soon */}}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 4,
+                    fontSize: 10, fontWeight: 700, padding: '3px 8px',
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    color: '#fff', border: 'none', borderRadius: 4,
+                    cursor: 'pointer', letterSpacing: '0.04em', flexShrink: 0,
+                  }}
+                  title="AI Assist (Pro)"
+                >
+                  ✨ AI Assist
+                </button>
+              )}
+            </div>
             <input
               className="input-assumption"
               style={inputStyle}

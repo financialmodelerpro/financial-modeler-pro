@@ -1,7 +1,9 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { useSession } from 'next-auth/react';
+import { useRequireAdmin } from '@/src/hooks/useRequireAdmin';
 
 interface User {
   id: string;
@@ -11,6 +13,7 @@ interface User {
   subscription_plan: 'free' | 'professional' | 'enterprise';
   subscription_status: 'active' | 'trial' | 'expired' | 'cancelled';
   created_at: string;
+  projects?: [{ count: number }];
 }
 
 const PLAN_COLORS: Record<string, string> = {
@@ -65,6 +68,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function AdminUsersPage() {
+  const { loading: authLoading } = useRequireAdmin();
   const { data: session } = useSession();
   const [users, setUsers]           = useState<User[]>([]);
   const [loading, setLoading]       = useState(true);
@@ -136,6 +140,8 @@ export default function AdminUsersPage() {
     cursor: 'pointer',
   };
 
+  if (authLoading) return null;
+
   return (
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter', sans-serif", background: '#F4F7FC' }}>
       <CmsAdminNav active="/admin/users" />
@@ -170,16 +176,16 @@ export default function AdminUsersPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ background: '#1B4F8A' }}>
-                {['Email', 'Name', 'Role', 'Plan', 'Status', 'Joined', 'Actions'].map(h => (
+                {['Email', 'Name', 'Role', 'Plan', 'Status', 'Projects', 'Joined', 'Actions'].map(h => (
                   <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#fff', letterSpacing: '0.05em', textTransform: 'uppercase' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={7} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>Loading…</td></tr>
+                <tr><td colSpan={8} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>Loading…</td></tr>
               ) : users.length === 0 ? (
-                <tr><td colSpan={7} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>No users found.</td></tr>
+                <tr><td colSpan={8} style={{ padding: '40px 16px', textAlign: 'center', color: '#6B7280' }}>No users found.</td></tr>
               ) : users.map((u, i) => {
                 const isSelf      = u.id === selfId;
                 const savingField = updating?.startsWith(u.id) ? updating.split(':')[1] : null;
@@ -247,6 +253,11 @@ export default function AdminUsersPage() {
                       </div>
                     </td>
 
+                    {/* Projects */}
+                    <td style={{ padding: '12px 16px', fontSize: 13, color: '#374151', textAlign: 'center' }}>
+                      {u.projects?.[0]?.count ?? 0}
+                    </td>
+
                     {/* Joined */}
                     <td style={{ padding: '12px 16px', fontSize: 12, color: '#6B7280' }}>
                       {new Date(u.created_at).toLocaleDateString()}
@@ -254,7 +265,15 @@ export default function AdminUsersPage() {
 
                     {/* Actions */}
                     <td style={{ padding: '12px 16px' }}>
-                      {isSelf && <span style={{ fontSize: 11, color: '#9CA3AF' }}>You</span>}
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <Link
+                          href={`/admin/projects?userId=${u.id}`}
+                          style={{ fontSize: 11, fontWeight: 600, color: '#1B4F8A', textDecoration: 'none', padding: '3px 8px', border: '1px solid #BDD0F0', borderRadius: 4, background: '#E8F0FB' }}
+                        >
+                          Projects
+                        </Link>
+                        {isSelf && <span style={{ fontSize: 11, color: '#9CA3AF' }}>You</span>}
+                      </div>
                     </td>
                   </tr>
                 );

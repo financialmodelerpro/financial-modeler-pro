@@ -20,6 +20,9 @@ import Module1Financing from './modules/Module1Financing';
 import ProjectModal from './modals/ProjectModal';
 import VersionModal from './modals/VersionModal';
 import RbacModal from './modals/RbacModal';
+import ExportModal from './modals/ExportModal';
+import UpgradePrompt from '@/src/components/UpgradePrompt';
+import { useSubscription } from '@/src/hooks/useSubscription';
 
 // ── Storage helpers ──────────────────────────────────────────────────────────
 export interface StorageProject {
@@ -93,16 +96,21 @@ export const COUNTRY_DATA = [
 
 // ── Sidebar modules ───────────────────────────────────────────────────────────
 export const sidebarModules = [
-  { key: 'dashboard', icon: '📊', label: 'Dashboard',              badge: null,   badgeClass: '' },
-  { key: 'projects',  icon: '🏗️', label: 'Projects',               badge: null,   badgeClass: '' },
-  { key: 'overview',  icon: '📋', label: 'Overview',               badge: null,   badgeClass: '',       disabledReason: 'Select a project first' },
-  { key: 'module1',   icon: '🧱', label: 'Module 1 — Setup',       badge: '✓',    badgeClass: 'badge-done' },
-  { key: 'module2',   icon: '💰', label: 'Module 2 — Revenue',     badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module3',   icon: '📉', label: 'Module 3 — OpEx',        badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module4',   icon: '📈', label: 'Module 4 — Returns',     badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module5',   icon: '📑', label: 'Module 5 — Financials',  badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module6',   icon: '📊', label: 'Module 6 — Reports',     badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-];
+  { key: 'dashboard', icon: '📊', label: 'Dashboard',                  featureKey: null,        requiredPlan: null,           badge: null,   badgeClass: '' },
+  { key: 'projects',  icon: '🏗️', label: 'Projects',                   featureKey: null,        requiredPlan: null,           badge: null,   badgeClass: '' },
+  { key: 'overview',  icon: '📋', label: 'Overview',                   featureKey: null,        requiredPlan: null,           badge: null,   badgeClass: '',       disabledReason: 'Select a project first' },
+  { key: 'module1',   icon: '🧱', label: 'Module 1 — Setup',           featureKey: 'module_1',  requiredPlan: 'free',         badge: '✓',    badgeClass: 'badge-done' },
+  { key: 'module2',   icon: '💰', label: 'Module 2 — Revenue',         featureKey: 'module_2',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
+  { key: 'module3',   icon: '📉', label: 'Module 3 — OpEx',            featureKey: 'module_3',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
+  { key: 'module4',   icon: '📈', label: 'Module 4 — Returns',         featureKey: 'module_4',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
+  { key: 'module5',   icon: '📑', label: 'Module 5 — Financials',      featureKey: 'module_5',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
+  { key: 'module6',   icon: '📊', label: 'Module 6 — Reports',         featureKey: 'module_6',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
+  { key: 'module7',   icon: '🔀', label: 'Module 7 — Scenarios',       featureKey: 'module_7',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
+  { key: 'module8',   icon: '🏙️', label: 'Module 8 — Portfolio',       featureKey: 'module_8',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
+  { key: 'module9',   icon: '📡', label: 'Module 9 — Market Data',     featureKey: 'module_9',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
+  { key: 'module10',  icon: '🤝', label: 'Module 10 — Collaborate',    featureKey: 'module_10', requiredPlan: 'professional', disabled: true,  badge: null, badgeClass: '', disabledReason: 'Requires Professional plan' },
+  { key: 'module11',  icon: '🔌', label: 'Module 11 — API Access',     featureKey: 'module_11', requiredPlan: 'enterprise',   disabled: true,  badge: null, badgeClass: '', disabledReason: 'Requires Enterprise plan' },
+] as const;
 
 export const m1Tabs = [
   { key: 'timeline',  icon: '📅', label: 'Timeline' },
@@ -118,6 +126,11 @@ export default function RealEstatePlatform() {
   const [activeTab, setActiveTab] = useState('timeline');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarSubOpen, setSidebarSubOpen] = useState(true);
+
+  // ── Subscription / plan gating ──
+  const { canAccess, loaded: subLoaded } = useSubscription();
+  const [upgradePrompt, setUpgradePrompt] = useState<{ featureKey: string; requiredPlan: 'professional' | 'enterprise' } | null>(null);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
 
   // ── RBAC ──
   const [currentUserRole, setCurrentUserRole] = useState<Role>(ROLES.ADMIN);
@@ -1066,6 +1079,7 @@ export default function RealEstatePlatform() {
                   overlapPeriods={overlapPeriods} setOverlapPeriods={setOverlapPeriods}
                   getProjectEndDate={getProjectEndDate}
                   readOnly={readOnly}
+                  showAiButtons={canAccess('ai_contextual')}
                 />
               )}
               {activeTab === 'area' && (
@@ -1188,6 +1202,85 @@ export default function RealEstatePlatform() {
           </div>
         );
 
+      // ── Module 8 — Portfolio (partial access on Free) ──────────────────────
+      case 'module8': {
+        const hasFullM8 = canAccess('module_8_full');
+        return (
+          <div className="module-view" style={{ position: 'relative' }}>
+            <div style={{ padding: 'var(--sp-3)', opacity: hasFullM8 ? 1 : 0.5 }}>
+              <h2 style={{ fontSize: 'var(--font-section)', fontWeight: 700, color: 'var(--color-heading)', marginBottom: 8 }}>
+                Module 8 — Portfolio Dashboard
+              </h2>
+              <p style={{ color: 'var(--color-meta)', fontSize: 13 }}>Coming soon.</p>
+            </div>
+            {!hasFullM8 && (
+              <div style={{
+                position: 'absolute', inset: 0, zIndex: 5,
+                background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(3px)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <div style={{ textAlign: 'center', padding: '24px 32px', maxWidth: 360 }}>
+                  <div style={{ fontSize: 32, marginBottom: 10 }}>🔒</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#111827', marginBottom: 6 }}>
+                    Upgrade to edit financials
+                  </div>
+                  <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 16, lineHeight: 1.6 }}>
+                    Upgrade to Professional to edit Portfolio financials. Outputs are visible in read-only mode.
+                  </p>
+                  <a href="/settings" style={{
+                    display: 'inline-block', padding: '8px 20px', background: '#2563EB',
+                    color: '#fff', borderRadius: 6, fontSize: 13, fontWeight: 700, textDecoration: 'none',
+                  }}>
+                    Upgrade to Professional →
+                  </a>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      // ── Module 9 — Market Data (basic KPIs only on Free) ────────────────────
+      case 'module9': {
+        const hasFullM9 = canAccess('module_9_full');
+        return (
+          <div className="module-view" style={{ padding: 'var(--sp-3)' }}>
+            <h2 style={{ fontSize: 'var(--font-section)', fontWeight: 700, color: 'var(--color-heading)', marginBottom: 16 }}>
+              Module 9 — Market Data
+            </h2>
+            {/* Basic KPIs — visible on all plans */}
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
+              {['GDV', 'Total Cost', 'Dev Margin'].map(k => (
+                <div key={k} className="kpi-card" style={{ minWidth: 160 }}>
+                  <div className="kpi-label">{k}</div>
+                  <div className="kpi-value">—</div>
+                  <div className="kpi-sub">Coming soon</div>
+                </div>
+              ))}
+            </div>
+            {/* Advanced metrics — locked for Free */}
+            <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', opacity: 0.35, pointerEvents: 'none' }}>
+                {['Cap Rate', 'IRR', 'Equity Multiple', 'DSCR', 'NPV'].map(k => (
+                  <div key={k} className="kpi-card" style={{ minWidth: 160 }}>
+                    <div className="kpi-label">{k}</div>
+                    <div className="kpi-value">—</div>
+                  </div>
+                ))}
+              </div>
+              {!hasFullM9 && (
+                <UpgradePrompt
+                  featureKey="module_9_full"
+                  requiredPlan="professional"
+                  variant="overlay"
+                  message="Upgrade to Professional to access all market metrics and charts."
+                />
+              )}
+            </div>
+          </div>
+        );
+      }
+
       default:
         return (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '300px' }}>
@@ -1219,10 +1312,7 @@ export default function RealEstatePlatform() {
         onOpenProjects={() => { setActiveModule('projects'); }}
         onOpenVersions={() => setPmModal('version')}
         onOpenRbac={() => { setRbacSelectedRole(currentUserRole); setRbacModalOpen(true); }}
-        onExportExcel={handleExportExcel}
-        onExportPdf={handleExportPdf}
-        exportingExcel={exportingExcel}
-        exportingPdf={exportingPdf}
+        onExportClick={() => setExportModalOpen(true)}
       />
 
       <div className="app-shell">
@@ -1240,6 +1330,9 @@ export default function RealEstatePlatform() {
           activeProjectName={activeProjectData?.name ?? null}
           activeVersionName={activeVersionData?.name ?? null}
           canSeeModule={canSeeModule}
+          canAccess={canAccess}
+          subLoaded={subLoaded}
+          onLockedModuleClick={(featureKey, requiredPlan) => setUpgradePrompt({ featureKey, requiredPlan })}
           onOpenProjects={() => { setActiveModule('projects'); }}
           onOpenRbac={() => { setRbacSelectedRole(currentUserRole); setRbacModalOpen(true); }}
         />
@@ -1286,6 +1379,39 @@ export default function RealEstatePlatform() {
           }}
           onClose={() => setRbacModalOpen(false)}
         />
+      )}
+
+      {/* Export modal */}
+      {exportModalOpen && (
+        <ExportModal
+          canAccess={canAccess}
+          onClose={() => setExportModalOpen(false)}
+          onExportExcel={handleExportExcel}
+          onExportPdf={handleExportPdf}
+          exportingExcel={exportingExcel}
+          exportingPdf={exportingPdf}
+        />
+      )}
+
+      {/* Upgrade prompt overlay */}
+      {upgradePrompt && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1999,
+            background: 'rgba(0,0,0,0.45)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 16,
+          }}
+          onClick={() => setUpgradePrompt(null)}
+        >
+          <div onClick={e => e.stopPropagation()} style={{ maxWidth: 440, width: '100%' }}>
+            <UpgradePrompt
+              featureKey={upgradePrompt.featureKey}
+              requiredPlan={upgradePrompt.requiredPlan}
+              variant="card"
+            />
+          </div>
+        </div>
       )}
 
       {/* Toast */}

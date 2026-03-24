@@ -41,7 +41,9 @@
       "Bash(powershell -Command \"Get-Process node -ErrorAction SilentlyContinue | Stop-Process -Force; Write-Host 'All node processes killed'\")",
       "Bash(node -e \"require\\(''''@react-pdf/renderer''''\\)\")",
       "Bash(curl:*)",
-      "Bash(npm audit:*)"
+      "Bash(npm audit:*)",
+      "Bash(wc -l \"D:\\\\FMP\\\\financial-modeler-pro\\\\app\\\\\\(portal\\)\\\\page.tsx\")",
+      "Bash(head -300 \"D:\\\\FMP\\\\financial-modeler-pro\\\\app\\\\\\(portal\\)\\\\page.tsx\")"
     ]
   }
 }

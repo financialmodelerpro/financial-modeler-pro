@@ -2,16 +2,20 @@
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import PermissionsManager from '@/src/components/admin/PermissionsManager';
 import { useEffect, useState } from 'react';
+import { useRequireAdmin } from '@/src/hooks/useRequireAdmin';
 
 interface UserOption { id: string; email: string; name: string | null; subscription_plan: string; }
 
 export default function AdminOverridesPage() {
+  const { loading } = useRequireAdmin();
   const [users, setUsers] = useState<UserOption[]>([]);
   useEffect(() => {
     fetch('/api/admin/users?size=200')
       .then(r => r.json())
       .then(j => setUsers(j.users ?? []));
   }, []);
+
+  if (loading) return null;
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter', sans-serif", background: '#F4F7FC' }}>

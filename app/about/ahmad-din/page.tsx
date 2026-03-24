@@ -46,9 +46,9 @@ export default async function FounderPage() {
           {/* Photo */}
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             {photoUrl ? (
-              <div style={{ width: 240, height: 240, borderRadius: '50%', overflow: 'hidden', border: '3px solid rgba(27,79,138,0.5)', boxShadow: '0 8px 40px rgba(0,0,0,0.5)' }}>
+              <div style={{ width: 240, height: 240, borderRadius: '50%', overflow: 'hidden', position: 'relative', border: '3px solid rgba(27,79,138,0.5)', boxShadow: '0 8px 40px rgba(0,0,0,0.5)' }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={photoUrl} alt={name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                <img src={photoUrl} alt={name} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }} />
               </div>
             ) : (
               <div style={{ width: 240, height: 240, borderRadius: '50%', background: 'linear-gradient(135deg, #1B4F8A, #2D6BA8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 96, border: '3px solid rgba(27,79,138,0.5)', boxShadow: '0 8px 40px rgba(0,0,0,0.5)' }}>
