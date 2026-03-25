@@ -203,7 +203,7 @@ export default function TrainingPage() {
                   borderRadius: 20, background: '#F0FFF4', color: '#15803D',
                   border: '1px solid #BBF7D0', whiteSpace: 'nowrap',
                 }}>
-                  5 Lessons
+                  6 Lessons
                 </span>
               </div>
               <p style={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.65, marginBottom: 24 }}>

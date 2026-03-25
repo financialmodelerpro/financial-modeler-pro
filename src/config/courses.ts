@@ -53,7 +53,8 @@ const BVM_SESSIONS: Session[] = [
   { id: 'L2', title: 'Lesson 2 — Comparable Company Analysis',                    youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
   { id: 'L3', title: 'Lesson 3 — Precedent Transaction Analysis',                 youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
   { id: 'L4', title: 'Lesson 4 — DCF Valuation in Practice',                      youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'L5', title: 'Lesson 5 — Conclusion & Final Exam',                        youtubeUrl: '', quizFormUrl: '', questionCount: 30, passingScore: 70, maxAttempts: 1, isFinal: true  },
+  { id: 'L5', title: 'Lesson 5 — LBO & Leveraged Buyout Modeling',                youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'L6', title: 'Lesson 6 — Conclusion & Final Exam',                        youtubeUrl: '', quizFormUrl: '', questionCount: 30, passingScore: 70, maxAttempts: 1, isFinal: true  },
 ];
 
 // ── Exported config ───────────────────────────────────────────────────────────
