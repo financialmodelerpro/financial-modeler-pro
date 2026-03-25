@@ -16,6 +16,30 @@ export async function GET() {
   return NextResponse.json({ pages: data ?? [] });
 }
 
+export async function POST(req: NextRequest) {
+  if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const { label, href, visible = true, display_order = 99, can_toggle = true } = await req.json();
+  if (!label || !href) return NextResponse.json({ error: 'label and href required' }, { status: 400 });
+  const sb = getServerClient();
+  const { data, error } = await sb
+    .from('site_pages')
+    .insert({ label, href, visible, display_order, can_toggle })
+    .select()
+    .single();
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  return NextResponse.json({ page: data });
+}
+
+export async function DELETE(req: NextRequest) {
+  if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const id = req.nextUrl.searchParams.get('id');
+  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+  const sb = getServerClient();
+  const { error } = await sb.from('site_pages').delete().eq('id', id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+  return NextResponse.json({ ok: true });
+}
+
 export async function PATCH(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const body = await req.json();
