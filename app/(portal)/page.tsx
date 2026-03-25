@@ -5,6 +5,7 @@
 import type { Metadata } from 'next';
 import { getServerSession } from 'next-auth';
 import Link from 'next/link';
+import { HeroScrollBtn } from './HeroScrollBtn';
 import {
   getCmsContent, cms,
   getPublishedArticles,
@@ -55,19 +56,31 @@ export default async function LandingPage() {
       : '';
 
   // ── Hero ──────────────────────────────────────────────────────────────────
-  const heroBadge     = cms(content, 'hero', 'badge_text',   '🚀 Now Live — Free to Use');
-  const heroHeadline  = cms(content, 'hero', 'headline',     'The Operating System\nfor Financial Modeling');
-  const heroSub       = cms(content, 'hero', 'subheadline',  'Learn. Build. Execute. — structured financial models, free professional training, and investor-ready outputs. All in one platform.');
-  const heroCta1      = cms(content, 'hero', 'cta1',         'Launch Platform Free →');
-  const heroCta2      = cms(content, 'hero', 'cta2',         'Explore Platforms ↓');
+  const heroBadge          = cms(content, 'hero', 'badge_text',       '🚀 Now Live — Free to Use');
+  const heroHeadline       = cms(content, 'hero', 'headline',         'Build Institutional-Grade Financial Models — Without Starting From Scratch');
+  const heroSub            = cms(content, 'hero', 'subheadline',      'Pre-built, structured financial models for real estate, valuation, and project finance — designed by corporate finance professionals for real-world use.');
+  // heroCta1 / heroCta2 still exist in CMS (managed via Admin → Hero) but are hidden from the live hero
+  const heroPowerStatement = cms(content, 'hero', 'power_statement',  'No more rebuilding models. No more broken Excel files. No more wasted hours.');
+  const heroSoftCta        = cms(content, 'hero', 'soft_cta',         'Explore the platform');
+  const heroTrustLine      = cms(content, 'hero', 'trust_line',       'Designed by Investment & Corporate Finance Experts  |  12+ Years Experience  |  Used Across KSA & Pakistan');
+  const heroTagsRaw        = cms(content, 'hero', 'tags',             'Real Estate Models, Business Valuation, Project Finance, Fund Models');
+  const heroTags           = heroTagsRaw.split(',').map(t => t.trim()).filter(Boolean);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
-  const stats = [
-    { v: cms(content,'stats','stat1_value','12+'),  vk:'stat1_value', l: cms(content,'stats','stat1_label','Years of Experience'),        lk:'stat1_label' },
-    { v: cms(content,'stats','stat2_value','10+'),  vk:'stat2_value', l: cms(content,'stats','stat2_label','Modeling Platforms'),          lk:'stat2_label' },
-    { v: cms(content,'stats','stat3_value','20+'),  vk:'stat3_value', l: cms(content,'stats','stat3_label','Currencies Supported'),        lk:'stat3_label' },
-    { v: cms(content,'stats','stat4_value','100%'), vk:'stat4_value', l: cms(content,'stats','stat4_label','Free Training — No Paywall'), lk:'stat4_label' },
-  ];
+  type StatItem = { value: string; label: string; order: number };
+  const statsBarJson = cms(content, 'stats', 'stats_bar_items', '');
+  let statsData: StatItem[] = [];
+  if (statsBarJson) {
+    try { statsData = (JSON.parse(statsBarJson) as StatItem[]).sort((a, b) => a.order - b.order); } catch { /* fall through */ }
+  }
+  if (!statsData.length) {
+    statsData = [
+      { value: cms(content,'stats','stat1_value','12+'),  label: cms(content,'stats','stat1_label','Years of Experience'),       order: 1 },
+      { value: cms(content,'stats','stat2_value','10+'),  label: cms(content,'stats','stat2_label','Modeling Platforms'),         order: 2 },
+      { value: cms(content,'stats','stat3_value','20+'),  label: cms(content,'stats','stat3_label','Currencies Supported'),       order: 3 },
+      { value: cms(content,'stats','stat4_value','100%'), label: cms(content,'stats','stat4_label','Free Training — No Paywall'), order: 4 },
+    ];
+  }
 
   // ── About ─────────────────────────────────────────────────────────────────
   const aboutBadge  = cms(content, 'about', 'badge',        'The Platform');
@@ -134,45 +147,84 @@ export default async function LandingPage() {
       <div style={{ height: isAdmin ? 108 : 64 }} />
 
       {/* ── Hero ───────────────────────────────────────────────────────────── */}
-      <section style={{ padding:'100px 40px 90px', textAlign:'center', position:'relative', background:'linear-gradient(180deg,#0D2E5A 0%,#0A2448 100%)', overflow:'hidden', color:'#fff' }}>
+      <section style={{ paddingTop:'max(130px,10vw)', paddingBottom:110, paddingLeft:40, paddingRight:40, textAlign:'center', position:'relative', background:'linear-gradient(180deg,#0D2E5A 0%,#0A2448 100%)', overflow:'hidden', color:'#fff' }}>
+        {/* Radial gradient overlay */}
+        <div style={{ position:'absolute', inset:0, background:'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(45,107,168,0.25) 0%, transparent 65%)', pointerEvents:'none' }} />
+        {/* Grid pattern */}
         <div style={{ position:'absolute', inset:0, opacity:0.04, backgroundImage:'linear-gradient(rgba(255,255,255,0.5) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.5) 1px,transparent 1px)', backgroundSize:'40px 40px', pointerEvents:'none' }} />
+
         <div style={{ position:'relative', maxWidth:820, margin:'0 auto' }}>
-          <div style={{ display:'inline-flex', alignItems:'center', gap:7, background:'rgba(27,79,138,0.5)', border:'1px solid rgba(27,79,138,0.8)', borderRadius:20, padding:'5px 16px', fontSize:12, color:'rgba(255,255,255,0.8)', fontWeight:600, marginBottom:32, letterSpacing:'0.03em' }}>
+          {/* Badge */}
+          <div className="ha" style={{ animation:'hero-fade-in 550ms ease-out 0ms both', display:'inline-flex', alignItems:'center', gap:7, background:'rgba(27,79,138,0.5)', border:'1px solid rgba(27,79,138,0.8)', borderRadius:20, padding:'5px 16px', fontSize:12, color:'rgba(255,255,255,0.8)', fontWeight:600, marginBottom:28, letterSpacing:'0.03em' }}>
             <InlineEdit tag="span" section="hero" fieldKey="badge_text" value={heroBadge} isAdmin={isAdmin} darkBg />
           </div>
+
+          {/* Headline */}
           <InlineEdit
             tag="h1" section="hero" fieldKey="headline" value={heroHeadline} isAdmin={isAdmin} darkBg
-            style={{ fontSize:'clamp(36px,5vw,58px)', fontWeight:800, lineHeight:1.1, color:'#fff', marginBottom:24, whiteSpace:'pre-line' }}
+            style={{ animation:'hero-fade-up 550ms ease-out 100ms both', fontSize:'clamp(2.2rem,4.5vw,3.8rem)', fontWeight:800, lineHeight:1.1, color:'#fff', marginBottom:22, whiteSpace:'pre-line', display:'block' } as React.CSSProperties}
           />
+
+          {/* Subheading */}
           <InlineEdit
             tag="p" section="hero" fieldKey="subheadline" value={heroSub} isAdmin={isAdmin} darkBg
-            style={{ fontSize:18, color:'rgba(255,255,255,0.55)', lineHeight:1.7, maxWidth:620, margin:'0 auto 44px' }}
+            style={{ animation:'hero-fade-up 550ms ease-out 200ms both', fontSize:'clamp(1rem,2vw,1.2rem)', color:'rgba(255,255,255,0.75)', lineHeight:1.65, maxWidth:620, margin:'0 auto 26px', display:'block' } as React.CSSProperties}
           />
-          <div style={{ display:'flex', gap:14, justifyContent:'center', flexWrap:'wrap' }}>
-            <Link href="/modeling-hub" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#1B4F8A', color:'#fff', fontWeight:700, fontSize:15, padding:'14px 32px', borderRadius:8, textDecoration:'none', boxShadow:'0 4px 24px rgba(27,79,138,0.5)' }}>
-              <InlineEdit tag="span" section="hero" fieldKey="cta1" value={heroCta1} isAdmin={isAdmin} darkBg />
-            </Link>
-            <Link href="#pricing" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.18)', color:'rgba(255,255,255,0.85)', fontWeight:600, fontSize:15, padding:'14px 32px', borderRadius:8, textDecoration:'none' }}>
-              <InlineEdit tag="span" section="hero" fieldKey="cta2" value={heroCta2} isAdmin={isAdmin} darkBg />
-            </Link>
+
+          {/* Power statement */}
+          {heroPowerStatement && (
+            <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 300ms both', borderLeft:'3px solid #2EAA4A', paddingLeft:16, maxWidth:580, margin:'0 auto 26px', textAlign:'left' }}>
+              <InlineEdit
+                tag="p" section="hero" fieldKey="power_statement" value={heroPowerStatement} isAdmin={isAdmin} darkBg
+                style={{ fontSize:'clamp(0.95rem,1.8vw,1.05rem)', fontWeight:600, color:'rgba(255,255,255,0.9)', margin:0, lineHeight:1.55 }}
+              />
+            </div>
+          )}
+
+          {/* Soft CTA */}
+          <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 400ms both', marginBottom:26 }}>
+            <HeroScrollBtn
+              className="hero-soft-cta"
+              style={{ background:'none', border:'none', cursor:'pointer', fontSize:'0.9rem', fontWeight:500, color:'rgba(255,255,255,0.65)', padding:0, display:'inline-flex', alignItems:'center', gap:6 }}
+            >
+              <InlineEdit tag="span" section="hero" fieldKey="soft_cta" value={heroSoftCta} isAdmin={isAdmin} darkBg />
+              <span className="hero-cta-arrow" style={{ fontSize:14 }}>&#8595;</span>
+            </HeroScrollBtn>
           </div>
-          <p style={{ fontSize:12, color:'rgba(255,255,255,0.3)', marginTop:24, letterSpacing:'0.02em' }}>
-            Built by Corporate Finance Professionals · 12+ Years of Experience · Trusted across KSA &amp; Pakistan
-          </p>
+
+          {/* Trust line */}
+          <InlineEdit
+            tag="p" section="hero" fieldKey="trust_line" value={heroTrustLine} isAdmin={isAdmin} darkBg
+            style={{ animation:'hero-fade-in 550ms ease-out 500ms both', fontSize:'0.78rem', fontWeight:400, color:'rgba(255,255,255,0.48)', letterSpacing:'0.025em', margin:'0 auto 22px', display:'block' } as React.CSSProperties}
+          />
+
+          {/* Specialty tags */}
+          {heroTags.length > 0 && (
+            <div className="ha" style={{ animation:'hero-fade-in 550ms ease-out 600ms both', display:'flex', flexWrap:'wrap', justifyContent:'center', gap:10 }}>
+              {heroTags.map(tag => (
+                <span key={tag} className="hero-tag" style={{ fontSize:'0.72rem', border:'1px solid rgba(255,255,255,0.2)', borderRadius:999, padding:'4px 14px', color:'rgba(255,255,255,0.58)' }}>{tag}</span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Scroll indicator */}
+        <div style={{ position:'absolute', bottom:24, left:0, right:0, display:'flex', justifyContent:'center' }}>
+          <HeroScrollBtn style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.35)', padding:8, animation:'hero-bounce 2s ease-in-out infinite' }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </HeroScrollBtn>
         </div>
       </section>
 
       {/* ── Stats Bar ──────────────────────────────────────────────────────── */}
-      <section style={{ borderTop:'1px solid rgba(255,255,255,0.07)', borderBottom:'1px solid rgba(255,255,255,0.07)', padding:'32px 40px', background:'#0A2248', color:'#fff' }}>
+      <section id="stats-bar" style={{ borderTop:'1px solid rgba(255,255,255,0.07)', borderBottom:'1px solid rgba(255,255,255,0.07)', padding:'32px 40px', background:'#0A2248', color:'#fff' }}>
         <div style={{ display:'flex', justifyContent:'center', gap:'clamp(32px,6vw,80px)', flexWrap:'wrap', maxWidth:900, margin:'0 auto' }}>
-          {stats.map((s)=>(
-            <div key={s.lk} style={{ textAlign:'center' }}>
-              <div style={{ fontSize:30, fontWeight:800, color:'#4A90D9', letterSpacing:'-0.02em' }}>
-                <InlineEdit tag="span" section="stats" fieldKey={s.vk} value={s.v} isAdmin={isAdmin} darkBg />
-              </div>
-              <div style={{ fontSize:11, color:'rgba(255,255,255,0.4)', marginTop:5, letterSpacing:'0.08em', textTransform:'uppercase', fontWeight:500 }}>
-                <InlineEdit tag="span" section="stats" fieldKey={s.lk} value={s.l} isAdmin={isAdmin} darkBg />
-              </div>
+          {statsData.map((s, i) => (
+            <div key={i} style={{ textAlign:'center' }}>
+              <div style={{ fontSize:30, fontWeight:800, color:'#4A90D9', letterSpacing:'-0.02em' }}>{s.value}</div>
+              <div style={{ fontSize:11, color:'rgba(255,255,255,0.4)', marginTop:5, letterSpacing:'0.08em', textTransform:'uppercase', fontWeight:500 }}>{s.label}</div>
             </div>
           ))}
         </div>

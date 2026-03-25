@@ -24,6 +24,10 @@ export default function AdminContentPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
+  type StatRow = { id: number; value: string; label: string };
+  const [statItems, setStatItems] = useState<StatRow[]>([]);
+  const [statsDirty, setStatsDirty] = useState(false);
+
   useEffect(() => {
     fetch('/api/admin/content')
       .then(r => r.json())
@@ -31,6 +35,26 @@ export default function AdminContentPage() {
         const map: Record<string, string> = {};
         for (const row of j.rows ?? []) map[`${row.section}__${row.key}`] = row.value;
         setValues(map);
+
+        // Init stat items — try JSON array first, fall back to individual keys
+        const statsJson = map['stats__stats_bar_items'] ?? '';
+        let parsed: StatRow[] | null = null;
+        if (statsJson) {
+          try {
+            const arr = JSON.parse(statsJson) as { value: string; label: string; order: number }[];
+            parsed = arr.sort((a, b) => a.order - b.order).map((s, i) => ({ id: i + 1, value: s.value, label: s.label }));
+          } catch { /* fall through */ }
+        }
+        if (!parsed) {
+          const fb = [1,2,3,4].map((n, i) => ({ id: i+1, value: map[`stats__stat${n}_value`] ?? '', label: map[`stats__stat${n}_label`] ?? '' })).filter(s => s.value || s.label);
+          parsed = fb.length ? fb : [
+            { id: 1, value: '10+',       label: 'MODELING PLATFORMS'  },
+            { id: 2, value: '100%',      label: 'FREE TRAINING'        },
+            { id: 3, value: 'Excel+PDF', label: 'EXPORT FORMATS'       },
+            { id: 4, value: '20+',       label: 'CURRENCIES SUPPORTED' },
+          ];
+        }
+        setStatItems(parsed);
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -54,6 +78,27 @@ export default function AdminContentPage() {
         })
       ));
       setToast({ msg: 'Saved successfully', type: 'success' });
+      setTimeout(() => setToast(null), 3000);
+    } catch {
+      setToast({ msg: 'Save failed', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveStats() {
+    setSaving(true);
+    try {
+      const json = JSON.stringify(statItems.map((s, i) => ({ value: s.value, label: s.label, order: i + 1 })));
+      const res = await fetch('/api/admin/content', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section: 'stats', key: 'stats_bar_items', value: json }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      setStatsDirty(false);
+      setToast({ msg: 'Stats saved', type: 'success' });
       setTimeout(() => setToast(null), 3000);
     } catch {
       setToast({ msg: 'Save failed', type: 'error' });
@@ -156,24 +201,108 @@ export default function AdminContentPage() {
             {tab === 'hero' && (
               <div>
                 <div style={fieldStyle}><label style={labelStyle}>Badge Text</label><input style={inputStyle} value={get('hero','badge_text','🚀 Now Live — Free to Use')} onChange={e => set('hero','badge_text',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Headline</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={2} value={get('hero','headline','The Operating System\nfor Financial Modeling')} onChange={e => set('hero','headline',e.target.value)} /></div>
+                <div style={fieldStyle}><label style={labelStyle}>Headline</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={2} value={get('hero','headline','Build Institutional-Grade Financial Models — Without Starting From Scratch')} onChange={e => set('hero','headline',e.target.value)} /></div>
                 <div style={fieldStyle}><label style={labelStyle}>Sub-headline</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={3} value={get('hero','subheadline','')} onChange={e => set('hero','subheadline',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>CTA 1 Label</label><input style={inputStyle} value={get('hero','cta1','Launch Platform Free →')} onChange={e => set('hero','cta1',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>CTA 2 Label</label><input style={inputStyle} value={get('hero','cta2','Explore Platforms ↓')} onChange={e => set('hero','cta2',e.target.value)} /></div>
-                {saveBtn([{section:'hero',key:'badge_text'},{section:'hero',key:'headline'},{section:'hero',key:'subheadline'},{section:'hero',key:'cta1'},{section:'hero',key:'cta2'}])}
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Power Statement</label>
+                  <input style={inputStyle} value={get('hero','power_statement','No more rebuilding models. No more broken Excel files. No more wasted hours.')} onChange={e => set('hero','power_statement',e.target.value)} placeholder="No more rebuilding models. No more broken Excel files." />
+                  <p style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Short punchy line shown below the subheading with a green left accent.</p>
+                </div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Soft CTA Text</label>
+                  <input style={inputStyle} value={get('hero','soft_cta','Explore the platform')} onChange={e => set('hero','soft_cta',e.target.value)} placeholder="Explore the platform" />
+                  <p style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Subtle text link with a down arrow. Scrolls to the platforms section on click.</p>
+                </div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Trust Line</label>
+                  <input style={inputStyle} value={get('hero','trust_line','Designed by Investment & Corporate Finance Experts  |  12+ Years Experience  |  Used Across KSA & Pakistan')} onChange={e => set('hero','trust_line',e.target.value)} />
+                </div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Specialty Tags</label>
+                  <input style={inputStyle} value={get('hero','tags','Real Estate Models, Business Valuation, Project Finance, Fund Models')} onChange={e => set('hero','tags',e.target.value)} placeholder="Real Estate Models, Business Valuation, Project Finance" />
+                  <p style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Comma-separated. Rendered as pill badges below the trust line.</p>
+                </div>
+                <div style={{ padding:'10px 14px', background:'#FEF3C7', border:'1px solid #FDE68A', borderRadius:7, marginBottom:20 }}>
+                  <p style={{ fontSize:12, color:'#92400E', margin:0 }}>&#9432; <strong>Button CTAs (below) are hidden in the current hero design.</strong> Edit &ldquo;Soft CTA Text&rdquo; above instead.</p>
+                </div>
+                <div style={fieldStyle}><label style={{ ...labelStyle, color:'#9CA3AF' }}>CTA 1 Label (hidden)</label><input style={{...inputStyle, opacity:0.6}} value={get('hero','cta1','Launch Platform Free →')} onChange={e => set('hero','cta1',e.target.value)} /></div>
+                <div style={fieldStyle}><label style={{ ...labelStyle, color:'#9CA3AF' }}>CTA 2 Label (hidden)</label><input style={{...inputStyle, opacity:0.6}} value={get('hero','cta2','Explore Platforms ↓')} onChange={e => set('hero','cta2',e.target.value)} /></div>
+                {saveBtn([
+                  {section:'hero',key:'badge_text'},
+                  {section:'hero',key:'headline'},
+                  {section:'hero',key:'subheadline'},
+                  {section:'hero',key:'power_statement'},
+                  {section:'hero',key:'soft_cta'},
+                  {section:'hero',key:'trust_line'},
+                  {section:'hero',key:'tags'},
+                  {section:'hero',key:'cta1'},
+                  {section:'hero',key:'cta2'},
+                ])}
               </div>
             )}
 
             {/* ── Landing: Stats ── */}
             {tab === 'stats' && (
               <div>
-                {[1,2,3,4].map(n => (
-                  <div key={n} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
-                    <div><label style={labelStyle}>Stat {n} Value</label><input style={inputStyle} value={get('stats',`stat${n}_value`,'')} onChange={e => set('stats',`stat${n}_value`,e.target.value)} /></div>
-                    <div><label style={labelStyle}>Stat {n} Label</label><input style={inputStyle} value={get('stats',`stat${n}_label`,'')} onChange={e => set('stats',`stat${n}_label`,e.target.value)} /></div>
+                <p style={{ fontSize:13, fontWeight:700, color:'#1B3A6B', marginBottom:6 }}>Stats Bar Management</p>
+                <p style={{ fontSize:12, color:'#6B7280', marginBottom:20 }}>Manage the stats displayed below the hero section. Use the arrows to reorder.</p>
+
+                {statItems.map((stat, idx) => (
+                  <div key={stat.id} style={{ display:'flex', alignItems:'flex-end', gap:10, marginBottom:12, padding:'12px 14px', background:'#F9FAFB', borderRadius:8, border:'1px solid #E5E7EB' }}>
+                    {/* Reorder */}
+                    <div style={{ display:'flex', flexDirection:'column', gap:3, paddingBottom:2 }}>
+                      <button
+                        disabled={idx === 0}
+                        onClick={() => { const a=[...statItems]; [a[idx-1],a[idx]]=[a[idx],a[idx-1]]; setStatItems(a); setStatsDirty(true); }}
+                        style={{ background:'none', border:'1px solid #D1D5DB', borderRadius:4, cursor:idx===0?'default':'pointer', padding:'1px 7px', fontSize:10, color:idx===0?'#D1D5DB':'#374151' }}
+                      >&#9650;</button>
+                      <button
+                        disabled={idx===statItems.length-1}
+                        onClick={() => { const a=[...statItems]; [a[idx],a[idx+1]]=[a[idx+1],a[idx]]; setStatItems(a); setStatsDirty(true); }}
+                        style={{ background:'none', border:'1px solid #D1D5DB', borderRadius:4, cursor:idx===statItems.length-1?'default':'pointer', padding:'1px 7px', fontSize:10, color:idx===statItems.length-1?'#D1D5DB':'#374151' }}
+                      >&#9660;</button>
+                    </div>
+                    {/* Value */}
+                    <div style={{ flex:'0 0 120px' }}>
+                      <label style={{ ...labelStyle, marginBottom:4 }}>Value</label>
+                      <input style={inputStyle} value={stat.value} placeholder="e.g. 10+" onChange={e => { setStatItems(statItems.map((s,i)=>i===idx?{...s,value:e.target.value}:s)); setStatsDirty(true); }} />
+                    </div>
+                    {/* Label */}
+                    <div style={{ flex:1 }}>
+                      <label style={{ ...labelStyle, marginBottom:4 }}>Label</label>
+                      <input style={inputStyle} value={stat.label} placeholder="e.g. MODELING PLATFORMS" onChange={e => { setStatItems(statItems.map((s,i)=>i===idx?{...s,label:e.target.value}:s)); setStatsDirty(true); }} />
+                    </div>
+                    {/* Delete */}
+                    <button
+                      onClick={() => {
+                        if (statItems.length === 1 && !confirm('Remove the last stat?')) return;
+                        setStatItems(statItems.filter((_,i)=>i!==idx));
+                        setStatsDirty(true);
+                      }}
+                      style={{ background:'none', border:'1px solid #FCA5A5', borderRadius:6, color:'#EF4444', cursor:'pointer', padding:'6px 10px', fontSize:12, marginBottom:1 }}
+                      title="Delete stat"
+                    >&#10005;</button>
                   </div>
                 ))}
-                {saveBtn([1,2,3,4].flatMap(n => [{section:'stats',key:`stat${n}_value`},{section:'stats',key:`stat${n}_label`}]))}
+
+                {statItems.length < 8 ? (
+                  <button
+                    onClick={() => { setStatItems([...statItems, { id: Date.now(), value: '', label: '' }]); setStatsDirty(true); }}
+                    style={{ background:'none', border:'1px dashed #9CA3AF', borderRadius:8, color:'#6B7280', cursor:'pointer', padding:'10px 20px', fontSize:13, width:'100%', marginBottom:20 }}
+                  >+ Add Stat</button>
+                ) : (
+                  <p style={{ fontSize:12, color:'#9CA3AF', textAlign:'center', marginBottom:20 }}>Maximum 8 stats reached.</p>
+                )}
+
+                <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap' }}>
+                  <button
+                    disabled={saving}
+                    onClick={saveStats}
+                    style={{ background:saving?'#6B7280':'#1B4F8A', color:'#fff', border:'none', borderRadius:8, padding:'10px 24px', fontSize:13, fontWeight:700, cursor:'pointer' }}
+                  >{saving ? 'Saving…' : 'Save Changes'}</button>
+                  {statsDirty && <span style={{ fontSize:12, color:'#D97706', fontWeight:600 }}>&#9679; Unsaved changes</span>}
+                </div>
+                <p style={{ fontSize:11, color:'#9CA3AF', marginTop:10 }}>Changes reflect on the live site within 60 seconds.</p>
               </div>
             )}
 

@@ -1113,3 +1113,26 @@ thead th:first-child { border-radius: 0; }
     to   { opacity: 1; transform: translateY(0);   }
 }
 
+/* ── Hero section animations ── */
+@keyframes hero-fade-up {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes hero-fade-in {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+@keyframes hero-bounce {
+    0%, 100% { transform: translateY(0); }
+    50%       { transform: translateY(6px); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .ha { animation: none !important; opacity: 1 !important; transform: none !important; }
+}
+.hero-soft-cta { transition: color 0.2s; }
+.hero-soft-cta:hover { color: #fff !important; }
+.hero-soft-cta:hover .hero-cta-arrow { transform: translateY(6px); }
+.hero-cta-arrow { display: inline-block; transition: transform 0.2s ease; }
+.hero-tag { transition: border-color 0.2s, color 0.2s; cursor: default; }
+.hero-tag:hover { border-color: rgba(255,255,255,0.5) !important; color: rgba(255,255,255,0.8) !important; }
+
