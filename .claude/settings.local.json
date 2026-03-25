@@ -43,7 +43,8 @@
       "Bash(curl:*)",
       "Bash(npm audit:*)",
       "Bash(wc -l \"D:\\\\FMP\\\\financial-modeler-pro\\\\app\\\\\\(portal\\)\\\\page.tsx\")",
-      "Bash(head -300 \"D:\\\\FMP\\\\financial-modeler-pro\\\\app\\\\\\(portal\\)\\\\page.tsx\")"
+      "Bash(head -300 \"D:\\\\FMP\\\\financial-modeler-pro\\\\app\\\\\\(portal\\)\\\\page.tsx\")",
+      "Bash(grep -rl \"from ''''@/src/components/layout/Navbar''''\" app/ --include=\"*.tsx\")"
     ]
   }
 }

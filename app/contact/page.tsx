@@ -1,7 +1,7 @@
 /**
  * /contact — Public contact page
  */
-import { Navbar } from '@/src/components/layout/Navbar';
+import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { getCmsContent, cms } from '@/src/lib/cms';
 import { ContactForm } from './ContactForm';
 
@@ -27,7 +27,7 @@ export default async function ContactPage() {
 
   return (
     <div style={{ fontFamily:"'Inter',-apple-system,sans-serif", background:'#F5F7FA', minHeight:'100vh', color:'#374151' }}>
-      <Navbar navPages={[]} topOffset={0} />
+      <NavbarServer />
       <div style={{ height:64 }} />
 
       {/* Hero */}

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getFounderProfile, cms } from '@/src/lib/cms';
-import { Navbar } from '@/src/components/layout/Navbar';
+import { NavbarServer } from '@/src/components/layout/NavbarServer';
 
 export const revalidate = 60;
 
@@ -37,7 +37,7 @@ export default async function FounderPage() {
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
 
-      <Navbar />
+      <NavbarServer />
       <div style={{ height: 64 }} />
 
       {/* Hero */}

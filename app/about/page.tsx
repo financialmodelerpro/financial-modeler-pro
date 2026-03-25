@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getModules, type Module } from '@/src/lib/cms';
-import { Navbar } from '@/src/components/layout/Navbar';
+import { NavbarServer } from '@/src/components/layout/NavbarServer';
 
 const FALLBACK_MODULES: Module[] = [
   { id:'1',  name:'Real Estate Financial Modeling', slug:'real-estate',        description:'Multi-asset development models covering residential, hospitality, retail, commercial, industrial, and more.', icon:'🏗️', status:'live',        display_order:1,  launch_date:null },
@@ -28,7 +28,7 @@ export default async function AboutPage() {
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
 
-      <Navbar />
+      <NavbarServer />
       <div style={{ height: 64 }} />
 
       {/* Hero */}

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Navbar } from '@/src/components/layout/Navbar';
+import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { COURSES } from '@/src/config/courses';
 import { getCmsContent, cms } from '@/src/lib/cms';
 
@@ -51,7 +51,6 @@ export default async function TrainingPage() {
   const bvm = COURSES['bvm'];
   const content = await getCmsContent();
 
-  const logoUrl         = cms(content, 'branding', 'logo_url', '');
   const heroBadge       = cms(content, 'training_page', 'hero_badge',         '🎓 Free Certification Program');
   const heroHeadline    = cms(content, 'training_page', 'hero_headline',       'Get Certified in Financial Modeling — Free');
   const heroSub         = cms(content, 'training_page', 'hero_sub',            'Professional certification backed by real practitioner training. 100% free. Always.');
@@ -62,7 +61,7 @@ export default async function TrainingPage() {
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
-      <Navbar logoUrl={logoUrl || undefined} />
+      <NavbarServer />
       <div style={{ height: 64 }} />
 
       {/* ── Section 1 — Hero ──────────────────────────────────────────────── */}

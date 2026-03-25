@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getArticleBySlug, estimateReadTime } from '@/src/lib/cms';
-import { Navbar } from '@/src/components/layout/Navbar';
+import { NavbarServer } from '@/src/components/layout/NavbarServer';
 
 export const revalidate = 60;
 
@@ -47,7 +47,7 @@ export default async function ArticleDetailPage({ params }: Props) {
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
 
-      <Navbar />
+      <NavbarServer />
       <div style={{ height: 64 }} />
 
       {/* Article Header */}

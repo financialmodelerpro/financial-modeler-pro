@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { getPublishedArticles } from '@/src/lib/cms';
 import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/ArticleCard';
 import { CategoryFilter } from '@/src/components/landing/CategoryFilter';
-import { Navbar } from '@/src/components/layout/Navbar';
+import { NavbarServer } from '@/src/components/layout/NavbarServer';
 
 export const revalidate = 60;
 
@@ -33,7 +33,7 @@ export default async function ArticlesPage({ searchParams }: Props) {
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
 
-      <Navbar />
+      <NavbarServer />
       <div style={{ height: 64 }} />
 
       {/* Hero */}

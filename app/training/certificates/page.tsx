@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
-import { Navbar } from '@/src/components/layout/Navbar';
+import { NavbarServer } from '@/src/components/layout/NavbarServer';
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -204,7 +204,7 @@ export default function CertificatesPage() {
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#F4F7FC', minHeight: '100vh' }}>
 
-      <Navbar />
+      <NavbarServer />
       <div style={{ height: 64 }} />
 
       <main style={{ maxWidth: 960, margin: '0 auto', padding: '40px 24px' }}>

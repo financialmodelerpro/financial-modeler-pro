@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getCourseWithLessons } from '@/src/lib/cms';
 import { VideoPlayer } from '@/src/components/landing/VideoPlayer';
-import { Navbar } from '@/src/components/layout/Navbar';
+import { NavbarServer } from '@/src/components/layout/NavbarServer';
 
 export const revalidate = 60;
 
@@ -35,7 +35,7 @@ export default async function CourseDetailPage({ params }: Props) {
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
 
-      <Navbar />
+      <NavbarServer />
       <div style={{ height: 64 }} />
 
       {/* Course Header */}

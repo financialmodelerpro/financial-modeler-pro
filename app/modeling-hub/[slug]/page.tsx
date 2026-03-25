@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { Navbar } from '@/src/components/layout/Navbar';
+import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { PLATFORMS, getPlatform } from '@/src/config/platforms';
 import type { PlatformModule } from '@/src/config/platforms';
 
@@ -70,7 +70,7 @@ export default async function PlatformDetailPage({
   if (isLive) {
     return (
       <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
-        <Navbar />
+        <NavbarServer />
         <div style={{ height: 64 }} />
 
         {/* ── Hero ─────────────────────────────────────────────────────────── */}
@@ -334,7 +334,7 @@ export default async function PlatformDetailPage({
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
-      <Navbar />
+      <NavbarServer />
       <div style={{ height: 64 }} />
 
       {/* ── Hero ─────────────────────────────────────────────────────────── */}

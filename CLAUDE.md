@@ -176,6 +176,7 @@ When migrating logic from it:
 
 ---
 
+git push origin main
 ## Build Notes (Windows / OneDrive path)
 - The project path is deep (OneDrive) — webpack is used instead of Turbopack to avoid MAX_PATH issues
 - Build script: `npm run build` uses `--webpack` flag (see package.json)

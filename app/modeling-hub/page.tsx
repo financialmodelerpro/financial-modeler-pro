@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Navbar } from '@/src/components/layout/Navbar';
+import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { PLATFORMS } from '@/src/config/platforms';
 import { getCmsContent, cms } from '@/src/lib/cms';
 
@@ -34,7 +34,6 @@ const WHY_ITEMS = [
 export default async function ModelingHubPage() {
   const content = await getCmsContent();
 
-  const logoUrl      = cms(content, 'branding', 'logo_url', '');
   const heroBadge    = cms(content, 'modeling_hub', 'hero_badge',        '📐 Professional Modeling Platform');
   const heroHeadline = cms(content, 'modeling_hub', 'hero_headline',     'Build Institutional-Grade\nFinancial Models');
   const heroSub      = cms(content, 'modeling_hub', 'hero_sub',          'Structured, guided workflows for every financial discipline — real estate, business valuation, LBO, FP&A, and more. Built by practitioners. Free to use.');
@@ -46,7 +45,7 @@ export default async function ModelingHubPage() {
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
-      <Navbar logoUrl={logoUrl || undefined} />
+      <NavbarServer />
       <div style={{ height: 64 }} />
 
       {/* ── Section 1 — Hero ──────────────────────────────────────────────── */}
