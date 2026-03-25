@@ -147,6 +147,7 @@ export default function AdminCourseLessonsPage() {
     title: '',
     youtube_url: '',
     description: '',
+    file_url: '',
     duration_minutes: 0,
     display_order: 1,
   });
@@ -266,7 +267,7 @@ export default function AdminCourseLessonsPage() {
 
   function openNewLesson() {
     setEditLesson(null);
-    setLessonForm({ title: '', youtube_url: '', description: '', duration_minutes: 0, display_order: lessons.length + 1 });
+    setLessonForm({ title: '', youtube_url: '', description: '', file_url: '', duration_minutes: 0, display_order: lessons.length + 1 });
     setYtThumb(null);
     setYtError('');
     setShowLessonForm(true);
@@ -274,7 +275,7 @@ export default function AdminCourseLessonsPage() {
 
   function openEditLesson(l: Lesson) {
     setEditLesson(l);
-    setLessonForm({ title: l.title, youtube_url: l.youtube_url, description: l.description, duration_minutes: l.duration_minutes, display_order: l.display_order });
+    setLessonForm({ title: l.title, youtube_url: l.youtube_url, description: l.description, file_url: l.file_url ?? '', duration_minutes: l.duration_minutes, display_order: l.display_order });
     setYtThumb(null);
     setYtError('');
     if (l.youtube_url) checkYouTube(l.youtube_url);
@@ -756,6 +757,15 @@ export default function AdminCourseLessonsPage() {
             <div style={{ marginBottom: 16 }}>
               <label style={labelStyle}>Description</label>
               <textarea value={lessonForm.description} onChange={e => setLessonForm(p => ({ ...p, description: e.target.value }))} rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
+            </div>
+            <div style={{ marginBottom: 16 }}>
+              <label style={labelStyle}>Download File URL <span style={{ fontSize: 10, fontWeight: 400, color: '#9CA3AF', textTransform: 'none' }}>(optional — Excel, PDF, etc.)</span></label>
+              <input value={lessonForm.file_url} onChange={e => setLessonForm(p => ({ ...p, file_url: e.target.value }))} placeholder="https://… (leave blank if no file)" style={inputStyle} />
+              {lessonForm.file_url && (
+                <div style={{ marginTop: 4, fontSize: 11, color: '#1A7A30' }}>
+                  📎 File set — students will see a download button on this lesson
+                </div>
+              )}
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 24 }}>
               <div>

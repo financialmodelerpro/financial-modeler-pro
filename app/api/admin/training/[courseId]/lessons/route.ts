@@ -11,16 +11,16 @@ async function checkAdmin() {
 export async function POST(req: NextRequest, { params }: { params: Promise<{ courseId: string }> }) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { courseId } = await params;
-  const { title, youtube_url, description, duration_minutes, display_order } = await req.json();
+  const { title, youtube_url, description, duration_minutes, display_order, file_url } = await req.json();
   const sb = getServerClient();
-  const { data, error } = await sb.from('lessons').insert({ course_id: courseId, title, youtube_url: youtube_url ?? '', description: description ?? '', duration_minutes: duration_minutes ?? 0, display_order: display_order ?? 0 }).select().single();
+  const { data, error } = await sb.from('lessons').insert({ course_id: courseId, title, youtube_url: youtube_url ?? '', description: description ?? '', duration_minutes: duration_minutes ?? 0, display_order: display_order ?? 0, file_url: file_url ?? null }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ lesson: data });
 }
 
 export async function PATCH(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const { id, title, youtube_url, description, duration_minutes, display_order } = await req.json();
+  const { id, title, youtube_url, description, duration_minutes, display_order, file_url } = await req.json();
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
   const update: Record<string, unknown> = {};
   if (title !== undefined) update.title = title;
@@ -28,6 +28,7 @@ export async function PATCH(req: NextRequest) {
   if (description !== undefined) update.description = description;
   if (duration_minutes !== undefined) update.duration_minutes = duration_minutes;
   if (display_order !== undefined) update.display_order = display_order;
+  if (file_url !== undefined) update.file_url = file_url || null;
   const sb = getServerClient();
   const { error } = await sb.from('lessons').update(update).eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

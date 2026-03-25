@@ -178,10 +178,13 @@ export async function getFounderProfile(): Promise<Record<string, Record<string,
 
 export interface SitePage { id: string; label: string; href: string; visible: boolean; display_order: number; can_toggle: boolean }
 
-// Normalise stale hrefs from old seed data
+// Normalise stale hrefs / labels from old seed data (avoids needing a DB migration on every rename)
 const HREF_MIGRATIONS: Record<string, string> = {
   '#modules':  '/modeling-hub',
   '/#modules': '/modeling-hub',
+};
+const LABEL_MIGRATIONS: Record<string, string> = {
+  'Training Academy': 'Training Hub',
 };
 
 export async function getSitePages(): Promise<SitePage[]> {
@@ -189,7 +192,11 @@ export async function getSitePages(): Promise<SitePage[]> {
     const sb = getServerClient();
     const { data } = await sb.from('site_pages').select('*').eq('visible', true).order('display_order');
     const pages = (data as SitePage[]) ?? [];
-    return pages.map(p => ({ ...p, href: HREF_MIGRATIONS[p.href] ?? p.href }));
+    return pages.map(p => ({
+      ...p,
+      href:  HREF_MIGRATIONS[p.href]   ?? p.href,
+      label: LABEL_MIGRATIONS[p.label] ?? p.label,
+    }));
   } catch {
     return [];
   }

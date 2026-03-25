@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { COURSES } from '@/src/config/courses';
 import { getCmsContent, cms } from '@/src/lib/cms';
+import { CurriculumCard } from './CurriculumCard';
 
 export const revalidate = 60;
 
@@ -140,103 +141,22 @@ export default async function TrainingPage() {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 28 }}>
-            {/* Card 1 — 3SFM */}
-            <div style={{
-              background: '#fff', borderRadius: 14,
-              border: '1px solid #E5E7EB', borderLeft: '4px solid #1B4F8A',
-              padding: '32px 28px',
-              boxShadow: '0 2px 16px rgba(0,0,0,0.06)',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#1B4F8A', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>
-                    {sfm.shortTitle}
-                  </div>
-                  <h3 style={{ fontSize: 18, fontWeight: 800, color: '#0D2E5A', margin: 0, lineHeight: 1.3 }}>
-                    {sfm.title}
-                  </h3>
-                </div>
-                <span style={{
-                  flexShrink: 0, marginLeft: 12,
-                  fontSize: 11, fontWeight: 700, padding: '4px 10px',
-                  borderRadius: 20, background: '#EEF2FF', color: '#4F46E5',
-                  border: '1px solid #C7D2FE', whiteSpace: 'nowrap',
-                }}>
-                  18 Sessions
-                </span>
-              </div>
-              <p style={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.65, marginBottom: 24 }}>
-                {sfm.description}
-              </p>
-              <div style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                background: '#F0FFF4', border: '1px solid #BBF7D0',
-                borderRadius: 6, padding: '5px 12px', marginBottom: 24,
-              }}>
-                <span style={{ fontSize: 14 }}>✅</span>
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#15803D' }}>
-                  Certificate issued via Certifier.io
-                </span>
-              </div>
-              <Link href="/training/register" style={{
-                display: 'block', textAlign: 'center',
-                padding: '11px 0', borderRadius: 7,
-                background: 'transparent', border: '1.5px solid #1B4F8A',
-                color: '#1B4F8A', fontWeight: 700, fontSize: 13,
-                textDecoration: 'none',
-              }}>
-                View Curriculum →
-              </Link>
-            </div>
-
-            {/* Card 2 — BVM */}
-            <div style={{
-              background: '#fff', borderRadius: 14,
-              border: '1px solid #E5E7EB', borderLeft: '4px solid #2EAA4A',
-              padding: '32px 28px',
-              boxShadow: '0 2px 16px rgba(0,0,0,0.06)',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: '#2EAA4A', letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>
-                    {bvm.shortTitle}
-                  </div>
-                  <h3 style={{ fontSize: 18, fontWeight: 800, color: '#0D2E5A', margin: 0, lineHeight: 1.3 }}>
-                    {bvm.title}
-                  </h3>
-                </div>
-                <span style={{
-                  flexShrink: 0, marginLeft: 12,
-                  fontSize: 11, fontWeight: 700, padding: '4px 10px',
-                  borderRadius: 20, background: '#F0FFF4', color: '#15803D',
-                  border: '1px solid #BBF7D0', whiteSpace: 'nowrap',
-                }}>
-                  6 Lessons
-                </span>
-              </div>
-              <p style={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.65, marginBottom: 24 }}>
-                {bvm.description}
-              </p>
-              <div style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                background: '#F0FFF4', border: '1px solid #BBF7D0',
-                borderRadius: 6, padding: '5px 12px', marginBottom: 24,
-              }}>
-                <span style={{ fontSize: 14 }}>✅</span>
-                <span style={{ fontSize: 11, fontWeight: 700, color: '#15803D' }}>
-                  Certificate issued via Certifier.io
-                </span>
-              </div>
-              <Link href="/training/register" style={{
-                display: 'block', textAlign: 'center',
-                padding: '11px 0', borderRadius: 7,
-                background: 'transparent', border: '1.5px solid #2EAA4A',
-                color: '#2EAA4A', fontWeight: 700, fontSize: 13,
-                textDecoration: 'none',
-              }}>
-                View Curriculum →
-              </Link>
-            </div>
+            <CurriculumCard
+              course={sfm}
+              accentColor="#1B4F8A"
+              badgeBg="#EEF2FF"
+              badgeColor="#4F46E5"
+              badgeBorder="#C7D2FE"
+              sessionLabel={`${sfm.sessions.length} Sessions`}
+            />
+            <CurriculumCard
+              course={bvm}
+              accentColor="#2EAA4A"
+              badgeBg="#F0FFF4"
+              badgeColor="#15803D"
+              badgeBorder="#BBF7D0"
+              sessionLabel={`${bvm.sessions.length} Lessons`}
+            />
           </div>
         </div>
       </section>
