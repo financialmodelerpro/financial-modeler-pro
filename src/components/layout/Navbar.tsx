@@ -98,63 +98,43 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
             <div style={{
               position: 'absolute', top: 'calc(100% + 8px)', right: 0,
               background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB',
-              boxShadow: '0 8px 32px rgba(0,0,0,0.18)', minWidth: 240, zIndex: 200, overflow: 'hidden',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.18)', minWidth: 220, zIndex: 200, overflow: 'hidden',
             }}>
-              {/* Sign In */}
-              <div style={{ padding: '6px 18px 2px', fontSize: 10, fontWeight: 700, color: '#9CA3AF', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                Sign In
+
+              {/* ── Modeling Hub ── */}
+              <div style={{ padding: '10px 16px 6px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #F3F4F6' }}>
+                <span style={{ fontSize: 15 }}>📐</span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#1B3A6B', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Modeling Hub</span>
               </div>
-              <Link
-                href="/login"
-                onClick={() => setOpen(false)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', textDecoration: 'none', color: '#374151', fontSize: 13 }}
-              >
-                <span style={{ fontSize: 16 }}>📐</span>
-                <div>
-                  <div style={{ fontWeight: 600, color: '#1B3A6B' }}>Modeling Hub</div>
-                  <div style={{ fontSize: 11, color: '#9CA3AF' }}>Sign in to your portal</div>
-                </div>
+              <Link href="/login" onClick={() => setOpen(false)}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 9px 24px', textDecoration: 'none', color: '#374151', fontSize: 13, borderBottom: '1px solid #F9FAFB' }}>
+                <span style={{ fontSize: 13, color: '#6B7280' }}>🔑</span>
+                <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Sign In</span>
               </Link>
-              <Link
-                href="/training/login"
-                onClick={() => setOpen(false)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', textDecoration: 'none', color: '#374151', fontSize: 13 }}
-              >
-                <span style={{ fontSize: 16 }}>🎓</span>
-                <div>
-                  <div style={{ fontWeight: 600, color: '#1B3A6B' }}>Training Hub</div>
-                  <div style={{ fontSize: 11, color: '#9CA3AF' }}>Sign in to your training account</div>
-                </div>
+              <Link href="/login" onClick={() => setOpen(false)}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 12px 24px', textDecoration: 'none', color: '#374151', fontSize: 13 }}>
+                <span style={{ fontSize: 13, color: '#6B7280' }}>✏️</span>
+                <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Create Account</span>
               </Link>
 
-              <div style={{ height: 1, background: '#F3F4F6', margin: '4px 12px' }} />
+              <div style={{ height: 1, background: '#E5E7EB' }} />
 
-              {/* Sign Up */}
-              <div style={{ padding: '6px 18px 2px', fontSize: 10, fontWeight: 700, color: '#9CA3AF', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                Create Account
+              {/* ── Training Hub ── */}
+              <div style={{ padding: '10px 16px 6px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #F3F4F6' }}>
+                <span style={{ fontSize: 15 }}>🎓</span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#1B3A6B', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Training Hub</span>
               </div>
-              <Link
-                href="/login"
-                onClick={() => setOpen(false)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px', textDecoration: 'none', color: '#374151', fontSize: 13 }}
-              >
-                <span style={{ fontSize: 16 }}>📐</span>
-                <div>
-                  <div style={{ fontWeight: 600, color: '#1B3A6B' }}>Modeling Hub</div>
-                  <div style={{ fontSize: 11, color: '#9CA3AF' }}>Financial modeling platforms</div>
-                </div>
+              <Link href="/training/login" onClick={() => setOpen(false)}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 9px 24px', textDecoration: 'none', color: '#374151', fontSize: 13, borderBottom: '1px solid #F9FAFB' }}>
+                <span style={{ fontSize: 13, color: '#6B7280' }}>🔑</span>
+                <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Sign In</span>
               </Link>
-              <Link
-                href="/training/register"
-                onClick={() => setOpen(false)}
-                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 18px 14px', textDecoration: 'none', color: '#374151', fontSize: 13 }}
-              >
-                <span style={{ fontSize: 16 }}>🎓</span>
-                <div>
-                  <div style={{ fontWeight: 600, color: '#1B3A6B' }}>Training Hub</div>
-                  <div style={{ fontSize: 11, color: '#9CA3AF' }}>Free certification courses</div>
-                </div>
+              <Link href="/training/register" onClick={() => setOpen(false)}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 14px 24px', textDecoration: 'none', color: '#374151', fontSize: 13 }}>
+                <span style={{ fontSize: 13, color: '#6B7280' }}>✏️</span>
+                <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Create Account</span>
               </Link>
+
             </div>
           )}
         </div>
