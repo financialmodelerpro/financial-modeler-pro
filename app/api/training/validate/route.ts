@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { validateStudent } from '@/src/lib/sheets';
+import { getServerClient } from '@/src/lib/supabase';
 import { cookies } from 'next/headers';
 
 export async function POST(req: NextRequest) {
@@ -24,6 +25,26 @@ export async function POST(req: NextRequest) {
         { success: false, error: 'Invalid email or Registration ID.' },
         { status: 401 },
       );
+    }
+
+    // Check if student is blocked by admin
+    try {
+      const sb = getServerClient();
+      const { data: blockRecord } = await sb
+        .from('training_admin_actions')
+        .select('id')
+        .eq('registration_id', registrationId.trim())
+        .eq('action_type', 'block')
+        .eq('is_active', true)
+        .maybeSingle();
+      if (blockRecord) {
+        return NextResponse.json(
+          { success: false, error: 'Your account has been suspended. Please contact support@financialmodelerpro.com' },
+          { status: 403 },
+        );
+      }
+    } catch {
+      // If block check fails, allow login (fail open — don't lock out students due to DB issues)
     }
 
     // Set an httpOnly cookie so the dashboard can read session server-side

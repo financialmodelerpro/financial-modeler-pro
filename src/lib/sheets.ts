@@ -164,3 +164,28 @@ export async function registerStudent(
 ): Promise<ScriptResponse<SheetStudent>> {
   return callScriptPost<SheetStudent>({ action: 'register', name, email, course });
 }
+
+// ── Admin bulk APIs (require Apps Script to implement these actions) ───────────
+
+export interface StudentSummary {
+  registrationId: string;
+  name: string;
+  email: string;
+  course: string;
+  registeredAt: string;
+  sessionsPassedCount?: number;
+  totalSessions?: number;
+  finalPassed?: boolean;
+  finalScore?: number;
+  certificateIssued?: boolean;
+}
+
+/** [Admin] List all enrolled students. Requires Apps Script action: 'listStudents'. */
+export async function listAllStudents(): Promise<ScriptResponse<StudentSummary[]>> {
+  return callScript<StudentSummary[]>({ action: 'listStudents' });
+}
+
+/** [Admin] List all issued certificates. Requires Apps Script action: 'listCertificates'. */
+export async function listAllCertificates(): Promise<ScriptResponse<SheetCertificate[]>> {
+  return callScript<SheetCertificate[]>({ action: 'listCertificates' });
+}

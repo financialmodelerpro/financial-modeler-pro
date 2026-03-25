@@ -1,0 +1,359 @@
+'use client';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+
+interface AdminStudent {
+  registrationId: string; name: string; email: string; course: string;
+  registeredAt: string; sessionsPassedCount?: number; totalSessions?: number;
+  finalPassed?: boolean; certificateIssued?: boolean;
+  isBlocked: boolean; blockActionId: string | null;
+}
+interface SessionProgress {
+  sessionId: string; passed: boolean; score: number; attempts: number; completedAt: string | null;
+}
+interface StudentProgress {
+  student: { name: string; email: string; registrationId: string; course: string; registeredAt: string };
+  sessions: SessionProgress[]; finalPassed: boolean; certificateIssued: boolean;
+}
+
+function Skeleton({ h = 14, w = '100%', mb = 0 }: { h?: number; w?: number | string; mb?: number }) {
+  return <div style={{ height: h, width: w, background: '#E5E7EB', borderRadius: 4, marginBottom: mb }} />;
+}
+
+const badge = (text: string, color: string, bg: string) => (
+  <span style={{ background: bg, color, borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap' }}>{text}</span>
+);
+
+export default function StudentsPage() {
+  const { data: session, status } = useSession();
+  const router = useRouter();
+
+  const [students, setStudents]         = useState<AdminStudent[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [dataAvailable, setDataAvailable] = useState(false);
+  const [appsConfigured, setAppsConfigured] = useState(true);
+  const [apiError, setApiError]         = useState<string | null>(null);
+  const [search, setSearch]             = useState('');
+  const [courseFilter, setCourseFilter] = useState<'all' | '3SFM' | 'BVM'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'blocked'>('all');
+  const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
+  const [progressStudent, setProgressStudent] = useState<AdminStudent | null>(null);
+  const [progress, setProgress]         = useState<StudentProgress | null>(null);
+  const [progressLoading, setProgressLoading] = useState(false);
+  const [progressError, setProgressError] = useState<string | null>(null);
+  const [toast, setToast]               = useState('');
+
+  useEffect(() => {
+    if (status === 'unauthenticated') { router.replace('/login'); return; }
+    if (status === 'authenticated' && (session.user as any).role !== 'admin') router.replace('/');
+  }, [status, session, router]);
+
+  const fetchStudents = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/training-hub/students');
+      const j   = await res.json();
+      setStudents(j.students ?? []);
+      setDataAvailable(j.dataAvailable ?? false);
+      setAppsConfigured(j.appsScriptConfigured ?? true);
+      setApiError(j.error ?? null);
+    } catch { setApiError('Network error'); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { fetchStudents(); }, [fetchStudents]);
+
+  const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
+
+  const setAL = (key: string, val: boolean) => setActionLoading(p => ({ ...p, [key]: val }));
+
+  const handleBlock = async (s: AdminStudent) => {
+    if (!confirm(`Block ${s.name} (${s.email})? They will not be able to log in.`)) return;
+    setAL(s.registrationId, true);
+    const res = await fetch('/api/admin/training-actions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ registration_id: s.registrationId, email: s.email, action_type: 'block', course: s.course }),
+    });
+    setAL(s.registrationId, false);
+    if (res.ok) {
+      const { action } = await res.json();
+      setStudents(p => p.map(st => st.registrationId === s.registrationId ? { ...st, isBlocked: true, blockActionId: action.id } : st));
+      showToast(`${s.name} has been blocked`);
+    } else { showToast('Block failed'); }
+  };
+
+  const handleUnblock = async (s: AdminStudent) => {
+    if (!s.blockActionId) return;
+    setAL(s.registrationId, true);
+    const res = await fetch(`/api/admin/training-actions/${s.blockActionId}`, { method: 'DELETE' });
+    setAL(s.registrationId, false);
+    if (res.ok) {
+      setStudents(p => p.map(st => st.registrationId === s.registrationId ? { ...st, isBlocked: false, blockActionId: null } : st));
+      showToast(`${s.name} has been unblocked`);
+    } else { showToast('Unblock failed'); }
+  };
+
+  const handleResend = async (s: AdminStudent) => {
+    setAL(`resend_${s.registrationId}`, true);
+    const res = await fetch('/api/training/resend-id', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: s.email }),
+    });
+    setAL(`resend_${s.registrationId}`, false);
+    showToast(res.ok ? `Registration ID resent to ${s.email}` : 'Resend failed — check email or Apps Script');
+  };
+
+  const handleViewProgress = async (s: AdminStudent) => {
+    setProgressStudent(s);
+    setProgress(null);
+    setProgressError(null);
+    setProgressLoading(true);
+    try {
+      const res = await fetch(`/api/admin/training-hub/student-progress?email=${encodeURIComponent(s.email)}&regId=${encodeURIComponent(s.registrationId)}`);
+      if (res.ok) {
+        const j = await res.json();
+        setProgress(j.progress);
+      } else {
+        setProgressError('Could not load progress data');
+      }
+    } catch { setProgressError('Network error'); }
+    setProgressLoading(false);
+  };
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase();
+    return students.filter(s => {
+      if (courseFilter !== 'all' && s.course !== courseFilter) return false;
+      if (statusFilter === 'active'  && s.isBlocked) return false;
+      if (statusFilter === 'blocked' && !s.isBlocked) return false;
+      if (q && !s.name.toLowerCase().includes(q) && !s.email.toLowerCase().includes(q) && !s.registrationId.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }, [students, search, courseFilter, statusFilter]);
+
+  const fmt = (iso: string) => {
+    try { return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); }
+    catch { return iso ?? '—'; }
+  };
+
+  return (
+    <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter',sans-serif", background: '#F4F7FC' }}>
+      <CmsAdminNav />
+      <main style={{ flex: 1, padding: 40, overflowY: 'auto' }}>
+
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
+          <div>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>👨‍🎓 Students</h1>
+            <p style={{ fontSize: 13, color: '#6B7280' }}>View and manage all enrolled students across 3SFM and BVM courses</p>
+          </div>
+          <button onClick={fetchStudents} disabled={loading} style={{ padding: '8px 18px', background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? 0.7 : 1 }}>
+            {loading ? 'Loading…' : '↻ Refresh'}
+          </button>
+        </div>
+
+        {/* Banners */}
+        {!loading && !appsConfigured && (
+          <div style={{ background: '#FEF9C3', border: '1px solid #FDE68A', borderRadius: 10, padding: '14px 20px', marginBottom: 20, fontSize: 13, color: '#92400E' }}>
+            ⚠️ <strong>Apps Script not configured.</strong> Go to <a href="/admin/training-settings" style={{ color: '#1B4F8A', fontWeight: 700 }}>Training Settings</a> to connect your Apps Script.
+          </div>
+        )}
+        {!loading && appsConfigured && !dataAvailable && (
+          <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10, padding: '14px 20px', marginBottom: 20, fontSize: 13, color: '#1E40AF' }}>
+            ℹ️ <strong>Student list unavailable.</strong> Add a <code style={{ background: '#DBEAFE', padding: '1px 4px', borderRadius: 3 }}>listStudents</code> action to your Apps Script to enable bulk listing.
+            {apiError && <span style={{ display: 'block', marginTop: 4, fontSize: 11, opacity: 0.7 }}>Error: {apiError}</span>}
+          </div>
+        )}
+
+        {/* Filters */}
+        <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+          <input
+            value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Search name, email or Reg ID…"
+            style={{ flex: 1, minWidth: 200, padding: '8px 12px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 7, outline: 'none', fontFamily: 'Inter,sans-serif' }}
+          />
+          {(['all', '3SFM', 'BVM'] as const).map(c => (
+            <button key={c} onClick={() => setCourseFilter(c)} style={{ padding: '8px 16px', fontSize: 12, fontWeight: 700, borderRadius: 7, border: '1px solid #D1D5DB', background: courseFilter === c ? '#1B4F8A' : '#fff', color: courseFilter === c ? '#fff' : '#374151', cursor: 'pointer' }}>
+              {c === 'all' ? 'All Courses' : c}
+            </button>
+          ))}
+          {(['all', 'active', 'blocked'] as const).map(s => (
+            <button key={s} onClick={() => setStatusFilter(s)} style={{ padding: '8px 16px', fontSize: 12, fontWeight: 700, borderRadius: 7, border: '1px solid #D1D5DB', background: statusFilter === s ? '#1B4F8A' : '#fff', color: statusFilter === s ? '#fff' : '#374151', cursor: 'pointer', textTransform: 'capitalize' }}>
+              {s === 'all' ? 'All Status' : s}
+            </button>
+          ))}
+        </div>
+
+        {/* Count */}
+        {!loading && dataAvailable && (
+          <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 12 }}>
+            Showing <strong>{filtered.length}</strong> of <strong>{students.length}</strong> students
+          </div>
+        )}
+
+        {/* Table */}
+        <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, overflow: 'hidden' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 2fr 70px 80px 80px 80px 80px 160px', background: '#1B4F8A', padding: '10px 20px', gap: 0 }}>
+            {['Reg ID', 'Name', 'Email', 'Course', 'Sessions', 'Final', 'Cert', 'Joined', 'Actions'].map(h => (
+              <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
+            ))}
+          </div>
+
+          {loading ? (
+            [1,2,3,4,5,6].map(i => (
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 2fr 70px 80px 80px 80px 80px 160px', padding: '14px 20px', borderBottom: '1px solid #F3F4F6', gap: 8, alignItems: 'center' }}>
+                {Array(9).fill(0).map((_, j) => <Skeleton key={j} h={14} />)}
+              </div>
+            ))
+          ) : !dataAvailable ? (
+            <div style={{ padding: '48px 20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>
+              {appsConfigured ? 'Student data unavailable — update your Apps Script to support listStudents.' : 'Connect your Apps Script to view students.'}
+            </div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding: '48px 20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>
+              No students match your search.
+            </div>
+          ) : (
+            filtered.map(s => {
+              const busy = !!actionLoading[s.registrationId];
+              const resendBusy = !!actionLoading[`resend_${s.registrationId}`];
+              const passCount = s.sessionsPassedCount ?? null;
+              const total     = s.totalSessions ?? null;
+              return (
+                <div key={s.registrationId} style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 2fr 70px 80px 80px 80px 80px 160px', padding: '11px 20px', borderBottom: '1px solid #F3F4F6', alignItems: 'center', fontSize: 12, background: s.isBlocked ? '#FFF5F5' : '#fff' }}>
+                  <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#6B7280' }}>{s.registrationId}</div>
+                  <div style={{ fontWeight: 600, color: '#1B3A6B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name || '—'}</div>
+                  <div style={{ color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>{s.email}</div>
+                  <div>
+                    <span style={{ background: s.course === '3SFM' ? '#EFF6FF' : '#F0FDF4', color: s.course === '3SFM' ? '#1D4ED8' : '#166534', borderRadius: 20, padding: '2px 7px', fontSize: 10, fontWeight: 700 }}>{s.course}</span>
+                  </div>
+                  <div style={{ color: '#6B7280' }}>{passCount !== null && total !== null ? `${passCount}/${total}` : '—'}</div>
+                  <div>
+                    {s.finalPassed === undefined ? <span style={{ color: '#D1D5DB' }}>—</span>
+                      : s.finalPassed ? badge('Pass', '#166534', '#DCFCE7')
+                      : badge('Fail', '#DC2626', '#FEF2F2')}
+                  </div>
+                  <div>
+                    {s.certificateIssued === undefined ? <span style={{ color: '#D1D5DB' }}>—</span>
+                      : s.certificateIssued ? badge('Yes', '#166534', '#DCFCE7')
+                      : badge('No', '#6B7280', '#F3F4F6')}
+                  </div>
+                  <div style={{ color: '#6B7280', fontSize: 11 }}>{s.registeredAt ? fmt(s.registeredAt) : '—'}</div>
+                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                    <button
+                      onClick={() => handleViewProgress(s)}
+                      style={{ padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5, background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >Progress</button>
+                    {s.isBlocked ? (
+                      <button onClick={() => handleUnblock(s)} disabled={busy} style={{ padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5, background: '#DCFCE7', color: '#166534', border: '1px solid #BBF7D0', cursor: 'pointer', opacity: busy ? 0.6 : 1, whiteSpace: 'nowrap' }}>
+                        {busy ? '…' : 'Unblock'}
+                      </button>
+                    ) : (
+                      <button onClick={() => handleBlock(s)} disabled={busy} style={{ padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5, background: '#FEF2F2', color: '#DC2626', border: '1px solid #FECACA', cursor: 'pointer', opacity: busy ? 0.6 : 1, whiteSpace: 'nowrap' }}>
+                        {busy ? '…' : 'Block'}
+                      </button>
+                    )}
+                    <button onClick={() => handleResend(s)} disabled={resendBusy} style={{ padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5, background: '#F9FAFB', color: '#374151', border: '1px solid #E5E7EB', cursor: 'pointer', opacity: resendBusy ? 0.6 : 1, whiteSpace: 'nowrap' }}>
+                      {resendBusy ? '…' : 'Resend'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+
+      </main>
+
+      {/* Progress Modal */}
+      {progressStudent && (
+        <div
+          onClick={e => { if (e.target === e.currentTarget) { setProgressStudent(null); setProgress(null); } }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+        >
+          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 700, maxHeight: '85vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+            {/* Modal header */}
+            <div style={{ padding: '20px 24px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 16, color: '#1B3A6B' }}>{progressStudent.name || progressStudent.email}</div>
+                <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
+                  {progressStudent.email} &bull; {progressStudent.registrationId} &bull;{' '}
+                  <span style={{ fontWeight: 700, color: progressStudent.course === '3SFM' ? '#1D4ED8' : '#166534' }}>{progressStudent.course}</span>
+                </div>
+              </div>
+              <button onClick={() => { setProgressStudent(null); setProgress(null); }} style={{ fontSize: 20, background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', lineHeight: 1 }}>✕</button>
+            </div>
+            {/* Modal body */}
+            <div style={{ overflowY: 'auto', padding: '20px 24px', flex: 1 }}>
+              {progressLoading && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {[1,2,3,4,5].map(i => <Skeleton key={i} h={36} />)}
+                </div>
+              )}
+              {progressError && (
+                <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '14px 18px', color: '#DC2626', fontSize: 13 }}>
+                  ❌ {progressError}
+                </div>
+              )}
+              {progress && !progressLoading && (
+                <>
+                  {/* Summary badges */}
+                  <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+                    <div style={{ background: '#F4F7FC', borderRadius: 8, padding: '10px 16px', fontSize: 12 }}>
+                      <div style={{ color: '#6B7280', fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Final Exam</div>
+                      <div style={{ fontWeight: 800, color: progress.finalPassed ? '#166534' : '#DC2626', marginTop: 4 }}>
+                        {progress.finalPassed ? '✅ Passed' : '❌ Not Passed'}
+                      </div>
+                    </div>
+                    <div style={{ background: '#F4F7FC', borderRadius: 8, padding: '10px 16px', fontSize: 12 }}>
+                      <div style={{ color: '#6B7280', fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Certificate</div>
+                      <div style={{ fontWeight: 800, color: progress.certificateIssued ? '#166534' : '#6B7280', marginTop: 4 }}>
+                        {progress.certificateIssued ? '🏆 Issued' : '—'}
+                      </div>
+                    </div>
+                    <div style={{ background: '#F4F7FC', borderRadius: 8, padding: '10px 16px', fontSize: 12 }}>
+                      <div style={{ color: '#6B7280', fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Sessions Passed</div>
+                      <div style={{ fontWeight: 800, color: '#1B3A6B', marginTop: 4 }}>
+                        {progress.sessions.filter(s => s.passed).length} / {progress.sessions.length}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Sessions table */}
+                  {progress.sessions.length > 0 ? (
+                    <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #E5E7EB' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px 80px 1fr', background: '#1B4F8A', padding: '8px 14px', gap: 0 }}>
+                        {['Session', 'Score', 'Attempts', 'Status', 'Completed'].map(h => (
+                          <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
+                        ))}
+                      </div>
+                      {progress.sessions.map(sess => (
+                        <div key={sess.sessionId} style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px 80px 1fr', padding: '9px 14px', borderBottom: '1px solid #F3F4F6', fontSize: 12, alignItems: 'center', background: sess.passed ? '#F0FDF4' : '#fff' }}>
+                          <div style={{ fontWeight: 700, color: '#1B3A6B' }}>{sess.sessionId}</div>
+                          <div style={{ color: '#374151' }}>{sess.score ?? '—'}</div>
+                          <div style={{ color: '#6B7280' }}>{sess.attempts ?? '—'}</div>
+                          <div>{sess.passed ? badge('Pass', '#166534', '#DCFCE7') : badge('Fail', '#DC2626', '#FEF2F2')}</div>
+                          <div style={{ color: '#9CA3AF', fontSize: 11 }}>{sess.completedAt ? new Date(sess.completedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', color: '#9CA3AF', fontSize: 13, padding: 24 }}>No session data available.</div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#1B3A6B', color: '#fff', padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 999 }}>
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
