@@ -75,6 +75,7 @@ export default async function AdminDashboardPage() {
               { label: 'New Article',      href: '/admin/articles/new', bg: '#1B4F8A' },
               { label: 'Add Course',       href: '/admin/training',     bg: '#1A7A30' },
               { label: 'Edit Hero Text',   href: '/admin/content',      bg: '#92400E' },
+              { label: 'Training Site →',  href: '/training', target: '_blank', bg: '#1A5C3A' },
               { label: 'View Live Site →', href: '/', target: '_blank', bg: '#374151' },
             ].map((a) => (
               <Link key={a.label} href={a.href} target={(a as any).target} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: a.bg, color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 18px', borderRadius: 7, textDecoration: 'none' }}>
