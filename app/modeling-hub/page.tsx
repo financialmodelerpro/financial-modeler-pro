@@ -37,7 +37,7 @@ export default async function ModelingHubPage() {
   const heroBadge    = cms(content, 'modeling_hub', 'hero_badge',        '📐 Professional Modeling Platform');
   const heroHeadline = cms(content, 'modeling_hub', 'hero_headline',     'Build Institutional-Grade\nFinancial Models');
   const heroSub      = cms(content, 'modeling_hub', 'hero_sub',          'Structured, guided workflows for every financial discipline — real estate, business valuation, LBO, FP&A, and more. Built by practitioners. Free to use.');
-  const ctaPrimary   = cms(content, 'modeling_hub', 'cta_primary',       'Launch Platform Free →');
+  const ctaPrimary   = cms(content, 'modeling_hub', 'cta_primary',       'Register Free →');
   const ctaSecondary = cms(content, 'modeling_hub', 'cta_secondary',     'Login to Dashboard →');
   const whatHeading  = cms(content, 'modeling_hub', 'what_heading',      'What is the Modeling Hub?');
   const whatBody     = cms(content, 'modeling_hub', 'what_body',         'A structured, guided platform that replaces complex manual spreadsheets with professional financial modeling workflows. Built for analysts, investors, and advisory firms who need institutional-grade outputs fast. Every assumption is traceable. Every output is formatted for investor presentation.');

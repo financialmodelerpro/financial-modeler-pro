@@ -113,7 +113,7 @@ export default async function LandingPage() {
   const fallbackPages = [
     { id:'1', label:'Home',             href:'/',         visible:true, display_order:1, can_toggle:false },
     { id:'2', label:'Modeling Hub',     href:'/modeling-hub', visible:true, display_order:2, can_toggle:true },
-    { id:'3', label:'Training Academy', href:'/training', visible:true, display_order:3, can_toggle:true },
+    { id:'3', label:'Training Hub', href:'/training', visible:true, display_order:3, can_toggle:true },
     { id:'4', label:'Articles',         href:'/articles', visible:true, display_order:4, can_toggle:true },
     { id:'5', label:'About',            href:'/about',    visible:true, display_order:5, can_toggle:true },
     { id:'6', label:'Pricing',          href:'#pricing',  visible:true, display_order:6, can_toggle:true },
@@ -485,7 +485,7 @@ export default async function LandingPage() {
             </div>
             <div>
               <div style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.35)', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:14 }}>Platform</div>
-              {[['Modeling Hub','/modeling-hub'],['Training Academy','/training'],['Articles','/articles'],['Launch Platform','/login']].map(([label,href])=>(
+              {[['Modeling Hub','/modeling-hub'],['Training Hub','/training'],['Articles','/articles'],['Launch Platform','/login']].map(([label,href])=>(
                 <Link key={href} href={href} style={{ display:'block', fontSize:13, color:'rgba(255,255,255,0.5)', textDecoration:'none', marginBottom:8 }}>{label}</Link>
               ))}
             </div>
