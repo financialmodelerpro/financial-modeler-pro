@@ -5,9 +5,11 @@ import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import Link from 'next/link';
 
 interface Course { id: string; title: string; description: string; category: string; status: string; display_order: number; thumbnail_url: string | null; _lesson_count?: number }
+interface Stats  { courses: number; lessons: number; enrollments: number; certificates: number }
 
 export default function AdminTrainingPage() {
   const [courses, setCourses] = useState<Course[]>([]);
+  const [stats, setStats] = useState<Stats>({ courses: 0, lessons: 0, enrollments: 0, certificates: 0 });
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editCourse, setEditCourse] = useState<Course | null>(null);
@@ -19,7 +21,13 @@ export default function AdminTrainingPage() {
     setLoading(true);
     fetch('/api/admin/training')
       .then(r => r.json())
-      .then(j => { setCourses(j.courses ?? []); setLoading(false); })
+      .then(j => {
+        const courses: Course[] = j.courses ?? [];
+        setCourses(courses);
+        const totalLessons = courses.reduce((s, c) => s + (c._lesson_count ?? 0), 0);
+        setStats(p => ({ ...p, courses: courses.length, lessons: totalLessons }));
+        setLoading(false);
+      })
       .catch(() => setLoading(false));
   };
 
@@ -67,15 +75,35 @@ export default function AdminTrainingPage() {
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter', sans-serif", background: '#F4F7FC' }}>
       <CmsAdminNav active="/admin/training" />
       <main style={{ flex: 1, padding: 40, overflowY: 'auto' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
           <div>
-            <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>Training Courses</h1>
-            <p style={{ fontSize: 13, color: '#6B7280' }}>{courses.length} courses</p>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>Training & Certification</h1>
+            <p style={{ fontSize: 13, color: '#6B7280' }}>Manage courses, lessons, enrollments and certificates</p>
           </div>
           <button onClick={openNew} style={{ background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 7, padding: '9px 20px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
             + New Course
           </button>
         </div>
+
+        {/* KPI strip */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 16, marginBottom: 32 }}>
+          {[
+            { label: 'Total Courses',      value: stats.courses,      icon: '🎓', color: '#1B4F8A', bg: '#E8F0FB' },
+            { label: 'Total Lessons',      value: stats.lessons,      icon: '▶️', color: '#1A7A30', bg: '#E8F7EC' },
+            { label: 'Enrollments',        value: stats.enrollments,  icon: '👥', color: '#92400E', bg: '#FEF3C7' },
+            { label: 'Certs Issued',       value: stats.certificates, icon: '🏆', color: '#5B21B6', bg: '#F5F3FF' },
+          ].map(k => (
+            <div key={k.label} style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 10, padding: '16px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <div style={{ width: 30, height: 30, borderRadius: 8, background: k.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{k.icon}</div>
+                <span style={{ fontSize: 11, fontWeight: 600, color: '#6B7280' }}>{k.label}</span>
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: k.color }}>{k.value}</div>
+            </div>
+          ))}
+        </div>
+
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1B3A6B', marginBottom: 16 }}>Courses</h2>
 
         {loading ? (
           <div style={{ textAlign: 'center', padding: 60, color: '#6B7280' }}>Loading…</div>

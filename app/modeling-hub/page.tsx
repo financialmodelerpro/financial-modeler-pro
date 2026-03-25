@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Navbar } from '@/src/components/layout/Navbar';
 import { PLATFORMS } from '@/src/config/platforms';
+import { getCmsContent, cms } from '@/src/lib/cms';
 
 export const revalidate = 60;
 
@@ -30,7 +31,18 @@ const WHY_ITEMS = [
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export default function ModelingHubPage() {
+export default async function ModelingHubPage() {
+  const content = await getCmsContent();
+
+  const heroBadge    = cms(content, 'modeling_hub', 'hero_badge',        '📐 Professional Modeling Platform');
+  const heroHeadline = cms(content, 'modeling_hub', 'hero_headline',     'Build Institutional-Grade\nFinancial Models');
+  const heroSub      = cms(content, 'modeling_hub', 'hero_sub',          'Structured, guided workflows for every financial discipline — real estate, business valuation, LBO, FP&A, and more. Built by practitioners. Free to use.');
+  const ctaPrimary   = cms(content, 'modeling_hub', 'cta_primary',       'Launch Platform Free →');
+  const ctaSecondary = cms(content, 'modeling_hub', 'cta_secondary',     'Login to Dashboard →');
+  const whatHeading  = cms(content, 'modeling_hub', 'what_heading',      'What is the Modeling Hub?');
+  const whatBody     = cms(content, 'modeling_hub', 'what_body',         'A structured, guided platform that replaces complex manual spreadsheets with professional financial modeling workflows. Built for analysts, investors, and advisory firms who need institutional-grade outputs fast. Every assumption is traceable. Every output is formatted for investor presentation.');
+  const bottomCtaH2  = cms(content, 'modeling_hub', 'bottom_cta_heading','Ready to build your first model?');
+
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
       <Navbar />
@@ -51,7 +63,7 @@ export default function ModelingHubPage() {
             borderRadius: 20, padding: '5px 16px', fontSize: 12,
             color: '#93C5FD', fontWeight: 700, marginBottom: 24, letterSpacing: '0.04em',
           }}>
-            📐 Professional Modeling Platform
+            {heroBadge}
           </div>
 
           <h1 style={{
@@ -59,15 +71,14 @@ export default function ModelingHubPage() {
             lineHeight: 1.15, marginBottom: 20, letterSpacing: '-0.02em',
             whiteSpace: 'pre-line',
           }}>
-            {`Build Institutional-Grade\nFinancial Models`}
+            {heroHeadline}
           </h1>
 
           <p style={{
             fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.6)',
             lineHeight: 1.7, marginBottom: 36, maxWidth: 560, margin: '0 auto 36px',
           }}>
-            Structured, guided workflows for every financial discipline — real estate, business valuation, LBO,
-            FP&A, and more. Built by practitioners. Free to use.
+            {heroSub}
           </p>
 
           {/* CTA buttons */}
@@ -79,7 +90,7 @@ export default function ModelingHubPage() {
               borderRadius: 8, textDecoration: 'none',
               boxShadow: '0 4px 20px rgba(27,79,138,0.4)',
             }}>
-              Launch Platform Free →
+              {ctaPrimary}
             </Link>
             <Link href="/login" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
@@ -88,7 +99,7 @@ export default function ModelingHubPage() {
               borderRadius: 8, textDecoration: 'none',
               border: '2px solid rgba(255,255,255,0.35)',
             }}>
-              Login to Dashboard →
+              {ctaSecondary}
             </Link>
           </div>
 
@@ -109,7 +120,7 @@ export default function ModelingHubPage() {
               The Platform
             </div>
             <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', margin: 0 }}>
-              What is the Modeling Hub?
+              {whatHeading}
             </h2>
           </div>
 
@@ -117,7 +128,7 @@ export default function ModelingHubPage() {
             {/* Left — description */}
             <div>
               <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.8, marginBottom: 20 }}>
-                The Modeling Hub is a structured, guided financial modeling platform designed to replace the complexity of building models from scratch in Excel. Each platform walks you through the analysis step by step — asking the right questions, validating your inputs, and producing fully formatted, professional outputs.
+                {whatBody}
               </p>
               <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.8, marginBottom: 20 }}>
                 Built for financial professionals who need institutional-grade outputs fast. Every assumption is clearly flagged and traceable, every calculation is auditable, and every output is formatted for investor presentation or lender submission.
@@ -281,7 +292,7 @@ export default function ModelingHubPage() {
             fontSize: 'clamp(22px,4vw,38px)', fontWeight: 800,
             color: '#fff', marginBottom: 12, lineHeight: 1.2,
           }}>
-            Ready to build your first model?
+            {bottomCtaH2}
           </h2>
           <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}>
             Join financial professionals around the world building institutional-grade models — completely free.

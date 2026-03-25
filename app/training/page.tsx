@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { Navbar } from '@/src/components/layout/Navbar';
 import { COURSES } from '@/src/config/courses';
+import { getCmsContent, cms } from '@/src/lib/cms';
 
 export const revalidate = 60;
 
@@ -45,9 +46,18 @@ const BENEFITS = [
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export default function TrainingPage() {
+export default async function TrainingPage() {
   const sfm = COURSES['3sfm'];
   const bvm = COURSES['bvm'];
+  const content = await getCmsContent();
+
+  const heroBadge       = cms(content, 'training_page', 'hero_badge',         '🎓 Free Certification Program');
+  const heroHeadline    = cms(content, 'training_page', 'hero_headline',       'Get Certified in Financial Modeling — Free');
+  const heroSub         = cms(content, 'training_page', 'hero_sub',            'Professional certification backed by real practitioner training. 100% free. Always.');
+  const ctaPrimary      = cms(content, 'training_page', 'cta_primary',         'Register Free →');
+  const ctaSecondary    = cms(content, 'training_page', 'cta_secondary',       'Login to Dashboard →');
+  const bottomCtaH2     = cms(content, 'training_page', 'bottom_cta_heading',  'Ready to get certified?');
+  const bottomCtaSub    = cms(content, 'training_page', 'bottom_cta_sub',      'Join hundreds of finance professionals building verified skills — completely free.');
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
@@ -69,23 +79,21 @@ export default function TrainingPage() {
             borderRadius: 20, padding: '5px 16px', fontSize: 12,
             color: '#6EE589', fontWeight: 700, marginBottom: 24, letterSpacing: '0.04em',
           }}>
-            🎓 Free Certification Program
+            {heroBadge}
           </div>
 
           <h1 style={{
             fontSize: 'clamp(28px,5vw,52px)', fontWeight: 800, color: '#fff',
             lineHeight: 1.15, marginBottom: 20, letterSpacing: '-0.02em',
           }}>
-            Get Certified in Financial Modeling —{' '}
-            <span style={{ color: '#2EAA4A' }}>Free</span>
+            {heroHeadline}
           </h1>
 
           <p style={{
             fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.6)',
             lineHeight: 1.7, marginBottom: 36, maxWidth: 560, margin: '0 auto 36px',
           }}>
-            Professional certification backed by real practitioner training.
-            100% free. Always.
+            {heroSub}
           </p>
 
           {/* CTA buttons */}
@@ -97,7 +105,7 @@ export default function TrainingPage() {
               borderRadius: 8, textDecoration: 'none',
               boxShadow: '0 4px 20px rgba(46,170,74,0.4)',
             }}>
-              Register Free →
+              {ctaPrimary}
             </Link>
             <Link href="/training/login" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
@@ -106,7 +114,7 @@ export default function TrainingPage() {
               borderRadius: 8, textDecoration: 'none',
               border: '2px solid rgba(255,255,255,0.35)',
             }}>
-              Login to Dashboard →
+              {ctaSecondary}
             </Link>
           </div>
 
@@ -373,10 +381,10 @@ export default function TrainingPage() {
             fontSize: 'clamp(22px,4vw,38px)', fontWeight: 800,
             color: '#fff', marginBottom: 12, lineHeight: 1.2,
           }}>
-            Ready to get certified?
+            {bottomCtaH2}
           </h2>
           <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', marginBottom: 36, lineHeight: 1.6 }}>
-            Join hundreds of finance professionals building verified skills — completely free.
+            {bottomCtaSub}
           </p>
           <Link href="/training/register" style={{
             display: 'inline-flex', alignItems: 'center', gap: 8,
