@@ -4,6 +4,9 @@ import { notFound } from 'next/navigation';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { PLATFORMS, getPlatform } from '@/src/config/platforms';
 import type { PlatformModule } from '@/src/config/platforms';
+import { getModules } from '@/src/lib/cms';
+
+export const revalidate = 60;
 
 // ── Static params ──────────────────────────────────────────────────────────
 
@@ -64,7 +67,15 @@ export default async function PlatformDetailPage({
   const platform = getPlatform(slug);
   if (!platform) notFound();
 
-  const isLive = platform.status === 'live';
+  // Respect admin visibility — hidden platforms return 404
+  const dbModules = await getModules();
+  const dbEntry = dbModules.find((m) => m.slug === slug);
+  if (!dbEntry) notFound();
+
+  // DB overrides name/description/icon/status; static config provides colors + detail content
+  const displayName   = dbEntry.name        || platform.name;
+  const displayDesc   = dbEntry.description || platform.description;
+  const isLive = (dbEntry.status as string) === 'live';
 
   // ── LIVE platform layout ────────────────────────────────────────────────
   if (isLive) {
@@ -86,7 +97,7 @@ export default async function PlatformDetailPage({
                 Modeling Hub
               </Link>
               <span>→</span>
-              <span style={{ color: 'rgba(255,255,255,0.85)' }}>{platform.name}</span>
+              <span style={{ color: 'rgba(255,255,255,0.85)' }}>{displayName}</span>
             </div>
 
             {/* shortName badge */}
@@ -97,7 +108,7 @@ export default async function PlatformDetailPage({
               color: platform.color, letterSpacing: '0.08em',
               textTransform: 'uppercase', marginBottom: 20,
             }}>
-              {platform.icon} {platform.shortName}
+              {dbEntry.icon || platform.icon} {platform.shortName}
             </div>
 
             <h1 style={{
@@ -105,7 +116,7 @@ export default async function PlatformDetailPage({
               color: '#fff', lineHeight: 1.15, marginBottom: 16,
               letterSpacing: '-0.02em',
             }}>
-              {platform.name}
+              {displayName}
             </h1>
 
             <p style={{
@@ -330,7 +341,11 @@ export default async function PlatformDetailPage({
   }
 
   // ── COMING SOON layout ──────────────────────────────────────────────────
-  const livePlatforms = PLATFORMS.filter((p) => p.status === 'live');
+  // Only show live platforms that are also visible in DB
+  const dbSlugSet = new Set(dbModules.map((m) => m.slug));
+  const livePlatforms = PLATFORMS.filter(
+    (p) => dbSlugSet.has(p.slug) && dbModules.find((m) => m.slug === p.slug)?.status === 'live'
+  );
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
@@ -350,7 +365,7 @@ export default async function PlatformDetailPage({
               Modeling Hub
             </Link>
             <span>→</span>
-            <span style={{ color: 'rgba(255,255,255,0.85)' }}>{platform.name}</span>
+            <span style={{ color: 'rgba(255,255,255,0.85)' }}>{displayName}</span>
           </div>
 
           {/* shortName badge */}
@@ -361,7 +376,7 @@ export default async function PlatformDetailPage({
             color: platform.color, letterSpacing: '0.08em',
             textTransform: 'uppercase', marginBottom: 20,
           }}>
-            {platform.icon} {platform.shortName}
+            {dbEntry.icon || platform.icon} {platform.shortName}
           </div>
 
           {/* Coming Soon badge */}
@@ -379,7 +394,7 @@ export default async function PlatformDetailPage({
             color: '#fff', lineHeight: 1.15, marginBottom: 16,
             letterSpacing: '-0.02em', marginTop: 24,
           }}>
-            {platform.name}
+            {displayName}
           </h1>
 
           <p style={{
@@ -476,7 +491,7 @@ export default async function PlatformDetailPage({
             This platform is in development
           </h2>
           <p style={{ fontSize: 14, color: '#374151', lineHeight: 1.7, marginBottom: 28 }}>
-            The {platform.name} platform is currently being built. In the meantime, explore the live platforms available now or register to be notified when this platform launches.
+            The {displayName} platform is currently being built. In the meantime, explore the live platforms available now or register to be notified when this platform launches.
           </p>
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Link href="/modeling-hub" style={{

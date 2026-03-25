@@ -20,6 +20,9 @@ export default function AdminModulesPage() {
   const [loadingA,   setLoadingA]   = useState(true);
   const [togglingM,  setTogglingM]  = useState<string | null>(null);
   const [togglingA,  setTogglingA]  = useState<string | null>(null);
+  const [editingId,  setEditingId]  = useState<string | null>(null);
+  const [editForm,   setEditForm]   = useState({ name: '', description: '', icon: '' });
+  const [savingEdit, setSavingEdit] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   useEffect(() => {
@@ -55,6 +58,28 @@ export default function AdminModulesPage() {
     finally { setTogglingM(null); }
   }
 
+  function startEdit(mod: Module) {
+    setEditingId(mod.id);
+    setEditForm({ name: mod.name, description: mod.description, icon: mod.icon });
+  }
+
+  async function saveEdit(id: string) {
+    setSavingEdit(true);
+    try {
+      const res = await fetch('/api/admin/modules', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, name: editForm.name, description: editForm.description, icon: editForm.icon }),
+      });
+      if (res.ok) {
+        setModules(prev => prev.map(m => m.id === id ? { ...m, ...editForm } : m));
+        setEditingId(null);
+        showToast('Platform updated');
+      } else { showToast('Update failed', 'error'); }
+    } catch { showToast('Update failed', 'error'); }
+    finally { setSavingEdit(false); }
+  }
+
   async function toggleAssetVisible(a: AssetType) {
     setTogglingA(a.id);
     try {
@@ -70,6 +95,11 @@ export default function AdminModulesPage() {
     } catch { showToast('Update failed', 'error'); }
     finally { setTogglingA(null); }
   }
+
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '7px 10px', border: '1px solid #D1D5DB',
+    borderRadius: 6, fontSize: 13, color: '#1B3A6B', background: '#fff', boxSizing: 'border-box',
+  };
 
   const THead = ({ cols }: { cols: string[] }) => (
     <thead>
@@ -89,7 +119,7 @@ export default function AdminModulesPage() {
         {/* ── Platforms ── */}
         <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>Module Manager</h1>
         <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 28 }}>
-          Toggle platform visibility and status. Changes reflect on the landing page within 60 seconds.
+          Edit platform name, description, icon and toggle visibility. Changes reflect on the Modeling Hub within 60 seconds.
         </p>
 
         {loadingM ? (
@@ -97,31 +127,86 @@ export default function AdminModulesPage() {
         ) : (
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8F0FB', overflow: 'hidden', marginBottom: 48 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <THead cols={['#', 'Icon', 'Platform Name', 'Status', 'Actions']} />
+              <THead cols={['#', 'Icon', 'Platform Name & Description', 'Status', 'Actions']} />
               <tbody>
                 {modules.map((mod, i) => {
                   const cfg = STATUS_CFG[mod.status];
+                  const isEditing = editingId === mod.id;
                   return (
-                    <tr key={mod.id} style={{ borderTop: '1px solid #E8F0FB', background: i % 2 === 1 ? '#F9FAFB' : '#fff' }}>
-                      <td style={{ padding: '12px 16px', fontSize: 13, color: '#9CA3AF', width: 40 }}>{mod.display_order}</td>
-                      <td style={{ padding: '12px 16px', fontSize: 24 }}>{mod.icon}</td>
-                      <td style={{ padding: '12px 16px' }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: '#1B3A6B' }}>{mod.name}</div>
-                        <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>{mod.description.substring(0, 70)}{mod.description.length > 70 ? '…' : ''}</div>
-                      </td>
-                      <td style={{ padding: '12px 16px' }}>
-                        <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: cfg.bg, color: cfg.color }}>{cfg.label}</span>
-                      </td>
-                      <td style={{ padding: '12px 16px' }}>
-                        <button
-                          onClick={() => cycleModuleStatus(mod)}
-                          disabled={togglingM === mod.id}
-                          style={{ fontSize: 11, fontWeight: 700, padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', color: '#374151', opacity: togglingM === mod.id ? 0.5 : 1 }}
-                        >
-                          {togglingM === mod.id ? 'Saving…' : NEXT_LABEL[mod.status]}
-                        </button>
-                      </td>
-                    </tr>
+                    <>
+                      <tr key={mod.id} style={{ borderTop: '1px solid #E8F0FB', background: isEditing ? '#F0F7FF' : i % 2 === 1 ? '#F9FAFB' : '#fff' }}>
+                        <td style={{ padding: '12px 16px', fontSize: 13, color: '#9CA3AF', width: 40 }}>{mod.display_order}</td>
+                        <td style={{ padding: '12px 16px', fontSize: 24, width: 52 }}>{mod.icon}</td>
+                        <td style={{ padding: '12px 16px' }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: '#1B3A6B' }}>{mod.name}</div>
+                          <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>{mod.description.substring(0, 80)}{mod.description.length > 80 ? '…' : ''}</div>
+                        </td>
+                        <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: cfg.bg, color: cfg.color }}>{cfg.label}</span>
+                        </td>
+                        <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button
+                              onClick={() => isEditing ? setEditingId(null) : startEdit(mod)}
+                              style={{ fontSize: 11, fontWeight: 700, padding: '6px 14px', borderRadius: 6, border: '1px solid #1B4F8A', background: isEditing ? '#1B4F8A' : '#fff', cursor: 'pointer', color: isEditing ? '#fff' : '#1B4F8A' }}
+                            >
+                              {isEditing ? 'Cancel' : 'Edit'}
+                            </button>
+                            <button
+                              onClick={() => cycleModuleStatus(mod)}
+                              disabled={togglingM === mod.id}
+                              style={{ fontSize: 11, fontWeight: 700, padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', color: '#374151', opacity: togglingM === mod.id ? 0.5 : 1 }}
+                            >
+                              {togglingM === mod.id ? 'Saving…' : NEXT_LABEL[mod.status]}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* Inline edit row */}
+                      {isEditing && (
+                        <tr key={`${mod.id}-edit`} style={{ borderTop: '1px solid #BFDBFE', background: '#EFF6FF' }}>
+                          <td colSpan={5} style={{ padding: '16px 20px' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr auto', gap: 12, alignItems: 'end' }}>
+                              <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>ICON</div>
+                                <input
+                                  value={editForm.icon}
+                                  onChange={e => setEditForm(f => ({ ...f, icon: e.target.value }))}
+                                  style={{ ...inputStyle, textAlign: 'center', fontSize: 22 }}
+                                  placeholder="🏗️"
+                                />
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>PLATFORM NAME</div>
+                                <input
+                                  value={editForm.name}
+                                  onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
+                                  style={inputStyle}
+                                  placeholder="Platform name…"
+                                />
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', marginBottom: 4 }}>DESCRIPTION</div>
+                                <input
+                                  value={editForm.description}
+                                  onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))}
+                                  style={inputStyle}
+                                  placeholder="Short description shown on Modeling Hub grid…"
+                                />
+                              </div>
+                              <button
+                                onClick={() => saveEdit(mod.id)}
+                                disabled={savingEdit}
+                                style={{ fontSize: 12, fontWeight: 700, padding: '8px 20px', borderRadius: 6, border: 'none', background: '#1B4F8A', color: '#fff', cursor: 'pointer', opacity: savingEdit ? 0.6 : 1, whiteSpace: 'nowrap' }}
+                              >
+                                {savingEdit ? 'Saving…' : 'Save Changes'}
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
                   );
                 })}
               </tbody>

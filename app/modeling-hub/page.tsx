@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { PLATFORMS } from '@/src/config/platforms';
-import { getCmsContent, cms } from '@/src/lib/cms';
+import { getCmsContent, cms, getModules } from '@/src/lib/cms';
+import type { Module } from '@/src/lib/cms';
 
 export const revalidate = 60;
 
@@ -32,7 +33,13 @@ const WHY_ITEMS = [
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function ModelingHubPage() {
-  const content = await getCmsContent();
+  const [content, dbModules] = await Promise.all([getCmsContent(), getModules()]);
+
+  // Build a lookup from slug → DB row so the grid respects admin visibility + edits
+  const dbMap = new Map<string, Module>(dbModules.map((m) => [m.slug, m]));
+
+  // Only show platforms that exist (and aren't hidden) in the DB
+  const visiblePlatforms = PLATFORMS.filter((p) => dbMap.has(p.slug));
 
   const heroBadge    = cms(content, 'modeling_hub', 'hero_badge',        '📐 Professional Modeling Platform');
   const heroHeadline = cms(content, 'modeling_hub', 'hero_headline',     'Build Institutional-Grade\nFinancial Models');
@@ -176,7 +183,14 @@ export default async function ModelingHubPage() {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 24 }}>
-            {PLATFORMS.map((platform) => (
+            {visiblePlatforms.map((platform) => {
+              // DB row overrides name/description/icon/status; PLATFORMS provides color/shortName
+              const db = dbMap.get(platform.slug)!;
+              const displayName   = db.name        || platform.name;
+              const displayDesc   = db.description || platform.description;
+              const displayIcon   = db.icon        || platform.icon;
+              const displayStatus = db.status as 'live' | 'coming_soon';
+              return (
               <div key={platform.slug} style={{
                 background: '#fff', borderRadius: 14,
                 border: '1px solid #E5E7EB',
@@ -186,8 +200,8 @@ export default async function ModelingHubPage() {
               }}>
                 {/* Top row: icon + status badge */}
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
-                  <span style={{ fontSize: 32 }}>{platform.icon}</span>
-                  {platform.status === 'live' ? (
+                  <span style={{ fontSize: 32 }}>{displayIcon}</span>
+                  {displayStatus === 'live' ? (
                     <span style={{
                       fontSize: 10, fontWeight: 700, padding: '3px 10px',
                       borderRadius: 20, background: '#F0FFF4', color: '#15803D',
@@ -216,17 +230,17 @@ export default async function ModelingHubPage() {
 
                 {/* Platform name */}
                 <h3 style={{ fontSize: 15, fontWeight: 800, color: '#0D2E5A', margin: '0 0 10px', lineHeight: 1.3 }}>
-                  {platform.name}
+                  {displayName}
                 </h3>
 
                 {/* Description */}
                 <p style={{ fontSize: 12.5, color: '#6B7280', lineHeight: 1.65, marginBottom: 20, minHeight: 52 }}>
-                  {platform.description}
+                  {displayDesc}
                 </p>
 
                 {/* CTA buttons */}
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                  {platform.status === 'live' && (
+                  {displayStatus === 'live' && (
                     <Link href="/login" style={{
                       display: 'inline-flex', alignItems: 'center', gap: 5,
                       background: platform.color, color: '#fff',
@@ -247,7 +261,8 @@ export default async function ModelingHubPage() {
                   </Link>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
