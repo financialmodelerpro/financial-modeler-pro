@@ -151,7 +151,7 @@ export default async function LandingPage() {
   // ── Nav pages ─────────────────────────────────────────────────────────────
   const fallbackPages = [
     { id:'1', label:'Home',             href:'/',         visible:true, display_order:1, can_toggle:false },
-    { id:'2', label:'Modeling Hub',     href:'#modules',  visible:true, display_order:2, can_toggle:true },
+    { id:'2', label:'Modeling Hub',     href:'/modeling-hub', visible:true, display_order:2, can_toggle:true },
     { id:'3', label:'Training Academy', href:'/training', visible:true, display_order:3, can_toggle:true },
     { id:'4', label:'Articles',         href:'/articles', visible:true, display_order:4, can_toggle:true },
     { id:'5', label:'About',            href:'/about',    visible:true, display_order:5, can_toggle:true },
@@ -188,7 +188,7 @@ export default async function LandingPage() {
             style={{ fontSize:18, color:'rgba(255,255,255,0.55)', lineHeight:1.7, maxWidth:620, margin:'0 auto 44px' }}
           />
           <div style={{ display:'flex', gap:14, justifyContent:'center', flexWrap:'wrap' }}>
-            <Link href="/login" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#1B4F8A', color:'#fff', fontWeight:700, fontSize:15, padding:'14px 32px', borderRadius:8, textDecoration:'none', boxShadow:'0 4px 24px rgba(27,79,138,0.5)' }}>
+            <Link href="/modeling-hub" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#1B4F8A', color:'#fff', fontWeight:700, fontSize:15, padding:'14px 32px', borderRadius:8, textDecoration:'none', boxShadow:'0 4px 24px rgba(27,79,138,0.5)' }}>
               <InlineEdit tag="span" section="hero" fieldKey="cta1" value={heroCta1} isAdmin={isAdmin} darkBg />
             </Link>
             <Link href="#modules" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.18)', color:'rgba(255,255,255,0.85)', fontWeight:600, fontSize:15, padding:'14px 32px', borderRadius:8, textDecoration:'none' }}>
@@ -268,7 +268,7 @@ export default async function LandingPage() {
                   <li key={t} style={{ fontSize:13, color:'#4B5563', display:'flex', gap:8, alignItems:'center' }}><span style={{ color:'#1B4F8A', fontWeight:700 }}>→</span> {t}</li>
                 ))}
               </ul>
-              <Link href="/login" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1B4F8A', color:'#fff', fontSize:13, fontWeight:700, padding:'10px 22px', borderRadius:7, textDecoration:'none' }}>Start Modeling Free →</Link>
+              <Link href="/modeling-hub" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1B4F8A', color:'#fff', fontSize:13, fontWeight:700, padding:'10px 22px', borderRadius:7, textDecoration:'none' }}>Explore Modeling Hub →</Link>
             </div>
             {/* Training card */}
             <div style={{ background:'#fff', border:'1px solid #C3E9CE', borderTop:'4px solid #1A7A30', borderRadius:16, padding:'36px 32px', boxShadow:'0 2px 12px rgba(26,122,48,0.06)' }}>
@@ -293,32 +293,21 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* ── Modules Grid ───────────────────────────────────────────────────── */}
-      <section id="modules" style={{ padding:'88px 40px', background:'#fff' }}>
-        <div style={{ maxWidth:1100, margin:'0 auto' }}>
-          <div style={{ textAlign:'center', marginBottom:56 }}>
-            <InlineEdit tag="div" section="modules_section" fieldKey="badge" value={modulesBadge} isAdmin={isAdmin}
-              style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }} />
-            <InlineEdit tag="h2" section="modules_section" fieldKey="heading" value={modulesH2} isAdmin={isAdmin}
-              style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1B3A6B', marginBottom:14 }} />
-            <InlineEdit tag="p" section="modules_section" fieldKey="subheading" value={modulesSub} isAdmin={isAdmin}
-              style={{ fontSize:15, color:'#6B7280', maxWidth:560, margin:'0 auto' }} />
+      {/* ── Modeling Hub CTA ────────────────────────────────────────────────── */}
+      <section id="modules" style={{ padding:'72px 40px', background:'#fff', textAlign:'center' }}>
+        <div style={{ maxWidth:700, margin:'0 auto' }}>
+          <div style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>
+            The Platforms
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:20 }}>
-            {displayModules.map((mod)=>(
-              <div key={mod.id} style={{ background:mod.status==='live'?'#fff':'#F9FAFB', border:mod.status==='live'?'1px solid #C7D9F2':'1px solid #E5E7EB', borderRadius:12, padding:'24px 22px', borderLeft:mod.status==='live'?'4px solid #1B4F8A':'4px solid #D1D5DB', boxShadow:mod.status==='live'?'0 2px 8px rgba(27,79,138,0.08)':'none', position:'relative' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:12 }}>
-                  <span style={{ fontSize:28 }}>{mod.icon}</span>
-                  {mod.status==='live'
-                    ? <span style={{ fontSize:9, fontWeight:700, padding:'3px 8px', borderRadius:20, background:'#E8F7EC', color:'#1A7A30', border:'1px solid #C3E9CE', letterSpacing:'0.04em' }}>✓ LIVE</span>
-                    : <span style={{ fontSize:9, fontWeight:700, padding:'3px 8px', borderRadius:20, background:'#FEF9C3', color:'#854D0E', border:'1px solid #FDE68A', letterSpacing:'0.04em' }}>COMING SOON</span>}
-                </div>
-                <h3 style={{ fontSize:15, fontWeight:700, color:mod.status==='live'?'#1B3A6B':'#6B7280', marginBottom:8 }}>{mod.name}</h3>
-                <p style={{ fontSize:13, color:'#9CA3AF', lineHeight:1.65, margin:0 }}>{mod.description}</p>
-                {isAdmin && <Link href="/admin/modules" target="_blank" style={{ fontSize:10, color:'#1B4F8A', textDecoration:'none', display:'block', marginTop:10, opacity:0.7 }}>✏️ Edit in Admin →</Link>}
-              </div>
-            ))}
-          </div>
+          <h2 style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1B3A6B', marginBottom:16 }}>
+            10+ Professional Modeling Platforms
+          </h2>
+          <p style={{ fontSize:15, color:'#6B7280', lineHeight:1.7, marginBottom:36 }}>
+            Real estate, business valuation, LBO, FP&amp;A, equity research, project finance, and more — all in one place. Live now and launching soon.
+          </p>
+          <Link href="/modeling-hub" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#1B4F8A', color:'#fff', fontWeight:700, fontSize:15, padding:'14px 36px', borderRadius:8, textDecoration:'none', boxShadow:'0 4px 24px rgba(27,79,138,0.3)' }}>
+            Explore Modeling Hub →
+          </Link>
         </div>
       </section>
 
@@ -372,32 +361,6 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* ── Asset Classes ──────────────────────────────────────────────────── */}
-      <section style={{ padding:'88px 40px', background:'#F4F7FC' }}>
-        <div style={{ maxWidth:1100, margin:'0 auto' }}>
-          <div style={{ textAlign:'center', marginBottom:56 }}>
-            <InlineEdit tag="div" section="assets" fieldKey="badge" value={assetsBadge} isAdmin={isAdmin}
-              style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }} />
-            <InlineEdit tag="h2" section="assets" fieldKey="heading" value={assetsH2} isAdmin={isAdmin}
-              style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1B3A6B', marginBottom:14 }} />
-            <InlineEdit tag="p" section="assets" fieldKey="subheading" value={assetsSub} isAdmin={isAdmin}
-              style={{ fontSize:15, color:'#6B7280', maxWidth:560, margin:'0 auto' }} />
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', gap:20 }}>
-            {displayAssets.filter(a => isAdmin || a.visible).map((a)=>(
-              <div key={a.id} style={{ background:a.visible?'#fff':'#F3F4F6', border:a.visible?'1px solid #C7D9F2':'1px solid #E5E7EB', borderLeft:a.visible?'4px solid #1B4F8A':'4px solid #D1D5DB', borderRadius:14, padding:'28px 24px', opacity:a.visible?1:0.7, position:'relative' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
-                  <span style={{ fontSize:36 }}>{a.icon}</span>
-                  {!a.visible && <span style={{ fontSize:10, fontWeight:700, padding:'3px 10px', borderRadius:20, background:'#F3F4F6', color:'#6B7280', border:'1px solid #E5E7EB', letterSpacing:'0.04em' }}>{isAdmin ? '🔒 HIDDEN' : 'COMING SOON'}</span>}
-                </div>
-                <h3 style={{ fontSize:16, fontWeight:800, color:a.visible?'#1B3A6B':'#6B7280', marginBottom:10 }}>{a.name}</h3>
-                <p style={{ fontSize:13, color:'#9CA3AF', lineHeight:1.7, margin:0 }}>{a.description}</p>
-                {isAdmin && <Link href="/admin/modules" target="_blank" style={{ fontSize:10, color:'#1B4F8A', textDecoration:'none', display:'block', marginTop:10, opacity:0.7 }}>✏️ Edit in Admin →</Link>}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
 
       {/* ── Founder ────────────────────────────────────────────────────────── */}
       <section style={{ padding:'64px 40px 80px', background:'#1B3A6B', color:'#fff' }}>
@@ -575,7 +538,7 @@ export default async function LandingPage() {
             </div>
             <div>
               <div style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.35)', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:14 }}>Platform</div>
-              {[['Modeling Hub','#modules'],['Training Academy','/training'],['Articles','/articles'],['Launch Platform','/login']].map(([label,href])=>(
+              {[['Modeling Hub','/modeling-hub'],['Training Academy','/training'],['Articles','/articles'],['Launch Platform','/login']].map(([label,href])=>(
                 <Link key={href} href={href} style={{ display:'block', fontSize:13, color:'rgba(255,255,255,0.5)', textDecoration:'none', marginBottom:8 }}>{label}</Link>
               ))}
             </div>

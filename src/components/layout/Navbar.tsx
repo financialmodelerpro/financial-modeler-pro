@@ -13,7 +13,7 @@ interface NavPage {
 
 const DEFAULT_PAGES: NavPage[] = [
   { id: '1', label: 'Home',             href: '/' },
-  { id: '2', label: 'Modeling Hub',     href: '/#modules' },
+  { id: '2', label: 'Modeling Hub',     href: '/modeling-hub' },
   { id: '3', label: 'Training Academy', href: '/training' },
   { id: '4', label: 'Articles',         href: '/articles' },
   { id: '5', label: 'About',            href: '/about' },
@@ -58,10 +58,10 @@ export function Navbar({ navPages, topOffset = 0 }: NavbarProps) {
         ))}
         <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
         <Link
-          href="/portal"
+          href="/login"
           style={{ display: 'inline-flex', alignItems: 'center', padding: '7px 16px', borderRadius: 7, fontSize: 13, fontWeight: 700, textDecoration: 'none', background: '#1B4F8A', color: '#fff' }}
         >
-          Go to Portal →
+          Launch Free →
         </Link>
       </div>
     </nav>
