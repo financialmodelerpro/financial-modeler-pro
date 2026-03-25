@@ -15,6 +15,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Pages & Nav',     href: '/admin/pages',            icon: '🗂️' },
   { label: 'Articles',        href: '/admin/articles',         icon: '📰' },
   { label: 'Training',        href: '/admin/training',         icon: '🎓' },
+  { label: 'Training Settings', href: '/admin/training-settings', icon: '⚙️' },
   { label: 'Testimonials',    href: '/admin/testimonials',     icon: '⭐' },
   { label: 'Contact',         href: '/admin/contact',          icon: '📬' },
   { label: 'Founder Profile', href: '/admin/founder',          icon: '👤' },

@@ -1,9 +1,28 @@
 /**
  * sheets.ts — Server-side only. Never import this from client components.
  * All functions proxy to the Google Apps Script Web App via APPS_SCRIPT_URL.
+ *
+ * URL resolution order:
+ *   1. APPS_SCRIPT_URL env var (fast, no DB round-trip)
+ *   2. training_settings.apps_script_url row in Supabase
  */
 
-const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL ?? '';
+import { getServerClient } from '@/src/lib/supabase';
+
+async function getAppsScriptUrl(): Promise<string> {
+  if (process.env.APPS_SCRIPT_URL) return process.env.APPS_SCRIPT_URL;
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('training_settings')
+      .select('value')
+      .eq('key', 'apps_script_url')
+      .single();
+    return data?.value ?? '';
+  } catch {
+    return '';
+  }
+}
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -50,6 +69,7 @@ interface ScriptResponse<T = unknown> {
 // ── Internal fetch helper ─────────────────────────────────────────────────────
 
 async function callScript<T>(params: Record<string, string>): Promise<ScriptResponse<T>> {
+  const APPS_SCRIPT_URL = await getAppsScriptUrl();
   if (!APPS_SCRIPT_URL) {
     return { success: false, error: 'APPS_SCRIPT_URL not configured' };
   }
@@ -75,6 +95,7 @@ async function callScript<T>(params: Record<string, string>): Promise<ScriptResp
 }
 
 async function callScriptPost<T>(body: Record<string, string>): Promise<ScriptResponse<T>> {
+  const APPS_SCRIPT_URL = await getAppsScriptUrl();
   if (!APPS_SCRIPT_URL) {
     return { success: false, error: 'APPS_SCRIPT_URL not configured' };
   }
