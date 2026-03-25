@@ -51,6 +51,7 @@ export default async function TrainingPage() {
   const bvm = COURSES['bvm'];
   const content = await getCmsContent();
 
+  const logoUrl         = cms(content, 'branding', 'logo_url', '');
   const heroBadge       = cms(content, 'training_page', 'hero_badge',         '🎓 Free Certification Program');
   const heroHeadline    = cms(content, 'training_page', 'hero_headline',       'Get Certified in Financial Modeling — Free');
   const heroSub         = cms(content, 'training_page', 'hero_sub',            'Professional certification backed by real practitioner training. 100% free. Always.');
@@ -61,7 +62,7 @@ export default async function TrainingPage() {
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
-      <Navbar />
+      <Navbar logoUrl={logoUrl || undefined} />
       <div style={{ height: 64 }} />
 
       {/* ── Section 1 — Hero ──────────────────────────────────────────────── */}

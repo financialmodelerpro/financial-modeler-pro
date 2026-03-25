@@ -220,3 +220,30 @@ export function estimateReadTime(body: string): string {
   const mins = Math.max(1, Math.round(words / 200));
   return `${mins} min read`;
 }
+
+// ── Testimonials ──────────────────────────────────────────────────────────────
+
+export interface Testimonial {
+  id: string;
+  name: string;
+  role: string;
+  company: string;
+  text: string;
+  rating: number;
+  created_at: string;
+}
+
+export async function getApprovedTestimonials(): Promise<Testimonial[]> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('testimonials')
+      .select('id,name,role,company,text,rating,created_at')
+      .eq('status', 'approved')
+      .order('approved_at', { ascending: false })
+      .limit(6);
+    return (data ?? []) as Testimonial[];
+  } catch {
+    return [];
+  }
+}

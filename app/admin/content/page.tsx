@@ -2,9 +2,10 @@
 import { useState, useEffect } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 
-type Tab = 'hero' | 'stats' | 'about' | 'pillars' | 'cta' | 'footer' | 'training_page' | 'modeling_hub';
+type Tab = 'branding' | 'hero' | 'stats' | 'about' | 'pillars' | 'cta' | 'footer' | 'training_page' | 'modeling_hub' | 'contact_page';
 
 const TABS: { key: Tab; label: string; page: string }[] = [
+  { key: 'branding',      label: 'Logo & Branding', page: 'All Pages' },
   { key: 'hero',          label: 'Hero',           page: 'Landing Page' },
   { key: 'stats',         label: 'Stats Bar',      page: 'Landing Page' },
   { key: 'about',         label: 'About FMP',      page: 'Landing Page' },
@@ -13,6 +14,7 @@ const TABS: { key: Tab; label: string; page: string }[] = [
   { key: 'footer',        label: 'Footer',         page: 'Landing Page' },
   { key: 'training_page', label: 'Training Hub',   page: 'Training Page' },
   { key: 'modeling_hub',  label: 'Modeling Hub',   page: 'Modeling Hub Page' },
+  { key: 'contact_page',  label: 'Contact Page',   page: 'Contact Page' },
 ];
 
 export default function AdminContentPage() {
@@ -72,8 +74,9 @@ export default function AdminContentPage() {
   );
 
   // Group tabs by page
+  const globalTabs  = TABS.filter(t => t.page === 'All Pages');
   const landingTabs = TABS.filter(t => t.page === 'Landing Page');
-  const otherTabs   = TABS.filter(t => t.page !== 'Landing Page');
+  const otherTabs   = TABS.filter(t => t.page !== 'Landing Page' && t.page !== 'All Pages');
   const currentTab  = TABS.find(t => t.key === tab);
 
   return (
@@ -85,6 +88,14 @@ export default function AdminContentPage() {
 
         {/* Tab groups */}
         <div style={{ marginBottom: 32 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Global (All Pages)</div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', borderBottom: '2px solid #E8F0FB', marginBottom: 14, paddingBottom: 0 }}>
+            {globalTabs.map(t => (
+              <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: '9px 18px', fontSize: 13, fontWeight: tab === t.key ? 700 : 500, color: tab === t.key ? '#7C3AED' : '#6B7280', background: 'none', border: 'none', borderBottom: tab === t.key ? '2px solid #7C3AED' : '2px solid transparent', marginBottom: -2, cursor: 'pointer' }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
           <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Landing Page</div>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', borderBottom: '2px solid #E8F0FB', paddingBottom: 0 }}>
             {landingTabs.map(t => (
@@ -114,6 +125,32 @@ export default function AdminContentPage() {
           <div style={{ textAlign: 'center', padding: 60, color: '#6B7280' }}>Loading content…</div>
         ) : (
           <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '28px 32px' }}>
+
+            {/* ── Global: Branding ── */}
+            {tab === 'branding' && (
+              <div>
+                <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 24, padding: '10px 14px', background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 7 }}>
+                  🎨 Logo appears in the navigation bar on <strong>all public pages</strong>. Upload your logo to the Media Library first, then paste the URL here. Recommended: PNG with transparent background, height ~40px.
+                </p>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Logo URL</label>
+                  <input style={inputStyle} value={get('branding','logo_url','')} onChange={e => set('branding','logo_url',e.target.value)} placeholder="https://… or paste from Media Library" />
+                </div>
+                {get('branding','logo_url','') && (
+                  <div style={{ marginBottom: 20, padding: '16px', background: '#0D2E5A', borderRadius: 8, display: 'inline-block' }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={get('branding','logo_url','')} alt="Logo preview" style={{ height: 36, width: 'auto', objectFit: 'contain', display: 'block' }} />
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 6 }}>Preview on dark background</div>
+                  </div>
+                )}
+                <div style={{ ...fieldStyle }}>
+                  <label style={labelStyle}>Logo Alt Text</label>
+                  <input style={inputStyle} value={get('branding','logo_alt','Financial Modeler Pro')} onChange={e => set('branding','logo_alt',e.target.value)} placeholder="Financial Modeler Pro" />
+                </div>
+                {saveBtn([{section:'branding',key:'logo_url'},{section:'branding',key:'logo_alt'}])}
+                <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: 12 }}>Leave Logo URL blank to use the default text logo.</p>
+              </div>
+            )}
 
             {/* ── Landing: Hero ── */}
             {tab === 'hero' && (
@@ -212,6 +249,21 @@ export default function AdminContentPage() {
                   {section:'training_page',key:'bottom_cta_heading'},
                   {section:'training_page',key:'bottom_cta_sub'},
                 ])}
+              </div>
+            )}
+
+            {/* ── Contact Page ── */}
+            {tab === 'contact_page' && (
+              <div>
+                <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 24, padding: '10px 14px', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 7 }}>
+                  📬 Controls the contact information displayed on the public <strong>/contact</strong> page.
+                </p>
+                <div style={fieldStyle}><label style={labelStyle}>Contact Email</label><input style={inputStyle} value={get('contact','email','')} onChange={e => set('contact','email',e.target.value)} placeholder="info@example.com" /></div>
+                <div style={fieldStyle}><label style={labelStyle}>Phone Number</label><input style={inputStyle} value={get('contact','phone','')} onChange={e => set('contact','phone',e.target.value)} placeholder="+1 (555) 000-0000" /></div>
+                <div style={fieldStyle}><label style={labelStyle}>Address</label><textarea style={{...inputStyle, resize:'vertical'}} rows={3} value={get('contact','address','')} onChange={e => set('contact','address',e.target.value)} placeholder="123 Main St, City, Country" /></div>
+                <div style={fieldStyle}><label style={labelStyle}>Google Maps Embed URL</label><input style={inputStyle} value={get('contact','maps_url','')} onChange={e => set('contact','maps_url',e.target.value)} placeholder="https://maps.google.com/…" /></div>
+                <div style={fieldStyle}><label style={labelStyle}>Office Hours</label><input style={inputStyle} value={get('contact','hours','Monday – Friday, 9am – 6pm')} onChange={e => set('contact','hours',e.target.value)} /></div>
+                {saveBtn([{section:'contact',key:'email'},{section:'contact',key:'phone'},{section:'contact',key:'address'},{section:'contact',key:'maps_url'},{section:'contact',key:'hours'}])}
               </div>
             )}
 

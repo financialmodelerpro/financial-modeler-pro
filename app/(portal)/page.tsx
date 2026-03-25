@@ -7,12 +7,11 @@ import { getServerSession } from 'next-auth';
 import Link from 'next/link';
 import {
   getCmsContent, cms,
-  getModules, getAssetTypes,
-  getPublishedArticles, getPublishedCourses,
+  getPublishedArticles,
   getFounderProfile, getSitePages,
+  getApprovedTestimonials,
 } from '@/src/lib/cms';
 import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/ArticleCard';
-import { CourseCard } from '@/src/components/landing/CourseCard';
 import { InlineEdit } from '@/src/components/landing/InlineEdit';
 import { AdminEditBar } from '@/src/components/landing/AdminEditBar';
 import { Navbar } from '@/src/components/layout/Navbar';
@@ -33,9 +32,10 @@ function ie(props: IE, fieldKey: string, value: string, tag: Parameters<typeof I
 }
 
 export default async function LandingPage() {
-  const [content, modules, assetTypes, articles, courses, founder, session, sitePages] = await Promise.all([
-    getCmsContent(), getModules(), getAssetTypes(),
-    getPublishedArticles(3), getPublishedCourses(),
+  const [content, articles, testimonials, founder, session, sitePages] = await Promise.all([
+    getCmsContent(),
+    getPublishedArticles(3),
+    getApprovedTestimonials(),
     getFounderProfile(), getServerSession(), getSitePages(),
   ]);
 
@@ -83,23 +83,9 @@ export default async function LandingPage() {
   const trainingTitle    = cms(content, 'pillars', 'training_title','Training Hub');
   const trainingDesc     = cms(content, 'pillars', 'training_desc', 'Free video courses taught by finance professionals. Learn the methodology behind the model — from first principles to advanced deal structuring.');
 
-  // ── Modules ───────────────────────────────────────────────────────────────
-  const modulesBadge = cms(content, 'modules_section', 'badge',     'The Platforms');
-  const modulesH2    = cms(content, 'modules_section', 'heading',   '10+ Professional Modeling Platforms');
-  const modulesSub   = cms(content, 'modules_section', 'subheading','Live now and launching soon — one platform for every financial modeling discipline.');
-
-  // ── Training section ──────────────────────────────────────────────────────
-  const trainingBadge = cms(content, 'training_section', 'badge',  'Free Training');
-  const trainingH2    = cms(content, 'training_section', 'heading', 'Learn Financial Modeling — Free');
-
   // ── Articles section ──────────────────────────────────────────────────────
   const articlesBadge = cms(content, 'articles_section', 'badge',  'Insights');
   const articlesH2    = cms(content, 'articles_section', 'heading', 'Latest Articles');
-
-  // ── Assets ────────────────────────────────────────────────────────────────
-  const assetsBadge = cms(content, 'assets', 'badge',     'Real Estate Coverage');
-  const assetsH2    = cms(content, 'assets', 'heading',   'Real Estate — All Asset Classes');
-  const assetsSub   = cms(content, 'assets', 'subheading','The most comprehensive real estate modeling platform — covering every asset type from residential to data centers.');
 
   // ── Founder section ───────────────────────────────────────────────────────
   const founderBadge = cms(content, 'founder_section', 'badge', 'The Founder');
@@ -122,31 +108,6 @@ export default async function LandingPage() {
   const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
   const footerFounder   = cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder');
   const footerCopyright = cms(content, 'footer', 'copyright',    `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
-
-  // ── Fallbacks ─────────────────────────────────────────────────────────────
-  const fallbackModules = [
-    { id:'1',  name:'Real Estate Financial Modeling', slug:'real-estate',        description:'Multi-asset real estate development models covering residential, hospitality, retail, commercial, industrial, data centers, and construction.', icon:'🏗️', status:'live'        as const, display_order:1,  launch_date:null },
-    { id:'2',  name:'Business Valuation',             slug:'business-valuation', description:'DCF analysis, comparable companies, precedent transactions, sum of parts, and LBO quick check.',                                                    icon:'💼', status:'coming_soon' as const, display_order:2,  launch_date:null },
-    { id:'3',  name:'FP&A Modeling',                  slug:'fpa-modeling',       description:'Annual budgets, rolling forecasts, budget vs actual variance analysis, and department P&L.',                                                         icon:'📊', status:'coming_soon' as const, display_order:3,  launch_date:null },
-    { id:'4',  name:'Equity Research',                slug:'equity-research',    description:'Financial model templates, initiation of coverage reports, earnings models, and sector-specific models.',                                             icon:'📈', status:'coming_soon' as const, display_order:4,  launch_date:null },
-    { id:'5',  name:'Project Finance',                slug:'project-finance',    description:'Infrastructure PPP, power and energy models, concession modeling, DSCR analysis, and debt sculpting.',                                               icon:'🏦', status:'coming_soon' as const, display_order:5,  launch_date:null },
-    { id:'6',  name:'LBO Modeling',                   slug:'lbo-modeling',       description:'Full leveraged buyout models — sources and uses, debt schedule, management equity, returns waterfall.',                                              icon:'🔄', status:'coming_soon' as const, display_order:6,  launch_date:null },
-    { id:'7',  name:'Corporate Finance',              slug:'corporate-finance',  description:'M&A models, merger consequences, accretion/dilution analysis, synergy modeling, fairness opinions.',                                                 icon:'🌍', status:'coming_soon' as const, display_order:7,  launch_date:null },
-    { id:'8',  name:'Energy & Utilities',             slug:'energy-utilities',   description:'Solar, wind, oil and gas, utility rate models, carbon credits, and power purchase agreements.',                                                       icon:'⚡', status:'coming_soon' as const, display_order:8,  launch_date:null },
-    { id:'9',  name:'Startup & Venture',              slug:'startup-venture',    description:'SaaS unit economics, runway and burn analysis, cap table modeling, cohort analysis, VC returns.',                                                     icon:'🚀', status:'coming_soon' as const, display_order:9,  launch_date:null },
-    { id:'10', name:'Banking & Credit',               slug:'banking-credit',     description:'Credit analysis, loan modeling, NPL workout, Basel compliance, portfolio stress testing.',                                                            icon:'🏛️', status:'coming_soon' as const, display_order:10, launch_date:null },
-  ];
-  const fallbackAssets = [
-    { id:'1', module_id:'', name:'Residential',                  description:'Apartments, villas, townhouses, compounds. Unit mix, sellable area, phased delivery, sales revenue, equity paydown, IRR.',           icon:'🏘️', visible:true,  display_order:1 },
-    { id:'2', module_id:'', name:'Hospitality',                  description:'Hotels, serviced apartments, resorts. Room count, ADR, occupancy, RevPAR, operator structures, management fees.',                      icon:'🏨', visible:true,  display_order:2 },
-    { id:'3', module_id:'', name:'Retail',                       description:'Malls, strip retail, F&B pads. GLA, tenant mix, lease terms, passing rent, reversionary yield, anchor tenants.',                       icon:'🛍️', visible:true,  display_order:3 },
-    { id:'4', module_id:'', name:'Commercial Office',            description:'Office buildings, business parks, co-working. NLA, WALE, cap rate, lease expiry profile, vacancy assumptions.',                        icon:'🏢', visible:false, display_order:4 },
-    { id:'5', module_id:'', name:'Industrial & Logistics',       description:'Warehouses, logistics hubs, cold storage, manufacturing. Industrial yields and escalation clauses.',                                    icon:'🏭', visible:false, display_order:5 },
-    { id:'6', module_id:'', name:'Data Centers',                 description:'Colocation, hyperscale, edge. Power (MW), rack units, PUE, OPEX modeling, cloud revenue streams.',                                     icon:'💾', visible:false, display_order:6 },
-    { id:'7', module_id:'', name:'Construction & Infrastructure', description:'Civil works, master plans, mixed developments. Cost phasing, contractor payments, milestone billing.',                                icon:'🏗️', visible:false, display_order:7 },
-  ];
-  const displayModules = modules.length > 0 ? modules : fallbackModules;
-  const displayAssets  = assetTypes.length > 0 ? assetTypes : fallbackAssets;
 
   // ── Nav pages ─────────────────────────────────────────────────────────────
   const fallbackPages = [
@@ -191,7 +152,7 @@ export default async function LandingPage() {
             <Link href="/modeling-hub" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#1B4F8A', color:'#fff', fontWeight:700, fontSize:15, padding:'14px 32px', borderRadius:8, textDecoration:'none', boxShadow:'0 4px 24px rgba(27,79,138,0.5)' }}>
               <InlineEdit tag="span" section="hero" fieldKey="cta1" value={heroCta1} isAdmin={isAdmin} darkBg />
             </Link>
-            <Link href="#modules" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.18)', color:'rgba(255,255,255,0.85)', fontWeight:600, fontSize:15, padding:'14px 32px', borderRadius:8, textDecoration:'none' }}>
+            <Link href="#pricing" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.07)', border:'1px solid rgba(255,255,255,0.18)', color:'rgba(255,255,255,0.85)', fontWeight:600, fontSize:15, padding:'14px 32px', borderRadius:8, textDecoration:'none' }}>
               <InlineEdit tag="span" section="hero" fieldKey="cta2" value={heroCta2} isAdmin={isAdmin} darkBg />
             </Link>
           </div>
@@ -293,75 +254,6 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* ── Modeling Hub CTA ────────────────────────────────────────────────── */}
-      <section id="modules" style={{ padding:'72px 40px', background:'#fff', textAlign:'center' }}>
-        <div style={{ maxWidth:700, margin:'0 auto' }}>
-          <div style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>
-            The Platforms
-          </div>
-          <h2 style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1B3A6B', marginBottom:16 }}>
-            10+ Professional Modeling Platforms
-          </h2>
-          <p style={{ fontSize:15, color:'#6B7280', lineHeight:1.7, marginBottom:36 }}>
-            Real estate, business valuation, LBO, FP&amp;A, equity research, project finance, and more — all in one place. Live now and launching soon.
-          </p>
-          <Link href="/modeling-hub" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#1B4F8A', color:'#fff', fontWeight:700, fontSize:15, padding:'14px 36px', borderRadius:8, textDecoration:'none', boxShadow:'0 4px 24px rgba(27,79,138,0.3)' }}>
-            Explore Modeling Hub →
-          </Link>
-        </div>
-      </section>
-
-      {/* ── Training Preview ───────────────────────────────────────────────── */}
-      <section style={{ padding:'88px 40px', background:'#E8F7EC' }}>
-        <div style={{ maxWidth:1100, margin:'0 auto' }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', marginBottom:44, flexWrap:'wrap', gap:16 }}>
-            <div>
-              <InlineEdit tag="div" section="training_section" fieldKey="badge" value={trainingBadge} isAdmin={isAdmin}
-                style={{ fontSize:12, fontWeight:700, color:'#1A7A30', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:10 }} />
-              <InlineEdit tag="h2" section="training_section" fieldKey="heading" value={trainingH2} isAdmin={isAdmin}
-                style={{ fontSize:'clamp(22px,3vw,34px)', fontWeight:800, color:'#1B3A6B', margin:0 }} />
-            </div>
-            <Link href="/training" style={{ fontSize:13, fontWeight:700, color:'#1A7A30', textDecoration:'none' }}>Browse All Courses →</Link>
-          </div>
-          {courses.length > 0 ? (
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:20 }}>
-              {courses.slice(0,3).map((c)=><CourseCard key={c.id} course={c} />)}
-            </div>
-          ) : (
-            <div style={{ textAlign:'center', padding:'56px 24px', background:'#fff', border:'1px dashed #A3D9AE', borderRadius:12 }}>
-              <div style={{ fontSize:40, marginBottom:16 }}>🎓</div>
-              <div style={{ fontSize:16, fontWeight:700, color:'#1B3A6B', marginBottom:8 }}>Courses Coming Soon</div>
-              <div style={{ fontSize:13, color:'#6B7280' }}>Free video training on financial modeling — launching shortly.</div>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* ── Articles Preview ───────────────────────────────────────────────── */}
-      <section style={{ padding:'88px 40px', background:'#fff' }}>
-        <div style={{ maxWidth:1100, margin:'0 auto' }}>
-          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', marginBottom:44, flexWrap:'wrap', gap:16 }}>
-            <div>
-              <InlineEdit tag="div" section="articles_section" fieldKey="badge" value={articlesBadge} isAdmin={isAdmin}
-                style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:10 }} />
-              <InlineEdit tag="h2" section="articles_section" fieldKey="heading" value={articlesH2} isAdmin={isAdmin}
-                style={{ fontSize:'clamp(22px,3vw,34px)', fontWeight:800, color:'#1B3A6B', margin:0 }} />
-            </div>
-            <Link href="/articles" style={{ fontSize:13, fontWeight:700, color:'#1B4F8A', textDecoration:'none' }}>View All Articles →</Link>
-          </div>
-          {articles.length > 0 ? (
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', gap:20 }}>
-              {articles.map((a)=><ArticleCard key={a.id} article={a} />)}
-            </div>
-          ) : (
-            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', gap:20 }}>
-              {[0,1,2].map((i)=><ArticleCardPlaceholder key={i} index={i} />)}
-            </div>
-          )}
-        </div>
-      </section>
-
-
       {/* ── Founder ────────────────────────────────────────────────────────── */}
       <section style={{ padding:'64px 40px 80px', background:'#1B3A6B', color:'#fff' }}>
         <div style={{ maxWidth:1100, margin:'0 auto' }}>
@@ -454,7 +346,31 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* ── Testimonials ───────────────────────────────────────────────────── */}
+      {/* ── Articles Preview ───────────────────────────────────────────────── */}
+      <section style={{ padding:'88px 40px', background:'#fff' }}>
+        <div style={{ maxWidth:1100, margin:'0 auto' }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', marginBottom:44, flexWrap:'wrap', gap:16 }}>
+            <div>
+              <InlineEdit tag="div" section="articles_section" fieldKey="badge" value={articlesBadge} isAdmin={isAdmin}
+                style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:10 }} />
+              <InlineEdit tag="h2" section="articles_section" fieldKey="heading" value={articlesH2} isAdmin={isAdmin}
+                style={{ fontSize:'clamp(22px,3vw,34px)', fontWeight:800, color:'#1B3A6B', margin:0 }} />
+            </div>
+            <Link href="/articles" style={{ fontSize:13, fontWeight:700, color:'#1B4F8A', textDecoration:'none' }}>View All Articles →</Link>
+          </div>
+          {articles.length > 0 ? (
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', gap:20 }}>
+              {articles.map((a)=><ArticleCard key={a.id} article={a} />)}
+            </div>
+          ) : (
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', gap:20 }}>
+              {[0,1,2].map((i)=><ArticleCardPlaceholder key={i} index={i} />)}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ── Testimonials */}
       <section style={{ padding:'88px 40px', background:'#fff' }}>
         <div style={{ maxWidth:1100, margin:'0 auto' }}>
           <div style={{ textAlign:'center', marginBottom:52 }}>
@@ -463,14 +379,45 @@ export default async function LandingPage() {
             <InlineEdit tag="p" section="testimonials" fieldKey="subheading" value={testimonialsSub} isAdmin={isAdmin}
               style={{ fontSize:14, color:'#6B7280' }} />
           </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', gap:20 }}>
-            {[0,1,2].map((i)=>(
-              <div key={i} style={{ background:'#F9FAFB', border:'1px dashed #E5E7EB', borderRadius:12, padding:'32px 24px', textAlign:'center' }}>
-                <div style={{ fontSize:40, color:'#D1D5DB', marginBottom:16, fontFamily:'Georgia,serif' }}>&ldquo;</div>
-                <p style={{ fontSize:14, color:'#9CA3AF', lineHeight:1.7, marginBottom:20, fontStyle:'italic' }}>Testimonial coming soon</p>
-                <p style={{ fontSize:12, color:'#D1D5DB' }}>We are collecting feedback from early users</p>
-              </div>
-            ))}
+          {testimonials.length > 0 ? (
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:24 }}>
+              {testimonials.map(t => (
+                <div key={t.id} style={{ background:'#F9FAFB', border:'1px solid #E5E7EB', borderRadius:14, padding:'28px 24px', position:'relative' }}>
+                  <div style={{ fontSize:32, color:'#1B4F8A', fontFamily:'Georgia,serif', lineHeight:1, marginBottom:12 }}>&ldquo;</div>
+                  <p style={{ fontSize:14, color:'#374151', lineHeight:1.75, marginBottom:20, fontStyle:'italic' }}>{t.text}</p>
+                  <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                    <div style={{ width:40, height:40, borderRadius:'50%', background:'linear-gradient(135deg,#1B4F8A,#0D2E5A)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:800, color:'#fff', flexShrink:0 }}>
+                      {t.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <div style={{ fontSize:13, fontWeight:700, color:'#1B3A6B' }}>{t.name}</div>
+                      <div style={{ fontSize:11, color:'#9CA3AF' }}>{[t.role, t.company].filter(Boolean).join(' · ')}</div>
+                    </div>
+                    <div style={{ marginLeft:'auto', display:'flex', gap:2 }}>
+                      {Array.from({length:5}).map((_,i) => (
+                        <span key={i} style={{ fontSize:12, color: i < t.rating ? '#F59E0B' : '#E5E7EB' }}>★</span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', gap:20 }}>
+              {[0,1,2].map(i=>(
+                <div key={i} style={{ background:'#F9FAFB', border:'1px dashed #E5E7EB', borderRadius:12, padding:'32px 24px', textAlign:'center' }}>
+                  <div style={{ fontSize:40, color:'#D1D5DB', marginBottom:16, fontFamily:'Georgia,serif' }}>&ldquo;</div>
+                  <p style={{ fontSize:14, color:'#9CA3AF', lineHeight:1.7, marginBottom:20, fontStyle:'italic' }}>Testimonial coming soon</p>
+                  <p style={{ fontSize:12, color:'#D1D5DB' }}>We are collecting feedback from early users</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Submit testimonial link */}
+          <div style={{ textAlign:'center', marginTop:32 }}>
+            <Link href="/testimonials/submit" style={{ fontSize:13, color:'#1B4F8A', fontWeight:600, textDecoration:'none', borderBottom:'1px solid #C7D9F2', paddingBottom:2 }}>
+              Share your experience →
+            </Link>
           </div>
         </div>
       </section>

@@ -18,14 +18,17 @@ const DEFAULT_PAGES: NavPage[] = [
   { id: '4', label: 'Articles',         href: '/articles' },
   { id: '5', label: 'About',            href: '/about' },
   { id: '6', label: 'Pricing',          href: '/#pricing' },
+  { id: '7', label: 'Contact',          href: '/contact' },
 ];
 
 interface NavbarProps {
   navPages?: NavPage[];
   topOffset?: number;
+  logoUrl?: string;
+  logoAlt?: string;
 }
 
-export function Navbar({ navPages, topOffset = 0 }: NavbarProps) {
+export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial Modeler Pro' }: NavbarProps) {
   const pages = navPages ?? DEFAULT_PAGES;
   return (
     <nav style={{
@@ -35,15 +38,22 @@ export function Navbar({ navPages, topOffset = 0 }: NavbarProps) {
       backdropFilter: 'blur(12px)', boxShadow: '0 2px 20px rgba(0,0,0,0.4)',
     }}>
       <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-        <span style={{ fontSize: 24 }}>📐</span>
-        <div>
-          <div style={{ fontWeight: 800, fontSize: 14, color: '#fff', letterSpacing: '0.01em', lineHeight: 1 }}>
-            Financial Modeler Pro
-          </div>
-          <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 2 }}>
-            Structured Modeling. Real-World Finance.
-          </div>
-        </div>
+        {logoUrl ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img src={logoUrl} alt={logoAlt} style={{ height: 36, width: 'auto', objectFit: 'contain' }} />
+        ) : (
+          <>
+            <span style={{ fontSize: 24 }}>📐</span>
+            <div>
+              <div style={{ fontWeight: 800, fontSize: 14, color: '#fff', letterSpacing: '0.01em', lineHeight: 1 }}>
+                Financial Modeler Pro
+              </div>
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 2 }}>
+                Structured Modeling. Real-World Finance.
+              </div>
+            </div>
+          </>
+        )}
       </Link>
       <div style={{ flex: 1 }} />
       <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
