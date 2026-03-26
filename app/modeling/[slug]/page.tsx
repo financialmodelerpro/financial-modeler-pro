@@ -93,7 +93,7 @@ export default async function PlatformDetailPage({
           <div style={{ maxWidth: 1000, margin: '0 auto' }}>
             {/* Breadcrumb */}
             <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Link href="/modeling-hub" style={{ color: 'rgba(255,255,255,0.55)', textDecoration: 'none' }}>
+              <Link href="/modeling" style={{ color: 'rgba(255,255,255,0.55)', textDecoration: 'none' }}>
                 Modeling Hub
               </Link>
               <span>→</span>
@@ -147,7 +147,7 @@ export default async function PlatformDetailPage({
               }}>
                 Launch Platform →
               </Link>
-              <Link href="/modeling-hub" style={{
+              <Link href="/modeling" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 background: 'transparent', color: '#fff',
                 fontWeight: 700, fontSize: 15, padding: '13px 32px',
@@ -332,7 +332,7 @@ export default async function PlatformDetailPage({
           </span>
           <div style={{ display: 'flex', gap: 20 }}>
             <Link href="/" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>← Home</Link>
-            <Link href="/modeling-hub" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Modeling Hub</Link>
+            <Link href="/modeling" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Modeling Hub</Link>
             <Link href="/login" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Login</Link>
           </div>
         </footer>
@@ -361,7 +361,7 @@ export default async function PlatformDetailPage({
         <div style={{ maxWidth: 1000, margin: '0 auto' }}>
           {/* Breadcrumb */}
           <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Link href="/modeling-hub" style={{ color: 'rgba(255,255,255,0.55)', textDecoration: 'none' }}>
+            <Link href="/modeling" style={{ color: 'rgba(255,255,255,0.55)', textDecoration: 'none' }}>
               Modeling Hub
             </Link>
             <span>→</span>
@@ -404,7 +404,7 @@ export default async function PlatformDetailPage({
             {platform.tagline}
           </p>
 
-          <Link href="/modeling-hub" style={{
+          <Link href="/modeling" style={{
             display: 'inline-flex', alignItems: 'center', gap: 8,
             background: 'transparent', color: '#fff',
             fontWeight: 700, fontSize: 15, padding: '13px 32px',
@@ -494,7 +494,7 @@ export default async function PlatformDetailPage({
             The {displayName} platform is currently being built. In the meantime, explore the live platforms available now or register to be notified when this platform launches.
           </p>
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link href="/modeling-hub" style={{
+            <Link href="/modeling" style={{
               display: 'inline-flex', alignItems: 'center', gap: 7,
               background: '#1B4F8A', color: '#fff',
               fontWeight: 700, fontSize: 14, padding: '11px 28px',
@@ -550,7 +550,7 @@ export default async function PlatformDetailPage({
                     }}>
                       Launch →
                     </Link>
-                    <Link href={`/modeling-hub/${p.slug}`} style={{
+                    <Link href={`/modeling/${p.slug}`} style={{
                       fontSize: 12, fontWeight: 700, padding: '6px 14px',
                       borderRadius: 6, background: 'transparent', color: p.color,
                       border: `1.5px solid ${p.color}`, textDecoration: 'none',
@@ -577,7 +577,7 @@ export default async function PlatformDetailPage({
         </span>
         <div style={{ display: 'flex', gap: 20 }}>
           <Link href="/" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>← Home</Link>
-          <Link href="/modeling-hub" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Modeling Hub</Link>
+          <Link href="/modeling" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Modeling Hub</Link>
           <Link href="/login" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Login</Link>
         </div>
       </footer>

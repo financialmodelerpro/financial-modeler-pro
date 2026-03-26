@@ -139,7 +139,7 @@ export default async function LandingPage() {
   // ── Nav pages ─────────────────────────────────────────────────────────────
   const fallbackPages = [
     { id:'1', label:'Home',             href:'/',         visible:true, display_order:1, can_toggle:false },
-    { id:'2', label:'Modeling Hub',     href:'/modeling-hub', visible:true, display_order:2, can_toggle:true },
+    { id:'2', label:'Modeling Hub',     href:'/modeling', visible:true, display_order:2, can_toggle:true },
     { id:'3', label:'Training Hub', href:'/training', visible:true, display_order:3, can_toggle:true },
     { id:'4', label:'Articles',         href:'/articles', visible:true, display_order:4, can_toggle:true },
     { id:'5', label:'About',            href:'/about',    visible:true, display_order:5, can_toggle:true },
@@ -295,7 +295,7 @@ export default async function LandingPage() {
                   <li key={t} style={{ fontSize:13, color:'#4B5563', display:'flex', gap:8, alignItems:'center' }}><span style={{ color:'#1B4F8A', fontWeight:700 }}>→</span> {t}</li>
                 ))}
               </ul>
-              <Link href="/modeling-hub" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1B4F8A', color:'#fff', fontSize:13, fontWeight:700, padding:'10px 22px', borderRadius:7, textDecoration:'none' }}>Explore Modeling Hub →</Link>
+              <Link href="/modeling" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1B4F8A', color:'#fff', fontSize:13, fontWeight:700, padding:'10px 22px', borderRadius:7, textDecoration:'none' }}>Explore Modeling Hub →</Link>
             </div>
             {/* Training card */}
             <div style={{ background:'#fff', border:'1px solid #C3E9CE', borderTop:'4px solid #1A7A30', borderRadius:16, padding:'36px 32px', boxShadow:'0 2px 12px rgba(26,122,48,0.06)' }}>
@@ -539,7 +539,7 @@ export default async function LandingPage() {
             </div>
             <div>
               <div style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.35)', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:14 }}>Platform</div>
-              {[['Modeling Hub','/modeling-hub'],['Training Hub','/training'],['Articles','/articles'],['Launch Platform','/login']].map(([label,href])=>(
+              {[['Modeling Hub','/modeling'],['Training Hub','/training'],['Articles','/articles'],['Launch Platform','/login']].map(([label,href])=>(
                 <Link key={href} href={href} style={{ display:'block', fontSize:13, color:'rgba(255,255,255,0.5)', textDecoration:'none', marginBottom:8 }}>{label}</Link>
               ))}
             </div>

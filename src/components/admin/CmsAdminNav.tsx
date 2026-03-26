@@ -109,7 +109,7 @@ export function CmsAdminNav({ active: activeProp }: Props) {
         <a href="/training" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 12, color: 'rgba(255,255,255,0.5)', textDecoration: 'none', borderRadius: 6, marginBottom: 2 }}>
           <span>🎓</span> Training Site ↗
         </a>
-        <a href="/modeling-hub" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 12, color: 'rgba(255,255,255,0.5)', textDecoration: 'none', borderRadius: 6, marginBottom: 8 }}>
+        <a href="/modeling" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 12, color: 'rgba(255,255,255,0.5)', textDecoration: 'none', borderRadius: 6, marginBottom: 8 }}>
           <span>📐</span> Modeling Hub ↗
         </a>
         {session?.user && (

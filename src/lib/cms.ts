@@ -180,8 +180,8 @@ export interface SitePage { id: string; label: string; href: string; visible: bo
 
 // Normalise stale hrefs / labels from old seed data (avoids needing a DB migration on every rename)
 const HREF_MIGRATIONS: Record<string, string> = {
-  '#modules':  '/modeling-hub',
-  '/#modules': '/modeling-hub',
+  '#modules':  '/modeling',
+  '/#modules': '/modeling',
   '#pricing':  '/pricing',
   '/#pricing': '/pricing',
 };

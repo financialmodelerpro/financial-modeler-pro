@@ -14,7 +14,7 @@ interface NavPage {
 
 const DEFAULT_PAGES: NavPage[] = [
   { id: '1', label: 'Home',          href: '/' },
-  { id: '2', label: 'Modeling Hub',  href: '/modeling-hub' },
+  { id: '2', label: 'Modeling Hub',  href: '/modeling' },
   { id: '3', label: 'Training Hub',  href: '/training' },
   { id: '4', label: 'Articles',      href: '/articles' },
   { id: '5', label: 'About',         href: '/about' },

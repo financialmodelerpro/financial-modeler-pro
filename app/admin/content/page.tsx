@@ -521,7 +521,7 @@ export default function AdminContentPage() {
             {tab === 'modeling_hub' && (
               <div>
                 <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 24, padding: '10px 14px', background: '#EEF2FF', border: '1px solid #C7D2FE', borderRadius: 7 }}>
-                  📍 Controls text on the public <strong>/modeling-hub</strong> page. Leave blank to use the default text.
+                  📍 Controls text on the public <strong>/modeling</strong> page. Leave blank to use the default text.
                 </p>
                 <div style={fieldStyle}><label style={labelStyle}>Hero Badge Text</label><input style={inputStyle} value={get('modeling_hub','hero_badge','📐 Professional Modeling Platform')} onChange={e => set('modeling_hub','hero_badge',e.target.value)} /></div>
                 <div style={fieldStyle}><label style={labelStyle}>Hero Headline</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={2} value={get('modeling_hub','hero_headline','Build Institutional-Grade\nFinancial Models')} onChange={e => set('modeling_hub','hero_headline',e.target.value)} /></div>

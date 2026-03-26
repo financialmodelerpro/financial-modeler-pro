@@ -44,7 +44,19 @@
       "Bash(npm audit:*)",
       "Bash(wc -l \"D:\\\\FMP\\\\financial-modeler-pro\\\\app\\\\\\(portal\\)\\\\page.tsx\")",
       "Bash(head -300 \"D:\\\\FMP\\\\financial-modeler-pro\\\\app\\\\\\(portal\\)\\\\page.tsx\")",
-      "Bash(grep -rl \"from ''''@/src/components/layout/Navbar''''\" app/ --include=\"*.tsx\")"
+      "Bash(grep -rl \"from ''''@/src/components/layout/Navbar''''\" app/ --include=\"*.tsx\")",
+      "Bash(npx supabase:*)",
+      "Bash(node -e \"const {createClient} = require\\(''''@supabase/supabase-js''''\\); console.log\\(Object.keys\\(createClient\\(''''https://x.supabase.co'''',''''x''''\\)\\)\\);\")",
+      "Bash(node -e \":*)",
+      "Bash(node -e \"require\\(''pg''\\)\")",
+      "Bash(node run-migration.mjs)",
+      "Bash(node:*)",
+      "Bash(rm \"D:/FMP/financial-modeler-pro/run-migration.mjs\")",
+      "Bash(npm uninstall:*)",
+      "Bash(wc:*)",
+      "Bash(cat -A \"D:/FMP/financial-modeler-pro/app/\\(portal\\)/page.tsx\")",
+      "Bash(sort -t: -k1.8 -n)",
+      "Bash(cp:*)"
     ]
   }
 }

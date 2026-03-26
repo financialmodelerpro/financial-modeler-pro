@@ -250,7 +250,7 @@ export default async function ModelingHubPage() {
                       Launch Platform →
                     </Link>
                   )}
-                  <Link href={`/modeling-hub/${platform.slug}`} style={{
+                  <Link href={`/modeling/${platform.slug}`} style={{
                     display: 'inline-flex', alignItems: 'center', gap: 5,
                     background: 'transparent', color: platform.color,
                     fontSize: 12, fontWeight: 700, padding: '7px 16px',
