@@ -454,10 +454,11 @@ export default function TrainingDashboardPage() {
     setLoading(true);
     setError('');
     try {
-      const res  = await fetch('/api/training/progress');
-      const json = await res.json() as { success: boolean; data?: ProgressData };
+      const params = new URLSearchParams({ email: sess.email, registrationId: sess.registrationId });
+      const res  = await fetch(`/api/training/progress?${params}`);
+      const json = await res.json() as { success: boolean; data?: ProgressData; error?: string };
       if (!json.success || !json.data) {
-        setError('Failed to load your progress. Please try again.');
+        setError(json.error ?? 'Failed to load your progress. Please try again.');
         setLoading(false);
         return;
       }

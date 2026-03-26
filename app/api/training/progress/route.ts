@@ -1,41 +1,44 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getStudentProgress } from '@/src/lib/sheets';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const cookieStore = await cookies();
-    const raw = cookieStore.get('training_session')?.value;
+    let email = '';
+    let registrationId = '';
 
-    if (!raw) {
+    // Primary: read from httpOnly cookie
+    try {
+      const cookieStore = await cookies();
+      const raw = cookieStore.get('training_session')?.value;
+      if (raw) {
+        const parsed = JSON.parse(raw) as { email?: string; registrationId?: string };
+        email = parsed.email ?? '';
+        registrationId = parsed.registrationId ?? '';
+      }
+    } catch { /* ignore cookie parse errors */ }
+
+    // Fallback: accept credentials from query params (client has them in localStorage)
+    if (!email || !registrationId) {
+      email = req.nextUrl.searchParams.get('email') ?? '';
+      registrationId = req.nextUrl.searchParams.get('registrationId') ?? '';
+    }
+
+    if (!email || !registrationId) {
       return NextResponse.json(
         { success: false, error: 'Not authenticated.' },
         { status: 401 },
       );
     }
 
-    let session: { email: string; registrationId: string };
-    try {
-      session = JSON.parse(raw) as { email: string; registrationId: string };
-    } catch {
-      return NextResponse.json(
-        { success: false, error: 'Invalid session.' },
-        { status: 401 },
-      );
-    }
-
-    if (!session.email || !session.registrationId) {
-      return NextResponse.json(
-        { success: false, error: 'Invalid session.' },
-        { status: 401 },
-      );
-    }
-
-    const result = await getStudentProgress(session.email, session.registrationId);
+    const result = await getStudentProgress(
+      email.trim().toLowerCase(),
+      registrationId.trim(),
+    );
 
     if (!result.success) {
       return NextResponse.json(
-        { success: false, error: 'Failed to fetch progress.' },
+        { success: false, error: result.error ?? 'Failed to fetch progress.' },
         { status: 400 },
       );
     }
