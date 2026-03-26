@@ -43,11 +43,12 @@ export async function DELETE(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const body = await req.json();
-  const { id, label, visible, display_order } = body;
+  const { id, label, href, visible, display_order } = body;
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
   const sb = getServerClient();
   const update: Record<string, unknown> = {};
   if (label !== undefined) update.label = label;
+  if (href !== undefined) update.href = href;
   if (visible !== undefined) update.visible = visible;
   if (display_order !== undefined) update.display_order = display_order;
   const { data, error } = await sb.from('site_pages').update(update).eq('id', id).select().single();

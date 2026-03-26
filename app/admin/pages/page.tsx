@@ -162,7 +162,7 @@ export default function PagesAdminPage() {
         {/* Pages table */}
         <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, overflow: 'hidden' }}>
           {/* Header */}
-          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 70px 80px 140px', gap: 0, background: '#1B4F8A', padding: '10px 20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 70px 80px 140px', gap: 0, background: '#1B4F8A', padding: '10px 20px' }}>
             {['Page Label (nav text)', 'URL / Href', 'Order', 'Visible', 'Actions'].map(h => (
               <div key={h} style={{ fontSize: 11, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
             ))}
@@ -175,8 +175,10 @@ export default function PagesAdminPage() {
             const visible = page.visible;
             const dirty  = !!edits[page.id] && Object.keys(edits[page.id]!).length > 0;
 
+            const href = draft.href ?? page.href;
+
             return (
-              <div key={page.id} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 70px 80px 140px', gap: 0, borderBottom: '1px solid #F3F4F6', padding: '12px 20px', alignItems: 'center', background: visible ? '#fff' : '#FAFAFA' }}>
+              <div key={page.id} style={{ display: 'grid', gridTemplateColumns: '2fr 2fr 70px 80px 140px', gap: 0, borderBottom: '1px solid #F3F4F6', padding: '12px 20px', alignItems: 'center', background: visible ? '#fff' : '#FAFAFA' }}>
                 {/* Label */}
                 <div>
                   <input
@@ -186,7 +188,15 @@ export default function PagesAdminPage() {
                   />
                 </div>
                 {/* Href */}
-                <div style={{ fontSize: 12, color: '#9CA3AF', padding: '0 8px' }}>{page.href}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingRight: 8 }}>
+                  <input
+                    value={href}
+                    onChange={e => setEdit(page.id, 'href', e.target.value)}
+                    placeholder="/page-path"
+                    style={{ flex: 1, padding: '6px 8px', fontSize: 12, border: '1px solid #E5E7EB', borderRadius: 5, fontFamily: 'Inter,sans-serif', outline: 'none', background: '#FFFBEB', color: '#1B3A6B', minWidth: 0 }}
+                  />
+                  <a href={page.href} target="_blank" rel="noopener noreferrer" title="Visit page" style={{ fontSize: 14, color: '#6B7280', textDecoration: 'none', flexShrink: 0, lineHeight: 1 }}>↗</a>
+                </div>
                 {/* Order */}
                 <div>
                   <input
