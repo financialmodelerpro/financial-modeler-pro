@@ -15,7 +15,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Pages & Nav',     href: '/admin/pages',            icon: '🗂️' },
   { label: 'Articles',        href: '/admin/articles',         icon: '📰' },
   { label: 'Testimonials',    href: '/admin/testimonials',     icon: '⭐' },
-  { label: 'Contact',         href: '/admin/contact',          icon: '📬' },
   { label: 'Founder Profile', href: '/admin/founder',          icon: '👤' },
   { label: 'Media Library',   href: '/admin/media',            icon: '🖼️' },
   { type: 'divider',          label: 'Modeling Hub' },

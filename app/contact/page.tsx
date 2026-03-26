@@ -18,6 +18,13 @@ export default async function ContactPage() {
   const contactAddress = cms(content, 'contact', 'address',  '');
   const contactMapsUrl = cms(content, 'contact', 'maps_url', '');
 
+  type CustomField = { label: string; value: string };
+  let customFields: CustomField[] = [];
+  try {
+    const raw = cms(content, 'contact', 'custom_fields', '');
+    if (raw) customFields = JSON.parse(raw) as CustomField[];
+  } catch { /* ignore */ }
+
   const infoItems = [
     { icon:'📧', label:'Email',   value: contactEmail,   href: contactEmail ? `mailto:${contactEmail}` : null },
     { icon:'📞', label:'Phone',   value: contactPhone,   href: contactPhone ? `tel:${contactPhone}` : null },
@@ -70,6 +77,28 @@ export default async function ContactPage() {
                 </div>
               ))}
             </div>
+
+            {customFields.length > 0 && (
+              <div style={{ display:'flex', flexDirection:'column', gap:16, marginTop:16 }}>
+                {customFields.map((field, i) => {
+                  const isUrl = /^https?:\/\//.test(field.value) || /^(linkedin|youtube|www\.)/i.test(field.value);
+                  const href = isUrl ? (field.value.startsWith('http') ? field.value : `https://${field.value}`) : null;
+                  return (
+                    <div key={i} style={{ background:'#fff', border:'1px solid #E5E7EB', borderRadius:12, padding:'18px 20px', display:'flex', alignItems:'flex-start', gap:14 }}>
+                      <span style={{ fontSize:22, flexShrink:0, marginTop:1 }}>🔗</span>
+                      <div>
+                        <div style={{ fontSize:11, fontWeight:700, color:'#9CA3AF', letterSpacing:'0.08em', textTransform:'uppercase', marginBottom:4 }}>{field.label}</div>
+                        {href ? (
+                          <a href={href} target="_blank" rel="noopener noreferrer" style={{ fontSize:14, color:'#1B4F8A', fontWeight:600, textDecoration:'none', wordBreak:'break-word' }}>{field.value}</a>
+                        ) : (
+                          <span style={{ fontSize:14, color:'#374151', wordBreak:'break-word' }}>{field.value}</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
 
             <div style={{ marginTop:32, background:'#0A2248', borderRadius:14, padding:'24px 20px', color:'#fff' }}>
               <div style={{ fontSize:13, fontWeight:700, color:'rgba(255,255,255,0.6)', marginBottom:8 }}>Response Time</div>

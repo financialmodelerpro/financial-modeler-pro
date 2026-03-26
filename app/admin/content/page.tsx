@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 
-type Tab = 'branding' | 'hero' | 'stats' | 'about' | 'pillars' | 'cta' | 'footer' | 'training_page' | 'modeling_hub' | 'contact_page';
+type Tab = 'branding' | 'hero' | 'stats' | 'about' | 'pillars' | 'cta' | 'footer' | 'training_page' | 'modeling_hub' | 'articles_page' | 'contact_page';
 
 const TABS: { key: Tab; label: string; page: string }[] = [
   { key: 'branding',      label: 'Logo & Branding', page: 'All Pages' },
@@ -14,6 +14,7 @@ const TABS: { key: Tab; label: string; page: string }[] = [
   { key: 'footer',        label: 'Footer',         page: 'Landing Page' },
   { key: 'training_page', label: 'Training Hub',   page: 'Training Page' },
   { key: 'modeling_hub',  label: 'Modeling Hub',   page: 'Modeling Hub Page' },
+  { key: 'articles_page', label: 'Articles',       page: 'Articles Page' },
   { key: 'contact_page',  label: 'Contact Page',   page: 'Contact Page' },
 ];
 
@@ -27,6 +28,9 @@ export default function AdminContentPage() {
   type StatRow = { id: number; value: string; label: string };
   const [statItems, setStatItems] = useState<StatRow[]>([]);
   const [statsDirty, setStatsDirty] = useState(false);
+
+  type CustomField = { label: string; value: string };
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
 
   useEffect(() => {
     fetch('/api/admin/content')
@@ -55,6 +59,13 @@ export default function AdminContentPage() {
           ];
         }
         setStatItems(parsed);
+
+        // Init contact custom fields
+        const cfRaw = map['contact__custom_fields'] ?? '';
+        let cf: CustomField[] = [];
+        try { if (cfRaw) cf = JSON.parse(cfRaw) as CustomField[]; } catch { /* ignore */ }
+        setCustomFields(cf);
+
         setLoading(false);
       })
       .catch(() => setLoading(false));
@@ -99,6 +110,40 @@ export default function AdminContentPage() {
       if (!res.ok) throw new Error('Failed');
       setStatsDirty(false);
       setToast({ msg: 'Stats saved', type: 'success' });
+      setTimeout(() => setToast(null), 3000);
+    } catch {
+      setToast({ msg: 'Save failed', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function saveContactPage() {
+    setSaving(true);
+    try {
+      const fixedRows = [
+        { section: 'contact', key: 'email' },
+        { section: 'contact', key: 'phone' },
+        { section: 'contact', key: 'address' },
+        { section: 'contact', key: 'maps_url' },
+        { section: 'contact', key: 'hours' },
+      ];
+      await Promise.all([
+        ...fixedRows.map(r =>
+          fetch('/api/admin/content', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ section: r.section, key: r.key, value: get(r.section, r.key) }),
+          })
+        ),
+        fetch('/api/admin/content', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ section: 'contact', key: 'custom_fields', value: JSON.stringify(customFields) }),
+        }),
+      ]);
+      setToast({ msg: 'Saved successfully', type: 'success' });
       setTimeout(() => setToast(null), 3000);
     } catch {
       setToast({ msg: 'Save failed', type: 'error' });
@@ -381,6 +426,53 @@ export default function AdminContentPage() {
               </div>
             )}
 
+            {/* ── Articles Page ── */}
+            {tab === 'articles_page' && (
+              <div>
+                <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 24, padding: '10px 14px', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 7 }}>
+                  📰 Controls the header text on the public <strong>/articles</strong> listing page. Does not affect individual article posts.
+                </p>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Page Badge</label>
+                  <input style={inputStyle} value={get('articles_page','badge','Knowledge Hub')} onChange={e => set('articles_page','badge',e.target.value)} placeholder="Knowledge Hub" />
+                  <p style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Small label shown above the page title.</p>
+                </div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Page Title</label>
+                  <input style={inputStyle} value={get('articles_page','title','Financial Modeling Insights')} onChange={e => set('articles_page','title',e.target.value)} placeholder="Financial Modeling Insights" />
+                  <p style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Main heading on the articles listing page.</p>
+                </div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Page Subtitle</label>
+                  <textarea style={{...inputStyle, resize:'vertical'}} rows={2} value={get('articles_page','subtitle','Expert guides, tutorials and market analysis from corporate finance professionals')} onChange={e => set('articles_page','subtitle',e.target.value)} />
+                  <p style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Supporting text below the title.</p>
+                </div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Featured Section Title</label>
+                  <input style={inputStyle} value={get('articles_page','featured_title','Featured Articles')} onChange={e => set('articles_page','featured_title',e.target.value)} placeholder="Featured Articles" />
+                  <p style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Heading above the featured articles row (if any articles are marked featured).</p>
+                </div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>All Articles Section Title</label>
+                  <input style={inputStyle} value={get('articles_page','all_title','Latest Articles')} onChange={e => set('articles_page','all_title',e.target.value)} placeholder="Latest Articles" />
+                  <p style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Heading above the main articles grid.</p>
+                </div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Empty State Message</label>
+                  <input style={inputStyle} value={get('articles_page','empty_message','No articles published yet. Check back soon.')} onChange={e => set('articles_page','empty_message',e.target.value)} placeholder="No articles published yet. Check back soon." />
+                  <p style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Message shown when no articles are published yet.</p>
+                </div>
+                {saveBtn([
+                  {section:'articles_page',key:'badge'},
+                  {section:'articles_page',key:'title'},
+                  {section:'articles_page',key:'subtitle'},
+                  {section:'articles_page',key:'featured_title'},
+                  {section:'articles_page',key:'all_title'},
+                  {section:'articles_page',key:'empty_message'},
+                ])}
+              </div>
+            )}
+
             {/* ── Contact Page ── */}
             {tab === 'contact_page' && (
               <div>
@@ -392,7 +484,36 @@ export default function AdminContentPage() {
                 <div style={fieldStyle}><label style={labelStyle}>Address</label><textarea style={{...inputStyle, resize:'vertical'}} rows={3} value={get('contact','address','')} onChange={e => set('contact','address',e.target.value)} placeholder="123 Main St, City, Country" /></div>
                 <div style={fieldStyle}><label style={labelStyle}>Google Maps Embed URL</label><input style={inputStyle} value={get('contact','maps_url','')} onChange={e => set('contact','maps_url',e.target.value)} placeholder="https://maps.google.com/…" /></div>
                 <div style={fieldStyle}><label style={labelStyle}>Office Hours</label><input style={inputStyle} value={get('contact','hours','Monday – Friday, 9am – 6pm')} onChange={e => set('contact','hours',e.target.value)} /></div>
-                {saveBtn([{section:'contact',key:'email'},{section:'contact',key:'phone'},{section:'contact',key:'address'},{section:'contact',key:'maps_url'},{section:'contact',key:'hours'}])}
+
+                {/* ── Additional Contact Fields ── */}
+                <div style={{ borderTop: '1px solid #E5E7EB', paddingTop: 20, marginTop: 4, marginBottom: 4 }}>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Additional Contact Fields</p>
+                  <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
+                    ℹ️ Add extra contact details like WhatsApp, Office Hours, LinkedIn, YouTube, etc.
+                  </p>
+                  {customFields.map((field, idx) => (
+                    <div key={idx} style={{ display: 'flex', gap: 10, marginBottom: 10, alignItems: 'flex-end' }}>
+                      <div style={{ flex: 1 }}>
+                        <label style={{ ...labelStyle, marginBottom: 4 }}>Field Label</label>
+                        <input style={inputStyle} value={field.label} placeholder="e.g. WhatsApp" onChange={e => setCustomFields(customFields.map((f, i) => i === idx ? { ...f, label: e.target.value } : f))} />
+                      </div>
+                      <div style={{ flex: 2 }}>
+                        <label style={{ ...labelStyle, marginBottom: 4 }}>Value</label>
+                        <input style={inputStyle} value={field.value} placeholder="e.g. +1 555 000 0000" onChange={e => setCustomFields(customFields.map((f, i) => i === idx ? { ...f, value: e.target.value } : f))} />
+                      </div>
+                      <button onClick={() => setCustomFields(customFields.filter((_, i) => i !== idx))} style={{ background: 'none', border: '1px solid #FCA5A5', borderRadius: 6, color: '#EF4444', cursor: 'pointer', padding: '6px 10px', fontSize: 12, marginBottom: 1 }}>Remove</button>
+                    </div>
+                  ))}
+                  {customFields.length < 10 ? (
+                    <button onClick={() => setCustomFields([...customFields, { label: '', value: '' }])} style={{ background: 'none', border: '1px dashed #9CA3AF', borderRadius: 8, color: '#6B7280', cursor: 'pointer', padding: '10px 20px', fontSize: 13, width: '100%', marginBottom: 16 }}>+ Add Field</button>
+                  ) : (
+                    <p style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 16 }}>Maximum 10 fields reached.</p>
+                  )}
+                </div>
+
+                <button disabled={saving} onClick={saveContactPage} style={{ background: saving ? '#6B7280' : '#1B4F8A', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                  {saving ? 'Saving…' : 'Save All Contact Settings'}
+                </button>
               </div>
             )}
 
