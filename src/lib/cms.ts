@@ -182,6 +182,8 @@ export interface SitePage { id: string; label: string; href: string; visible: bo
 const HREF_MIGRATIONS: Record<string, string> = {
   '#modules':  '/modeling-hub',
   '/#modules': '/modeling-hub',
+  '#pricing':  '/pricing',
+  '/#pricing': '/pricing',
 };
 const LABEL_MIGRATIONS: Record<string, string> = {
   'Training Academy': 'Training Hub',
