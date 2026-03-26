@@ -449,6 +449,8 @@ export default function TrainingDashboardPage() {
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [activeTab, setActiveTab]       = useState('3sfm');
   const [liveLinks, setLiveLinks]       = useState<LiveLinksMap>({});
+  const [generating, setGenerating]     = useState(false);
+  const [transcriptToast, setTranscriptToast] = useState<string>('');
 
   const loadData = useCallback(async (sess: { email: string; registrationId: string }) => {
     setLoading(true);
@@ -513,6 +515,32 @@ export default function TrainingDashboardPage() {
       })
       .catch(() => {});
   }, [router, loadData]);
+
+  async function downloadTranscript() {
+    if (!localSession || !progress) return;
+    setGenerating(true);
+    setTranscriptToast('');
+    try {
+      const params = new URLSearchParams({
+        regId: localSession.registrationId,
+        email: localSession.email,
+      });
+      const res = await fetch(`/api/training/transcript?${params}`);
+      if (!res.ok) throw new Error('Failed');
+      const blob = await res.blob();
+      const url  = window.URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `FMP-Transcript-${localSession.registrationId}.pdf`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      setTranscriptToast('Could not generate transcript. Please try again.');
+      setTimeout(() => setTranscriptToast(''), 4000);
+    } finally {
+      setGenerating(false);
+    }
+  }
 
   async function handleLogout() {
     await fetch('/api/training/logout', { method: 'POST' });
@@ -651,6 +679,48 @@ export default function TrainingDashboardPage() {
                       </span>
                     ))}
                   </div>
+                </div>
+
+                {/* ── Download Transcript Button ── */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 6 }}>
+                  {(() => {
+                    const isOfficial = progress.finalPassed || (overallPct === 100 && totalSessions > 0);
+                    const hasAny     = totalPassed > 0;
+                    const bg         = !hasAny ? '#E5E7EB' : isOfficial ? '#2EAA4A' : '#1B4F8A';
+                    const label      = generating ? 'Generating…'
+                                     : !hasAny   ? 'Download Transcript'
+                                     : isOfficial ? 'Download Official Transcript'
+                                     : 'Download Progress Transcript';
+                    return (
+                      <button
+                        onClick={downloadTranscript}
+                        disabled={!hasAny || generating}
+                        title={!hasAny ? 'Complete at least one session to download transcript' : undefined}
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 7,
+                          padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700,
+                          background: bg, color: !hasAny ? '#9CA3AF' : '#fff',
+                          border: 'none', cursor: !hasAny || generating ? 'not-allowed' : 'pointer',
+                          opacity: generating ? 0.8 : 1,
+                          transition: 'background 0.2s',
+                        }}
+                      >
+                        {generating ? (
+                          <span style={{
+                            width: 14, height: 14, border: '2px solid rgba(255,255,255,0.4)',
+                            borderTopColor: '#fff', borderRadius: '50%',
+                            display: 'inline-block', animation: 'spin 0.7s linear infinite',
+                          }} />
+                        ) : '📄'}
+                        {label}
+                      </button>
+                    );
+                  })()}
+                  {transcriptToast && (
+                    <span style={{ fontSize: 12, color: '#DC2626', fontWeight: 600 }}>
+                      ⚠️ {transcriptToast}
+                    </span>
+                  )}
                 </div>
               </div>
 
