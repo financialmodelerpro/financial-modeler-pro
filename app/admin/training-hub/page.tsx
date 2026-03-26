@@ -145,7 +145,7 @@ export default function TrainingHubOverviewPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {[
                       ['Enrolled Students', stat(enrolled ?? null)],
-                      ['Final Exam Pass Rate', stat(passRate, '%')],
+                      ['Final Exam Pass Rate', stat(passRate ?? null, '%')],
                       ['Certificates Issued', stat(certs ?? null)],
                     ].map(([label, val]) => (
                       <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, borderBottom: '1px solid #F3F4F6', paddingBottom: 8 }}>
