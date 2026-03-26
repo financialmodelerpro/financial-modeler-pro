@@ -1,10 +1,75 @@
 -- ─────────────────────────────────────────────────────────────────────────────
--- 018_pricing_sample_plans.sql
+-- 018_pricing_initial_plans.sql
 -- Initial plan setup: Free, Professional, Enterprise
 -- Manage all plans, features, and pricing from /admin/pricing
 -- ─────────────────────────────────────────────────────────────────────────────
 
--- ── 1. Reset existing plan + feature data ────────────────────────────────────
+-- ── 1. Create tables if they don't exist (mirrors migration 014) ─────────────
+
+CREATE TABLE IF NOT EXISTS pricing_plans (
+  id                uuid        DEFAULT gen_random_uuid() PRIMARY KEY,
+  name              text        NOT NULL,
+  code              text        NOT NULL UNIQUE,
+  tagline           text,
+  description       text,
+  price_monthly     numeric     DEFAULT 0,
+  price_yearly      numeric,
+  price_display     text,
+  currency          text        DEFAULT 'USD',
+  billing_period    text        DEFAULT 'month',
+  is_featured       boolean     DEFAULT false,
+  is_active         boolean     DEFAULT true,
+  is_public         boolean     DEFAULT true,
+  is_custom_client  boolean     DEFAULT false,
+  client_name       text,
+  client_user_ids   text[],
+  badge_text        text,
+  badge_color       text        DEFAULT 'green',
+  cta_text          text        DEFAULT 'Get Started',
+  cta_url           text        DEFAULT '/login',
+  highlight_color   text,
+  display_order     integer     DEFAULT 0,
+  max_users         integer,
+  notes             text,
+  created_at        timestamptz DEFAULT now(),
+  updated_at        timestamptz DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS pricing_features (
+  id            uuid    DEFAULT gen_random_uuid() PRIMARY KEY,
+  plan_id       uuid    REFERENCES pricing_plans(id) ON DELETE CASCADE,
+  category      text    DEFAULT 'General',
+  feature_text  text    NOT NULL,
+  tooltip       text,
+  is_included   boolean DEFAULT true,
+  display_order integer DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS pricing_modules (
+  id          uuid    DEFAULT gen_random_uuid() PRIMARY KEY,
+  plan_id     uuid    REFERENCES pricing_plans(id) ON DELETE CASCADE,
+  module_code text    NOT NULL,
+  is_included boolean DEFAULT true,
+  UNIQUE (plan_id, module_code)
+);
+
+ALTER TABLE pricing_plans    ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pricing_features ENABLE ROW LEVEL SECURITY;
+ALTER TABLE pricing_modules  ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Public read active plans"    ON pricing_plans;
+DROP POLICY IF EXISTS "Admin full access plans"     ON pricing_plans;
+DROP POLICY IF EXISTS "Public read features"        ON pricing_features;
+DROP POLICY IF EXISTS "Admin full access features"  ON pricing_features;
+DROP POLICY IF EXISTS "Admin full access modules"   ON pricing_modules;
+
+CREATE POLICY "Public read active plans"    ON pricing_plans    FOR SELECT USING (is_public = true AND is_active = true);
+CREATE POLICY "Admin full access plans"     ON pricing_plans    FOR ALL    USING (true);
+CREATE POLICY "Public read features"        ON pricing_features FOR SELECT USING (true);
+CREATE POLICY "Admin full access features"  ON pricing_features FOR ALL    USING (true);
+CREATE POLICY "Admin full access modules"   ON pricing_modules  FOR ALL    USING (true);
+
+-- ── 2. Reset existing plan + feature data ────────────────────────────────────
 DELETE FROM pricing_features;
 DELETE FROM pricing_modules;
 DELETE FROM pricing_plans;
