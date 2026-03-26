@@ -129,7 +129,7 @@ export default async function LandingPage() {
     { id:'3', label:'Training Hub', href:'/training', visible:true, display_order:3, can_toggle:true },
     { id:'4', label:'Articles',         href:'/articles', visible:true, display_order:4, can_toggle:true },
     { id:'5', label:'About',            href:'/about',    visible:true, display_order:5, can_toggle:true },
-    { id:'6', label:'Pricing',          href:'#pricing',  visible:true, display_order:6, can_toggle:true },
+    { id:'6', label:'Pricing',          href:'/pricing',  visible:true, display_order:6, can_toggle:true },
   ];
   const navPages = sitePages.length > 0 ? sitePages : fallbackPages;
 
@@ -474,37 +474,23 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* ── Pricing ────────────────────────────────────────────────────────── */}
+      {/* ── Pricing teaser ─────────────────────────────────────────────────── */}
       <section id="pricing" style={{ padding:'88px 40px', background:'#F5F7FA' }}>
-        <div style={{ maxWidth:1000, margin:'0 auto' }}>
-          <div style={{ textAlign:'center', marginBottom:52 }}>
-            <InlineEdit tag="div" section="pricing" fieldKey="badge" value={pricingBadge} isAdmin={isAdmin}
-              style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }} />
-            <InlineEdit tag="h2" section="pricing" fieldKey="heading" value={pricingH2} isAdmin={isAdmin}
-              style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1B3A6B', marginBottom:10 }} />
-            <InlineEdit tag="p" section="pricing" fieldKey="subheading" value={pricingSub} isAdmin={isAdmin}
-              style={{ fontSize:15, color:'#6B7280' }} />
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(260px,1fr))', gap:24 }}>
-            {PLANS.map((p)=>(
-              <div key={p.name} style={{ background:p.featured?'#1B4F8A':'#fff', border:p.featured?'none':'1px solid #E5E7EB', borderRadius:14, padding:'32px 28px', position:'relative', boxShadow:p.featured?'0 8px 40px rgba(27,79,138,0.25)':'0 2px 8px rgba(0,0,0,0.04)' }}>
-                {p.featured && <div style={{ position:'absolute', top:-12, left:'50%', transform:'translateX(-50%)', background:'#1A7A30', color:'#fff', fontSize:10, fontWeight:700, padding:'3px 14px', borderRadius:20, letterSpacing:'0.08em', whiteSpace:'nowrap' }}>MOST POPULAR</div>}
-                <h3 style={{ fontSize:13, fontWeight:700, color:p.featured?'rgba(255,255,255,0.7)':'#6B7280', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:14 }}>{p.name}</h3>
-                <div style={{ marginBottom:8 }}><span style={{ fontSize:15, fontWeight:700, color:p.featured?'rgba(255,255,255,0.55)':'#9CA3AF' }}>Price: Coming Soon</span></div>
-                <p style={{ fontSize:12, color:p.featured?'rgba(255,255,255,0.4)':'#9CA3AF', marginBottom:24 }}>Finalising pricing — currently free for all users.</p>
-                <ul style={{ listStyle:'none', padding:0, margin:'0 0 28px', display:'flex', flexDirection:'column', gap:10 }}>
-                  {p.features.map((f)=>(
-                    <li key={f} style={{ fontSize:13, color:p.featured?'rgba(255,255,255,0.8)':'#4B5563', display:'flex', alignItems:'center', gap:8 }}>
-                      <span style={{ color:p.featured?'#86EFAC':'#1A7A30', fontWeight:700, fontSize:10 }}>✓</span> {f}
-                    </li>
-                  ))}
-                </ul>
-                <Link href="/login" style={{ display:'block', textAlign:'center', textDecoration:'none', padding:'11px 0', borderRadius:7, fontWeight:700, fontSize:14, background:p.featured?'rgba(255,255,255,0.15)':'#1B4F8A', color:'#fff', border:p.featured?'1px solid rgba(255,255,255,0.3)':'none' }}>
-                  Join the Beta — Free →
-                </Link>
-              </div>
+        <div style={{ maxWidth:720, margin:'0 auto', textAlign:'center' }}>
+          <InlineEdit tag="div" section="pricing" fieldKey="badge" value={pricingBadge} isAdmin={isAdmin}
+            style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }} />
+          <InlineEdit tag="h2" section="pricing" fieldKey="heading" value={pricingH2} isAdmin={isAdmin}
+            style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1B3A6B', marginBottom:10 }} />
+          <InlineEdit tag="p" section="pricing" fieldKey="subheading" value={pricingSub} isAdmin={isAdmin}
+            style={{ fontSize:15, color:'#6B7280', marginBottom:36 }} />
+          <div style={{ display:'flex', justifyContent:'center', gap:12, flexWrap:'wrap', marginBottom:36 }}>
+            {['Free','Professional','Enterprise'].map(name=>(
+              <div key={name} style={{ padding:'12px 24px', background:'#fff', border:'1px solid #E5E7EB', borderRadius:10, fontSize:14, fontWeight:600, color:'#374151', boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>{name}</div>
             ))}
           </div>
+          <Link href="/pricing" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#1B4F8A', color:'#fff', fontWeight:700, fontSize:15, padding:'14px 36px', borderRadius:8, textDecoration:'none', boxShadow:'0 4px 20px rgba(27,79,138,0.25)' }}>
+            View Full Pricing →
+          </Link>
         </div>
       </section>
 
@@ -543,7 +529,7 @@ export default async function LandingPage() {
             </div>
             <div>
               <div style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.35)', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:14 }}>Company</div>
-              {[['About FMP','/about'],['Founder','/about/ahmad-din'],['Pricing','#pricing'],['Sign In','/login']].map(([label,href])=>(
+              {[['About FMP','/about'],['Founder','/about/ahmad-din'],['Pricing','/pricing'],['Sign In','/login']].map(([label,href])=>(
                 <Link key={href} href={href} style={{ display:'block', fontSize:13, color:'rgba(255,255,255,0.5)', textDecoration:'none', marginBottom:8 }}>{label}</Link>
               ))}
             </div>
@@ -560,8 +546,3 @@ export default async function LandingPage() {
   );
 }
 
-const PLANS = [
-  { name:'Free',         featured:false, features:['Up to 3 projects','Module 1 Project Setup','Basic PDF export','Community support'] },
-  { name:'Professional', featured:true,  features:['Up to 10 projects','All modeling modules','Excel + PDF export','AI Assist','Priority support'] },
-  { name:'Enterprise',   featured:false, features:['Unlimited projects','All modules','Formula Excel export','White-label branding','AI Research','Dedicated support'] },
-];

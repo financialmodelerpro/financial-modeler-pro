@@ -21,6 +21,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Modules',         href: '/admin/modules',          icon: '🧩' },
   { label: 'Users',           href: '/admin/users',            icon: '👥' },
   { label: 'Plan Config',     href: '/admin/plans',            icon: '📋' },
+  { label: 'Pricing',         href: '/admin/pricing',          icon: '💰' },
   { label: 'User Overrides',  href: '/admin/overrides',        icon: '🎯' },
   { label: 'Permissions',     href: '/admin/permissions',      icon: '🔐' },
   { label: 'White-Label',     href: '/admin/whitelabel',       icon: '🏷️' },

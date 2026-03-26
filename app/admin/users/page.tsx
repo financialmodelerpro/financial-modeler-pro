@@ -67,14 +67,17 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+interface PlanOption { code: string; name: string; is_custom_client: boolean; }
+
 export default function AdminUsersPage() {
   const { loading: authLoading } = useRequireAdmin();
   const { data: session } = useSession();
-  const [users, setUsers]           = useState<User[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [search, setSearch]         = useState('');
-  const [planFilter, setPlanFilter] = useState('all');
-  const [roleFilter, setRoleFilter] = useState('all');
+  const [users, setUsers]                   = useState<User[]>([]);
+  const [loading, setLoading]               = useState(true);
+  const [availablePlans, setAvailablePlans] = useState<PlanOption[]>([]);
+  const [search, setSearch]                 = useState('');
+  const [planFilter, setPlanFilter]         = useState('all');
+  const [roleFilter, setRoleFilter]         = useState('all');
   const [page, setPage]             = useState(0);
   const [total, setTotal]           = useState(0);
   const [updating, setUpdating]     = useState<string | null>(null);
@@ -85,6 +88,17 @@ export default function AdminUsersPage() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 2500);
   };
+
+  useEffect(() => {
+    fetch('/api/admin/pricing/plans?all=true')
+      .then(r => r.json())
+      .then(j => setAvailablePlans((j.plans ?? []).map((p: { code: string; name: string; is_custom_client: boolean }) => ({ code: p.code, name: p.name, is_custom_client: p.is_custom_client }))))
+      .catch(() => setAvailablePlans([
+        { code: 'free', name: 'Free', is_custom_client: false },
+        { code: 'professional', name: 'Professional', is_custom_client: false },
+        { code: 'enterprise', name: 'Enterprise', is_custom_client: false },
+      ]));
+  }, []);
 
   const fetchUsers = useCallback(() => {
     setLoading(true);
@@ -160,9 +174,7 @@ export default function AdminUsersPage() {
           <select value={planFilter} onChange={e => { setPlanFilter(e.target.value); setPage(0); }}
             style={{ padding: '8px 14px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, background: '#fff', cursor: 'pointer' }}>
             <option value="all">All Plans</option>
-            <option value="free">Free</option>
-            <option value="professional">Professional</option>
-            <option value="enterprise">Enterprise</option>
+            {availablePlans.map(p => <option key={p.code} value={p.code}>{p.name}{p.is_custom_client ? ' (Client)' : ''}</option>)}
           </select>
           <select value={roleFilter} onChange={e => { setRoleFilter(e.target.value); setPage(0); }}
             style={{ padding: '8px 14px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, background: '#fff', cursor: 'pointer' }}>
@@ -225,9 +237,10 @@ export default function AdminUsersPage() {
                           onChange={e => patchUser(u.id, { plan: e.target.value })}
                           style={selectStyle}
                         >
-                          <option value="free">free</option>
-                          <option value="professional">professional</option>
-                          <option value="enterprise">enterprise</option>
+                          {availablePlans.length > 0
+                            ? availablePlans.map(p => <option key={p.code} value={p.code}>{p.name}{p.is_custom_client ? ' ●' : ''}</option>)
+                            : ['free','professional','enterprise'].map(c => <option key={c} value={c}>{c}</option>)
+                          }
                         </select>
                         <PlanBadge plan={u.subscription_plan ?? 'free'} />
                         {savingField === 'plan' && <span style={{ fontSize: 11, color: '#6B7280' }}>Saving…</span>}
