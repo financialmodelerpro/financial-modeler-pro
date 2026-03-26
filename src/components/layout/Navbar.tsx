@@ -18,7 +18,7 @@ const DEFAULT_PAGES: NavPage[] = [
   { id: '3', label: 'Training Hub',  href: '/training' },
   { id: '4', label: 'Articles',      href: '/articles' },
   { id: '5', label: 'About',         href: '/about' },
-  { id: '6', label: 'Pricing',       href: '/#pricing' },
+  { id: '6', label: 'Pricing',       href: '/pricing' },
   { id: '7', label: 'Contact',       href: '/contact' },
 ];
 
