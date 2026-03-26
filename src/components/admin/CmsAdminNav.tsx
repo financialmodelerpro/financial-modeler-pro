@@ -20,7 +20,6 @@ const NAV_ITEMS: NavItem[] = [
   { type: 'divider',          label: 'Modeling Hub' },
   { label: 'Modules',         href: '/admin/modules',          icon: '🧩' },
   { label: 'Users',           href: '/admin/users',            icon: '👥' },
-  { label: 'Plan Config',     href: '/admin/plans',            icon: '📋' },
   { label: 'Pricing',         href: '/admin/pricing',          icon: '💰' },
   { label: 'User Overrides',  href: '/admin/overrides',        icon: '🎯' },
   { label: 'Permissions',     href: '/admin/permissions',      icon: '🔐' },
