@@ -502,8 +502,9 @@ export default function TrainingDashboardPage() {
     }
     setLocalSession(sess);
     loadData(sess);
-    // Load live session links from Apps Script (non-blocking)
-    fetch('/api/training/course-details')
+    // Load live session links from Apps Script — always bust cache so students
+    // see current form URLs (e.g. final exam URL added after initial deploy)
+    fetch('/api/training/course-details?bust=1')
       .then(r => r.json())
       .then((d: { sessions?: LiveSessionLink[] }) => {
         const map: LiveLinksMap = {};
