@@ -444,7 +444,7 @@ export default function TrainingDashboardPage() {
 
   const [localSession, setLocalSession] = useState<{ email: string; registrationId: string } | null>(null);
   const [loading, setLoading]           = useState(true);
-  const [error, setError]               = useState('');
+  const [isFallback, setIsFallback]     = useState(false);
   const [progress, setProgress]         = useState<ProgressData | null>(null);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [activeTab, setActiveTab]       = useState('3sfm');
@@ -452,28 +452,43 @@ export default function TrainingDashboardPage() {
 
   const loadData = useCallback(async (sess: { email: string; registrationId: string }) => {
     setLoading(true);
-    setError('');
+    setIsFallback(false);
     try {
       const params = new URLSearchParams({ email: sess.email, registrationId: sess.registrationId });
       const res  = await fetch(`/api/training/progress?${params}`);
-      const json = await res.json() as { success: boolean; data?: ProgressData; error?: string };
-      if (!json.success || !json.data) {
-        setError(json.error ?? 'Failed to load your progress. Please try again.');
-        setLoading(false);
-        return;
-      }
-      setProgress(json.data);
+      const json = await res.json() as { success: boolean; fallback?: boolean; data?: ProgressData };
 
-      // If certificate may be issued, fetch certificate data
-      if (json.data.certificateIssued) {
-        const certRes  = await fetch(`/api/training/certificate?email=${encodeURIComponent(sess.email)}`);
-        const certJson = await certRes.json() as { success: boolean; data?: Certificate[] };
-        if (certJson.success && certJson.data) {
-          setCertificates(certJson.data);
+      if (json.success && json.data) {
+        setProgress(json.data);
+        if (json.fallback) setIsFallback(true);
+
+        // Fetch certificates if earned
+        if (json.data.certificateIssued) {
+          const certRes  = await fetch(`/api/training/certificate?email=${encodeURIComponent(sess.email)}`);
+          const certJson = await certRes.json() as { success: boolean; data?: Certificate[] };
+          if (certJson.success && certJson.data) {
+            setCertificates(certJson.data);
+          }
         }
+      } else {
+        // API returned non-success (e.g. 401) — show empty state, do not error
+        setProgress({
+          student: { name: sess.registrationId, email: sess.email, registrationId: sess.registrationId, course: '3sfm', registeredAt: '' },
+          sessions: [],
+          finalPassed: false,
+          certificateIssued: false,
+        });
+        setIsFallback(true);
       }
     } catch {
-      setError('Network error. Please check your connection and try again.');
+      // Network/parse error — show empty state gracefully
+      setProgress({
+        student: { name: sess.registrationId, email: sess.email, registrationId: sess.registrationId, course: '3sfm', registeredAt: '' },
+        sessions: [],
+        finalPassed: false,
+        certificateIssued: false,
+      });
+      setIsFallback(true);
     } finally {
       setLoading(false);
     }
@@ -577,24 +592,26 @@ export default function TrainingDashboardPage() {
           </div>
         )}
 
-        {/* ── Error State ──────────────────────────────────────────────── */}
-        {!loading && error && (
+        {/* ── Fallback Banner (subtle — never a hard error screen) ────────── */}
+        {!loading && isFallback && progress && (
           <div style={{
-            background: '#FEF2F2', border: '1px solid #FECACA',
-            borderRadius: 12, padding: '32px', textAlign: 'center',
+            background: '#FFFBEB', border: '1px solid #FDE68A',
+            borderRadius: 8, padding: '10px 16px', marginBottom: 16,
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            flexWrap: 'wrap', gap: 8,
           }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#DC2626', marginBottom: 8 }}>
-              ⚠️ {error}
-            </div>
+            <span style={{ fontSize: 12.5, color: '#92400E' }}>
+              ⚡ Could not load latest progress — showing your course structure. Your data will appear after the next sync.
+            </span>
             <button
               onClick={() => localSession && loadData(localSession)}
               style={{
-                marginTop: 12, padding: '10px 24px', fontSize: 13, fontWeight: 700,
-                background: '#2EAA4A', color: '#fff', border: 'none',
-                borderRadius: 7, cursor: 'pointer',
+                fontSize: 11, fontWeight: 700, padding: '4px 12px',
+                background: '#F59E0B', color: '#fff', border: 'none',
+                borderRadius: 5, cursor: 'pointer',
               }}
             >
-              Try Again
+              Retry
             </button>
           </div>
         )}

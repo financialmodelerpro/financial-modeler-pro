@@ -131,7 +131,29 @@ export async function getStudentProgress(
   email: string,
   regId: string,
 ): Promise<ScriptResponse<StudentProgress>> {
-  return callScript<StudentProgress>({ action: 'getProgress', email, regId });
+  const raw = await callScript<StudentProgress>({ action: 'getProgress', email, regId });
+
+  if (!raw.success) return raw;
+
+  // If data is properly nested under the `data` key, return as-is
+  if (raw.data && typeof raw.data === 'object' && 'student' in raw.data) return raw;
+
+  // Apps Script may return progress fields at root level (not nested under `data`)
+  // Same pattern as getCourseDetails — handle both response shapes
+  const root = raw as unknown as Record<string, unknown>;
+  if (root.student && typeof root.student === 'object') {
+    return {
+      success: true,
+      data: {
+        student: root.student as SheetStudent,
+        sessions: Array.isArray(root.sessions) ? (root.sessions as SessionProgress[]) : [],
+        finalPassed: Boolean(root.finalPassed),
+        certificateIssued: Boolean(root.certificateIssued),
+      },
+    };
+  }
+
+  return raw;
 }
 
 /** Trigger a re-send of the registration ID email. */
