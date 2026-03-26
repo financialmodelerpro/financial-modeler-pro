@@ -1,7 +1,7 @@
 -- ─────────────────────────────────────────────────────────────────────────────
 -- 018_pricing_sample_plans.sql
--- Replace seed plans with complete sample plans + features
--- All future changes should be made via /admin/pricing
+-- Initial plan setup: Free, Professional, Enterprise
+-- Manage all plans, features, and pricing from /admin/pricing
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- ── 1. Reset existing plan + feature data ────────────────────────────────────
