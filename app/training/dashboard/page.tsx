@@ -617,7 +617,7 @@ export default function TrainingDashboardPage() {
         )}
 
         {/* ── Dashboard Content ─────────────────────────────────────────── */}
-        {!loading && !error && progress && (
+        {!loading && progress && (
           <>
             {/* ── Header Card ──────────────────────────────────────────── */}
             <div style={{
