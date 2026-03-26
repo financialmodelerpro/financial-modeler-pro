@@ -165,6 +165,46 @@ export async function registerStudent(
   return callScriptPost<SheetStudent>({ action: 'register', name, email, course });
 }
 
+// ── Course Details (Form Registry) ───────────────────────────────────────────
+
+export interface CourseSession {
+  tabKey: string;
+  course: string;
+  num: number;
+  sessionName: string;
+  isFinal: boolean;
+  formId: string;
+  formUrl: string;
+  youtubeUrl: string;
+  hasForm: boolean;
+  hasVideo: boolean;
+}
+
+/** Fetch session details (form URLs + YouTube URLs) from the Apps Script Form Registry. */
+export async function getCourseDetails(course?: string): Promise<CourseSession[]> {
+  const params: Record<string, string> = { action: 'getCourseDetails' };
+  if (course) params.course = course;
+  try {
+    // Apps Script returns { success: true, sessions: [...] } at root level
+    const raw = await callScript<unknown>(params);
+    const res = raw as unknown as { success: boolean; sessions?: CourseSession[] };
+    if (!res.success) return [];
+    return Array.isArray(res.sessions) ? res.sessions : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Save a YouTube URL to the Apps Script Form Registry for a given tab key. */
+export async function updateCourseLink(tabKey: string, youtubeUrl: string): Promise<boolean> {
+  try {
+    const raw = await callScriptPost<unknown>({ action: 'updateCourseLink', tabKey, youtubeUrl });
+    return raw.success === true;
+  } catch {
+    return false;
+  }
+}
+
 // ── Admin bulk APIs (require Apps Script to implement these actions) ───────────
 
 export interface StudentSummary {

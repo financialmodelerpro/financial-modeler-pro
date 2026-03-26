@@ -5,6 +5,10 @@ import { useRouter } from 'next/navigation';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training-session';
 import { COURSES } from '@/src/config/courses';
 
+interface LiveSessionLink { tabKey: string; youtubeUrl: string; formUrl: string; }
+// Keyed by tabKey e.g. "3SFM_S1"
+type LiveLinksMap = Record<string, LiveSessionLink>;
+
 // ── Local types (mirrors server-side sheets.ts interfaces) ────────────────────
 
 interface SessionProgress {
@@ -131,11 +135,13 @@ function CourseTable({
   progressMap,
   registrationId,
   certificates,
+  liveLinks,
 }: {
   courseId: string;
   progressMap: Map<string, SessionProgress>;
   registrationId: string;
   certificates: Certificate[];
+  liveLinks: LiveLinksMap;
 }) {
   const course = COURSES[courseId];
   if (!course) return null;
@@ -174,6 +180,10 @@ function CourseTable({
             {course.sessions.map((session, idx) => {
               const prog = progressMap.get(session.id);
               const isFinalRow = session.isFinal;
+              // Prefer live URLs from Apps Script over static courses.ts values
+              const tk       = `${course.shortTitle.toUpperCase()}_${session.id}`;
+              const ytUrl    = liveLinks[tk]?.youtubeUrl  || session.youtubeUrl    || '';
+              const formUrl  = liveLinks[tk]?.formUrl     || session.quizFormUrl   || '';
 
               // Locking logic
               let locked = false;
@@ -232,9 +242,9 @@ function CourseTable({
 
                   {/* Watch button */}
                   <td style={{ padding: '13px 14px' }}>
-                    {session.youtubeUrl ? (
+                    {ytUrl ? (
                       <a
-                        href={session.youtubeUrl}
+                        href={ytUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         title="Watch on YouTube"
@@ -291,7 +301,7 @@ function CourseTable({
                       }}>
                         No Attempts Left
                       </span>
-                    ) : !session.quizFormUrl ? (
+                    ) : !formUrl ? (
                       <span
                         title="Assessment coming soon"
                         style={{
@@ -305,7 +315,7 @@ function CourseTable({
                       </span>
                     ) : (
                       <a
-                        href={session.quizFormUrl}
+                        href={formUrl}
                         target="_blank"
                         rel="noopener noreferrer"
                         style={{
@@ -438,6 +448,7 @@ export default function TrainingDashboardPage() {
   const [progress, setProgress]         = useState<ProgressData | null>(null);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [activeTab, setActiveTab]       = useState('3sfm');
+  const [liveLinks, setLiveLinks]       = useState<LiveLinksMap>({});
 
   const loadData = useCallback(async (sess: { email: string; registrationId: string }) => {
     setLoading(true);
@@ -475,6 +486,15 @@ export default function TrainingDashboardPage() {
     }
     setLocalSession(sess);
     loadData(sess);
+    // Load live session links from Apps Script (non-blocking)
+    fetch('/api/training/course-details')
+      .then(r => r.json())
+      .then((d: { sessions?: LiveSessionLink[] }) => {
+        const map: LiveLinksMap = {};
+        for (const s of d.sessions ?? []) map[s.tabKey] = s;
+        setLiveLinks(map);
+      })
+      .catch(() => {});
   }, [router, loadData]);
 
   async function handleLogout() {
@@ -667,6 +687,7 @@ export default function TrainingDashboardPage() {
                   progressMap={progressMap}
                   registrationId={progress.student.registrationId}
                   certificates={certificates}
+                  liveLinks={liveLinks}
                 />
               </div>
             ) : (
@@ -678,6 +699,7 @@ export default function TrainingDashboardPage() {
                     progressMap={progressMap}
                     registrationId={progress.student.registrationId}
                     certificates={certificates}
+                    liveLinks={liveLinks}
                   />
                 )}
               </div>
