@@ -147,7 +147,7 @@ export default async function TrainingPage() {
               badgeBg="#EEF2FF"
               badgeColor="#4F46E5"
               badgeBorder="#C7D2FE"
-              sessionLabel={`${sfm.sessions.length} Sessions`}
+              sessionLabel={`${sfm.sessions.filter(s => !s.isFinal).length} Sessions`}
             />
             <CurriculumCard
               course={bvm}
@@ -155,7 +155,7 @@ export default async function TrainingPage() {
               badgeBg="#F0FFF4"
               badgeColor="#15803D"
               badgeBorder="#BBF7D0"
-              sessionLabel={`${bvm.sessions.length} Lessons`}
+              sessionLabel={`${bvm.sessions.filter(s => !s.isFinal).length} Lessons`}
             />
           </div>
         </div>

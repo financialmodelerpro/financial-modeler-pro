@@ -5,11 +5,11 @@ import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import Link from 'next/link';
 
 interface Course { id: string; title: string; description: string; category: string; status: string; display_order: number; thumbnail_url: string | null; _lesson_count?: number }
-interface Stats  { courses: number; lessons: number; enrollments: number; certificates: number }
+interface Stats  { courses: number; lessons: number; enrollments: number | null; certificates: number | null }
 
 export default function AdminTrainingPage() {
   const [courses, setCourses] = useState<Course[]>([]);
-  const [stats, setStats] = useState<Stats>({ courses: 0, lessons: 0, enrollments: 0, certificates: 0 });
+  const [stats, setStats] = useState<Stats>({ courses: 0, lessons: 0, enrollments: null, certificates: null });
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editCourse, setEditCourse] = useState<Course | null>(null);
@@ -31,7 +31,28 @@ export default function AdminTrainingPage() {
       .catch(() => setLoading(false));
   };
 
-  useEffect(() => { fetchCourses(); }, []);
+  const fetchAppsScriptStats = () => {
+    // Enrollments: count students via Apps Script proxy
+    fetch('/api/training?action=listStudents')
+      .then(r => r.json())
+      .then(j => {
+        const count = Array.isArray(j.students) ? j.students.length : (j.total ?? null);
+        setStats(p => ({ ...p, enrollments: count }));
+      })
+      .catch(() => setStats(p => ({ ...p, enrollments: null })));
+
+    // Certificates: count from listCourses cert totals
+    fetch('/api/training?action=listCourses')
+      .then(r => r.json())
+      .then(j => {
+        const courses = Array.isArray(j.courses) ? j.courses : [];
+        const total = courses.reduce((s: number, c: any) => s + (c.certificatesIssued ?? c.certificates_issued ?? 0), 0);
+        setStats(p => ({ ...p, certificates: total }));
+      })
+      .catch(() => setStats(p => ({ ...p, certificates: null })));
+  };
+
+  useEffect(() => { fetchCourses(); fetchAppsScriptStats(); }, []);
 
   function openNew() {
     setEditCourse(null);
@@ -98,7 +119,7 @@ export default function AdminTrainingPage() {
                 <div style={{ width: 30, height: 30, borderRadius: 8, background: k.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{k.icon}</div>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#6B7280' }}>{k.label}</span>
               </div>
-              <div style={{ fontSize: 28, fontWeight: 800, color: k.color }}>{k.value}</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: k.color }}>{k.value ?? '—'}</div>
             </div>
           ))}
         </div>

@@ -26,35 +26,36 @@ export interface CourseConfig {
 // ── 3SFM — 3-Statement Financial Modeling ────────────────────────────────────
 
 const SFM_SESSIONS: Session[] = [
-  { id: 'S1',  title: 'Session 1 — Introduction to Financial Modeling',           youtubeUrl: 'https://youtu.be/JiitBxI1DD0', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S2',  title: 'Session 2 — Excel Best Practices',                         youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S3',  title: 'Session 3 — Income Statement Fundamentals',                youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S4',  title: 'Session 4 — Balance Sheet Fundamentals',                   youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S5',  title: 'Session 5 — Cash Flow Statement',                          youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S6',  title: 'Session 6 — Linking the Three Statements',                 youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S7',  title: 'Session 7 — Revenue Modeling',                             youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S8',  title: 'Session 8 — Cost Structure & COGS',                        youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S9',  title: 'Session 9 — Operating Expenses & EBITDA',                  youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S10', title: 'Session 10 — Debt Schedules & Interest',                   youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S11', title: 'Session 11 — Working Capital Modeling',                    youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S12', title: 'Session 12 — Capital Expenditure & Depreciation',          youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S13', title: 'Session 13 — Equity Schedule & Retained Earnings',         youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S14', title: 'Session 14 — Scenario & Sensitivity Analysis',             youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S15', title: 'Session 15 — Valuation Basics & DCF',                      youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S16', title: 'Session 16 — Model Audit & Error Checking',                youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S17', title: 'Session 17 — Presentation & Storytelling with Models',     youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'S18', title: 'Session 18 — Conclusion & Final Exam',                     youtubeUrl: '', quizFormUrl: '', questionCount: 50, passingScore: 70, maxAttempts: 1, isFinal: true  },
+  { id: 'S1',  title: 'Session 1: Introduction & Framework Overview',             youtubeUrl: 'https://youtu.be/JiitBxI1DD0', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S2',  title: 'Session 2: Project Overview & Timeline',                   youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S3',  title: 'Session 3: Capex & Funding Requirement',                   youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S4',  title: 'Session 4: Plant Capacity & Production Plan',              youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S5',  title: 'Session 5: Revenue & Inventory Modeling',                  youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S6',  title: 'Session 6: COGS & Raw Material Cost Modeling',             youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S7',  title: 'Session 7: Other Direct Costs',                            youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S8',  title: 'Session 8: General & Admin Expenses',                      youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S9',  title: 'Session 9: Salaries & Payroll Modeling',                   youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S10', title: 'Session 10: Product Wise Cost Allocation',                 youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S11', title: 'Session 11: Staff Overtime Calculation',                   youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S12', title: 'Session 12: PPE Linkage & Working Capital',                youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S13', title: 'Session 13: Zakat & Tax Modeling',                         youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S14', title: 'Session 14: Debt Schedule & Finance Cost',                 youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S15', title: 'Session 15: Pre-Operating Costs Amortization',             youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S16', title: 'Session 16: Equity & Balancing the Balance Sheet',         youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S17', title: 'Session 17: Cash Flow Statement & Valuation',              youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'S18', title: 'Session 18: 3SFM Final Certification Exam',                youtubeUrl: '', quizFormUrl: '', questionCount: 50, passingScore: 70, maxAttempts: 1, isFinal: true  },
 ];
 
 // ── BVM — Business Valuation Modeling ────────────────────────────────────────
 
 const BVM_SESSIONS: Session[] = [
-  { id: 'L1', title: 'Lesson 1 — Introduction to Business Valuation',             youtubeUrl: 'https://youtu.be/lRdrLAHqPto', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'L2', title: 'Lesson 2 — Comparable Company Analysis',                    youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'L3', title: 'Lesson 3 — Precedent Transaction Analysis',                 youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'L4', title: 'Lesson 4 — DCF Valuation in Practice',                      youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'L5', title: 'Lesson 5 — LBO & Leveraged Buyout Modeling',                youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'L6', title: 'Lesson 6 — Conclusion & Final Exam',                        youtubeUrl: '', quizFormUrl: '', questionCount: 30, passingScore: 70, maxAttempts: 1, isFinal: true  },
+  { id: 'L1', title: 'Lesson 1: DCF Valuation Overview & Framework',              youtubeUrl: 'https://youtu.be/lRdrLAHqPto', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'L2', title: 'Lesson 2: DCF Valuation Model in Excel — FCFF and FCFE',   youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'L3', title: 'Lesson 3: Rolling WACC Explained — FCFF vs FCFE Reconciliation', youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'L4', title: 'Lesson 4: Comps Valuation Overview & Framework',            youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'L5', title: 'Lesson 5: Comps Valuation Model in Excel — Comps Multiples', youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'L6', title: 'Lesson 6: Final Business Valuation — Football Field Chart', youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'L7', title: 'Lesson 7: BVM Final Certification Exam',                    youtubeUrl: '', quizFormUrl: '', questionCount: 30, passingScore: 70, maxAttempts: 1, isFinal: true  },
 ];
 
 // ── Exported config ───────────────────────────────────────────────────────────
