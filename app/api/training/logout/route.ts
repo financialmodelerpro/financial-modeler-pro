@@ -1,11 +1,10 @@
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
 
 export async function POST() {
   try {
-    const cookieStore = await cookies();
-    cookieStore.delete('training_session');
-    return NextResponse.json({ success: true });
+    const response = NextResponse.json({ success: true });
+    response.cookies.delete('training_session');
+    return response;
   } catch {
     return NextResponse.json(
       { success: false, error: 'An unexpected error occurred.' },

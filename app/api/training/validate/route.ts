@@ -47,16 +47,16 @@ export async function POST(req: NextRequest) {
       // If block check fails, allow login (fail open — don't lock out students due to DB issues)
     }
 
-    // Set an httpOnly cookie so the dashboard can read session server-side
-    const cookieStore = await cookies();
-    cookieStore.set('training_session', JSON.stringify({ email: email.trim().toLowerCase(), registrationId: registrationId.trim() }), {
+    // Set an httpOnly cookie so the server-side progress API can read the session
+    const response = NextResponse.json({ success: true, data: result.data });
+    response.cookies.set('training_session', JSON.stringify({ email: email.trim().toLowerCase(), registrationId: registrationId.trim() }), {
       httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       path: '/',
       maxAge: 60 * 60 * 24, // 24 hours
     });
-
-    return NextResponse.json({ success: true, data: result.data });
+    return response;
   } catch {
     return NextResponse.json(
       { success: false, error: 'An unexpected error occurred.' },
