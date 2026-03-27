@@ -31,59 +31,161 @@ interface NavbarProps {
 
 export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial Modeler Pro' }: NavbarProps) {
   const pages = navPages ?? DEFAULT_PAGES;
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
 
+  const [dropdownOpen, setDropdownOpen]   = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setDropdownOpen(false);
     }
     document.addEventListener('mousedown', handleClick);
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  return (
-    <nav style={{
-      position: 'fixed', top: topOffset, left: 0, right: 0, zIndex: 100,
-      display: 'flex', alignItems: 'center', padding: '0 40px', height: 64,
-      background: 'rgba(13,46,90,0.97)', borderBottom: '1px solid rgba(255,255,255,0.08)',
-      backdropFilter: 'blur(12px)', boxShadow: '0 2px 20px rgba(0,0,0,0.4)',
-    }}>
-      <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-        {logoUrl ? (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img src={logoUrl} alt={logoAlt} style={{ height: 36, width: 'auto', objectFit: 'contain' }} />
-        ) : (
-          <>
-            <span style={{ fontSize: 24 }}>📐</span>
-            <div>
-              <div style={{ fontWeight: 800, fontSize: 14, color: '#fff', letterSpacing: '0.01em', lineHeight: 1 }}>
-                Financial Modeler Pro
-              </div>
-              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 2 }}>
-                Structured Modeling. Real-World Finance.
-              </div>
-            </div>
-          </>
-        )}
-      </Link>
-      <div style={{ flex: 1 }} />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-        {pages.map(({ id, label, href }) => (
-          <Link
-            key={id}
-            href={href}
-            style={{ padding: '6px 12px', borderRadius: 6, fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.75)', textDecoration: 'none' }}
-          >
-            {label}
-          </Link>
-        ))}
-        <div style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
+  // Lock body scroll when mobile menu open
+  useEffect(() => {
+    document.body.style.overflow = mobileMenuOpen ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [mobileMenuOpen]);
 
-        {/* Login / Sign Up dropdown */}
-        <div ref={ref} style={{ position: 'relative' }}>
+  const logo = (
+    <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
+      {logoUrl ? (
+        /* eslint-disable-next-line @next/next/no-img-element */
+        <img src={logoUrl} alt={logoAlt} style={{ height: 36, width: 'auto', objectFit: 'contain' }} />
+      ) : (
+        <>
+          <span style={{ fontSize: 24, flexShrink: 0 }}>📐</span>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 14, color: '#fff', letterSpacing: '0.01em', lineHeight: 1 }}>
+              Financial Modeler Pro
+            </div>
+            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 2 }}>
+              Structured Modeling. Real-World Finance.
+            </div>
+          </div>
+        </>
+      )}
+    </Link>
+  );
+
+  return (
+    <>
+      {/* ── Mobile full-screen menu overlay ── */}
+      {mobileMenuOpen && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 500,
+          background: '#0D2E5A',
+          display: 'flex', flexDirection: 'column',
+          padding: '0 0 32px',
+          overflowY: 'auto',
+        }}>
+          {/* Mobile menu header */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', height: 64, borderBottom: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }}>
+            <Link href="/" onClick={() => setMobileMenuOpen(false)} style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
+              <span style={{ fontSize: 20 }}>📐</span>
+              <span style={{ fontWeight: 800, fontSize: 14, color: '#fff' }}>Financial Modeler Pro</span>
+            </Link>
+            <button
+              onClick={() => setMobileMenuOpen(false)}
+              style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            >
+              ✕
+            </button>
+          </div>
+
+          {/* Nav links */}
+          <nav style={{ padding: '16px 20px', flex: 1 }}>
+            {pages.map(({ id, label, href }) => (
+              <Link
+                key={id}
+                href={href}
+                onClick={() => setMobileMenuOpen(false)}
+                style={{ display: 'block', padding: '14px 0', fontSize: 18, fontWeight: 600, color: 'rgba(255,255,255,0.85)', textDecoration: 'none', borderBottom: '1px solid rgba(255,255,255,0.08)' }}
+              >
+                {label}
+              </Link>
+            ))}
+          </nav>
+
+          {/* Login / Sign Up section */}
+          <div style={{ padding: '20px 20px 0', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
+              Sign In / Register
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+              <Link href="/login" onClick={() => setMobileMenuOpen(false)}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '14px 12px', borderRadius: 10, background: '#1B4F8A', color: '#fff', textDecoration: 'none', textAlign: 'center' }}>
+                <span style={{ fontSize: 20 }}>📐</span>
+                <span style={{ fontSize: 12, fontWeight: 700 }}>Modeling Hub</span>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Sign In</span>
+              </Link>
+              <Link href="/training/login" onClick={() => setMobileMenuOpen(false)}
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '14px 12px', borderRadius: 10, background: '#1A7A30', color: '#fff', textDecoration: 'none', textAlign: 'center' }}>
+                <span style={{ fontSize: 20 }}>🎓</span>
+                <span style={{ fontSize: 12, fontWeight: 700 }}>Training Hub</span>
+                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Sign In</span>
+              </Link>
+            </div>
+            <Link href="/training/register" onClick={() => setMobileMenuOpen(false)}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '13px', borderRadius: 10, background: '#2EAA4A', color: '#fff', textDecoration: 'none', fontSize: 14, fontWeight: 700 }}>
+              Register Free →
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* ── Desktop / Mobile nav bar ── */}
+      <style>{`
+        .nav-desktop-links { display: flex; }
+        .nav-divider        { display: block; }
+        .nav-login-btn      { display: inline-flex; }
+        .nav-hamburger      { display: none !important; }
+        @media (max-width: 767px) {
+          .nav-desktop-links { display: none !important; }
+          .nav-divider        { display: none !important; }
+          .nav-login-btn      { display: none !important; }
+          .nav-hamburger      { display: flex !important; }
+          nav[data-fmp-nav]   { padding: 0 16px !important; }
+        }
+      `}</style>
+
+      <nav
+        data-fmp-nav
+        style={{
+          position: 'fixed', top: topOffset, left: 0, right: 0, zIndex: 100,
+          display: 'flex', alignItems: 'center', padding: '0 40px', height: 64,
+          background: 'rgba(13,46,90,0.97)', borderBottom: '1px solid rgba(255,255,255,0.08)',
+          backdropFilter: 'blur(12px)', boxShadow: '0 2px 20px rgba(0,0,0,0.4)',
+        }}
+      >
+        {logo}
+
+        <div style={{ flex: 1 }} />
+
+        {/* Desktop nav links */}
+        <div className="nav-desktop-links" style={{ alignItems: 'center', gap: 2 }}>
+          {pages.map(({ id, label, href }) => (
+            <Link
+              key={id}
+              href={href}
+              style={{ padding: '6px 12px', borderRadius: 6, fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.75)', textDecoration: 'none' }}
+            >
+              {label}
+            </Link>
+          ))}
+        </div>
+
+        {/* Desktop divider */}
+        <div className="nav-divider" style={{ width: 1, height: 20, background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
+
+        {/* Desktop Login / Sign Up dropdown */}
+        <div ref={dropdownRef} className="nav-login-btn" style={{ position: 'relative' }}>
           <button
-            onClick={() => setOpen(v => !v)}
+            onClick={() => setDropdownOpen(v => !v)}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               padding: '7px 16px', borderRadius: 7, fontSize: 13, fontWeight: 700,
@@ -91,27 +193,26 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
             }}
           >
             Login / Sign Up
-            <span style={{ fontSize: 10, opacity: 0.7 }}>{open ? '▲' : '▼'}</span>
+            <span style={{ fontSize: 10, opacity: 0.7 }}>{dropdownOpen ? '▲' : '▼'}</span>
           </button>
 
-          {open && (
+          {dropdownOpen && (
             <div style={{
               position: 'absolute', top: 'calc(100% + 8px)', right: 0,
               background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB',
               boxShadow: '0 8px 32px rgba(0,0,0,0.18)', minWidth: 220, zIndex: 200, overflow: 'hidden',
             }}>
-
-              {/* ── Modeling Hub ── */}
+              {/* Modeling Hub */}
               <div style={{ padding: '10px 16px 6px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #F3F4F6' }}>
                 <span style={{ fontSize: 15 }}>📐</span>
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#1B3A6B', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Modeling Hub</span>
               </div>
-              <Link href="/login" onClick={() => setOpen(false)}
+              <Link href="/login" onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 9px 24px', textDecoration: 'none', color: '#374151', fontSize: 13, borderBottom: '1px solid #F9FAFB' }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>🔑</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Sign In</span>
               </Link>
-              <Link href="/login" onClick={() => setOpen(false)}
+              <Link href="/login" onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 12px 24px', textDecoration: 'none', color: '#374151', fontSize: 13 }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>✏️</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Create Account</span>
@@ -119,26 +220,40 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
 
               <div style={{ height: 1, background: '#E5E7EB' }} />
 
-              {/* ── Training Hub ── */}
+              {/* Training Hub */}
               <div style={{ padding: '10px 16px 6px', display: 'flex', alignItems: 'center', gap: 8, borderBottom: '1px solid #F3F4F6' }}>
                 <span style={{ fontSize: 15 }}>🎓</span>
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#1B3A6B', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Training Hub</span>
               </div>
-              <Link href="/training/login" onClick={() => setOpen(false)}
+              <Link href="/training/login" onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 9px 24px', textDecoration: 'none', color: '#374151', fontSize: 13, borderBottom: '1px solid #F9FAFB' }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>🔑</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Sign In</span>
               </Link>
-              <Link href="/training/register" onClick={() => setOpen(false)}
+              <Link href="/training/register" onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 14px 24px', textDecoration: 'none', color: '#374151', fontSize: 13 }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>✏️</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Create Account</span>
               </Link>
-
             </div>
           )}
         </div>
-      </div>
-    </nav>
+
+        {/* Mobile hamburger */}
+        <button
+          className="nav-hamburger"
+          onClick={() => setMobileMenuOpen(true)}
+          style={{
+            width: 40, height: 40, borderRadius: 8,
+            background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)',
+            color: '#fff', fontSize: 20, cursor: 'pointer',
+            alignItems: 'center', justifyContent: 'center',
+            display: 'none', // overridden by CSS above on mobile
+          }}
+        >
+          ☰
+        </button>
+      </nav>
+    </>
   );
 }

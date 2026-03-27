@@ -56,7 +56,10 @@
       "Bash(wc:*)",
       "Bash(cat -A \"D:/FMP/financial-modeler-pro/app/\\(portal\\)/page.tsx\")",
       "Bash(sort -t: -k1.8 -n)",
-      "Bash(cp:*)"
+      "Bash(cp:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)"
     ]
   }
 }
