@@ -9,10 +9,10 @@ interface StudentSummary {
   registeredAt: string; certificateIssued?: boolean;
 }
 interface OverviewData {
-  totalStudents: number; sfmEnrolled: number; bvmEnrolled: number;
-  totalCertificates: number; sfmCertificates: number; bvmCertificates: number;
+  totalStudents: number | null; sfmEnrolled: number | null; bvmEnrolled: number | null;
+  totalCertificates: number | null; sfmCertificates: number | null; bvmCertificates: number | null;
   sfmFinalPassRate: number | null; bvmFinalPassRate: number | null;
-  sfmCertsIssued: number; bvmCertsIssued: number;
+  sfmCertsIssued: number | null; bvmCertsIssued: number | null;
   recentRegistrations: StudentSummary[];
   dataAvailable: boolean; appsScriptConfigured: boolean;
 }
@@ -119,10 +119,10 @@ export default function TrainingHubOverviewPage() {
             ))
           ) : (
             <>
-              <StatCard label="Total Students"    value={stat(data?.totalStudents ?? 0)} />
-              <StatCard label="3SFM Enrolled"     value={stat(data?.sfmEnrolled ?? 0)} />
-              <StatCard label="BVM Enrolled"      value={stat(data?.bvmEnrolled ?? 0)} />
-              <StatCard label="Total Certificates" value={stat(data?.totalCertificates ?? 0)} />
+              <StatCard label="Total Students"    value={stat(data?.totalStudents ?? null)} />
+              <StatCard label="3SFM Enrolled"     value={stat(data?.sfmEnrolled ?? null)} />
+              <StatCard label="BVM Enrolled"      value={stat(data?.bvmEnrolled ?? null)} />
+              <StatCard label="Total Certificates" value={stat(data?.totalCertificates ?? null)} />
             </>
           )}
         </div>

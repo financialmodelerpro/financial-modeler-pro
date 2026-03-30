@@ -583,6 +583,7 @@ export default function TrainingDashboardPage() {
 
   const [localSession, setLocalSession]           = useState<{ email: string; registrationId: string } | null>(null);
   const [loading, setLoading]                     = useState(true);
+  const [refreshing, setRefreshing]               = useState(false);
   const [isFallback, setIsFallback]               = useState(false);
   const [progress, setProgress]                   = useState<ProgressData | null>(null);
   const [certificates, setCertificates]           = useState<Certificate[]>([]);
@@ -591,6 +592,7 @@ export default function TrainingDashboardPage() {
   const [courseDescs, setCourseDescs]             = useState<CourseDescsMap>({});
   const [generating, setGenerating]               = useState(false);
   const [transcriptToast, setTranscriptToast]     = useState('');
+  const [lastUpdated, setLastUpdated]             = useState<Date | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed]   = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
@@ -605,16 +607,37 @@ export default function TrainingDashboardPage() {
     localStorage.setItem('dashboardSidebarCollapsed', String(next));
   }
 
-  const loadData = useCallback(async (sess: { email: string; registrationId: string }) => {
-    setLoading(true);
+  const loadData = useCallback(async (
+    sess: { email: string; registrationId: string },
+    forceRefresh = false,
+  ) => {
+    if (forceRefresh) setRefreshing(true); else setLoading(true);
     setIsFallback(false);
     try {
-      const params = new URLSearchParams({ email: sess.email, registrationId: sess.registrationId });
-      const res  = await fetch(`/api/training/progress?${params}`);
-      const json = await res.json() as { success: boolean; fallback?: boolean; data?: ProgressData };
+      const progressParams = new URLSearchParams({ email: sess.email, registrationId: sess.registrationId });
+      if (forceRefresh) progressParams.set('refresh', '1');
 
+      // ── Fetch progress + course-details in PARALLEL ──────────────────────
+      const [progressRes, detailsRes] = await Promise.all([
+        fetch(`/api/training/progress?${progressParams}`),
+        fetch('/api/training/course-details'),
+      ]);
+
+      const [json, detailsJson] = await Promise.all([
+        progressRes.json() as Promise<{ success: boolean; fallback?: boolean; data?: ProgressData }>,
+        detailsRes.json() as Promise<{ sessions?: LiveSessionLink[]; courses?: CourseDescsMap }>,
+      ]);
+
+      // Apply course-details
+      const map: LiveLinksMap = {};
+      for (const s of detailsJson.sessions ?? []) map[s.tabKey] = s;
+      setLiveLinks(map);
+      if (detailsJson.courses) setCourseDescs(detailsJson.courses);
+
+      // Apply progress
       if (json.success && json.data) {
         setProgress(json.data);
+        setLastUpdated(new Date());
         if (json.fallback) setIsFallback(true);
         if (json.data.certificateIssued) {
           const certRes  = await fetch(`/api/training/certificate?email=${encodeURIComponent(sess.email)}`);
@@ -630,6 +653,7 @@ export default function TrainingDashboardPage() {
       setIsFallback(true);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
@@ -638,15 +662,6 @@ export default function TrainingDashboardPage() {
     if (!sess) { router.replace('/training/login'); return; }
     setLocalSession(sess);
     loadData(sess);
-    fetch('/api/training/course-details?bust=1')
-      .then(r => r.json())
-      .then((d: { sessions?: LiveSessionLink[]; courses?: CourseDescsMap }) => {
-        const map: LiveLinksMap = {};
-        for (const s of d.sessions ?? []) map[s.tabKey] = s;
-        setLiveLinks(map);
-        if (d.courses) setCourseDescs(d.courses);
-      })
-      .catch(() => {});
   }, [router, loadData]);
 
   async function downloadTranscript() {
@@ -760,9 +775,24 @@ export default function TrainingDashboardPage() {
           <div style={{ width: 28, height: 28, borderRadius: 6, background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>🎓</div>
           <span style={{ fontSize: 14, fontWeight: 800, color: '#fff' }}>Training Academy</span>
         </div>
-        <button onClick={handleLogout} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, cursor: 'pointer' }}>
-          Logout
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {lastUpdated && !loading && (
+            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', whiteSpace: 'nowrap' }}>
+              Updated {lastUpdated.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+          <button
+            onClick={() => localSession && loadData(localSession, true)}
+            disabled={loading || refreshing}
+            title="Refresh progress"
+            style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, background: 'rgba(255,255,255,0.08)', color: refreshing ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 5, cursor: loading || refreshing ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ display: 'inline-block', animation: refreshing ? 'spin 0.7s linear infinite' : 'none' }}>↻</span>
+            {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+          <button onClick={handleLogout} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, cursor: 'pointer' }}>
+            Logout
+          </button>
+        </div>
       </div>
 
       {/* ── BODY ─────────────────────────────────────────────────────────────── */}

@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { getStudentProgress } from '@/src/lib/sheets';
 
+// ── 2-minute server-side cache ────────────────────────────────────────────────
+const _cache = new Map<string, { data: unknown; at: number }>();
+const TTL_MS = 2 * 60 * 1000;
+
 function emptyProgress(email: string, registrationId: string) {
   return {
     student: {
@@ -46,12 +50,23 @@ export async function GET(req: NextRequest) {
 
   const cleanEmail = email.trim().toLowerCase();
   const cleanRegId = registrationId.trim();
+  const refresh    = req.nextUrl.searchParams.get('refresh') === '1';
+  const cacheKey   = `${cleanEmail}:${cleanRegId}`;
+
+  // ── Serve from cache if fresh ─────────────────────────────────────────────
+  if (!refresh) {
+    const hit = _cache.get(cacheKey);
+    if (hit && Date.now() - hit.at < TTL_MS) {
+      return NextResponse.json({ success: true, data: hit.data, cached: true });
+    }
+  }
 
   // ── Fetch progress — always return 200, never hard-error ────────────────────
   try {
     const result = await getStudentProgress(cleanEmail, cleanRegId);
 
     if (result.success && result.data) {
+      _cache.set(cacheKey, { data: result.data, at: Date.now() });
       return NextResponse.json({ success: true, data: result.data });
     }
 

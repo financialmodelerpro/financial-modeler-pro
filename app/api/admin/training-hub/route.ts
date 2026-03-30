@@ -40,17 +40,19 @@ export async function GET() {
     .sort((a, b) => new Date(b.registeredAt || 0).getTime() - new Date(a.registeredAt || 0).getTime())
     .slice(0, 10);
 
+  const n = (v: number) => dataAvailable ? v : null;
+
   return NextResponse.json({
-    totalStudents:    allStudents.length,
-    sfmEnrolled:      sfmStudents.length,
-    bvmEnrolled:      bvmStudents.length,
-    totalCertificates: allCerts.length,
-    sfmCertificates:  sfmCerts.length,
-    bvmCertificates:  bvmCerts.length,
-    sfmFinalPassRate: sfmPassRate,
-    bvmFinalPassRate: bvmPassRate,
-    sfmCertsIssued:   sfmCerts.length,
-    bvmCertsIssued:   bvmCerts.length,
+    totalStudents:    n(allStudents.length),
+    sfmEnrolled:      n(sfmStudents.length),
+    bvmEnrolled:      n(bvmStudents.length),
+    totalCertificates: n(allCerts.length),
+    sfmCertificates:  n(sfmCerts.length),
+    bvmCertificates:  n(bvmCerts.length),
+    sfmFinalPassRate: dataAvailable ? sfmPassRate : null,
+    bvmFinalPassRate: dataAvailable ? bvmPassRate : null,
+    sfmCertsIssued:   n(sfmCerts.length),
+    bvmCertsIssued:   n(bvmCerts.length),
     recentRegistrations,
     dataAvailable,
     appsScriptConfigured: studentsRes.error !== 'APPS_SCRIPT_URL not configured',
