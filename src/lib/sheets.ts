@@ -245,9 +245,69 @@ export interface StudentSummary {
   certificateIssued?: boolean;
 }
 
+// Apps Script listStudents response uses different field names
+interface RawStudentEntry {
+  registrationId?: string;
+  fullName?: string;
+  name?: string;
+  email?: string;
+  enrolledCourses?: string[];
+  course?: string;
+  enrolledDate?: string;
+  registeredAt?: string;
+  progress?: {
+    sessionsPassed?: number;
+    totalSessions?: number;
+    finalExam?: { status?: string; score?: number };
+    certificateStatus?: string;
+  };
+  sessionsPassedCount?: number;
+  totalSessions?: number;
+  finalPassed?: boolean;
+  certificateIssued?: boolean;
+}
+
+function normalizeCourse(raw: string): string {
+  const up = (raw ?? '').toUpperCase().trim();
+  if (up === '3SFM') return '3SFM';
+  if (up === 'BVM')  return 'BVM';
+  return up;
+}
+
+function mapRawStudent(r: RawStudentEntry): StudentSummary {
+  const courseRaw = r.course ?? (Array.isArray(r.enrolledCourses) ? r.enrolledCourses[0] : '') ?? '';
+  const prog = r.progress;
+  return {
+    registrationId:    r.registrationId ?? '',
+    name:              r.fullName ?? r.name ?? '',
+    email:             r.email ?? '',
+    course:            normalizeCourse(courseRaw),
+    registeredAt:      r.enrolledDate ?? r.registeredAt ?? '',
+    sessionsPassedCount: prog?.sessionsPassed ?? r.sessionsPassedCount,
+    totalSessions:       prog?.totalSessions ?? r.totalSessions,
+    finalPassed:         prog ? prog.finalExam?.status === 'passed' : r.finalPassed,
+    certificateIssued:   prog ? prog.certificateStatus === 'earned' : r.certificateIssued,
+  };
+}
+
 /** [Admin] List all enrolled students. Requires Apps Script action: 'listStudents'. */
 export async function listAllStudents(): Promise<ScriptResponse<StudentSummary[]>> {
-  return callScript<StudentSummary[]>({ action: 'listStudents' });
+  const raw = await callScript<StudentSummary[]>({ action: 'listStudents' });
+
+  if (!raw.success) return raw;
+
+  // Shape A: already normalised under `data` key
+  if (Array.isArray(raw.data)) {
+    return { success: true, data: raw.data.map(mapRawStudent) };
+  }
+
+  // Shape B: Apps Script returns { success: true, students: [...] } at root level
+  const root = raw as unknown as { success: boolean; students?: RawStudentEntry[] };
+  if (Array.isArray(root.students)) {
+    return { success: true, data: root.students.map(mapRawStudent) };
+  }
+
+  return { success: true, data: [] };
 }
 
 /** [Admin] List all issued certificates. Requires Apps Script action: 'listCertificates'. */
