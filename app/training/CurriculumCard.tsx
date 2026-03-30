@@ -4,6 +4,8 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import type { CourseConfig } from '@/src/config/courses';
 import { getTrainingSession } from '@/src/lib/training-session';
+import { startTimer, getTimerStatus, type TimerStatus } from '@/src/lib/videoTimer';
+import { CountdownTimer } from '@/src/components/training/CountdownTimer';
 
 export interface CourseDescription {
   tagline?: string;
@@ -28,7 +30,7 @@ interface Props {
 }
 
 interface LiveSession {
-  tabKey: string; num: number; youtubeUrl: string; formUrl: string; isFinal: boolean;
+  tabKey: string; num: number; youtubeUrl: string; formUrl: string; isFinal: boolean; videoDuration?: number;
 }
 
 interface ProgressEntry { sessionId: string; passed: boolean; }
@@ -48,6 +50,8 @@ export function CurriculumCard({
   const [liveMap, setLiveMap]             = useState<Record<string, LiveSession>>({});
   const [passedSet, setPassedSet]         = useState<Set<string>>(new Set());
   const [loggedIn, setLoggedIn]           = useState(false);
+  const [regId, setRegId]                 = useState('');
+  const [timerMap, setTimerMap]           = useState<Record<string, TimerStatus>>({});
   const [linksLoading, setLinksLoading]   = useState(false);
   const fetched = useRef(false);
 
@@ -61,6 +65,8 @@ export function CurriculumCard({
 
     const sess = getTrainingSession();
     setLoggedIn(!!sess);
+    const currentRegId = sess?.registrationId ?? '';
+    setRegId(currentRegId);
 
     const fetches: Promise<void>[] = [
       fetch(`/api/training/course-details?course=${course.id}`)
@@ -69,6 +75,16 @@ export function CurriculumCard({
           const map: Record<string, LiveSession> = {};
           for (const s of d.sessions ?? []) map[s.tabKey] = s;
           setLiveMap(map);
+          // Initialise timer statuses for logged-in students
+          if (currentRegId) {
+            const timers: Record<string, TimerStatus> = {};
+            for (const session of course.sessions) {
+              const tk = `${course.shortTitle.toUpperCase()}_${session.id}`;
+              const dur = map[tk]?.videoDuration ?? 0;
+              timers[tk] = getTimerStatus(currentRegId, tk, dur);
+            }
+            setTimerMap(timers);
+          }
         })
         .catch(() => {}),
     ];
@@ -261,9 +277,15 @@ export function CurriculumCard({
             </div>
           )}
           {course.sessions.map((session, idx) => {
-            const live    = liveMap[tabKey(session.id)];
-            const ytUrl   = live?.youtubeUrl || session.youtubeUrl || '';
-            const formUrl = live?.formUrl    || session.quizFormUrl || '';
+            const live         = liveMap[tabKey(session.id)];
+            const ytUrl        = live?.youtubeUrl || session.youtubeUrl || '';
+            const formUrl      = live?.formUrl    || session.quizFormUrl || '';
+            const tk           = tabKey(session.id);
+            const videoDur     = live?.videoDuration ?? 0;
+            const sessionTimer = timerMap[tk] ?? { locked: false, minutesRemaining: 0, started: false };
+            const hasTimeLock  = loggedIn && videoDur > 0 && !!ytUrl;
+            const timerLocked  = hasTimeLock && sessionTimer.locked;
+            const timerStarted = sessionTimer.started;
 
             let locked = false;
             if (session.isFinal) {
@@ -315,6 +337,12 @@ export function CurriculumCard({
                             href={ytUrl}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={() => {
+                              if (loggedIn && regId) {
+                                startTimer(regId, tk, videoDur);
+                                setTimerMap(prev => ({ ...prev, [tk]: getTimerStatus(regId, tk, videoDur) }));
+                              }
+                            }}
                             style={{
                               display: 'inline-flex', alignItems: 'center', gap: 4,
                               padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 700,
@@ -354,7 +382,33 @@ export function CurriculumCard({
                           }}>
                             🔒 Locked
                           </span>
-                        ) : formUrl ? (
+                        ) : !formUrl ? (
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 600,
+                            background: '#F3F4F6', color: '#9CA3AF',
+                          }}>
+                            📝 Coming Soon
+                          </span>
+                        ) : timerLocked && !timerStarted ? (
+                          // STATE 2: video exists, never watched
+                          <span title="Watch the video to unlock the assessment" style={{
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 600,
+                            background: '#F3F4F6', color: '#9CA3AF', cursor: 'default',
+                          }}>
+                            👁 Watch Video First
+                          </span>
+                        ) : timerLocked && timerStarted ? (
+                          // STATE 3: timer running
+                          <CountdownTimer
+                            regId={regId}
+                            tabKey={tk}
+                            durationMinutes={videoDur}
+                            onExpired={() => setTimerMap(prev => ({ ...prev, [tk]: { locked: false, minutesRemaining: 0, started: true } }))}
+                          />
+                        ) : (
+                          // STATE 1 / 4: no lock or expired
                           <a
                             href={formUrl}
                             target="_blank"
@@ -367,14 +421,6 @@ export function CurriculumCard({
                           >
                             📝 Assessment
                           </a>
-                        ) : (
-                          <span style={{
-                            display: 'inline-flex', alignItems: 'center', gap: 4,
-                            padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 600,
-                            background: '#F3F4F6', color: '#9CA3AF',
-                          }}>
-                            📝 Coming Soon
-                          </span>
                         )}
                       </div>
                     )}

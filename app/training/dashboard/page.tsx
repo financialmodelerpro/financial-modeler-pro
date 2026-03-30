@@ -4,8 +4,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training-session';
 import { COURSES } from '@/src/config/courses';
+import { startTimer, getTimerStatus, type TimerStatus } from '@/src/lib/videoTimer';
+import { CountdownTimer } from '@/src/components/training/CountdownTimer';
 
-interface LiveSessionLink { tabKey: string; youtubeUrl: string; formUrl: string; }
+interface LiveSessionLink { tabKey: string; youtubeUrl: string; formUrl: string; videoDuration?: number; }
 type LiveLinksMap = Record<string, LiveSessionLink>;
 
 interface CourseDescription {
@@ -129,12 +131,23 @@ interface SessionCardProps {
   isFinal: boolean;
   passedCount: number;
   regularCount: number;
+  tabKey: string;
+  videoDuration: number;
+  regId: string;
 }
 
 function SessionCard({
   sessionTitle, maxAttempts, questionCount, passingScore,
   idx, prog, locked, ytUrl, formUrl, isFinal, passedCount, regularCount,
+  tabKey, videoDuration, regId,
 }: SessionCardProps) {
+  const [timerStatus, setTimerStatus] = useState<TimerStatus>({ locked: false, minutesRemaining: 0, started: false });
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !regId) return;
+    setTimerStatus(getTimerStatus(regId, tabKey, videoDuration));
+  }, [regId, tabKey, videoDuration]);
+
   let borderColor = '#E5E7EB';
   let bgColor = '#ffffff';
   if (!locked) {
@@ -146,6 +159,11 @@ function SessionCard({
   const attemptsUsed = prog?.attempts ?? 0;
   const attemptsLeft = maxAttempts - attemptsUsed;
   const label = isFinal ? '🏆' : `S${idx + 1}`;
+
+  // Time-lock state (only applies when formUrl is available and session not locked/passed)
+  const hasTimeLock = videoDuration > 0 && !!ytUrl;
+  const timerLocked  = hasTimeLock && timerStatus.locked;
+  const timerStarted = timerStatus.started;
 
   return (
     <div style={{
@@ -198,6 +216,10 @@ function SessionCard({
         {/* Watch Video */}
         {ytUrl ? (
           <a href={ytUrl} target="_blank" rel="noopener noreferrer"
+            onClick={() => {
+              startTimer(regId, tabKey, videoDuration);
+              setTimerStatus(getTimerStatus(regId, tabKey, videoDuration));
+            }}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: '#FF0000', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
             ▶ Watch Video
           </a>
@@ -225,7 +247,22 @@ function SessionCard({
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#F3F4F6', color: '#9CA3AF', whiteSpace: 'nowrap' }}>
             📝 Assessment Coming Soon
           </span>
+        ) : timerLocked && !timerStarted ? (
+          // STATE 2: video exists but never watched
+          <span title="Watch the video to unlock the assessment"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#F3F4F6', color: '#9CA3AF', whiteSpace: 'nowrap', cursor: 'default' }}>
+            👁 Watch Video First
+          </span>
+        ) : timerLocked && timerStarted ? (
+          // STATE 3: timer running — live countdown
+          <CountdownTimer
+            regId={regId}
+            tabKey={tabKey}
+            durationMinutes={videoDuration}
+            onExpired={() => setTimerStatus({ locked: false, minutesRemaining: 0, started: true })}
+          />
         ) : (
+          // STATE 1 / 4: no lock or timer expired
           <a href={formUrl} target="_blank" rel="noopener noreferrer"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: isFinal ? '#C9A84C' : '#2EAA4A', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
             {isFinal ? '🏆 Take Final Exam →' : '📝 Take Assessment →'}
@@ -312,11 +349,12 @@ interface CourseContentProps {
   certificates: Certificate[];
   liveLinks: LiveLinksMap;
   courseDescs: CourseDescsMap;
+  regId: string;
   onDownloadTranscript: () => void;
   generating: boolean;
 }
 
-function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, onDownloadTranscript, generating }: CourseContentProps) {
+function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating }: CourseContentProps) {
   const course = COURSES[courseId];
   if (!course) return null;
 
@@ -460,6 +498,9 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
               isFinal={isFinalRow}
               passedCount={passedCount}
               regularCount={regularSessions.length}
+              tabKey={tk}
+              videoDuration={liveLinks[tk]?.videoDuration ?? 0}
+              regId={regId}
             />
           );
         })}
@@ -1008,6 +1049,7 @@ export default function TrainingDashboardPage() {
                 certificates={certificates}
                 liveLinks={liveLinks}
                 courseDescs={courseDescs}
+                regId={localSession?.registrationId ?? ''}
                 onDownloadTranscript={downloadTranscript}
                 generating={generating}
               />
