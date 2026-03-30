@@ -94,6 +94,28 @@ async function callScript<T>(params: Record<string, string>): Promise<ScriptResp
   }
 }
 
+async function callScriptPostJson<T>(body: Record<string, unknown>): Promise<ScriptResponse<T>> {
+  const APPS_SCRIPT_URL = await getAppsScriptUrl();
+  if (!APPS_SCRIPT_URL) {
+    return { success: false, error: 'APPS_SCRIPT_URL not configured' };
+  }
+  try {
+    const res = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      cache: 'no-store',
+    });
+    if (!res.ok) {
+      return { success: false, error: `Script responded with HTTP ${res.status}` };
+    }
+    const json = await res.json() as ScriptResponse<T>;
+    return json;
+  } catch (err) {
+    return { success: false, error: err instanceof Error ? err.message : 'Unknown error' };
+  }
+}
+
 async function callScriptPost<T>(body: Record<string, string>): Promise<ScriptResponse<T>> {
   const APPS_SCRIPT_URL = await getAppsScriptUrl();
   if (!APPS_SCRIPT_URL) {
@@ -313,4 +335,80 @@ export async function listAllStudents(): Promise<ScriptResponse<StudentSummary[]
 /** [Admin] List all issued certificates. Requires Apps Script action: 'listCertificates'. */
 export async function listAllCertificates(): Promise<ScriptResponse<SheetCertificate[]>> {
   return callScript<SheetCertificate[]>({ action: 'listCertificates' });
+}
+
+// ── Assessment Engine ─────────────────────────────────────────────────────────
+
+export interface AssessmentQuestion {
+  questionId: string;
+  questionText: string;
+  options: string[];
+  points?: number;
+}
+
+export interface AssessmentQuestionsData {
+  tabKey: string;
+  sessionName: string;
+  course: string;
+  isFinal: boolean;
+  questions: AssessmentQuestion[];
+  timeLimit?: number;       // minutes; 0 or absent = no limit
+  passingScore?: number;    // percentage, e.g. 70
+  maxAttempts?: number;
+}
+
+export interface AttemptStatus {
+  tabKey: string;
+  attempts: number;
+  maxAttempts: number;
+  passed: boolean;
+  lastScore?: number;
+  lastCompletedAt?: string;
+  canAttempt: boolean;
+}
+
+export interface SubmitAssessmentResult {
+  tabKey: string;
+  score: number;          // percentage 0–100
+  passed: boolean;
+  correctCount: number;
+  totalQuestions: number;
+  attempts: number;
+  maxAttempts: number;
+  canRetry: boolean;
+  feedback?: string;
+}
+
+/** Fetch questions for a given tab key. */
+export async function getAssessmentQuestions(
+  tabKey: string,
+  email: string,
+  regId: string,
+): Promise<ScriptResponse<AssessmentQuestionsData>> {
+  return callScript<AssessmentQuestionsData>({ action: 'getQuestions', tabKey, email, regId });
+}
+
+/** Check attempt status (attempts used, passed, can attempt). */
+export async function getAttemptStatus(
+  tabKey: string,
+  email: string,
+  regId: string,
+): Promise<ScriptResponse<AttemptStatus>> {
+  return callScript<AttemptStatus>({ action: 'getAttemptStatus', tabKey, email, regId });
+}
+
+/** Submit answers for scoring. answers = array of 0-based selected option indices. */
+export async function submitAssessment(
+  tabKey: string,
+  email: string,
+  regId: string,
+  answers: number[],
+): Promise<ScriptResponse<SubmitAssessmentResult>> {
+  return callScriptPostJson<SubmitAssessmentResult>({
+    action: 'submitAssessment',
+    tabKey,
+    email,
+    regId,
+    answers,
+  });
 }

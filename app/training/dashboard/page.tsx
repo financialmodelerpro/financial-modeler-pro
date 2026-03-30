@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training-session';
 import { COURSES } from '@/src/config/courses';
 import { startTimer, getTimerStatus, type TimerStatus } from '@/src/lib/videoTimer';
@@ -295,10 +296,18 @@ function SessionCard({
           />
         ) : (
           // STATE 1 / 4: no lock or timer expired
-          <a href={formUrl} target="_blank" rel="noopener noreferrer"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: isFinal ? '#C9A84C' : '#2EAA4A', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
-            {isFinal ? '🏆 Take Final Exam →' : '📝 Take Assessment →'}
-          </a>
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+            <Link href={`/training/assessment/${encodeURIComponent(tabKey)}`}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: isFinal ? '#C9A84C' : '#2EAA4A', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+              {isFinal ? '🏆 Take Final Exam →' : '📝 Take Assessment →'}
+            </Link>
+            {formUrl && (
+              <a href={formUrl} target="_blank" rel="noopener noreferrer"
+                style={{ fontSize: 10, color: '#9CA3AF', textDecoration: 'none' }}>
+                Having issues? Use Google Forms instead
+              </a>
+            )}
+          </div>
         )}
       </div>
 
@@ -667,12 +676,18 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
               })}
           </div>
           {finalSession && (
-            <div style={{ marginTop: 12 }}>
-              <a href={liveLinks[`${course.shortTitle.toUpperCase()}_${finalSession.id}`]?.formUrl || finalSession.quizFormUrl || '#'}
-                target="_blank" rel="noopener noreferrer"
+            <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
+              <Link href={`/training/assessment/${encodeURIComponent(`${course.shortTitle.toUpperCase()}_${finalSession.id}`)}`}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 20px', borderRadius: 8, background: '#1E3A8A', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
                 🏆 I&apos;m Ready — Take Final Exam →
-              </a>
+              </Link>
+              {(liveLinks[`${course.shortTitle.toUpperCase()}_${finalSession.id}`]?.formUrl || finalSession.quizFormUrl) && (
+                <a href={liveLinks[`${course.shortTitle.toUpperCase()}_${finalSession.id}`]?.formUrl || finalSession.quizFormUrl || '#'}
+                  target="_blank" rel="noopener noreferrer"
+                  style={{ fontSize: 10, color: '#9CA3AF', textDecoration: 'none' }}>
+                  Having issues? Use Google Forms instead
+                </a>
+              )}
             </div>
           )}
         </div>
@@ -773,7 +788,7 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
           title = '🏆 Ready for the Final Exam';
           body = 'All sessions passed! Sit the Final Exam to earn your certificate.';
           const fk = finalSession ? `${course.shortTitle.toUpperCase()}_${finalSession.id}` : '';
-          actionUrl = (finalSession ? liveLinks[fk]?.formUrl || finalSession.quizFormUrl : '') ?? '';
+          actionUrl = fk ? `/training/assessment/${encodeURIComponent(fk)}` : '';
           action = '🏆 Take Final Exam';
         } else if (finalPassed && courseCert) {
           title = '🎓 Share Your Certificate';
@@ -789,10 +804,17 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
             <div style={{ fontSize: 12, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>{title}</div>
             <div style={{ fontSize: 12, color: '#6B7280', marginBottom: actionUrl ? 10 : 0 }}>{body}</div>
             {actionUrl && (
-              <a href={actionUrl} target="_blank" rel="noopener noreferrer"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 16px', borderRadius: 7, background: '#1B4F8A', color: '#fff', textDecoration: 'none', fontSize: 12, fontWeight: 700 }}>
-                {action}
-              </a>
+              actionUrl.startsWith('/') ? (
+                <Link href={actionUrl}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 16px', borderRadius: 7, background: '#1B4F8A', color: '#fff', textDecoration: 'none', fontSize: 12, fontWeight: 700 }}>
+                  {action}
+                </Link>
+              ) : (
+                <a href={actionUrl} target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 16px', borderRadius: 7, background: '#1B4F8A', color: '#fff', textDecoration: 'none', fontSize: 12, fontWeight: 700 }}>
+                  {action}
+                </a>
+              )
             )}
           </div>
         );
