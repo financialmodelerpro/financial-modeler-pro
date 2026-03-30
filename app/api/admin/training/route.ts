@@ -38,7 +38,10 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const { id, title, description, category, thumbnail_url, status, display_order } = await req.json();
+  const body = await req.json();
+  const { id, title, description, category, thumbnail_url, status, display_order,
+    tagline, full_description, what_you_learn, prerequisites, who_is_this_for,
+    skill_level, duration_hours, language, certificate_description } = body;
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
   const update: Record<string, unknown> = {};
   if (title !== undefined) update.title = title;
@@ -47,6 +50,15 @@ export async function PATCH(req: NextRequest) {
   if (thumbnail_url !== undefined) update.thumbnail_url = thumbnail_url || null;
   if (status !== undefined) update.status = status;
   if (display_order !== undefined) update.display_order = display_order;
+  if (tagline !== undefined) update.tagline = tagline;
+  if (full_description !== undefined) update.full_description = full_description;
+  if (what_you_learn !== undefined) update.what_you_learn = what_you_learn;
+  if (prerequisites !== undefined) update.prerequisites = prerequisites;
+  if (who_is_this_for !== undefined) update.who_is_this_for = who_is_this_for;
+  if (skill_level !== undefined) update.skill_level = skill_level;
+  if (duration_hours !== undefined) update.duration_hours = duration_hours === '' ? null : Number(duration_hours);
+  if (language !== undefined) update.language = language;
+  if (certificate_description !== undefined) update.certificate_description = certificate_description;
   const sb = getServerClient();
   const { error } = await sb.from('courses').update(update).eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

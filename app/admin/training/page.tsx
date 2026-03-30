@@ -4,16 +4,27 @@ import { useState, useEffect } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import Link from 'next/link';
 
-interface Course { id: string; title: string; description: string; category: string; status: string; display_order: number; thumbnail_url: string | null; _lesson_count?: number }
+interface Course {
+  id: string; title: string; description: string; category: string; status: string;
+  display_order: number; thumbnail_url: string | null; _lesson_count?: number;
+  tagline?: string; full_description?: string; what_you_learn?: string[];
+  prerequisites?: string; who_is_this_for?: string; skill_level?: string;
+  duration_hours?: number; language?: string; certificate_description?: string;
+}
 interface Stats  { courses: number; lessons: number; enrollments: number | null; certificates: number | null }
+
+const EMPTY_BASIC = { title: '', description: '', category: 'General', thumbnail_url: '', status: 'draft' as 'draft' | 'published', display_order: 0 };
+const EMPTY_DESC  = { tagline: '', full_description: '', what_you_learn: [] as string[], prerequisites: '', who_is_this_for: '', skill_level: 'Beginner' as 'Beginner' | 'Intermediate' | 'Advanced', duration_hours: '' as string | number, language: 'English', certificate_description: '' };
 
 export default function AdminTrainingPage() {
   const [courses, setCourses] = useState<Course[]>([]);
   const [stats, setStats] = useState<Stats>({ courses: 0, lessons: 0, enrollments: null, certificates: null });
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  const [modalTab, setModalTab] = useState<'basic' | 'description'>('basic');
   const [editCourse, setEditCourse] = useState<Course | null>(null);
-  const [form, setForm] = useState({ title: '', description: '', category: 'General', thumbnail_url: '', status: 'draft' as 'draft' | 'published', display_order: 0 });
+  const [form, setForm] = useState(EMPTY_BASIC);
+  const [descForm, setDescForm] = useState(EMPTY_DESC);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
@@ -56,13 +67,27 @@ export default function AdminTrainingPage() {
 
   function openNew() {
     setEditCourse(null);
-    setForm({ title: '', description: '', category: 'General', thumbnail_url: '', status: 'draft', display_order: courses.length + 1 });
+    setModalTab('basic');
+    setForm({ ...EMPTY_BASIC, display_order: courses.length + 1 });
+    setDescForm(EMPTY_DESC);
     setShowModal(true);
   }
 
   function openEdit(c: Course) {
     setEditCourse(c);
+    setModalTab('basic');
     setForm({ title: c.title, description: c.description, category: c.category, thumbnail_url: c.thumbnail_url ?? '', status: c.status as any, display_order: c.display_order });
+    setDescForm({
+      tagline:              c.tagline ?? '',
+      full_description:     c.full_description ?? '',
+      what_you_learn:       c.what_you_learn ?? [],
+      prerequisites:        c.prerequisites ?? '',
+      who_is_this_for:      c.who_is_this_for ?? '',
+      skill_level:          (c.skill_level as any) ?? 'Beginner',
+      duration_hours:       c.duration_hours ?? '',
+      language:             c.language ?? 'English',
+      certificate_description: c.certificate_description ?? '',
+    });
     setShowModal(true);
   }
 
@@ -70,7 +95,7 @@ export default function AdminTrainingPage() {
     setSaving(true);
     try {
       const method = editCourse ? 'PATCH' : 'POST';
-      const body = editCourse ? { ...form, id: editCourse.id } : form;
+      const body = editCourse ? { ...form, ...descForm, id: editCourse.id } : form;
       const res = await fetch('/api/admin/training', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error();
       setShowModal(false);
@@ -90,7 +115,9 @@ export default function AdminTrainingPage() {
     } catch { setToast({ msg: 'Delete failed', type: 'error' }); setTimeout(() => setToast(null), 2500); }
   }
 
-  const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 7, background: '#FFFBEB', fontFamily: 'Inter, sans-serif', color: '#374151', boxSizing: 'border-box' };
+  const inputStyle: React.CSSProperties  = { width: '100%', padding: '8px 12px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 7, background: '#FFFBEB', fontFamily: 'Inter, sans-serif', color: '#374151', boxSizing: 'border-box' };
+  const labelStyle: React.CSSProperties  = { fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' };
+  const helperStyle: React.CSSProperties = { fontSize: 11, color: '#9CA3AF', margin: '0 0 6px' };
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter', sans-serif", background: '#F4F7FC' }}>
@@ -172,17 +199,128 @@ export default function AdminTrainingPage() {
 
       {/* Modal */}
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => setShowModal(false)}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 32, width: 480, maxWidth: '95vw', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
-            <h2 style={{ fontSize: 18, fontWeight: 800, color: '#1B3A6B', marginBottom: 24 }}>{editCourse ? 'Edit Course' : 'New Course'}</h2>
-            <div style={{ marginBottom: 16 }}><label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase' }}>Title</label><input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} style={inputStyle} /></div>
-            <div style={{ marginBottom: 16 }}><label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase' }}>Description</label><textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} rows={3} style={{ ...inputStyle, resize: 'vertical' }} /></div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-              <div><label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase' }}>Category</label><input value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} style={inputStyle} /></div>
-              <div><label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase' }}>Status</label><select value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value as any }))} style={{ ...inputStyle, cursor: 'pointer' }}><option value="draft">Draft</option><option value="published">Published</option></select></div>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }} onClick={() => setShowModal(false)}>
+          <div style={{ background: '#fff', borderRadius: 14, width: 580, maxWidth: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
+            {/* Modal header */}
+            <div style={{ padding: '24px 28px 0', flexShrink: 0 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 800, color: '#1B3A6B', marginBottom: 20 }}>{editCourse ? 'Edit Course' : 'New Course'}</h2>
+              {/* Tabs */}
+              <div style={{ display: 'flex', borderBottom: '2px solid #E8F0FB', marginBottom: 0 }}>
+                {(['basic', 'description'] as const).map(tab => (
+                  <button key={tab} onClick={() => setModalTab(tab)} style={{
+                    padding: '9px 18px', fontSize: 13, fontWeight: 700, border: 'none', cursor: 'pointer',
+                    background: 'none', borderBottom: modalTab === tab ? '2px solid #1B4F8A' : '2px solid transparent',
+                    color: modalTab === tab ? '#1B4F8A' : '#6B7280', marginBottom: -2, textTransform: 'capitalize',
+                  }}>
+                    {tab === 'basic' ? 'Basic Info' : 'Description'}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div style={{ marginBottom: 16 }}><label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6, textTransform: 'uppercase' }}>Thumbnail URL</label><input value={form.thumbnail_url} onChange={e => setForm(p => ({ ...p, thumbnail_url: e.target.value }))} placeholder="https://…" style={inputStyle} /></div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 24 }}>
+
+            {/* Scrollable body */}
+            <div style={{ padding: '20px 28px', overflowY: 'auto', flex: 1 }}>
+              {modalTab === 'basic' && (
+                <>
+                  <div style={{ marginBottom: 16 }}><label style={labelStyle}>Title</label><input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} style={inputStyle} /></div>
+                  <div style={{ marginBottom: 16 }}><label style={labelStyle}>Short Description <span style={{ fontWeight: 400, color: '#9CA3AF' }}>(shown in course list)</span></label><textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} rows={3} style={{ ...inputStyle, resize: 'vertical' }} /></div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+                    <div><label style={labelStyle}>Category</label><input value={form.category} onChange={e => setForm(p => ({ ...p, category: e.target.value }))} style={inputStyle} /></div>
+                    <div><label style={labelStyle}>Status</label><select value={form.status} onChange={e => setForm(p => ({ ...p, status: e.target.value as any }))} style={{ ...inputStyle, cursor: 'pointer' }}><option value="draft">Draft</option><option value="published">Published</option></select></div>
+                  </div>
+                  <div style={{ marginBottom: 16 }}><label style={labelStyle}>Thumbnail URL</label><input value={form.thumbnail_url} onChange={e => setForm(p => ({ ...p, thumbnail_url: e.target.value }))} placeholder="https://…" style={inputStyle} /></div>
+                </>
+              )}
+
+              {modalTab === 'description' && (
+                <>
+                  {/* Tagline */}
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={labelStyle}>Course Tagline <span style={{ fontWeight: 400, color: '#9CA3AF' }}>({120 - (descForm.tagline?.length ?? 0)} chars left)</span></label>
+                    <p style={helperStyle}>One-line hook shown below the course title</p>
+                    <input value={descForm.tagline} onChange={e => setDescForm(p => ({ ...p, tagline: e.target.value.slice(0, 120) }))} style={inputStyle} placeholder="Master the complete 3-statement financial model…" />
+                  </div>
+
+                  {/* Full description */}
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={labelStyle}>Full Description <span style={{ fontWeight: 400, color: '#9CA3AF' }}>({800 - (descForm.full_description?.length ?? 0)} chars left)</span></label>
+                    <p style={helperStyle}>2-3 paragraphs shown in course details</p>
+                    <textarea value={descForm.full_description} onChange={e => setDescForm(p => ({ ...p, full_description: e.target.value.slice(0, 800) }))} rows={5} style={{ ...inputStyle, resize: 'vertical' }} />
+                  </div>
+
+                  {/* What You Will Learn */}
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={labelStyle}>What You Will Learn</label>
+                    <p style={helperStyle}>Each line = one learning outcome. Min 3, max 12 items.</p>
+                    {descForm.what_you_learn.map((item, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                        <input
+                          value={item}
+                          onChange={e => setDescForm(p => { const a = [...p.what_you_learn]; a[i] = e.target.value; return { ...p, what_you_learn: a }; })}
+                          style={{ ...inputStyle, flex: 1 }}
+                          placeholder={`Learning outcome ${i + 1}`}
+                        />
+                        <button
+                          onClick={() => setDescForm(p => ({ ...p, what_you_learn: p.what_you_learn.filter((_, j) => j !== i) }))}
+                          disabled={descForm.what_you_learn.length <= 3}
+                          style={{ padding: '6px 12px', border: '1px solid #FCA5A5', borderRadius: 6, background: '#FEF2F2', color: '#DC2626', fontSize: 12, cursor: descForm.what_you_learn.length <= 3 ? 'not-allowed' : 'pointer', flexShrink: 0 }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                    {descForm.what_you_learn.length < 12 && (
+                      <button
+                        onClick={() => setDescForm(p => ({ ...p, what_you_learn: [...p.what_you_learn, ''] }))}
+                        style={{ fontSize: 12, fontWeight: 700, color: '#1B4F8A', background: '#EEF2FF', border: '1px solid #C7D2FE', borderRadius: 6, padding: '6px 14px', cursor: 'pointer' }}
+                      >
+                        + Add Learning Outcome
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Prerequisites + Who is this for */}
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={labelStyle}>Prerequisites</label>
+                    <p style={helperStyle}>What students need to know before starting</p>
+                    <textarea value={descForm.prerequisites} onChange={e => setDescForm(p => ({ ...p, prerequisites: e.target.value }))} rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
+                  </div>
+                  <div style={{ marginBottom: 16 }}>
+                    <label style={labelStyle}>Who Is This For</label>
+                    <p style={helperStyle}>Target audience description</p>
+                    <textarea value={descForm.who_is_this_for} onChange={e => setDescForm(p => ({ ...p, who_is_this_for: e.target.value }))} rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
+                  </div>
+
+                  {/* Course details row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+                    <div>
+                      <label style={labelStyle}>Skill Level</label>
+                      <select value={descForm.skill_level} onChange={e => setDescForm(p => ({ ...p, skill_level: e.target.value as any }))} style={{ ...inputStyle, cursor: 'pointer' }}>
+                        <option>Beginner</option><option>Intermediate</option><option>Advanced</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Duration (hrs)</label>
+                      <input type="number" min={1} value={descForm.duration_hours} onChange={e => setDescForm(p => ({ ...p, duration_hours: e.target.value }))} style={inputStyle} placeholder="12" />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Language</label>
+                      <input value={descForm.language} onChange={e => setDescForm(p => ({ ...p, language: e.target.value }))} style={inputStyle} />
+                    </div>
+                  </div>
+
+                  {/* Certificate description */}
+                  <div style={{ marginBottom: 8 }}>
+                    <label style={labelStyle}>Certificate Description</label>
+                    <p style={helperStyle}>Shown at the bottom of the course card</p>
+                    <textarea value={descForm.certificate_description} onChange={e => setDescForm(p => ({ ...p, certificate_description: e.target.value }))} rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div style={{ padding: '16px 28px', borderTop: '1px solid #E8F0FB', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
               <button onClick={() => setShowModal(false)} style={{ padding: '9px 20px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, background: '#fff', cursor: 'pointer' }}>Cancel</button>
               <button onClick={saveCourse} disabled={saving} style={{ padding: '9px 20px', background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>{saving ? 'Saving…' : 'Save Course'}</button>
             </div>

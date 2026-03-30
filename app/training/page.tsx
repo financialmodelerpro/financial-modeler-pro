@@ -3,7 +3,8 @@ import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { COURSES } from '@/src/config/courses';
 import { getCmsContent, cms } from '@/src/lib/cms';
-import { CurriculumCard } from './CurriculumCard';
+import { getServerClient } from '@/src/lib/supabase';
+import { CurriculumCard, type CourseDescription } from './CurriculumCard';
 
 export const revalidate = 60;
 
@@ -47,10 +48,40 @@ const BENEFITS = [
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
+async function getCourseDescriptions(): Promise<Record<string, CourseDescription>> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('courses')
+      .select('category, tagline, full_description, what_you_learn, prerequisites, who_is_this_for, skill_level, duration_hours, language, certificate_description');
+    if (!data) return {};
+    const map: Record<string, CourseDescription> = {};
+    for (const row of data as Record<string, unknown>[]) {
+      const cat = ((row.category as string) ?? '').toLowerCase();
+      if (cat) {
+        map[cat] = {
+          tagline:                row.tagline as string | undefined,
+          fullDescription:        row.full_description as string | undefined,
+          whatYouLearn:           Array.isArray(row.what_you_learn) ? (row.what_you_learn as string[]) : [],
+          prerequisites:          row.prerequisites as string | undefined,
+          whoIsThisFor:           row.who_is_this_for as string | undefined,
+          skillLevel:             row.skill_level as string | undefined,
+          durationHours:          row.duration_hours as number | undefined,
+          language:               row.language as string | undefined,
+          certificateDescription: row.certificate_description as string | undefined,
+        };
+      }
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
 export default async function TrainingPage() {
   const sfm = COURSES['3sfm'];
   const bvm = COURSES['bvm'];
-  const content = await getCmsContent();
+  const [content, descriptions] = await Promise.all([getCmsContent(), getCourseDescriptions()]);
 
   const heroBadge       = cms(content, 'training_page', 'hero_badge',         '🎓 Free Certification Program');
   const heroHeadline    = cms(content, 'training_page', 'hero_headline',       'Get Certified in Financial Modeling — Free');
@@ -148,6 +179,7 @@ export default async function TrainingPage() {
               badgeColor="#4F46E5"
               badgeBorder="#C7D2FE"
               sessionLabel={`${sfm.sessions.filter(s => !s.isFinal).length} Sessions`}
+              description={descriptions['3sfm']}
             />
             <CurriculumCard
               course={bvm}
@@ -156,6 +188,7 @@ export default async function TrainingPage() {
               badgeColor="#15803D"
               badgeBorder="#BBF7D0"
               sessionLabel={`${bvm.sessions.filter(s => !s.isFinal).length} Lessons`}
+              description={descriptions['bvm']}
             />
           </div>
         </div>

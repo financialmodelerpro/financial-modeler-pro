@@ -8,6 +8,19 @@ import { COURSES } from '@/src/config/courses';
 interface LiveSessionLink { tabKey: string; youtubeUrl: string; formUrl: string; }
 type LiveLinksMap = Record<string, LiveSessionLink>;
 
+interface CourseDescription {
+  tagline?: string;
+  fullDescription?: string;
+  whatYouLearn?: string[];
+  prerequisites?: string;
+  whoIsThisFor?: string;
+  skillLevel?: string;
+  durationHours?: number;
+  language?: string;
+  certificateDescription?: string;
+}
+type CourseDescsMap = Record<string, CourseDescription>;
+
 // ── Local types ───────────────────────────────────────────────────────────────
 
 interface SessionProgress {
@@ -223,6 +236,74 @@ function SessionCard({
   );
 }
 
+// ── About This Course ─────────────────────────────────────────────────────────
+
+function AboutThisCourse({ desc, course }: { desc: CourseDescription; course: { title: string; shortTitle: string } }) {
+  const [open, setOpen] = useState(false);
+  const metaItems: { icon: string; label: string }[] = [];
+  if (desc.durationHours) metaItems.push({ icon: '⏱', label: `${desc.durationHours} Hours` });
+  if (desc.skillLevel)    metaItems.push({ icon: '📊', label: desc.skillLevel });
+  if (desc.language)      metaItems.push({ icon: '🌐', label: desc.language });
+
+  return (
+    <div style={{ marginBottom: 20, borderRadius: 10, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
+      <button
+        onClick={() => setOpen(v => !v)}
+        style={{
+          width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '14px 18px', background: open ? '#F5F7FA' : '#F9FAFB',
+          border: 'none', cursor: 'pointer', borderBottom: open ? '1px solid #E5E7EB' : 'none',
+        }}
+      >
+        <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, fontWeight: 700, color: '#1B3A6B' }}>
+          <span style={{ fontSize: 15 }}>ℹ️</span> About This Course
+        </span>
+        <span style={{ fontSize: 11, color: '#9CA3AF' }}>{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div style={{ padding: '18px 18px 20px' }}>
+          {/* Title + meta */}
+          <div style={{ fontSize: 15, fontWeight: 700, color: '#0D2E5A', marginBottom: 8 }}>{course.title}</div>
+          {metaItems.length > 0 && (
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
+              {metaItems.map(m => (
+                <div key={m.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#374151', fontWeight: 600 }}>
+                  <span style={{ fontSize: 13 }}>{m.icon}</span>{m.label}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Full description */}
+          {desc.fullDescription && (
+            <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.65, margin: '0 0 14px' }}>
+              {desc.fullDescription}
+            </p>
+          )}
+
+          {/* What You Will Learn */}
+          {desc.whatYouLearn && desc.whatYouLearn.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 800, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
+                What You Will Learn
+              </div>
+              <div style={{ display: 'grid', gap: 6 }}>
+                {desc.whatYouLearn.map((item, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                    <span style={{ color: '#2EAA4A', fontWeight: 700, fontSize: 12, flexShrink: 0, marginTop: 1 }}>✓</span>
+                    <span style={{ fontSize: 12.5, color: '#374151', lineHeight: 1.5 }}>{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Course Content ────────────────────────────────────────────────────────────
 
 interface CourseContentProps {
@@ -230,11 +311,12 @@ interface CourseContentProps {
   progressMap: Map<string, SessionProgress>;
   certificates: Certificate[];
   liveLinks: LiveLinksMap;
+  courseDescs: CourseDescsMap;
   onDownloadTranscript: () => void;
   generating: boolean;
 }
 
-function CourseContent({ courseId, progressMap, certificates, liveLinks, onDownloadTranscript, generating }: CourseContentProps) {
+function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, onDownloadTranscript, generating }: CourseContentProps) {
   const course = COURSES[courseId];
   if (!course) return null;
 
@@ -264,6 +346,9 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, onDownl
   const certColor = certStatus === 'Earned' ? '#C9A84C' : certStatus === 'Eligible' ? '#2EAA4A' : '#6B7280';
   const hasAny = passedCount > 0;
   const isOfficial = finalPassed;
+
+  // "About This Course" — courses API keys by category (e.g. '3SFM', 'BVM')
+  const desc = courseDescs[course.shortTitle] ?? courseDescs[course.shortTitle.toLowerCase()];
 
   return (
     <div>
@@ -335,6 +420,9 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, onDownl
           </div>
         ))}
       </div>
+
+      {/* About This Course */}
+      {desc && <AboutThisCourse desc={desc} course={course} />}
 
       {/* Session Cards */}
       <div style={{ marginBottom: 24 }}>
@@ -459,6 +547,7 @@ export default function TrainingDashboardPage() {
   const [certificates, setCertificates]           = useState<Certificate[]>([]);
   const [activeCourse, setActiveCourse]           = useState('3sfm');
   const [liveLinks, setLiveLinks]                 = useState<LiveLinksMap>({});
+  const [courseDescs, setCourseDescs]             = useState<CourseDescsMap>({});
   const [generating, setGenerating]               = useState(false);
   const [transcriptToast, setTranscriptToast]     = useState('');
   const [sidebarCollapsed, setSidebarCollapsed]   = useState(false);
@@ -510,10 +599,11 @@ export default function TrainingDashboardPage() {
     loadData(sess);
     fetch('/api/training/course-details?bust=1')
       .then(r => r.json())
-      .then((d: { sessions?: LiveSessionLink[] }) => {
+      .then((d: { sessions?: LiveSessionLink[]; courses?: CourseDescsMap }) => {
         const map: LiveLinksMap = {};
         for (const s of d.sessions ?? []) map[s.tabKey] = s;
         setLiveLinks(map);
+        if (d.courses) setCourseDescs(d.courses);
       })
       .catch(() => {});
   }, [router, loadData]);
@@ -917,6 +1007,7 @@ export default function TrainingDashboardPage() {
                 progressMap={progressMap}
                 certificates={certificates}
                 liveLinks={liveLinks}
+                courseDescs={courseDescs}
                 onDownloadTranscript={downloadTranscript}
                 generating={generating}
               />

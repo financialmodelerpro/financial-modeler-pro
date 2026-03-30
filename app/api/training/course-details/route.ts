@@ -2,10 +2,41 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/auth';
 import { getCourseDetails, updateCourseLink } from '@/src/lib/sheets';
+import { getServerClient } from '@/src/lib/supabase';
 
 // ── In-memory cache (5 minutes) ───────────────────────────────────────────────
-const _cache = new Map<string, { sessions: unknown[]; at: number }>();
+const _cache = new Map<string, { sessions: unknown[]; courses: Record<string, unknown>; at: number }>();
 const TTL_MS = 5 * 60 * 1000;
+
+async function fetchCourseDescriptions(): Promise<Record<string, unknown>> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('courses')
+      .select('category, tagline, full_description, what_you_learn, prerequisites, who_is_this_for, skill_level, duration_hours, language, certificate_description');
+    if (!data) return {};
+    const map: Record<string, unknown> = {};
+    for (const row of data as Record<string, unknown>[]) {
+      const cat = (row.category as string | null) ?? '';
+      if (cat) {
+        map[cat] = {
+          tagline:                row.tagline,
+          fullDescription:        row.full_description,
+          whatYouLearn:           Array.isArray(row.what_you_learn) ? row.what_you_learn : [],
+          prerequisites:          row.prerequisites,
+          whoIsThisFor:           row.who_is_this_for,
+          skillLevel:             row.skill_level,
+          durationHours:          row.duration_hours,
+          language:               row.language,
+          certificateDescription: row.certificate_description,
+        };
+      }
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
 
 export async function GET(req: NextRequest) {
   const course = req.nextUrl.searchParams.get('course') ?? undefined;
@@ -15,16 +46,19 @@ export async function GET(req: NextRequest) {
   if (!bust) {
     const hit = _cache.get(key);
     if (hit && Date.now() - hit.at < TTL_MS) {
-      return NextResponse.json({ sessions: hit.sessions });
+      return NextResponse.json({ sessions: hit.sessions, courses: hit.courses });
     }
   }
 
   try {
-    const sessions = await getCourseDetails(course);
-    _cache.set(key, { sessions, at: Date.now() });
-    return NextResponse.json({ sessions });
+    const [sessions, courses] = await Promise.all([
+      getCourseDetails(course),
+      fetchCourseDescriptions(),
+    ]);
+    _cache.set(key, { sessions, courses, at: Date.now() });
+    return NextResponse.json({ sessions, courses });
   } catch {
-    return NextResponse.json({ sessions: [] });
+    return NextResponse.json({ sessions: [], courses: {} });
   }
 }
 

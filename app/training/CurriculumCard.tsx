@@ -5,6 +5,18 @@ import Link from 'next/link';
 import type { CourseConfig } from '@/src/config/courses';
 import { getTrainingSession } from '@/src/lib/training-session';
 
+export interface CourseDescription {
+  tagline?: string;
+  fullDescription?: string;
+  whatYouLearn?: string[];
+  prerequisites?: string;
+  whoIsThisFor?: string;
+  skillLevel?: string;
+  durationHours?: number;
+  language?: string;
+  certificateDescription?: string;
+}
+
 interface Props {
   course: CourseConfig;
   accentColor: string;
@@ -12,6 +24,7 @@ interface Props {
   badgeColor: string;
   badgeBorder: string;
   sessionLabel: string;
+  description?: CourseDescription;
 }
 
 interface LiveSession {
@@ -27,15 +40,17 @@ export function CurriculumCard({
   badgeColor,
   badgeBorder,
   sessionLabel,
+  description,
 }: Props) {
-  const [open, setOpen]               = useState(false);
-  const [liveMap, setLiveMap]         = useState<Record<string, LiveSession>>({});
-  const [passedSet, setPassedSet]     = useState<Set<string>>(new Set());
-  const [loggedIn, setLoggedIn]       = useState(false);
-  const [linksLoading, setLinksLoading] = useState(false);
+  const [showDetails, setShowDetails]     = useState(false);
+  const [showAllLearn, setShowAllLearn]   = useState(false);
+  const [open, setOpen]                   = useState(false);
+  const [liveMap, setLiveMap]             = useState<Record<string, LiveSession>>({});
+  const [passedSet, setPassedSet]         = useState<Set<string>>(new Set());
+  const [loggedIn, setLoggedIn]           = useState(false);
+  const [linksLoading, setLinksLoading]   = useState(false);
   const fetched = useRef(false);
 
-  // Build tabKey from course + session id  e.g. 3SFM + S1 → 3SFM_S1
   const tabKey = (sessionId: string) =>
     `${course.shortTitle.toUpperCase()}_${sessionId}`;
 
@@ -74,6 +89,16 @@ export function CurriculumCard({
     Promise.all(fetches).finally(() => setLinksLoading(false));
   }, [open, course.id, course.shortTitle]);
 
+  const tagline       = description?.tagline       || course.description;
+  const learns        = description?.whatYouLearn   ?? [];
+  const visibleLearns = showAllLearn ? learns : learns.slice(0, 5);
+  const hasDetails    = !!(description?.whoIsThisFor || description?.prerequisites || description?.certificateDescription || learns.length > 0);
+
+  const metaItems: { icon: string; label: string }[] = [];
+  if (description?.durationHours) metaItems.push({ icon: '⏱', label: `${description.durationHours} Hours` });
+  if (description?.skillLevel)    metaItems.push({ icon: '📊', label: description.skillLevel });
+  if (description?.language)      metaItems.push({ icon: '🌐', label: description.language });
+
   return (
     <div style={{
       background: '#fff', borderRadius: 14,
@@ -82,7 +107,7 @@ export function CurriculumCard({
       boxShadow: '0 2px 16px rgba(0,0,0,0.06)',
     }}>
       {/* Header row */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 16 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 11, fontWeight: 700, color: accentColor, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6 }}>
             {course.shortTitle}
@@ -101,10 +126,24 @@ export function CurriculumCard({
         </span>
       </div>
 
-      <p style={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.65, marginBottom: 20 }}>
-        {course.description}
+      {/* Tagline */}
+      <p style={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.65, marginBottom: 16 }}>
+        {tagline}
       </p>
 
+      {/* Metadata row */}
+      {metaItems.length > 0 && (
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
+          {metaItems.map(m => (
+            <div key={m.label} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#374151', fontWeight: 600 }}>
+              <span style={{ fontSize: 13 }}>{m.icon}</span>
+              {m.label}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Certificate badge */}
       <div style={{
         display: 'inline-flex', alignItems: 'center', gap: 6,
         background: '#F0FFF4', border: '1px solid #BBF7D0',
@@ -115,6 +154,86 @@ export function CurriculumCard({
           Certificate issued via Certifier.io
         </span>
       </div>
+
+      {/* Show Course Details toggle */}
+      {hasDetails && (
+        <>
+          <button
+            onClick={() => setShowDetails(v => !v)}
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              width: '100%', padding: '11px 16px', borderRadius: 7,
+              background: 'transparent',
+              border: `1.5px solid #E5E7EB`,
+              color: '#374151',
+              fontWeight: 600, fontSize: 13, cursor: 'pointer',
+              marginBottom: showDetails ? 0 : 12,
+            }}
+          >
+            <span>{showDetails ? 'Hide Course Details' : 'Show Course Details'}</span>
+            <span style={{ fontSize: 11, color: '#9CA3AF' }}>{showDetails ? '▲' : '▼'}</span>
+          </button>
+
+          {showDetails && (
+            <div style={{ borderRadius: 8, border: '1px solid #E5E7EB', overflow: 'hidden', marginBottom: 12 }}>
+              {/* What You Will Learn */}
+              {learns.length > 0 && (
+                <div style={{ padding: '18px 20px', borderBottom: '1px solid #F3F4F6' }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
+                    What You Will Learn
+                  </div>
+                  <div style={{ display: 'grid', gap: 8 }}>
+                    {visibleLearns.map((item, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                        <span style={{ color: '#2EAA4A', fontWeight: 700, fontSize: 13, flexShrink: 0, marginTop: 1 }}>✓</span>
+                        <span style={{ fontSize: 13, color: '#374151', lineHeight: 1.5 }}>{item}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {learns.length > 5 && (
+                    <button
+                      onClick={() => setShowAllLearn(v => !v)}
+                      style={{ marginTop: 10, fontSize: 12, fontWeight: 700, color: accentColor, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}
+                    >
+                      {showAllLearn ? '← Show less' : `Show all ${learns.length} →`}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Who Is This For */}
+              {description?.whoIsThisFor && (
+                <div style={{ padding: '16px 20px', borderBottom: description?.prerequisites || description?.certificateDescription ? '1px solid #F3F4F6' : undefined }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
+                    Who Is This For
+                  </div>
+                  <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.6, margin: 0 }}>{description.whoIsThisFor}</p>
+                </div>
+              )}
+
+              {/* Prerequisites */}
+              {description?.prerequisites && (
+                <div style={{ padding: '16px 20px', borderBottom: description?.certificateDescription ? '1px solid #F3F4F6' : undefined }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
+                    Prerequisites
+                  </div>
+                  <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.6, margin: 0 }}>{description.prerequisites}</p>
+                </div>
+              )}
+
+              {/* Certificate */}
+              {description?.certificateDescription && (
+                <div style={{ padding: '16px 20px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 800, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
+                    Certificate
+                  </div>
+                  <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.6, margin: 0 }}>{description.certificateDescription}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
 
       {/* View Curriculum toggle */}
       <button
@@ -146,7 +265,6 @@ export function CurriculumCard({
             const ytUrl   = live?.youtubeUrl || session.youtubeUrl || '';
             const formUrl = live?.formUrl    || session.quizFormUrl || '';
 
-            // Locking logic
             let locked = false;
             if (session.isFinal) {
               locked = !course.sessions.filter(s => !s.isFinal).every(s => passedSet.has(s.id));
