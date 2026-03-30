@@ -190,6 +190,8 @@ export default function AdminCourseLessonsPage() {
   const [attempts, setAttempts] = useState<AssessmentAttempt[]>([]);
   const [attemptsLoading, setAttemptsLoading] = useState(false);
 
+  const [expandedLesson, setExpandedLesson] = useState<string | null>(null);
+
   // ── Session Links state ──────────────────────────────────────────────────────
   interface SessionLink {
     tabKey: string; num: number; sessionName: string; isFinal: boolean;
@@ -289,10 +291,14 @@ export default function AdminCourseLessonsPage() {
 
   function openEditLesson(l: Lesson) {
     setEditLesson(l);
-    setLessonForm({ title: l.title, youtube_url: l.youtube_url, description: l.description, file_url: l.file_url ?? '', duration_minutes: l.duration_minutes, display_order: l.display_order });
+    // Pre-fill YouTube URL and duration from Apps Script session link if not set on lesson
+    const matchingLink = sessionLinks.find(s => s.num === l.display_order);
+    const ytUrl = l.youtube_url || matchingLink?.youtubeUrl || '';
+    const dur   = l.duration_minutes > 0 ? l.duration_minutes : (matchingLink?.videoDuration ?? 0);
+    setLessonForm({ title: l.title, youtube_url: ytUrl, description: l.description, file_url: l.file_url ?? '', duration_minutes: dur, display_order: l.display_order });
     setYtThumb(null);
     setYtError('');
-    if (l.youtube_url) checkYouTube(l.youtube_url);
+    if (ytUrl) checkYouTube(ytUrl);
     setShowLessonForm(true);
   }
 
@@ -612,93 +618,68 @@ export default function AdminCourseLessonsPage() {
                     No lessons yet. Click &quot;+ Add Lesson&quot; to add the first one.
                   </div>
                 )}
-                {lessons.map(l => (
-                  <div key={l.id} style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 10, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: 16 }}>
-                    <div style={{ fontSize: 14, color: '#9CA3AF', width: 24, textAlign: 'center' }}>{l.display_order}</div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 14, fontWeight: 600, color: '#1B3A6B', marginBottom: 2 }}>{l.title}</div>
-                      <div style={{ fontSize: 12, color: '#9CA3AF' }}>{l.duration_minutes} min · {l.youtube_url ? 'YouTube' : 'No video'}</div>
+                {lessons.map(l => {
+                  const link = sessionLinks.find(s => s.num === l.display_order);
+                  const displayYtUrl  = l.youtube_url || link?.youtubeUrl || '';
+                  const displayDuration = l.duration_minutes > 0 ? l.duration_minutes : (link?.videoDuration ?? 0);
+                  const ytId = displayYtUrl ? extractYouTubeId(displayYtUrl) : null;
+                  const isExpanded = expandedLesson === l.id;
+                  return (
+                    <div key={l.id} style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 10, overflow: 'hidden' }}>
+                      <div style={{ padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 16 }}>
+                        <div style={{ fontSize: 14, color: '#9CA3AF', width: 24, textAlign: 'center', flexShrink: 0 }}>{l.display_order}</div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, color: '#1B3A6B', marginBottom: 4 }}>{l.title}</div>
+                          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                            <span style={{ fontSize: 12, color: displayDuration > 0 ? '#374151' : '#D1D5DB' }}>
+                              ⏱ {displayDuration > 0 ? `${displayDuration} min` : '— min'}
+                              {!l.duration_minutes && link?.videoDuration ? <span style={{ fontSize: 10, color: '#9CA3AF' }}> (from registry)</span> : null}
+                            </span>
+                            {displayYtUrl ? (
+                              <a href={displayYtUrl} target="_blank" rel="noopener noreferrer"
+                                style={{ fontSize: 12, color: '#DC2626', fontWeight: 700, textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 3 }}>
+                                ▶ {displayYtUrl.replace('https://www.youtube.com/watch?v=', 'yt/').replace('https://youtu.be/', 'yt/').slice(0, 24)}
+                                {!l.youtube_url && link?.youtubeUrl ? <span style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 400 }}> (registry)</span> : null}
+                              </a>
+                            ) : (
+                              <span style={{ fontSize: 12, color: '#D1D5DB' }}>No video</span>
+                            )}
+                            {link?.formUrl && (
+                              <a href={link.formUrl} target="_blank" rel="noopener noreferrer"
+                                style={{ fontSize: 11, color: '#1B4F8A', textDecoration: 'none', border: '1px solid #C7D9F2', borderRadius: 4, padding: '1px 7px' }}>
+                                Form ↗
+                              </a>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                          {ytId && (
+                            <button
+                              onClick={() => setExpandedLesson(isExpanded ? null : l.id)}
+                              style={{ fontSize: 12, color: '#DC2626', background: 'none', border: '1px solid rgba(220,38,38,0.3)', borderRadius: 5, cursor: 'pointer', padding: '4px 10px' }}>
+                              {isExpanded ? '▲ Hide' : '▶ Preview'}
+                            </button>
+                          )}
+                          <button onClick={() => openEditLesson(l)} style={{ fontSize: 12, color: '#1B4F8A', background: 'none', border: '1px solid #C7D9F2', borderRadius: 5, cursor: 'pointer', padding: '4px 10px', fontWeight: 600 }}>Edit</button>
+                          <button onClick={() => deleteLesson(l.id)} style={{ fontSize: 12, color: '#DC2626', background: 'none', border: '1px solid rgba(220,38,38,0.3)', borderRadius: 5, cursor: 'pointer', padding: '4px 10px' }}>Delete</button>
+                        </div>
+                      </div>
+                      {isExpanded && ytId && (
+                        <div style={{ borderTop: '1px solid #E8F0FB', background: '#000', lineHeight: 0 }}>
+                          <iframe
+                            src={`https://www.youtube.com/embed/${ytId}`}
+                            width="100%" height="260" style={{ border: 'none', display: 'block' }}
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowFullScreen
+                          />
+                        </div>
+                      )}
                     </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <button onClick={() => openEditLesson(l)} style={{ fontSize: 12, color: '#1B4F8A', background: 'none', border: '1px solid #C7D9F2', borderRadius: 5, cursor: 'pointer', padding: '4px 10px', fontWeight: 600 }}>Edit</button>
-                      <button onClick={() => deleteLesson(l.id)} style={{ fontSize: 12, color: '#DC2626', background: 'none', border: '1px solid rgba(220,38,38,0.3)', borderRadius: 5, cursor: 'pointer', padding: '4px 10px' }}>Delete</button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </>
-        )}
-
-        {/* ── SESSION LINKS (within Lessons tab) ───────────────────────────── */}
-        {activeTab === 'lessons' && (
-          <div style={{ marginTop: 32 }}>
-            <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1B3A6B', marginBottom: 14 }}>
-              Session Links <span style={{ fontSize: 12, fontWeight: 400, color: '#9CA3AF' }}>(YouTube URLs · Video Duration · Form URLs)</span>
-            </h2>
-            {sessionLinksLoading ? (
-              <div style={{ textAlign: 'center', padding: 40, color: '#6B7280' }}>Loading sessions…</div>
-            ) : sessionLinks.length === 0 ? (
-              <div style={{ background: '#fff', border: '1px dashed #D1D5DB', borderRadius: 12, padding: 32, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>
-                No sessions found. Click &quot;Sync from Apps Script&quot; to load.
-              </div>
-            ) : (
-              <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, overflow: 'hidden' }}>
-                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ borderBottom: '2px solid #E8F0FB', background: '#F8FAFD' }}>
-                      {['#', 'Session', 'YouTube URL', 'Video Duration', 'Form URL', ''].map(h => (
-                        <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sessionLinks.map(s => (
-                      <tr key={s.tabKey} style={{ borderBottom: '1px solid #F3F4F6' }}>
-                        <td style={{ padding: '10px 14px', color: '#9CA3AF', width: 36 }}>{s.num}</td>
-                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#1B3A6B', maxWidth: 220 }}>
-                          {s.sessionName}
-                          {s.isFinal && <span style={{ marginLeft: 6, fontSize: 10, background: '#FEF9C3', color: '#854D0E', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>FINAL</span>}
-                        </td>
-                        <td style={{ padding: '10px 14px', maxWidth: 200 }}>
-                          {s.youtubeUrl ? (
-                            <a href={s.youtubeUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#1B4F8A', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', maxWidth: 180 }}>
-                              {s.youtubeUrl.replace('https://www.youtube.com/watch?v=', 'yt/').replace('https://youtu.be/', 'yt/')}
-                            </a>
-                          ) : (
-                            <span style={{ color: '#D1D5DB', fontSize: 12 }}>— not set —</span>
-                          )}
-                        </td>
-                        <td style={{ padding: '10px 14px', width: 120 }}>
-                          {s.videoDuration > 0 ? (
-                            <span style={{ fontSize: 12, color: '#374151' }}>{s.videoDuration} min</span>
-                          ) : (
-                            <span style={{ fontSize: 12, color: '#D1D5DB' }}>— no lock —</span>
-                          )}
-                        </td>
-                        <td style={{ padding: '10px 14px', maxWidth: 160 }}>
-                          {s.formUrl ? (
-                            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                              <a href={s.formUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: '#1B4F8A', textDecoration: 'none', border: '1px solid #C7D9F2', borderRadius: 4, padding: '2px 7px', whiteSpace: 'nowrap' }}>Open ↗</a>
-                              <button
-                                onClick={() => navigator.clipboard.writeText(s.formUrl).then(() => showToast('Copied'), () => showToast('Copy failed', 'error'))}
-                                style={{ fontSize: 11, color: '#6B7280', background: 'none', border: '1px solid #E5E7EB', borderRadius: 4, cursor: 'pointer', padding: '2px 7px', whiteSpace: 'nowrap' }}
-                              >Copy</button>
-                            </div>
-                          ) : (
-                            <span style={{ fontSize: 12, color: '#D1D5DB' }}>— no form —</span>
-                          )}
-                        </td>
-                        <td style={{ padding: '10px 14px', width: 60 }}>
-                          <button onClick={() => openEditSessionLink(s)} style={{ fontSize: 12, color: '#1B4F8A', background: 'none', border: '1px solid #C7D9F2', borderRadius: 5, cursor: 'pointer', padding: '4px 10px', fontWeight: 600 }}>Edit</button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
         )}
 
         {/* ── ASSESSMENT TAB ────────────────────────────────────────────────── */}

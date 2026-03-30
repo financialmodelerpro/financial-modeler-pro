@@ -1272,7 +1272,7 @@ export default function TrainingDashboardPage() {
             ) : (
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: sidebarCollapsed ? 0 : 10 }}>
-                  <div title={studentName || 'Student'} style={{ width: 40, height: 40, borderRadius: '50%', background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: '#fff', flexShrink: 0, overflow: 'hidden', flexShrink: 0 }}>
+                  <div title={studentName || 'Student'} style={{ width: 40, height: 40, borderRadius: '50%', background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: '#fff', flexShrink: 0, overflow: 'hidden' }}>
                     {avatarUrl ? <img src={avatarUrl} alt={studentName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials}
                   </div>
                   {!sidebarCollapsed && (
@@ -1959,9 +1959,9 @@ function ProfileModal({ registrationId, initial, onClose, onSave }: {
   const [notifyM, setNotifyM]         = useState(initial?.notify_milestones ?? true);
   const [notifyR, setNotifyR]         = useState(initial?.notify_reminders ?? true);
   const [saving, setSaving]           = useState(false);
-  const fileRef                        = React.useRef<HTMLInputElement>(null);
+  const fileRef                        = useRef<HTMLInputElement>(null);
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleFileChange(e: { target: { files: FileList | null } }) {
     const file = e.target.files?.[0];
     if (!file) return;
     const reader = new FileReader();
