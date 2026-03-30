@@ -205,7 +205,7 @@ export function CurriculumCard({
                           >
                             ▶ Watch
                           </a>
-                        ) : (
+                        ) : !session.isFinal ? (
                           <span style={{
                             display: 'inline-flex', alignItems: 'center', gap: 4,
                             padding: '4px 10px', borderRadius: 5, fontSize: 11, fontWeight: 600,
@@ -213,7 +213,7 @@ export function CurriculumCard({
                           }}>
                             ▶ Coming Soon
                           </span>
-                        )}
+                        ) : null}
 
                         {/* Assessment button */}
                         {!loggedIn ? (
