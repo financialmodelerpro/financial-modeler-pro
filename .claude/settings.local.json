@@ -59,7 +59,12 @@
       "Bash(cp:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(for f:*)",
+      "Bash(do echo:*)",
+      "Read(//d/FMP/financial-modeler-pro/app/admin/training-hub/**)",
+      "Bash(done)",
+      "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); print\\(data[0][''''text'''']\\)\")"
     ]
   }
 }

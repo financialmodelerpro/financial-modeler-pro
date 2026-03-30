@@ -371,7 +371,7 @@ function TranscriptDocument({
           </View>
           <View style={s.hRight}>
             <View style={s.hBadge}>
-              <Text style={s.hBadgeText}>FMP Training Academy</Text>
+              <Text style={s.hBadgeText}>FMP Training Hub</Text>
             </View>
           </View>
         </View>

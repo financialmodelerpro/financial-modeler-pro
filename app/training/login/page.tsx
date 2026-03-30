@@ -81,7 +81,7 @@ export default function TrainingLoginPage() {
             </div>
           </Link>
           <div style={{ marginTop: 6, fontSize: 11, fontWeight: 700, color: '#2EAA4A', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            Training Academy
+            Training Hub
           </div>
         </div>
 

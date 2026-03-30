@@ -126,7 +126,7 @@ export default async function CertificatePage({ searchParams }: Props) {
                   Financial Modeler Pro
                 </div>
                 <div style={{ fontSize: 10, color: '#9CA3AF', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                  Training Academy
+                  Training Hub
                 </div>
               </div>
             </div>

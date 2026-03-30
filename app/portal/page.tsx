@@ -305,7 +305,7 @@ function MyCertificates({ userEmail }: { userEmail: string | null | undefined })
               whiteSpace: 'nowrap', flexShrink: 0,
             }}
           >
-            Visit Training Academy →
+            Visit Training Hub →
           </a>
         </div>
       )}

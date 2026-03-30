@@ -19,6 +19,8 @@ export async function PUT(req: NextRequest) {
       linkedinUrl?: string;
       notifyMilestones?: boolean;
       notifyReminders?: boolean;
+      displayName?: string;
+      avatarUrl?: string;
     };
     if (!body.registrationId) return NextResponse.json({ ok: false }, { status: 400 });
     const sb = getServerClient();
@@ -30,6 +32,8 @@ export async function PUT(req: NextRequest) {
       linkedin_url:      body.linkedinUrl ?? null,
       notify_milestones: body.notifyMilestones ?? true,
       notify_reminders:  body.notifyReminders ?? true,
+      display_name:      body.displayName ?? null,
+      avatar_url:        body.avatarUrl ?? null,
       updated_at:        new Date().toISOString(),
     }, { onConflict: 'registration_id' });
     return NextResponse.json({ ok: true });

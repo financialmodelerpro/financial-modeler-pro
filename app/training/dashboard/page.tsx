@@ -138,12 +138,15 @@ interface SessionCardProps {
   onNoteSave: (sessionKey: string, content: string) => void;
   feedbackGiven: boolean;
   onFeedbackRequest: (sessionKey: string, sessionTitle: string) => void;
+  /** When true the entire BVM course is locked — show course content but lock Watch + Assessment buttons */
+  bvmLocked?: boolean;
 }
 
 function SessionCard({
   sessionTitle, maxAttempts, questionCount, passingScore,
   idx, prog, locked, ytUrl, formUrl, isFinal, passedCount, regularCount,
   tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
+  bvmLocked,
 }: SessionCardProps) {
   const [timerStatus, setTimerStatus] = useState<TimerStatus>({ locked: false, minutesRemaining: 0, started: false });
   const [notesOpen, setNotesOpen] = useState(false);
@@ -234,7 +237,12 @@ function SessionCard({
       {/* Row 3: action buttons */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingLeft: locked ? 0 : 38 }}>
         {/* Watch Video */}
-        {ytUrl ? (
+        {bvmLocked ? (
+          <span title="Complete 3-Statement Financial Modeling first to unlock"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#FEF2F2', color: '#FCA5A5', whiteSpace: 'nowrap', cursor: 'default' }}>
+            🔒 Watch Video
+          </span>
+        ) : ytUrl ? (
           <a href={ytUrl} target="_blank" rel="noopener noreferrer"
             onClick={() => {
               startTimer(regId, tabKey, videoDuration);
@@ -243,15 +251,19 @@ function SessionCard({
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: '#FF0000', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
             ▶ Watch Video
           </a>
-        ) : !isFinal ? (
-          // Regular sessions without video: show Coming Soon
+        ) : (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#F3F4F6', color: '#9CA3AF', whiteSpace: 'nowrap' }}>
             📹 Coming Soon
           </span>
-        ) : null /* Final exam without video: hide entirely */}
+        )}
 
         {/* Assessment */}
-        {locked ? (
+        {bvmLocked ? (
+          <span title="Complete 3-Statement Financial Modeling first to unlock"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#FEF2F2', color: '#FCA5A5', whiteSpace: 'nowrap', cursor: 'default' }}>
+            🔒 {isFinal ? 'Final Exam Locked' : 'Assessment Locked'}
+          </span>
+        ) : locked ? (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#FEF2F2', color: '#FCA5A5', whiteSpace: 'nowrap' }}>
             🔒 {isFinal ? 'Final Exam Locked' : 'Locked'}
           </span>
@@ -411,9 +423,14 @@ interface CourseContentProps {
   onNoteSave: (sessionKey: string, content: string) => void;
   feedbackGiven: Set<string>;
   onFeedbackRequest: (sessionKey: string, sessionTitle: string) => void;
+  /** BVM course-level lock — show content but lock Watch + Assessment buttons */
+  bvmLocked?: boolean;
+  sfmProgress?: number;
+  sfmTotal?: number;
+  onSwitchTo3sfm?: () => void;
 }
 
-function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating, studentName, onShare, testimonialSubmitted, onOpenTestimonial, notes, onNoteSave, feedbackGiven, onFeedbackRequest }: CourseContentProps) {
+function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating, studentName, onShare, testimonialSubmitted, onOpenTestimonial, notes, onNoteSave, feedbackGiven, onFeedbackRequest, bvmLocked, sfmProgress = 0, sfmTotal = 0, onSwitchTo3sfm }: CourseContentProps) {
   const course = COURSES[courseId];
   if (!course) return null;
 
@@ -483,6 +500,22 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
 
   return (
     <div>
+      {/* BVM prerequisite banner */}
+      {bvmLocked && (
+        <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10, padding: '14px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: 13, color: '#DC2626', fontWeight: 700, marginBottom: 4 }}>🔒 Business Valuation Modeling is Locked</div>
+            <div style={{ fontSize: 12, color: '#9CA3AF' }}>Complete 3-Statement Financial Modeling first to unlock Watch and Assessment buttons. You can browse the course content below.</div>
+            {sfmTotal > 0 && <div style={{ fontSize: 12, color: '#B91C1C', marginTop: 4, fontWeight: 600 }}>3SFM Progress: {sfmProgress} / {sfmTotal} sessions passed</div>}
+          </div>
+          {onSwitchTo3sfm && (
+            <button onClick={onSwitchTo3sfm} style={{ padding: '7px 16px', borderRadius: 7, background: '#1B4F8A', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+              Continue 3SFM →
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Course Header */}
       <div style={{ background: 'linear-gradient(135deg, #0D2E5A 0%, #1B4F8A 100%)', borderRadius: 12, padding: '24px 28px', marginBottom: 20, color: '#fff' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -598,6 +631,7 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
               onNoteSave={onNoteSave}
               feedbackGiven={feedbackGiven.has(tk)}
               onFeedbackRequest={onFeedbackRequest}
+              bvmLocked={bvmLocked}
             />
           );
         })}
@@ -648,7 +682,7 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
       {recentlyPassed && !dismissedBanners.has(recentlyPassed.key) && (
         <div style={{ background: 'linear-gradient(135deg,#EFF6FF,#DBEAFE)', border: '1px solid #BFDBFE', borderRadius: 10, padding: '14px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ fontSize: 13, color: '#1E40AF', fontWeight: 600 }}>
-            🎉 You {recentlyPassed.label} in <strong>{course.shortTitle}</strong>! Share your achievement?
+            🎉 You {recentlyPassed.label} in <strong>{course.shortTitle}</strong>! Share Your Achievement
           </div>
           <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
             <button onClick={() => onShare(recentlyPassed.label)}
@@ -903,7 +937,8 @@ export default function TrainingDashboardPage() {
   const [feedbackModal, setFeedbackModal]         = useState<{ sessionKey: string; sessionTitle: string } | null>(null);
   // profile
   const [profileModal, setProfileModal]           = useState(false);
-  const [studentProfile, setStudentProfile]       = useState<{ job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean } | null>(null);
+  const [profileDropdown, setProfileDropdown]     = useState(false);
+  const [studentProfile, setStudentProfile]       = useState<{ job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; display_name?: string; avatar_url?: string } | null>(null);
 
   // Restore sidebar state from localStorage (client-only)
   useEffect(() => {
@@ -938,7 +973,7 @@ export default function TrainingDashboardPage() {
         progressRes.json() as Promise<{ success: boolean; fallback?: boolean; data?: ProgressData }>,
         detailsRes.json() as Promise<{ sessions?: LiveSessionLink[]; courses?: CourseDescsMap }>,
         notesRes.json() as Promise<{ notes?: { session_key: string; content: string }[] }>,
-        profileRes.json() as Promise<{ profile?: { job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; streak_days?: number; total_points?: number } | null }>,
+        profileRes.json() as Promise<{ profile?: { job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; streak_days?: number; total_points?: number; display_name?: string; avatar_url?: string } | null }>,
       ]);
 
       // Apply notes
@@ -1076,9 +1111,10 @@ export default function TrainingDashboardPage() {
   const sfmRegular    = COURSES['3sfm']?.sessions.filter(s => !s.isFinal) ?? [];
   const sfmPassedCount = sfmRegular.filter(s => progressMap.get(s.id)?.passed).length;
 
-  // Student avatar initials
-  const studentName = progress?.student.name ?? '';
+  // Student avatar initials — prefer profile display_name over registration name
+  const studentName = studentProfile?.display_name || progress?.student.name || '';
   const initials = studentName.split(' ').map((w: string) => w[0] ?? '').filter(Boolean).join('').toUpperCase().slice(0, 2) || 'ST';
+  const avatarUrl = studentProfile?.avatar_url || '';
 
   // Overall progress
   const totalSessions = enrolledCourses.reduce((s, cId) => s + (COURSES[cId]?.sessions.filter(x => !x.isFinal).length ?? 0), 0);
@@ -1142,7 +1178,7 @@ export default function TrainingDashboardPage() {
             ☰
           </button>
           <div style={{ width: 28, height: 28, borderRadius: 6, background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>🎓</div>
-          <span style={{ fontSize: 14, fontWeight: 800, color: '#fff' }}>Training Academy</span>
+          <span style={{ fontSize: 14, fontWeight: 800, color: '#fff' }}>Training Hub</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {lastUpdated && !loading && (
@@ -1164,9 +1200,45 @@ export default function TrainingDashboardPage() {
             style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
             🔗 Share
           </button>
-          <button onClick={handleLogout} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, cursor: 'pointer' }}>
-            Logout
-          </button>
+          {/* Profile avatar dropdown */}
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setProfileDropdown(v => !v)}
+              style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '4px 10px 4px 4px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 20, cursor: 'pointer', color: '#fff' }}
+            >
+              <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', overflow: 'hidden', flexShrink: 0 }}>
+                {avatarUrl ? <img src={avatarUrl} alt={studentName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials}
+              </div>
+              <span style={{ fontSize: 12, fontWeight: 700, maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {studentName || localSession?.registrationId || 'Student'}
+              </span>
+              <span style={{ fontSize: 10, opacity: 0.6 }}>▾</span>
+            </button>
+            {profileDropdown && (
+              <div
+                style={{ position: 'absolute', right: 0, top: '100%', marginTop: 6, background: '#fff', borderRadius: 10, boxShadow: '0 8px 30px rgba(0,0,0,0.18)', minWidth: 180, zIndex: 300, overflow: 'hidden', border: '1px solid #E5E7EB' }}
+                onMouseLeave={() => setProfileDropdown(false)}
+              >
+                <div style={{ padding: '10px 14px 6px', borderBottom: '1px solid #F3F4F6' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#0D2E5A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{studentName || 'Student'}</div>
+                  {studentProfile?.linkedin_url && (
+                    <a href={studentProfile.linkedin_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: '#0A66C2', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 3, marginTop: 3 }}>
+                      in LinkedIn Profile ↗
+                    </a>
+                  )}
+                </div>
+                {[
+                  { icon: '👤', label: 'Edit Profile', action: () => { setProfileModal(true); setProfileDropdown(false); } },
+                  { icon: '🚪', label: 'Logout', action: () => { setProfileDropdown(false); handleLogout(); }, color: '#DC2626' },
+                ].map(item => (
+                  <button key={item.label} onClick={item.action}
+                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: 'none', border: 'none', fontSize: 13, color: item.color ?? '#374151', cursor: 'pointer', fontWeight: 600, textAlign: 'left' }}>
+                    <span>{item.icon}</span> {item.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1200,8 +1272,8 @@ export default function TrainingDashboardPage() {
             ) : (
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: sidebarCollapsed ? 0 : 10 }}>
-                  <div title={studentName || 'Student'} style={{ width: 40, height: 40, borderRadius: '50%', background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
-                    {initials}
+                  <div title={studentName || 'Student'} style={{ width: 40, height: 40, borderRadius: '50%', background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: '#fff', flexShrink: 0, overflow: 'hidden', flexShrink: 0 }}>
+                    {avatarUrl ? <img src={avatarUrl} alt={studentName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials}
                   </div>
                   {!sidebarCollapsed && (
                     <div style={{ minWidth: 0 }}>
@@ -1499,33 +1571,29 @@ export default function TrainingDashboardPage() {
 
           {/* Course content */}
           {!loading && progress && (
-            showLockedBvm ? (
-              <BvmLockedContent
-                sfmProgress={sfmPassedCount}
-                sfmTotal={sfmRegular.length}
-                onContinue={() => setActiveCourse('3sfm')}
-              />
-            ) : (
-              <CourseContent
-                courseId={displayCourse}
-                progressMap={progressMap}
-                certificates={certificates}
-                liveLinks={liveLinks}
-                courseDescs={courseDescs}
-                regId={localSession?.registrationId ?? ''}
-                onDownloadTranscript={downloadTranscript}
-                generating={generating}
-                studentName={progress?.student.name ?? ''}
-                studentEmail={progress?.student.email ?? ''}
-                onShare={(label, certUrl) => setShareModal({ label, certUrl })}
-                testimonialSubmitted={testimonialSubmitted}
-                onOpenTestimonial={type => setTestimonialModal(type)}
-                notes={notes}
-                onNoteSave={saveNote}
-                feedbackGiven={feedbackGiven}
-                onFeedbackRequest={(sessionKey, sessionTitle) => setFeedbackModal({ sessionKey, sessionTitle })}
-              />
-            )
+            <CourseContent
+              courseId={displayCourse}
+              progressMap={progressMap}
+              certificates={certificates}
+              liveLinks={liveLinks}
+              courseDescs={courseDescs}
+              regId={localSession?.registrationId ?? ''}
+              onDownloadTranscript={downloadTranscript}
+              generating={generating}
+              studentName={progress?.student.name ?? ''}
+              studentEmail={progress?.student.email ?? ''}
+              onShare={(label, certUrl) => setShareModal({ label, certUrl })}
+              testimonialSubmitted={testimonialSubmitted}
+              onOpenTestimonial={type => setTestimonialModal(type)}
+              notes={notes}
+              onNoteSave={saveNote}
+              feedbackGiven={feedbackGiven}
+              onFeedbackRequest={(sessionKey, sessionTitle) => setFeedbackModal({ sessionKey, sessionTitle })}
+              bvmLocked={showLockedBvm}
+              sfmProgress={sfmPassedCount}
+              sfmTotal={sfmRegular.length}
+              onSwitchTo3sfm={() => setActiveCourse('3sfm')}
+            />
           )}
         </main>
       </div>
@@ -1877,10 +1945,13 @@ function FeedbackModal({ sessionTitle, onClose, onSubmit }: {
 
 function ProfileModal({ registrationId, initial, onClose, onSave }: {
   registrationId: string;
-  initial: { job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean } | null;
+  initial: { job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; display_name?: string; avatar_url?: string } | null;
   onClose: () => void;
-  onSave: (p: { job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean }) => void;
+  onSave: (p: { job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; display_name?: string; avatar_url?: string }) => void;
 }) {
+  const [displayName, setDisplayName] = useState(initial?.display_name ?? '');
+  const [avatarUrl, setAvatarUrl]     = useState(initial?.avatar_url ?? '');
+  const [avatarPreview, setAvatarPreview] = useState(initial?.avatar_url ?? '');
   const [jobTitle, setJobTitle]       = useState(initial?.job_title ?? '');
   const [company, setCompany]         = useState(initial?.company ?? '');
   const [location, setLocation]       = useState(initial?.location ?? '');
@@ -1888,35 +1959,72 @@ function ProfileModal({ registrationId, initial, onClose, onSave }: {
   const [notifyM, setNotifyM]         = useState(initial?.notify_milestones ?? true);
   const [notifyR, setNotifyR]         = useState(initial?.notify_reminders ?? true);
   const [saving, setSaving]           = useState(false);
+  const fileRef                        = React.useRef<HTMLInputElement>(null);
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      const data = ev.target?.result as string;
+      setAvatarUrl(data);
+      setAvatarPreview(data);
+    };
+    reader.readAsDataURL(file);
+  }
 
   async function handleSave() {
     setSaving(true);
     await fetch('/api/training/profile', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ registrationId, jobTitle, company, location, linkedinUrl, notifyMilestones: notifyM, notifyReminders: notifyR }),
+      body: JSON.stringify({ registrationId, jobTitle, company, location, linkedinUrl, notifyMilestones: notifyM, notifyReminders: notifyR, displayName, avatarUrl }),
     });
-    onSave({ job_title: jobTitle, company, location, linkedin_url: linkedinUrl, notify_milestones: notifyM, notify_reminders: notifyR });
+    onSave({ job_title: jobTitle, company, location, linkedin_url: linkedinUrl, notify_milestones: notifyM, notify_reminders: notifyR, display_name: displayName, avatar_url: avatarUrl });
     setSaving(false);
   }
 
-  const fields = [
-    { label: 'Job Title', value: jobTitle, setter: setJobTitle, placeholder: 'e.g. Financial Analyst' },
-    { label: 'Company',   value: company,  setter: setCompany,  placeholder: 'e.g. Goldman Sachs' },
-    { label: 'Location',  value: location, setter: setLocation, placeholder: 'e.g. Lagos, Nigeria' },
-    { label: 'LinkedIn',  value: linkedinUrl, setter: setLinkedinUrl, placeholder: 'https://linkedin.com/in/...' },
-  ];
+  const initials = displayName.split(' ').map((w: string) => w[0] ?? '').filter(Boolean).join('').toUpperCase().slice(0, 2) || 'ST';
 
   return (
     <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 650, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 440, padding: '24px', boxShadow: '0 16px 48px rgba(0,0,0,0.25)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-          <div style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A' }}>👤 My Profile</div>
+      <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 460, maxHeight: '90vh', overflowY: 'auto', padding: '24px', boxShadow: '0 16px 48px rgba(0,0,0,0.25)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A' }}>👤 Edit Profile</div>
           <button onClick={onClose} style={{ fontSize: 18, background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}>✕</button>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
-          {fields.map(f => (
+
+        {/* Avatar */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+          <div style={{ width: 64, height: 64, borderRadius: '50%', background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 800, color: '#fff', overflow: 'hidden', flexShrink: 0 }}>
+            {avatarPreview ? <img src={avatarPreview} alt="avatar" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials}
+          </div>
+          <div>
+            <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFileChange} />
+            <button onClick={() => fileRef.current?.click()}
+              style={{ fontSize: 12, fontWeight: 700, color: '#1B4F8A', background: '#EEF2FF', border: '1px solid #C7D2FE', borderRadius: 6, padding: '6px 12px', cursor: 'pointer', marginBottom: 4, display: 'block' }}>
+              Upload Photo
+            </button>
+            <div style={{ fontSize: 10, color: '#9CA3AF' }}>JPG, PNG, GIF · Max 2MB</div>
+          </div>
+        </div>
+
+        {/* Display Name */}
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', marginBottom: 4 }}>DISPLAY NAME</div>
+          <input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Your full name"
+            style={{ width: '100%', padding: '8px 10px', border: '1px solid #E5E7EB', borderRadius: 6, fontSize: 13, fontFamily: 'Inter,sans-serif', boxSizing: 'border-box' }} />
+        </div>
+
+        {/* Professional details */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+          {[
+            { label: 'Job Title', value: jobTitle, setter: setJobTitle, placeholder: 'e.g. Financial Analyst' },
+            { label: 'Company',   value: company,  setter: setCompany,  placeholder: 'e.g. Goldman Sachs' },
+            { label: 'Location',  value: location, setter: setLocation, placeholder: 'e.g. Lagos, Nigeria' },
+            { label: 'LinkedIn',  value: linkedinUrl, setter: setLinkedinUrl, placeholder: 'https://linkedin.com/in/...' },
+          ].map(f => (
             <div key={f.label}>
               <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', marginBottom: 4 }}>{f.label.toUpperCase()}</div>
               <input value={f.value} onChange={e => f.setter(e.target.value)} placeholder={f.placeholder}
@@ -1924,6 +2032,7 @@ function ProfileModal({ registrationId, initial, onClose, onSave }: {
             </div>
           ))}
         </div>
+
         <div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 14, marginBottom: 16 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', marginBottom: 8 }}>NOTIFICATIONS</div>
           <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'pointer', fontSize: 12, color: '#374151' }}>
