@@ -133,8 +133,10 @@ const defaultQuestionForm = () => ({
 export default function AdminCourseLessonsPage() {
   const { courseId } = useParams<{ courseId: string }>();
 
+  // ─── Session Link types ───────────────────────────────────────────────────────
+
   // Shared state
-  const [course, setCourse] = useState<{ title?: string } | null>(null);
+  const [course, setCourse] = useState<{ title?: string; category?: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'lessons' | 'assessment'>('lessons');
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
@@ -187,6 +189,18 @@ export default function AdminCourseLessonsPage() {
   const [attemptsOpen, setAttemptsOpen] = useState(false);
   const [attempts, setAttempts] = useState<AssessmentAttempt[]>([]);
   const [attemptsLoading, setAttemptsLoading] = useState(false);
+
+  // ── Session Links state ──────────────────────────────────────────────────────
+  interface SessionLink {
+    tabKey: string; num: number; sessionName: string; isFinal: boolean;
+    formUrl: string; youtubeUrl: string; videoDuration: number; hasForm: boolean;
+  }
+  const [sessionLinks, setSessionLinks] = useState<SessionLink[]>([]);
+  const [sessionLinksLoading, setSessionLinksLoading] = useState(false);
+  const [showSessionModal, setShowSessionModal] = useState(false);
+  const [editSessionLink, setEditSessionLink] = useState<SessionLink | null>(null);
+  const [sessionLinkForm, setSessionLinkForm] = useState({ youtubeUrl: '', videoDuration: 0 });
+  const [savingSessionLink, setSavingSessionLink] = useState(false);
 
   // ── Data fetching ───────────────────────────────────────────────────────────
 
@@ -459,6 +473,70 @@ export default function AdminCourseLessonsPage() {
     }
   }
 
+  // ── Session Link handlers ───────────────────────────────────────────────────
+
+  const fetchSessionLinks = useCallback(async (bust = false) => {
+    if (!course?.category) return;
+    setSessionLinksLoading(true);
+    try {
+      const url = `/api/training/course-details?bust=1${bust ? '&_t=' + Date.now() : ''}`;
+      const res  = await fetch(url);
+      const data = await res.json() as { sessions: (SessionLink & { course: string })[] };
+      const filtered = (data.sessions ?? []).filter(
+        s => s.course?.toUpperCase() === course.category?.toUpperCase(),
+      );
+      setSessionLinks(filtered.map(s => ({
+        tabKey:        s.tabKey,
+        num:           s.num,
+        sessionName:   s.sessionName,
+        isFinal:       s.isFinal,
+        formUrl:       s.formUrl ?? '',
+        youtubeUrl:    s.youtubeUrl ?? '',
+        videoDuration: s.videoDuration ?? 0,
+        hasForm:       s.hasForm,
+      })));
+    } catch {
+      showToast('Failed to sync from Apps Script', 'error');
+    } finally {
+      setSessionLinksLoading(false);
+    }
+  }, [course?.category]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (activeTab === 'lessons' && course?.category) fetchSessionLinks();
+  }, [activeTab, course?.category, fetchSessionLinks]);
+
+  async function saveSessionLink() {
+    if (!editSessionLink) return;
+    setSavingSessionLink(true);
+    try {
+      const res = await fetch('/api/training/course-details', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          tabKey:        editSessionLink.tabKey,
+          youtubeUrl:    sessionLinkForm.youtubeUrl,
+          videoDuration: sessionLinkForm.videoDuration,
+        }),
+      });
+      const data = await res.json() as { ok: boolean };
+      if (!data.ok) throw new Error('save failed');
+      setShowSessionModal(false);
+      showToast('Session link saved');
+      fetchSessionLinks(true);
+    } catch {
+      showToast('Save failed', 'error');
+    } finally {
+      setSavingSessionLink(false);
+    }
+  }
+
+  function openEditSessionLink(s: SessionLink) {
+    setEditSessionLink(s);
+    setSessionLinkForm({ youtubeUrl: s.youtubeUrl, videoDuration: s.videoDuration });
+    setShowSessionModal(true);
+  }
+
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   const optionLabels = ['A', 'B', 'C', 'D'];
@@ -480,7 +558,16 @@ export default function AdminCourseLessonsPage() {
             <p style={{ fontSize: 13, color: '#6B7280' }}>{lessons.length} lesson{lessons.length !== 1 ? 's' : ''}</p>
           </div>
           {activeTab === 'lessons' && (
-            <button onClick={openNewLesson} style={primaryBtn}>+ Add Lesson</button>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                onClick={() => fetchSessionLinks(true)}
+                disabled={sessionLinksLoading}
+                style={{ ...ghostBtn, display: 'flex', alignItems: 'center', gap: 6 }}
+              >
+                {sessionLinksLoading ? '⟳ Syncing…' : '⟳ Sync from Apps Script'}
+              </button>
+              <button onClick={openNewLesson} style={primaryBtn}>+ Add Lesson</button>
+            </div>
           )}
           {activeTab === 'assessment' && assessment && (
             <button onClick={openNewQuestion} style={primaryBtn}>+ Add Question</button>
@@ -541,6 +628,77 @@ export default function AdminCourseLessonsPage() {
               </div>
             )}
           </>
+        )}
+
+        {/* ── SESSION LINKS (within Lessons tab) ───────────────────────────── */}
+        {activeTab === 'lessons' && (
+          <div style={{ marginTop: 32 }}>
+            <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1B3A6B', marginBottom: 14 }}>
+              Session Links <span style={{ fontSize: 12, fontWeight: 400, color: '#9CA3AF' }}>(YouTube URLs · Video Duration · Form URLs)</span>
+            </h2>
+            {sessionLinksLoading ? (
+              <div style={{ textAlign: 'center', padding: 40, color: '#6B7280' }}>Loading sessions…</div>
+            ) : sessionLinks.length === 0 ? (
+              <div style={{ background: '#fff', border: '1px dashed #D1D5DB', borderRadius: 12, padding: 32, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>
+                No sessions found. Click &quot;Sync from Apps Script&quot; to load.
+              </div>
+            ) : (
+              <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #E8F0FB', background: '#F8FAFD' }}>
+                      {['#', 'Session', 'YouTube URL', 'Video Duration', 'Form URL', ''].map(h => (
+                        <th key={h} style={{ textAlign: 'left', padding: '10px 14px', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sessionLinks.map(s => (
+                      <tr key={s.tabKey} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                        <td style={{ padding: '10px 14px', color: '#9CA3AF', width: 36 }}>{s.num}</td>
+                        <td style={{ padding: '10px 14px', fontWeight: 600, color: '#1B3A6B', maxWidth: 220 }}>
+                          {s.sessionName}
+                          {s.isFinal && <span style={{ marginLeft: 6, fontSize: 10, background: '#FEF9C3', color: '#854D0E', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>FINAL</span>}
+                        </td>
+                        <td style={{ padding: '10px 14px', maxWidth: 200 }}>
+                          {s.youtubeUrl ? (
+                            <a href={s.youtubeUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#1B4F8A', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block', maxWidth: 180 }}>
+                              {s.youtubeUrl.replace('https://www.youtube.com/watch?v=', 'yt/').replace('https://youtu.be/', 'yt/')}
+                            </a>
+                          ) : (
+                            <span style={{ color: '#D1D5DB', fontSize: 12 }}>— not set —</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 14px', width: 120 }}>
+                          {s.videoDuration > 0 ? (
+                            <span style={{ fontSize: 12, color: '#374151' }}>{s.videoDuration} min</span>
+                          ) : (
+                            <span style={{ fontSize: 12, color: '#D1D5DB' }}>— no lock —</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 14px', maxWidth: 160 }}>
+                          {s.formUrl ? (
+                            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                              <a href={s.formUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: '#1B4F8A', textDecoration: 'none', border: '1px solid #C7D9F2', borderRadius: 4, padding: '2px 7px', whiteSpace: 'nowrap' }}>Open ↗</a>
+                              <button
+                                onClick={() => navigator.clipboard.writeText(s.formUrl).then(() => showToast('Copied'), () => showToast('Copy failed', 'error'))}
+                                style={{ fontSize: 11, color: '#6B7280', background: 'none', border: '1px solid #E5E7EB', borderRadius: 4, cursor: 'pointer', padding: '2px 7px', whiteSpace: 'nowrap' }}
+                              >Copy</button>
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: 12, color: '#D1D5DB' }}>— no form —</span>
+                          )}
+                        </td>
+                        <td style={{ padding: '10px 14px', width: 60 }}>
+                          <button onClick={() => openEditSessionLink(s)} style={{ fontSize: 12, color: '#1B4F8A', background: 'none', border: '1px solid #C7D9F2', borderRadius: 5, cursor: 'pointer', padding: '4px 10px', fontWeight: 600 }}>Edit</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         )}
 
         {/* ── ASSESSMENT TAB ────────────────────────────────────────────────── */}
@@ -848,6 +1006,79 @@ export default function AdminCourseLessonsPage() {
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setShowQuestionModal(false)} style={ghostBtn}>Cancel</button>
               <button onClick={saveQuestion} disabled={savingQuestion} style={primaryBtn}>{savingQuestion ? 'Saving…' : editQuestion ? 'Update Question' : 'Add Question'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Session Link Edit Modal ──────────────────────────────────────────── */}
+      {showSessionModal && editSessionLink && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 999, display: 'flex', alignItems: 'center', justifyContent: 'center', overflowY: 'auto', padding: 20 }}
+          onClick={() => setShowSessionModal(false)}
+        >
+          <div style={{ background: '#fff', borderRadius: 14, padding: 32, width: 520, maxWidth: '95vw', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }} onClick={e => e.stopPropagation()}>
+            <h2 style={{ fontSize: 18, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>Edit Session Link</h2>
+            <p style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 24 }}>{editSessionLink.tabKey}</p>
+
+            {/* Session Name (read-only) */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={labelStyle}>Session Name</label>
+              <div style={{ padding: '8px 12px', background: '#F3F4F6', borderRadius: 7, fontSize: 13, color: '#6B7280', border: '1px solid #E5E7EB' }}>
+                {editSessionLink.sessionName}
+                {editSessionLink.isFinal && <span style={{ marginLeft: 8, fontSize: 10, background: '#FEF9C3', color: '#854D0E', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>FINAL</span>}
+              </div>
+            </div>
+
+            {/* YouTube URL */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={labelStyle}>YouTube URL</label>
+              <input
+                value={sessionLinkForm.youtubeUrl}
+                onChange={e => setSessionLinkForm(p => ({ ...p, youtubeUrl: e.target.value }))}
+                placeholder="https://www.youtube.com/watch?v=…"
+                style={inputStyle}
+              />
+            </div>
+
+            {/* Video Duration */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={labelStyle}>Video Duration (minutes) <span style={{ fontSize: 10, fontWeight: 400, color: '#9CA3AF', textTransform: 'none' }}>— 0 = no lock</span></label>
+              <input
+                type="number"
+                min={0}
+                value={sessionLinkForm.videoDuration}
+                onChange={e => setSessionLinkForm(p => ({ ...p, videoDuration: parseInt(e.target.value) || 0 }))}
+                style={inputStyle}
+              />
+              {sessionLinkForm.videoDuration > 0 && (
+                <div style={{ fontSize: 11, color: '#D97706', marginTop: 4 }}>
+                  ⏱ Assessment will be locked for {sessionLinkForm.videoDuration} min after student clicks Watch Video
+                </div>
+              )}
+            </div>
+
+            {/* Form URL (read-only) */}
+            <div style={{ marginBottom: 24 }}>
+              <label style={labelStyle}>Form URL <span style={{ fontSize: 10, fontWeight: 400, color: '#9CA3AF', textTransform: 'none' }}>(read-only — synced from Apps Script)</span></label>
+              {editSessionLink.formUrl ? (
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <div style={{ flex: 1, padding: '8px 12px', background: '#F3F4F6', borderRadius: 7, fontSize: 12, color: '#6B7280', border: '1px solid #E5E7EB', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {editSessionLink.formUrl}
+                  </div>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(editSessionLink.formUrl).then(() => showToast('Copied'), () => showToast('Copy failed', 'error'))}
+                    style={{ ...ghostBtn, padding: '8px 14px', fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}
+                  >Copy</button>
+                </div>
+              ) : (
+                <div style={{ padding: '8px 12px', background: '#F3F4F6', borderRadius: 7, fontSize: 13, color: '#D1D5DB', border: '1px solid #E5E7EB' }}>No form URL</div>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowSessionModal(false)} style={ghostBtn}>Cancel</button>
+              <button onClick={saveSessionLink} disabled={savingSessionLink} style={primaryBtn}>{savingSessionLink ? 'Saving…' : 'Save'}</button>
             </div>
           </div>
         </div>

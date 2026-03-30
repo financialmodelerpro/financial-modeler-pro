@@ -200,6 +200,7 @@ export interface CourseSession {
   youtubeUrl: string;
   hasForm: boolean;
   hasVideo: boolean;
+  videoDuration?: number;
 }
 
 /** Fetch session details (form URLs + YouTube URLs) from the Apps Script Form Registry. */
@@ -217,10 +218,12 @@ export async function getCourseDetails(course?: string): Promise<CourseSession[]
   }
 }
 
-/** Save a YouTube URL to the Apps Script Form Registry for a given tab key. */
-export async function updateCourseLink(tabKey: string, youtubeUrl: string): Promise<boolean> {
+/** Save a YouTube URL (and optional video duration) to the Apps Script Form Registry for a given tab key. */
+export async function updateCourseLink(tabKey: string, youtubeUrl: string, videoDuration?: number): Promise<boolean> {
   try {
-    const raw = await callScriptPost<unknown>({ action: 'updateCourseLink', tabKey, youtubeUrl });
+    const payload: Record<string, string> = { action: 'updateCourseLink', tabKey, youtubeUrl };
+    if (videoDuration !== undefined) payload.videoDuration = String(videoDuration);
+    const raw = await callScriptPost<unknown>(payload);
     return raw.success === true;
   } catch {
     return false;

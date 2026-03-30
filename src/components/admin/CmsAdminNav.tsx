@@ -31,7 +31,6 @@ const NAV_ITEMS: NavItem[] = [
   { type: 'divider',            label: 'Training Hub' },
   { label: 'Overview',          href: '/admin/training-hub',                   icon: '📊' },
   { label: 'Course Manager',    href: '/admin/training',                       icon: '🎓' },
-  { label: 'Course Links',      href: '/admin/training-hub/course-details',    icon: '🔗' },
   { label: 'Students',          href: '/admin/training-hub/students',          icon: '👨‍🎓' },
   { label: 'Certificates',      href: '/admin/training-hub/certificates',      icon: '🏆' },
   { label: 'Training Settings', href: '/admin/training-settings',              icon: '⚙️' },

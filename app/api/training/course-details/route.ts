@@ -67,9 +67,9 @@ export async function POST(req: NextRequest) {
   if (!session?.user || (session.user as { role?: string }).role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
-  const { tabKey, youtubeUrl } = await req.json() as { tabKey: string; youtubeUrl: string };
+  const { tabKey, youtubeUrl, videoDuration } = await req.json() as { tabKey: string; youtubeUrl: string; videoDuration?: number };
   if (!tabKey) return NextResponse.json({ error: 'tabKey required' }, { status: 400 });
-  const ok = await updateCourseLink(tabKey, youtubeUrl ?? '');
+  const ok = await updateCourseLink(tabKey, youtubeUrl ?? '', videoDuration);
   // Bust all cached entries so the next GET returns fresh data
   _cache.clear();
   return NextResponse.json({ ok });
