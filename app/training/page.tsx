@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { COURSES } from '@/src/config/courses';
-import { getCmsContent, cms } from '@/src/lib/cms';
+import { getCmsContent, cms, getTestimonialsForPage } from '@/src/lib/cms';
+import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { getServerClient } from '@/src/lib/supabase';
 import { CurriculumCard, type CourseDescription } from './CurriculumCard';
 
@@ -81,7 +82,7 @@ async function getCourseDescriptions(): Promise<Record<string, CourseDescription
 export default async function TrainingPage() {
   const sfm = COURSES['3sfm'];
   const bvm = COURSES['bvm'];
-  const [content, descriptions] = await Promise.all([getCmsContent(), getCourseDescriptions()]);
+  const [content, descriptions, testimonials] = await Promise.all([getCmsContent(), getCourseDescriptions(), getTestimonialsForPage('training')]);
 
   const heroBadge       = cms(content, 'training_page', 'hero_badge',         '🎓 Free Certification Program');
   const heroHeadline    = cms(content, 'training_page', 'hero_headline',       'Get Certified in Financial Modeling — Free');
@@ -89,7 +90,13 @@ export default async function TrainingPage() {
   const ctaPrimary      = cms(content, 'training_page', 'cta_primary',         'Register Free →');
   const ctaSecondary    = cms(content, 'training_page', 'cta_secondary',       'Login to Dashboard →');
   const bottomCtaH2     = cms(content, 'training_page', 'bottom_cta_heading',  'Ready to get certified?');
-  const bottomCtaSub    = cms(content, 'training_page', 'bottom_cta_sub',      'Join hundreds of finance professionals building verified skills — completely free.');
+  const bottomCtaSub       = cms(content, 'training_page', 'bottom_cta_sub',         'Join hundreds of finance professionals building verified skills — completely free.');
+  const testimonialsH2     = cms(content, 'training_page', 'testimonials_heading',   'What Our Students Say');
+  const testimonialsSub    = cms(content, 'training_page', 'testimonials_sub',       'Verified feedback from FMP Training Hub students.');
+  const ctaSection_visible = cms(content, 'cta', 'section_visible', 'true') !== 'false';
+  const footerCompany      = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
+  const footerFounder      = cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder');
+  const footerCopyright    = cms(content, 'footer', 'copyright',    `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
@@ -323,56 +330,73 @@ export default async function TrainingPage() {
         </div>
       </section>
 
-      {/* ── Section 6 — Bottom CTA ────────────────────────────────────────── */}
-      <section style={{
-        background: '#2EAA4A',
-        padding: 'clamp(48px,7vw,80px) 40px',
-        textAlign: 'center',
-      }}>
-        <div style={{ maxWidth: 600, margin: '0 auto' }}>
-          <h2 style={{
-            fontSize: 'clamp(22px,4vw,38px)', fontWeight: 800,
-            color: '#fff', marginBottom: 12, lineHeight: 1.2,
-          }}>
-            {bottomCtaH2}
-          </h2>
-          <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', marginBottom: 36, lineHeight: 1.6 }}>
-            {bottomCtaSub}
-          </p>
-          <Link href="/training/register" style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8,
-            background: '#fff', color: '#1A7A30',
-            fontWeight: 800, fontSize: 16, padding: '14px 40px',
-            borderRadius: 8, textDecoration: 'none',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-          }}>
-            Register Free →
-          </Link>
-          <p style={{ marginTop: 20, fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>
-            Already registered?{' '}
-            <Link href="/training/login" style={{ color: '#fff', fontWeight: 700, textDecoration: 'underline' }}>
-              Login to Dashboard →
+      {/* ── Section 6 — Testimonials ─────────────────────────────────────── */}
+      {testimonials.length > 0 && (
+        <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
+          <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+            <div style={{ textAlign: 'center', marginBottom: 48 }}>
+              <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 10 }}>{testimonialsH2}</h2>
+              <p style={{ fontSize: 14, color: '#6B7280' }}>{testimonialsSub}</p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 24 }}>
+              {testimonials.map(t => (
+                <div key={t.id} style={{ background: '#F9FAFB', border: `1px solid ${t.is_featured ? '#C9A84C' : '#E5E7EB'}`, borderRadius: 14, padding: 24, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', gap: 2, marginBottom: 12 }}>
+                    {Array.from({length:5}).map((_,i) => <span key={i} style={{ fontSize: 14, color: i < (t.rating ?? 5) ? '#F59E0B' : '#E5E7EB' }}>★</span>)}
+                  </div>
+                  {t.testimonial_type === 'video' && t.video_url ? (
+                    <a href={t.video_url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#0D2E5A', borderRadius: 8, padding: 20, marginBottom: 16, textDecoration: 'none', gap: 6 }}>
+                      <span style={{ fontSize: 28 }}>▶️</span>
+                      <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>Watch video testimonial ↗</span>
+                    </a>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 28, color: '#2EAA4A', fontFamily: 'Georgia,serif', marginBottom: 8 }}>&ldquo;</div>
+                      <p style={{ fontSize: 13.5, color: '#374151', lineHeight: 1.75, marginBottom: 16, fontStyle: 'italic', flex: 1 }}>{t.text}</p>
+                    </>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'linear-gradient(135deg,#1A7A30,#0D3B1A)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
+                      {t.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B' }}>{t.name}</div>
+                      {(t.role || t.company) && <div style={{ fontSize: 11, color: '#9CA3AF' }}>{[t.role, t.company].filter(Boolean).join(' · ')}</div>}
+                      {t.source === 'student' && t.course_name && <div style={{ fontSize: 10, color: '#2EAA4A', fontWeight: 700, marginTop: 2 }}>✅ Verified · {t.course_name}</div>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── Section 7 — Bottom CTA ────────────────────────────────────────── */}
+      {ctaSection_visible && (
+        <section style={{ background: '#2EAA4A', padding: 'clamp(48px,7vw,80px) 40px', textAlign: 'center' }}>
+          <div style={{ maxWidth: 600, margin: '0 auto' }}>
+            <h2 style={{ fontSize: 'clamp(22px,4vw,38px)', fontWeight: 800, color: '#fff', marginBottom: 12, lineHeight: 1.2 }}>
+              {bottomCtaH2}
+            </h2>
+            <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', marginBottom: 36, lineHeight: 1.6 }}>
+              {bottomCtaSub}
+            </p>
+            <Link href="/training/register" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1A7A30', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
+              Register Free →
             </Link>
-          </p>
-        </div>
-      </section>
+            <p style={{ marginTop: 20, fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>
+              Already registered?{' '}
+              <Link href="/training/login" style={{ color: '#fff', fontWeight: 700, textDecoration: 'underline' }}>
+                Login to Dashboard →
+              </Link>
+            </p>
+          </div>
+        </section>
+      )}
 
       {/* ── Footer ───────────────────────────────────────────────────────── */}
-      <footer style={{
-        background: '#0D2E5A',
-        borderTop: '1px solid rgba(255,255,255,0.07)',
-        padding: '24px 40px',
-        display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
-      }}>
-        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>
-          © {new Date().getFullYear()} Financial Modeler Pro
-        </span>
-        <div style={{ display: 'flex', gap: 20 }}>
-          <Link href="/" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>← Home</Link>
-          <Link href="/training/login" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Login</Link>
-          <Link href="/training/register" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Register</Link>
-        </div>
-      </footer>
+      <SharedFooter company={footerCompany} founder={footerFounder} copyright={footerCopyright} />
     </div>
   );
 }

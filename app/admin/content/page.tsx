@@ -1,21 +1,22 @@
 'use client';
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 
-type Tab = 'branding' | 'hero' | 'stats' | 'about' | 'pillars' | 'cta' | 'footer' | 'training_page' | 'modeling_hub' | 'articles_page' | 'contact_page';
+type Tab = 'branding' | 'hero' | 'stats' | 'about' | 'pillars' | 'cta' | 'footer' | 'section_styles' | 'training_page' | 'modeling_hub' | 'articles_page' | 'contact_page';
 
 const TABS: { key: Tab; label: string; page: string }[] = [
-  { key: 'branding',      label: 'Logo & Branding', page: 'All Pages' },
-  { key: 'hero',          label: 'Hero',           page: 'Landing Page' },
-  { key: 'stats',         label: 'Stats Bar',      page: 'Landing Page' },
-  { key: 'about',         label: 'About FMP',      page: 'Landing Page' },
-  { key: 'pillars',       label: 'Two Pillars',    page: 'Landing Page' },
-  { key: 'cta',           label: 'CTA Banner',     page: 'Landing Page' },
-  { key: 'footer',        label: 'Footer',         page: 'Landing Page' },
-  { key: 'training_page', label: 'Training Hub',   page: 'Training Page' },
-  { key: 'modeling_hub',  label: 'Modeling Hub',   page: 'Modeling Hub Page' },
-  { key: 'articles_page', label: 'Articles',       page: 'Articles Page' },
-  { key: 'contact_page',  label: 'Contact Page',   page: 'Contact Page' },
+  { key: 'branding',       label: 'Logo & Branding',  page: 'All Pages' },
+  { key: 'section_styles', label: 'Section Styles',   page: 'All Pages' },
+  { key: 'hero',           label: 'Hero',             page: 'Landing Page' },
+  { key: 'stats',          label: 'Stats Bar',        page: 'Landing Page' },
+  { key: 'about',          label: 'About FMP',        page: 'Landing Page' },
+  { key: 'pillars',        label: 'Two Pillars',      page: 'Landing Page' },
+  { key: 'cta',            label: 'CTA Banner',       page: 'Landing Page' },
+  { key: 'footer',         label: 'Footer',           page: 'Landing Page' },
+  { key: 'training_page',  label: 'Training Hub',     page: 'Training Page' },
+  { key: 'modeling_hub',   label: 'Modeling Hub',     page: 'Modeling Hub Page' },
+  { key: 'articles_page',  label: 'Articles',         page: 'Articles Page' },
+  { key: 'contact_page',   label: 'Contact Page',     page: 'Contact Page' },
 ];
 
 export default function AdminContentPage() {
@@ -31,6 +32,7 @@ export default function AdminContentPage() {
 
   type CustomField = { label: string; value: string };
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const [activeStyleSection, setActiveStyleSection] = useState('hero');
 
   useEffect(() => {
     fetch('/api/admin/content')
@@ -38,7 +40,6 @@ export default function AdminContentPage() {
       .then(j => {
         const map: Record<string, string> = {};
         for (const row of j.rows ?? []) map[`${row.section}__${row.key}`] = row.value;
-        setValues(map);
 
         // Init stat items — try JSON array first, fall back to individual keys
         const statsJson = map['stats__stats_bar_items'] ?? '';
@@ -65,6 +66,21 @@ export default function AdminContentPage() {
         let cf: CustomField[] = [];
         try { if (cfRaw) cf = JSON.parse(cfRaw) as CustomField[]; } catch { /* ignore */ }
         setCustomFields(cf);
+
+        // Init section_styles fields (parse JSON into individual _style_ keys)
+        const STYLE_IDS = ['hero','stats','about','pillars','founder','articles','testimonials','pricing','cta'];
+        const styleExtras: Record<string, string> = {};
+        for (const sid of STYLE_IDS) {
+          const raw = map[`section_styles__${sid}`] ?? '{}';
+          let parsed: Record<string, string> = {};
+          try { parsed = JSON.parse(raw) as Record<string, string>; } catch { /* ignore */ }
+          styleExtras[`_style___${sid}_headingSize`]     = parsed.headingSize    ?? '';
+          styleExtras[`_style___${sid}_headingColor`]    = parsed.headingColor   ?? '';
+          styleExtras[`_style___${sid}_subheadingSize`]  = parsed.subheadingSize ?? '';
+          styleExtras[`_style___${sid}_subheadingColor`] = parsed.subheadingColor?? '';
+          styleExtras[`_style___${sid}_paddingY`]        = parsed.paddingY       ?? '';
+        }
+        setValues(prev => ({ ...prev, ...map, ...styleExtras }));
 
         setLoading(false);
       })
@@ -117,6 +133,51 @@ export default function AdminContentPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function saveSectionStyle(sectionId: string) {
+    setSaving(true);
+    try {
+      const raw = get('section_styles', sectionId, '{}');
+      let parsed: Record<string, string> = {};
+      try { parsed = JSON.parse(raw) as Record<string, string>; } catch { /* ignore */ }
+      // Build from individual values stored under _style_ keys
+      const hs  = get('_style_', `${sectionId}_headingSize`,    '');
+      const hc  = get('_style_', `${sectionId}_headingColor`,   '');
+      const ss  = get('_style_', `${sectionId}_subheadingSize`, '');
+      const sc  = get('_style_', `${sectionId}_subheadingColor`,'');
+      const py  = get('_style_', `${sectionId}_paddingY`,       '');
+      parsed = { ...(hs  ? {headingSize:    hs}  : {}),
+                 ...(hc  ? {headingColor:   hc}  : {}),
+                 ...(ss  ? {subheadingSize:  ss} : {}),
+                 ...(sc  ? {subheadingColor: sc} : {}),
+                 ...(py  ? {paddingY:        py} : {}) };
+      const res = await fetch('/api/admin/content', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section: 'section_styles', key: sectionId, value: JSON.stringify(parsed) }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      setToast({ msg: 'Section styles saved', type: 'success' });
+      setTimeout(() => setToast(null), 3000);
+    } catch {
+      setToast({ msg: 'Save failed', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+    } finally { setSaving(false); }
+  }
+
+  // Initialise _style_ values from section_styles JSON when content loads
+  function initStyleFields(sectionId: string) {
+    const raw = get('section_styles', sectionId, '{}');
+    let parsed: Record<string, string> = {};
+    try { parsed = JSON.parse(raw) as Record<string, string>; } catch { /* ignore */ }
+    return {
+      headingSize:     parsed.headingSize    ?? '',
+      headingColor:    parsed.headingColor   ?? '',
+      subheadingSize:  parsed.subheadingSize ?? '',
+      subheadingColor: parsed.subheadingColor?? '',
+      paddingY:        parsed.paddingY       ?? '',
+    };
   }
 
   async function saveContactPage() {
@@ -242,6 +303,78 @@ export default function AdminContentPage() {
               </div>
             )}
 
+            {/* ── Global: Section Styles ── */}
+            {tab === 'section_styles' && (() => {
+              const STYLE_SECTIONS = [
+                { id: 'hero',         label: 'Hero Section' },
+                { id: 'stats',        label: 'Stats Bar' },
+                { id: 'about',        label: 'About FMP' },
+                { id: 'pillars',      label: 'Two Pillars' },
+                { id: 'founder',      label: 'Founder Section' },
+                { id: 'articles',     label: 'Articles Preview' },
+                { id: 'testimonials', label: 'Testimonials' },
+                { id: 'pricing',      label: 'Pricing' },
+                { id: 'cta',          label: 'CTA Banner' },
+              ];
+              const sid = activeStyleSection;
+              const hs  = get('_style_', `${sid}_headingSize`,    '');
+              const hc  = get('_style_', `${sid}_headingColor`,   '');
+              const ss  = get('_style_', `${sid}_subheadingSize`, '');
+              const sc  = get('_style_', `${sid}_subheadingColor`,'');
+              const py  = get('_style_', `${sid}_paddingY`,       '');
+              const colorInputStyle: React.CSSProperties = { ...inputStyle, background: '#fff', padding: '4px 8px', width: 40, height: 34, cursor: 'pointer' };
+              return (
+                <div>
+                  <p style={{ fontSize:12, color:'#6B7280', marginBottom:20, padding:'10px 14px', background:'#F3F4F6', border:'1px solid #E5E7EB', borderRadius:7 }}>
+                    🎨 Override font sizes, colors, and section padding. Leave blank to keep default styles. Applies to the Landing Page. Saves within 60 seconds.
+                  </p>
+                  {/* Section selector */}
+                  <div style={{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:24, borderBottom:'2px solid #E8F0FB', paddingBottom:12 }}>
+                    {STYLE_SECTIONS.map(s2 => (
+                      <button key={s2.id} onClick={() => setActiveStyleSection(s2.id)}
+                        style={{ padding:'7px 14px', fontSize:12, fontWeight: sid===s2.id?700:500, background: sid===s2.id?'#1B4F8A':'#F9FAFB', color: sid===s2.id?'#fff':'#6B7280', border:'1px solid '+(sid===s2.id?'#1B4F8A':'#E5E7EB'), borderRadius:6, cursor:'pointer' }}>
+                        {s2.label}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:20, marginBottom:24 }}>
+                    <div>
+                      <label style={labelStyle}>Heading Font Size</label>
+                      <input style={inputStyle} value={hs} onChange={e => set('_style_', `${sid}_headingSize`, e.target.value)} placeholder="e.g. 36px or clamp(24px,3vw,42px)" />
+                      <p style={{ fontSize:10, color:'#9CA3AF', marginTop:3 }}>Leave blank for default</p>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Heading Color</label>
+                      <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                        <input type="color" style={colorInputStyle} value={hc || '#1B3A6B'} onChange={e => set('_style_', `${sid}_headingColor`, e.target.value)} />
+                        <input style={{ ...inputStyle, flex:1 }} value={hc} onChange={e => set('_style_', `${sid}_headingColor`, e.target.value)} placeholder="#1B3A6B" />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Subheading Font Size</label>
+                      <input style={inputStyle} value={ss} onChange={e => set('_style_', `${sid}_subheadingSize`, e.target.value)} placeholder="e.g. 15px" />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Subheading Color</label>
+                      <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+                        <input type="color" style={colorInputStyle} value={sc || '#6B7280'} onChange={e => set('_style_', `${sid}_subheadingColor`, e.target.value)} />
+                        <input style={{ ...inputStyle, flex:1 }} value={sc} onChange={e => set('_style_', `${sid}_subheadingColor`, e.target.value)} placeholder="#6B7280" />
+                      </div>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Section Vertical Padding (height)</label>
+                      <input style={inputStyle} value={py} onChange={e => set('_style_', `${sid}_paddingY`, e.target.value)} placeholder="e.g. 88px or clamp(48px,7vw,80px)" />
+                      <p style={{ fontSize:10, color:'#9CA3AF', marginTop:3 }}>Applied as padding-top and padding-bottom</p>
+                    </div>
+                  </div>
+                  <button disabled={saving} onClick={() => saveSectionStyle(sid)}
+                    style={{ background: saving?'#6B7280':'#1B4F8A', color:'#fff', border:'none', borderRadius:8, padding:'10px 24px', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+                    {saving ? 'Saving…' : `Save ${STYLE_SECTIONS.find(s2=>s2.id===sid)?.label} Styles`}
+                  </button>
+                </div>
+              );
+            })()}
+
             {/* ── Landing: Hero ── */}
             {tab === 'hero' && (
               <div>
@@ -272,6 +405,13 @@ export default function AdminContentPage() {
                 </div>
                 <div style={fieldStyle}><label style={{ ...labelStyle, color:'#9CA3AF' }}>CTA 1 Label (hidden)</label><input style={{...inputStyle, opacity:0.6}} value={get('hero','cta1','Launch Platform Free →')} onChange={e => set('hero','cta1',e.target.value)} /></div>
                 <div style={fieldStyle}><label style={{ ...labelStyle, color:'#9CA3AF' }}>CTA 2 Label (hidden)</label><input style={{...inputStyle, opacity:0.6}} value={get('hero','cta2','Explore Platforms ↓')} onChange={e => set('hero','cta2',e.target.value)} /></div>
+                <div style={{ borderTop:'1px solid #E8F0FB', paddingTop:20, marginTop:16, marginBottom:20 }}>
+                  <p style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:10 }}>VISIBILITY</p>
+                  <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
+                    <input type="checkbox" checked={get('hero','cta_visible','true') !== 'false'} onChange={e => set('hero','cta_visible', e.target.checked ? 'true' : 'false')} style={{ width:16, height:16, cursor:'pointer' }} />
+                    <span style={{ fontSize:13, color:'#374151', fontWeight:500 }}>Show &ldquo;Explore the platform&rdquo; Soft CTA in Hero</span>
+                  </label>
+                </div>
                 {saveBtn([
                   {section:'hero',key:'badge_text'},
                   {section:'hero',key:'headline'},
@@ -282,6 +422,7 @@ export default function AdminContentPage() {
                   {section:'hero',key:'tags'},
                   {section:'hero',key:'cta1'},
                   {section:'hero',key:'cta2'},
+                  {section:'hero',key:'cta_visible'},
                 ])}
               </div>
             )}
@@ -384,10 +525,20 @@ export default function AdminContentPage() {
             {/* ── Landing: CTA Banner ── */}
             {tab === 'cta' && (
               <div>
+                <div style={{ padding:'10px 14px', background:'#F0F9FF', border:'1px solid #BAE6FD', borderRadius:7, marginBottom:20 }}>
+                  <p style={{ fontSize:12, color:'#0C4A6E', margin:0 }}>&#9432; This CTA section appears <strong>before the footer</strong> on the Landing Page, Modeling Hub, and Training Hub.</p>
+                </div>
+                <div style={{ borderBottom:'1px solid #E8F0FB', paddingBottom:16, marginBottom:16 }}>
+                  <p style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:10 }}>VISIBILITY</p>
+                  <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
+                    <input type="checkbox" checked={get('cta','section_visible','true') !== 'false'} onChange={e => set('cta','section_visible', e.target.checked ? 'true' : 'false')} style={{ width:16, height:16, cursor:'pointer' }} />
+                    <span style={{ fontSize:13, color:'#374151', fontWeight:500 }}>Show CTA section on all pages</span>
+                  </label>
+                </div>
                 <div style={fieldStyle}><label style={labelStyle}>Heading</label><input style={inputStyle} value={get('cta','heading','Ready to build your first model?')} onChange={e => set('cta','heading',e.target.value)} /></div>
                 <div style={fieldStyle}><label style={labelStyle}>Sub-heading</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={2} value={get('cta','subheading','')} onChange={e => set('cta','subheading',e.target.value)} /></div>
                 <div style={fieldStyle}><label style={labelStyle}>Button Label</label><input style={inputStyle} value={get('cta','button','Get Started Free →')} onChange={e => set('cta','button',e.target.value)} /></div>
-                {saveBtn([{section:'cta',key:'heading'},{section:'cta',key:'subheading'},{section:'cta',key:'button'}])}
+                {saveBtn([{section:'cta',key:'section_visible'},{section:'cta',key:'heading'},{section:'cta',key:'subheading'},{section:'cta',key:'button'}])}
               </div>
             )}
 

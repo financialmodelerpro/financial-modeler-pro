@@ -10,8 +10,10 @@ import {
   getCmsContent, cms,
   getPublishedArticles,
   getFounderProfile, getSitePages,
-  getApprovedTestimonials,
+  getTestimonialsForPage,
+  getSectionStyles,
 } from '@/src/lib/cms';
+import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { getServerClient } from '@/src/lib/supabase';
 import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/ArticleCard';
 import { InlineEdit } from '@/src/components/landing/InlineEdit';
@@ -49,7 +51,7 @@ export default async function LandingPage() {
   const [content, articles, testimonials, founder, session, sitePages, planNames] = await Promise.all([
     getCmsContent(),
     getPublishedArticles(3),
-    getApprovedTestimonials(),
+    getTestimonialsForPage('landing'),
     getFounderProfile(), getServerSession(), getSitePages(),
     getPublicPlanNames(),
   ]);
@@ -131,6 +133,20 @@ export default async function LandingPage() {
   const ctaSub   = cms(content, 'cta', 'subheading', 'Join finance professionals using Financial Modeler Pro to build better models, faster.');
   const ctaBtn   = cms(content, 'cta', 'button',     'Get Started Free →');
 
+  // ── Visibility toggles ────────────────────────────────────────────────────
+  const heroCta_visible    = cms(content, 'hero', 'cta_visible',     'true') !== 'false';
+  const ctaSection_visible = cms(content, 'cta',  'section_visible', 'true') !== 'false';
+
+  // ── Section style overrides ───────────────────────────────────────────────
+  const heroStyles         = getSectionStyles(content, 'hero');
+  const aboutStyles        = getSectionStyles(content, 'about');
+  const pillarsStyles      = getSectionStyles(content, 'pillars');
+  const founderStyles      = getSectionStyles(content, 'founder');
+  const articlesStyles     = getSectionStyles(content, 'articles');
+  const testimonialsStyles = getSectionStyles(content, 'testimonials');
+  const pricingStyles      = getSectionStyles(content, 'pricing');
+  const ctaStyles          = getSectionStyles(content, 'cta');
+
   // ── Footer ────────────────────────────────────────────────────────────────
   const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
   const footerFounder   = cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder');
@@ -161,7 +177,7 @@ export default async function LandingPage() {
       <div style={{ height: isAdmin ? 108 : 64 }} />
 
       {/* ── Hero ───────────────────────────────────────────────────────────── */}
-      <section style={{ paddingTop:'max(130px,10vw)', paddingBottom:110, paddingLeft:40, paddingRight:40, textAlign:'center', position:'relative', background:'linear-gradient(180deg,#0D2E5A 0%,#0A2448 100%)', overflow:'hidden', color:'#fff' }}>
+      <section style={{ paddingTop: heroStyles.paddingY ?? 'max(130px,10vw)', paddingBottom: heroStyles.paddingY ?? 110, paddingLeft:40, paddingRight:40, textAlign:'center', position:'relative', background:'linear-gradient(180deg,#0D2E5A 0%,#0A2448 100%)', overflow:'hidden', color:'#fff' }}>
         {/* Radial gradient overlay */}
         <div style={{ position:'absolute', inset:0, background:'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(45,107,168,0.25) 0%, transparent 65%)', pointerEvents:'none' }} />
         {/* Grid pattern */}
@@ -176,7 +192,7 @@ export default async function LandingPage() {
           {/* Headline */}
           <InlineEdit
             tag="h1" section="hero" fieldKey="headline" value={heroHeadline} isAdmin={isAdmin} darkBg
-            style={{ animation:'hero-fade-up 550ms ease-out 100ms both', fontSize:'clamp(2.2rem,4.5vw,3.8rem)', fontWeight:800, lineHeight:1.1, color:'#fff', marginBottom:22, whiteSpace:'pre-line', display:'block' } as React.CSSProperties}
+            style={{ animation:'hero-fade-up 550ms ease-out 100ms both', fontSize: heroStyles.headingSize ?? 'clamp(2.2rem,4.5vw,3.8rem)', fontWeight:800, lineHeight:1.1, color: heroStyles.headingColor ?? '#fff', marginBottom:22, whiteSpace:'pre-line', display:'block' } as React.CSSProperties}
           />
 
           {/* Subheading */}
@@ -196,15 +212,17 @@ export default async function LandingPage() {
           )}
 
           {/* Soft CTA */}
-          <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 400ms both', marginBottom:26 }}>
-            <HeroScrollBtn
-              className="hero-soft-cta"
-              style={{ background:'none', border:'none', cursor:'pointer', fontSize:'0.9rem', fontWeight:500, color:'rgba(255,255,255,0.65)', padding:0, display:'inline-flex', alignItems:'center', gap:6 }}
-            >
-              <InlineEdit tag="span" section="hero" fieldKey="soft_cta" value={heroSoftCta} isAdmin={isAdmin} darkBg />
-              <span className="hero-cta-arrow" style={{ fontSize:14 }}>&#8595;</span>
-            </HeroScrollBtn>
-          </div>
+          {heroCta_visible && (
+            <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 400ms both', marginBottom:26 }}>
+              <HeroScrollBtn
+                className="hero-soft-cta"
+                style={{ background:'none', border:'none', cursor:'pointer', fontSize:'0.9rem', fontWeight:500, color:'rgba(255,255,255,0.65)', padding:0, display:'inline-flex', alignItems:'center', gap:6 }}
+              >
+                <InlineEdit tag="span" section="hero" fieldKey="soft_cta" value={heroSoftCta} isAdmin={isAdmin} darkBg />
+                <span className="hero-cta-arrow" style={{ fontSize:14 }}>&#8595;</span>
+              </HeroScrollBtn>
+            </div>
+          )}
 
           {/* Trust line */}
           <InlineEdit
@@ -245,13 +263,13 @@ export default async function LandingPage() {
       </section>
 
       {/* ── What is FMP ────────────────────────────────────────────────────── */}
-      <section style={{ padding:'88px 40px', maxWidth:1100, margin:'0 auto', color:'#374151' }}>
+      <section style={{ padding:`${aboutStyles.paddingY ?? '88px'} 40px`, maxWidth:1100, margin:'0 auto', color:'#374151' }}>
         <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(320px,1fr))', gap:56, alignItems:'center' }}>
           <div>
             <InlineEdit tag="div" section="about" fieldKey="badge" value={aboutBadge} isAdmin={isAdmin}
               style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }} />
             <InlineEdit tag="h2" section="about" fieldKey="heading" value={aboutH2} isAdmin={isAdmin}
-              style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1B3A6B', marginBottom:20, lineHeight:1.2 }} />
+              style={{ fontSize: aboutStyles.headingSize ?? 'clamp(24px,3vw,36px)', fontWeight:800, color: aboutStyles.headingColor ?? '#1B3A6B', marginBottom:20, lineHeight:1.2 }} />
             <InlineEdit tag="p" section="about" fieldKey="what_is_fmp" value={aboutBody1} isAdmin={isAdmin}
               style={{ fontSize:15, color:'#4B5563', lineHeight:1.75, marginBottom:20 }} />
             <InlineEdit tag="p" section="about" fieldKey="what_is_fmp_2" value={aboutBody2} isAdmin={isAdmin}
@@ -269,11 +287,11 @@ export default async function LandingPage() {
       </section>
 
       {/* ── Two Pillars ────────────────────────────────────────────────────── */}
-      <section style={{ background:'#F5F7FA', padding:'88px 40px' }}>
+      <section style={{ background:'#F5F7FA', padding:`${pillarsStyles.paddingY ?? '88px'} 40px` }}>
         <div style={{ maxWidth:1100, margin:'0 auto' }}>
           <div style={{ textAlign:'center', marginBottom:48 }}>
             <InlineEdit tag="h2" section="pillars" fieldKey="heading" value={pillarsH2} isAdmin={isAdmin}
-              style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1B3A6B' }} />
+              style={{ fontSize: pillarsStyles.headingSize ?? 'clamp(24px,3vw,36px)', fontWeight:800, color: pillarsStyles.headingColor ?? '#1B3A6B' }} />
             <InlineEdit tag="p" section="pillars" fieldKey="subheading" value={pillarsSub} isAdmin={isAdmin}
               style={{ fontSize:15, color:'#6B7280', marginTop:10 }} />
           </div>
@@ -323,8 +341,8 @@ export default async function LandingPage() {
       {/* ── Founder ────────────────────────────────────────────────────────── */}
       <section style={{ padding:'64px 40px 80px', background:'#1B3A6B', color:'#fff' }}>
         <div style={{ maxWidth:1100, margin:'0 auto' }}>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:56, alignItems:'center' }}>
-            <div style={{ display:'flex', justifyContent:'center' }}>
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(min(300px,100%),1fr))', gap:56, alignItems:'center' }}>
+            <div style={{ display:'flex', justifyContent:'center', order:1 }}>
               {founderPhotoUrl ? (
                 <div style={{ width:220, height:220, borderRadius:'50%', overflow:'hidden', position:'relative', border:'3px solid rgba(255,255,255,0.2)', boxShadow:'0 8px 40px rgba(0,0,0,0.4)' }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -437,11 +455,11 @@ export default async function LandingPage() {
       </section>
 
       {/* ── Testimonials */}
-      <section style={{ padding:'88px 40px', background:'#fff' }}>
+      <section style={{ padding:`${testimonialsStyles.paddingY ?? '88px'} 40px`, background:'#fff' }}>
         <div style={{ maxWidth:1100, margin:'0 auto' }}>
           <div style={{ textAlign:'center', marginBottom:52 }}>
             <InlineEdit tag="h2" section="testimonials" fieldKey="heading" value={testimonialsH2} isAdmin={isAdmin}
-              style={{ fontSize:'clamp(22px,3vw,34px)', fontWeight:800, color:'#1B3A6B', marginBottom:10 }} />
+              style={{ fontSize: testimonialsStyles.headingSize ?? 'clamp(22px,3vw,34px)', fontWeight:800, color: testimonialsStyles.headingColor ?? '#1B3A6B', marginBottom:10 }} />
             <InlineEdit tag="p" section="testimonials" fieldKey="subheading" value={testimonialsSub} isAdmin={isAdmin}
               style={{ fontSize:14, color:'#6B7280' }} />
           </div>
@@ -545,53 +563,22 @@ export default async function LandingPage() {
       </section>
 
       {/* ── CTA Banner ─────────────────────────────────────────────────────── */}
-      <section style={{ padding:'80px 40px', textAlign:'center', background:'#1B4F8A', color:'#fff' }}>
-        <div style={{ maxWidth:640, margin:'0 auto' }}>
-          <InlineEdit tag="h2" section="cta" fieldKey="heading" value={ctaH2} isAdmin={isAdmin} darkBg
-            style={{ fontSize:'clamp(24px,4vw,42px)', fontWeight:800, color:'#fff', marginBottom:16, lineHeight:1.15 }} />
-          <InlineEdit tag="p" section="cta" fieldKey="subheading" value={ctaSub} isAdmin={isAdmin} darkBg
-            style={{ fontSize:16, color:'rgba(255,255,255,0.65)', marginBottom:36, lineHeight:1.65 }} />
-          <Link href="/login" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#fff', color:'#1B4F8A', fontWeight:700, fontSize:16, padding:'16px 44px', borderRadius:8, textDecoration:'none', boxShadow:'0 4px 32px rgba(0,0,0,0.15)' }}>
-            <InlineEdit tag="span" section="cta" fieldKey="button" value={ctaBtn} isAdmin={isAdmin} darkBg />
-          </Link>
-        </div>
-      </section>
+      {ctaSection_visible && (
+        <section style={{ padding:`${ctaStyles.paddingY ?? '80px'} 40px`, textAlign:'center', background:'#1B4F8A', color:'#fff' }}>
+          <div style={{ maxWidth:640, margin:'0 auto' }}>
+            <InlineEdit tag="h2" section="cta" fieldKey="heading" value={ctaH2} isAdmin={isAdmin} darkBg
+              style={{ fontSize: ctaStyles.headingSize ?? 'clamp(24px,4vw,42px)', fontWeight:800, color: ctaStyles.headingColor ?? '#fff', marginBottom:16, lineHeight:1.15 }} />
+            <InlineEdit tag="p" section="cta" fieldKey="subheading" value={ctaSub} isAdmin={isAdmin} darkBg
+              style={{ fontSize:16, color:'rgba(255,255,255,0.65)', marginBottom:36, lineHeight:1.65 }} />
+            <Link href="/login" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#fff', color:'#1B4F8A', fontWeight:700, fontSize:16, padding:'16px 44px', borderRadius:8, textDecoration:'none', boxShadow:'0 4px 32px rgba(0,0,0,0.15)' }}>
+              <InlineEdit tag="span" section="cta" fieldKey="button" value={ctaBtn} isAdmin={isAdmin} darkBg />
+            </Link>
+          </div>
+        </section>
+      )}
 
       {/* ── Footer ─────────────────────────────────────────────────────────── */}
-      <footer style={{ borderTop:'1px solid rgba(255,255,255,0.07)', background:'#0D2E5A', padding:'48px 40px', color:'#fff' }}>
-        <div style={{ maxWidth:1100, margin:'0 auto' }}>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:40, marginBottom:40 }}>
-            <div>
-              <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:12 }}>
-                <span style={{ fontSize:22 }}>📐</span>
-                <span style={{ fontWeight:800, fontSize:14, color:'#fff' }}>Financial Modeler Pro</span>
-              </div>
-              <InlineEdit tag="p" section="footer" fieldKey="company_line" value={footerCompany} isAdmin={isAdmin} darkBg
-                style={{ fontSize:12.5, color:'rgba(255,255,255,0.35)', lineHeight:1.7, margin:'0 0 8px' }} />
-              <InlineEdit tag="p" section="footer" fieldKey="founder_line" value={footerFounder} isAdmin={isAdmin} darkBg
-                style={{ fontSize:12, color:'rgba(255,255,255,0.25)', margin:0 }} />
-            </div>
-            <div>
-              <div style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.35)', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:14 }}>Platform</div>
-              {[['Modeling Hub','/modeling'],['Training Hub','/training'],['Articles','/articles'],['Launch Platform','/login']].map(([label,href])=>(
-                <Link key={href} href={href} style={{ display:'block', fontSize:13, color:'rgba(255,255,255,0.5)', textDecoration:'none', marginBottom:8 }}>{label}</Link>
-              ))}
-            </div>
-            <div>
-              <div style={{ fontSize:11, fontWeight:700, color:'rgba(255,255,255,0.35)', textTransform:'uppercase', letterSpacing:'0.1em', marginBottom:14 }}>Company</div>
-              {[['About FMP','/about'],['Founder','/about/ahmad-din'],['Pricing','/pricing'],['Sign In','/login']].map(([label,href])=>(
-                <Link key={href} href={href} style={{ display:'block', fontSize:13, color:'rgba(255,255,255,0.5)', textDecoration:'none', marginBottom:8 }}>{label}</Link>
-              ))}
-            </div>
-          </div>
-          <div style={{ borderTop:'1px solid rgba(255,255,255,0.07)', paddingTop:24, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:12 }}>
-            <span style={{ fontSize:12, color:'rgba(255,255,255,0.25)' }}>
-              © <InlineEdit tag="span" section="footer" fieldKey="copyright" value={footerCopyright} isAdmin={isAdmin} darkBg />
-            </span>
-            <span style={{ fontSize:12, color:'rgba(255,255,255,0.25)', fontStyle:'italic' }}>Structured Modeling. Real-World Finance.</span>
-          </div>
-        </div>
-      </footer>
+      <SharedFooter company={footerCompany} founder={footerFounder} copyright={footerCopyright} isAdmin={isAdmin} />
     </div>
   );
 }

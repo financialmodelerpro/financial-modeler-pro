@@ -258,20 +258,40 @@ export interface Testimonial {
 }
 
 export async function getApprovedTestimonials(): Promise<Testimonial[]> {
+  return getTestimonialsForPage('landing');
+}
+
+/**
+ * Fetch approved testimonials for a specific page:
+ * - 'landing'   → show_on_landing = true (admin-selected mix)
+ * - 'modeling'  → hub = 'modeling'
+ * - 'training'  → hub = 'training'
+ */
+export async function getTestimonialsForPage(page: 'landing' | 'modeling' | 'training'): Promise<Testimonial[]> {
   try {
     const sb = getServerClient();
-    const [{ data: manual }, { data: students }] = await Promise.all([
-      sb.from('testimonials')
-        .select('id,name,role,company,text,rating,created_at')
-        .eq('status', 'approved')
-        .order('approved_at', { ascending: false })
-        .limit(6),
-      sb.from('student_testimonials')
-        .select('id,student_name,job_title,company,location,written_content,video_url,linkedin_url,course_name,rating,created_at,is_featured,testimonial_type')
-        .eq('status', 'approved')
-        .order('approved_at', { ascending: false })
-        .limit(12),
-    ]);
+
+    let manualQ = sb.from('testimonials')
+      .select('id,name,role,company,text,rating,created_at,hub,show_on_landing')
+      .eq('status', 'approved')
+      .order('approved_at', { ascending: false })
+      .limit(12);
+
+    let studentQ = sb.from('student_testimonials')
+      .select('id,student_name,job_title,company,location,written_content,video_url,linkedin_url,course_name,rating,created_at,is_featured,testimonial_type,hub,show_on_landing')
+      .eq('status', 'approved')
+      .order('approved_at', { ascending: false })
+      .limit(24);
+
+    if (page === 'landing') {
+      manualQ  = manualQ.eq('show_on_landing', true);
+      studentQ = studentQ.eq('show_on_landing', true);
+    } else {
+      manualQ  = manualQ.eq('hub', page);
+      studentQ = studentQ.eq('hub', page);
+    }
+
+    const [{ data: manual }, { data: students }] = await Promise.all([manualQ, studentQ]);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const manualFmt: Testimonial[] = (manual ?? []).map((t: any) => ({
@@ -289,7 +309,6 @@ export async function getApprovedTestimonials(): Promise<Testimonial[]> {
       video_url: t.video_url, course_name: t.course_name, is_featured: t.is_featured,
     }));
 
-    // Featured student testimonials first, then newest
     return [...manualFmt, ...studentFmt]
       .sort((a, b) => {
         if (a.is_featured && !b.is_featured) return -1;
@@ -300,4 +319,23 @@ export async function getApprovedTestimonials(): Promise<Testimonial[]> {
   } catch {
     return [];
   }
+}
+
+// ── Section style overrides ───────────────────────────────────────────────────
+
+export interface SectionStyles {
+  headingSize?:    string;
+  headingColor?:   string;
+  subheadingSize?: string;
+  subheadingColor?:string;
+  paddingY?:       string;
+}
+
+export function getSectionStyles(
+  content: Record<string, Record<string, string>>,
+  sectionId: string,
+): SectionStyles {
+  const raw = content?.section_styles?.[sectionId];
+  if (!raw) return {};
+  try { return JSON.parse(raw) as SectionStyles; } catch { return {}; }
 }

@@ -2,8 +2,9 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { PLATFORMS } from '@/src/config/platforms';
-import { getCmsContent, cms, getModules } from '@/src/lib/cms';
+import { getCmsContent, cms, getModules, getTestimonialsForPage } from '@/src/lib/cms';
 import type { Module } from '@/src/lib/cms';
+import { SharedFooter } from '@/src/components/landing/SharedFooter';
 
 export const revalidate = 60;
 
@@ -33,7 +34,7 @@ const WHY_ITEMS = [
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function ModelingHubPage() {
-  const [content, dbModules] = await Promise.all([getCmsContent(), getModules()]);
+  const [content, dbModules, testimonials] = await Promise.all([getCmsContent(), getModules(), getTestimonialsForPage('modeling')]);
 
   // Build a lookup from slug → DB row so the grid respects admin visibility + edits
   const dbMap = new Map<string, Module>(dbModules.map((m) => [m.slug, m]));
@@ -48,7 +49,13 @@ export default async function ModelingHubPage() {
   const ctaSecondary = cms(content, 'modeling_hub', 'cta_secondary',     'Login to Dashboard →');
   const whatHeading  = cms(content, 'modeling_hub', 'what_heading',      'What is the Modeling Hub?');
   const whatBody     = cms(content, 'modeling_hub', 'what_body',         'A structured, guided platform that replaces complex manual spreadsheets with professional financial modeling workflows. Built for analysts, investors, and advisory firms who need institutional-grade outputs fast. Every assumption is traceable. Every output is formatted for investor presentation.');
-  const bottomCtaH2  = cms(content, 'modeling_hub', 'bottom_cta_heading','Ready to build your first model?');
+  const bottomCtaH2        = cms(content, 'modeling_hub', 'bottom_cta_heading','Ready to build your first model?');
+  const testimonialsH2     = cms(content, 'modeling_hub', 'testimonials_heading', 'What Professionals Say');
+  const testimonialsSub    = cms(content, 'modeling_hub', 'testimonials_sub',     'Feedback from finance professionals using the Modeling Hub.');
+  const ctaSection_visible = cms(content, 'cta', 'section_visible', 'true') !== 'false';
+  const footerCompany      = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
+  const footerFounder      = cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder');
+  const footerCopyright    = cms(content, 'footer', 'copyright',    `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
@@ -296,50 +303,66 @@ export default async function ModelingHubPage() {
         </div>
       </section>
 
-      {/* ── Section 5 — CTA Banner ────────────────────────────────────────── */}
-      <section style={{
-        background: '#1B4F8A',
-        padding: 'clamp(48px,7vw,80px) 40px',
-        textAlign: 'center',
-      }}>
-        <div style={{ maxWidth: 600, margin: '0 auto' }}>
-          <h2 style={{
-            fontSize: 'clamp(22px,4vw,38px)', fontWeight: 800,
-            color: '#fff', marginBottom: 12, lineHeight: 1.2,
-          }}>
-            {bottomCtaH2}
-          </h2>
-          <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}>
-            Join financial professionals around the world building institutional-grade models — completely free.
-          </p>
-          <Link href="/login" style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8,
-            background: '#fff', color: '#1B4F8A',
-            fontWeight: 800, fontSize: 16, padding: '14px 40px',
-            borderRadius: 8, textDecoration: 'none',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-          }}>
-            Launch Platform Free →
-          </Link>
-        </div>
-      </section>
+      {/* ── Section 5 — Testimonials ─────────────────────────────────────── */}
+      {testimonials.length > 0 && (
+        <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
+          <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+            <div style={{ textAlign: 'center', marginBottom: 48 }}>
+              <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 10 }}>{testimonialsH2}</h2>
+              <p style={{ fontSize: 14, color: '#6B7280' }}>{testimonialsSub}</p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 24 }}>
+              {testimonials.map(t => (
+                <div key={t.id} style={{ background: '#F9FAFB', border: `1px solid ${t.is_featured ? '#C9A84C' : '#E5E7EB'}`, borderRadius: 14, padding: 24, display: 'flex', flexDirection: 'column' }}>
+                  <div style={{ display: 'flex', gap: 2, marginBottom: 12 }}>
+                    {Array.from({length:5}).map((_,i) => <span key={i} style={{ fontSize: 14, color: i < (t.rating ?? 5) ? '#F59E0B' : '#E5E7EB' }}>★</span>)}
+                  </div>
+                  {t.testimonial_type === 'video' && t.video_url ? (
+                    <a href={t.video_url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#0D2E5A', borderRadius: 8, padding: 20, marginBottom: 16, textDecoration: 'none', gap: 6 }}>
+                      <span style={{ fontSize: 28 }}>▶️</span>
+                      <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>Watch video testimonial ↗</span>
+                    </a>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 28, color: '#1B4F8A', fontFamily: 'Georgia,serif', marginBottom: 8 }}>&ldquo;</div>
+                      <p style={{ fontSize: 13.5, color: '#374151', lineHeight: 1.75, marginBottom: 16, fontStyle: 'italic', flex: 1 }}>{t.text}</p>
+                    </>
+                  )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'linear-gradient(135deg,#1B4F8A,#0D2E5A)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
+                      {t.name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B' }}>{t.name}</div>
+                      {(t.role || t.company) && <div style={{ fontSize: 11, color: '#9CA3AF' }}>{[t.role, t.company].filter(Boolean).join(' · ')}</div>}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* ── Section 6 — CTA Banner ────────────────────────────────────────── */}
+      {ctaSection_visible && (
+        <section style={{ background: '#1B4F8A', padding: 'clamp(48px,7vw,80px) 40px', textAlign: 'center' }}>
+          <div style={{ maxWidth: 600, margin: '0 auto' }}>
+            <h2 style={{ fontSize: 'clamp(22px,4vw,38px)', fontWeight: 800, color: '#fff', marginBottom: 12, lineHeight: 1.2 }}>
+              {bottomCtaH2}
+            </h2>
+            <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}>
+              Join financial professionals around the world building institutional-grade models — completely free.
+            </p>
+            <Link href="/login" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1B4F8A', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
+              Launch Platform Free →
+            </Link>
+          </div>
+        </section>
+      )}
 
       {/* ── Footer ───────────────────────────────────────────────────────── */}
-      <footer style={{
-        background: '#0D2E5A',
-        borderTop: '1px solid rgba(255,255,255,0.07)',
-        padding: '24px 40px',
-        display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12,
-      }}>
-        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>
-          © {new Date().getFullYear()} Financial Modeler Pro
-        </span>
-        <div style={{ display: 'flex', gap: 20 }}>
-          <Link href="/" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>← Home</Link>
-          <Link href="/training" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Training</Link>
-          <Link href="/login" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Login</Link>
-        </div>
-      </footer>
+      <SharedFooter company={footerCompany} founder={footerFounder} copyright={footerCopyright} />
     </div>
   );
 }

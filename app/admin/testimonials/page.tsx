@@ -20,6 +20,8 @@ interface Testimonial {
   linkedin_url: string | null;
   course_name: string | null;
   registration_id: string | null;
+  hub: 'modeling' | 'training';
+  show_on_landing: boolean;
   created_at: string;
   approved_at: string | null;
 }
@@ -88,6 +90,29 @@ export default function AdminTestimonialsPage() {
     } catch {
       showToast('Failed to update', 'error');
     }
+  }
+
+  async function updateHub(id: string, source: string, hub: string) {
+    try {
+      await fetch('/api/admin/testimonials', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, source, hub }),
+      });
+      await fetchTestimonials();
+    } catch { showToast('Failed to update hub', 'error'); }
+  }
+
+  async function toggleLanding(id: string, source: string, current: boolean) {
+    try {
+      await fetch('/api/admin/testimonials', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, source, show_on_landing: !current }),
+      });
+      showToast(!current ? 'Added to landing page' : 'Removed from landing page');
+      await fetchTestimonials();
+    } catch { showToast('Failed to update', 'error'); }
   }
 
   async function toggleFeatured(id: string, source: string, current: boolean) {
@@ -179,7 +204,7 @@ export default function AdminTestimonialsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#1B4F8A' }}>
-                  {['Source', 'Type', 'Name / Course', 'Content', 'Rating', 'Status', 'Date', 'Actions'].map(h => (
+                  {['Source', 'Hub', 'Landing', 'Type', 'Name / Course', 'Content', 'Rating', 'Status', 'Date', 'Actions'].map(h => (
                     <th key={h} style={{ padding: '11px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#fff', letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -198,6 +223,30 @@ export default function AdminTestimonialsPage() {
                         {t.is_featured && (
                           <span style={{ display: 'block', marginTop: 4, fontSize: 9, fontWeight: 700, color: '#C9A84C' }}>★ Featured</span>
                         )}
+                      </td>
+                      {/* Hub */}
+                      <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
+                        <select
+                          value={t.hub ?? (t.source === 'student' ? 'training' : 'modeling')}
+                          onChange={e => updateHub(t.id, t.source, e.target.value)}
+                          style={{ fontSize: 11, padding: '3px 6px', border: '1px solid #D1D5DB', borderRadius: 5, background: '#fff', cursor: 'pointer' }}
+                        >
+                          <option value="modeling">Modeling</option>
+                          <option value="training">Training</option>
+                        </select>
+                      </td>
+                      {/* Show on landing */}
+                      <td style={{ padding: '12px 14px', whiteSpace: 'nowrap', textAlign: 'center' }}>
+                        <button
+                          onClick={() => toggleLanding(t.id, t.source, t.show_on_landing ?? false)}
+                          title={t.show_on_landing ? 'Shown on landing — click to hide' : 'Hidden from landing — click to show'}
+                          style={{ fontSize: 14, background: 'none', border: 'none', cursor: 'pointer', opacity: t.show_on_landing ? 1 : 0.3 }}
+                        >
+                          {t.show_on_landing ? '🏠' : '🏠'}
+                        </button>
+                        <div style={{ fontSize: 9, color: t.show_on_landing ? '#1A7A30' : '#9CA3AF', fontWeight: 700, marginTop: 2 }}>
+                          {t.show_on_landing ? 'ON' : 'OFF'}
+                        </div>
                       </td>
                       {/* Type */}
                       <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>

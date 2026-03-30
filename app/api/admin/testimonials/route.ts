@@ -28,6 +28,8 @@ export async function GET() {
       linkedin_url:     null,
       course_name:      null,
       registration_id:  null,
+      hub:              t.hub ?? 'modeling',
+      show_on_landing:  t.show_on_landing ?? true,
       created_at:       t.created_at,
       approved_at:      t.approved_at,
     }));
@@ -50,6 +52,8 @@ export async function GET() {
       linkedin_url:     t.linkedin_url ?? null,
       course_name:      t.course_name ?? null,
       registration_id:  t.registration_id ?? null,
+      hub:              t.hub ?? 'training',
+      show_on_landing:  t.show_on_landing ?? false,
       created_at:       t.created_at,
       approved_at:      t.approved_at,
     }));
@@ -64,10 +68,10 @@ export async function GET() {
   }
 }
 
-// PATCH — update status or is_featured, routes to correct table via source
+// PATCH — update status, is_featured, hub, or show_on_landing, routes via source
 export async function PATCH(req: NextRequest) {
   try {
-    const { id, source, status, is_featured } = await req.json() as Record<string, string | boolean | undefined>;
+    const { id, source, status, is_featured, hub, show_on_landing } = await req.json() as Record<string, string | boolean | undefined>;
     const sb = getServerClient();
 
     if (source === 'student') {
@@ -77,7 +81,9 @@ export async function PATCH(req: NextRequest) {
         update.status = status;
         update.approved_at = status === 'approved' ? new Date().toISOString() : null;
       }
-      if (is_featured !== undefined) update.is_featured = is_featured;
+      if (is_featured !== undefined)    update.is_featured    = is_featured;
+      if (hub !== undefined)            update.hub            = hub;
+      if (show_on_landing !== undefined) update.show_on_landing = show_on_landing;
       await sb.from('student_testimonials').update(update).eq('id', id);
     } else {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -86,6 +92,8 @@ export async function PATCH(req: NextRequest) {
         update.status = status;
         update.approved_at = status === 'approved' ? new Date().toISOString() : null;
       }
+      if (hub !== undefined)            update.hub            = hub;
+      if (show_on_landing !== undefined) update.show_on_landing = show_on_landing;
       await sb.from('testimonials').update(update).eq('id', id);
     }
 
