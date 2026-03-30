@@ -6,21 +6,22 @@ import { listAllStudents } from '@/src/lib/sheets';
 
 export const revalidate = 0;
 
-type Params = { params: { id: string } };
+type Params = { params: Promise<{ id: string }> };
 
 export async function GET(_req: NextRequest, { params }: Params) {
+  const { id } = await params;
   const session = await getServerSession(authOptions);
   if (!session?.user || (session.user as { role?: string }).role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
   const sb = getServerClient();
-  const { data: cohort } = await sb.from('training_cohorts').select('*').eq('id', params.id).single();
+  const { data: cohort } = await sb.from('training_cohorts').select('*').eq('id', id).single();
   if (!cohort) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const { data: members } = await sb.from('training_cohort_members')
     .select('registration_id,joined_at')
-    .eq('cohort_id', params.id);
+    .eq('cohort_id', id);
 
   // Enrich with student data from Apps Script
   const studentsRes = await listAllStudents();
@@ -59,6 +60,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
 }
 
 export async function PUT(req: NextRequest, { params }: Params) {
+  const { id } = await params;
   const session = await getServerSession(authOptions);
   if (!session?.user || (session.user as { role?: string }).role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -75,25 +77,27 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (body.endDate !== undefined)     updates.end_date    = body.endDate || null;
   if (body.isActive !== undefined)    updates.is_active   = body.isActive;
 
-  const { error } = await sb.from('training_cohorts').update(updates).eq('id', params.id);
+  const { error } = await sb.from('training_cohorts').update(updates).eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(_req: NextRequest, { params }: Params) {
+  const { id } = await params;
   const session = await getServerSession(authOptions);
   if (!session?.user || (session.user as { role?: string }).role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
   const sb = getServerClient();
-  const { error } = await sb.from('training_cohorts').delete().eq('id', params.id);
+  const { error } = await sb.from('training_cohorts').delete().eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
 
 // ── Member management (via sub-actions in query) ──────────────────────────────
 export async function PATCH(req: NextRequest, { params }: Params) {
+  const { id } = await params;
   const session = await getServerSession(authOptions);
   if (!session?.user || (session.user as { role?: string }).role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -104,7 +108,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   if (body.action === 'addMember') {
     const { error } = await sb.from('training_cohort_members').insert({
-      cohort_id: params.id, registration_id: body.registrationId,
+      cohort_id: id, registration_id: body.registrationId,
     });
     if (error && !error.message.includes('unique')) {
       return NextResponse.json({ error: error.message }, { status: 500 });
@@ -115,7 +119,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (body.action === 'removeMember') {
     await sb.from('training_cohort_members')
       .delete()
-      .eq('cohort_id', params.id)
+      .eq('cohort_id', id)
       .eq('registration_id', body.registrationId);
     return NextResponse.json({ ok: true });
   }
