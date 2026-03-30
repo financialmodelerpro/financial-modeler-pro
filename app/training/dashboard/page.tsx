@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training-session';
 import { COURSES } from '@/src/config/courses';
@@ -134,14 +134,24 @@ interface SessionCardProps {
   tabKey: string;
   videoDuration: number;
   regId: string;
+  noteContent: string;
+  onNoteSave: (sessionKey: string, content: string) => void;
+  feedbackGiven: boolean;
+  onFeedbackRequest: (sessionKey: string, sessionTitle: string) => void;
 }
 
 function SessionCard({
   sessionTitle, maxAttempts, questionCount, passingScore,
   idx, prog, locked, ytUrl, formUrl, isFinal, passedCount, regularCount,
-  tabKey, videoDuration, regId,
+  tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
 }: SessionCardProps) {
   const [timerStatus, setTimerStatus] = useState<TimerStatus>({ locked: false, minutesRemaining: 0, started: false });
+  const [notesOpen, setNotesOpen] = useState(false);
+  const [noteText, setNoteText] = useState(noteContent);
+  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync incoming noteContent (loaded async)
+  useEffect(() => { setNoteText(noteContent); }, [noteContent]);
 
   useEffect(() => {
     if (typeof window === 'undefined' || !regId) return;
@@ -211,6 +221,16 @@ function SessionCard({
         </div>
       )}
 
+      {/* Feedback prompt for recently-passed sessions */}
+      {prog?.passed && !feedbackGiven && !locked && !isFinal && (
+        <div style={{ paddingLeft: 38, marginBottom: 8 }}>
+          <button onClick={() => onFeedbackRequest(tabKey, sessionTitle)}
+            style={{ fontSize: 10, fontWeight: 700, color: '#C9A84C', background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.3)', borderRadius: 5, padding: '3px 10px', cursor: 'pointer' }}>
+            ⭐ Rate this session
+          </button>
+        </div>
+      )}
+
       {/* Row 3: action buttons */}
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', paddingLeft: locked ? 0 : 38 }}>
         {/* Watch Video */}
@@ -269,6 +289,34 @@ function SessionCard({
           </a>
         )}
       </div>
+
+      {/* Notes toggle */}
+      {!locked && !isFinal && (
+        <div style={{ marginTop: 8, paddingLeft: 38 }}>
+          <button onClick={() => setNotesOpen(v => !v)}
+            style={{ fontSize: 10, fontWeight: 600, color: '#6B7280', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 4 }}>
+            📝 {notesOpen ? 'Hide Notes' : `Study Notes${noteText ? ' ●' : ''}`}
+          </button>
+          {notesOpen && (
+            <div style={{ marginTop: 6 }}>
+              <textarea
+                value={noteText}
+                onChange={e => {
+                  const val = e.target.value.slice(0, 2000);
+                  setNoteText(val);
+                  if (noteTimer.current) clearTimeout(noteTimer.current);
+                  noteTimer.current = setTimeout(() => onNoteSave(tabKey, val), 1500);
+                }}
+                rows={3}
+                maxLength={2000}
+                placeholder="Add your study notes here… (auto-saved)"
+                style={{ width: '100%', padding: '7px 9px', border: '1px solid #D1D5DB', borderRadius: 6, fontSize: 12, fontFamily: 'Inter,sans-serif', resize: 'vertical', lineHeight: 1.5, boxSizing: 'border-box', color: '#374151', background: '#FEFCE8' }}
+              />
+              <div style={{ fontSize: 9, color: '#9CA3AF', marginTop: 2 }}>{noteText.length}/2000 · auto-saved</div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -358,9 +406,14 @@ interface CourseContentProps {
   onShare: (label: string, certUrl?: string) => void;
   testimonialSubmitted: boolean;
   onOpenTestimonial: (type: 'written' | 'video') => void;
+  // notes + feedback
+  notes: Record<string, string>;
+  onNoteSave: (sessionKey: string, content: string) => void;
+  feedbackGiven: Set<string>;
+  onFeedbackRequest: (sessionKey: string, sessionTitle: string) => void;
 }
 
-function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating, studentName, onShare, testimonialSubmitted, onOpenTestimonial }: CourseContentProps) {
+function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating, studentName, onShare, testimonialSubmitted, onOpenTestimonial, notes, onNoteSave, feedbackGiven, onFeedbackRequest }: CourseContentProps) {
   const course = COURSES[courseId];
   if (!course) return null;
 
@@ -541,10 +594,55 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
               tabKey={tk}
               videoDuration={liveLinks[tk]?.videoDuration ?? 0}
               regId={regId}
+              noteContent={notes[tk] ?? ''}
+              onNoteSave={onNoteSave}
+              feedbackGiven={feedbackGiven.has(tk)}
+              onFeedbackRequest={onFeedbackRequest}
             />
           );
         })}
       </div>
+
+      {/* ── Exam Prep Mode ───────────────────────────────────────────────── */}
+      {allRegularPassed && !finalPassed && finalSession && (progressMap.get(finalSession.id)?.attempts ?? 0) === 0 && (
+        <div style={{ background: 'linear-gradient(135deg,#EFF6FF,#DBEAFE)', border: '1px solid #93C5FD', borderRadius: 12, padding: '18px 22px', marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#1E3A8A', marginBottom: 8 }}>🎯 Exam Prep Mode — You are ready for the Final Exam!</div>
+          <div style={{ fontSize: 12, color: '#1E40AF', marginBottom: 12 }}>Review your weakest sessions before sitting the final:</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {regularSessions
+              .filter(s => progressMap.get(s.id)?.attempts ?? 0 > 0)
+              .sort((a, b) => (progressMap.get(a.id)?.score ?? 100) - (progressMap.get(b.id)?.score ?? 100))
+              .slice(0, 3)
+              .map((s, i) => {
+                const p = progressMap.get(s.id);
+                const tk = `${course.shortTitle.toUpperCase()}_${s.id}`;
+                const ytUrl = liveLinks[tk]?.youtubeUrl || s.youtubeUrl || '';
+                return (
+                  <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'rgba(255,255,255,0.6)', borderRadius: 7, padding: '8px 12px' }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: i === 0 ? '#DC2626' : '#C2410C', minWidth: 20 }}>{i + 1}.</span>
+                    <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: '#1E3A8A' }}>{s.title}</span>
+                    <span style={{ fontSize: 11, color: '#6B7280' }}>{p?.score ?? 0}%</span>
+                    {ytUrl && (
+                      <a href={ytUrl} target="_blank" rel="noopener noreferrer"
+                        style={{ fontSize: 10, fontWeight: 700, color: '#DC2626', textDecoration: 'none', background: '#FEE2E2', padding: '2px 8px', borderRadius: 4 }}>
+                        ▶ Rewatch
+                      </a>
+                    )}
+                  </div>
+                );
+              })}
+          </div>
+          {finalSession && (
+            <div style={{ marginTop: 12 }}>
+              <a href={liveLinks[`${course.shortTitle.toUpperCase()}_${finalSession.id}`]?.formUrl || finalSession.quizFormUrl || '#'}
+                target="_blank" rel="noopener noreferrer"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 20px', borderRadius: 8, background: '#1E3A8A', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
+                🏆 I&apos;m Ready — Take Final Exam →
+              </a>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Session completion share prompt ─────────────────────────────── */}
       {recentlyPassed && !dismissedBanners.has(recentlyPassed.key) && (
@@ -616,6 +714,56 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
         </div>
       )}
 
+      {/* ── Recommended Next Steps ───────────────────────────────────────── */}
+      {(() => {
+        const nextUnpassed = regularSessions.find(s => !progressMap.get(s.id)?.passed);
+        const nextIdx = nextUnpassed ? regularSessions.indexOf(nextUnpassed) : -1;
+        let title = '';
+        let body = '';
+        let action = '';
+        let actionUrl = '';
+        if (passedCount === 0) {
+          title = '🚀 Start Your Journey';
+          body = `Begin with Session 1 of ${course.shortTitle} — watch the video then take the assessment.`;
+          const s = regularSessions[0];
+          const tk = s ? `${course.shortTitle.toUpperCase()}_${s.id}` : '';
+          actionUrl = liveLinks[tk]?.youtubeUrl || s?.youtubeUrl || '';
+          action = '▶ Watch Session 1';
+        } else if (!allRegularPassed && nextUnpassed) {
+          title = `📌 Continue — Session ${nextIdx + 1}`;
+          body = `You have completed ${passedCount} of ${regularSessions.length} sessions. Keep the momentum!`;
+          const tk = `${course.shortTitle.toUpperCase()}_${nextUnpassed.id}`;
+          actionUrl = liveLinks[tk]?.youtubeUrl || nextUnpassed.youtubeUrl || '';
+          action = `▶ Watch Session ${nextIdx + 1}`;
+        } else if (allRegularPassed && !finalPassed) {
+          title = '🏆 Ready for the Final Exam';
+          body = 'All sessions passed! Sit the Final Exam to earn your certificate.';
+          const fk = finalSession ? `${course.shortTitle.toUpperCase()}_${finalSession.id}` : '';
+          actionUrl = (finalSession ? liveLinks[fk]?.formUrl || finalSession.quizFormUrl : '') ?? '';
+          action = '🏆 Take Final Exam';
+        } else if (finalPassed && courseCert) {
+          title = '🎓 Share Your Certificate';
+          body = 'Congratulations! Add your certificate to LinkedIn to showcase your skills.';
+          actionUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(courseCert.certifierUrl)}`;
+          action = 'in Add to LinkedIn';
+        } else {
+          title = '📈 Keep Going';
+          body = 'Complete the remaining sessions to unlock your certificate.';
+        }
+        return (
+          <div style={{ background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>{title}</div>
+            <div style={{ fontSize: 12, color: '#6B7280', marginBottom: actionUrl ? 10 : 0 }}>{body}</div>
+            {actionUrl && (
+              <a href={actionUrl} target="_blank" rel="noopener noreferrer"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 16px', borderRadius: 7, background: '#1B4F8A', color: '#fff', textDecoration: 'none', fontSize: 12, fontWeight: 700 }}>
+                {action}
+              </a>
+            )}
+          </div>
+        );
+      })()}
+
       {/* Certificate Card */}
       {(finalPassed && courseCert) ? (
         <div style={{ border: '2px solid #C9A84C', borderRadius: 12, padding: '24px 28px', background: 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E1 100%)', boxShadow: '0 4px 20px rgba(201,168,76,0.15)' }}>
@@ -658,6 +806,24 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: 'rgba(201,168,76,0.15)', color: '#92600A', border: '1px solid rgba(201,168,76,0.4)', cursor: 'pointer' }}>
               🎉 Share Achievement
             </button>
+            <a href={`https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${encodeURIComponent(course.title)}&organizationName=Financial+Modeler+Pro&issueYear=${new Date(courseCert.issuedAt).getFullYear()}&issueMonth=${new Date(courseCert.issuedAt).getMonth()+1}&certUrl=${encodeURIComponent(courseCert.certifierUrl)}&certId=${encodeURIComponent(courseCert.certificateId)}`}
+              target="_blank" rel="noopener noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#0A66C2', color: '#fff', textDecoration: 'none' }}>
+              in Add Credential
+            </a>
+          </div>
+          {/* QR Code */}
+          <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid rgba(201,168,76,0.2)', display: 'flex', alignItems: 'center', gap: 14 }}>
+            <img
+              src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(courseCert.certifierUrl)}`}
+              alt="Certificate QR"
+              width={80} height={80}
+              style={{ borderRadius: 6, border: '1px solid #E5E7EB' }}
+            />
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 3 }}>Certificate QR Code</div>
+              <div style={{ fontSize: 11, color: '#6B7280', lineHeight: 1.5 }}>Scan to verify your certificate instantly.<br />Share on your resume or LinkedIn profile.</div>
+            </div>
           </div>
         </div>
       ) : (
@@ -725,6 +891,19 @@ export default function TrainingDashboardPage() {
   const [testimonialModal, setTestimonialModal]   = useState<'written' | 'video' | null>(null);
   const [testimonialSubmitted, setTestimonialSubmitted] = useState(false);
   const [dashToast, setDashToast]                 = useState('');
+  // streak / gamification
+  const [streak, setStreak]                       = useState(0);
+  const [points, setPoints]                       = useState(0);
+  const [badges, setBadges]                       = useState<{ badge_key: string; earned_at: string }[]>([]);
+  const [newBadgeToast, setNewBadgeToast]         = useState('');
+  // notes
+  const [notes, setNotes]                         = useState<Record<string, string>>({});
+  // feedback
+  const [feedbackGiven, setFeedbackGiven]         = useState<Set<string>>(new Set());
+  const [feedbackModal, setFeedbackModal]         = useState<{ sessionKey: string; sessionTitle: string } | null>(null);
+  // profile
+  const [profileModal, setProfileModal]           = useState(false);
+  const [studentProfile, setStudentProfile]       = useState<{ job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean } | null>(null);
 
   // Restore sidebar state from localStorage (client-only)
   useEffect(() => {
@@ -747,16 +926,32 @@ export default function TrainingDashboardPage() {
       const progressParams = new URLSearchParams({ email: sess.email, registrationId: sess.registrationId });
       if (forceRefresh) progressParams.set('refresh', '1');
 
-      // ── Fetch progress + course-details in PARALLEL ──────────────────────
-      const [progressRes, detailsRes] = await Promise.all([
+      // ── Fetch progress + course-details + notes + profile in PARALLEL ───
+      const [progressRes, detailsRes, notesRes, profileRes] = await Promise.all([
         fetch(`/api/training/progress?${progressParams}`),
         fetch('/api/training/course-details'),
+        fetch(`/api/training/notes?registrationId=${encodeURIComponent(sess.registrationId)}`),
+        fetch(`/api/training/profile?registrationId=${encodeURIComponent(sess.registrationId)}`),
       ]);
 
-      const [json, detailsJson] = await Promise.all([
+      const [json, detailsJson, notesJson, profileJson] = await Promise.all([
         progressRes.json() as Promise<{ success: boolean; fallback?: boolean; data?: ProgressData }>,
         detailsRes.json() as Promise<{ sessions?: LiveSessionLink[]; courses?: CourseDescsMap }>,
+        notesRes.json() as Promise<{ notes?: { session_key: string; content: string }[] }>,
+        profileRes.json() as Promise<{ profile?: { job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; streak_days?: number; total_points?: number } | null }>,
       ]);
+
+      // Apply notes
+      const notesMap: Record<string, string> = {};
+      for (const n of notesJson.notes ?? []) notesMap[n.session_key] = n.content;
+      setNotes(notesMap);
+
+      // Apply profile + streak/points
+      if (profileJson.profile) {
+        setStudentProfile(profileJson.profile);
+        setStreak(profileJson.profile.streak_days ?? 0);
+        setPoints(profileJson.profile.total_points ?? 0);
+      }
 
       // Apply course-details
       const map: LiveLinksMap = {};
@@ -768,6 +963,24 @@ export default function TrainingDashboardPage() {
       if (json.success && json.data) {
         setProgress(json.data);
         setLastUpdated(new Date());
+        // Fire activity (streak/badges) — fire-and-forget
+        const sessionsPassed = json.data.sessions.filter(s => s.passed).length;
+        const hasPerfect = json.data.sessions.some(s => s.passed && s.score === 100);
+        fetch('/api/training/activity', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ registrationId: sess.registrationId, sessionsPassed, hasPerfect }),
+        }).then(r => r.json()).then((act: { ok?: boolean; streak?: number; points?: number; badges?: { badge_key: string; earned_at: string }[]; newBadges?: string[] }) => {
+          if (act.ok) {
+            setStreak(act.streak ?? 0);
+            setPoints(act.points ?? 0);
+            setBadges(act.badges ?? []);
+            if (act.newBadges && act.newBadges.length > 0) {
+              setNewBadgeToast(`🏅 New badge earned: ${act.newBadges[0].replace(/_/g, ' ')}`);
+              setTimeout(() => setNewBadgeToast(''), 4000);
+            }
+          }
+        }).catch(() => {});
         if (json.fallback) setIsFallback(true);
         if (json.data.certificateIssued) {
           const certRes  = await fetch(`/api/training/certificate?email=${encodeURIComponent(sess.email)}`);
@@ -827,6 +1040,26 @@ export default function TrainingDashboardPage() {
     await fetch('/api/training/logout', { method: 'POST' });
     clearTrainingSession();
     router.replace('/training');
+  }
+
+  async function saveNote(sessionKey: string, content: string) {
+    if (!localSession) return;
+    setNotes(prev => ({ ...prev, [sessionKey]: content }));
+    await fetch('/api/training/notes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ registrationId: localSession.registrationId, sessionKey, content }),
+    });
+  }
+
+  async function saveFeedback(sessionKey: string, rating: number, comment: string) {
+    if (!localSession) return;
+    setFeedbackGiven(prev => new Set([...prev, sessionKey]));
+    await fetch('/api/training/feedback', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ registrationId: localSession.registrationId, sessionKey, rating, comment }),
+    });
   }
 
   if (!localSession && !loading) return null;
@@ -1076,6 +1309,57 @@ export default function TrainingDashboardPage() {
               )
             )}
 
+            {/* ─ Streak & Points ─ */}
+            {!sidebarCollapsed && (streak > 0 || points > 0) && (
+              <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', marginTop: 8, marginBottom: 4, display: 'flex', gap: 12 }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 16 }}>🔥</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: streak >= 5 ? '#F59E0B' : '#fff' }}>{streak}</div>
+                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>day streak</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 16 }}>⭐</div>
+                  <div style={{ fontSize: 13, fontWeight: 800, color: '#C9A84C' }}>{points}</div>
+                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>points</div>
+                </div>
+                {badges.length > 0 && (
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontSize: 16 }}>🏅</div>
+                    <div style={{ fontSize: 13, fontWeight: 800, color: '#fff' }}>{badges.length}</div>
+                    <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>badges</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ─ Badges grid ─ */}
+            {!sidebarCollapsed && badges.length > 0 && (() => {
+              const BADGE_META: Record<string, { icon: string; label: string }> = {
+                first_step:   { icon: '👣', label: 'First Step' },
+                on_fire:      { icon: '🔥', label: 'On Fire' },
+                unstoppable:  { icon: '⚡', label: 'Unstoppable' },
+                halfway:      { icon: '🎯', label: 'Halfway' },
+                almost_there: { icon: '🚀', label: 'Almost There' },
+                certified:    { icon: '🏆', label: 'Certified' },
+                perfect_score:{ icon: '💯', label: 'Perfect Score' },
+                speed_runner: { icon: '⚡', label: 'Speed Runner' },
+              };
+              return (
+                <div style={{ padding: '6px 4px 2px' }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)', marginBottom: 6 }}>Badges</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                    {badges.map(b => {
+                      const meta = BADGE_META[b.badge_key];
+                      if (!meta) return null;
+                      return (
+                        <span key={b.badge_key} title={meta.label} style={{ fontSize: 16, cursor: 'default' }}>{meta.icon}</span>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
+
             {/* ─ Achievements ─ */}
             {!sidebarCollapsed && (
               <>
@@ -1140,8 +1424,15 @@ export default function TrainingDashboardPage() {
                   <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
                     {progress.student.email}
                   </div>
+                  {studentProfile?.job_title && (
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>{studentProfile.job_title}{studentProfile.company ? ` · ${studentProfile.company}` : ''}</div>
+                  )}
                 </div>
               )}
+              <button onClick={() => setProfileModal(true)}
+                style={{ width: '100%', padding: '8px 12px', borderRadius: 7, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+                👤 Edit Profile
+              </button>
               <button onClick={handleLogout}
                 style={{ width: '100%', padding: '8px 12px', borderRadius: 7, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#FCA5A5', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
                 🚪 Logout
@@ -1229,6 +1520,10 @@ export default function TrainingDashboardPage() {
                 onShare={(label, certUrl) => setShareModal({ label, certUrl })}
                 testimonialSubmitted={testimonialSubmitted}
                 onOpenTestimonial={type => setTestimonialModal(type)}
+                notes={notes}
+                onNoteSave={saveNote}
+                feedbackGiven={feedbackGiven}
+                onFeedbackRequest={(sessionKey, sessionTitle) => setFeedbackModal({ sessionKey, sessionTitle })}
               />
             )
           )}
@@ -1269,6 +1564,42 @@ export default function TrainingDashboardPage() {
         <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#1B3A6B', color: '#fff', padding: '11px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 700, boxShadow: '0 4px 20px rgba(0,0,0,0.25)', maxWidth: 340 }}>
           {dashToast}
         </div>
+      )}
+
+      {/* ── Badge toast ──────────────────────────────────────────────────────── */}
+      {newBadgeToast && (
+        <div style={{ position: 'fixed', bottom: 64, right: 24, background: '#92400E', color: '#fff', padding: '11px 20px', borderRadius: 8, fontSize: 13, fontWeight: 700, zIndex: 700, boxShadow: '0 4px 20px rgba(0,0,0,0.3)', maxWidth: 300 }}>
+          {newBadgeToast}
+        </div>
+      )}
+
+      {/* ── Session Feedback Modal ───────────────────────────────────────────── */}
+      {feedbackModal && localSession && (
+        <FeedbackModal
+          sessionTitle={feedbackModal.sessionTitle}
+          onClose={() => setFeedbackModal(null)}
+          onSubmit={(rating, comment) => {
+            saveFeedback(feedbackModal.sessionKey, rating, comment);
+            setFeedbackModal(null);
+            setDashToast('Thanks for your feedback!');
+            setTimeout(() => setDashToast(''), 2500);
+          }}
+        />
+      )}
+
+      {/* ── Profile Modal ────────────────────────────────────────────────────── */}
+      {profileModal && localSession && (
+        <ProfileModal
+          registrationId={localSession.registrationId}
+          initial={studentProfile}
+          onClose={() => setProfileModal(false)}
+          onSave={(profile) => {
+            setStudentProfile(profile);
+            setProfileModal(false);
+            setDashToast('Profile saved!');
+            setTimeout(() => setDashToast(''), 2500);
+          }}
+        />
       )}
     </div>
   );
@@ -1490,6 +1821,127 @@ function TestimonialModal({ mode, studentName, studentEmail, regId, courseCode, 
           </button>
           <button onClick={onClose}
             style={{ padding: '11px 18px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, color: '#6B7280', cursor: 'pointer', fontWeight: 600 }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Feedback Modal ────────────────────────────────────────────────────────────
+
+function FeedbackModal({ sessionTitle, onClose, onSubmit }: {
+  sessionTitle: string;
+  onClose: () => void;
+  onSubmit: (rating: number, comment: string) => void;
+}) {
+  const [rating, setRating] = useState(5);
+  const [comment, setComment] = useState('');
+  return (
+    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 650, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 420, padding: '24px 24px 20px', boxShadow: '0 16px 48px rgba(0,0,0,0.25)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: '#0D2E5A' }}>⭐ Rate This Session</div>
+          <button onClick={onClose} style={{ fontSize: 18, background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}>✕</button>
+        </div>
+        <div style={{ fontSize: 13, color: '#374151', marginBottom: 14, fontWeight: 600 }}>{sessionTitle}</div>
+        <div style={{ display: 'flex', gap: 4, marginBottom: 14 }}>
+          {[1,2,3,4,5].map(i => (
+            <button key={i} onClick={() => setRating(i)}
+              style={{ fontSize: 28, background: 'none', border: 'none', cursor: 'pointer', color: i <= rating ? '#F59E0B' : '#E5E7EB', padding: '0 2px' }}>
+              ★
+            </button>
+          ))}
+        </div>
+        <textarea value={comment} onChange={e => setComment(e.target.value.slice(0, 300))} rows={3}
+          placeholder="Optional comment (what did you learn? what can be improved?)"
+          style={{ width: '100%', padding: '8px 10px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 12, fontFamily: 'Inter,sans-serif', resize: 'none', boxSizing: 'border-box', color: '#374151', marginBottom: 14 }} />
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => onSubmit(rating, comment)}
+            style={{ flex: 1, padding: '10px', background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+            Submit Feedback
+          </button>
+          <button onClick={onClose}
+            style={{ padding: '10px 16px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 7, fontSize: 13, color: '#6B7280', cursor: 'pointer' }}>
+            Skip
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Profile Modal ─────────────────────────────────────────────────────────────
+
+function ProfileModal({ registrationId, initial, onClose, onSave }: {
+  registrationId: string;
+  initial: { job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean } | null;
+  onClose: () => void;
+  onSave: (p: { job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean }) => void;
+}) {
+  const [jobTitle, setJobTitle]       = useState(initial?.job_title ?? '');
+  const [company, setCompany]         = useState(initial?.company ?? '');
+  const [location, setLocation]       = useState(initial?.location ?? '');
+  const [linkedinUrl, setLinkedinUrl] = useState(initial?.linkedin_url ?? '');
+  const [notifyM, setNotifyM]         = useState(initial?.notify_milestones ?? true);
+  const [notifyR, setNotifyR]         = useState(initial?.notify_reminders ?? true);
+  const [saving, setSaving]           = useState(false);
+
+  async function handleSave() {
+    setSaving(true);
+    await fetch('/api/training/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ registrationId, jobTitle, company, location, linkedinUrl, notifyMilestones: notifyM, notifyReminders: notifyR }),
+    });
+    onSave({ job_title: jobTitle, company, location, linkedin_url: linkedinUrl, notify_milestones: notifyM, notify_reminders: notifyR });
+    setSaving(false);
+  }
+
+  const fields = [
+    { label: 'Job Title', value: jobTitle, setter: setJobTitle, placeholder: 'e.g. Financial Analyst' },
+    { label: 'Company',   value: company,  setter: setCompany,  placeholder: 'e.g. Goldman Sachs' },
+    { label: 'Location',  value: location, setter: setLocation, placeholder: 'e.g. Lagos, Nigeria' },
+    { label: 'LinkedIn',  value: linkedinUrl, setter: setLinkedinUrl, placeholder: 'https://linkedin.com/in/...' },
+  ];
+
+  return (
+    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 650, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 440, padding: '24px', boxShadow: '0 16px 48px rgba(0,0,0,0.25)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A' }}>👤 My Profile</div>
+          <button onClick={onClose} style={{ fontSize: 18, background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}>✕</button>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+          {fields.map(f => (
+            <div key={f.label}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', marginBottom: 4 }}>{f.label.toUpperCase()}</div>
+              <input value={f.value} onChange={e => f.setter(e.target.value)} placeholder={f.placeholder}
+                style={{ width: '100%', padding: '7px 9px', border: '1px solid #E5E7EB', borderRadius: 6, fontSize: 12, fontFamily: 'Inter,sans-serif', boxSizing: 'border-box' }} />
+            </div>
+          ))}
+        </div>
+        <div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 14, marginBottom: 16 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', marginBottom: 8 }}>NOTIFICATIONS</div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, cursor: 'pointer', fontSize: 12, color: '#374151' }}>
+            <input type="checkbox" checked={notifyM} onChange={e => setNotifyM(e.target.checked)} />
+            Progress milestone emails
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12, color: '#374151' }}>
+            <input type="checkbox" checked={notifyR} onChange={e => setNotifyR(e.target.checked)} />
+            Study reminder emails
+          </label>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleSave} disabled={saving}
+            style={{ flex: 1, padding: '10px', background: saving ? '#9CA3AF' : '#1B4F8A', color: '#fff', border: 'none', borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer' }}>
+            {saving ? 'Saving…' : 'Save Profile'}
+          </button>
+          <button onClick={onClose}
+            style={{ padding: '10px 16px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 7, fontSize: 13, color: '#6B7280', cursor: 'pointer' }}>
             Cancel
           </button>
         </div>
