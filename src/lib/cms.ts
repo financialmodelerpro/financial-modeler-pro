@@ -247,18 +247,56 @@ export interface Testimonial {
   text: string;
   rating: number;
   created_at: string;
+  // extended fields from student_testimonials
+  source?: 'manual' | 'student';
+  testimonial_type?: 'written' | 'video' | 'manual';
+  location?: string;
+  linkedin_url?: string;
+  video_url?: string;
+  course_name?: string;
+  is_featured?: boolean;
 }
 
 export async function getApprovedTestimonials(): Promise<Testimonial[]> {
   try {
     const sb = getServerClient();
-    const { data } = await sb
-      .from('testimonials')
-      .select('id,name,role,company,text,rating,created_at')
-      .eq('status', 'approved')
-      .order('approved_at', { ascending: false })
-      .limit(6);
-    return (data ?? []) as Testimonial[];
+    const [{ data: manual }, { data: students }] = await Promise.all([
+      sb.from('testimonials')
+        .select('id,name,role,company,text,rating,created_at')
+        .eq('status', 'approved')
+        .order('approved_at', { ascending: false })
+        .limit(6),
+      sb.from('student_testimonials')
+        .select('id,student_name,job_title,company,location,written_content,video_url,linkedin_url,course_name,rating,created_at,is_featured,testimonial_type')
+        .eq('status', 'approved')
+        .order('approved_at', { ascending: false })
+        .limit(12),
+    ]);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const manualFmt: Testimonial[] = (manual ?? []).map((t: any) => ({
+      id: t.id, name: t.name, role: t.role ?? '', company: t.company ?? '',
+      text: t.text ?? '', rating: t.rating ?? 5, created_at: t.created_at,
+      source: 'manual' as const, testimonial_type: 'manual' as const,
+    }));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const studentFmt: Testimonial[] = (students ?? []).map((t: any) => ({
+      id: t.id, name: t.student_name, role: t.job_title ?? '', company: t.company ?? '',
+      text: t.written_content ?? '', rating: t.rating ?? 5, created_at: t.created_at,
+      source: 'student' as const, testimonial_type: t.testimonial_type,
+      location: t.location, linkedin_url: t.linkedin_url,
+      video_url: t.video_url, course_name: t.course_name, is_featured: t.is_featured,
+    }));
+
+    // Featured student testimonials first, then newest
+    return [...manualFmt, ...studentFmt]
+      .sort((a, b) => {
+        if (a.is_featured && !b.is_featured) return -1;
+        if (!a.is_featured && b.is_featured) return 1;
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      })
+      .slice(0, 6);
   } catch {
     return [];
   }

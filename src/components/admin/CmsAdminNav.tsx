@@ -42,9 +42,11 @@ const NAV_ITEMS: NavItem[] = [
 
 interface Props {
   active?: string;
+  /** href → count: shows a red badge next to that nav item */
+  badges?: Record<string, number>;
 }
 
-export function CmsAdminNav({ active: activeProp }: Props) {
+export function CmsAdminNav({ active: activeProp, badges }: Props) {
   const pathname = usePathname();
   const { data: session } = useSession();
   const active = activeProp ?? pathname;
@@ -200,6 +202,11 @@ export function CmsAdminNav({ active: activeProp }: Props) {
               >
                 <span style={{ fontSize: 15, width: 20, textAlign: 'center', flexShrink: 0 }}>{item.icon}</span>
                 {item.label}
+                {(badges?.[item.href] ?? 0) > 0 && (
+                  <span style={{ marginLeft: 'auto', background: '#DC2626', color: '#fff', borderRadius: 20, fontSize: 9, fontWeight: 800, padding: '1px 6px', minWidth: 16, textAlign: 'center', lineHeight: 1.6 }}>
+                    {badges![item.href]}
+                  </span>
+                )}
               </Link>
             );
           })}

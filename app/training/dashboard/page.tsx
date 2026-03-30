@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training-session';
 import { COURSES } from '@/src/config/courses';
@@ -352,11 +352,51 @@ interface CourseContentProps {
   regId: string;
   onDownloadTranscript: () => void;
   generating: boolean;
+  // share + testimonials
+  studentName: string;
+  studentEmail: string;
+  onShare: (label: string, certUrl?: string) => void;
+  testimonialSubmitted: boolean;
+  onOpenTestimonial: (type: 'written' | 'video') => void;
 }
 
-function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating }: CourseContentProps) {
+function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating, studentName, onShare, testimonialSubmitted, onOpenTestimonial }: CourseContentProps) {
   const course = COURSES[courseId];
   if (!course) return null;
+
+  // Track dismissed banners for this session
+  const [dismissedBanners, setDismissedBanners] = useState<Set<string>>(() => {
+    if (typeof window === 'undefined') return new Set();
+    try { return new Set(JSON.parse(sessionStorage.getItem('fmp_banners') || '[]')); } catch { return new Set(); }
+  });
+  const [copiedCert, setCopiedCert] = useState(false);
+
+  function dismissBanner(key: string) {
+    setDismissedBanners(prev => {
+      const next = new Set([...prev, key]);
+      try { sessionStorage.setItem('fmp_banners', JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+  }
+
+  // Detect most recently passed session within the last 4 hours
+  const recentlyPassed = useMemo(() => {
+    const cutoff = Date.now() - 4 * 60 * 60 * 1000;
+    const regularSess = course.sessions.filter(s => !s.isFinal);
+    let best: { key: string; label: string; certUrl?: string } | null = null;
+    let bestTime = 0;
+    for (const s of course.sessions) {
+      const prog = progressMap.get(s.id);
+      if (!prog?.passed || !prog.completedAt) continue;
+      const t = new Date(prog.completedAt).getTime();
+      if (t < cutoff || t <= bestTime) continue;
+      const idx = regularSess.findIndex(r => r.id === s.id);
+      const label = s.isFinal ? 'passed the Final Exam' : `passed Session ${idx + 1}`;
+      best = { key: `sess_${s.id}`, label };
+      bestTime = t;
+    }
+    return best;
+  }, [progressMap, course]);
 
   const allRegularPassed = allRegularSessionsPassed(courseId, progressMap);
   const regularSessions = course.sessions.filter(s => !s.isFinal);
@@ -506,6 +546,76 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
         })}
       </div>
 
+      {/* ── Session completion share prompt ─────────────────────────────── */}
+      {recentlyPassed && !dismissedBanners.has(recentlyPassed.key) && (
+        <div style={{ background: 'linear-gradient(135deg,#EFF6FF,#DBEAFE)', border: '1px solid #BFDBFE', borderRadius: 10, padding: '14px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 13, color: '#1E40AF', fontWeight: 600 }}>
+            🎉 You {recentlyPassed.label} in <strong>{course.shortTitle}</strong>! Share your achievement?
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+            <button onClick={() => onShare(recentlyPassed.label)}
+              style={{ padding: '6px 14px', borderRadius: 20, background: '#1B4F8A', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+              Share
+            </button>
+            <button onClick={() => dismissBanner(recentlyPassed.key)}
+              style={{ padding: '6px 10px', borderRadius: 20, background: 'transparent', color: '#6B7280', border: '1px solid #D1D5DB', cursor: 'pointer', fontSize: 12 }}>
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Progress milestone share banner ──────────────────────────────── */}
+      {[25, 50, 75].map(m => {
+        const key = `milestone_${courseId}_${m}`;
+        const hit = progressPct >= m && progressPct < m + 25;
+        if (!hit || dismissedBanners.has(key)) return null;
+        return (
+          <div key={m} style={{ background: 'linear-gradient(135deg,#F0FDF4,#DCFCE7)', border: '1px solid #BBF7D0', borderRadius: 10, padding: '14px 18px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontSize: 13, color: '#166534', fontWeight: 600 }}>
+              🚀 You are <strong>{m}% through</strong> the {course.shortTitle} course! Keep it up.
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+              <button onClick={() => onShare(`reached ${m}% progress in ${course.shortTitle}`)}
+                style={{ padding: '6px 14px', borderRadius: 20, background: '#2EAA4A', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                Share Progress
+              </button>
+              <button onClick={() => dismissBanner(key)}
+                style={{ padding: '6px 10px', borderRadius: 20, background: 'transparent', color: '#6B7280', border: '1px solid #D1D5DB', cursor: 'pointer', fontSize: 12 }}>
+                ✕
+              </button>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* ── Share Your Experience (testimonial prompt) ────────────────────── */}
+      {passedCount >= 3 && !testimonialSubmitted && (
+        <div style={{ background: 'linear-gradient(135deg,#FFFBF0,#FFF8E1)', border: '1px solid #FDE68A', borderRadius: 12, padding: '20px 22px', marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 800, color: '#92400E', marginBottom: 4 }}>⭐ Share Your Experience</div>
+              <div style={{ fontSize: 12, color: '#B45309', lineHeight: 1.5 }}>
+                Your feedback helps other professionals discover FMP. Takes under 2 minutes!
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <button onClick={() => onOpenTestimonial('written')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 18px', borderRadius: 8, background: '#1B4F8A', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+              📝 Write a Testimonial
+            </button>
+            <button onClick={() => onOpenTestimonial('video')}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 18px', borderRadius: 8, background: '#fff', color: '#1B4F8A', border: '1px solid #1B4F8A', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+              🎥 Submit Video Testimonial
+            </button>
+          </div>
+          <div style={{ marginTop: 10, fontSize: 10, color: '#D97706' }}>
+            {studentName || 'You'} • {course.shortTitle} • {passedCount} sessions completed
+          </div>
+        </div>
+      )}
+
       {/* Certificate Card */}
       {(finalPassed && courseCert) ? (
         <div style={{ border: '2px solid #C9A84C', borderRadius: 12, padding: '24px 28px', background: 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E1 100%)', boxShadow: '0 4px 20px rgba(201,168,76,0.15)' }}>
@@ -519,20 +629,35 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
             </div>
             <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#C9A84C', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>🏆</div>
           </div>
-          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <a href={courseCert.certifierUrl} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 7, fontSize: 13, fontWeight: 700, background: '#2EAA4A', color: '#fff', textDecoration: 'none' }}>
-              View Certificate →
-            </a>
-            <a href={courseCert.certifierUrl} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 7, fontSize: 13, fontWeight: 700, background: '#1B4F8A', color: '#fff', textDecoration: 'none' }}>
-              Verify Online →
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#2EAA4A', color: '#fff', textDecoration: 'none' }}>
+              🏆 View Certificate
             </a>
             <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(courseCert.certifierUrl)}`}
               target="_blank" rel="noopener noreferrer"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 7, fontSize: 13, fontWeight: 700, background: '#0A66C2', color: '#fff', textDecoration: 'none' }}>
-              Share on LinkedIn →
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#0A66C2', color: '#fff', textDecoration: 'none' }}>
+              in LinkedIn
             </a>
+            <a href={`https://wa.me/?text=${encodeURIComponent(`I just earned my ${course.shortTitle} certificate from Financial Modeler Pro! 🎓\n\nCheck out the free course: https://financialmodelerpro.com/training\n\nVerify my certificate: ${courseCert.certifierUrl}`)}`}
+              target="_blank" rel="noopener noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#25D366', color: '#fff', textDecoration: 'none' }}>
+              WhatsApp
+            </a>
+            <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`Just earned my ${course.shortTitle} certification! 🏆\n\nFree course at https://financialmodelerpro.com/training\n\n#FinancialModeling #Finance`)}`}
+              target="_blank" rel="noopener noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#000', color: '#fff', textDecoration: 'none' }}>
+              𝕏 Twitter
+            </a>
+            <button
+              onClick={() => { navigator.clipboard.writeText(courseCert.certifierUrl).then(() => { setCopiedCert(true); setTimeout(() => setCopiedCert(false), 2500); }); }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: copiedCert ? '#2EAA4A' : '#1B4F8A', color: '#fff', border: 'none', cursor: 'pointer' }}>
+              {copiedCert ? '✓ Copied!' : '🔗 Copy Link'}
+            </button>
+            <button onClick={() => onShare(`earned my ${course.shortTitle} certificate`, courseCert.certifierUrl)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: 'rgba(201,168,76,0.15)', color: '#92600A', border: '1px solid rgba(201,168,76,0.4)', cursor: 'pointer' }}>
+              🎉 Share Achievement
+            </button>
           </div>
         </div>
       ) : (
@@ -595,6 +720,11 @@ export default function TrainingDashboardPage() {
   const [lastUpdated, setLastUpdated]             = useState<Date | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed]   = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  // share + testimonials
+  const [shareModal, setShareModal]               = useState<{ label: string; certUrl?: string } | null>(null);
+  const [testimonialModal, setTestimonialModal]   = useState<'written' | 'video' | null>(null);
+  const [testimonialSubmitted, setTestimonialSubmitted] = useState(false);
+  const [dashToast, setDashToast]                 = useState('');
 
   // Restore sidebar state from localStorage (client-only)
   useEffect(() => {
@@ -662,6 +792,12 @@ export default function TrainingDashboardPage() {
     if (!sess) { router.replace('/training/login'); return; }
     setLocalSession(sess);
     loadData(sess);
+    // Restore testimonial submitted state from localStorage
+    try {
+      if (localStorage.getItem(`fmp_test_${sess.registrationId}`) === 'true') {
+        setTestimonialSubmitted(true);
+      }
+    } catch { /* ignore */ }
   }, [router, loadData]);
 
   async function downloadTranscript() {
@@ -788,6 +924,12 @@ export default function TrainingDashboardPage() {
             style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, background: 'rgba(255,255,255,0.08)', color: refreshing ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 5, cursor: loading || refreshing ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
             <span style={{ display: 'inline-block', animation: refreshing ? 'spin 0.7s linear infinite' : 'none' }}>↻</span>
             {refreshing ? 'Refreshing…' : 'Refresh'}
+          </button>
+          <button
+            onClick={() => setShareModal({ label: 'am learning Financial Modeling' })}
+            title="Share your progress"
+            style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+            🔗 Share
           </button>
           <button onClick={handleLogout} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,0.1)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, cursor: 'pointer' }}>
             Logout
@@ -1082,10 +1224,275 @@ export default function TrainingDashboardPage() {
                 regId={localSession?.registrationId ?? ''}
                 onDownloadTranscript={downloadTranscript}
                 generating={generating}
+                studentName={progress?.student.name ?? ''}
+                studentEmail={progress?.student.email ?? ''}
+                onShare={(label, certUrl) => setShareModal({ label, certUrl })}
+                testimonialSubmitted={testimonialSubmitted}
+                onOpenTestimonial={type => setTestimonialModal(type)}
               />
             )
           )}
         </main>
+      </div>
+
+      {/* ── Share Modal ─────────────────────────────────────────────────────── */}
+      {shareModal && (
+        <ShareModal
+          label={shareModal.label}
+          certUrl={shareModal.certUrl}
+          onClose={() => setShareModal(null)}
+          onCopyDone={() => { setDashToast('Link copied to clipboard!'); setTimeout(() => setDashToast(''), 2500); }}
+        />
+      )}
+
+      {/* ── Testimonial Modal ───────────────────────────────────────────────── */}
+      {testimonialModal && localSession && progress && (
+        <TestimonialModal
+          mode={testimonialModal}
+          studentName={progress.student.name}
+          studentEmail={progress.student.email}
+          regId={localSession.registrationId}
+          courseCode={activeCourse}
+          courseName={COURSES[activeCourse]?.title ?? activeCourse.toUpperCase()}
+          onClose={() => setTestimonialModal(null)}
+          onSuccess={() => {
+            setTestimonialSubmitted(true);
+            try { localStorage.setItem(`fmp_test_${localSession.registrationId}`, 'true'); } catch { /* ignore */ }
+            setDashToast('Thank you! Your testimonial has been submitted for review.');
+            setTimeout(() => setDashToast(''), 4000);
+          }}
+        />
+      )}
+
+      {/* ── Dashboard toast ─────────────────────────────────────────────────── */}
+      {dashToast && (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#1B3A6B', color: '#fff', padding: '11px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 700, boxShadow: '0 4px 20px rgba(0,0,0,0.25)', maxWidth: 340 }}>
+          {dashToast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Share Modal ───────────────────────────────────────────────────────────────
+
+function ShareModal({ label, certUrl, onClose, onCopyDone }: {
+  label: string;
+  certUrl?: string;
+  onClose: () => void;
+  onCopyDone: () => void;
+}) {
+  const pageUrl  = 'https://financialmodelerpro.com/training';
+  const shareUrl = certUrl || pageUrl;
+  const [msg, setMsg] = useState(
+    `I just ${label} at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — Free certification program: ${pageUrl}${certUrl ? `\n\nVerify certificate: ${certUrl}` : ''}\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`,
+  );
+
+  const liUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`;
+  const waUrl = `https://wa.me/?text=${encodeURIComponent(msg)}`;
+  const twUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(`I just ${label} at Financial Modeler Pro! 🏆\n\nFree certification: ${pageUrl}\n\n#FinancialModeling #Finance`)}`;
+
+  function copyLink() {
+    navigator.clipboard.writeText(shareUrl).then(() => { onCopyDone(); onClose(); }).catch(() => { onCopyDone(); onClose(); });
+  }
+
+  return (
+    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', padding: '28px 28px 24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <div style={{ fontSize: 17, fontWeight: 800, color: '#0D2E5A' }}>🎉 Share Your Achievement</div>
+          <button onClick={onClose} style={{ fontSize: 20, background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', lineHeight: 1 }}>✕</button>
+        </div>
+        <textarea value={msg} onChange={e => setMsg(e.target.value)} rows={5}
+          style={{ width: '100%', padding: '10px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 12, fontFamily: 'Inter,sans-serif', resize: 'vertical', lineHeight: 1.6, boxSizing: 'border-box', marginBottom: 18, color: '#374151' }} />
+        <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Share on:</div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
+          <a href={liUrl} target="_blank" rel="noopener noreferrer" onClick={onClose}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 16px', borderRadius: 20, background: '#0A66C2', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
+            in LinkedIn
+          </a>
+          <a href={waUrl} target="_blank" rel="noopener noreferrer" onClick={onClose}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 16px', borderRadius: 20, background: '#25D366', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
+            WhatsApp
+          </a>
+          <a href={twUrl} target="_blank" rel="noopener noreferrer" onClick={onClose}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 16px', borderRadius: 20, background: '#000', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
+            𝕏 Twitter/X
+          </a>
+          <button onClick={copyLink}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 16px', borderRadius: 20, background: '#1B4F8A', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+            🔗 Copy Link
+          </button>
+        </div>
+        <button onClick={onClose}
+          style={{ width: '100%', padding: '9px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, color: '#6B7280', cursor: 'pointer', fontWeight: 600 }}>
+          Skip for now
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Testimonial Modal ─────────────────────────────────────────────────────────
+
+function TestimonialModal({ mode, studentName, studentEmail, regId, courseCode, courseName, onClose, onSuccess }: {
+  mode: 'written' | 'video';
+  studentName: string;
+  studentEmail: string;
+  regId: string;
+  courseCode: string;
+  courseName: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [content, setContent]         = useState('');
+  const [rating, setRating]           = useState(5);
+  const [videoUrl, setVideoUrl]       = useState('');
+  const [jobTitle, setJobTitle]       = useState('');
+  const [company, setCompany]         = useState('');
+  const [location, setLocation]       = useState('');
+  const [linkedinUrl, setLinkedinUrl] = useState('');
+  const [consent, setConsent]         = useState(false);
+  const [submitting, setSubmitting]   = useState(false);
+  const [error, setError]             = useState('');
+  const [success, setSuccess]         = useState(false);
+
+  async function handleSubmit() {
+    if (!consent) { setError('Please give your consent to submit.'); return; }
+    if (mode === 'written' && content.trim().length < 50) { setError('Please write at least 50 characters.'); return; }
+    if (mode === 'video' && !videoUrl.trim()) { setError('Please enter a video URL.'); return; }
+    setSubmitting(true); setError('');
+    try {
+      const res = await fetch('/api/testimonials/student', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ registrationId: regId, studentName, studentEmail, courseCode, courseName, type: mode, content, rating, videoUrl, jobTitle, company, location, linkedinUrl }),
+      });
+      if (res.status === 409) { setError('You have already submitted a testimonial for this course.'); setSubmitting(false); return; }
+      if (!res.ok) throw new Error();
+      setSuccess(true);
+      setTimeout(() => { onSuccess(); onClose(); }, 2800);
+    } catch { setError('Submission failed. Please try again.'); }
+    setSubmitting(false);
+  }
+
+  if (success) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+        <div style={{ background: '#fff', borderRadius: 16, maxWidth: 420, width: '100%', padding: '44px 32px', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+          <div style={{ fontSize: 52, marginBottom: 16 }}>{mode === 'video' ? '🎥' : '✅'}</div>
+          <div style={{ fontSize: 20, fontWeight: 800, color: '#0D2E5A', marginBottom: 8 }}>Thank you!</div>
+          <div style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.6 }}>
+            {mode === 'video'
+              ? 'Our team will review your video testimonial and be in touch.'
+              : 'Your testimonial has been submitted for review. We\'ll notify you when it\'s published.'}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const fields = [
+    { label: 'Job Title', value: jobTitle,    setter: setJobTitle,    placeholder: 'e.g. Financial Analyst' },
+    { label: 'Company',   value: company,     setter: setCompany,     placeholder: 'e.g. Goldman Sachs' },
+    { label: 'Location',  value: location,    setter: setLocation,    placeholder: 'e.g. Lahore, Pakistan' },
+    { label: 'LinkedIn',  value: linkedinUrl, setter: setLinkedinUrl, placeholder: 'https://linkedin.com/in/...' },
+  ];
+
+  return (
+    <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+      <div style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 520, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', padding: '26px 26px 22px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
+          <div style={{ fontSize: 17, fontWeight: 800, color: '#0D2E5A' }}>
+            {mode === 'video' ? '🎥 Submit Video Testimonial' : '📝 Write Your Testimonial'}
+          </div>
+          <button onClick={onClose} style={{ fontSize: 20, background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', lineHeight: 1 }}>✕</button>
+        </div>
+
+        {/* Auto-filled */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 16 }}>
+          {[{ label: 'Course', val: courseName }, { label: 'Your Name', val: studentName || 'Student' }].map(f => (
+            <div key={f.label}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', marginBottom: 4 }}>{f.label.toUpperCase()}</div>
+              <div style={{ padding: '8px 10px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 6, fontSize: 12, color: '#374151' }}>{f.val}</div>
+            </div>
+          ))}
+        </div>
+
+        {mode === 'written' && (
+          <>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', marginBottom: 6 }}>RATING</div>
+              <div style={{ display: 'flex', gap: 2 }}>
+                {[1,2,3,4,5].map(i => (
+                  <button key={i} onClick={() => setRating(i)}
+                    style={{ fontSize: 26, background: 'none', border: 'none', cursor: 'pointer', color: i <= rating ? '#F59E0B' : '#E5E7EB', padding: '0 1px', lineHeight: 1 }}>
+                    ★
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', marginBottom: 4 }}>YOUR EXPERIENCE <span style={{ color: '#DC2626' }}>*</span></div>
+              <textarea value={content} onChange={e => setContent(e.target.value.slice(0, 500))} rows={5}
+                placeholder="This course completely transformed how I build financial models..."
+                style={{ width: '100%', padding: '9px 11px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, fontFamily: 'Inter,sans-serif', resize: 'vertical', lineHeight: 1.6, boxSizing: 'border-box', color: '#374151' }} />
+              <div style={{ fontSize: 10, color: content.length < 50 && content.length > 0 ? '#DC2626' : '#9CA3AF', marginTop: 3 }}>
+                {content.length}/500{content.length < 50 && content.length > 0 ? ` — ${50 - content.length} more required` : ''}
+              </div>
+            </div>
+          </>
+        )}
+
+        {mode === 'video' && (
+          <>
+            <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, padding: '11px 14px', marginBottom: 14, fontSize: 12, color: '#1E40AF', lineHeight: 1.7 }}>
+              <strong>Option 1 — Loom (free &amp; easy):</strong> Record at loom.com, paste share link below.<br />
+              <strong>Option 2 — YouTube:</strong> Upload as Unlisted, paste the YouTube URL below.
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', marginBottom: 4 }}>VIDEO URL <span style={{ color: '#DC2626' }}>*</span></div>
+              <input value={videoUrl} onChange={e => setVideoUrl(e.target.value)}
+                placeholder="https://loom.com/share/... or https://youtube.com/watch?v=..."
+                style={{ width: '100%', padding: '9px 11px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, fontFamily: 'Inter,sans-serif', boxSizing: 'border-box' }} />
+            </div>
+          </>
+        )}
+
+        <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 8, fontWeight: 600 }}>Optional: Add your details (shown publicly with testimonial)</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14 }}>
+          {fields.map(f => (
+            <div key={f.label}>
+              <div style={{ fontSize: 9, fontWeight: 700, color: '#9CA3AF', marginBottom: 3 }}>{f.label.toUpperCase()}</div>
+              <input value={f.value} onChange={e => f.setter(e.target.value)} placeholder={f.placeholder}
+                style={{ width: '100%', padding: '7px 9px', border: '1px solid #E5E7EB', borderRadius: 6, fontSize: 12, fontFamily: 'Inter,sans-serif', boxSizing: 'border-box' }} />
+            </div>
+          ))}
+        </div>
+
+        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 16, cursor: 'pointer', fontSize: 12, color: '#374151', lineHeight: 1.5 }}>
+          <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)} style={{ marginTop: 2, flexShrink: 0 }} />
+          I consent to this testimonial being displayed on the Financial Modeler Pro website.
+        </label>
+
+        {error && (
+          <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 6, padding: '8px 12px', fontSize: 12, color: '#DC2626', marginBottom: 12 }}>
+            {error}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={handleSubmit} disabled={submitting || !consent}
+            style={{ flex: 1, padding: '11px', background: submitting || !consent ? '#9CA3AF' : '#1B4F8A', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 700, cursor: submitting || !consent ? 'not-allowed' : 'pointer' }}>
+            {submitting ? 'Submitting…' : mode === 'video' ? '🎥 Submit Video' : '📝 Submit Testimonial'}
+          </button>
+          <button onClick={onClose}
+            style={{ padding: '11px 18px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, color: '#6B7280', cursor: 'pointer', fontWeight: 600 }}>
+            Cancel
+          </button>
+        </div>
       </div>
     </div>
   );

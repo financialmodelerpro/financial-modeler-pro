@@ -448,23 +448,57 @@ export default async function LandingPage() {
           {testimonials.length > 0 ? (
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:24 }}>
               {testimonials.map(t => (
-                <div key={t.id} style={{ background:'#F9FAFB', border:'1px solid #E5E7EB', borderRadius:14, padding:'28px 24px', position:'relative' }}>
-                  <div style={{ fontSize:32, color:'#1B4F8A', fontFamily:'Georgia,serif', lineHeight:1, marginBottom:12 }}>&ldquo;</div>
-                  <p style={{ fontSize:14, color:'#374151', lineHeight:1.75, marginBottom:20, fontStyle:'italic' }}>{t.text}</p>
-                  <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-                    <div style={{ width:40, height:40, borderRadius:'50%', background:'linear-gradient(135deg,#1B4F8A,#0D2E5A)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:15, fontWeight:800, color:'#fff', flexShrink:0 }}>
+                <div key={t.id} style={{ background:'#F9FAFB', border:`1px solid ${t.is_featured ? '#C9A84C' : '#E5E7EB'}`, borderRadius:14, padding:'24px', position:'relative', display:'flex', flexDirection:'column' }}>
+                  {/* Stars */}
+                  <div style={{ display:'flex', gap:2, marginBottom:12 }}>
+                    {Array.from({length:5}).map((_,i) => (
+                      <span key={i} style={{ fontSize:14, color: i < (t.rating ?? 5) ? '#F59E0B' : '#E5E7EB' }}>★</span>
+                    ))}
+                    {t.is_featured && <span style={{ marginLeft:'auto', fontSize:10, fontWeight:700, color:'#C9A84C' }}>★ Featured</span>}
+                  </div>
+                  {/* Video or text */}
+                  {t.testimonial_type === 'video' && t.video_url ? (
+                    <a href={t.video_url} target="_blank" rel="noopener noreferrer"
+                      style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'#0D2E5A', borderRadius:8, padding:'20px', marginBottom:16, textDecoration:'none', gap:6 }}>
+                      <span style={{ fontSize:28 }}>▶️</span>
+                      <span style={{ fontSize:11, color:'rgba(255,255,255,0.7)', fontWeight:600 }}>Watch video testimonial ↗</span>
+                    </a>
+                  ) : (
+                    <>
+                      <div style={{ fontSize:28, color:'#1B4F8A', fontFamily:'Georgia,serif', lineHeight:1, marginBottom:8 }}>&ldquo;</div>
+                      <p style={{ fontSize:13.5, color:'#374151', lineHeight:1.75, marginBottom:16, fontStyle:'italic', flex:1 }}>{t.text}</p>
+                    </>
+                  )}
+                  {/* Author */}
+                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                    <div style={{ width:38, height:38, borderRadius:'50%', background:'linear-gradient(135deg,#1B4F8A,#0D2E5A)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:800, color:'#fff', flexShrink:0 }}>
                       {t.name.charAt(0).toUpperCase()}
                     </div>
-                    <div>
-                      <div style={{ fontSize:13, fontWeight:700, color:'#1B3A6B' }}>{t.name}</div>
-                      <div style={{ fontSize:11, color:'#9CA3AF' }}>{[t.role, t.company].filter(Boolean).join(' · ')}</div>
-                    </div>
-                    <div style={{ marginLeft:'auto', display:'flex', gap:2 }}>
-                      {Array.from({length:5}).map((_,i) => (
-                        <span key={i} style={{ fontSize:12, color: i < t.rating ? '#F59E0B' : '#E5E7EB' }}>★</span>
-                      ))}
+                    <div style={{ minWidth:0 }}>
+                      <div style={{ fontSize:13, fontWeight:700, color:'#1B3A6B', display:'flex', alignItems:'center', gap:5 }}>
+                        {t.name}
+                        {t.linkedin_url && (
+                          <a href={t.linkedin_url} target="_blank" rel="noopener noreferrer"
+                            style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:16, height:16, background:'#0A66C2', color:'#fff', borderRadius:3, fontSize:9, fontWeight:800, textDecoration:'none', flexShrink:0 }}>
+                            in
+                          </a>
+                        )}
+                      </div>
+                      {(t.role || t.company) && (
+                        <div style={{ fontSize:11, color:'#9CA3AF', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                          {[t.role, t.company].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
+                      {t.location && <div style={{ fontSize:10, color:'#B0B8C8', marginTop:1 }}>{t.location}</div>}
                     </div>
                   </div>
+                  {/* Verified badge */}
+                  {t.source === 'student' && (
+                    <div style={{ marginTop:12, paddingTop:10, borderTop:'1px solid #F3F4F6', display:'flex', alignItems:'center', gap:6 }}>
+                      <span style={{ fontSize:10, color:'#2EAA4A', fontWeight:700 }}>✅ Verified via FMP Training</span>
+                      {t.course_name && <span style={{ fontSize:10, color:'#9CA3AF' }}>· {t.course_name}</span>}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -481,8 +515,8 @@ export default async function LandingPage() {
           )}
           {/* Submit testimonial link */}
           <div style={{ textAlign:'center', marginTop:32 }}>
-            <Link href="/testimonials/submit" style={{ fontSize:13, color:'#1B4F8A', fontWeight:600, textDecoration:'none', borderBottom:'1px solid #C7D9F2', paddingBottom:2 }}>
-              Share your experience →
+            <Link href="/training" style={{ fontSize:13, color:'#1B4F8A', fontWeight:600, textDecoration:'none', borderBottom:'1px solid #C7D9F2', paddingBottom:2 }}>
+              Join the free course →
             </Link>
           </div>
         </div>
