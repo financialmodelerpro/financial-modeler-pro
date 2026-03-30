@@ -194,8 +194,13 @@ function SessionCard({
             {locked && !isFinal ? '🔒' : label}
           </span>
           <div>
-            <div style={{ fontWeight: isFinal ? 700 : 600, color: '#0D2E5A', fontSize: 14, lineHeight: 1.4 }}>
-              {sessionTitle}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span style={{ fontWeight: isFinal ? 700 : 600, color: '#0D2E5A', fontSize: 14, lineHeight: 1.4 }}>
+                {sessionTitle}
+              </span>
+              {videoDuration > 0 && (
+                <span style={{ fontSize: 11, color: '#9CA3AF', whiteSpace: 'nowrap' }}>⏱ {videoDuration} min</span>
+              )}
             </div>
             {isFinal && locked && (
               <div style={{ fontSize: 11, color: '#DC2626', marginTop: 3, fontWeight: 600 }}>
@@ -252,11 +257,11 @@ function SessionCard({
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: '#FF0000', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
             ▶ Watch Video
           </a>
-        ) : (
+        ) : !isFinal ? (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#F3F4F6', color: '#9CA3AF', whiteSpace: 'nowrap' }}>
             📹 Coming Soon
           </span>
-        )}
+        ) : null}
 
         {/* Assessment */}
         {bvmLocked ? (
@@ -1981,18 +1986,50 @@ function ProfileModal({ registrationId, initial, onClose, onSave }: {
   const [notifyM, setNotifyM]         = useState(initial?.notify_milestones ?? true);
   const [notifyR, setNotifyR]         = useState(initial?.notify_reminders ?? true);
   const [saving, setSaving]           = useState(false);
+  const [uploadError, setUploadError] = useState('');
+  const [uploading, setUploading]     = useState(false);
   const fileRef                        = useRef<HTMLInputElement>(null);
 
-  function handleFileChange(e: { target: { files: FileList | null } }) {
+  async function handleFileChange(e: { target: { files: FileList | null } }) {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = ev => {
-      const data = ev.target?.result as string;
-      setAvatarUrl(data);
-      setAvatarPreview(data);
-    };
-    reader.readAsDataURL(file);
+    setUploadError('');
+
+    // Client-side validation
+    const allowed = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!allowed.includes(file.type)) {
+      setUploadError('Invalid file type. Use JPG, PNG, or WebP.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setUploadError('File too large. Maximum size is 2 MB.');
+      return;
+    }
+
+    // Show preview immediately while uploading
+    const objectUrl = URL.createObjectURL(file);
+    setAvatarPreview(objectUrl);
+    setUploading(true);
+
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('regId', registrationId);
+      const res = await fetch('/api/training/upload-avatar', { method: 'POST', body: fd });
+      const data = await res.json() as { url?: string; error?: string };
+      if (!res.ok || !data.url) {
+        setUploadError(data.error ?? 'Upload failed. Please try again.');
+        setAvatarPreview(avatarUrl); // revert preview to saved url
+      } else {
+        // Cache-bust the URL so it refreshes immediately
+        const busted = `${data.url}?v=${Date.now()}`;
+        setAvatarUrl(busted);
+        setAvatarPreview(busted);
+      }
+    } finally {
+      setUploading(false);
+      URL.revokeObjectURL(objectUrl);
+    }
   }
 
   async function handleSave() {
