@@ -182,6 +182,63 @@ function normalizeSession(raw: Record<string, unknown>): SessionProgress {
 // Passing threshold used when deriving pass/fail from a raw percentage score
 const PASSING_SCORE_PCT = 70;
 
+type CourseProgressEntry = {
+  sessions: Record<string, { status: string; bestScore: number | null; attempts: number; maxAttempts: number }>;
+  allSessionsPassed?: boolean;
+  finalExam?: { status: string; bestScore: number | null };
+  certificateStatus?: string;
+};
+
+/**
+ * Shape A-extended: Apps Script returns data.student.progress[courseKey].sessions as a keyed
+ * object, e.g. { "S1": { status, bestScore, attempts, maxAttempts }, "S2": … }.
+ * Sessions from all enrolled courses (3sfm + bvm) are merged into one flat array.
+ */
+function normalizeProgressObject(
+  studentRaw: Record<string, unknown>,
+  email: string,
+  regId: string,
+): ScriptResponse<StudentProgress> {
+  const progressMap = studentRaw.progress as Record<string, CourseProgressEntry>;
+  const allSessions: SessionProgress[] = [];
+  let finalPassed = false;
+  let certificateIssued = false;
+
+  for (const courseProgress of Object.values(progressMap)) {
+    for (const [sessionId, sd] of Object.entries(courseProgress.sessions ?? {})) {
+      allSessions.push({
+        sessionId,
+        passed:      sd.status === 'passed',
+        score:       sd.bestScore ?? 0,
+        attempts:    sd.attempts ?? 0,
+        completedAt: null,
+      });
+    }
+    if (courseProgress.allSessionsPassed || courseProgress.finalExam?.status === 'passed') finalPassed = true;
+    if (courseProgress.certificateStatus === 'earned') certificateIssued = true;
+  }
+
+  const primaryCourse = (
+    Array.isArray(studentRaw.enrolledCourses) ? (studentRaw.enrolledCourses[0] as string) : '3sfm'
+  ).toUpperCase();
+
+  return {
+    success: true,
+    data: {
+      student: {
+        name:           String(studentRaw.fullName ?? studentRaw.name ?? regId),
+        email:          String(studentRaw.email ?? email),
+        registrationId: String(studentRaw.registrationId ?? regId),
+        course:         primaryCourse,
+        registeredAt:   String(studentRaw.enrolledDate ?? ''),
+      },
+      sessions: allSessions,
+      finalPassed,
+      certificateIssued,
+    },
+  };
+}
+
 /**
  * Shape C: Apps Script returns the sheet row as flat columns —
  *   3SFM: S1%, S2%, …, S17%, Final Exam %, Sessions Passed, Avg Score
@@ -265,6 +322,13 @@ export async function getStudentProgress(
   // Shape A: properly nested under `data` key with a `student` object
   if (raw.data && typeof raw.data === 'object' && 'student' in raw.data) {
     const d = raw.data;
+    const studentRaw = d.student as unknown as Record<string, unknown>;
+
+    // Shape A-extended: sessions live inside student.progress[courseKey].sessions (keyed object)
+    if (studentRaw?.progress && typeof studentRaw.progress === 'object') {
+      return normalizeProgressObject(studentRaw, email, regId);
+    }
+
     return {
       success: true,
       data: {
