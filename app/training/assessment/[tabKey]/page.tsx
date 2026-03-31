@@ -669,7 +669,7 @@ export default function AssessmentPage() {
       <div style={{ minHeight: '100vh', background: LIGHT_BG }}>
         <NavBar isFinal={isFinal} sessionName={sessionName} />
 
-        <div style={{ maxWidth: 600, margin: '60px auto', padding: '0 24px', textAlign: 'center' }}>
+        <div style={{ maxWidth: 600, margin: '60px auto 32px', padding: '0 24px', textAlign: 'center' }}>
           {/* Emoji */}
           <div style={{ fontSize: 72, marginBottom: 16 }}>
             {passed ? (isFinal ? '🏆' : '🎉') : '📚'}
@@ -745,13 +745,29 @@ export default function AssessmentPage() {
             )}
 
             {/* Actions */}
-            {/* (rendered below) */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {result.canRetry && !passed && (
+                <button onClick={load} style={{
+                  background: accentColor, color: WHITE, border: 'none',
+                  padding: '14px', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 15,
+                }}>
+                  Try Again →
+                </button>
+              )}
+              <Link href="/training/dashboard" style={{
+                display: 'block', background: NAVY, color: WHITE,
+                padding: '14px', borderRadius: 8, fontWeight: 700,
+                textDecoration: 'none', fontSize: 15,
+              }}>
+                ← Back to Dashboard
+              </Link>
+            </div>
           </div>
         </div>
 
         {/* Per-question review — shown for both pass and fail */}
         {Array.isArray(result.results) && result.results.length > 0 && (
-          <div style={{ maxWidth: 700, margin: '0 auto 40px', padding: '0 24px' }}>
+          <div style={{ maxWidth: 700, margin: '0 auto 60px', padding: '0 24px' }}>
             <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, marginBottom: 16 }}>
               Question Review
             </h2>
@@ -786,15 +802,15 @@ export default function AssessmentPage() {
                     {/* Options */}
                     <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                       {qr.options.map((opt, oi) => {
-                        const letter   = String.fromCharCode(65 + oi);
+                        const letter    = String.fromCharCode(65 + oi);
                         const isCorrect = oi === correctIdx;
                         const isYours   = oi === yourIdx;
                         const isWrong   = isYours && !qr.correct;
 
-                        let bg      = '#F8FAFC';
-                        let border  = BORDER;
-                        let color   = '#475569';
-                        let label   = '';
+                        let bg     = '#F8FAFC';
+                        let border = BORDER;
+                        let color  = '#475569';
+                        let label  = '';
 
                         if (isCorrect) { bg = '#F0FDF4'; border = '#86EFAC'; color = '#15803D'; label = '✓ Correct'; }
                         if (isWrong)   { bg = '#FEF2F2'; border = '#FCA5A5'; color = '#DC2626'; label = '✗ Your answer'; }
@@ -839,36 +855,6 @@ export default function AssessmentPage() {
             </div>
           </div>
         )}
-
-        {/* Actions (pulled out of card so review appears between card and actions) */}
-        <div style={{ maxWidth: 600, margin: '0 auto 60px', padding: '0 24px' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {/* placeholder — real actions block below overrides this via the original card close */}
-          </div>
-        </div>
-
-        {/* Dummy close for JSX — actual card actions are still inside the card below */}
-        {/* NOTE: the card div was closed above; the actions block below is standalone */}
-        <div style={{ display: 'none' }}>{/* Actions
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              {result.canRetry && !passed && (
-                <button onClick={load} style={{
-                  background: accentColor, color: WHITE, border: 'none',
-                  padding: '14px', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontSize: 15,
-                }}>
-                  Try Again →
-                </button>
-              )}
-              <Link href="/training/dashboard" style={{
-                display: 'block', background: NAVY, color: WHITE,
-                padding: '14px', borderRadius: 8, fontWeight: 700,
-                textDecoration: 'none', fontSize: 15,
-              }}>
-                ← Back to Dashboard
-              </Link>
-            </div>
-          </div>
-        </div>
       </div>
     );
   }
