@@ -1017,6 +1017,7 @@ export default function TrainingDashboardPage() {
   const [profileDropdown, setProfileDropdown]     = useState(false);
   const [studentProfile, setStudentProfile]       = useState<{ job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; display_name?: string; avatar_url?: string } | null>(null);
   const [avatarUploading, setAvatarUploading]     = useState(false);
+  const [avatarPreview, setAvatarPreview]         = useState<{ src: string; blob: Blob } | null>(null);
   const sidebarFileInputRef                       = useRef<HTMLInputElement>(null);
   // share CMS text (fetched once, cached 10 min)
   const [shareCms, setShareCms]                   = useState<{ title: string; messageTemplate: string }>({ title: '', messageTemplate: '' });
@@ -1193,30 +1194,64 @@ export default function TrainingDashboardPage() {
     }
   }
 
-  async function handleSidebarPhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+  function cropImageToSquare(file: File): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const objectUrl = URL.createObjectURL(file);
+      img.onload = () => {
+        URL.revokeObjectURL(objectUrl);
+        const size = Math.min(img.width, img.height);
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('Canvas unavailable')); return; }
+        ctx.drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, size, size);
+        canvas.toBlob(blob => {
+          if (blob) resolve(blob);
+          else reject(new Error('Crop failed'));
+        }, 'image/jpeg', 0.92);
+      };
+      img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Image load failed')); };
+      img.src = objectUrl;
+    });
+  }
+
+  async function handleSidebarPhotoSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file || !localSession) return;
-    const ALLOWED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-    if (!ALLOWED.includes(file.type)) {
-      setDashToast('Invalid file type. Use JPG, PNG, or WebP.');
-      setTimeout(() => setDashToast(''), 4000);
-      return;
-    }
+    if (!file) return;
     if (file.size > 2 * 1024 * 1024) {
-      setDashToast('Upload failed — please try a smaller image');
+      setDashToast('File too large — maximum size is 2 MB.');
       setTimeout(() => setDashToast(''), 4000);
+      if (sidebarFileInputRef.current) sidebarFileInputRef.current.value = '';
       return;
     }
+    try {
+      const blob = await cropImageToSquare(file);
+      const src = URL.createObjectURL(blob);
+      setAvatarPreview({ src, blob });
+    } catch {
+      setDashToast('Could not load image — try a different file.');
+      setTimeout(() => setDashToast(''), 4000);
+      if (sidebarFileInputRef.current) sidebarFileInputRef.current.value = '';
+    }
+  }
+
+  async function confirmAvatarUpload() {
+    if (!avatarPreview || !localSession) return;
     setAvatarUploading(true);
+    const previewSrc = avatarPreview.src;
+    setAvatarPreview(null);
+    if (sidebarFileInputRef.current) sidebarFileInputRef.current.value = '';
     try {
       const fd = new FormData();
-      fd.append('file', file);
+      fd.append('file', new File([avatarPreview.blob], 'avatar.jpg', { type: 'image/jpeg' }));
       fd.append('regId', localSession.registrationId);
       const res = await fetch('/api/training/upload-avatar', { method: 'POST', body: fd });
       const data = await res.json() as { url?: string; error?: string };
       if (!res.ok || !data.url) throw new Error(data.error ?? 'Upload failed');
       const busted = `${data.url}?v=${Date.now()}`;
-      // Persist to profile
+      URL.revokeObjectURL(previewSrc);
       await fetch('/api/training/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -1226,13 +1261,18 @@ export default function TrainingDashboardPage() {
       setDashToast('Profile photo updated');
       setTimeout(() => setDashToast(''), 3000);
     } catch {
-      setDashToast('Upload failed — please try a smaller image');
+      URL.revokeObjectURL(previewSrc);
+      setDashToast('Upload failed — please try again.');
       setTimeout(() => setDashToast(''), 4000);
     } finally {
       setAvatarUploading(false);
-      // Reset input so same file can be re-selected
-      if (sidebarFileInputRef.current) sidebarFileInputRef.current.value = '';
     }
+  }
+
+  function cancelAvatarPreview() {
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview.src);
+    setAvatarPreview(null);
+    if (sidebarFileInputRef.current) sidebarFileInputRef.current.value = '';
   }
 
   async function handleLogout() {
@@ -1472,9 +1512,9 @@ export default function TrainingDashboardPage() {
                     <input
                       ref={sidebarFileInputRef}
                       type="file"
-                      accept="image/jpeg,image/png,image/webp"
+                      accept="image/*"
                       style={{ display: 'none' }}
-                      onChange={handleSidebarPhotoUpload}
+                      onChange={handleSidebarPhotoSelect}
                     />
                   </div>
                   {!sidebarCollapsed && (
@@ -1853,6 +1893,31 @@ export default function TrainingDashboardPage() {
             setTimeout(() => setDashToast(''), 4000);
           }}
         />
+      )}
+
+      {/* ── Avatar preview modal ─────────────────────────────────────────────── */}
+      {avatarPreview && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={cancelAvatarPreview}>
+          <div style={{ background: '#fff', borderRadius: 16, padding: '32px 36px', maxWidth: 340, width: '90%', textAlign: 'center', boxShadow: '0 8px 40px rgba(0,0,0,0.35)' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: '#1B3A6B', marginBottom: 6 }}>Preview Profile Photo</div>
+            <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 20 }}>Your photo will be cropped to a circle.</div>
+            <div style={{ width: 120, height: 120, borderRadius: '50%', overflow: 'hidden', margin: '0 auto 24px', border: '3px solid #E8F0FB' }}>
+              <img src={avatarPreview.src} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }} />
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={cancelAvatarPreview}
+                style={{ flex: 1, padding: '10px', background: '#F3F4F6', color: '#374151', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={confirmAvatarUpload}
+                style={{ flex: 1, padding: '10px', background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                Upload
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Dashboard toast ─────────────────────────────────────────────────── */}
