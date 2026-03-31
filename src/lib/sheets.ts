@@ -583,7 +583,7 @@ export async function listAllCertificates(): Promise<ScriptResponse<SheetCertifi
 
 export interface AssessmentQuestion {
   questionId: string;
-  questionText: string;
+  q: string;
   options: string[];
   points?: number;
 }

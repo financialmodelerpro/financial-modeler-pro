@@ -556,7 +556,7 @@ export default function AssessmentPage() {
               {q.points ? ` · ${q.points} pt${q.points > 1 ? 's' : ''}` : ''}
             </div>
             <p style={{ fontSize: 17, fontWeight: 600, color: NAVY, lineHeight: 1.6, marginBottom: 28 }}>
-              {q.questionText}
+              {q.q}
             </p>
 
             {/* Options */}

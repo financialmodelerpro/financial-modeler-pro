@@ -28,8 +28,8 @@ export async function GET(req: NextRequest) {
       isFinal:       raw.isFinal       ?? false,
       questions:     (Array.isArray(raw.questions) ? raw.questions : []).map((q: Record<string, unknown>) => ({
         ...q,
-        // Apps Script returns `question` field; interface expects `questionText`
-        questionText: (q.questionText as string) || (q.question as string) || '',
+        // Normalise to `q` — Apps Script field is `q`; guard against `question`/`questionText` variants
+        q: (q.q as string) || (q.question as string) || (q.questionText as string) || '',
       })),
       timeLimit:     raw.timeLimit,
       passingScore:  raw.passingScore,

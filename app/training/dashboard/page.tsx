@@ -489,7 +489,9 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
   const finalSession = course.sessions.find(s => s.isFinal);
   const passedCount = regularSessions.filter(s => progressMap.get(s.id)?.passed).length;
   const finalPassed = finalSession ? progressMap.get(finalSession.id)?.passed === true : false;
-  const progressPct = regularSessions.length > 0 ? Math.round((passedCount / regularSessions.length) * 100) : 0;
+  // Include final exam in display counts
+  const allPassedCount = course.sessions.filter(s => progressMap.get(s.id)?.passed).length;
+  const progressPct = course.sessions.length > 0 ? Math.round((allPassedCount / course.sessions.length) * 100) : 0;
 
   const courseCert = certificates.find(c =>
     c.course === courseId || c.course === course.id || c.course === course.shortTitle.toLowerCase()
@@ -592,7 +594,7 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12 }}>
             <span style={{ color: 'rgba(255,255,255,0.65)', fontWeight: 600 }}>Course Progress</span>
-            <span style={{ color: '#fff', fontWeight: 700 }}>{passedCount} / {regularSessions.length} {course.id === 'bvm' ? 'Lessons' : 'Sessions'} · {progressPct}%</span>
+            <span style={{ color: '#fff', fontWeight: 700 }}>{allPassedCount} / {course.sessions.length} {course.id === 'bvm' ? 'Lessons' : 'Sessions'} · {progressPct}%</span>
           </div>
           <div style={{ height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.15)', overflow: 'hidden' }}>
             <div style={{ height: '100%', borderRadius: 4, background: progressPct === 100 ? '#C9A84C' : '#2EAA4A', width: `${progressPct}%`, transition: 'width 0.6s ease' }} />
@@ -603,7 +605,7 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
       {/* Stats Row */}
       <div className="dash-stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20, opacity: bvmLocked ? 0.55 : 1, transition: 'opacity 0.2s' }}>
         {[
-          { label: 'Sessions Passed', value: `${passedCount} / ${regularSessions.length}`, icon: '📊', color: '#1B4F8A' },
+          { label: 'Sessions Passed', value: `${allPassedCount} / ${course.sessions.length}`, icon: '📊', color: '#1B4F8A' },
           { label: 'Avg Score', value: avgScore !== null ? `${avgScore}%` : '—', icon: '📈', color: '#059669' },
           { label: 'Best Score', value: bestEntry ? `${bestEntry.score}% (${bestEntry.label})` : '—', icon: '⭐', color: '#C9A84C' },
           { label: 'Certificate', value: certStatus, icon: '🏆', color: certColor },
@@ -1268,8 +1270,8 @@ export default function TrainingDashboardPage() {
   const bvmUnlocked     = allRegularSessionsPassed('3sfm', progressMap) &&
     (sfmFinalSession ? progressMap.get(sfmFinalSession.id)?.passed === true : false);
 
-  // 3SFM stats (for BVM locked state)
-  const sfmRegular    = COURSES['3sfm']?.sessions.filter(s => !s.isFinal) ?? [];
+  // 3SFM stats (for BVM locked state) — includes final exam
+  const sfmRegular    = COURSES['3sfm']?.sessions ?? [];
   const sfmPassedCount = sfmRegular.filter(s => progressMap.get(s.id)?.passed).length;
 
   // Student avatar initials — prefer profile display_name over registration name
@@ -1277,11 +1279,11 @@ export default function TrainingDashboardPage() {
   const initials = studentName.split(' ').map((w: string) => w[0] ?? '').filter(Boolean).join('').toUpperCase().slice(0, 2) || 'ST';
   const avatarUrl = studentProfile?.avatar_url || '';
 
-  // Overall progress
-  const totalSessions = enrolledCourses.reduce((s, cId) => s + (COURSES[cId]?.sessions.filter(x => !x.isFinal).length ?? 0), 0);
+  // Overall progress — includes final exam
+  const totalSessions = enrolledCourses.reduce((s, cId) => s + (COURSES[cId]?.sessions.length ?? 0), 0);
   const totalPassed   = enrolledCourses.reduce((s, cId) => {
     const c = COURSES[cId]; if (!c) return s;
-    return s + c.sessions.filter(x => !x.isFinal && progressMap.get(x.id)?.passed).length;
+    return s + c.sessions.filter(x => progressMap.get(x.id)?.passed).length;
   }, 0);
 
   const isEnrolledInBvm = enrolledCourses.includes('bvm');

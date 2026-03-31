@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/auth';
 import { getServerClient } from '@/src/lib/supabase';
+import { listAllStudents } from '@/src/lib/sheets';
 
 async function checkAdmin() {
   const session = await getServerSession(authOptions);
@@ -19,12 +20,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ course, lessons: lessons ?? [] });
   }
   const { data: courses } = await sb.from('courses').select('*').order('display_order');
-  if (!courses) return NextResponse.json({ courses: [] });
+  if (!courses) return NextResponse.json({ courses: [], enrollments: null });
   const ids = courses.map((c: any) => c.id);
   const { data: counts } = await sb.from('lessons').select('course_id').in('course_id', ids);
   const countMap: Record<string, number> = {};
   if (counts) for (const l of counts as any[]) countMap[l.course_id] = (countMap[l.course_id] ?? 0) + 1;
-  return NextResponse.json({ courses: courses.map((c: any) => ({ ...c, _lesson_count: countMap[c.id] ?? 0 })) });
+
+  // Bundle enrollment count so the page doesn't need a second auth-gated fetch
+  const studentsRes = await listAllStudents();
+  const enrollments = studentsRes.success && Array.isArray(studentsRes.data) ? studentsRes.data.length : null;
+
+  return NextResponse.json({ courses: courses.map((c: any) => ({ ...c, _lesson_count: countMap[c.id] ?? 0 })), enrollments });
 }
 
 export async function POST(req: NextRequest) {

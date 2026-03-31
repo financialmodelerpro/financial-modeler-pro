@@ -20,8 +20,9 @@ export async function GET() {
   ]);
 
   const students = studentsRes.data ?? [];
-  const sfm = students.filter(s => s.course === '3SFM');
-  const bvm = students.filter(s => s.course === 'BVM');
+  // 'BOTH' = enrolled in 3SFM + BVM; include them in each course's cohort
+  const sfm = students.filter(s => s.course === '3SFM' || s.course === 'BOTH');
+  const bvm = students.filter(s => s.course === 'BVM'  || s.course === 'BOTH');
   const feedbacks = feedbackRes.data ?? [];
 
   // Aggregate feedback by session_key

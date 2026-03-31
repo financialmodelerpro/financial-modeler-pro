@@ -36,34 +36,24 @@ export default function AdminTrainingPage() {
         const courses: Course[] = j.courses ?? [];
         setCourses(courses);
         const totalLessons = courses.reduce((s, c) => s + (c._lesson_count ?? 0), 0);
-        setStats(p => ({ ...p, courses: courses.length, lessons: totalLessons }));
+        setStats(p => ({ ...p, courses: courses.length, lessons: totalLessons, enrollments: j.enrollments ?? null }));
         setLoading(false);
       })
       .catch(() => setLoading(false));
   };
 
-  const fetchAppsScriptStats = () => {
-    // Enrollments: count students via admin students API
-    fetch('/api/admin/training-hub/students')
-      .then(r => r.json())
-      .then(j => {
-        const count = Array.isArray(j.students) ? j.students.length : null;
-        setStats(p => ({ ...p, enrollments: count }));
-      })
-      .catch(() => setStats(p => ({ ...p, enrollments: null })));
-
-    // Certificates: count from listCourses cert totals
+  const fetchCertStats = () => {
     fetch('/api/training?action=listCourses')
       .then(r => r.json())
       .then(j => {
-        const courses = Array.isArray(j.courses) ? j.courses : [];
-        const total = courses.reduce((s: number, c: any) => s + (c.certificatesIssued ?? c.certificates_issued ?? 0), 0);
+        const list = Array.isArray(j.courses) ? j.courses : [];
+        const total = list.reduce((s: number, c: any) => s + (c.certificatesIssued ?? c.certificates_issued ?? 0), 0);
         setStats(p => ({ ...p, certificates: total }));
       })
       .catch(() => setStats(p => ({ ...p, certificates: null })));
   };
 
-  useEffect(() => { fetchCourses(); fetchAppsScriptStats(); }, []);
+  useEffect(() => { fetchCourses(); fetchCertStats(); }, []);
 
   function openNew() {
     setEditCourse(null);
