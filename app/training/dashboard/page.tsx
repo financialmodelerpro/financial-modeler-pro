@@ -8,7 +8,7 @@ import { COURSES } from '@/src/config/courses';
 import { startTimer, getTimerStatus, type TimerStatus } from '@/src/lib/videoTimer';
 import { CountdownTimer } from '@/src/components/training/CountdownTimer';
 
-interface LiveSessionLink { tabKey: string; youtubeUrl: string; formUrl: string; videoDuration?: number; }
+interface LiveSessionLink { tabKey: string; sessionName: string; youtubeUrl: string; formUrl: string; videoDuration: number; isFinal: boolean; hasVideo: boolean; }
 type LiveLinksMap = Record<string, LiveSessionLink>;
 
 interface CourseDescription {
@@ -141,13 +141,15 @@ interface SessionCardProps {
   onFeedbackRequest: (sessionKey: string, sessionTitle: string) => void;
   /** When true the entire BVM course is locked — show course content but lock Watch + Assessment buttons */
   bvmLocked?: boolean;
+  /** Watch Video is locked until the previous session assessment is passed (independent of assessment lock) */
+  watchLocked?: boolean;
 }
 
 function SessionCard({
   sessionTitle, maxAttempts, questionCount, passingScore,
   idx, prog, locked, ytUrl, formUrl, isFinal, passedCount, regularCount,
   tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
-  bvmLocked,
+  bvmLocked, watchLocked,
 }: SessionCardProps) {
   const [timerStatus, setTimerStatus] = useState<TimerStatus>({ locked: false, minutesRemaining: 0, started: false });
   const [notesOpen, setNotesOpen] = useState(false);
@@ -248,6 +250,11 @@ function SessionCard({
         {bvmLocked ? (
           <span title="Complete 3-Statement Financial Modeling first to unlock"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#FEF2F2', color: '#FCA5A5', whiteSpace: 'nowrap', cursor: 'default' }}>
+            🔒 Watch Video
+          </span>
+        ) : watchLocked ? (
+          <span title={`Complete Session ${idx} assessment first`}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#F3F4F6', color: '#9CA3AF', whiteSpace: 'nowrap', cursor: 'default' }}>
             🔒 Watch Video
           </span>
         ) : ytUrl ? (
@@ -639,6 +646,16 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
             locked = !progressMap.get(prev.id)?.passed;
           }
 
+          // Watch Video lock: Session 1 always open; Session 2+ locked until prev assessment passed;
+          // Final exam Watch Video always open if URL exists.
+          let watchLocked = false;
+          if (bvmLocked) {
+            watchLocked = true;
+          } else if (!isFinalRow && idx > 0) {
+            const prev = course.sessions[idx - 1];
+            watchLocked = !progressMap.get(prev.id)?.passed;
+          }
+
           return (
             <SessionCard
               key={session.id}
@@ -663,6 +680,7 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
               feedbackGiven={feedbackGiven.has(tk)}
               onFeedbackRequest={onFeedbackRequest}
               bvmLocked={bvmLocked}
+              watchLocked={watchLocked}
             />
           );
         })}
@@ -1078,7 +1096,9 @@ export default function TrainingDashboardPage() {
 
       // Apply course-details
       const map: LiveLinksMap = {};
-      for (const s of detailsJson.sessions ?? []) map[s.tabKey] = s;
+      for (const raw of detailsJson.sessions ?? []) {
+        map[raw.tabKey] = { ...raw, videoDuration: raw.videoDuration ?? 0 };
+      }
       // Debug: verify final session data and video durations from Apps Script
       console.log('[CourseDetails] 3SFM_Final:', map['3SFM_Final'] ?? 'NOT FOUND — check Apps Script tabKey');
       console.log('[CourseDetails] BVM_Final:', map['BVM_Final'] ?? 'NOT FOUND — check Apps Script tabKey');

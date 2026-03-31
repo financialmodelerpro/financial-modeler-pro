@@ -12,5 +12,30 @@ export async function GET(req: NextRequest) {
   }
 
   const result = await getAssessmentQuestions(tabKey, email, regId);
+
+  if (!result.success) {
+    console.error('[questions] getAssessmentQuestions failed:', result.error, { tabKey, email });
+    return NextResponse.json({ success: false, error: result.error ?? 'Failed to load questions' });
+  }
+
+  // Apps Script may return fields at root level rather than nested under `data`
+  if (!result.data) {
+    const raw = result as unknown as Record<string, unknown>;
+    const data = {
+      tabKey:        raw.tabKey        ?? tabKey,
+      sessionName:   raw.sessionName,
+      course:        raw.course,
+      isFinal:       raw.isFinal       ?? false,
+      questions:     Array.isArray(raw.questions) ? raw.questions : [],
+      timeLimit:     raw.timeLimit,
+      passingScore:  raw.passingScore,
+      maxAttempts:   raw.maxAttempts,
+    };
+    if (!(data.questions as unknown[]).length) {
+      console.error('[questions] No questions in response:', raw, { tabKey });
+    }
+    return NextResponse.json({ success: true, data });
+  }
+
   return NextResponse.json(result);
 }

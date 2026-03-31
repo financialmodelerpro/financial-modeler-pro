@@ -54,11 +54,28 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
+  // Read the existing config first, then merge — never wipe fields that aren't in the incoming payload
+  let existingConfig: Record<string, unknown> = {};
+  try {
+    const { data: existing } = await serverClient
+      .from('branding_config')
+      .select('config')
+      .eq('scope', scope)
+      .maybeSingle();
+    if (existing?.config && typeof existing.config === 'object') {
+      existingConfig = existing.config as Record<string, unknown>;
+    }
+  } catch {
+    // Non-fatal — proceed with empty existing config
+  }
+
+  const mergedConfig = { ...existingConfig, ...(config as Record<string, unknown>) };
+
   let upsertError: { message: string } | null = null;
   try {
     const { error } = await serverClient
       .from('branding_config')
-      .upsert({ scope, config }, { onConflict: 'scope' });
+      .upsert({ scope, config: mergedConfig }, { onConflict: 'scope' });
     upsertError = error;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

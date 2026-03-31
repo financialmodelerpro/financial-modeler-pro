@@ -12,5 +12,25 @@ export async function GET(req: NextRequest) {
   }
 
   const result = await getAttemptStatus(tabKey, email, regId);
+
+  if (!result.success) {
+    return NextResponse.json({ success: false, error: result.error ?? 'Failed to load attempt status' });
+  }
+
+  // Apps Script may return fields at root level rather than nested under `data`
+  if (!result.data) {
+    const raw = result as unknown as Record<string, unknown>;
+    const data = {
+      tabKey:          raw.tabKey          ?? tabKey,
+      attempts:        raw.attempts        ?? 0,
+      maxAttempts:     raw.maxAttempts     ?? 3,
+      passed:          raw.passed          ?? false,
+      lastScore:       raw.lastScore,
+      lastCompletedAt: raw.lastCompletedAt,
+      canAttempt:      raw.canAttempt      ?? true,
+    };
+    return NextResponse.json({ success: true, data });
+  }
+
   return NextResponse.json(result);
 }

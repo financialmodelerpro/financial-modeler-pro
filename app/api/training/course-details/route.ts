@@ -51,10 +51,12 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [sessions, courses] = await Promise.all([
+    const [rawSessions, courses] = await Promise.all([
       getCourseDetails(course),
       fetchCourseDescriptions(),
     ]);
+    // Normalise: ensure videoDuration is always a number (never undefined/missing)
+    const sessions = rawSessions.map(s => ({ ...s, videoDuration: s.videoDuration ?? 0 }));
     _cache.set(key, { sessions, courses, at: Date.now() });
     return NextResponse.json({ sessions, courses });
   } catch {

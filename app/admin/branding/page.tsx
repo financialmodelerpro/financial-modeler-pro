@@ -384,7 +384,9 @@ export default function BrandingAdminPage() {
         if (!res.ok) throw new Error('Failed to load');
         const data = (await res.json()) as { config: BrandingConfig | null };
         if (!cancelled) {
-          setConfig(data.config ?? DEFAULT);
+          // Merge loaded config on top of DEFAULT so any new BrandingConfig fields
+          // are always initialised — prevents undefined fields being dropped on save
+          setConfig({ ...DEFAULT, ...(data.config ?? {}) });
         }
       } catch {
         // Non-fatal — use default config
