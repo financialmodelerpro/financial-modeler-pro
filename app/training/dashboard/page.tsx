@@ -1061,6 +1061,10 @@ export default function TrainingDashboardPage() {
       } catch { /* ignore — stale or corrupt cache */ }
     }
 
+    // Bust localStorage cache on force-refresh so stale empty-sessions data is evicted
+    if (forceRefresh) {
+      try { localStorage.removeItem(CACHE_KEY); } catch { /* ignore */ }
+    }
     if (forceRefresh) setRefreshing(true); else setLoading(true);
     setIsFallback(false);
     try {

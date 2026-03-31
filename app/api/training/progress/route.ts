@@ -66,6 +66,7 @@ export async function GET(req: NextRequest) {
   try {
     const debug  = req.nextUrl.searchParams.get('debug') === '1';
     const result = await getStudentProgress(cleanEmail, cleanRegId);
+    console.log('[training/progress] getProgress response:', JSON.stringify(result));
     if (debug) return NextResponse.json({ _raw: result });
 
     if (result.success && result.data) {

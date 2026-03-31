@@ -218,9 +218,16 @@ function normalizeProgressObject(
     if (courseProgress.certificateStatus === 'earned') certificateIssued = true;
   }
 
-  const primaryCourse = (
-    Array.isArray(studentRaw.enrolledCourses) ? (studentRaw.enrolledCourses[0] as string) : '3sfm'
-  ).toUpperCase();
+  // Derive the `course` value used by getEnrolledCourses() in the dashboard:
+  //   'both'  — student enrolled in 3sfm AND bvm
+  //   'bvm'   — bvm only
+  //   '3sfm'  — 3sfm only (default)
+  const enrolled = Array.isArray(studentRaw.enrolledCourses)
+    ? (studentRaw.enrolledCourses as string[]).map(c => c.toLowerCase())
+    : [];
+  const hasSfm = enrolled.includes('3sfm') || enrolled.length === 0;
+  const hasBvm = enrolled.includes('bvm');
+  const courseField = hasSfm && hasBvm ? 'both' : hasBvm ? 'bvm' : '3sfm';
 
   return {
     success: true,
@@ -229,7 +236,7 @@ function normalizeProgressObject(
         name:           String(studentRaw.fullName ?? studentRaw.name ?? regId),
         email:          String(studentRaw.email ?? email),
         registrationId: String(studentRaw.registrationId ?? regId),
-        course:         primaryCourse,
+        course:         courseField,
         registeredAt:   String(studentRaw.enrolledDate ?? ''),
       },
       sessions: allSessions,
@@ -338,8 +345,15 @@ export async function getStudentProgress(
     };
   }
 
-  // Shape B: flat root with a `student` object + `sessions` array
+  // Shape B: flat root with a `student` object
   if (root.student && typeof root.student === 'object') {
+    const studentRaw = root.student as unknown as Record<string, unknown>;
+
+    // Shape B-extended: sessions nested inside student.progress[courseKey].sessions (keyed object)
+    if (studentRaw.progress && typeof studentRaw.progress === 'object') {
+      return normalizeProgressObject(studentRaw, email, regId);
+    }
+
     const rawSessions = Array.isArray(root.sessions) ? root.sessions as Record<string, unknown>[] : [];
     return {
       success: true,
