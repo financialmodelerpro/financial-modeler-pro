@@ -876,6 +876,8 @@ thead th:first-child { border-radius: 0; }
     animation: spin 0.7s linear infinite; margin-right: var(--sp-1);
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* Sidebar avatar upload hover */
+.sidebar-avatar-btn:hover .avatar-hover-overlay { opacity: 1 !important; }
 /* Empty */
 .state-empty {
     padding: var(--sp-5); text-align: center;

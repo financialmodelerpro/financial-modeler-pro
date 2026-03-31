@@ -989,6 +989,8 @@ export default function TrainingDashboardPage() {
   const [profileModal, setProfileModal]           = useState(false);
   const [profileDropdown, setProfileDropdown]     = useState(false);
   const [studentProfile, setStudentProfile]       = useState<{ job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; display_name?: string; avatar_url?: string } | null>(null);
+  const [avatarUploading, setAvatarUploading]     = useState(false);
+  const sidebarFileInputRef                       = useRef<HTMLInputElement>(null);
   // share CMS text (fetched once, cached 10 min)
   const [shareCms, setShareCms]                   = useState<{ title: string; messageTemplate: string }>({ title: '', messageTemplate: '' });
 
@@ -1132,6 +1134,48 @@ export default function TrainingDashboardPage() {
       setTimeout(() => setTranscriptToast(''), 4000);
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function handleSidebarPhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file || !localSession) return;
+    const ALLOWED = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    if (!ALLOWED.includes(file.type)) {
+      setDashToast('Invalid file type. Use JPG, PNG, or WebP.');
+      setTimeout(() => setDashToast(''), 4000);
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      setDashToast('Upload failed — please try a smaller image');
+      setTimeout(() => setDashToast(''), 4000);
+      return;
+    }
+    setAvatarUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('regId', localSession.registrationId);
+      const res = await fetch('/api/training/upload-avatar', { method: 'POST', body: fd });
+      const data = await res.json() as { url?: string; error?: string };
+      if (!res.ok || !data.url) throw new Error(data.error ?? 'Upload failed');
+      const busted = `${data.url}?v=${Date.now()}`;
+      // Persist to profile
+      await fetch('/api/training/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ registrationId: localSession.registrationId, avatarUrl: busted }),
+      });
+      setStudentProfile(prev => prev ? { ...prev, avatar_url: busted } : { avatar_url: busted });
+      setDashToast('Profile photo updated');
+      setTimeout(() => setDashToast(''), 3000);
+    } catch {
+      setDashToast('Upload failed — please try a smaller image');
+      setTimeout(() => setDashToast(''), 4000);
+    } finally {
+      setAvatarUploading(false);
+      // Reset input so same file can be re-selected
+      if (sidebarFileInputRef.current) sidebarFileInputRef.current.value = '';
     }
   }
 
@@ -1341,8 +1385,41 @@ export default function TrainingDashboardPage() {
             ) : (
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: sidebarCollapsed ? 0 : 10 }}>
-                  <div title={studentName || 'Student'} style={{ width: 40, height: 40, borderRadius: '50%', background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: '#fff', flexShrink: 0, overflow: 'hidden' }}>
-                    {avatarUrl ? <img src={avatarUrl} alt={studentName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials}
+                  {/* Clickable avatar with upload overlay */}
+                  <div
+                    title="Change profile photo"
+                    className="sidebar-avatar-btn"
+                    onClick={() => sidebarFileInputRef.current?.click()}
+                    style={{ position: 'relative', width: 40, height: 40, borderRadius: '50%', background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: '#fff', flexShrink: 0, overflow: 'visible', cursor: 'pointer' }}
+                  >
+                    {/* Avatar circle */}
+                    <div style={{ width: 40, height: 40, borderRadius: '50%', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#2EAA4A', fontSize: 14, fontWeight: 800, color: '#fff', position: 'relative' }}>
+                      {avatarUploading ? (
+                        <div style={{ width: 18, height: 18, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                      ) : avatarUrl ? (
+                        <img src={avatarUrl} alt={studentName} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }} />
+                      ) : initials}
+                      {/* Hover overlay */}
+                      {!avatarUploading && (
+                        <div className="avatar-hover-overlay" style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.2s' }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                        </div>
+                      )}
+                    </div>
+                    {/* Camera badge — always visible bottom-right */}
+                    {!avatarUploading && (
+                      <div style={{ position: 'absolute', bottom: -1, right: -1, width: 14, height: 14, borderRadius: '50%', background: '#1d4ed8', border: '1.5px solid #0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                        <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+                      </div>
+                    )}
+                    {/* Hidden file input */}
+                    <input
+                      ref={sidebarFileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      style={{ display: 'none' }}
+                      onChange={handleSidebarPhotoUpload}
+                    />
                   </div>
                   {!sidebarCollapsed && (
                     <div style={{ minWidth: 0 }}>
