@@ -58,6 +58,15 @@ export default async function ModelingHubPage() {
   const footerCopyright    = cms(content, 'footer', 'copyright',    `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
 
   return (
+    <>
+    <style>{`
+      .fmp-modeling-prose { font-size: 15px; color: #374151; line-height: 1.8; }
+      .fmp-modeling-prose p { margin-bottom: 1.25rem; }
+      .fmp-modeling-prose p:last-child { margin-bottom: 0; }
+      .fmp-modeling-prose ul, .fmp-modeling-prose ol { padding-left: 1.5rem; margin-bottom: 1.25rem; }
+      .fmp-modeling-prose li { margin-bottom: 0.25rem; }
+      .fmp-modeling-prose strong { font-weight: 700; color: #0D2E5A; }
+    `}</style>
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
       <NavbarServer />
       <div style={{ height: 64 }} />
@@ -140,17 +149,10 @@ export default async function ModelingHubPage() {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 48, alignItems: 'start' }}>
             {/* Left — description */}
-            <div>
-              <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.8, marginBottom: 20 }}>
-                {whatBody}
-              </p>
-              <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.8, marginBottom: 20 }}>
-                Built for financial professionals who need institutional-grade outputs fast. Every assumption is clearly flagged and traceable, every calculation is auditable, and every output is formatted for investor presentation or lender submission.
-              </p>
-              <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.8 }}>
-                Whether you are a seasoned analyst or learning the craft, the Modeling Hub gives you a reliable, professional framework to build on — without the blank-page problem.
-              </p>
-            </div>
+            <div
+              className="fmp-modeling-prose"
+              dangerouslySetInnerHTML={{ __html: whatBody }}
+            />
 
             {/* Right — audience cards */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
@@ -364,5 +366,6 @@ export default async function ModelingHubPage() {
       {/* ── Footer ───────────────────────────────────────────────────────── */}
       <SharedFooter company={footerCompany} founder={footerFounder} copyright={footerCopyright} />
     </div>
+    </>
   );
 }

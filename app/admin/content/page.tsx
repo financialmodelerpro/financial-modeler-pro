@@ -1,6 +1,7 @@
 'use client';
 import React, { useState, useEffect, useRef } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { RichTextEditor } from '@/src/components/admin/RichTextEditor';
 
 type Tab = 'branding' | 'hero' | 'stats' | 'about' | 'pillars' | 'cta' | 'footer' | 'section_styles' | 'training_page' | 'training_share' | 'modeling_hub' | 'articles_page' | 'contact_page' | 'legal';
 
@@ -873,7 +874,13 @@ export default function AdminContentPage() {
                 <div style={fieldStyle}><label style={labelStyle}>CTA Primary Label</label><input style={inputStyle} value={get('modeling_hub','cta_primary','Launch Platform Free →')} onChange={e => set('modeling_hub','cta_primary',e.target.value)} /></div>
                 <div style={fieldStyle}><label style={labelStyle}>CTA Secondary Label</label><input style={inputStyle} value={get('modeling_hub','cta_secondary','Login to Dashboard →')} onChange={e => set('modeling_hub','cta_secondary',e.target.value)} /></div>
                 <div style={fieldStyle}><label style={labelStyle}>"What is Modeling Hub" Heading</label><input style={inputStyle} value={get('modeling_hub','what_heading','What is the Modeling Hub?')} onChange={e => set('modeling_hub','what_heading',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>"What is Modeling Hub" Body</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={4} value={get('modeling_hub','what_body','A structured, guided platform that replaces complex manual spreadsheets with professional financial modeling workflows. Built for analysts, investors, and advisory firms who need institutional-grade outputs fast.')} onChange={e => set('modeling_hub','what_body',e.target.value)} /></div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>&ldquo;What is Modeling Hub&rdquo; Body (Rich Text)</label>
+                  <RichTextEditor
+                    value={get('modeling_hub','what_body','')}
+                    onChange={v => set('modeling_hub','what_body',v)}
+                  />
+                </div>
                 <div style={fieldStyle}><label style={labelStyle}>Bottom CTA Heading</label><input style={inputStyle} value={get('modeling_hub','bottom_cta_heading','Ready to build your first model?')} onChange={e => set('modeling_hub','bottom_cta_heading',e.target.value)} /></div>
                 {saveBtn([
                   {section:'modeling_hub',key:'hero_badge'},
