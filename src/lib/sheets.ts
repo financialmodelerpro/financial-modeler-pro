@@ -148,6 +148,37 @@ export async function validateStudent(
   return callScript<SheetStudent>({ action: 'validate', email, regId });
 }
 
+// Maps tabKey-style final session ids to the COURSES config session ids
+const FINAL_TABKEY_TO_SESSION_ID: Record<string, string> = {
+  '3SFM_Final': 'S18',
+  'BVM_Final':  'L7',
+};
+
+/**
+ * Normalise a session ID returned by Apps Script into the short form used by the
+ * COURSES config (e.g. "3SFM_S1" → "S1", "BVM_L3" → "L3", "3SFM_Final" → "S18").
+ * If the id is already in short form it is returned unchanged.
+ */
+function normalizeSessionId(id: string): string {
+  if (!id) return id;
+  if (FINAL_TABKEY_TO_SESSION_ID[id]) return FINAL_TABKEY_TO_SESSION_ID[id];
+  // Strip course prefix: "3SFM_S4" → "S4", "BVM_L2" → "L2"
+  const m = id.match(/^(?:3SFM|BVM)_(.+)$/i);
+  return m ? m[1] : id;
+}
+
+function normalizeSession(raw: Record<string, unknown>): SessionProgress {
+  // Apps Script may use `tabKey` instead of `sessionId`
+  const rawId = (raw.sessionId as string) || (raw.tabKey as string) || '';
+  return {
+    sessionId:   normalizeSessionId(rawId),
+    passed:      Boolean(raw.passed),
+    score:       Number(raw.score ?? raw.percentage ?? 0),
+    attempts:    Number(raw.attemptsUsed ?? raw.attempts ?? 0),
+    completedAt: (raw.completedAt as string) ?? (raw.lastCompletedAt as string) ?? null,
+  };
+}
+
 /** Fetch a student's full session progress. */
 export async function getStudentProgress(
   email: string,
@@ -157,19 +188,28 @@ export async function getStudentProgress(
 
   if (!raw.success) return raw;
 
-  // If data is properly nested under the `data` key, return as-is
-  if (raw.data && typeof raw.data === 'object' && 'student' in raw.data) return raw;
-
-  // Apps Script may return progress fields at root level (not nested under `data`)
-  // Same pattern as getCourseDetails — handle both response shapes
-  const root = raw as unknown as Record<string, unknown>;
-  if (root.student && typeof root.student === 'object') {
+  // If data is properly nested under the `data` key, normalise sessions and return
+  if (raw.data && typeof raw.data === 'object' && 'student' in raw.data) {
+    const d = raw.data;
     return {
       success: true,
       data: {
-        student: root.student as SheetStudent,
-        sessions: Array.isArray(root.sessions) ? (root.sessions as SessionProgress[]) : [],
-        finalPassed: Boolean(root.finalPassed),
+        ...d,
+        sessions: (d.sessions ?? []).map(s => normalizeSession(s as unknown as Record<string, unknown>)),
+      },
+    };
+  }
+
+  // Apps Script may return progress fields at root level (not nested under `data`)
+  const root = raw as unknown as Record<string, unknown>;
+  if (root.student && typeof root.student === 'object') {
+    const rawSessions = Array.isArray(root.sessions) ? root.sessions as Record<string, unknown>[] : [];
+    return {
+      success: true,
+      data: {
+        student:          root.student as SheetStudent,
+        sessions:         rawSessions.map(normalizeSession),
+        finalPassed:      Boolean(root.finalPassed),
         certificateIssued: Boolean(root.certificateIssued),
       },
     };
@@ -334,7 +374,13 @@ export async function listAllStudents(): Promise<ScriptResponse<StudentSummary[]
 
 /** [Admin] List all issued certificates. Requires Apps Script action: 'listCertificates'. */
 export async function listAllCertificates(): Promise<ScriptResponse<SheetCertificate[]>> {
-  return callScript<SheetCertificate[]>({ action: 'listCertificates' });
+  const raw = await callScript<SheetCertificate[]>({ action: 'listCertificates' });
+  if (!raw.success) return raw;
+  if (Array.isArray(raw.data)) return raw;
+  // Apps Script may return { success: true, certificates: [...] } at root level
+  const root = raw as unknown as { certificates?: SheetCertificate[] };
+  if (Array.isArray(root.certificates)) return { success: true, data: root.certificates };
+  return { success: true, data: [] };
 }
 
 // ── Assessment Engine ─────────────────────────────────────────────────────────

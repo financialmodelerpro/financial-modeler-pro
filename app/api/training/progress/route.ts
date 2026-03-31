@@ -50,6 +50,7 @@ export async function GET(req: NextRequest) {
 
   const cleanEmail = email.trim().toLowerCase();
   const cleanRegId = registrationId.trim();
+  // `refresh=1` busts cache — dashboard calls this after assessment submission
   const refresh    = req.nextUrl.searchParams.get('refresh') === '1';
   const cacheKey   = `${cleanEmail}:${cleanRegId}`;
 
@@ -63,7 +64,9 @@ export async function GET(req: NextRequest) {
 
   // ── Fetch progress — always return 200, never hard-error ────────────────────
   try {
+    const debug  = req.nextUrl.searchParams.get('debug') === '1';
     const result = await getStudentProgress(cleanEmail, cleanRegId);
+    if (debug) return NextResponse.json({ _raw: result });
 
     if (result.success && result.data) {
       _cache.set(cacheKey, { data: result.data, at: Date.now() });
