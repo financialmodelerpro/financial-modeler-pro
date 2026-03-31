@@ -161,11 +161,13 @@ export async function POST(req: NextRequest) {
   ];
   if (lessonRef && duration > 0) {
     saves.push(
-      getServerClient()
-        .from('lessons')
-        .update({ duration_minutes: duration })
-        .eq('course_id', lessonRef.courseId)
-        .eq('display_order', lessonRef.displayOrder),
+      (async () => {
+        await getServerClient()
+          .from('lessons')
+          .update({ duration_minutes: duration })
+          .eq('course_id', lessonRef.courseId)
+          .eq('display_order', lessonRef.displayOrder);
+      })(),
     );
   }
   await Promise.all(saves);
