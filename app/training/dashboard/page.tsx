@@ -498,8 +498,8 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
     if (!best || p.score > best.score) return { score: p.score, label: s.id };
     return best;
   }, null);
-  const certStatus = finalPassed && courseCert ? 'Earned' : allRegularPassed && finalPassed ? 'Eligible' : allRegularPassed ? 'Eligible' : 'Pending';
-  const certColor = certStatus === 'Earned' ? '#C9A84C' : certStatus === 'Eligible' ? '#2EAA4A' : '#6B7280';
+  const certStatus = bvmLocked ? 'Locked' : (finalPassed && courseCert ? 'Earned' : allRegularPassed ? 'Eligible' : 'Pending');
+  const certColor = bvmLocked ? '#9CA3AF' : (certStatus === 'Earned' ? '#C9A84C' : certStatus === 'Eligible' ? '#2EAA4A' : '#6B7280');
   const hasAny = passedCount > 0;
   const isOfficial = finalPassed;
 
@@ -508,19 +508,27 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
 
   return (
     <div>
-      {/* BVM prerequisite banner */}
-      {bvmLocked && (
-        <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 10, padding: '14px 20px', marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ fontSize: 13, color: '#DC2626', fontWeight: 700, marginBottom: 4 }}>🔒 Business Valuation Modeling is Locked</div>
-            <div style={{ fontSize: 12, color: '#9CA3AF' }}>Complete 3-Statement Financial Modeling first to unlock Watch and Assessment buttons. You can browse the course content below.</div>
-            {sfmTotal > 0 && <div style={{ fontSize: 12, color: '#B91C1C', marginTop: 4, fontWeight: 600 }}>3SFM Progress: {sfmProgress} / {sfmTotal} sessions passed</div>}
+      {/* BVM prerequisite banner — gold/amber, dismissible */}
+      {bvmLocked && !dismissedBanners.has('bvm_lock') && (
+        <div style={{ background: '#FFF8E1', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, color: '#92400E', fontWeight: 700, marginBottom: 2 }}>
+              🔒 Complete 3-Statement Financial Modeling to unlock this course
+            </div>
+            <div style={{ fontSize: 12, color: '#B45309' }}>
+              Your 3SFM Progress: {sfmProgress} / {sfmTotal} sessions
+            </div>
           </div>
-          {onSwitchTo3sfm && (
-            <button onClick={onSwitchTo3sfm} style={{ padding: '7px 16px', borderRadius: 7, background: '#1B4F8A', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
-              Continue 3SFM →
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+            {onSwitchTo3sfm && (
+              <button onClick={onSwitchTo3sfm} style={{ padding: '6px 14px', borderRadius: 7, background: '#1B4F8A', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                Continue 3SFM →
+              </button>
+            )}
+            <button onClick={() => dismissBanner('bvm_lock')} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#B45309', fontSize: 15, padding: '0 2px', lineHeight: 1 }}>
+              ✕
             </button>
-          )}
+          </div>
         </div>
       )}
 
@@ -528,8 +536,15 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
       <div style={{ background: 'linear-gradient(135deg, #0D2E5A 0%, #1B4F8A 100%)', borderRadius: 12, padding: '24px 28px', marginBottom: 20, color: '#fff' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
           <div>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 12px', borderRadius: 20, background: 'rgba(255,255,255,0.15)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 8 }}>
-              🎓 {course.shortTitle}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '3px 12px', borderRadius: 20, background: 'rgba(255,255,255,0.15)', fontSize: 11, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                🎓 {course.shortTitle}
+              </div>
+              {bvmLocked && (
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, background: 'rgba(201,168,76,0.2)', border: '1px solid rgba(201,168,76,0.5)', fontSize: 11, fontWeight: 700, color: '#C9A84C' }}>
+                  🔒 Locked
+                </div>
+              )}
             </div>
             <h2 style={{ fontSize: 'clamp(18px,2.5vw,22px)', fontWeight: 800, color: '#fff', marginBottom: 6, lineHeight: 1.2 }}>
               {course.title}
@@ -569,7 +584,7 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12 }}>
             <span style={{ color: 'rgba(255,255,255,0.65)', fontWeight: 600 }}>Course Progress</span>
-            <span style={{ color: '#fff', fontWeight: 700 }}>{passedCount} / {regularSessions.length} Sessions · {progressPct}%</span>
+            <span style={{ color: '#fff', fontWeight: 700 }}>{passedCount} / {regularSessions.length} {course.id === 'bvm' ? 'Lessons' : 'Sessions'} · {progressPct}%</span>
           </div>
           <div style={{ height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.15)', overflow: 'hidden' }}>
             <div style={{ height: '100%', borderRadius: 4, background: progressPct === 100 ? '#C9A84C' : '#2EAA4A', width: `${progressPct}%`, transition: 'width 0.6s ease' }} />
@@ -578,7 +593,7 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
       </div>
 
       {/* Stats Row */}
-      <div className="dash-stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+      <div className="dash-stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20, opacity: bvmLocked ? 0.55 : 1, transition: 'opacity 0.2s' }}>
         {[
           { label: 'Sessions Passed', value: `${passedCount} / ${regularSessions.length}`, icon: '📊', color: '#1B4F8A' },
           { label: 'Avg Score', value: avgScore !== null ? `${avgScore}%` : '—', icon: '📈', color: '#059669' },
@@ -599,7 +614,7 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
       {/* Session Cards */}
       <div style={{ marginBottom: 24 }}>
         <h3 style={{ fontSize: 11, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
-          Sessions
+          {course.id === 'bvm' ? 'Lessons' : 'Sessions'}
         </h3>
         {course.sessions.map((session, idx) => {
           const prog = progressMap.get(session.id);
@@ -609,7 +624,9 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
           const formUrl = liveLinks[tk]?.formUrl || session.quizFormUrl || '';
 
           let locked = false;
-          if (isFinalRow) {
+          if (bvmLocked) {
+            locked = true;
+          } else if (isFinalRow) {
             locked = !allRegularPassed;
           } else if (idx > 0) {
             const prev = course.sessions[idx - 1];
@@ -764,7 +781,7 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
       )}
 
       {/* ── Recommended Next Steps ───────────────────────────────────────── */}
-      {(() => {
+      {!bvmLocked && (() => {
         const nextUnpassed = regularSessions.find(s => !progressMap.get(s.id)?.passed);
         const nextIdx = nextUnpassed ? regularSessions.indexOf(nextUnpassed) : -1;
         let title = '';
@@ -820,8 +837,18 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
         );
       })()}
 
-      {/* Certificate Card */}
-      {(finalPassed && courseCert) ? (
+      {/* Certificate Card — locked state when bvmLocked */}
+      {bvmLocked && (
+        <div style={{ border: '2px dashed #D1D5DB', borderRadius: 12, padding: '24px', background: '#FAFAFA', textAlign: 'center', opacity: 0.6 }}>
+          <div style={{ fontSize: 28, marginBottom: 10 }}>🔒</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: '#374151', marginBottom: 4 }}>Certificate Locked</div>
+          <div style={{ fontSize: 13, color: '#9CA3AF' }}>
+            Complete 3-Statement Financial Modeling to unlock this course and earn your BVM certificate.
+          </div>
+        </div>
+      )}
+      {!bvmLocked && (
+        (finalPassed && courseCert) ? (
         <div style={{ border: '2px solid #C9A84C', borderRadius: 12, padding: '24px 28px', background: 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E1 100%)', boxShadow: '0 4px 20px rgba(201,168,76,0.15)' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
             <div>
@@ -890,6 +917,7 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
             {passedCount} of {regularSessions.length} sessions passed — complete all sessions and pass the Final Exam.
           </div>
         </div>
+        )
       )}
     </div>
   );
@@ -1620,37 +1648,29 @@ export default function TrainingDashboardPage() {
 
           {/* Course content */}
           {!loading && progress && (
-            activeCourse === 'bvm' && !isEnrolledInBvm ? (
-              <BvmLockedContent
-                sfmProgress={sfmPassedCount}
-                sfmTotal={sfmRegular.length}
-                onContinue={() => setActiveCourse('3sfm')}
-              />
-            ) : (
-              <CourseContent
-                courseId={displayCourse}
-                progressMap={progressMap}
-                certificates={certificates}
-                liveLinks={liveLinks}
-                courseDescs={courseDescs}
-                regId={localSession?.registrationId ?? ''}
-                onDownloadTranscript={downloadTranscript}
-                generating={generating}
-                studentName={progress?.student.name ?? ''}
-                studentEmail={progress?.student.email ?? ''}
-                onShare={(label, certUrl) => setShareModal({ label, certUrl })}
-                testimonialSubmitted={testimonialSubmitted}
-                onOpenTestimonial={type => setTestimonialModal(type)}
-                notes={notes}
-                onNoteSave={saveNote}
-                feedbackGiven={feedbackGiven}
-                onFeedbackRequest={(sessionKey, sessionTitle) => setFeedbackModal({ sessionKey, sessionTitle })}
-                bvmLocked={showLockedBvm}
-                sfmProgress={sfmPassedCount}
-                sfmTotal={sfmRegular.length}
-                onSwitchTo3sfm={() => setActiveCourse('3sfm')}
-              />
-            )
+            <CourseContent
+              courseId={activeCourse === 'bvm' ? 'bvm' : displayCourse}
+              progressMap={progressMap}
+              certificates={certificates}
+              liveLinks={liveLinks}
+              courseDescs={courseDescs}
+              regId={localSession?.registrationId ?? ''}
+              onDownloadTranscript={downloadTranscript}
+              generating={generating}
+              studentName={progress?.student.name ?? ''}
+              studentEmail={progress?.student.email ?? ''}
+              onShare={(label, certUrl) => setShareModal({ label, certUrl })}
+              testimonialSubmitted={testimonialSubmitted}
+              onOpenTestimonial={type => setTestimonialModal(type)}
+              notes={notes}
+              onNoteSave={saveNote}
+              feedbackGiven={feedbackGiven}
+              onFeedbackRequest={(sessionKey, sessionTitle) => setFeedbackModal({ sessionKey, sessionTitle })}
+              bvmLocked={showLockedBvm}
+              sfmProgress={sfmPassedCount}
+              sfmTotal={sfmRegular.length}
+              onSwitchTo3sfm={() => setActiveCourse('3sfm')}
+            />
           )}
         </main>
       </div>
