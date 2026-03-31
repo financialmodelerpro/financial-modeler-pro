@@ -36,6 +36,7 @@ export default function AdminContentPage() {
   type CustomField = { label: string; value: string };
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
   const logoUploadRef = useRef<HTMLInputElement>(null);
+  const [logoUploading, setLogoUploading] = useState(false);
   const [activeStyleSection, setActiveStyleSection] = useState('hero');
 
   useEffect(() => {
@@ -218,20 +219,38 @@ export default function AdminContentPage() {
     }
   }
 
-  function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    e.target.value = '';
     if (file.size > 2 * 1024 * 1024) {
-      alert('Logo file must be under 2 MB.');
-      e.target.value = '';
+      setToast({ msg: 'Logo must be under 2 MB', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
       return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') set('branding', 'logo_url', reader.result);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
+    setLogoUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('bucket', 'cms-assets');
+      const res  = await fetch('/api/admin/media', { method: 'POST', body: fd });
+      const data = await res.json() as { url?: string; error?: string };
+      if (!res.ok || !data.url) throw new Error(data.error ?? 'Upload failed');
+      // Store the public URL — never the base64 DataURL
+      set('branding', 'logo_url', data.url);
+      await fetch('/api/admin/content', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section: 'branding', key: 'logo_url', value: data.url }),
+      });
+      setToast({ msg: 'Logo uploaded', type: 'success' });
+      setTimeout(() => setToast(null), 3000);
+    } catch {
+      setToast({ msg: 'Logo upload failed. Please try again.', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+    } finally {
+      setLogoUploading(false);
+    }
   }
 
   const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 7, background: '#FFFBEB', fontFamily: 'Inter, sans-serif', color: '#374151', boxSizing: 'border-box' };
@@ -331,9 +350,9 @@ export default function AdminContentPage() {
                 <div style={fieldStyle}>
                   <label style={labelStyle}>Upload Logo</label>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                    <button type="button" onClick={() => logoUploadRef.current?.click()}
-                      style={{ padding: '8px 16px', fontSize: 13, fontWeight: 700, color: '#1B4F8A', background: '#E8F0FB', border: '1px solid #BDD0F0', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit' }}>
-                      Upload New Logo
+                    <button type="button" onClick={() => !logoUploading && logoUploadRef.current?.click()} disabled={logoUploading}
+                      style={{ padding: '8px 16px', fontSize: 13, fontWeight: 700, color: '#1B4F8A', background: '#E8F0FB', border: '1px solid #BDD0F0', borderRadius: 7, cursor: logoUploading ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: logoUploading ? 0.6 : 1 }}>
+                      {logoUploading ? 'Uploading…' : 'Upload New Logo'}
                     </button>
                     {get('branding','logo_url','') && (
                       <button type="button" onClick={() => set('branding','logo_url','')}

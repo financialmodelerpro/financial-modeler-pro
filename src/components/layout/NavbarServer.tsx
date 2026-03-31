@@ -16,7 +16,8 @@ export async function NavbarServer({ topOffset = 0 }: Props) {
     getSitePages(),
     getCmsContent(),
   ]);
-  const logoUrl          = cms(content, 'branding', 'logo_url',           '');
+  // branding section = saved via admin/content; platform section = saved via admin/settings
+  const logoUrl          = cms(content, 'branding', 'logo_url', '') || cms(content, 'platform', 'logo_url', '');
   const logoWidthInches  = cms(content, 'branding', 'logo_width_inches',  '');
   const logoHeightInches = cms(content, 'branding', 'logo_height_inches', '');
   const logoPosition     = cms(content, 'branding', 'logo_position',      'top-left');

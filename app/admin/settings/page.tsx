@@ -64,7 +64,7 @@ export default function AdminSettingsPage() {
       await fetch('/api/admin/content', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify([{ section: s.section, key: s.key, value: values[k] ?? '' }]),
+        body: JSON.stringify({ section: s.section, key: s.key, value: values[k] ?? '' }),
       });
       setSaved((p) => ({ ...p, [k]: true }));
       setTimeout(() => setSaved((p) => ({ ...p, [k]: false })), 2500);
