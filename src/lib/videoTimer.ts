@@ -11,14 +11,13 @@ interface TimerEntry {
 
 export interface TimerStatus {
   locked: boolean;
-  minutesRemaining: number;
+  secondsRemaining: number;
   started: boolean;
 }
 
 /**
  * Start (or resume) a timer for a session.
  * Does NOT restart if the timer is currently running.
- * Re-starts if the timer has already expired (e.g. retake scenario).
  */
 export function startTimer(regId: string, tabKey: string, durationMinutes: number): void {
   if (!durationMinutes || durationMinutes === 0) return;
@@ -26,39 +25,40 @@ export function startTimer(regId: string, tabKey: string, durationMinutes: numbe
   const existing = localStorage.getItem(key);
   if (existing) {
     const { startTime } = JSON.parse(existing) as TimerEntry;
-    const elapsed = (Date.now() - startTime) / 1000 / 60;
-    if (elapsed < durationMinutes) return; // already running, do not restart
+    const elapsedSeconds = (Date.now() - startTime) / 1000;
+    if (elapsedSeconds < durationMinutes * 60) return; // already running, do not restart
   }
   localStorage.setItem(key, JSON.stringify({ startTime: Date.now(), durationMinutes }));
 }
 
 /**
- * Get current timer status for a session.
+ * Get current timer status for a session (second-level precision).
  */
 export function getTimerStatus(regId: string, tabKey: string, durationMinutes: number): TimerStatus {
   if (!durationMinutes || durationMinutes === 0)
-    return { locked: false, minutesRemaining: 0, started: false };
+    return { locked: false, secondsRemaining: 0, started: false };
   const key = TIMER_PREFIX + regId + '_' + tabKey;
   const stored = localStorage.getItem(key);
   if (!stored)
-    return { locked: true, minutesRemaining: durationMinutes, started: false };
+    return { locked: true, secondsRemaining: durationMinutes * 60, started: false };
   const { startTime } = JSON.parse(stored) as TimerEntry;
-  const remaining = durationMinutes - (Date.now() - startTime) / 1000 / 60;
-  if (remaining <= 0) return { locked: false, minutesRemaining: 0, started: true };
-  return { locked: true, minutesRemaining: Math.ceil(remaining), started: true };
+  const remainingSeconds = Math.ceil(durationMinutes * 60 - (Date.now() - startTime) / 1000);
+  if (remainingSeconds <= 0) return { locked: false, secondsRemaining: 0, started: true };
+  return { locked: true, secondsRemaining: remainingSeconds, started: true };
 }
 
 /**
- * Format remaining minutes as a human-readable countdown string.
+ * Format remaining seconds as MM:SS countdown string.
  */
-export function formatCountdown(minutes: number): string {
-  if (minutes <= 0) return 'Unlocking...';
-  if (minutes < 60) return `Available in ${minutes} min`;
-  const hrs  = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  return mins > 0
-    ? `Available in ${hrs} hr ${mins} min`
-    : `Available in ${hrs} hr`;
+export function formatCountdown(totalSeconds: number): string {
+  if (totalSeconds <= 0) return 'Unlocking...';
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  const mm = String(m).padStart(2, '0');
+  const ss = String(s).padStart(2, '0');
+  if (h > 0) return `Available in ${h}:${mm}:${ss}`;
+  return `Available in ${mm}:${ss}`;
 }
 
 /**
@@ -71,7 +71,7 @@ export function isSessionUnlocked(
   passed: boolean,
   hasVideo: boolean,
 ): boolean {
-  if (passed) return true;                        // already passed
-  if (!hasVideo || !durationMinutes) return true; // no video or no lock
+  if (passed) return true;
+  if (!hasVideo || !durationMinutes) return true;
   return !getTimerStatus(regId, tabKey, durationMinutes).locked;
 }

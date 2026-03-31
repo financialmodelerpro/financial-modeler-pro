@@ -11,9 +11,8 @@ interface Props {
 }
 
 export function CountdownTimer({ regId, tabKey, durationMinutes, onExpired }: Props) {
-  const [minutesLeft, setMinutesLeft] = useState(durationMinutes);
+  const [secondsLeft, setSecondsLeft] = useState(durationMinutes * 60);
 
-  // Keep onExpired stable so the interval effect never re-runs due to a new fn ref
   const onExpiredRef = useRef(onExpired);
   useEffect(() => { onExpiredRef.current = onExpired; });
 
@@ -24,11 +23,11 @@ export function CountdownTimer({ regId, tabKey, durationMinutes, onExpired }: Pr
         onExpiredRef.current();
         return;
       }
-      setMinutesLeft(status.minutesRemaining);
+      setSecondsLeft(status.secondsRemaining);
     }
 
     check(); // sync immediately on mount / prop change
-    const id = setInterval(check, 60_000);
+    const id = setInterval(check, 1_000); // tick every second
     return () => clearInterval(id);
   }, [regId, tabKey, durationMinutes]);
 
@@ -42,7 +41,7 @@ export function CountdownTimer({ regId, tabKey, durationMinutes, onExpired }: Pr
         cursor: 'default', border: '1px solid #FDE68A',
       }}
     >
-      ⏱ {formatCountdown(minutesLeft)}
+      ⏱ {formatCountdown(secondsLeft)}
     </span>
   );
 }

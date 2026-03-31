@@ -151,7 +151,7 @@ function SessionCard({
   tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
   bvmLocked, watchLocked,
 }: SessionCardProps) {
-  const [timerStatus, setTimerStatus] = useState<TimerStatus>({ locked: false, minutesRemaining: 0, started: false });
+  const [timerStatus, setTimerStatus] = useState<TimerStatus>({ locked: false, secondsRemaining: 0, started: false });
   const [notesOpen, setNotesOpen] = useState(false);
   const [noteText, setNoteText] = useState(noteContent);
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -306,7 +306,7 @@ function SessionCard({
             regId={regId}
             tabKey={tabKey}
             durationMinutes={videoDuration}
-            onExpired={() => setTimerStatus({ locked: false, minutesRemaining: 0, started: true })}
+            onExpired={() => setTimerStatus({ locked: false, secondsRemaining: 0, started: true })}
           />
         ) : (
           // STATE 1 / 4: no lock or timer expired
