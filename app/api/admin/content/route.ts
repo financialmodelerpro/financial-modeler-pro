@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/auth';
 import { getServerClient } from '@/src/lib/supabase';
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   if ((session.user as { role?: string }).role !== 'admin') {
@@ -12,7 +12,10 @@ export async function GET() {
 
   try {
     const sb = getServerClient();
-    const { data, error } = await sb.from('cms_content').select('*').order('section').order('key');
+    const section = new URL(req.url).searchParams.get('section');
+    let query = sb.from('cms_content').select('*').order('section').order('key');
+    if (section) query = query.eq('section', section);
+    const { data, error } = await query;
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
     return NextResponse.json({ rows: data ?? [] });
   } catch (e) {

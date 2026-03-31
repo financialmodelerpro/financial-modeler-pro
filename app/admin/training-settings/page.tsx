@@ -11,6 +11,15 @@ const inputStyle: React.CSSProperties = {
   background: '#FFFBEB', boxSizing: 'border-box', color: '#1B3A6B',
 };
 
+const TRANSCRIPT_FIELDS: { key: string; label: string; placeholder: string }[] = [
+  { key: 'transcript_header_title', label: 'Header Title',   placeholder: 'OFFICIAL ACADEMIC TRANSCRIPT' },
+  { key: 'transcript_subtitle',     label: 'Subtitle',       placeholder: 'FMP Training Hub' },
+  { key: 'transcript_footer_1',     label: 'Footer Line 1',  placeholder: 'This transcript is an official record issued by Financial Modeler Pro.' },
+  { key: 'transcript_footer_2',     label: 'Footer Line 2',  placeholder: 'Verify certificate authenticity at certifier.io' },
+  { key: 'transcript_instructor',   label: 'Instructor',     placeholder: 'Ahmad Din | Corporate Finance Expert' },
+  { key: 'transcript_website_url',  label: 'Website URL',    placeholder: 'www.financialmodelerpro.com' },
+];
+
 export default function TrainingSettingsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -23,21 +32,50 @@ export default function TrainingSettingsPage() {
   const [testResult, setTestResult] = useState<'ok' | 'fail' | null>(null);
   const [toast, setToast]       = useState('');
 
+  // Transcript settings
+  const [transcriptFields, setTranscriptFields] = useState<Record<string, string>>({});
+  const [transcriptSaving, setTranscriptSaving] = useState<Record<string, boolean>>({});
+
   useEffect(() => {
     if (status === 'unauthenticated') { router.replace('/login'); return; }
     if (status === 'authenticated' && (session.user as any).role !== 'admin') router.replace('/');
   }, [status, session, router]);
 
   useEffect(() => {
-    fetch('/api/admin/training-settings')
-      .then(r => r.json())
-      .then(j => {
-        const u = j.settings?.apps_script_url ?? '';
-        setUrl(u);
-        setSavedUrl(u);
-        setLoading(false);
-      });
+    Promise.all([
+      fetch('/api/admin/training-settings').then(r => r.json()),
+      fetch('/api/admin/content?section=transcript').then(r => r.json()),
+    ]).then(([ts, cms]) => {
+      const u = ts.settings?.apps_script_url ?? '';
+      setUrl(u);
+      setSavedUrl(u);
+      // Build map of key → value from CMS rows
+      const rows: { key: string; value: string }[] = Array.isArray(cms.rows) ? cms.rows : [];
+      const map: Record<string, string> = {};
+      rows.forEach(r => { map[r.key] = r.value; });
+      setTranscriptFields(map);
+      setLoading(false);
+    });
   }, []);
+
+  const saveTranscriptField = async (key: string, value: string) => {
+    setTranscriptSaving(prev => ({ ...prev, [key]: true }));
+    try {
+      const res = await fetch('/api/admin/content', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ section: 'transcript', key, value }),
+      });
+      if (res.ok) {
+        showToast('Saved');
+      } else {
+        showToast('Save failed');
+      }
+    } catch {
+      showToast('Save failed');
+    }
+    setTranscriptSaving(prev => ({ ...prev, [key]: false }));
+  };
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
 
@@ -157,6 +195,42 @@ export default function TrainingSettingsPage() {
                   ⚠️ No URL saved — training registration and progress features are disabled.
                 </div>
               )}
+            </div>
+
+            {/* Transcript Settings Card */}
+            <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '24px 28px', marginBottom: 24, maxWidth: 780 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B', marginBottom: 4 }}>
+                📄 Transcript Settings
+              </div>
+              <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 20 }}>
+                Customise the text fields that appear on student transcript PDFs.
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                {TRANSCRIPT_FIELDS.map(({ key, label, placeholder }) => {
+                  const isSaving = transcriptSaving[key] ?? false;
+                  const value    = transcriptFields[key] ?? '';
+                  return (
+                    <div key={key}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <input
+                          value={value}
+                          onChange={e => setTranscriptFields(prev => ({ ...prev, [key]: e.target.value }))}
+                          placeholder={placeholder}
+                          style={{ ...inputStyle, flex: 1 }}
+                        />
+                        <button
+                          onClick={() => saveTranscriptField(key, value)}
+                          disabled={isSaving}
+                          style={{ padding: '9px 18px', background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', opacity: isSaving ? 0.7 : 1 }}
+                        >
+                          {isSaving ? 'Saving…' : 'Save'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
 
             {/* How-to guide */}

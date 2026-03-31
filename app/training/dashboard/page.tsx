@@ -426,7 +426,7 @@ interface CourseContentProps {
   liveLinks: LiveLinksMap;
   courseDescs: CourseDescsMap;
   regId: string;
-  onDownloadTranscript: () => void;
+  onDownloadTranscript: (courseId: string) => void;
   generating: boolean;
   // share + testimonials
   studentName: string;
@@ -565,7 +565,7 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
           </div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flexShrink: 0 }}>
             <button
-              onClick={onDownloadTranscript}
+              onClick={() => onDownloadTranscript(courseId)}
               disabled={!hasAny || generating}
               title={!hasAny ? 'Complete at least one session to download' : undefined}
               style={{
@@ -1169,19 +1169,20 @@ export default function TrainingDashboardPage() {
     } catch { /* ignore */ }
   }, [router, loadData]);
 
-  async function downloadTranscript() {
+  async function downloadTranscript(courseId: string) {
     if (!localSession || !progress) return;
     setGenerating(true);
     setTranscriptToast('');
     try {
-      const params = new URLSearchParams({ regId: localSession.registrationId, email: localSession.email });
+      const shortTitle = COURSES[courseId]?.shortTitle ?? courseId.toUpperCase();
+      const params = new URLSearchParams({ regId: localSession.registrationId, email: localSession.email, course: courseId });
       const res = await fetch(`/api/training/transcript?${params}`);
       if (!res.ok) throw new Error('Failed');
       const blob = await res.blob();
       const url  = window.URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href     = url;
-      a.download = `FMP-Transcript-${localSession.registrationId}.pdf`;
+      a.download = `FMP-Transcript-${localSession.registrationId}-${shortTitle}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
     } catch {
@@ -1657,12 +1658,20 @@ export default function TrainingDashboardPage() {
                   )}
                 </div>
 
-                {/* Transcript */}
-                <button onClick={downloadTranscript} disabled={totalPassed === 0 || generating}
-                  title={totalPassed === 0 ? 'Complete at least one session first' : undefined}
-                  style={{ width: '100%', textAlign: 'left', padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.05)', color: totalPassed === 0 ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.65)', fontSize: 11, fontWeight: 600, cursor: totalPassed === 0 || generating ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span>📄</span> {generating ? 'Generating…' : 'Download Transcript'}
-                </button>
+                {/* Transcript — one button per enrolled course */}
+                {enrolledCourses.map(cId => {
+                  const cConfig = COURSES[cId];
+                  if (!cConfig) return null;
+                  const cPassed = cConfig.sessions.filter(s => progressMap.get(s.id)?.passed).length;
+                  const disabled = cPassed === 0 || generating;
+                  return (
+                    <button key={cId} onClick={() => downloadTranscript(cId)} disabled={disabled}
+                      title={cPassed === 0 ? 'Complete at least one session first' : undefined}
+                      style={{ width: '100%', textAlign: 'left', padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.05)', color: disabled ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.65)', fontSize: 11, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <span>📄</span> {generating ? 'Generating…' : `Download ${cConfig.shortTitle} Transcript`}
+                    </button>
+                  );
+                })}
                 {transcriptToast && (
                   <div style={{ fontSize: 10, color: '#FCA5A5', padding: '4px 4px', marginTop: 4 }}>⚠️ {transcriptToast}</div>
                 )}
@@ -1680,10 +1689,18 @@ export default function TrainingDashboardPage() {
             {/* Collapsed achievements icons */}
             {sidebarCollapsed && (
               <div style={{ marginTop: 8 }}>
-                <button title={totalPassed === 0 ? 'Complete sessions first' : 'Download Transcript'} onClick={downloadTranscript} disabled={totalPassed === 0 || generating}
-                  style={{ width: '100%', background: 'transparent', border: 'none', padding: '10px 0', cursor: totalPassed === 0 ? 'default' : 'pointer', color: totalPassed === 0 ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.45)', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  📄
-                </button>
+                {enrolledCourses.map(cId => {
+                  const cConfig = COURSES[cId];
+                  if (!cConfig) return null;
+                  const cPassed = cConfig.sessions.filter(s => progressMap.get(s.id)?.passed).length;
+                  const disabled = cPassed === 0 || generating;
+                  return (
+                    <button key={cId} title={disabled ? 'Complete sessions first' : `Download ${cConfig.shortTitle} Transcript`} onClick={() => downloadTranscript(cId)} disabled={disabled}
+                      style={{ width: '100%', background: 'transparent', border: 'none', padding: '6px 0', cursor: disabled ? 'default' : 'pointer', color: disabled ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.45)', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      📄
+                    </button>
+                  );
+                })}
                 {certificates.length > 0 && (
                   <div title={`${certificates.length} Certificate${certificates.length > 1 ? 's' : ''}`} style={{ width: '100%', padding: '10px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
                     🏆
@@ -1787,7 +1804,7 @@ export default function TrainingDashboardPage() {
               liveLinks={liveLinks}
               courseDescs={courseDescs}
               regId={localSession?.registrationId ?? ''}
-              onDownloadTranscript={downloadTranscript}
+              onDownloadTranscript={(cId) => downloadTranscript(cId)}
               generating={generating}
               studentName={progress?.student.name ?? ''}
               studentEmail={progress?.student.email ?? ''}

@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import React from 'react';
 import {
-  renderToBuffer, Document, Page, View, Text, Link, StyleSheet,
+  renderToBuffer, Document, Page, View, Text, Link, StyleSheet, Image,
 } from '@react-pdf/renderer';
 import { getStudentProgress, getCertificatesByEmail } from '@/src/lib/sheets';
+import { getServerClient } from '@/src/lib/supabase';
 import { COURSES } from '@/src/config/courses';
 
 // ── Brand colours ─────────────────────────────────────────────────────────────
@@ -35,6 +36,8 @@ const s = StyleSheet.create({
     backgroundColor: C.navy, paddingHorizontal: 36, paddingTop: 22, paddingBottom: 18,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
   },
+  hLogoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
+  hLogo:    { width: 32, height: 32, marginRight: 8 },
   hBrand: { fontSize: 13, fontFamily: 'Helvetica-Bold', color: C.white, marginBottom: 3 },
   hSub:   { fontSize: 7.5, color: 'rgba(255,255,255,0.55)', marginBottom: 1 },
   hTitle: {
@@ -144,6 +147,72 @@ const s = StyleSheet.create({
   footerText: { fontSize: 7, color: C.muted },
   footerLink: { fontSize: 7, color: C.navy2 },
 });
+
+// ── Transcript settings ───────────────────────────────────────────────────────
+
+interface TranscriptSettings {
+  headerTitle: string;
+  subtitle:    string;
+  footer1:     string;
+  footer2:     string;
+  instructor:  string;
+  websiteUrl:  string;
+}
+
+const DEFAULTS: TranscriptSettings = {
+  headerTitle: 'OFFICIAL ACADEMIC TRANSCRIPT',
+  subtitle:    'FMP Training Hub',
+  footer1:     'This transcript is an official record issued by Financial Modeler Pro.',
+  footer2:     'Verify certificate authenticity at certifier.io',
+  instructor:  'Ahmad Din | Corporate Finance Expert',
+  websiteUrl:  'www.financialmodelerpro.com',
+};
+
+async function loadTranscriptSettings(): Promise<TranscriptSettings> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('cms_content')
+      .select('key, value')
+      .eq('section', 'transcript');
+    if (!data?.length) return DEFAULTS;
+    const map: Record<string, string> = {};
+    for (const row of data) map[row.key] = row.value;
+    return {
+      headerTitle: map['transcript_header_title'] || DEFAULTS.headerTitle,
+      subtitle:    map['transcript_subtitle']      || DEFAULTS.subtitle,
+      footer1:     map['transcript_footer_1']      || DEFAULTS.footer1,
+      footer2:     map['transcript_footer_2']      || DEFAULTS.footer2,
+      instructor:  map['transcript_instructor']    || DEFAULTS.instructor,
+      websiteUrl:  map['transcript_website_url']   || DEFAULTS.websiteUrl,
+    };
+  } catch {
+    return DEFAULTS;
+  }
+}
+
+async function loadLogoBase64(): Promise<string | null> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('branding_config')
+      .select('config')
+      .eq('scope', 'global')
+      .maybeSingle();
+    const config = data?.config as Record<string, unknown> | null;
+    const logoUrl = (config?.platformLogoImage ?? config?.portalLogoImage) as string | null;
+    if (!logoUrl || !logoUrl.startsWith('http')) return null;
+
+    const res = await fetch(logoUrl, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const buf = await res.arrayBuffer();
+    const b64 = Buffer.from(buf).toString('base64');
+    const ct  = res.headers.get('content-type') ?? 'image/png';
+    return `data:${ct};base64,${b64}`;
+  } catch {
+    return null;
+  }
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -342,20 +411,21 @@ interface TranscriptProps {
   studentName: string;
   registrationId: string;
   email: string;
-  enrolledCourses: string[];
+  courseId: string;
   enrolledDate: string;
   progressMap: Map<string, ProgRow>;
-  certs: Map<string, CertData>;   // courseId → cert
+  certs: Map<string, CertData>;
   isComplete: boolean;
+  settings: TranscriptSettings;
+  logoBase64: string | null;
 }
 
 function TranscriptDocument({
-  studentName, registrationId, email, enrolledCourses, enrolledDate,
-  progressMap, certs, isComplete,
+  studentName, registrationId, email, courseId, enrolledDate,
+  progressMap, certs, isComplete, settings, logoBase64,
 }: TranscriptProps) {
-  const courseLabel = enrolledCourses
-    .map(id => COURSES[id]?.title ?? id.toUpperCase())
-    .join(' + ');
+  const course = COURSES[courseId];
+  const courseLabel = course?.title ?? courseId.toUpperCase();
 
   return (
     <Document title={`FMP Transcript — ${registrationId}`} author="Financial Modeler Pro">
@@ -364,14 +434,18 @@ function TranscriptDocument({
         {/* ── Header ──────────────────────────────────────────────────── */}
         <View style={s.header}>
           <View style={{ flex: 1 }}>
-            <Text style={s.hBrand}>Financial Modeler Pro</Text>
-            <Text style={s.hSub}>www.financialmodelerpro.com</Text>
-            <Text style={s.hSub}>Ahmad Din | Corporate Finance Expert</Text>
-            <Text style={s.hTitle}>OFFICIAL ACADEMIC TRANSCRIPT</Text>
+            {/* Logo row */}
+            <View style={s.hLogoRow}>
+              {logoBase64 && <Image style={s.hLogo} src={logoBase64} />}
+              <Text style={s.hBrand}>Financial Modeler Pro</Text>
+            </View>
+            <Text style={s.hSub}>{settings.websiteUrl}</Text>
+            <Text style={s.hSub}>{settings.instructor}</Text>
+            <Text style={s.hTitle}>{settings.headerTitle}</Text>
           </View>
           <View style={s.hRight}>
             <View style={s.hBadge}>
-              <Text style={s.hBadgeText}>FMP Training Hub</Text>
+              <Text style={s.hBadgeText}>{settings.subtitle}</Text>
             </View>
           </View>
         </View>
@@ -426,36 +500,28 @@ function TranscriptDocument({
           </View>
         )}
 
-        {/* ── Session Tables (one per enrolled course) ───────────────────── */}
-        {enrolledCourses.map(courseId => (
-          <View key={courseId}>
-            <View style={s.sectionHead}>
-              <Text style={s.sectionTitle}>{COURSES[courseId]?.title ?? courseId.toUpperCase()}</Text>
-              <View style={s.sectionLine} />
-            </View>
-            <CourseTable courseId={courseId} progressMap={progressMap} />
+        {/* ── Session Table ──────────────────────────────────────────────── */}
+        <View>
+          <View style={s.sectionHead}>
+            <Text style={s.sectionTitle}>{courseLabel}</Text>
+            <View style={s.sectionLine} />
           </View>
-        ))}
+          <CourseTable courseId={courseId} progressMap={progressMap} />
+        </View>
 
         {/* ── Summary Boxes ──────────────────────────────────────────────── */}
-        {enrolledCourses.map(courseId => (
-          <CourseSummaryBoxes
-            key={courseId}
-            courseId={courseId}
-            progressMap={progressMap}
-            cert={certs.get(courseId) ?? null}
-            certBorderColor={certs.has(courseId) ? C.green : C.border}
-          />
-        ))}
+        <CourseSummaryBoxes
+          courseId={courseId}
+          progressMap={progressMap}
+          cert={certs.get(courseId) ?? null}
+          certBorderColor={certs.has(courseId) ? C.green : C.border}
+        />
 
         {/* ── Footer ─────────────────────────────────────────────────────── */}
         <View style={s.footer} fixed>
           <Text style={s.footerText}>Issue Date: {todayStr()}</Text>
-          <Text style={s.footerText}>
-            This transcript is an official record issued by Financial Modeler Pro.
-            Verify certificate authenticity at certifier.io
-          </Text>
-          <Text style={s.footerText}>financial-modeler-pro.vercel.app</Text>
+          <Text style={s.footerText}>{settings.footer1} {settings.footer2}</Text>
+          <Text style={s.footerText}>{settings.websiteUrl}</Text>
         </View>
 
       </Page>
@@ -473,15 +539,21 @@ function getEnrolledCourses(courseValue: string): string[] {
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
-  const regId = searchParams.get('regId')?.trim() ?? '';
-  const email = searchParams.get('email')?.trim().toLowerCase() ?? '';
+  const regId      = searchParams.get('regId')?.trim() ?? '';
+  const email      = searchParams.get('email')?.trim().toLowerCase() ?? '';
+  const courseParam = searchParams.get('course')?.trim().toLowerCase() ?? '';
 
   if (!regId || !email) {
     return NextResponse.json({ error: 'regId and email are required' }, { status: 400 });
   }
 
-  // ── Fetch progress ────────────────────────────────────────────────────────
-  const result = await getStudentProgress(email, regId);
+  // ── Fetch progress + settings + logo in parallel ──────────────────────────
+  const [result, settings, logoBase64] = await Promise.all([
+    getStudentProgress(email, regId),
+    loadTranscriptSettings(),
+    loadLogoBase64(),
+  ]);
+
   if (!result.success || !result.data) {
     return NextResponse.json(
       { error: 'Could not load student progress. Please try again.' },
@@ -490,7 +562,12 @@ export async function GET(req: NextRequest) {
   }
 
   const { student, sessions } = result.data;
-  const enrolledCourses = getEnrolledCourses(student.course ?? '3sfm');
+  const allEnrolled = getEnrolledCourses(student.course ?? '3sfm');
+
+  // Resolve the single course for this transcript
+  const courseId = (courseParam && allEnrolled.includes(courseParam))
+    ? courseParam
+    : allEnrolled[0];
 
   // ── Build progress map ────────────────────────────────────────────────────
   const progressMap = new Map<string, ProgRow>();
@@ -522,13 +599,9 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Also check if all sessions passed even if cert not yet issued
   if (!isComplete) {
-    isComplete = enrolledCourses.every(courseId => {
-      const course = COURSES[courseId];
-      if (!course) return false;
-      return course.sessions.every(s => progressMap.get(s.id)?.passed);
-    });
+    const course = COURSES[courseId];
+    isComplete = !!course && course.sessions.every(s => progressMap.get(s.id)?.passed);
   }
 
   // ── Render PDF ─────────────────────────────────────────────────────────────
@@ -538,16 +611,18 @@ export async function GET(req: NextRequest) {
         studentName={student.name || regId}
         registrationId={regId}
         email={email}
-        enrolledCourses={enrolledCourses}
+        courseId={courseId}
         enrolledDate={student.registeredAt ?? ''}
         progressMap={progressMap}
         certs={certsMap}
         isComplete={isComplete}
+        settings={settings}
+        logoBase64={logoBase64}
       />
     );
 
-    const courseSlug = enrolledCourses.length > 1 ? 'combined' : enrolledCourses[0];
-    const filename   = `FMP-Transcript-${regId}-${courseSlug}.pdf`;
+    const shortTitle = COURSES[courseId]?.shortTitle ?? courseId.toUpperCase();
+    const filename   = `FMP-Transcript-${regId}-${shortTitle}.pdf`;
 
     return new NextResponse(buffer as unknown as BodyInit, {
       status: 200,
