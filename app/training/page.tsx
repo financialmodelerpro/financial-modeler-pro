@@ -7,7 +7,7 @@ import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { getServerClient } from '@/src/lib/supabase';
 import { CurriculumCard, type CourseDescription } from './CurriculumCard';
 
-export const revalidate = 60;
+export const revalidate = 300; // 5-minute ISR cache — training page content changes rarely
 
 export const metadata: Metadata = {
   title: 'Training Hub — Free Financial Modeling Certification | Financial Modeler Pro',

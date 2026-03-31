@@ -619,7 +619,13 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
         {course.sessions.map((session, idx) => {
           const prog = progressMap.get(session.id);
           const isFinalRow = session.isFinal;
-          const tk = `${course.shortTitle.toUpperCase()}_${session.id}`;
+          // NOTE: Watch button shows for ALL sessions including finals if youtubeUrl exists.
+          // Final sessions use '_Final' suffix to match the Apps Script tabKey convention
+          // (Apps Script Form Registry stores the final row as e.g. '3SFM_Final', not '3SFM_S18').
+          // Do NOT revert this to session.id — that was the root cause of Session 18 never showing.
+          const tk = isFinalRow
+            ? `${course.shortTitle.toUpperCase()}_Final`
+            : `${course.shortTitle.toUpperCase()}_${session.id}`;
           const ytUrl = liveLinks[tk]?.youtubeUrl || session.youtubeUrl || '';
           const formUrl = liveLinks[tk]?.formUrl || session.quizFormUrl || '';
 
@@ -1021,6 +1027,22 @@ export default function TrainingDashboardPage() {
     sess: { email: string; registrationId: string },
     forceRefresh = false,
   ) => {
+    // ── Issue 4: Show cached progress immediately, then refresh in background ─
+    const CACHE_KEY = `fmp_progress_${sess.registrationId}`;
+    const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+    if (!forceRefresh) {
+      try {
+        const raw = localStorage.getItem(CACHE_KEY);
+        if (raw) {
+          const cached = JSON.parse(raw) as { data: ProgressData; at: number };
+          if (Date.now() - cached.at < CACHE_TTL) {
+            setProgress(cached.data);
+            setLoading(false); // show cached data instantly; fetch continues in background
+          }
+        }
+      } catch { /* ignore — stale or corrupt cache */ }
+    }
+
     if (forceRefresh) setRefreshing(true); else setLoading(true);
     setIsFallback(false);
     try {
@@ -1057,6 +1079,10 @@ export default function TrainingDashboardPage() {
       // Apply course-details
       const map: LiveLinksMap = {};
       for (const s of detailsJson.sessions ?? []) map[s.tabKey] = s;
+      // Debug: verify final session data and video durations from Apps Script
+      console.log('[CourseDetails] 3SFM_Final:', map['3SFM_Final'] ?? 'NOT FOUND — check Apps Script tabKey');
+      console.log('[CourseDetails] BVM_Final:', map['BVM_Final'] ?? 'NOT FOUND — check Apps Script tabKey');
+      console.log('[CourseDetails] 3SFM_S1 duration:', map['3SFM_S1']?.videoDuration ?? 'undefined — check Apps Script col J');
       setLiveLinks(map);
       if (detailsJson.courses) setCourseDescs(detailsJson.courses);
 
@@ -1064,6 +1090,8 @@ export default function TrainingDashboardPage() {
       if (json.success && json.data) {
         setProgress(json.data);
         setLastUpdated(new Date());
+        // Persist to localStorage so next load shows data instantly
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify({ data: json.data, at: Date.now() })); } catch { /* ignore */ }
         // Fire activity (streak/badges) — fire-and-forget
         const sessionsPassed = json.data.sessions.filter(s => s.passed).length;
         const hasPerfect = json.data.sessions.some(s => s.passed && s.score === 100);

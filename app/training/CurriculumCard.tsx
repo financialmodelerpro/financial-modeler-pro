@@ -55,8 +55,12 @@ export function CurriculumCard({
   const [linksLoading, setLinksLoading]   = useState(false);
   const fetched = useRef(false);
 
-  const tabKey = (sessionId: string) =>
-    `${course.shortTitle.toUpperCase()}_${sessionId}`;
+  // NOTE: Final sessions use '_Final' suffix to match Apps Script tabKey convention.
+  // Do NOT revert to sessionId only — that caused the final Watch button to never show.
+  const tabKey = (sessionId: string, isFinal?: boolean) =>
+    isFinal
+      ? `${course.shortTitle.toUpperCase()}_Final`
+      : `${course.shortTitle.toUpperCase()}_${sessionId}`;
 
   useEffect(() => {
     if (!open || fetched.current) return;
@@ -277,10 +281,10 @@ export function CurriculumCard({
             </div>
           )}
           {course.sessions.map((session, idx) => {
-            const live         = liveMap[tabKey(session.id)];
+            const live         = liveMap[tabKey(session.id, session.isFinal)];
             const ytUrl        = live?.youtubeUrl || session.youtubeUrl || '';
             const formUrl      = live?.formUrl    || session.quizFormUrl || '';
-            const tk           = tabKey(session.id);
+            const tk           = tabKey(session.id, session.isFinal);
             const videoDur     = live?.videoDuration ?? 0;
             const sessionTimer = timerMap[tk] ?? { locked: false, minutesRemaining: 0, started: false };
             const hasTimeLock  = loggedIn && videoDur > 0 && !!ytUrl;

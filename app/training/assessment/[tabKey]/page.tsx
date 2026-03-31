@@ -359,6 +359,40 @@ export default function AssessmentPage() {
   // ── Render: ready ──────────────────────────────────────────────────────────
 
   if (pageState === 'ready') {
+    // ── Questions failed to load: show clear error screen, never a blank/broken page ──
+    if (errorMsg && !questions) {
+      return (
+        <div style={{ minHeight: '100vh', background: LIGHT_BG }}>
+          <NavBar isFinal={false} sessionName={sessionName} />
+          <div style={{ maxWidth: 520, margin: '80px auto', padding: '0 24px', textAlign: 'center' }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
+            <h2 style={{ fontSize: 20, fontWeight: 800, color: NAVY, marginBottom: 12 }}>
+              Could not load questions
+            </h2>
+            <div style={{
+              background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8,
+              padding: '14px 18px', marginBottom: 24, color: '#991B1B', fontSize: 14, textAlign: 'left',
+            }}>
+              {errorMsg}
+            </div>
+            <button onClick={load} style={{
+              display: 'inline-block', background: NAVY, color: WHITE,
+              padding: '12px 28px', borderRadius: 8, fontWeight: 700,
+              fontSize: 15, border: 'none', cursor: 'pointer', marginBottom: 12,
+            }}>
+              Try Again
+            </button>
+            <br />
+            <Link href="/training/dashboard" style={{
+              fontSize: 14, color: '#64748B', textDecoration: 'underline',
+            }}>
+              ← Back to Dashboard
+            </Link>
+          </div>
+        </div>
+      );
+    }
+
     const attemptNumber  = status ? status.attempts + 1 : 1;
     const maxAttempts    = status?.maxAttempts ?? (isFinal ? 1 : 3);
     const isOnlyAttempt  = maxAttempts === 1;
@@ -367,7 +401,7 @@ export default function AssessmentPage() {
         <NavBar isFinal={isFinal} sessionName={sessionName} />
         <div style={{ maxWidth: 640, margin: '60px auto', padding: '0 24px' }}>
 
-          {/* Error banner */}
+          {/* Error banner (non-fatal — questions loaded but submission failed) */}
           {errorMsg && (
             <div style={{
               background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8,
