@@ -9,6 +9,17 @@ import type {
   AttemptStatus,
   SubmitAssessmentResult,
 } from '@/src/lib/sheets';
+import { COURSES } from '@/src/config/courses';
+
+// Resolve a human-readable session name from a tabKey (e.g. "3SFM_S1" → "Session 1: Introduction…")
+function getSessionTitleFromTabKey(tabKey: string): string {
+  const sep = tabKey.indexOf('_');
+  if (sep === -1) return tabKey;
+  const shortTitle = tabKey.slice(0, sep).toUpperCase();
+  const sessionId  = tabKey.slice(sep + 1);
+  const course = Object.values(COURSES).find(c => c.shortTitle.toUpperCase() === shortTitle);
+  return course?.sessions.find(s => s.id === sessionId)?.title ?? tabKey;
+}
 
 // ── Training session helper ───────────────────────────────────────────────────
 
@@ -256,7 +267,9 @@ export default function AssessmentPage() {
   // ── Render helpers ─────────────────────────────────────────────────────────
 
   const isFinal      = questions?.isFinal ?? false;
-  const sessionName  = questions?.sessionName ?? tabKey;
+  const sessionName  = (questions?.sessionName && questions.sessionName !== tabKey)
+    ? questions.sessionName
+    : getSessionTitleFromTabKey(tabKey);
   const accentColor  = isFinal ? GOLD : GREEN;
   const totalQ       = questions?.questions.length ?? 0;
   const answered     = Object.keys(answers).length;

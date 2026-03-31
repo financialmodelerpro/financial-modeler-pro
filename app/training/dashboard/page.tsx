@@ -1620,29 +1620,37 @@ export default function TrainingDashboardPage() {
 
           {/* Course content */}
           {!loading && progress && (
-            <CourseContent
-              courseId={displayCourse}
-              progressMap={progressMap}
-              certificates={certificates}
-              liveLinks={liveLinks}
-              courseDescs={courseDescs}
-              regId={localSession?.registrationId ?? ''}
-              onDownloadTranscript={downloadTranscript}
-              generating={generating}
-              studentName={progress?.student.name ?? ''}
-              studentEmail={progress?.student.email ?? ''}
-              onShare={(label, certUrl) => setShareModal({ label, certUrl })}
-              testimonialSubmitted={testimonialSubmitted}
-              onOpenTestimonial={type => setTestimonialModal(type)}
-              notes={notes}
-              onNoteSave={saveNote}
-              feedbackGiven={feedbackGiven}
-              onFeedbackRequest={(sessionKey, sessionTitle) => setFeedbackModal({ sessionKey, sessionTitle })}
-              bvmLocked={showLockedBvm}
-              sfmProgress={sfmPassedCount}
-              sfmTotal={sfmRegular.length}
-              onSwitchTo3sfm={() => setActiveCourse('3sfm')}
-            />
+            activeCourse === 'bvm' && !isEnrolledInBvm ? (
+              <BvmLockedContent
+                sfmProgress={sfmPassedCount}
+                sfmTotal={sfmRegular.length}
+                onContinue={() => setActiveCourse('3sfm')}
+              />
+            ) : (
+              <CourseContent
+                courseId={displayCourse}
+                progressMap={progressMap}
+                certificates={certificates}
+                liveLinks={liveLinks}
+                courseDescs={courseDescs}
+                regId={localSession?.registrationId ?? ''}
+                onDownloadTranscript={downloadTranscript}
+                generating={generating}
+                studentName={progress?.student.name ?? ''}
+                studentEmail={progress?.student.email ?? ''}
+                onShare={(label, certUrl) => setShareModal({ label, certUrl })}
+                testimonialSubmitted={testimonialSubmitted}
+                onOpenTestimonial={type => setTestimonialModal(type)}
+                notes={notes}
+                onNoteSave={saveNote}
+                feedbackGiven={feedbackGiven}
+                onFeedbackRequest={(sessionKey, sessionTitle) => setFeedbackModal({ sessionKey, sessionTitle })}
+                bvmLocked={showLockedBvm}
+                sfmProgress={sfmPassedCount}
+                sfmTotal={sfmRegular.length}
+                onSwitchTo3sfm={() => setActiveCourse('3sfm')}
+              />
+            )
           )}
         </main>
       </div>
