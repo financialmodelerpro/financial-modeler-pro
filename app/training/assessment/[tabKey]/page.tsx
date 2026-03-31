@@ -84,15 +84,21 @@ function Spinner() {
 function NavBar({ isFinal, sessionName }: { isFinal: boolean; sessionName: string }) {
   return (
     <nav style={{
-      background: NAVY, color: WHITE, padding: '0 24px',
-      display: 'flex', alignItems: 'center', gap: 16, height: 56,
+      background: NAVY, color: WHITE, padding: '0 20px',
+      display: 'flex', alignItems: 'center', gap: 14, height: 56,
       position: 'sticky', top: 0, zIndex: 100,
     }}>
-      <Link href="/training/dashboard" style={{ color: '#94A3B8', fontSize: 13, textDecoration: 'none' }}>
+      {/* FMP brand */}
+      <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 7, textDecoration: 'none', flexShrink: 0 }}>
+        <div style={{ width: 26, height: 26, borderRadius: 5, background: GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>📐</div>
+        <span style={{ fontSize: 13, fontWeight: 800, color: WHITE, whiteSpace: 'nowrap' }}>Financial Modeler Pro</span>
+      </Link>
+      <span style={{ color: '#475569', flexShrink: 0 }}>|</span>
+      <Link href="/training/dashboard" style={{ color: '#94A3B8', fontSize: 13, textDecoration: 'none', flexShrink: 0 }}>
         ← Dashboard
       </Link>
-      <span style={{ color: '#475569' }}>|</span>
-      <span style={{ fontSize: 14, fontWeight: 600, color: WHITE }}>
+      <span style={{ color: '#475569', flexShrink: 0 }}>›</span>
+      <span style={{ fontSize: 13, fontWeight: 600, color: WHITE, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {isFinal ? '🏆' : '📝'} {sessionName}
       </span>
     </nav>
@@ -119,8 +125,12 @@ export default function AssessmentPage() {
   const [timeLeft, setTimeLeft]     = useState<number | null>(null);
   const timerRef                    = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Google Forms fallback URL (set when questions load)
-  const [fallbackUrl, setFallbackUrl] = useState('');
+  // Update browser tab title when session name is known (FIX 1)
+  useEffect(() => {
+    if (questions?.sessionName) {
+      document.title = `Assessment | ${questions.sessionName} — Financial Modeler Pro`;
+    }
+  }, [questions?.sessionName]);
 
   // ── Load on mount ──────────────────────────────────────────────────────────
 
@@ -154,9 +164,6 @@ export default function AssessmentPage() {
     const q = questData.data;
     setQuestions(q);
 
-    // Build fallback URL from formUrl if available (questions response may include it)
-    // We don't have it here — the dashboard provides it, so we derive it as empty
-    setFallbackUrl('');
 
     if (statusData.success && statusData.data) {
       const s = statusData.data;
@@ -339,7 +346,9 @@ export default function AssessmentPage() {
   // ── Render: ready ──────────────────────────────────────────────────────────
 
   if (pageState === 'ready') {
-    const attemptsLeft = status ? status.maxAttempts - status.attempts : null;
+    const attemptNumber  = status ? status.attempts + 1 : 1;
+    const maxAttempts    = status?.maxAttempts ?? (isFinal ? 1 : 3);
+    const isOnlyAttempt  = maxAttempts === 1;
     return (
       <div style={{ minHeight: '100vh', background: LIGHT_BG }}>
         <NavBar isFinal={isFinal} sessionName={sessionName} />
@@ -377,7 +386,7 @@ export default function AssessmentPage() {
                 {[
                   { label: 'Questions', value: totalQ },
                   { label: 'Passing Score', value: `${passingScore}%` },
-                  { label: 'Attempts Left', value: attemptsLeft !== null ? attemptsLeft : '∞' },
+                  { label: 'Attempt', value: `${attemptNumber} of ${maxAttempts}` },
                   ...(questions?.timeLimit ? [{ label: 'Time Limit', value: `${questions.timeLimit} min` }] : []),
                 ].map(({ label, value }) => (
                   <div key={label} style={{ textAlign: 'center' }}>
@@ -386,6 +395,13 @@ export default function AssessmentPage() {
                   </div>
                 ))}
               </div>
+
+              {/* Final / only-attempt warning */}
+              {isOnlyAttempt && (
+                <div style={{ background: '#FFF8E1', border: '1px solid #FDE68A', borderRadius: 8, padding: '12px 16px', marginBottom: 24, fontSize: 13, color: '#92400E', fontWeight: 600 }}>
+                  ⚠️ {isFinal ? 'This is the Final Exam — ' : ''}You have only 1 attempt. There is no retry once submitted.
+                </div>
+              )}
 
               {/* Previous attempt */}
               {status && status.attempts > 0 && (
@@ -414,16 +430,8 @@ export default function AssessmentPage() {
                   cursor: 'pointer', width: '100%',
                 }}
               >
-                Start Assessment →
+                {isOnlyAttempt ? (isFinal ? 'Start Final Exam →' : 'Start Assessment (1 attempt only) →') : 'Start Assessment →'}
               </button>
-
-              {fallbackUrl && (
-                <p style={{ textAlign: 'center', marginTop: 12, fontSize: 12, color: '#94A3B8' }}>
-                  Having issues?{' '}
-                  <a href={fallbackUrl} target="_blank" rel="noopener noreferrer"
-                    style={{ color: '#64748B' }}>Use Google Forms instead</a>
-                </p>
-              )}
             </div>
           </div>
         </div>
@@ -637,7 +645,7 @@ export default function AssessmentPage() {
             </div>
 
             {/* Stats */}
-            <div style={{ display: 'flex', justifyContent: 'center', gap: 32, marginBottom: 28 }}>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 32, marginBottom: 20, flexWrap: 'wrap' }}>
               <div>
                 <div style={{ fontSize: 20, fontWeight: 800, color: NAVY }}>{result.correctCount}/{result.totalQuestions}</div>
                 <div style={{ fontSize: 12, color: '#64748B' }}>Correct</div>
@@ -647,11 +655,23 @@ export default function AssessmentPage() {
                 <div style={{ fontSize: 12, color: '#64748B' }}>Pass Mark</div>
               </div>
               <div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: NAVY }}>
-                  {result.maxAttempts - result.attempts} / {result.maxAttempts}
-                </div>
-                <div style={{ fontSize: 12, color: '#64748B' }}>Attempts Left</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: NAVY }}>{result.attempts} of {result.maxAttempts}</div>
+                <div style={{ fontSize: 12, color: '#64748B' }}>Attempt</div>
               </div>
+            </div>
+
+            {/* Attempt result message */}
+            <div style={{ marginBottom: 24, fontSize: 13, borderRadius: 8, padding: '10px 16px',
+              background: passed ? '#F0FDF4' : (result.maxAttempts - result.attempts) > 0 ? '#FFF8E1' : '#FEF2F2',
+              color: passed ? '#15803D' : (result.maxAttempts - result.attempts) > 0 ? '#92400E' : '#991B1B',
+              border: `1px solid ${passed ? '#BBF7D0' : (result.maxAttempts - result.attempts) > 0 ? '#FDE68A' : '#FECACA'}`,
+              fontWeight: 600,
+            }}>
+              {passed
+                ? `✓ Passed on attempt ${result.attempts} of ${result.maxAttempts}`
+                : (result.maxAttempts - result.attempts) > 0
+                  ? `${result.maxAttempts - result.attempts} attempt${result.maxAttempts - result.attempts === 1 ? '' : 's'} remaining`
+                  : 'No attempts remaining — please contact your instructor.'}
             </div>
 
             {/* Feedback */}

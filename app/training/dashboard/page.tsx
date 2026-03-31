@@ -301,18 +301,10 @@ function SessionCard({
           />
         ) : (
           // STATE 1 / 4: no lock or timer expired
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
-            <Link href={`/training/assessment/${encodeURIComponent(tabKey)}`}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: isFinal ? '#C9A84C' : '#2EAA4A', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
-              {isFinal ? '🏆 Take Final Exam →' : '📝 Take Assessment →'}
-            </Link>
-            {formUrl && (
-              <a href={formUrl} target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 10, color: '#9CA3AF', textDecoration: 'none' }}>
-                Having issues? Use Google Forms instead
-              </a>
-            )}
-          </div>
+          <Link href={`/training/assessment/${encodeURIComponent(tabKey)}`}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: isFinal ? '#C9A84C' : '#2EAA4A', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+            {isFinal ? '🏆 Take Final Exam →' : '📝 Take Assessment →'}
+          </Link>
         )}
       </div>
 
@@ -686,13 +678,6 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 20px', borderRadius: 8, background: '#1E3A8A', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
                 🏆 I&apos;m Ready — Take Final Exam →
               </Link>
-              {(liveLinks[`${course.shortTitle.toUpperCase()}_${finalSession.id}`]?.formUrl || finalSession.quizFormUrl) && (
-                <a href={liveLinks[`${course.shortTitle.toUpperCase()}_${finalSession.id}`]?.formUrl || finalSession.quizFormUrl || '#'}
-                  target="_blank" rel="noopener noreferrer"
-                  style={{ fontSize: 10, color: '#9CA3AF', textDecoration: 'none' }}>
-                  Having issues? Use Google Forms instead
-                </a>
-              )}
             </div>
           )}
         </div>
@@ -742,20 +727,28 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
       })}
 
       {/* ── Share Your Experience (testimonial prompt) ────────────────────── */}
-      {passedCount >= 3 && !testimonialSubmitted && (
+      {passedCount >= 1 && !testimonialSubmitted && (
         <div style={{ background: 'linear-gradient(135deg,#FFFBF0,#FFF8E1)', border: '1px solid #FDE68A', borderRadius: 12, padding: '20px 22px', marginBottom: 20 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 14, flexWrap: 'wrap' }}>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 800, color: '#92400E', marginBottom: 4 }}>⭐ Share Your Experience</div>
-              <div style={{ fontSize: 12, color: '#B45309', lineHeight: 1.5 }}>
-                Your feedback helps other professionals discover FMP. Takes under 2 minutes!
-              </div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: '#92400E', marginBottom: 4 }}>⭐ Enjoying the course?</div>
+          <div style={{ fontSize: 12, color: '#B45309', lineHeight: 1.5, marginBottom: 14 }}>
+            Your feedback helps other professionals discover FMP. Takes under 2 minutes!
+          </div>
+          {/* Star rating */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#92400E', marginBottom: 6 }}>How would you rate your experience?</div>
+            <div style={{ display: 'flex', gap: 4 }}>
+              {[1,2,3,4,5].map(star => (
+                <span key={star} style={{ fontSize: 22, cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => onOpenTestimonial('written')}>
+                  ☆
+                </span>
+              ))}
             </div>
           </div>
           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
             <button onClick={() => onOpenTestimonial('written')}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 18px', borderRadius: 8, background: '#1B4F8A', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
-              📝 Write a Testimonial
+              ✍️ Write a Testimonial
             </button>
             <button onClick={() => onOpenTestimonial('video')}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 18px', borderRadius: 8, background: '#fff', color: '#1B4F8A', border: '1px solid #1B4F8A', cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
@@ -763,7 +756,7 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
             </button>
           </div>
           <div style={{ marginTop: 10, fontSize: 10, color: '#D97706' }}>
-            {studentName || 'You'} • {course.shortTitle} • {passedCount} sessions completed
+            {studentName || 'You'} • {course.shortTitle} • {passedCount} session{passedCount === 1 ? '' : 's'} completed
           </div>
         </div>
       )}
@@ -966,10 +959,24 @@ export default function TrainingDashboardPage() {
   const [profileModal, setProfileModal]           = useState(false);
   const [profileDropdown, setProfileDropdown]     = useState(false);
   const [studentProfile, setStudentProfile]       = useState<{ job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; display_name?: string; avatar_url?: string } | null>(null);
+  // share CMS text (fetched once, cached 10 min)
+  const [shareCms, setShareCms]                   = useState<{ title: string; messageTemplate: string }>({ title: '', messageTemplate: '' });
 
   // Restore sidebar state from localStorage (client-only)
   useEffect(() => {
     if (localStorage.getItem('dashboardSidebarCollapsed') === 'true') setSidebarCollapsed(true);
+  }, []);
+
+  // Fetch share CMS text once on mount
+  useEffect(() => {
+    fetch('/api/cms?section=training&keys=share_achievement_title,share_default_message')
+      .then(r => r.json())
+      .then((j: { map?: Record<string, string> }) => {
+        const title = j.map?.['training__share_achievement_title'] ?? '';
+        const msg   = j.map?.['training__share_default_message'] ?? '';
+        if (title || msg) setShareCms({ title, messageTemplate: msg });
+      })
+      .catch(() => {});
   }, []);
 
   function toggleSidebar() {
@@ -1204,8 +1211,13 @@ export default function TrainingDashboardPage() {
           >
             ☰
           </button>
-          <div style={{ width: 28, height: 28, borderRadius: 6, background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>🎓</div>
-          <span style={{ fontSize: 14, fontWeight: 800, color: '#fff' }}>Training Hub</span>
+          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', flexShrink: 0 }}>
+            <div style={{ width: 28, height: 28, borderRadius: 6, background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>📐</div>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', lineHeight: 1 }}>Financial Modeler Pro</div>
+              <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Training Hub</div>
+            </div>
+          </Link>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {lastUpdated && !loading && (
@@ -1492,6 +1504,14 @@ export default function TrainingDashboardPage() {
                 {transcriptToast && (
                   <div style={{ fontSize: 10, color: '#FCA5A5', padding: '4px 4px', marginTop: 4 }}>⚠️ {transcriptToast}</div>
                 )}
+
+                {/* Testimonial shortcut */}
+                {totalPassed >= 1 && !testimonialSubmitted && (
+                  <button onClick={() => setTestimonialModal('written')}
+                    style={{ width: '100%', textAlign: 'left', padding: '9px 12px', borderRadius: 8, background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.2)', color: '#C9A84C', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <span>⭐</span> Share Your Experience
+                  </button>
+                )}
               </>
             )}
 
@@ -1630,6 +1650,8 @@ export default function TrainingDashboardPage() {
         <ShareModal
           label={shareModal.label}
           certUrl={shareModal.certUrl}
+          cmsTitle={shareCms.title}
+          cmsMessageTemplate={shareCms.messageTemplate}
           onClose={() => setShareModal(null)}
           onCopyDone={() => { setDashToast('Link copied to clipboard!'); setTimeout(() => setDashToast(''), 2500); }}
         />
@@ -1702,17 +1724,22 @@ export default function TrainingDashboardPage() {
 
 // ── Share Modal ───────────────────────────────────────────────────────────────
 
-function ShareModal({ label, certUrl, onClose, onCopyDone }: {
+function ShareModal({ label, certUrl, cmsTitle, cmsMessageTemplate, onClose, onCopyDone }: {
   label: string;
   certUrl?: string;
+  cmsTitle?: string;
+  cmsMessageTemplate?: string;
   onClose: () => void;
   onCopyDone: () => void;
 }) {
   const pageUrl  = 'https://financialmodelerpro.com/training';
   const shareUrl = certUrl || pageUrl;
-  const [msg, setMsg] = useState(
-    `I just ${label} at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — Free certification program: ${pageUrl}${certUrl ? `\n\nVerify certificate: ${certUrl}` : ''}\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`,
-  );
+  const defaultMsg = `I just ${label} at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — Free certification program: ${pageUrl}${certUrl ? `\n\nVerify certificate: ${certUrl}` : ''}\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
+  const resolvedMsg = cmsMessageTemplate
+    ? cmsMessageTemplate.replace('{action}', label) + (certUrl ? `\n\nVerify certificate: ${certUrl}` : '')
+    : defaultMsg;
+  const [msg, setMsg] = useState(resolvedMsg);
+  const modalTitle = cmsTitle || '🎉 Share Your Achievement';
 
   const liUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`;
   const waUrl = `https://wa.me/?text=${encodeURIComponent(msg)}`;
@@ -1727,7 +1754,7 @@ function ShareModal({ label, certUrl, onClose, onCopyDone }: {
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
       <div style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 480, boxShadow: '0 20px 60px rgba(0,0,0,0.3)', padding: '28px 28px 24px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
-          <div style={{ fontSize: 17, fontWeight: 800, color: '#0D2E5A' }}>🎉 Share Your Achievement</div>
+          <div style={{ fontSize: 17, fontWeight: 800, color: '#0D2E5A' }}>{modalTitle}</div>
           <button onClick={onClose} style={{ fontSize: 20, background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', lineHeight: 1 }}>✕</button>
         </div>
         <textarea value={msg} onChange={e => setMsg(e.target.value)} rows={5}

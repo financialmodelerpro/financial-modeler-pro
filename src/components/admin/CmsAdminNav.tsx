@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
 
@@ -57,11 +57,28 @@ export function CmsAdminNav({ active: activeProp, badges }: Props) {
 
   const [collapsed, setCollapsed]   = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
 
   // Restore desktop collapse state from localStorage (client-only to avoid SSR mismatch)
   useEffect(() => {
     if (localStorage.getItem('adminSidebarCollapsed') === 'true') setCollapsed(true);
   }, []);
+
+  // Save scroll position continuously so it persists across navigation
+  useEffect(() => {
+    const el = sidebarRef.current;
+    if (!el) return;
+    const save = () => sessionStorage.setItem('admin_sidebar_scroll', el.scrollTop.toString());
+    el.addEventListener('scroll', save, { passive: true });
+    return () => el.removeEventListener('scroll', save);
+  }, []);
+
+  // Restore scroll position after each route change
+  useEffect(() => {
+    const el = sidebarRef.current;
+    const saved = sessionStorage.getItem('admin_sidebar_scroll');
+    if (el && saved) el.scrollTop = parseInt(saved, 10);
+  }, [pathname]);
 
   function toggleCollapse() {
     const next = !collapsed;
@@ -117,6 +134,7 @@ export function CmsAdminNav({ active: activeProp, badges }: Props) {
 
       {/* ── Sidebar ── */}
       <aside
+        ref={sidebarRef}
         className="admin-sidebar-main"
         style={{
           width: w,

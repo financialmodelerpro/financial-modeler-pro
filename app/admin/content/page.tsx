@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 
-type Tab = 'branding' | 'hero' | 'stats' | 'about' | 'pillars' | 'cta' | 'footer' | 'section_styles' | 'training_page' | 'modeling_hub' | 'articles_page' | 'contact_page';
+type Tab = 'branding' | 'hero' | 'stats' | 'about' | 'pillars' | 'cta' | 'footer' | 'section_styles' | 'training_page' | 'training_share' | 'modeling_hub' | 'articles_page' | 'contact_page';
 
 const TABS: { key: Tab; label: string; page: string }[] = [
   { key: 'branding',       label: 'Logo & Branding',  page: 'All Pages' },
@@ -14,6 +14,7 @@ const TABS: { key: Tab; label: string; page: string }[] = [
   { key: 'cta',            label: 'CTA Banner',       page: 'Landing Page' },
   { key: 'footer',         label: 'Footer',           page: 'Landing Page' },
   { key: 'training_page',  label: 'Training Hub',     page: 'Training Page' },
+  { key: 'training_share', label: 'Share Messages',   page: 'Training Dashboard' },
   { key: 'modeling_hub',   label: 'Modeling Hub',     page: 'Modeling Hub Page' },
   { key: 'articles_page',  label: 'Articles',         page: 'Articles Page' },
   { key: 'contact_page',   label: 'Contact Page',     page: 'Contact Page' },
@@ -225,10 +226,11 @@ export default function AdminContentPage() {
   );
 
   // Group tabs by page
-  const globalTabs  = TABS.filter(t => t.page === 'All Pages');
-  const landingTabs = TABS.filter(t => t.page === 'Landing Page');
-  const otherTabs   = TABS.filter(t => t.page !== 'Landing Page' && t.page !== 'All Pages');
-  const currentTab  = TABS.find(t => t.key === tab);
+  const globalTabs   = TABS.filter(t => t.page === 'All Pages');
+  const landingTabs  = TABS.filter(t => t.page === 'Landing Page');
+  const trainingTabs = TABS.filter(t => t.page === 'Training Dashboard' || t.page === 'Training Page');
+  const otherTabs    = TABS.filter(t => t.page !== 'Landing Page' && t.page !== 'All Pages' && t.page !== 'Training Dashboard' && t.page !== 'Training Page');
+  const currentTab   = TABS.find(t => t.key === tab);
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter', sans-serif", background: '#F4F7FC' }}>
@@ -251,6 +253,14 @@ export default function AdminContentPage() {
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', borderBottom: '2px solid #E8F0FB', paddingBottom: 0 }}>
             {landingTabs.map(t => (
               <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: '9px 18px', fontSize: 13, fontWeight: tab === t.key ? 700 : 500, color: tab === t.key ? '#1B4F8A' : '#6B7280', background: 'none', border: 'none', borderBottom: tab === t.key ? '2px solid #1B4F8A' : '2px solid transparent', marginBottom: -2, cursor: 'pointer' }}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '18px 0 6px' }}>Training</div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', borderBottom: '2px solid #E8F0FB', paddingBottom: 0 }}>
+            {trainingTabs.map(t => (
+              <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: '9px 18px', fontSize: 13, fontWeight: tab === t.key ? 700 : 500, color: tab === t.key ? '#C9A84C' : '#6B7280', background: 'none', border: 'none', borderBottom: tab === t.key ? '2px solid #C9A84C' : '2px solid transparent', marginBottom: -2, cursor: 'pointer' }}>
                 {t.label}
               </button>
             ))}
@@ -573,6 +583,29 @@ export default function AdminContentPage() {
                   {section:'training_page',key:'cta_secondary'},
                   {section:'training_page',key:'bottom_cta_heading'},
                   {section:'training_page',key:'bottom_cta_sub'},
+                ])}
+              </div>
+            )}
+
+            {/* ── Training Dashboard: Share Messages ── */}
+            {tab === 'training_share' && (
+              <div>
+                <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 24, padding: '10px 14px', background: '#FFFBF0', border: '1px solid #FDE68A', borderRadius: 7 }}>
+                  🎉 Controls the <strong>Share Achievement</strong> modal text shown to students after passing a session or earning a certificate. Use <code style={{ background: '#F3F4F6', padding: '1px 5px', borderRadius: 3 }}>{'{action}'}</code> for the achievement (e.g. "passed Session 5") and <code style={{ background: '#F3F4F6', padding: '1px 5px', borderRadius: 3 }}>{'{course}'}</code> for the course name.
+                </p>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Share Modal Title</label>
+                  <input style={inputStyle} value={get('training','share_achievement_title','🎉 Share Your Achievement')} onChange={e => set('training','share_achievement_title',e.target.value)} placeholder="🎉 Share Your Achievement" />
+                  <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>Heading shown in the share dialog.</p>
+                </div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Default Share Message</label>
+                  <textarea style={{ ...inputStyle, resize: 'vertical' }} rows={5} value={get('training','share_default_message','I just {action} at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — Free certification program: https://financialmodelerpro.com/training\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro')} onChange={e => set('training','share_default_message',e.target.value)} />
+                  <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>Pre-filled message students can edit before sharing. Available variables: <code style={{ background: '#F3F4F6', padding: '1px 4px', borderRadius: 3 }}>{'{action}'}</code></p>
+                </div>
+                {saveBtn([
+                  { section: 'training', key: 'share_achievement_title' },
+                  { section: 'training', key: 'share_default_message' },
                 ])}
               </div>
             )}

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { Navbar } from '@/src/components/layout/Navbar';
 
 type Status = 'idle' | 'loading' | 'success' | 'duplicate' | 'error';
 
@@ -34,33 +35,15 @@ export default function TrainingRegisterPage() {
   }
 
   return (
-    <div style={{
-      minHeight: '100vh', background: '#F5F7FA',
-      display: 'flex', flexDirection: 'column', alignItems: 'center',
-      justifyContent: 'center', padding: '40px 20px',
-      fontFamily: "'Inter', sans-serif",
-    }}>
+    <>
+      <Navbar />
+      <div style={{
+        minHeight: 'calc(100vh - 64px)', background: '#F5F7FA',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', padding: '40px 20px',
+        fontFamily: "'Inter', sans-serif",
+      }}>
       <div style={{ width: '100%', maxWidth: 480 }}>
-
-        {/* Logo */}
-        <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <Link href="/training" style={{ textDecoration: 'none' }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <div style={{
-                width: 36, height: 36, borderRadius: 8,
-                background: '#2EAA4A', display: 'flex',
-                alignItems: 'center', justifyContent: 'center',
-                fontSize: 18,
-              }}>🎓</div>
-              <span style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A' }}>
-                Financial Modeler Pro
-              </span>
-            </div>
-          </Link>
-          <div style={{ marginTop: 6, fontSize: 11, fontWeight: 700, color: '#2EAA4A', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-            Training Hub
-          </div>
-        </div>
 
         {/* Card */}
         <div style={{
@@ -239,6 +222,7 @@ export default function TrainingRegisterPage() {
 
       {/* Spinner keyframe */}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-    </div>
+      </div>
+    </>
   );
 }
