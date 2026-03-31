@@ -43,11 +43,11 @@ export default function AdminTrainingPage() {
   };
 
   const fetchAppsScriptStats = () => {
-    // Enrollments: count students via Apps Script proxy
-    fetch('/api/training?action=listStudents')
+    // Enrollments: count students via admin students API
+    fetch('/api/admin/training-hub/students')
       .then(r => r.json())
       .then(j => {
-        const count = Array.isArray(j.students) ? j.students.length : (j.total ?? null);
+        const count = Array.isArray(j.students) ? j.students.length : null;
         setStats(p => ({ ...p, enrollments: count }));
       })
       .catch(() => setStats(p => ({ ...p, enrollments: null })));

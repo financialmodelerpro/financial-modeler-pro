@@ -7,7 +7,7 @@ import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 interface AdminStudent {
   registrationId: string; name: string; email: string; course: string;
   registeredAt: string; sessionsPassedCount?: number; totalSessions?: number;
-  finalPassed?: boolean; certificateIssued?: boolean;
+  finalPassed?: boolean; finalExamStatus?: string; certificateIssued?: boolean;
   isBlocked: boolean; blockActionId: string | null;
 }
 interface SessionProgress {
@@ -229,17 +229,23 @@ export default function StudentsPage() {
                   <div>
                     <span style={{ background: s.course === '3SFM' ? '#EFF6FF' : '#F0FDF4', color: s.course === '3SFM' ? '#1D4ED8' : '#166534', borderRadius: 20, padding: '2px 7px', fontSize: 10, fontWeight: 700 }}>{s.course}</span>
                   </div>
-                  <div style={{ color: '#6B7280' }}>{passCount !== null && total !== null ? `${passCount}/${total}` : '—'}</div>
+                  {/* Sessions: passCount / (total - 1) to exclude final exam */}
+                  <div style={{ color: '#6B7280' }}>{passCount !== null && total !== null ? `${passCount} / ${total > 1 ? total - 1 : total}` : '—'}</div>
+                  {/* Final: use finalExamStatus for accurate not_started vs attempted vs passed */}
                   <div>
-                    {s.finalPassed === undefined ? <span style={{ color: '#D1D5DB' }}>—</span>
-                      : s.finalPassed ? badge('Pass', '#166534', '#DCFCE7')
-                      : badge('Fail', '#DC2626', '#FEF2F2')}
+                    {!s.finalExamStatus || s.finalExamStatus === 'not_started'
+                      ? <span style={{ color: '#9CA3AF' }}>—</span>
+                      : s.finalExamStatus === 'passed'   ? badge('Passed',   '#166534', '#DCFCE7')
+                      : s.finalExamStatus === 'attempted' ? badge('Attempted', '#92400E', '#FEF3C7')
+                      : s.finalExamStatus === 'locked'    ? badge('Locked',   '#DC2626', '#FEF2F2')
+                      : <span style={{ color: '#9CA3AF' }}>—</span>}
                   </div>
                   <div>
                     {s.certificateIssued === undefined ? <span style={{ color: '#D1D5DB' }}>—</span>
                       : s.certificateIssued ? badge('Yes', '#166534', '#DCFCE7')
                       : badge('No', '#6B7280', '#F3F4F6')}
                   </div>
+                  {/* Joined: registeredAt comes from enrolledDate in the Apps Script response */}
                   <div style={{ color: '#6B7280', fontSize: 11 }}>{s.registeredAt ? fmt(s.registeredAt) : '—'}</div>
                   <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                     <button

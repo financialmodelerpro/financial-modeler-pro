@@ -462,6 +462,7 @@ export interface StudentSummary {
   sessionsPassedCount?: number;
   totalSessions?: number;
   finalPassed?: boolean;
+  finalExamStatus?: string;   // 'not_started' | 'attempted' | 'passed' | 'locked'
   finalScore?: number;
   certificateIssued?: boolean;
 }
@@ -498,16 +499,52 @@ function normalizeCourse(raw: string): string {
 function mapRawStudent(r: RawStudentEntry): StudentSummary {
   const courseRaw = r.course ?? (Array.isArray(r.enrolledCourses) ? r.enrolledCourses[0] : '') ?? '';
   const prog = r.progress;
+
+  // Start with values from the flat/old-format progress object
+  let sessionsPassedCount: number | undefined = prog?.sessionsPassed ?? r.sessionsPassedCount;
+  let totalSessions: number | undefined       = prog?.totalSessions  ?? r.totalSessions;
+  let finalExamStatus: string | undefined     = prog?.finalExam?.status;
+  let certificateIssued: boolean              = prog
+    ? prog.certificateStatus === 'earned'
+    : (r.certificateIssued ?? false);
+
+  // New Apps Script format: progress is keyed by course, e.g. { "3sfm": { sessionsPassed, totalSessions, finalExam, … } }
+  // Detect by checking whether the direct fields are missing but progress has object values
+  if (prog && sessionsPassedCount === undefined) {
+    type CourseEntry = {
+      sessionsPassed?: number; totalSessions?: number;
+      finalExam?: { status?: string }; certificateStatus?: string;
+    };
+    const entries = Object.values(prog as unknown as Record<string, CourseEntry>);
+    if (entries.length > 0 && typeof entries[0] === 'object' && entries[0] !== null) {
+      let sp = 0, ts = 0;
+      for (const cp of entries) {
+        sp += cp.sessionsPassed ?? 0;
+        ts += cp.totalSessions  ?? 0;
+        // 'passed' wins; otherwise take the first non-null status
+        if (cp.finalExam?.status === 'passed') {
+          finalExamStatus = 'passed';
+        } else if (!finalExamStatus && cp.finalExam?.status) {
+          finalExamStatus = cp.finalExam.status;
+        }
+        if (cp.certificateStatus === 'earned') certificateIssued = true;
+      }
+      sessionsPassedCount = sp;
+      totalSessions       = ts;
+    }
+  }
+
   return {
-    registrationId:    r.registrationId ?? '',
-    name:              r.fullName ?? r.name ?? '',
-    email:             r.email ?? '',
-    course:            normalizeCourse(courseRaw),
-    registeredAt:      r.enrolledDate ?? r.registeredAt ?? '',
-    sessionsPassedCount: prog?.sessionsPassed ?? r.sessionsPassedCount,
-    totalSessions:       prog?.totalSessions ?? r.totalSessions,
-    finalPassed:         prog ? prog.finalExam?.status === 'passed' : r.finalPassed,
-    certificateIssued:   prog ? prog.certificateStatus === 'earned' : r.certificateIssued,
+    registrationId:     r.registrationId ?? '',
+    name:               r.fullName ?? r.name ?? '',
+    email:              r.email ?? '',
+    course:             normalizeCourse(courseRaw),
+    registeredAt:       r.enrolledDate ?? r.registeredAt ?? '',
+    sessionsPassedCount,
+    totalSessions,
+    finalPassed:        finalExamStatus === 'passed',
+    finalExamStatus,
+    certificateIssued,
   };
 }
 
