@@ -286,7 +286,7 @@ export function CurriculumCard({
             const formUrl      = live?.formUrl    || session.quizFormUrl || '';
             const tk           = tabKey(session.id, session.isFinal);
             const videoDur     = live?.videoDuration ?? 0;
-            const sessionTimer = timerMap[tk] ?? { locked: false, minutesRemaining: 0, started: false };
+            const sessionTimer = timerMap[tk] ?? { locked: false, secondsRemaining: 0, started: false };
             const hasTimeLock  = loggedIn && videoDur > 0 && !!ytUrl;
             const timerLocked  = hasTimeLock && sessionTimer.locked;
             const timerStarted = sessionTimer.started;
@@ -409,7 +409,7 @@ export function CurriculumCard({
                             regId={regId}
                             tabKey={tk}
                             durationMinutes={videoDur}
-                            onExpired={() => setTimerMap(prev => ({ ...prev, [tk]: { locked: false, minutesRemaining: 0, started: true } }))}
+                            onExpired={() => setTimerMap(prev => ({ ...prev, [tk]: { locked: false, secondsRemaining: 0, started: true } }))}
                           />
                         ) : (
                           // STATE 1 / 4: no lock or expired
