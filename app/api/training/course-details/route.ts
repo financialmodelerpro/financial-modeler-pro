@@ -38,6 +38,24 @@ async function fetchCourseDescriptions(): Promise<Record<string, unknown>> {
   }
 }
 
+/** Fetch per-session video durations stored in Supabase (keyed by tabKey). */
+async function fetchSessionDurations(): Promise<Record<string, number>> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('session_config')
+      .select('tab_key, video_duration_minutes');
+    if (!data) return {};
+    const map: Record<string, number> = {};
+    for (const row of data as { tab_key: string; video_duration_minutes: number }[]) {
+      if (row.tab_key) map[row.tab_key] = row.video_duration_minutes ?? 0;
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
 export async function GET(req: NextRequest) {
   const course = req.nextUrl.searchParams.get('course') ?? undefined;
   const bust   = req.nextUrl.searchParams.get('bust');
@@ -51,12 +69,21 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [rawSessions, courses] = await Promise.all([
+    const [rawSessions, courses, sessionDurations] = await Promise.all([
       getCourseDetails(course),
       fetchCourseDescriptions(),
+      fetchSessionDurations(),
     ]);
-    // Normalise: ensure videoDuration is always a number (never undefined/missing)
-    const sessions = rawSessions.map(s => ({ ...s, videoDuration: s.videoDuration ?? 0 }));
+
+    // Normalise: ensure videoDuration is always a number.
+    // Priority: Apps Script column J > Supabase session_config > 0
+    const sessions = rawSessions.map(s => ({
+      ...s,
+      videoDuration: (s.videoDuration && s.videoDuration > 0)
+        ? s.videoDuration
+        : (sessionDurations[s.tabKey] ?? 0),
+    }));
+
     _cache.set(key, { sessions, courses, at: Date.now() });
     return NextResponse.json({ sessions, courses });
   } catch {
@@ -71,7 +98,16 @@ export async function POST(req: NextRequest) {
   }
   const { tabKey, youtubeUrl, videoDuration } = await req.json() as { tabKey: string; youtubeUrl: string; videoDuration?: number };
   if (!tabKey) return NextResponse.json({ error: 'tabKey required' }, { status: 400 });
-  const ok = await updateCourseLink(tabKey, youtubeUrl ?? '', videoDuration);
+
+  // Save to Apps Script (column J in Form Registry) and Supabase session_config in parallel
+  const duration = typeof videoDuration === 'number' ? videoDuration : 0;
+  const [ok] = await Promise.all([
+    updateCourseLink(tabKey, youtubeUrl ?? '', videoDuration),
+    getServerClient()
+      .from('session_config')
+      .upsert({ tab_key: tabKey, video_duration_minutes: duration, updated_at: new Date().toISOString() }, { onConflict: 'tab_key' }),
+  ]);
+
   // Bust all cached entries so the next GET returns fresh data
   _cache.clear();
   return NextResponse.json({ ok });
