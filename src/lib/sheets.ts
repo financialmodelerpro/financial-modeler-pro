@@ -206,11 +206,14 @@ function normalizeProgressObject(
 
   for (const courseProgress of Object.values(progressMap)) {
     for (const [sessionId, sd] of Object.entries(courseProgress.sessions ?? {})) {
+      const passed   = sd.status === 'passed';
+      const attempts = sd.attempts ?? 0;
       allSessions.push({
         sessionId,
-        passed:      sd.status === 'passed',
+        passed,
         score:       sd.bestScore ?? 0,
-        attempts:    sd.attempts ?? 0,
+        // If a session is marked passed, it must have had at least 1 attempt
+        attempts:    passed && attempts === 0 ? 1 : attempts,
         completedAt: null,
       });
     }
