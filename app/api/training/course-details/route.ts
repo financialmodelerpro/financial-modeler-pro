@@ -8,6 +8,45 @@ import { getServerClient } from '@/src/lib/supabase';
 const _cache = new Map<string, { sessions: unknown[]; courses: Record<string, unknown>; at: number }>();
 const TTL_MS = 5 * 60 * 1000;
 
+// ── Fixed course IDs (from migration 017) ────────────────────────────────────
+const COURSE_IDS: Record<string, string> = {
+  '3SFM': '00000000-0000-0000-0000-0000000035f0',
+  'BVM':  '00000000-0000-0000-0000-00000000b600',
+};
+
+/**
+ * Convert tabKey → { courseId, displayOrder } for the lessons table.
+ * e.g. "3SFM_S4" → { courseId: '...35f0', displayOrder: 4 }
+ *      "3SFM_Final" → { courseId: '...35f0', displayOrder: 18 }
+ *      "BVM_L2"    → { courseId: '...b600', displayOrder: 2 }
+ *      "BVM_Final" → { courseId: '...b600', displayOrder: 7 }
+ */
+function tabKeyToLesson(tabKey: string): { courseId: string; displayOrder: number } | null {
+  const sfm = tabKey.match(/^3SFM_S(\d+)$/);
+  if (sfm) return { courseId: COURSE_IDS['3SFM'], displayOrder: parseInt(sfm[1]) };
+  if (tabKey === '3SFM_Final') return { courseId: COURSE_IDS['3SFM'], displayOrder: 18 };
+  const bvm = tabKey.match(/^BVM_L(\d+)$/);
+  if (bvm) return { courseId: COURSE_IDS['BVM'], displayOrder: parseInt(bvm[1]) };
+  if (tabKey === 'BVM_Final') return { courseId: COURSE_IDS['BVM'], displayOrder: 7 };
+  return null;
+}
+
+/**
+ * Convert (category, displayOrder) → tabKey — reverse of tabKeyToLesson.
+ * Used to build the fallback map from the lessons table.
+ */
+function lessonToTabKey(category: string, displayOrder: number): string | null {
+  if (category === '3SFM') {
+    if (displayOrder === 18) return '3SFM_Final';
+    return `3SFM_S${displayOrder}`;
+  }
+  if (category === 'BVM') {
+    if (displayOrder === 7) return 'BVM_Final';
+    return `BVM_L${displayOrder}`;
+  }
+  return null;
+}
+
 async function fetchCourseDescriptions(): Promise<Record<string, unknown>> {
   try {
     const sb = getServerClient();
@@ -38,6 +77,38 @@ async function fetchCourseDescriptions(): Promise<Record<string, unknown>> {
   }
 }
 
+/**
+ * Fetch per-session durations from the lessons table (fallback when Apps Script
+ * column J is not yet returned by getCourseDetails).
+ * Returns a map of tabKey → duration_minutes.
+ */
+async function fetchLessonDurations(): Promise<Record<string, number>> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('lessons')
+      .select('display_order, duration_minutes, course_id')
+      .gt('duration_minutes', 0);
+    if (!data) return {};
+
+    // Reverse map: courseId → category
+    const idToCategory: Record<string, string> = Object.fromEntries(
+      Object.entries(COURSE_IDS).map(([cat, id]) => [id, cat]),
+    );
+
+    const map: Record<string, number> = {};
+    for (const row of data as { display_order: number; duration_minutes: number; course_id: string }[]) {
+      const category = idToCategory[row.course_id];
+      if (!category) continue;
+      const tk = lessonToTabKey(category, row.display_order);
+      if (tk) map[tk] = row.duration_minutes;
+    }
+    return map;
+  } catch {
+    return {};
+  }
+}
+
 export async function GET(req: NextRequest) {
   const course = req.nextUrl.searchParams.get('course') ?? undefined;
   const bust   = req.nextUrl.searchParams.get('bust');
@@ -51,18 +122,20 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [rawSessions, courses] = await Promise.all([
+    const [rawSessions, courses, lessonDurations] = await Promise.all([
       getCourseDetails(course),
       fetchCourseDescriptions(),
+      fetchLessonDurations(),
     ]);
 
-    // videoDuration comes from Apps Script column J — normalise to 0 if absent
-    const sessions = rawSessions.map(s => ({
-      ...s,
-      videoDuration: typeof s.videoDuration === 'number' && s.videoDuration > 0
-        ? s.videoDuration
-        : (Number(s.videoDuration) || 0),
-    }));
+    // videoDuration priority: Apps Script col J > lessons.duration_minutes > 0
+    const sessions = rawSessions.map(s => {
+      const fromScript = typeof s.videoDuration === 'number' ? s.videoDuration : Number(s.videoDuration) || 0;
+      return {
+        ...s,
+        videoDuration: fromScript > 0 ? fromScript : (lessonDurations[s.tabKey] ?? 0),
+      };
+    });
 
     _cache.set(key, { sessions, courses, at: Date.now() });
     return NextResponse.json({ sessions, courses });
@@ -79,8 +152,24 @@ export async function POST(req: NextRequest) {
   const { tabKey, youtubeUrl, videoDuration } = await req.json() as { tabKey: string; youtubeUrl: string; videoDuration?: number };
   if (!tabKey) return NextResponse.json({ error: 'tabKey required' }, { status: 400 });
 
-  const ok = await updateCourseLink(tabKey, youtubeUrl ?? '', videoDuration);
-  // Bust all cached entries so the next GET returns fresh data
+  const duration = typeof videoDuration === 'number' ? videoDuration : 0;
+
+  // Save to Apps Script (col J) and lessons table in parallel
+  const lessonRef = tabKeyToLesson(tabKey);
+  const saves: Promise<unknown>[] = [
+    updateCourseLink(tabKey, youtubeUrl ?? '', videoDuration),
+  ];
+  if (lessonRef && duration > 0) {
+    saves.push(
+      getServerClient()
+        .from('lessons')
+        .update({ duration_minutes: duration })
+        .eq('course_id', lessonRef.courseId)
+        .eq('display_order', lessonRef.displayOrder),
+    );
+  }
+  await Promise.all(saves);
+
   _cache.clear();
-  return NextResponse.json({ ok });
+  return NextResponse.json({ ok: true });
 }
