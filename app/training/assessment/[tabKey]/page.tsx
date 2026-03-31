@@ -166,16 +166,7 @@ export default function AssessmentPage() {
     const statusData  = await statusRes.json()    as { success: boolean; data?: AttemptStatus; error?: string };
     const questData   = await questionsRes.json() as { success: boolean; data?: AssessmentQuestionsData; error?: string };
 
-    if (!questData.success || !questData.data) {
-      setErrorMsg(questData.error ?? 'Could not load questions. Please try again.');
-      setPageState('ready'); // show error card
-      return;
-    }
-
-    const q = questData.data;
-    setQuestions(q);
-
-
+    // ── Check attempt status FIRST — takes priority over question-load errors ──
     if (statusData.success && statusData.data) {
       const s = statusData.data;
       setStatus(s);
@@ -189,6 +180,22 @@ export default function AssessmentPage() {
         return;
       }
     }
+
+    // ── Now check if questions loaded ────────────────────────────────────────
+    if (!questData.success || !questData.data) {
+      // Apps Script may reject getQuestions if student already passed — treat gracefully
+      const errLower = (questData.error ?? '').toLowerCase();
+      if (errLower.includes('passed') || errLower.includes('already')) {
+        setPageState('blocked-passed');
+        return;
+      }
+      setErrorMsg(questData.error ?? 'Could not load questions. Please try again.');
+      setPageState('ready'); // show error card
+      return;
+    }
+
+    const q = questData.data;
+    setQuestions(q);
 
     // Restore saved answers
     setAnswers(loadSavedAnswers(tabKey));
