@@ -69,7 +69,7 @@ export async function PATCH(req: NextRequest) {
     // Non-fatal — proceed with empty existing config
   }
 
-  const mergedConfig = { ...existingConfig, ...(config as Record<string, unknown>) };
+  const mergedConfig = { ...existingConfig, ...(config as unknown as Record<string, unknown>) };
 
   let upsertError: { message: string } | null = null;
   try {
