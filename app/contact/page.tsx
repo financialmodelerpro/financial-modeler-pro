@@ -4,6 +4,7 @@
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { getCmsContent, cms } from '@/src/lib/cms';
 import { ContactForm } from './ContactForm';
+import { SharedFooter } from '@/src/components/landing/SharedFooter';
 
 export const metadata = {
   title: 'Contact Us — Financial Modeler Pro',
@@ -116,6 +117,12 @@ export default async function ContactPage() {
 
         </div>
       </section>
+
+      <SharedFooter
+        company={cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants')}
+        founder={cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder')}
+        copyright={cms(content, 'footer', 'copyright', `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`)}
+      />
     </div>
   );
 }

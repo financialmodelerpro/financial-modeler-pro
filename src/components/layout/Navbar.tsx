@@ -27,9 +27,12 @@ interface NavbarProps {
   topOffset?: number;
   logoUrl?: string;
   logoAlt?: string;
+  logoWidthInches?: string;
+  logoHeightInches?: string;
+  logoPosition?: string;
 }
 
-export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial Modeler Pro' }: NavbarProps) {
+export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial Modeler Pro', logoWidthInches, logoHeightInches, logoPosition: _logoPosition }: NavbarProps) {
   const pages = navPages ?? DEFAULT_PAGES;
 
   const [dropdownOpen, setDropdownOpen]   = useState(false);
@@ -51,11 +54,15 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
     return () => { document.body.style.overflow = ''; };
   }, [mobileMenuOpen]);
 
+  // Convert stored inches to px (96 DPI), fall back to nav-friendly defaults
+  const logoW = logoWidthInches  ? Math.round(parseFloat(logoWidthInches)  * 96) : undefined;
+  const logoH = logoHeightInches ? Math.round(parseFloat(logoHeightInches) * 96) : 36;
+
   const logo = (
     <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
       {logoUrl ? (
         /* eslint-disable-next-line @next/next/no-img-element */
-        <img src={logoUrl} alt={logoAlt} style={{ height: 36, width: 'auto', objectFit: 'contain' }} />
+        <img src={logoUrl} alt={logoAlt} style={{ height: logoH, width: logoW ?? 'auto', objectFit: 'contain' }} />
       ) : (
         <>
           <span style={{ fontSize: 24, flexShrink: 0 }}>📐</span>

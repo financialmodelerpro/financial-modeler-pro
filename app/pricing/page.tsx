@@ -8,6 +8,7 @@ import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { getCmsContent, cms } from '@/src/lib/cms';
 import { getServerClient } from '@/src/lib/supabase';
 import { PricingAccordion } from '@/src/components/pricing/PricingAccordion';
+import { SharedFooter } from '@/src/components/landing/SharedFooter';
 
 export const revalidate = 60;
 
@@ -255,10 +256,11 @@ export default async function PricingPage() {
       )}
 
       {/* ── Footer note ── */}
-      <footer style={{ borderTop: '1px solid #E5E7EB', padding: '24px 40px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, background: '#F5F7FA' }}>
-        <span style={{ fontSize: 12, color: '#9CA3AF' }}>© {new Date().getFullYear()} Financial Modeler Pro</span>
-        <Link href="/" style={{ fontSize: 12, color: '#6B7280', textDecoration: 'none' }}>← Home</Link>
-      </footer>
+      <SharedFooter
+        company={cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants')}
+        founder={cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder')}
+        copyright={cms(content, 'footer', 'copyright', `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`)}
+      />
     </div>
   );
 }

@@ -1,8 +1,8 @@
 'use client';
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 
-type Tab = 'branding' | 'hero' | 'stats' | 'about' | 'pillars' | 'cta' | 'footer' | 'section_styles' | 'training_page' | 'training_share' | 'modeling_hub' | 'articles_page' | 'contact_page';
+type Tab = 'branding' | 'hero' | 'stats' | 'about' | 'pillars' | 'cta' | 'footer' | 'section_styles' | 'training_page' | 'training_share' | 'modeling_hub' | 'articles_page' | 'contact_page' | 'legal';
 
 const TABS: { key: Tab; label: string; page: string }[] = [
   { key: 'branding',       label: 'Logo & Branding',  page: 'All Pages' },
@@ -18,6 +18,7 @@ const TABS: { key: Tab; label: string; page: string }[] = [
   { key: 'modeling_hub',   label: 'Modeling Hub',     page: 'Modeling Hub Page' },
   { key: 'articles_page',  label: 'Articles',         page: 'Articles Page' },
   { key: 'contact_page',   label: 'Contact Page',     page: 'Contact Page' },
+  { key: 'legal',          label: 'Legal Pages',      page: 'Contact Page' },
 ];
 
 export default function AdminContentPage() {
@@ -33,6 +34,7 @@ export default function AdminContentPage() {
 
   type CustomField = { label: string; value: string };
   const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const logoUploadRef = useRef<HTMLInputElement>(null);
   const [activeStyleSection, setActiveStyleSection] = useState('hero');
 
   useEffect(() => {
@@ -215,6 +217,22 @@ export default function AdminContentPage() {
     }
   }
 
+  function handleLogoFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Logo file must be under 2 MB.');
+      e.target.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') set('branding', 'logo_url', reader.result);
+    };
+    reader.readAsDataURL(file);
+    e.target.value = '';
+  }
+
   const inputStyle: React.CSSProperties = { width: '100%', padding: '8px 12px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 7, background: '#FFFBEB', fontFamily: 'Inter, sans-serif', color: '#374151', boxSizing: 'border-box' };
   const labelStyle: React.CSSProperties = { display: 'block', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 };
   const fieldStyle: React.CSSProperties = { marginBottom: 20 };
@@ -291,25 +309,88 @@ export default function AdminContentPage() {
             {tab === 'branding' && (
               <div>
                 <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 24, padding: '10px 14px', background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 7 }}>
-                  🎨 Logo appears in the navigation bar on <strong>all public pages</strong>. Upload your logo to the Media Library first, then paste the URL here. Recommended: PNG with transparent background, height ~40px.
+                  🎨 Header logo — appears in the navigation bar on <strong>all public pages</strong>. Upload PNG, SVG, or JPG (max 2 MB). Leave blank to use the default text logo.
                 </p>
-                <div style={fieldStyle}>
-                  <label style={labelStyle}>Logo URL</label>
-                  <input style={inputStyle} value={get('branding','logo_url','')} onChange={e => set('branding','logo_url',e.target.value)} placeholder="https://… or paste from Media Library" />
+
+                {/* Current logo preview */}
+                <div style={{ marginBottom: 20, padding: 16, background: '#0D2E5A', borderRadius: 10, display: 'inline-flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                  {get('branding','logo_url','') ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={get('branding','logo_url','')} alt="Current logo"
+                      style={{ height: Math.min(Math.round(parseFloat(get('branding','logo_height_inches','0.4') || '0.4') * 96), 80), width: 'auto', maxWidth: 280, objectFit: 'contain', display: 'block' }} />
+                  ) : (
+                    <div style={{ width: 80, height: 40, background: 'rgba(255,255,255,0.1)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{ fontSize: 24 }}>📐</span>
+                    </div>
+                  )}
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>Preview on dark background</div>
                 </div>
-                {get('branding','logo_url','') && (
-                  <div style={{ marginBottom: 20, padding: '16px', background: '#0D2E5A', borderRadius: 8, display: 'inline-block' }}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={get('branding','logo_url','')} alt="Logo preview" style={{ height: 36, width: 'auto', objectFit: 'contain', display: 'block' }} />
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 6 }}>Preview on dark background</div>
+
+                {/* Upload button */}
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Upload Logo</label>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <button type="button" onClick={() => logoUploadRef.current?.click()}
+                      style={{ padding: '8px 16px', fontSize: 13, fontWeight: 700, color: '#1B4F8A', background: '#E8F0FB', border: '1px solid #BDD0F0', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit' }}>
+                      Upload New Logo
+                    </button>
+                    {get('branding','logo_url','') && (
+                      <button type="button" onClick={() => set('branding','logo_url','')}
+                        style={{ padding: '8px 14px', fontSize: 12, fontWeight: 600, color: '#6B7280', background: '#F3F4F6', border: '1px solid #D1D5DB', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit' }}>
+                        Clear Logo
+                      </button>
+                    )}
+                    <span style={{ fontSize: 11, color: '#9CA3AF' }}>PNG, SVG, JPG — max 2 MB</span>
                   </div>
-                )}
-                <div style={{ ...fieldStyle }}>
+                  <input ref={logoUploadRef} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style={{ display: 'none' }} onChange={handleLogoFile} />
+                </div>
+
+                {/* Alt text */}
+                <div style={fieldStyle}>
                   <label style={labelStyle}>Logo Alt Text</label>
                   <input style={inputStyle} value={get('branding','logo_alt','Financial Modeler Pro')} onChange={e => set('branding','logo_alt',e.target.value)} placeholder="Financial Modeler Pro" />
                 </div>
-                {saveBtn([{section:'branding',key:'logo_url'},{section:'branding',key:'logo_alt'}])}
-                <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: 12 }}>Leave Logo URL blank to use the default text logo.</p>
+
+                {/* Size */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+                  <div>
+                    <label style={labelStyle}>Logo Width (inches)</label>
+                    <input style={inputStyle} type="number" step="0.01" min="0.2" max="8" value={get('branding','logo_width_inches','2.75')} onChange={e => set('branding','logo_width_inches',e.target.value)} placeholder="2.75" />
+                    <p style={{ fontSize: 10, color: '#9CA3AF', marginTop: 3 }}>
+                      = {Math.round(parseFloat(get('branding','logo_width_inches','2.75') || '2.75') * 96)}px on screen
+                    </p>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Logo Height (inches)</label>
+                    <input style={inputStyle} type="number" step="0.01" min="0.1" max="4" value={get('branding','logo_height_inches','1.17')} onChange={e => set('branding','logo_height_inches',e.target.value)} placeholder="1.17" />
+                    <p style={{ fontSize: 10, color: '#9CA3AF', marginTop: 3 }}>
+                      = {Math.round(parseFloat(get('branding','logo_height_inches','1.17') || '1.17') * 96)}px on screen
+                    </p>
+                  </div>
+                </div>
+
+                {/* Position */}
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Logo Position in Header</label>
+                  <div style={{ display: 'flex', gap: 20, marginTop: 6 }}>
+                    {(['top-left','top-center','top-right'] as const).map(pos => (
+                      <label key={pos} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, cursor: 'pointer', fontWeight: get('branding','logo_position','top-left') === pos ? 700 : 400 }}>
+                        <input type="radio" name="logo_position" value={pos}
+                          checked={get('branding','logo_position','top-left') === pos}
+                          onChange={() => set('branding','logo_position',pos)} />
+                        {pos === 'top-left' ? 'Top Left' : pos === 'top-center' ? 'Top Center' : 'Top Right'}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {saveBtn([
+                  {section:'branding',key:'logo_url'},
+                  {section:'branding',key:'logo_alt'},
+                  {section:'branding',key:'logo_width_inches'},
+                  {section:'branding',key:'logo_height_inches'},
+                  {section:'branding',key:'logo_position'},
+                ])}
               </div>
             )}
 
@@ -410,12 +491,36 @@ export default function AdminContentPage() {
                   <input style={inputStyle} value={get('hero','tags','Real Estate Models, Business Valuation, Project Finance, Fund Models')} onChange={e => set('hero','tags',e.target.value)} placeholder="Real Estate Models, Business Valuation, Project Finance" />
                   <p style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Comma-separated. Rendered as pill badges below the trust line.</p>
                 </div>
-                <div style={{ padding:'10px 14px', background:'#FEF3C7', border:'1px solid #FDE68A', borderRadius:7, marginBottom:20 }}>
-                  <p style={{ fontSize:12, color:'#92400E', margin:0 }}>&#9432; <strong>Button CTAs (below) are hidden in the current hero design.</strong> Edit &ldquo;Soft CTA Text&rdquo; above instead.</p>
+                <div style={{ borderTop:'1px solid #E8F0FB', paddingTop:20, marginTop:4, marginBottom:20 }}>
+                  <p style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:14 }}>CTA BUTTONS</p>
+                  <p style={{ fontSize:11, color:'#6B7280', marginBottom:14 }}>Primary action buttons displayed in the hero. Toggle show/hide independently.</p>
+
+                  {/* Button 1 */}
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:12, alignItems:'end', marginBottom:16, padding:'14px 16px', background:'#F9FAFB', borderRadius:8, border:'1px solid #E5E7EB' }}>
+                    <div>
+                      <label style={labelStyle}>Button 1 Label</label>
+                      <input style={inputStyle} value={get('hero','cta1','Launch Platform Free →')} onChange={e => set('hero','cta1',e.target.value)} placeholder="Launch Platform Free →" />
+                    </div>
+                    <label style={{ display:'flex', alignItems:'center', gap:7, fontSize:13, cursor:'pointer', paddingBottom:2, whiteSpace:'nowrap' }}>
+                      <input type="checkbox" checked={get('hero','cta1_visible','false') === 'true'} onChange={e => set('hero','cta1_visible', e.target.checked ? 'true' : 'false')} style={{ width:15, height:15, cursor:'pointer' }} />
+                      Show
+                    </label>
+                  </div>
+
+                  {/* Button 2 */}
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:12, alignItems:'end', marginBottom:16, padding:'14px 16px', background:'#F9FAFB', borderRadius:8, border:'1px solid #E5E7EB' }}>
+                    <div>
+                      <label style={labelStyle}>Button 2 Label</label>
+                      <input style={inputStyle} value={get('hero','cta2','Explore Platforms ↓')} onChange={e => set('hero','cta2',e.target.value)} placeholder="Explore Platforms ↓" />
+                    </div>
+                    <label style={{ display:'flex', alignItems:'center', gap:7, fontSize:13, cursor:'pointer', paddingBottom:2, whiteSpace:'nowrap' }}>
+                      <input type="checkbox" checked={get('hero','cta2_visible','false') === 'true'} onChange={e => set('hero','cta2_visible', e.target.checked ? 'true' : 'false')} style={{ width:15, height:15, cursor:'pointer' }} />
+                      Show
+                    </label>
+                  </div>
                 </div>
-                <div style={fieldStyle}><label style={{ ...labelStyle, color:'#9CA3AF' }}>CTA 1 Label (hidden)</label><input style={{...inputStyle, opacity:0.6}} value={get('hero','cta1','Launch Platform Free →')} onChange={e => set('hero','cta1',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={{ ...labelStyle, color:'#9CA3AF' }}>CTA 2 Label (hidden)</label><input style={{...inputStyle, opacity:0.6}} value={get('hero','cta2','Explore Platforms ↓')} onChange={e => set('hero','cta2',e.target.value)} /></div>
-                <div style={{ borderTop:'1px solid #E8F0FB', paddingTop:20, marginTop:16, marginBottom:20 }}>
+
+                <div style={{ borderTop:'1px solid #E8F0FB', paddingTop:20, marginBottom:20 }}>
                   <p style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:10 }}>VISIBILITY</p>
                   <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
                     <input type="checkbox" checked={get('hero','cta_visible','true') !== 'false'} onChange={e => set('hero','cta_visible', e.target.checked ? 'true' : 'false')} style={{ width:16, height:16, cursor:'pointer' }} />
@@ -432,6 +537,8 @@ export default function AdminContentPage() {
                   {section:'hero',key:'tags'},
                   {section:'hero',key:'cta1'},
                   {section:'hero',key:'cta2'},
+                  {section:'hero',key:'cta1_visible'},
+                  {section:'hero',key:'cta2_visible'},
                   {section:'hero',key:'cta_visible'},
                 ])}
               </div>
@@ -558,7 +665,60 @@ export default function AdminContentPage() {
                 <div style={fieldStyle}><label style={labelStyle}>Company Line</label><input style={inputStyle} value={get('footer','company_line','')} onChange={e => set('footer','company_line',e.target.value)} /></div>
                 <div style={fieldStyle}><label style={labelStyle}>Founder Line</label><input style={inputStyle} value={get('footer','founder_line','')} onChange={e => set('footer','founder_line',e.target.value)} /></div>
                 <div style={fieldStyle}><label style={labelStyle}>Copyright Text</label><input style={inputStyle} value={get('footer','copyright','')} onChange={e => set('footer','copyright',e.target.value)} /></div>
-                {saveBtn([{section:'footer',key:'company_line'},{section:'footer',key:'founder_line'},{section:'footer',key:'copyright'}])}
+
+                <div style={{ borderTop:'1px solid #E8F0FB', paddingTop:20, marginTop:4, marginBottom:20 }}>
+                  <p style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:14 }}>FOOTER HEIGHT</p>
+                  <div style={{ display:'flex', gap:16, marginBottom:16 }}>
+                    {(['compact','standard','large'] as const).map(h => (
+                      <label key={h} style={{ display:'flex', alignItems:'center', gap:6, fontSize:13, cursor:'pointer', fontWeight: get('footer','height','standard') === h ? 700 : 400 }}>
+                        <input type="radio" name="footer_height" value={h} checked={get('footer','height','standard') === h} onChange={() => set('footer','height',h)} />
+                        {h.charAt(0).toUpperCase()+h.slice(1)} {h==='compact'?'(32px)':h==='standard'?'(40px)':'(64px)'}
+                      </label>
+                    ))}
+                  </div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:16 }}>
+                    <div>
+                      <label style={labelStyle}>Padding Top (px)</label>
+                      <input style={inputStyle} type="number" value={get('footer','padding_top','40')} onChange={e => set('footer','padding_top',e.target.value)} placeholder="40" />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Padding Bottom (px)</label>
+                      <input style={inputStyle} type="number" value={get('footer','padding_bottom','40')} onChange={e => set('footer','padding_bottom',e.target.value)} placeholder="40" />
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ borderTop:'1px solid #E8F0FB', paddingTop:20, marginBottom:20 }}>
+                  <p style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:14 }}>SHOW / HIDE SECTIONS</p>
+                  <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                    {[
+                      { key:'show_description',    label:'Company description column' },
+                      { key:'show_quick_links',     label:'Quick links column (Platform)' },
+                      { key:'show_company_links',   label:'Company links column' },
+                      { key:'show_privacy',         label:'Privacy Policy link in footer' },
+                      { key:'show_confidentiality', label:'Confidentiality & Terms link in footer' },
+                    ].map(item => (
+                      <label key={item.key} style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer', fontSize:13 }}>
+                        <input type="checkbox" checked={get('footer',item.key,'true') !== 'false'} onChange={e => set('footer',item.key, e.target.checked ? 'true' : 'false')} style={{ width:15, height:15, cursor:'pointer' }} />
+                        {item.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {saveBtn([
+                  {section:'footer',key:'company_line'},
+                  {section:'footer',key:'founder_line'},
+                  {section:'footer',key:'copyright'},
+                  {section:'footer',key:'height'},
+                  {section:'footer',key:'padding_top'},
+                  {section:'footer',key:'padding_bottom'},
+                  {section:'footer',key:'show_description'},
+                  {section:'footer',key:'show_quick_links'},
+                  {section:'footer',key:'show_company_links'},
+                  {section:'footer',key:'show_privacy'},
+                  {section:'footer',key:'show_confidentiality'},
+                ])}
               </div>
             )}
 
@@ -725,6 +885,45 @@ export default function AdminContentPage() {
                   {section:'modeling_hub',key:'what_body'},
                   {section:'modeling_hub',key:'bottom_cta_heading'},
                 ])}
+              </div>
+            )}
+
+            {/* ── Legal Pages ── */}
+            {tab === 'legal' && (
+              <div>
+                <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 24, padding: '10px 14px', background: '#FFF7ED', border: '1px solid #FED7AA', borderRadius: 7 }}>
+                  ⚖️ Controls the content on <strong>/privacy-policy</strong> and <strong>/confidentiality</strong> pages. These pages are linked from the site footer.
+                </p>
+
+                {/* Privacy Policy */}
+                <div style={{ borderBottom: '2px solid #E8F0FB', paddingBottom: 28, marginBottom: 28 }}>
+                  <p style={{ fontSize: 13, fontWeight: 800, color: '#1B3A6B', marginBottom: 16 }}>Privacy Policy</p>
+                  <div style={fieldStyle}><label style={labelStyle}>Page Title</label><input style={inputStyle} value={get('privacy_policy','title','Privacy Policy')} onChange={e => set('privacy_policy','title',e.target.value)} /></div>
+                  <div style={fieldStyle}><label style={labelStyle}>Last Updated Date</label><input style={inputStyle} value={get('privacy_policy','updated','March 2026')} onChange={e => set('privacy_policy','updated',e.target.value)} placeholder="March 2026" /></div>
+                  <div style={fieldStyle}>
+                    <label style={labelStyle}>Content</label>
+                    <textarea style={{...inputStyle, resize:'vertical', minHeight:200}} rows={10}
+                      value={get('privacy_policy','content','This Privacy Policy describes how Financial Modeler Pro collects, uses, and protects your personal information...')}
+                      onChange={e => set('privacy_policy','content',e.target.value)} />
+                    <p style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Use double line breaks to separate paragraphs. Paragraphs starting with a number (e.g. "1. TITLE") are styled as section headings.</p>
+                  </div>
+                  {saveBtn([{section:'privacy_policy',key:'title'},{section:'privacy_policy',key:'updated'},{section:'privacy_policy',key:'content'}])}
+                </div>
+
+                {/* Confidentiality */}
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 800, color: '#1B3A6B', marginBottom: 16 }}>Confidentiality &amp; Terms</p>
+                  <div style={fieldStyle}><label style={labelStyle}>Page Title</label><input style={inputStyle} value={get('confidentiality','title','Confidentiality & Terms of Use')} onChange={e => set('confidentiality','title',e.target.value)} /></div>
+                  <div style={fieldStyle}><label style={labelStyle}>Last Updated Date</label><input style={inputStyle} value={get('confidentiality','updated','March 2026')} onChange={e => set('confidentiality','updated',e.target.value)} placeholder="March 2026" /></div>
+                  <div style={fieldStyle}>
+                    <label style={labelStyle}>Content</label>
+                    <textarea style={{...inputStyle, resize:'vertical', minHeight:200}} rows={10}
+                      value={get('confidentiality','content','By accessing Financial Modeler Pro platform and training materials, you agree to the following terms...')}
+                      onChange={e => set('confidentiality','content',e.target.value)} />
+                    <p style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Use double line breaks to separate paragraphs. Paragraphs starting with a number are styled as section headings.</p>
+                  </div>
+                  {saveBtn([{section:'confidentiality',key:'title'},{section:'confidentiality',key:'updated'},{section:'confidentiality',key:'content'}])}
+                </div>
               </div>
             )}
 

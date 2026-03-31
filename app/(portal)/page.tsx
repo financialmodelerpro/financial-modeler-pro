@@ -75,7 +75,6 @@ export default async function LandingPage() {
   const heroBadge          = cms(content, 'hero', 'badge_text',       '🚀 Now Live — Free to Use');
   const heroHeadline       = cms(content, 'hero', 'headline',         'Build Institutional-Grade Financial Models — Without Starting From Scratch');
   const heroSub            = cms(content, 'hero', 'subheadline',      'Pre-built, structured financial models for real estate, valuation, and project finance — designed by corporate finance professionals for real-world use.');
-  // heroCta1 / heroCta2 still exist in CMS (managed via Admin → Hero) but are hidden from the live hero
   const heroPowerStatement = cms(content, 'hero', 'power_statement',  'No more rebuilding models. No more broken Excel files. No more wasted hours.');
   const heroSoftCta        = cms(content, 'hero', 'soft_cta',         'Explore the platform');
   const heroTrustLine      = cms(content, 'hero', 'trust_line',       'Designed by Investment & Corporate Finance Experts  |  12+ Years Experience  |  Used Across KSA & Pakistan');
@@ -133,8 +132,14 @@ export default async function LandingPage() {
   const ctaSub   = cms(content, 'cta', 'subheading', 'Join finance professionals using Financial Modeler Pro to build better models, faster.');
   const ctaBtn   = cms(content, 'cta', 'button',     'Get Started Free →');
 
+  // ── Hero CTA button text ──────────────────────────────────────────────────
+  const heroCta1         = cms(content, 'hero', 'cta1',         'Launch Platform Free →');
+  const heroCta2         = cms(content, 'hero', 'cta2',         'Explore Platforms ↓');
+
   // ── Visibility toggles ────────────────────────────────────────────────────
   const heroCta_visible    = cms(content, 'hero', 'cta_visible',     'true') !== 'false';
+  const heroCta1_visible   = cms(content, 'hero', 'cta1_visible',    'false') === 'true';
+  const heroCta2_visible   = cms(content, 'hero', 'cta2_visible',    'false') === 'true';
   const ctaSection_visible = cms(content, 'cta',  'section_visible', 'true') !== 'false';
 
   // ── Section style overrides ───────────────────────────────────────────────
@@ -148,9 +153,17 @@ export default async function LandingPage() {
   const ctaStyles          = getSectionStyles(content, 'cta');
 
   // ── Footer ────────────────────────────────────────────────────────────────
-  const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
-  const footerFounder   = cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder');
-  const footerCopyright = cms(content, 'footer', 'copyright',    `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
+  const footerCompany          = cms(content, 'footer', 'company_line',         'Financial Modeler Pro is a product of PaceMakers Business Consultants');
+  const footerFounder          = cms(content, 'footer', 'founder_line',         'Ahmad Din — CEO & Founder');
+  const footerCopyright        = cms(content, 'footer', 'copyright',            `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
+  const footerHeight           = cms(content, 'footer', 'height',               'standard') as 'compact' | 'standard' | 'large';
+  const footerPaddingTop       = cms(content, 'footer', 'padding_top',          '40');
+  const footerPaddingBottom    = cms(content, 'footer', 'padding_bottom',       '40');
+  const footerShowDescription  = cms(content, 'footer', 'show_description',     'true') !== 'false';
+  const footerShowQuickLinks   = cms(content, 'footer', 'show_quick_links',     'true') !== 'false';
+  const footerShowCompanyLinks = cms(content, 'footer', 'show_company_links',   'true') !== 'false';
+  const footerShowPrivacy      = cms(content, 'footer', 'show_privacy',         'true') !== 'false';
+  const footerShowConfidentiality = cms(content, 'footer', 'show_confidentiality', 'true') !== 'false';
 
   // ── Nav pages ─────────────────────────────────────────────────────────────
   const fallbackPages = [
@@ -200,6 +213,22 @@ export default async function LandingPage() {
             tag="p" section="hero" fieldKey="subheadline" value={heroSub} isAdmin={isAdmin} darkBg
             style={{ animation:'hero-fade-up 550ms ease-out 200ms both', fontSize:'clamp(1rem,2vw,1.2rem)', color:'rgba(255,255,255,0.75)', lineHeight:1.65, maxWidth:620, margin:'0 auto 26px', display:'block' } as React.CSSProperties}
           />
+
+          {/* Primary CTA Buttons (show/hide controlled from Admin → Hero) */}
+          {(heroCta1_visible || heroCta2_visible) && (
+            <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 280ms both', display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap', marginBottom:28 }}>
+              {heroCta1_visible && (
+                <Link href="/login" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#2EAA4A', color:'#fff', fontWeight:700, fontSize:15, padding:'14px 36px', borderRadius:8, textDecoration:'none', boxShadow:'0 4px 20px rgba(46,170,74,0.35)' }}>
+                  {heroCta1}
+                </Link>
+              )}
+              {heroCta2_visible && (
+                <Link href="/modeling" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.2)', color:'rgba(255,255,255,0.9)', fontWeight:600, fontSize:15, padding:'14px 32px', borderRadius:8, textDecoration:'none' }}>
+                  {heroCta2}
+                </Link>
+              )}
+            </div>
+          )}
 
           {/* Power statement */}
           {heroPowerStatement && (
@@ -340,16 +369,23 @@ export default async function LandingPage() {
 
       {/* ── Founder ────────────────────────────────────────────────────────── */}
       <section style={{ padding:'64px 40px 80px', background:'#1B3A6B', color:'#fff' }}>
+        {/* eslint-disable-next-line react/no-danger */}
+        <style>{`
+          @media (max-width: 640px) {
+            .fmp-founder-img-col { order: -1 !important; }
+            .fmp-founder-circle  { width: min(180px, 60vw) !important; height: min(180px, 60vw) !important; }
+          }
+        `}</style>
         <div style={{ maxWidth:1100, margin:'0 auto' }}>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(min(300px,100%),1fr))', gap:56, alignItems:'center' }}>
-            <div style={{ display:'flex', justifyContent:'center', order:1 }}>
+            <div className="fmp-founder-img-col" style={{ display:'flex', justifyContent:'center', order:1 }}>
               {founderPhotoUrl ? (
-                <div style={{ width:220, height:220, borderRadius:'50%', overflow:'hidden', position:'relative', border:'3px solid rgba(255,255,255,0.2)', boxShadow:'0 8px 40px rgba(0,0,0,0.4)' }}>
+                <div className="fmp-founder-circle" style={{ width:220, height:220, borderRadius:'50%', overflow:'hidden', position:'relative', border:'3px solid rgba(255,255,255,0.2)', boxShadow:'0 8px 40px rgba(0,0,0,0.4)', flexShrink:0 }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={founderPhotoUrl} alt={founderName} style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'center' }} />
                 </div>
               ) : (
-                <div style={{ width:220, height:220, borderRadius:'50%', background:'linear-gradient(135deg,#0D2E5A,#1B4F8A)', display:'flex', alignItems:'center', justifyContent:'center', border:'3px solid rgba(255,255,255,0.2)', boxShadow:'0 8px 40px rgba(0,0,0,0.4)' }}>
+                <div className="fmp-founder-circle" style={{ width:220, height:220, borderRadius:'50%', background:'linear-gradient(135deg,#0D2E5A,#1B4F8A)', display:'flex', alignItems:'center', justifyContent:'center', border:'3px solid rgba(255,255,255,0.2)', boxShadow:'0 8px 40px rgba(0,0,0,0.4)', flexShrink:0 }}>
                   <span style={{ fontSize:56, fontWeight:800, color:'rgba(255,255,255,0.9)', letterSpacing:'-2px', fontFamily:"'Inter',sans-serif" }}>AD</span>
                 </div>
               )}
@@ -578,7 +614,17 @@ export default async function LandingPage() {
       )}
 
       {/* ── Footer ─────────────────────────────────────────────────────────── */}
-      <SharedFooter company={footerCompany} founder={footerFounder} copyright={footerCopyright} isAdmin={isAdmin} />
+      <SharedFooter
+        company={footerCompany} founder={footerFounder} copyright={footerCopyright} isAdmin={isAdmin}
+        height={footerHeight}
+        paddingTop={footerPaddingTop}
+        paddingBottom={footerPaddingBottom}
+        showDescription={footerShowDescription}
+        showQuickLinks={footerShowQuickLinks}
+        showCompanyLinks={footerShowCompanyLinks}
+        showPrivacy={footerShowPrivacy}
+        showConfidentiality={footerShowConfidentiality}
+      />
     </div>
   );
 }

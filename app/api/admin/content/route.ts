@@ -32,14 +32,27 @@ export async function PATCH(req: NextRequest) {
     if (!section || !key) return NextResponse.json({ error: 'section and key required' }, { status: 400 });
 
     const sb = getServerClient();
-    const { data, error } = await sb
+
+    // Update the specific row — never touch other rows
+    const { data: updated } = await sb
       .from('cms_content')
-      .upsert({ section, key, value: value ?? '' }, { onConflict: 'section,key' })
+      .update({ value: value ?? '' })
+      .eq('section', section)
+      .eq('key', key)
+      .select()
+      .maybeSingle();
+
+    if (updated) return NextResponse.json({ row: updated });
+
+    // Row does not exist yet — insert it
+    const { data: inserted, error: insertError } = await sb
+      .from('cms_content')
+      .insert({ section, key, value: value ?? '' })
       .select()
       .single();
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json({ row: data });
+    if (insertError) return NextResponse.json({ error: insertError.message }, { status: 400 });
+    return NextResponse.json({ row: inserted });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }

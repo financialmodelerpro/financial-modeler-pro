@@ -1,10 +1,10 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
-import Link from 'next/link';
 import { getPublishedArticles, getCmsContent, cms } from '@/src/lib/cms';
 import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/ArticleCard';
 import { CategoryFilter } from '@/src/components/landing/CategoryFilter';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { SharedFooter } from '@/src/components/landing/SharedFooter';
 
 export const revalidate = 60;
 
@@ -89,10 +89,11 @@ export default async function ArticlesPage({ searchParams }: Props) {
         )}
       </section>
 
-      <footer style={{ borderTop: '1px solid rgba(255,255,255,0.07)', padding: '24px 40px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-        <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>© {new Date().getFullYear()} Financial Modeler Pro</span>
-        <Link href="/" style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', textDecoration: 'none' }}>← Home</Link>
-      </footer>
+      <SharedFooter
+        company={cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants')}
+        founder={cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder')}
+        copyright={cms(content, 'footer', 'copyright', `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`)}
+      />
     </div>
   );
 }

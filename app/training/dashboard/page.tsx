@@ -199,7 +199,9 @@ function SessionCard({
                 {sessionTitle}
               </span>
               {videoDuration > 0 && (
-                <span style={{ fontSize: 11, color: '#9CA3AF', whiteSpace: 'nowrap' }}>⏱ {videoDuration} min</span>
+                <span style={{ fontSize: 11, color: '#9CA3AF', whiteSpace: 'nowrap' }}>
+                  {`⏱ ${videoDuration >= 60 ? `${Math.floor(videoDuration / 60)} hr${Math.floor(videoDuration / 60) > 1 ? 's' : ''}${videoDuration % 60 > 0 ? ` ${videoDuration % 60} min` : ''}` : `${videoDuration} min`}`}
+                </span>
               )}
             </div>
             {isFinal && locked && (

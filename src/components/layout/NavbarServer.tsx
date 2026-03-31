@@ -16,12 +16,18 @@ export async function NavbarServer({ topOffset = 0 }: Props) {
     getSitePages(),
     getCmsContent(),
   ]);
-  const logoUrl = cms(content, 'branding', 'logo_url', '');
+  const logoUrl          = cms(content, 'branding', 'logo_url',           '');
+  const logoWidthInches  = cms(content, 'branding', 'logo_width_inches',  '');
+  const logoHeightInches = cms(content, 'branding', 'logo_height_inches', '');
+  const logoPosition     = cms(content, 'branding', 'logo_position',      'top-left');
   return (
     <Navbar
       navPages={sitePages.length > 0 ? sitePages : undefined}
       topOffset={topOffset}
       logoUrl={logoUrl || undefined}
+      logoWidthInches={logoWidthInches  || undefined}
+      logoHeightInches={logoHeightInches || undefined}
+      logoPosition={logoPosition || undefined}
     />
   );
 }
