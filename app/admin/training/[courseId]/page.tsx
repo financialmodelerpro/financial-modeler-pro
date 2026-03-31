@@ -138,6 +138,7 @@ export default function AdminCourseLessonsPage() {
   // Shared state
   const [course, setCourse] = useState<{ title?: string; category?: string } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [timerBypassed, setTimerBypassed] = useState(false);
   const [activeTab, setActiveTab] = useState<'lessons' | 'assessment'>('lessons');
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
@@ -255,6 +256,11 @@ export default function AdminCourseLessonsPage() {
   }, [assessment]);
 
   useEffect(() => { fetchCourseData(); }, [fetchCourseData]);
+
+  // Sync timer bypass state from localStorage
+  useEffect(() => {
+    setTimerBypassed(localStorage.getItem('fmp_admin_bypass_timer') === '1');
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'assessment') fetchAssessment();
@@ -564,7 +570,27 @@ export default function AdminCourseLessonsPage() {
             <p style={{ fontSize: 13, color: '#6B7280' }}>{lessons.length} lesson{lessons.length !== 1 ? 's' : ''}</p>
           </div>
           {activeTab === 'lessons' && (
-            <div style={{ display: 'flex', gap: 10 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              {/* Timer bypass toggle — for admin testing only, stored in localStorage */}
+              <button
+                onClick={() => {
+                  const next = !timerBypassed;
+                  if (next) localStorage.setItem('fmp_admin_bypass_timer', '1');
+                  else localStorage.removeItem('fmp_admin_bypass_timer');
+                  setTimerBypassed(next);
+                }}
+                title={timerBypassed ? 'Timer bypass ON — click to restore timer lock for students' : 'Bypass video timer lock for testing (your browser only)'}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 6,
+                  padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
+                  cursor: 'pointer', border: '1px solid',
+                  background: timerBypassed ? '#FEF3C7' : '#F3F4F6',
+                  borderColor: timerBypassed ? '#F59E0B' : '#D1D5DB',
+                  color: timerBypassed ? '#B45309' : '#6B7280',
+                }}
+              >
+                {timerBypassed ? '⏱ Timer Bypassed (ON)' : '⏱ Bypass Timer'}
+              </button>
               <button
                 onClick={() => fetchSessionLinks(true)}
                 disabled={sessionLinksLoading}

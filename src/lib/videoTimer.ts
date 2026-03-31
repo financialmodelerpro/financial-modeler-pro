@@ -31,12 +31,18 @@ export function startTimer(regId: string, tabKey: string, durationMinutes: numbe
   localStorage.setItem(key, JSON.stringify({ startTime: Date.now(), durationMinutes }));
 }
 
+/** localStorage key used by admins to bypass all video timers for testing. */
+export const ADMIN_BYPASS_KEY = 'fmp_admin_bypass_timer';
+
 /**
  * Get current timer status for a session (second-level precision).
  */
 export function getTimerStatus(regId: string, tabKey: string, durationMinutes: number): TimerStatus {
   if (!durationMinutes || durationMinutes === 0)
     return { locked: false, secondsRemaining: 0, started: false };
+  // Admin bypass: set via admin panel to skip timer during testing
+  if (typeof localStorage !== 'undefined' && localStorage.getItem(ADMIN_BYPASS_KEY) === '1')
+    return { locked: false, secondsRemaining: 0, started: true };
   const key = TIMER_PREFIX + regId + '_' + tabKey;
   const stored = localStorage.getItem(key);
   if (!stored)
