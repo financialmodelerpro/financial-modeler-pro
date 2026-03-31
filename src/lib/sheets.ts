@@ -179,6 +179,78 @@ function normalizeSession(raw: Record<string, unknown>): SessionProgress {
   };
 }
 
+// Passing threshold used when deriving pass/fail from a raw percentage score
+const PASSING_SCORE_PCT = 70;
+
+/**
+ * Shape C: Apps Script returns the sheet row as flat columns —
+ *   3SFM: S1%, S2%, …, S17%, Final Exam %, Sessions Passed, Avg Score
+ *   BVM:  L1%, L2%, …, L6%,  Final Exam %, Lessons Passed, Avg Score, Final Passed, Cert Issued
+ */
+function normalizeFlatSheetProgress(
+  root: Record<string, unknown>,
+  email: string,
+  regId: string,
+): ScriptResponse<StudentProgress> {
+  const hasBVM = typeof root['L1%'] !== 'undefined';
+  const course  = hasBVM ? 'BVM' : '3SFM';
+  const sessions: SessionProgress[] = [];
+
+  if (!hasBVM) {
+    // 3SFM — S1 … S17
+    for (let i = 1; i <= 17; i++) {
+      const raw = root[`S${i}%`];
+      if (raw === undefined || raw === null || raw === '') continue;
+      const score = Number(raw) || 0;
+      sessions.push({ sessionId: `S${i}`, passed: score >= PASSING_SCORE_PCT, score, attempts: score > 0 ? 1 : 0, completedAt: null });
+    }
+    // Final exam → S18
+    const finalRaw = root['Final Exam %'];
+    if (finalRaw !== undefined && finalRaw !== null && finalRaw !== '') {
+      const score = Number(finalRaw) || 0;
+      sessions.push({ sessionId: 'S18', passed: score >= PASSING_SCORE_PCT, score, attempts: score > 0 ? 1 : 0, completedAt: null });
+    }
+  } else {
+    // BVM — L1 … L6
+    for (let i = 1; i <= 6; i++) {
+      const raw = root[`L${i}%`];
+      if (raw === undefined || raw === null || raw === '') continue;
+      const score = Number(raw) || 0;
+      sessions.push({ sessionId: `L${i}`, passed: score >= PASSING_SCORE_PCT, score, attempts: score > 0 ? 1 : 0, completedAt: null });
+    }
+    // Final exam → L7
+    const finalRaw = root['Final Exam %'];
+    if (finalRaw !== undefined && finalRaw !== null && finalRaw !== '') {
+      const score = Number(finalRaw) || 0;
+      sessions.push({
+        sessionId:   'L7',
+        passed:      Boolean(root['Final Passed']) || score >= PASSING_SCORE_PCT,
+        score,
+        attempts:    score > 0 ? 1 : 0,
+        completedAt: null,
+      });
+    }
+  }
+
+  const student: SheetStudent = {
+    name:           String(root['Full Name'] ?? root.fullName ?? regId),
+    email:          String(root.email ?? email),
+    registrationId: String(root['Registration ID'] ?? root.registrationId ?? regId),
+    course,
+    registeredAt:   '',
+  };
+
+  return {
+    success: true,
+    data: {
+      student,
+      sessions,
+      finalPassed:       Boolean(root['Final Passed'] ?? root.finalPassed),
+      certificateIssued: Boolean(root['Cert Issued']  ?? root.certIssued ?? root.certificateIssued),
+    },
+  };
+}
+
 /** Fetch a student's full session progress. */
 export async function getStudentProgress(
   email: string,
@@ -188,7 +260,9 @@ export async function getStudentProgress(
 
   if (!raw.success) return raw;
 
-  // If data is properly nested under the `data` key, normalise sessions and return
+  const root = raw as unknown as Record<string, unknown>;
+
+  // Shape A: properly nested under `data` key with a `student` object
   if (raw.data && typeof raw.data === 'object' && 'student' in raw.data) {
     const d = raw.data;
     return {
@@ -200,19 +274,23 @@ export async function getStudentProgress(
     };
   }
 
-  // Apps Script may return progress fields at root level (not nested under `data`)
-  const root = raw as unknown as Record<string, unknown>;
+  // Shape B: flat root with a `student` object + `sessions` array
   if (root.student && typeof root.student === 'object') {
     const rawSessions = Array.isArray(root.sessions) ? root.sessions as Record<string, unknown>[] : [];
     return {
       success: true,
       data: {
-        student:          root.student as SheetStudent,
-        sessions:         rawSessions.map(normalizeSession),
-        finalPassed:      Boolean(root.finalPassed),
+        student:           root.student as SheetStudent,
+        sessions:          rawSessions.map(normalizeSession),
+        finalPassed:       Boolean(root.finalPassed),
         certificateIssued: Boolean(root.certificateIssued),
       },
     };
+  }
+
+  // Shape C: flat sheet columns — S1%, S2%, …, Final Exam %  (or L1%, L2%, …)
+  if (typeof root['S1%'] !== 'undefined' || typeof root['L1%'] !== 'undefined' || typeof root['Final Exam %'] !== 'undefined') {
+    return normalizeFlatSheetProgress(root, email, regId);
   }
 
   return raw;
