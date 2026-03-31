@@ -609,6 +609,16 @@ export interface AttemptStatus {
   canAttempt: boolean;
 }
 
+export interface QuestionResult {
+  index: number;
+  q: string;
+  yourAnswer: string;
+  correctAnswer: string;
+  correct: boolean;
+  explanation: string;
+  options: string[];
+}
+
 export interface SubmitAssessmentResult {
   tabKey: string;
   score: number;          // percentage 0–100
@@ -619,6 +629,7 @@ export interface SubmitAssessmentResult {
   maxAttempts: number;
   canRetry: boolean;
   feedback?: string;
+  results?: QuestionResult[];
 }
 
 /** Fetch questions for a given tab key. */

@@ -8,6 +8,7 @@ import type {
   AssessmentQuestion,
   AttemptStatus,
   SubmitAssessmentResult,
+  QuestionResult,
 } from '@/src/lib/sheets';
 import { COURSES } from '@/src/config/courses';
 
@@ -744,6 +745,111 @@ export default function AssessmentPage() {
             )}
 
             {/* Actions */}
+            {/* (rendered below) */}
+          </div>
+        </div>
+
+        {/* Per-question review — shown for both pass and fail */}
+        {Array.isArray(result.results) && result.results.length > 0 && (
+          <div style={{ maxWidth: 700, margin: '0 auto 40px', padding: '0 24px' }}>
+            <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, marginBottom: 16 }}>
+              Question Review
+            </h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {(result.results as QuestionResult[]).map((qr, i) => {
+                const correctIdx = qr.correctAnswer.charCodeAt(0) - 65;
+                const yourIdx    = qr.yourAnswer.charCodeAt(0)    - 65;
+                return (
+                  <div key={i} style={{
+                    background: WHITE, borderRadius: 12,
+                    border: `1px solid ${qr.correct ? '#BBF7D0' : '#FECACA'}`,
+                    boxShadow: '0 1px 4px rgba(0,0,0,0.05)', overflow: 'hidden',
+                  }}>
+                    {/* Question header */}
+                    <div style={{
+                      background: qr.correct ? '#F0FDF4' : '#FEF2F2',
+                      padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 10,
+                    }}>
+                      <span style={{
+                        width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+                        background: qr.correct ? GREEN : '#DC2626', color: WHITE,
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 13, fontWeight: 800,
+                      }}>
+                        {i + 1}
+                      </span>
+                      <p style={{ fontSize: 14, fontWeight: 600, color: NAVY, margin: 0, lineHeight: 1.5 }}>
+                        {qr.q}
+                      </p>
+                    </div>
+
+                    {/* Options */}
+                    <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      {qr.options.map((opt, oi) => {
+                        const letter   = String.fromCharCode(65 + oi);
+                        const isCorrect = oi === correctIdx;
+                        const isYours   = oi === yourIdx;
+                        const isWrong   = isYours && !qr.correct;
+
+                        let bg      = '#F8FAFC';
+                        let border  = BORDER;
+                        let color   = '#475569';
+                        let label   = '';
+
+                        if (isCorrect) { bg = '#F0FDF4'; border = '#86EFAC'; color = '#15803D'; label = '✓ Correct'; }
+                        if (isWrong)   { bg = '#FEF2F2'; border = '#FCA5A5'; color = '#DC2626'; label = '✗ Your answer'; }
+
+                        return (
+                          <div key={oi} style={{
+                            display: 'flex', alignItems: 'center', gap: 10,
+                            padding: '10px 14px', borderRadius: 8,
+                            border: `1.5px solid ${border}`, background: bg,
+                          }}>
+                            <span style={{
+                              width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
+                              background: isCorrect ? GREEN : isWrong ? '#DC2626' : BORDER,
+                              color: (isCorrect || isWrong) ? WHITE : '#64748B',
+                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                              fontSize: 11, fontWeight: 700,
+                            }}>
+                              {letter}
+                            </span>
+                            <span style={{ fontSize: 13, color, flex: 1 }}>{opt}</span>
+                            {label && (
+                              <span style={{ fontSize: 11, fontWeight: 700, color, flexShrink: 0 }}>{label}</span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {/* Explanation */}
+                    {qr.explanation && (
+                      <div style={{
+                        margin: '0 20px 16px', padding: '10px 14px', borderRadius: 8,
+                        background: '#F0F9FF', border: '1px solid #BAE6FD',
+                        fontSize: 13, color: '#0369A1', lineHeight: 1.6,
+                      }}>
+                        💡 {qr.explanation}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Actions (pulled out of card so review appears between card and actions) */}
+        <div style={{ maxWidth: 600, margin: '0 auto 60px', padding: '0 24px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* placeholder — real actions block below overrides this via the original card close */}
+          </div>
+        </div>
+
+        {/* Dummy close for JSX — actual card actions are still inside the card below */}
+        {/* NOTE: the card div was closed above; the actions block below is standalone */}
+        <div style={{ display: 'none' }}>{/* Actions
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {result.canRetry && !passed && (
                 <button onClick={load} style={{

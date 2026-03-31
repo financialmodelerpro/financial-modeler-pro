@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
         maxAttempts:    (raw.maxAttempts    as number)  ?? 3,
         canRetry:       (raw.canRetry       as boolean) ?? false,
         feedback:        raw.feedback as string | undefined,
+        results:         Array.isArray(raw.results) ? raw.results : undefined,
       };
       return NextResponse.json({ success: true, data });
     }
