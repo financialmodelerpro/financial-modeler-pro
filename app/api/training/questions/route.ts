@@ -26,7 +26,11 @@ export async function GET(req: NextRequest) {
       sessionName:   raw.sessionName,
       course:        raw.course,
       isFinal:       raw.isFinal       ?? false,
-      questions:     Array.isArray(raw.questions) ? raw.questions : [],
+      questions:     (Array.isArray(raw.questions) ? raw.questions : []).map((q: Record<string, unknown>) => ({
+        ...q,
+        // Apps Script returns `question` field; interface expects `questionText`
+        questionText: (q.questionText as string) || (q.question as string) || '',
+      })),
       timeLimit:     raw.timeLimit,
       passingScore:  raw.passingScore,
       maxAttempts:   raw.maxAttempts,

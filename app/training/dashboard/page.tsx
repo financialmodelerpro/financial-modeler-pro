@@ -651,7 +651,7 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
           let watchLocked = false;
           if (bvmLocked) {
             watchLocked = true;
-          } else if (!isFinalRow && idx > 0) {
+          } else if (idx > 0) {
             const prev = course.sessions[idx - 1];
             watchLocked = !progressMap.get(prev.id)?.passed;
           }

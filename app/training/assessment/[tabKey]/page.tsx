@@ -675,11 +675,16 @@ export default function AssessmentPage() {
             <h1 style={{ fontSize: 28, fontWeight: 800, color: NAVY, marginBottom: 8 }}>
               {passed ? 'Congratulations!' : 'Keep Practicing!'}
             </h1>
-            <p style={{ fontSize: 16, color: '#475569', marginBottom: 28 }}>
+            <p style={{ fontSize: 16, color: '#475569', marginBottom: passed ? 28 : 8 }}>
               {passed
                 ? `You passed ${sessionName}!`
                 : `You didn't pass ${sessionName} this time.`}
             </p>
+            {!passed && (
+              <p style={{ fontSize: 14, color: '#64748B', marginBottom: 28 }}>
+                You scored <strong style={{ color: '#DC2626' }}>{result.score}%</strong> — passing score is {passingScore}%.
+              </p>
+            )}
 
             {/* Score circle */}
             <div style={{

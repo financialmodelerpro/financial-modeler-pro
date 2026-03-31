@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
     const raw = result as unknown as Record<string, unknown>;
     const data = {
       tabKey:          raw.tabKey          ?? tabKey,
-      attempts:        raw.attempts        ?? 0,
+      attempts:        raw.attemptsUsed    ?? raw.attempts ?? 0,
       maxAttempts:     raw.maxAttempts     ?? 3,
       passed:          raw.passed          ?? false,
       lastScore:       raw.lastScore,
