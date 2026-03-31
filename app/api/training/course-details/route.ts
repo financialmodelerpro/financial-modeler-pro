@@ -75,6 +75,11 @@ export async function GET(req: NextRequest) {
       fetchSessionDurations(),
     ]);
 
+    // Debug: return raw Apps Script session data so we can see field names + values
+    if (req.nextUrl.searchParams.get('debug') === '1') {
+      return NextResponse.json({ raw: rawSessions, supabase: sessionDurations });
+    }
+
     // Normalise: ensure videoDuration is always a number.
     // Priority: Apps Script column J > Supabase session_config > 0
     const sessions = rawSessions.map(s => ({
