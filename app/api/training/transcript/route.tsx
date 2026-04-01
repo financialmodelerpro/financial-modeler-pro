@@ -31,9 +31,9 @@ const s = StyleSheet.create({
     backgroundColor: C.white, paddingBottom: 36,
   },
 
-  /* Header */
+  /* Header — bg overridden at runtime via settings.headerBgColor */
   header: {
-    backgroundColor: C.navy, paddingHorizontal: 36, paddingTop: 14, paddingBottom: 12,
+    paddingHorizontal: 36, paddingTop: 14, paddingBottom: 12,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
   },
   hLogoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
@@ -90,7 +90,7 @@ const s = StyleSheet.create({
   /* Table */
   tableWrap: { paddingHorizontal: 36 },
   tHead: {
-    flexDirection: 'row', backgroundColor: C.navy2,
+    flexDirection: 'row',
     paddingVertical: 5, borderRadius: 4,
   },
   tRow: {
@@ -138,10 +138,9 @@ const s = StyleSheet.create({
   sumValGold:  { fontSize: 8, fontFamily: 'Helvetica-Bold', color: '#B45309' },
   sumValRed:   { fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.red },
 
-  /* Footer */
+  /* Footer — bg overridden at runtime via settings.headerBgColor */
   footer: {
     position: 'absolute' as const, bottom: 0, left: 0, right: 0,
-    backgroundColor: C.navy,
     paddingHorizontal: 36, paddingVertical: 7,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
   },
@@ -152,27 +151,31 @@ const s = StyleSheet.create({
 // ── Transcript settings ───────────────────────────────────────────────────────
 
 interface TranscriptSettings {
-  headerTitle:   string;
-  subtitle:      string;
-  footer1:       string;
-  footer2:       string;
-  instructor:    string;
-  websiteUrl:    string;
-  logoUrl:       string;   // transcript-specific logo URL (empty = use branding config logo)
-  logoWidth:     number;   // logo width in PDF points
-  logoPosition:  'left' | 'center' | 'right' | 'none';
+  headerTitle:      string;
+  subtitle:         string;
+  footer1:          string;
+  footer2:          string;
+  instructor:       string;
+  websiteUrl:       string;
+  logoUrl:          string;   // transcript-specific logo URL (empty = use branding config logo)
+  logoWidth:        number;   // logo width in PDF points
+  logoPosition:     'left' | 'center' | 'right' | 'none';
+  headerBgColor:    string;
+  tableHeaderColor: string;
 }
 
 const DEFAULTS: TranscriptSettings = {
-  headerTitle:  'OFFICIAL ACADEMIC TRANSCRIPT',
-  subtitle:     'FMP Training Hub',
-  footer1:      'This transcript is an official record issued by Financial Modeler Pro.',
-  footer2:      'Verify certificate authenticity at certifier.io',
-  instructor:   'Ahmad Din | Corporate Finance Expert',
-  websiteUrl:   'www.financialmodelerpro.com',
-  logoUrl:      '',
-  logoWidth:    32,
-  logoPosition: 'right',
+  headerTitle:      'OFFICIAL ACADEMIC TRANSCRIPT',
+  subtitle:         'FMP Training Hub',
+  footer1:          'This transcript is an official record issued by Financial Modeler Pro.',
+  footer2:          'Verify certificate authenticity at certifier.io',
+  instructor:       'Ahmad Din | Corporate Finance Expert',
+  websiteUrl:       'www.financialmodelerpro.com',
+  logoUrl:          '',
+  logoWidth:        32,
+  logoPosition:     'right',
+  headerBgColor:    '#0D2E5A',
+  tableHeaderColor: '#1B4F8A',
 };
 
 async function loadTranscriptSettings(): Promise<TranscriptSettings> {
@@ -194,11 +197,13 @@ async function loadTranscriptSettings(): Promise<TranscriptSettings> {
       footer2:      map['transcript_footer_2']      || DEFAULTS.footer2,
       instructor:   map['transcript_instructor']    || DEFAULTS.instructor,
       websiteUrl:   map['transcript_website_url']   || DEFAULTS.websiteUrl,
-      logoUrl:      map['transcript_logo_url']      || DEFAULTS.logoUrl,
-      logoWidth:    Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : DEFAULTS.logoWidth,
-      logoPosition: (['left', 'center', 'right', 'none'] as const).includes(rawPos as TranscriptSettings['logoPosition'])
+      logoUrl:          map['transcript_logo_url']          || DEFAULTS.logoUrl,
+      logoWidth:        Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : DEFAULTS.logoWidth,
+      logoPosition:     (['left', 'center', 'right', 'none'] as const).includes(rawPos as TranscriptSettings['logoPosition'])
         ? rawPos as TranscriptSettings['logoPosition']
         : DEFAULTS.logoPosition,
+      headerBgColor:    map['transcript_header_bg_color']    || DEFAULTS.headerBgColor,
+      tableHeaderColor: map['transcript_table_header_color'] || DEFAULTS.tableHeaderColor,
     };
   } catch {
     return DEFAULTS;
@@ -273,7 +278,7 @@ function StatusBadge({ passed, attempts, isFinal }: { passed: boolean; attempts:
   return <View style={s.badgeGrey}><Text style={s.badgeGreyTxt}>NOT STARTED</Text></View>;
 }
 
-function CourseTable({ courseId, progressMap }: { courseId: string; progressMap: Map<string, ProgRow> }) {
+function CourseTable({ courseId, progressMap, tableHeaderColor }: { courseId: string; progressMap: Map<string, ProgRow>; tableHeaderColor: string }) {
   const course = COURSES[courseId];
   if (!course) return null;
   const regularSessions = course.sessions.filter(s => !s.isFinal);
@@ -283,7 +288,7 @@ function CourseTable({ courseId, progressMap }: { courseId: string; progressMap:
   return (
     <View style={s.tableWrap}>
       {/* Table header */}
-      <View style={s.tHead}>
+      <View style={[s.tHead, { backgroundColor: tableHeaderColor }]}>
         <View style={s.colNum}><Text style={s.thText}>#</Text></View>
         <View style={s.colName}><Text style={s.thText}>Session Name</Text></View>
         <View style={s.colScore}><Text style={s.thText}>Score</Text></View>
@@ -457,7 +462,7 @@ function TranscriptDocument({
       <Page size="A4" style={s.page}>
 
         {/* ── Header ──────────────────────────────────────────────────── */}
-        <View style={s.header}>
+        <View style={[s.header, { backgroundColor: settings.headerBgColor }]}>
           {/* Left block */}
           <View style={{ flex: 1 }}>
             {/* Center position: logo stacked and centered above brand name */}
@@ -551,7 +556,7 @@ function TranscriptDocument({
             <Text style={s.sectionTitle}>{courseLabel}</Text>
             <View style={s.sectionLine} />
           </View>
-          <CourseTable courseId={courseId} progressMap={progressMap} />
+          <CourseTable courseId={courseId} progressMap={progressMap} tableHeaderColor={settings.tableHeaderColor} />
         </View>
 
         {/* ── Summary Boxes ──────────────────────────────────────────────── */}
@@ -563,7 +568,7 @@ function TranscriptDocument({
         />
 
         {/* ── Footer ─────────────────────────────────────────────────────── */}
-        <View style={s.footer} fixed>
+        <View style={[s.footer, { backgroundColor: settings.headerBgColor }]} fixed>
           <Text style={s.footerText}>Issue Date: {todayStr()}</Text>
           <Text style={s.footerText}>{settings.footer1} {settings.footer2}</Text>
           <Text style={s.footerText}>{settings.websiteUrl}</Text>
