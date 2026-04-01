@@ -208,6 +208,9 @@ export default function AssessmentPage() {
 
   // ── Timer ──────────────────────────────────────────────────────────────────
 
+  // Keep a stable ref to handleSubmit so the timer closure never captures a stale copy
+  const handleSubmitRef = useRef<() => void>(() => { /* placeholder */ });
+
   useEffect(() => {
     if (pageState !== 'taking' || !questions?.timeLimit) return;
 
@@ -218,7 +221,8 @@ export default function AssessmentPage() {
       setTimeLeft(prev => {
         if (prev === null || prev <= 1) {
           if (timerRef.current) clearInterval(timerRef.current);
-          handleSubmit();  // auto-submit on timeout
+          // Schedule outside the state-updater so React isn't called re-entrantly
+          setTimeout(() => handleSubmitRef.current(), 0);
           return 0;
         }
         return prev - 1;
@@ -271,6 +275,9 @@ export default function AssessmentPage() {
       setPageState('ready');
     }
   }
+
+  // Keep timer ref in sync with latest handleSubmit on every render
+  handleSubmitRef.current = handleSubmit;
 
   // ── Render helpers ─────────────────────────────────────────────────────────
 
@@ -773,74 +780,99 @@ export default function AssessmentPage() {
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {(result.results as QuestionResult[]).map((qr, i) => {
-                const correctIdx = qr.correctAnswer.charCodeAt(0) - 65;
-                const yourIdx    = qr.yourAnswer.charCodeAt(0)    - 65;
+                // Guard all fields — Apps Script may omit options/answers in results
+                const questionText = qr?.q ?? qr?.explanation ?? `Question ${i + 1}`;
+                const options      = Array.isArray(qr?.options) ? qr.options : [];
+                const correctStr   = typeof qr?.correctAnswer === 'string' ? qr.correctAnswer : '';
+                const yourStr      = typeof qr?.yourAnswer    === 'string' ? qr.yourAnswer    : '';
+                const correctIdx   = correctStr.length > 0 ? correctStr.charCodeAt(0) - 65 : -1;
+                const yourIdx      = yourStr.length    > 0 ? yourStr.charCodeAt(0)    - 65 : -1;
+                const isCorrect    = qr?.correct ?? false;
+
                 return (
                   <div key={i} style={{
                     background: WHITE, borderRadius: 12,
-                    border: `1px solid ${qr.correct ? '#BBF7D0' : '#FECACA'}`,
+                    border: `1px solid ${isCorrect ? '#BBF7D0' : '#FECACA'}`,
                     boxShadow: '0 1px 4px rgba(0,0,0,0.05)', overflow: 'hidden',
                   }}>
                     {/* Question header */}
                     <div style={{
-                      background: qr.correct ? '#F0FDF4' : '#FEF2F2',
+                      background: isCorrect ? '#F0FDF4' : '#FEF2F2',
                       padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 10,
                     }}>
                       <span style={{
                         width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
-                        background: qr.correct ? GREEN : '#DC2626', color: WHITE,
+                        background: isCorrect ? GREEN : '#DC2626', color: WHITE,
                         display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                         fontSize: 13, fontWeight: 800,
                       }}>
                         {i + 1}
                       </span>
                       <p style={{ fontSize: 14, fontWeight: 600, color: NAVY, margin: 0, lineHeight: 1.5 }}>
-                        {qr.q}
+                        {questionText}
                       </p>
                     </div>
 
-                    {/* Options */}
-                    <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                      {qr.options.map((opt, oi) => {
-                        const letter    = String.fromCharCode(65 + oi);
-                        const isCorrect = oi === correctIdx;
-                        const isYours   = oi === yourIdx;
-                        const isWrong   = isYours && !qr.correct;
+                    {/* Options — only rendered if the API returned them */}
+                    {options.length > 0 && (
+                      <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {options.map((opt, oi) => {
+                          const letter      = String.fromCharCode(65 + oi);
+                          const optCorrect  = oi === correctIdx;
+                          const optYours    = oi === yourIdx;
+                          const optWrong    = optYours && !isCorrect;
 
-                        let bg     = '#F8FAFC';
-                        let border = BORDER;
-                        let color  = '#475569';
-                        let label  = '';
+                          let bg     = '#F8FAFC';
+                          let bdr    = BORDER;
+                          let color  = '#475569';
+                          let label  = '';
 
-                        if (isCorrect) { bg = '#F0FDF4'; border = '#86EFAC'; color = '#15803D'; label = '✓ Correct'; }
-                        if (isWrong)   { bg = '#FEF2F2'; border = '#FCA5A5'; color = '#DC2626'; label = '✗ Your answer'; }
+                          if (optCorrect) { bg = '#F0FDF4'; bdr = '#86EFAC'; color = '#15803D'; label = '✓ Correct'; }
+                          if (optWrong)   { bg = '#FEF2F2'; bdr = '#FCA5A5'; color = '#DC2626'; label = '✗ Your answer'; }
 
-                        return (
-                          <div key={oi} style={{
-                            display: 'flex', alignItems: 'center', gap: 10,
-                            padding: '10px 14px', borderRadius: 8,
-                            border: `1.5px solid ${border}`, background: bg,
-                          }}>
-                            <span style={{
-                              width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
-                              background: isCorrect ? GREEN : isWrong ? '#DC2626' : BORDER,
-                              color: (isCorrect || isWrong) ? WHITE : '#64748B',
-                              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                              fontSize: 11, fontWeight: 700,
+                          return (
+                            <div key={oi} style={{
+                              display: 'flex', alignItems: 'center', gap: 10,
+                              padding: '10px 14px', borderRadius: 8,
+                              border: `1.5px solid ${bdr}`, background: bg,
                             }}>
-                              {letter}
-                            </span>
-                            <span style={{ fontSize: 13, color, flex: 1 }}>{opt}</span>
-                            {label && (
-                              <span style={{ fontSize: 11, fontWeight: 700, color, flexShrink: 0 }}>{label}</span>
-                            )}
+                              <span style={{
+                                width: 24, height: 24, borderRadius: '50%', flexShrink: 0,
+                                background: optCorrect ? GREEN : optWrong ? '#DC2626' : BORDER,
+                                color: (optCorrect || optWrong) ? WHITE : '#64748B',
+                                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                                fontSize: 11, fontWeight: 700,
+                              }}>
+                                {letter}
+                              </span>
+                              <span style={{ fontSize: 13, color, flex: 1 }}>{opt ?? ''}</span>
+                              {label && (
+                                <span style={{ fontSize: 11, fontWeight: 700, color, flexShrink: 0 }}>{label}</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* Fallback when options not in API response: show correct/your answer as text */}
+                    {options.length === 0 && (correctStr || yourStr) && (
+                      <div style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        {yourStr && (
+                          <div style={{ fontSize: 13, color: isCorrect ? '#15803D' : '#DC2626', fontWeight: 600 }}>
+                            Your answer: {yourStr}
                           </div>
-                        );
-                      })}
-                    </div>
+                        )}
+                        {!isCorrect && correctStr && (
+                          <div style={{ fontSize: 13, color: '#15803D', fontWeight: 600 }}>
+                            Correct answer: {correctStr}
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Explanation */}
-                    {qr.explanation && (
+                    {qr?.explanation && (
                       <div style={{
                         margin: '0 20px 16px', padding: '10px 14px', borderRadius: 8,
                         background: '#F0F9FF', border: '1px solid #BAE6FD',
