@@ -12,6 +12,9 @@ export async function POST(req: NextRequest) {
 
     const result = await submitAssessment(tabKey, email, regId, answers);
 
+    // Debug: log raw Apps Script response to see what fields are returned
+    console.log('[submit-assessment] raw response:', JSON.stringify(result).slice(0, 2000));
+
     if (!result.success) {
       console.error('[submit-assessment] Apps Script error:', result.error, { tabKey, email });
       return NextResponse.json({ success: false, error: result.error ?? 'Submission failed' });

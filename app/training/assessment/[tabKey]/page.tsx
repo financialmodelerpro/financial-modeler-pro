@@ -268,7 +268,23 @@ export default function AssessmentPage() {
     clearSavedAnswers(tabKey);
 
     if (data.success && data.data) {
-      setResult(data.data);
+      // Enrich results with options + question text from already-loaded questions.
+      // Apps Script returns correctAnswer/yourAnswer/correct/explanation but not options,
+      // since the browser already has them from the questions fetch.
+      const enriched: SubmitAssessmentResult = { ...data.data };
+      if (Array.isArray(enriched.results) && questions) {
+        enriched.results = enriched.results.map((qr, i) => {
+          const src = questions.questions[typeof qr.index === 'number' ? qr.index : i];
+          return {
+            ...qr,
+            q:       qr.q       || src?.q       || '',
+            options: Array.isArray(qr.options) && qr.options.length > 0
+              ? qr.options
+              : (src?.options ?? []),
+          };
+        });
+      }
+      setResult(enriched);
       setPageState('results');
     } else {
       setErrorMsg(data.error ?? 'Submission failed. Please try again.');
