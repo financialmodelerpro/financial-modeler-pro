@@ -2,31 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/auth';
 import { getServerClient } from '@/src/lib/supabase';
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-export interface ElemPos {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}
-
-export interface CertLayout {
-  logo: ElemPos;
-  heading: ElemPos;
-  studentBlock: ElemPos;
-  signature: ElemPos;
-}
-
-// ── Default layout (canvas 680×960) ──────────────────────────────────────────
-
-export const DEFAULT_LAYOUT: CertLayout = {
-  logo:         { left: 195, top: 46,  width: 290, height: 80  },
-  heading:      { left: 40,  top: 185, width: 600, height: 60  },
-  studentBlock: { left: 40,  top: 280, width: 600, height: 380 },
-  signature:    { left: 80,  top: 750, width: 520, height: 70  },
-};
+import { DEFAULT_CERT_LAYOUT, type CertLayout } from '@/src/lib/certificateLayout';
 
 const SECTION = 'certificate_layout';
 const KEY     = 'layout_json';
@@ -50,14 +26,14 @@ export async function GET(_req: NextRequest) {
       .maybeSingle();
 
     if (!data?.value) {
-      return NextResponse.json({ layout: DEFAULT_LAYOUT });
+      return NextResponse.json({ layout: DEFAULT_CERT_LAYOUT });
     }
 
     let layout: CertLayout;
     try {
       layout = JSON.parse(data.value) as CertLayout;
     } catch {
-      layout = DEFAULT_LAYOUT;
+      layout = DEFAULT_CERT_LAYOUT;
     }
 
     return NextResponse.json({ layout });
