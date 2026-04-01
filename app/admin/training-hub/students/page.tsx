@@ -303,39 +303,27 @@ export default function StudentsPage() {
                   ❌ {progressError}
                 </div>
               )}
-              {progress && !progressLoading && (
-                <>
-                  {/* Summary badges */}
-                  <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-                    <div style={{ background: '#F4F7FC', borderRadius: 8, padding: '10px 16px', fontSize: 12 }}>
-                      <div style={{ color: '#6B7280', fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Final Exam</div>
-                      <div style={{ fontWeight: 800, color: progress.finalPassed ? '#166534' : '#DC2626', marginTop: 4 }}>
-                        {progress.finalPassed ? '✅ Passed' : '❌ Not Passed'}
-                      </div>
-                    </div>
-                    <div style={{ background: '#F4F7FC', borderRadius: 8, padding: '10px 16px', fontSize: 12 }}>
-                      <div style={{ color: '#6B7280', fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Certificate</div>
-                      <div style={{ fontWeight: 800, color: progress.certificateIssued ? '#166534' : '#6B7280', marginTop: 4 }}>
-                        {progress.certificateIssued ? '🏆 Issued' : '—'}
-                      </div>
-                    </div>
-                    <div style={{ background: '#F4F7FC', borderRadius: 8, padding: '10px 16px', fontSize: 12 }}>
-                      <div style={{ color: '#6B7280', fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Sessions Passed</div>
-                      <div style={{ fontWeight: 800, color: '#1B3A6B', marginTop: 4 }}>
-                        {progress.sessions.filter(s => s.passed).length} / {progress.sessions.length}
-                      </div>
-                    </div>
-                  </div>
+              {progress && !progressLoading && (() => {
+                // Group sessions by course: S* = 3SFM, L* = BVM
+                const sfmSessions = progress.sessions.filter(s => /^S/i.test(s.sessionId));
+                const bvmSessions = progress.sessions.filter(s => /^L/i.test(s.sessionId));
+                const hasBoth = sfmSessions.length > 0 && bvmSessions.length > 0;
 
-                  {/* Sessions table */}
-                  {progress.sessions.length > 0 ? (
-                    <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid #E5E7EB' }}>
+                const SessionTable = ({ sessions, label }: { sessions: SessionProgress[]; label?: string }) => (
+                  <div style={{ marginBottom: hasBoth ? 16 : 0 }}>
+                    {label && (
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: '#2563EB', padding: '5px 14px', borderRadius: '8px 8px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <span>{label}</span>
+                        <span style={{ fontWeight: 400 }}>{sessions.filter(s => s.passed).length} / {sessions.length} passed</span>
+                      </div>
+                    )}
+                    <div style={{ borderRadius: label ? '0 0 8px 8px' : 8, overflow: 'hidden', border: '1px solid #E5E7EB' }}>
                       <div style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px 80px 1fr', background: '#1B4F8A', padding: '8px 14px', gap: 0 }}>
                         {['Session', 'Score', 'Attempts', 'Status', 'Completed'].map(h => (
                           <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
                         ))}
                       </div>
-                      {progress.sessions.map(sess => (
+                      {sessions.map(sess => (
                         <div key={sess.sessionId} style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px 80px 1fr', padding: '9px 14px', borderBottom: '1px solid #F3F4F6', fontSize: 12, alignItems: 'center', background: sess.passed ? '#F0FDF4' : '#fff' }}>
                           <div style={{ fontWeight: 700, color: '#1B3A6B' }}>{sess.sessionId}</div>
                           <div style={{ color: '#374151' }}>{sess.score ?? '—'}</div>
@@ -345,11 +333,66 @@ export default function StudentsPage() {
                         </div>
                       ))}
                     </div>
-                  ) : (
-                    <div style={{ textAlign: 'center', color: '#9CA3AF', fontSize: 13, padding: 24 }}>No session data available.</div>
-                  )}
-                </>
-              )}
+                  </div>
+                );
+
+                return (
+                  <>
+                    {/* Summary badges */}
+                    <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+                      <div style={{ background: '#F4F7FC', borderRadius: 8, padding: '10px 16px', fontSize: 12 }}>
+                        <div style={{ color: '#6B7280', fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Final Exam</div>
+                        <div style={{ fontWeight: 800, color: progress.finalPassed ? '#166534' : '#DC2626', marginTop: 4 }}>
+                          {progress.finalPassed ? '✅ Passed' : '❌ Not Passed'}
+                        </div>
+                      </div>
+                      <div style={{ background: '#F4F7FC', borderRadius: 8, padding: '10px 16px', fontSize: 12 }}>
+                        <div style={{ color: '#6B7280', fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Certificate</div>
+                        <div style={{ fontWeight: 800, color: progress.certificateIssued ? '#166534' : '#6B7280', marginTop: 4 }}>
+                          {progress.certificateIssued ? '🏆 Issued' : '—'}
+                        </div>
+                      </div>
+                      {hasBoth ? (
+                        <>
+                          <div style={{ background: '#EFF6FF', borderRadius: 8, padding: '10px 16px', fontSize: 12 }}>
+                            <div style={{ color: '#1D4ED8', fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>3SFM Sessions</div>
+                            <div style={{ fontWeight: 800, color: '#1B3A6B', marginTop: 4 }}>
+                              {sfmSessions.filter(s => s.passed).length} / {sfmSessions.length}
+                            </div>
+                          </div>
+                          <div style={{ background: '#F0FDF4', borderRadius: 8, padding: '10px 16px', fontSize: 12 }}>
+                            <div style={{ color: '#166534', fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>BVM Sessions</div>
+                            <div style={{ fontWeight: 800, color: '#1B3A6B', marginTop: 4 }}>
+                              {bvmSessions.filter(s => s.passed).length} / {bvmSessions.length}
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div style={{ background: '#F4F7FC', borderRadius: 8, padding: '10px 16px', fontSize: 12 }}>
+                          <div style={{ color: '#6B7280', fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Sessions Passed</div>
+                          <div style={{ fontWeight: 800, color: '#1B3A6B', marginTop: 4 }}>
+                            {progress.sessions.filter(s => s.passed).length} / {progress.sessions.length}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Sessions table(s) */}
+                    {progress.sessions.length > 0 ? (
+                      hasBoth ? (
+                        <>
+                          {sfmSessions.length > 0 && <SessionTable sessions={sfmSessions} label="3SFM" />}
+                          {bvmSessions.length > 0 && <SessionTable sessions={bvmSessions} label="BVM" />}
+                        </>
+                      ) : (
+                        <SessionTable sessions={progress.sessions} />
+                      )
+                    ) : (
+                      <div style={{ textAlign: 'center', color: '#9CA3AF', fontSize: 13, padding: 24 }}>No session data available.</div>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>

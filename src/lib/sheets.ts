@@ -500,38 +500,65 @@ function mapRawStudent(r: RawStudentEntry): StudentSummary {
   const courseRaw = r.course ?? (Array.isArray(r.enrolledCourses) ? r.enrolledCourses[0] : '') ?? '';
   const prog = r.progress;
 
-  // Start with values from the flat/old-format progress object
-  let sessionsPassedCount: number | undefined = prog?.sessionsPassed ?? r.sessionsPassedCount;
-  let totalSessions: number | undefined       = prog?.totalSessions  ?? r.totalSessions;
-  let finalExamStatus: string | undefined     = prog?.finalExam?.status;
-  let certificateIssued: boolean              = prog
-    ? prog.certificateStatus === 'earned'
-    : (r.certificateIssued ?? false);
+  let sessionsPassedCount: number | undefined;
+  let totalSessions: number | undefined;
+  let finalExamStatus: string | undefined;
+  let certificateIssued: boolean = r.certificateIssued ?? false;
 
-  // New Apps Script format: progress is keyed by course, e.g. { "3sfm": { sessionsPassed, totalSessions, finalExam, … } }
-  // Detect by checking whether the direct fields are missing but progress has object values
-  if (prog && sessionsPassedCount === undefined) {
-    type CourseEntry = {
-      sessionsPassed?: number; totalSessions?: number;
-      finalExam?: { status?: string }; certificateStatus?: string;
-    };
-    const entries = Object.values(prog as unknown as Record<string, CourseEntry>);
-    if (entries.length > 0 && typeof entries[0] === 'object' && entries[0] !== null) {
-      let sp = 0, ts = 0;
-      for (const cp of entries) {
-        sp += cp.sessionsPassed ?? 0;
-        ts += cp.totalSessions  ?? 0;
-        // 'passed' wins; otherwise take the first non-null status
-        if (cp.finalExam?.status === 'passed') {
-          finalExamStatus = 'passed';
-        } else if (!finalExamStatus && cp.finalExam?.status) {
-          finalExamStatus = cp.finalExam.status;
+  if (prog) {
+    const p = prog as unknown as Record<string, unknown>;
+
+    // Detect format: flat if progress has numeric sessionsPassed/totalSessions at root;
+    // per-course keyed if values are objects (e.g. { "3sfm": { sessions, sessionsPassed, … } })
+    const hasFlat = typeof p.sessionsPassed === 'number' || typeof p.totalSessions === 'number';
+
+    if (hasFlat) {
+      // Flat format: progress.sessionsPassed / totalSessions / finalExam at root
+      sessionsPassedCount = typeof p.sessionsPassed === 'number' ? (p.sessionsPassed as number) : undefined;
+      totalSessions       = typeof p.totalSessions  === 'number' ? (p.totalSessions  as number) : undefined;
+      finalExamStatus     = (p.finalExam as { status?: string } | undefined)?.status;
+      if (p.certificateStatus === 'earned') certificateIssued = true;
+    } else {
+      // Per-course keyed format: { "3sfm": { sessionsPassed?, totalSessions?, sessions?, finalExam? }, … }
+      type CourseEntry = {
+        sessionsPassed?: number; totalSessions?: number;
+        sessions?: Record<string, { status?: string }>;
+        finalExam?: { status?: string }; certificateStatus?: string;
+      };
+      const entries = (Object.values(p) as unknown[])
+        .filter((e): e is CourseEntry => typeof e === 'object' && e !== null);
+
+      if (entries.length > 0) {
+        let sp = 0, ts = 0;
+        for (const cp of entries) {
+          // Count passed sessions: prefer explicit count, fall back to counting from keyed sessions object
+          if (typeof cp.sessionsPassed === 'number') {
+            sp += cp.sessionsPassed;
+          } else if (cp.sessions && typeof cp.sessions === 'object') {
+            sp += Object.values(cp.sessions).filter(s => s.status === 'passed').length;
+          }
+          // Count total sessions: prefer explicit count, fall back to key count
+          if (typeof cp.totalSessions === 'number') {
+            ts += cp.totalSessions;
+          } else if (cp.sessions && typeof cp.sessions === 'object') {
+            ts += Object.keys(cp.sessions).length;
+          }
+          // Final exam status: 'passed' wins across courses
+          if (cp.finalExam?.status === 'passed') {
+            finalExamStatus = 'passed';
+          } else if (!finalExamStatus && cp.finalExam?.status) {
+            finalExamStatus = cp.finalExam.status;
+          }
+          if (cp.certificateStatus === 'earned') certificateIssued = true;
         }
-        if (cp.certificateStatus === 'earned') certificateIssued = true;
+        sessionsPassedCount = sp;
+        totalSessions       = ts;
       }
-      sessionsPassedCount = sp;
-      totalSessions       = ts;
     }
+  } else {
+    // No progress object on the record — use top-level flat fields
+    sessionsPassedCount = r.sessionsPassedCount;
+    totalSessions       = r.totalSessions;
   }
 
   return {
