@@ -20,6 +20,19 @@ const TRANSCRIPT_FIELDS: { key: string; label: string; placeholder: string }[] =
   { key: 'transcript_website_url',  label: 'Website URL',    placeholder: 'www.financialmodelerpro.com' },
 ];
 
+const LOGO_SIZE_OPTIONS = [
+  { value: '24', label: 'Small (24pt)' },
+  { value: '32', label: 'Medium (32pt)' },
+  { value: '48', label: 'Large (48pt)' },
+  { value: '64', label: 'X-Large (64pt)' },
+];
+
+const LOGO_POSITION_OPTIONS = [
+  { value: 'left',   label: 'Header Left — inline with brand name' },
+  { value: 'center', label: 'Header Center — stacked above brand name' },
+  { value: 'none',   label: 'No Logo' },
+];
+
 export default function TrainingSettingsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -35,6 +48,8 @@ export default function TrainingSettingsPage() {
   // Transcript settings
   const [transcriptFields, setTranscriptFields] = useState<Record<string, string>>({});
   const [transcriptSaving, setTranscriptSaving] = useState<Record<string, boolean>>({});
+  // Logo upload
+  const [logoUploading, setLogoUploading] = useState(false);
 
   useEffect(() => {
     if (status === 'unauthenticated') { router.replace('/login'); return; }
@@ -75,6 +90,26 @@ export default function TrainingSettingsPage() {
       showToast('Save failed');
     }
     setTranscriptSaving(prev => ({ ...prev, [key]: false }));
+  };
+
+  const uploadLogo = async (file: File) => {
+    setLogoUploading(true);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('bucket', 'cms-assets');
+      form.append('folder', 'transcript-logos');
+      const res = await fetch('/api/admin/media', { method: 'POST', body: form });
+      if (!res.ok) { showToast('Upload failed'); return; }
+      const { url } = await res.json() as { url: string };
+      // Save URL to cms_content
+      await saveTranscriptField('transcript_logo_url', url);
+      setTranscriptFields(prev => ({ ...prev, transcript_logo_url: url }));
+      showToast('Logo uploaded & saved');
+    } catch {
+      showToast('Upload failed');
+    }
+    setLogoUploading(false);
   };
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
@@ -230,6 +265,104 @@ export default function TrainingSettingsPage() {
                     </div>
                   );
                 })}
+
+                {/* ── Logo Settings ── */}
+                <div style={{ borderTop: '1px solid #E5E7EB', paddingTop: 18, marginTop: 4 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: '#1B3A6B', marginBottom: 14, letterSpacing: '0.04em' }}>
+                    🖼 Logo Settings
+                  </div>
+
+                  {/* Current logo preview */}
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Current Logo</div>
+                    {transcriptFields['transcript_logo_url'] ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={transcriptFields['transcript_logo_url']}
+                          alt="Transcript logo"
+                          style={{ height: 48, maxWidth: 180, objectFit: 'contain', border: '1px solid #E5E7EB', borderRadius: 6, padding: 4, background: '#F9FAFB' }}
+                        />
+                        <button
+                          onClick={async () => {
+                            await saveTranscriptField('transcript_logo_url', '');
+                            setTranscriptFields(prev => ({ ...prev, transcript_logo_url: '' }));
+                          }}
+                          style={{ fontSize: 11, fontWeight: 700, color: '#DC2626', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 5, padding: '5px 12px', cursor: 'pointer' }}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 12, color: '#9CA3AF', fontStyle: 'italic' }}>No logo set — branding config logo will be used as fallback</div>
+                    )}
+                  </div>
+
+                  {/* Upload new logo */}
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Upload Logo</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <label style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 6,
+                        padding: '8px 18px', background: logoUploading ? '#F3F4F6' : '#1B4F8A',
+                        color: logoUploading ? '#9CA3AF' : '#fff', borderRadius: 6,
+                        fontSize: 12, fontWeight: 700, cursor: logoUploading ? 'default' : 'pointer',
+                      }}>
+                        {logoUploading ? 'Uploading…' : '📁 Choose File'}
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                          disabled={logoUploading}
+                          style={{ display: 'none' }}
+                          onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f); e.target.value = ''; }}
+                        />
+                      </label>
+                      <span style={{ fontSize: 11, color: '#9CA3AF' }}>PNG, JPG, SVG or WebP — recommended size 200×200px or square</span>
+                    </div>
+                  </div>
+
+                  {/* Logo size */}
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Logo Size (in PDF)</div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <select
+                        value={transcriptFields['transcript_logo_width'] ?? '32'}
+                        onChange={e => setTranscriptFields(prev => ({ ...prev, transcript_logo_width: e.target.value }))}
+                        style={{ ...inputStyle, flex: 1, cursor: 'pointer' }}
+                      >
+                        {LOGO_SIZE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                      <button
+                        onClick={() => saveTranscriptField('transcript_logo_width', transcriptFields['transcript_logo_width'] ?? '32')}
+                        disabled={transcriptSaving['transcript_logo_width']}
+                        style={{ padding: '9px 18px', background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', opacity: transcriptSaving['transcript_logo_width'] ? 0.7 : 1 }}
+                      >
+                        {transcriptSaving['transcript_logo_width'] ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Logo position */}
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Logo Position</div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <select
+                        value={transcriptFields['transcript_logo_position'] ?? 'left'}
+                        onChange={e => setTranscriptFields(prev => ({ ...prev, transcript_logo_position: e.target.value }))}
+                        style={{ ...inputStyle, flex: 1, cursor: 'pointer' }}
+                      >
+                        {LOGO_POSITION_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                      <button
+                        onClick={() => saveTranscriptField('transcript_logo_position', transcriptFields['transcript_logo_position'] ?? 'left')}
+                        disabled={transcriptSaving['transcript_logo_position']}
+                        style={{ padding: '9px 18px', background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', opacity: transcriptSaving['transcript_logo_position'] ? 0.7 : 1 }}
+                      >
+                        {transcriptSaving['transcript_logo_position'] ? 'Saving…' : 'Save'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 

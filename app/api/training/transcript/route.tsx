@@ -151,21 +151,27 @@ const s = StyleSheet.create({
 // ── Transcript settings ───────────────────────────────────────────────────────
 
 interface TranscriptSettings {
-  headerTitle: string;
-  subtitle:    string;
-  footer1:     string;
-  footer2:     string;
-  instructor:  string;
-  websiteUrl:  string;
+  headerTitle:   string;
+  subtitle:      string;
+  footer1:       string;
+  footer2:       string;
+  instructor:    string;
+  websiteUrl:    string;
+  logoUrl:       string;   // transcript-specific logo URL (empty = use branding config logo)
+  logoWidth:     number;   // logo width in PDF points
+  logoPosition:  'left' | 'center' | 'none';
 }
 
 const DEFAULTS: TranscriptSettings = {
-  headerTitle: 'OFFICIAL ACADEMIC TRANSCRIPT',
-  subtitle:    'FMP Training Hub',
-  footer1:     'This transcript is an official record issued by Financial Modeler Pro.',
-  footer2:     'Verify certificate authenticity at certifier.io',
-  instructor:  'Ahmad Din | Corporate Finance Expert',
-  websiteUrl:  'www.financialmodelerpro.com',
+  headerTitle:  'OFFICIAL ACADEMIC TRANSCRIPT',
+  subtitle:     'FMP Training Hub',
+  footer1:      'This transcript is an official record issued by Financial Modeler Pro.',
+  footer2:      'Verify certificate authenticity at certifier.io',
+  instructor:   'Ahmad Din | Corporate Finance Expert',
+  websiteUrl:   'www.financialmodelerpro.com',
+  logoUrl:      '',
+  logoWidth:    32,
+  logoPosition: 'left',
 };
 
 async function loadTranscriptSettings(): Promise<TranscriptSettings> {
@@ -178,20 +184,44 @@ async function loadTranscriptSettings(): Promise<TranscriptSettings> {
     if (!data?.length) return DEFAULTS;
     const map: Record<string, string> = {};
     for (const row of data) map[row.key] = row.value;
+    const rawWidth = parseInt(map['transcript_logo_width'] ?? '', 10);
+    const rawPos   = map['transcript_logo_position'] ?? '';
     return {
-      headerTitle: map['transcript_header_title'] || DEFAULTS.headerTitle,
-      subtitle:    map['transcript_subtitle']      || DEFAULTS.subtitle,
-      footer1:     map['transcript_footer_1']      || DEFAULTS.footer1,
-      footer2:     map['transcript_footer_2']      || DEFAULTS.footer2,
-      instructor:  map['transcript_instructor']    || DEFAULTS.instructor,
-      websiteUrl:  map['transcript_website_url']   || DEFAULTS.websiteUrl,
+      headerTitle:  map['transcript_header_title'] || DEFAULTS.headerTitle,
+      subtitle:     map['transcript_subtitle']      || DEFAULTS.subtitle,
+      footer1:      map['transcript_footer_1']      || DEFAULTS.footer1,
+      footer2:      map['transcript_footer_2']      || DEFAULTS.footer2,
+      instructor:   map['transcript_instructor']    || DEFAULTS.instructor,
+      websiteUrl:   map['transcript_website_url']   || DEFAULTS.websiteUrl,
+      logoUrl:      map['transcript_logo_url']      || DEFAULTS.logoUrl,
+      logoWidth:    Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : DEFAULTS.logoWidth,
+      logoPosition: (['left', 'center', 'none'] as const).includes(rawPos as 'left' | 'center' | 'none')
+        ? rawPos as TranscriptSettings['logoPosition']
+        : DEFAULTS.logoPosition,
     };
   } catch {
     return DEFAULTS;
   }
 }
 
-async function loadLogoBase64(): Promise<string | null> {
+// Fetch a URL and return it as a base64 data URI.
+async function urlToBase64(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const buf = await res.arrayBuffer();
+    const b64 = Buffer.from(buf).toString('base64');
+    const ct  = res.headers.get('content-type') ?? 'image/png';
+    return `data:${ct};base64,${b64}`;
+  } catch {
+    return null;
+  }
+}
+
+async function loadLogoBase64(overrideUrl?: string): Promise<string | null> {
+  // 1. Use transcript-specific logo if set
+  if (overrideUrl) return urlToBase64(overrideUrl);
+  // 2. Fall back to branding config logo
   try {
     const sb = getServerClient();
     const { data } = await sb
@@ -200,15 +230,9 @@ async function loadLogoBase64(): Promise<string | null> {
       .eq('scope', 'global')
       .maybeSingle();
     const config = data?.config as Record<string, unknown> | null;
-    const logoUrl = (config?.platformLogoImage ?? config?.portalLogoImage) as string | null;
-    if (!logoUrl || !logoUrl.startsWith('http')) return null;
-
-    const res = await fetch(logoUrl, { cache: 'no-store' });
-    if (!res.ok) return null;
-    const buf = await res.arrayBuffer();
-    const b64 = Buffer.from(buf).toString('base64');
-    const ct  = res.headers.get('content-type') ?? 'image/png';
-    return `data:${ct};base64,${b64}`;
+    const brandingUrl = (config?.platformLogoImage ?? config?.portalLogoImage) as string | null;
+    if (!brandingUrl || !brandingUrl.startsWith('http')) return null;
+    return urlToBase64(brandingUrl);
   } catch {
     return null;
   }
@@ -434,9 +458,17 @@ function TranscriptDocument({
         {/* ── Header ──────────────────────────────────────────────────── */}
         <View style={s.header}>
           <View style={{ flex: 1 }}>
-            {/* Logo row */}
+            {/* Logo — center position: logo stacked above brand name */}
+            {logoBase64 && settings.logoPosition === 'center' && (
+              <View style={{ alignItems: 'center', marginBottom: 6 }}>
+                <Image style={{ width: settings.logoWidth, height: settings.logoWidth }} src={logoBase64} />
+              </View>
+            )}
+            {/* Logo — left position: logo inline with brand name */}
             <View style={s.hLogoRow}>
-              {logoBase64 && <Image style={s.hLogo} src={logoBase64} />}
+              {logoBase64 && settings.logoPosition === 'left' && (
+                <Image style={{ width: settings.logoWidth, height: settings.logoWidth, marginRight: 8 }} src={logoBase64} />
+              )}
               <Text style={s.hBrand}>Financial Modeler Pro</Text>
             </View>
             <Text style={s.hSub}>{settings.websiteUrl}</Text>
@@ -547,12 +579,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'regId and email are required' }, { status: 400 });
   }
 
-  // ── Fetch progress + settings + logo in parallel ──────────────────────────
-  const [result, settings, logoBase64] = await Promise.all([
+  // ── Fetch progress + settings in parallel, then load logo ────────────────
+  const [result, settings] = await Promise.all([
     getStudentProgress(email, regId),
     loadTranscriptSettings(),
-    loadLogoBase64(),
   ]);
+  // Logo loaded after settings so we can pass the transcript-specific URL override
+  const logoBase64 = settings.logoPosition !== 'none'
+    ? await loadLogoBase64(settings.logoUrl || undefined)
+    : null;
 
   if (!result.success || !result.data) {
     return NextResponse.json(
