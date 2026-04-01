@@ -8,6 +8,49 @@ import { cache } from 'react';
 import { getCertificateByRegId } from '@/src/lib/sheets';
 import type { SheetCertificate } from '@/src/lib/sheets';
 import { COURSES } from '@/src/config/courses';
+import { getServerClient } from '@/src/lib/supabase';
+
+// ── Layout types (mirrored from API route) ────────────────────────────────────
+
+interface ElemPos {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+interface CertLayout {
+  logo: ElemPos;
+  heading: ElemPos;
+  studentBlock: ElemPos;
+  signature: ElemPos;
+}
+
+const DEFAULT_LAYOUT: CertLayout = {
+  logo:         { left: 195, top: 46,  width: 290, height: 80  },
+  heading:      { left: 40,  top: 185, width: 600, height: 60  },
+  studentBlock: { left: 40,  top: 280, width: 600, height: 380 },
+  signature:    { left: 80,  top: 750, width: 520, height: 70  },
+};
+
+// ── Fetch layout from Supabase ────────────────────────────────────────────────
+
+async function fetchLayout(): Promise<CertLayout> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('cms_content')
+      .select('value')
+      .eq('section', 'certificate_layout')
+      .eq('key', 'layout_json')
+      .maybeSingle();
+
+    if (!data?.value) return DEFAULT_LAYOUT;
+    return JSON.parse(data.value) as CertLayout;
+  } catch {
+    return DEFAULT_LAYOUT;
+  }
+}
 
 // ── Cached lookup — shared between generateMetadata and the page ──────────────
 
@@ -69,6 +112,19 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   };
 }
 
+// ── Gold rule ─────────────────────────────────────────────────────────────────
+
+function GoldRule() {
+  return (
+    <div style={{
+      height: 2, margin: '0 auto',
+      maxWidth: 320,
+      background: 'linear-gradient(90deg, transparent, #C9A84C 20%, #E8C96E 50%, #C9A84C 80%, transparent)',
+      borderRadius: 1,
+    }} />
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function CertificatePage({ searchParams }: Props) {
@@ -86,6 +142,7 @@ export default async function CertificatePage({ searchParams }: Props) {
     return <NotFoundView reason="notfound" />;
   }
 
+  const layout      = await fetchLayout();
   const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(cert.certifierUrl)}`;
 
   return (
@@ -94,7 +151,7 @@ export default async function CertificatePage({ searchParams }: Props) {
       minHeight: '100vh', color: '#374151',
       padding: '40px 20px 64px',
     }}>
-      <div style={{ maxWidth: 680, margin: '0 auto' }}>
+      <div style={{ maxWidth: 760, margin: '0 auto' }}>
 
         {/* Back link */}
         <div style={{ marginBottom: 24 }}>
@@ -103,23 +160,47 @@ export default async function CertificatePage({ searchParams }: Props) {
           </Link>
         </div>
 
-        {/* ── Certificate card ──────────────────────────────────────────── */}
-        <div style={{
-          background: '#fff', borderRadius: 16,
-          border: '1px solid #E5E7EB',
-          boxShadow: '0 8px 40px rgba(0,0,0,0.1)',
-          overflow: 'hidden',
-        }}>
-          {/* Gold top stripe */}
-          <div style={{ height: 6, background: 'linear-gradient(90deg, #C9A84C 0%, #E8C96E 50%, #C9A84C 100%)' }} />
+        {/* ── Responsive scaler wrapper ─────────────────────────────── */}
+        <div style={{ overflowX: 'auto', marginBottom: 20 }}>
+          {/* ── Certificate card — 680×960 with absolute positioning ── */}
+          <div style={{
+            position: 'relative',
+            width:  680,
+            height: 960,
+            margin: '0 auto',
+            background: '#fff',
+            borderRadius: 16,
+            border: '1px solid #E5E7EB',
+            boxShadow: '0 8px 40px rgba(0,0,0,0.1)',
+            overflow: 'hidden',
+          }}>
 
-          <div style={{ padding: '44px 48px 40px', textAlign: 'center' }}>
+            {/* Gold top stripe — fixed */}
+            <div style={{
+              position: 'absolute', top: 0, left: 0, right: 0, height: 6,
+              background: 'linear-gradient(90deg, #C9A84C 0%, #E8C96E 50%, #C9A84C 100%)',
+              zIndex: 2,
+            }} />
 
-            {/* FMP Logo */}
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10, marginBottom: 32 }}>
+            {/* Gold bottom stripe — fixed */}
+            <div style={{
+              position: 'absolute', bottom: 0, left: 0, right: 0, height: 4,
+              background: 'linear-gradient(90deg, #C9A84C 0%, #E8C96E 50%, #C9A84C 100%)',
+              zIndex: 2,
+            }} />
+
+            {/* ── Logo block ─────────────────────────────────────────── */}
+            <div style={{
+              position: 'absolute',
+              left:   layout.logo.left,
+              top:    layout.logo.top,
+              width:  layout.logo.width,
+              height: layout.logo.height,
+              display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 10,
+            }}>
               <div style={{
                 width: 40, height: 40, borderRadius: 9, background: '#2EAA4A',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0,
               }}>🎓</div>
               <div>
                 <div style={{ fontSize: 15, fontWeight: 800, color: '#0D2E5A', lineHeight: 1.2 }}>
@@ -131,19 +212,36 @@ export default async function CertificatePage({ searchParams }: Props) {
               </div>
             </div>
 
-            {/* Heading */}
+            {/* ── Heading block ──────────────────────────────────────── */}
             <div style={{
-              fontSize: 'clamp(13px,2vw,15px)', fontWeight: 800, letterSpacing: '0.18em',
-              textTransform: 'uppercase', color: '#0D2E5A', marginBottom: 18,
+              position: 'absolute',
+              left:   layout.heading.left,
+              top:    layout.heading.top,
+              width:  layout.heading.width,
+              height: layout.heading.height,
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              justifyContent: 'center', gap: 10, textAlign: 'center',
             }}>
-              Certificate of Completion
+              <div style={{
+                fontSize: 'clamp(13px,2vw,15px)', fontWeight: 800, letterSpacing: '0.18em',
+                textTransform: 'uppercase', color: '#0D2E5A',
+              }}>
+                Certificate of Completion
+              </div>
+              <GoldRule />
             </div>
 
-            {/* Gold divider */}
-            <GoldRule />
-
-            <div style={{ marginTop: 28, marginBottom: 28 }}>
-              <p style={{ fontSize: 14, color: '#9CA3AF', fontStyle: 'italic', marginBottom: 18 }}>
+            {/* ── Student block ──────────────────────────────────────── */}
+            <div style={{
+              position: 'absolute',
+              left:    layout.studentBlock.left,
+              top:     layout.studentBlock.top,
+              width:   layout.studentBlock.width,
+              height:  layout.studentBlock.height,
+              display: 'flex', flexDirection: 'column', alignItems: 'center',
+              paddingTop: 8, textAlign: 'center',
+            }}>
+              <p style={{ fontSize: 14, color: '#9CA3AF', fontStyle: 'italic', marginBottom: 18, marginTop: 0 }}>
                 This is to certify that
               </p>
               <div style={{
@@ -154,7 +252,7 @@ export default async function CertificatePage({ searchParams }: Props) {
               }}>
                 {cert.studentName}
               </div>
-              <p style={{ fontSize: 14, color: '#9CA3AF', fontStyle: 'italic', marginBottom: 14 }}>
+              <p style={{ fontSize: 14, color: '#9CA3AF', fontStyle: 'italic', marginBottom: 14, marginTop: 0 }}>
                 has successfully completed
               </p>
               <div style={{
@@ -166,18 +264,20 @@ export default async function CertificatePage({ searchParams }: Props) {
               <div style={{ fontSize: 15, color: '#374151', marginBottom: 8 }}>
                 {formatDate(cert.issuedAt)}
               </div>
-              <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: 'monospace', letterSpacing: '0.05em' }}>
+              <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: 'monospace', letterSpacing: '0.05em', marginBottom: 16 }}>
                 Certificate ID: {cert.certificateId}
               </div>
+              <GoldRule />
             </div>
 
-            {/* Gold divider */}
-            <GoldRule />
-
-            {/* Signatories */}
+            {/* ── Signature block ────────────────────────────────────── */}
             <div style={{
-              marginTop: 24, display: 'flex',
-              justifyContent: 'center', alignItems: 'center',
+              position: 'absolute',
+              left:   layout.signature.left,
+              top:    layout.signature.top,
+              width:  layout.signature.width,
+              height: layout.signature.height,
+              display: 'flex', justifyContent: 'center', alignItems: 'center',
               gap: 32, flexWrap: 'wrap',
             }}>
               <div style={{ textAlign: 'center' }}>
@@ -190,10 +290,8 @@ export default async function CertificatePage({ searchParams }: Props) {
                 <div style={{ fontSize: 11, color: '#9CA3AF' }}>financialmodelerpro.com</div>
               </div>
             </div>
-          </div>
 
-          {/* Gold bottom stripe */}
-          <div style={{ height: 4, background: 'linear-gradient(90deg, #C9A84C 0%, #E8C96E 50%, #C9A84C 100%)' }} />
+          </div>
         </div>
 
         {/* ── Verification badge ────────────────────────────────────────── */}
@@ -272,17 +370,6 @@ export default async function CertificatePage({ searchParams }: Props) {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
-
-function GoldRule() {
-  return (
-    <div style={{
-      height: 2, margin: '0 auto',
-      maxWidth: 320,
-      background: 'linear-gradient(90deg, transparent, #C9A84C 20%, #E8C96E 50%, #C9A84C 80%, transparent)',
-      borderRadius: 1,
-    }} />
-  );
-}
 
 function NotFoundView({ reason }: { reason: 'invalid' | 'notfound' }) {
   return (
