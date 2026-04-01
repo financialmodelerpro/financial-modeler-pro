@@ -612,11 +612,14 @@ export interface AttemptStatus {
 export interface QuestionResult {
   index: number;
   q: string;
-  yourAnswer: string;
-  correctAnswer: string;
-  correct: boolean;
-  explanation: string;
+  type?: string;
   options: string[];
+  submitted: number;       // 0-based index of the student's chosen option
+  submittedText: string;   // full text of the student's chosen option
+  correct: number;         // 0-based index of the correct option
+  correctText: string;     // full text of the correct option
+  isCorrect: boolean;      // true if student chose the correct option
+  explanation: string;
 }
 
 export interface SubmitAssessmentResult {

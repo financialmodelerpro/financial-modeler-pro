@@ -268,9 +268,8 @@ export default function AssessmentPage() {
     clearSavedAnswers(tabKey);
 
     if (data.success && data.data) {
-      // Enrich results with options + question text from already-loaded questions.
-      // Apps Script returns correctAnswer/yourAnswer/correct/explanation but not options,
-      // since the browser already has them from the questions fetch.
+      // Enrich results: Apps Script returns options+q, but as a safety net
+      // fill from loaded questions if missing.
       const enriched: SubmitAssessmentResult = { ...data.data };
       if (Array.isArray(enriched.results) && questions) {
         enriched.results = enriched.results.map((qr, i) => {
@@ -796,14 +795,12 @@ export default function AssessmentPage() {
             </h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {(result.results as QuestionResult[]).map((qr, i) => {
-                // Guard all fields — Apps Script may omit options/answers in results
-                const questionText = qr?.q ?? qr?.explanation ?? `Question ${i + 1}`;
+                // Apps Script returns: correct (number index), submitted (number index), isCorrect (boolean)
+                const questionText = qr?.q || `Question ${i + 1}`;
                 const options      = Array.isArray(qr?.options) ? qr.options : [];
-                const correctStr   = typeof qr?.correctAnswer === 'string' ? qr.correctAnswer : '';
-                const yourStr      = typeof qr?.yourAnswer    === 'string' ? qr.yourAnswer    : '';
-                const correctIdx   = correctStr.length > 0 ? correctStr.charCodeAt(0) - 65 : -1;
-                const yourIdx      = yourStr.length    > 0 ? yourStr.charCodeAt(0)    - 65 : -1;
-                const isCorrect    = qr?.correct ?? false;
+                const correctIdx   = typeof qr?.correct    === 'number' ? qr.correct    : -1;
+                const yourIdx      = typeof qr?.submitted  === 'number' ? qr.submitted  : -1;
+                const isCorrect    = qr?.isCorrect ?? false;
 
                 return (
                   <div key={i} style={{
@@ -872,16 +869,16 @@ export default function AssessmentPage() {
                     )}
 
                     {/* Fallback when options not in API response: show correct/your answer as text */}
-                    {options.length === 0 && (correctStr || yourStr) && (
+                    {options.length === 0 && (qr?.submittedText || qr?.correctText) && (
                       <div style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        {yourStr && (
+                        {qr.submittedText && (
                           <div style={{ fontSize: 13, color: isCorrect ? '#15803D' : '#DC2626', fontWeight: 600 }}>
-                            Your answer: {yourStr}
+                            Your answer: {qr.submittedText}
                           </div>
                         )}
-                        {!isCorrect && correctStr && (
+                        {!isCorrect && qr.correctText && (
                           <div style={{ fontSize: 13, color: '#15803D', fontWeight: 600 }}>
-                            Correct answer: {correctStr}
+                            Correct answer: {qr.correctText}
                           </div>
                         )}
                       </div>
