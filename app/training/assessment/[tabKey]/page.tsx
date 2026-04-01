@@ -527,8 +527,9 @@ export default function AssessmentPage() {
       <div style={{ minHeight: '100vh', background: LIGHT_BG }}>
         <NavBar isFinal={isFinal} sessionName={sessionName} />
 
-        {/* Progress + timer bar */}
+        {/* Progress + timer bar — sticky below navbar */}
         <div style={{
+          position: 'sticky', top: 0, zIndex: 10,
           background: WHITE, borderBottom: `1px solid ${BORDER}`,
           padding: '12px 24px', display: 'flex', alignItems: 'center',
           justifyContent: 'space-between', gap: 16, flexWrap: 'wrap',
@@ -551,7 +552,8 @@ export default function AssessmentPage() {
           )}
         </div>
 
-        <div style={{ maxWidth: 700, margin: '40px auto', padding: '0 24px' }}>
+        {/* Scrollable content — wider container, bottom padding clears sticky nav bar */}
+        <div style={{ maxWidth: 900, margin: '40px auto', padding: '0 24px 96px' }}>
           {/* Question navigator */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 28 }}>
             {questions.questions.map((_, i) => (
@@ -572,7 +574,7 @@ export default function AssessmentPage() {
           {/* Question card */}
           <div style={{
             background: WHITE, borderRadius: 12, border: `1px solid ${BORDER}`,
-            boxShadow: '0 2px 8px rgba(0,0,0,0.06)', padding: 32, marginBottom: 24,
+            boxShadow: '0 2px 8px rgba(0,0,0,0.06)', padding: 32,
           }}>
             <div style={{ fontSize: 12, color: '#94A3B8', marginBottom: 12 }}>
               Question {currentQ + 1} of {totalQ}
@@ -609,58 +611,56 @@ export default function AssessmentPage() {
               })}
             </div>
           </div>
+        </div>
 
-          {/* Navigation */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        {/* ── Sticky bottom navigation bar ───────────────────────────────────── */}
+        <div style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 10,
+          background: WHITE, borderTop: `1px solid ${BORDER}`,
+          padding: '12px 24px',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12,
+        }}>
+          <button
+            onClick={() => setCurrentQ(q => Math.max(0, q - 1))}
+            disabled={currentQ === 0}
+            style={{
+              padding: '10px 20px', borderRadius: 8, border: `1px solid ${BORDER}`,
+              background: WHITE, color: NAVY, fontWeight: 600,
+              cursor: currentQ === 0 ? 'not-allowed' : 'pointer',
+              opacity: currentQ === 0 ? 0.4 : 1, fontSize: 14,
+            }}
+          >
+            ← Previous
+          </button>
+
+          {/* Centre: answered count */}
+          <span style={{ fontSize: 13, color: '#64748B', fontWeight: 500 }}>
+            {answered}/{totalQ} answered
+          </span>
+
+          {currentQ < totalQ - 1 ? (
             <button
-              onClick={() => setCurrentQ(q => Math.max(0, q - 1))}
-              disabled={currentQ === 0}
+              onClick={() => setCurrentQ(q => q + 1)}
               style={{
-                padding: '10px 20px', borderRadius: 8, border: `1px solid ${BORDER}`,
-                background: WHITE, color: NAVY, fontWeight: 600, cursor: currentQ === 0 ? 'not-allowed' : 'pointer',
-                opacity: currentQ === 0 ? 0.4 : 1,
+                padding: '10px 20px', borderRadius: 8, border: 'none',
+                background: NAVY, color: WHITE, fontWeight: 600, cursor: 'pointer', fontSize: 14,
               }}
             >
-              ← Previous
+              Next →
             </button>
-
-            {currentQ < totalQ - 1 ? (
-              <button
-                onClick={() => setCurrentQ(q => q + 1)}
-                style={{
-                  padding: '10px 20px', borderRadius: 8, border: 'none',
-                  background: NAVY, color: WHITE, fontWeight: 600, cursor: 'pointer',
-                }}
-              >
-                Next →
-              </button>
-            ) : (
-              <button
-                onClick={handleSubmit}
-                disabled={!allAnswered}
-                style={{
-                  padding: '12px 28px', borderRadius: 8, border: 'none',
-                  background: allAnswered ? accentColor : BORDER,
-                  color: allAnswered ? WHITE : '#94A3B8',
-                  fontWeight: 700, cursor: allAnswered ? 'pointer' : 'not-allowed', fontSize: 15,
-                }}
-              >
-                {allAnswered ? 'Submit Assessment ✓' : `Answer all questions (${totalQ - answered} left)`}
-              </button>
-            )}
-          </div>
-
-          {/* Submit from anywhere if all answered */}
-          {allAnswered && currentQ < totalQ - 1 && (
-            <div style={{ textAlign: 'center', marginTop: 20 }}>
-              <button onClick={handleSubmit} style={{
-                background: accentColor, color: WHITE, border: 'none',
-                padding: '12px 28px', borderRadius: 8, fontWeight: 700,
-                cursor: 'pointer', fontSize: 15,
-              }}>
-                Submit Assessment ✓
-              </button>
-            </div>
+          ) : (
+            <button
+              onClick={handleSubmit}
+              disabled={!allAnswered}
+              style={{
+                padding: '10px 24px', borderRadius: 8, border: 'none',
+                background: allAnswered ? accentColor : BORDER,
+                color: allAnswered ? WHITE : '#94A3B8',
+                fontWeight: 700, cursor: allAnswered ? 'pointer' : 'not-allowed', fontSize: 14,
+              }}
+            >
+              {allAnswered ? 'Submit Assessment ✓' : `${totalQ - answered} left`}
+            </button>
           )}
         </div>
       </div>
