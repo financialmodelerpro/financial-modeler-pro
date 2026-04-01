@@ -28,6 +28,7 @@ const LOGO_SIZE_OPTIONS = [
 ];
 
 const LOGO_POSITION_OPTIONS = [
+  { value: 'right',  label: 'Header Right — centered above subtitle (recommended)' },
   { value: 'left',   label: 'Header Left — inline with brand name' },
   { value: 'center', label: 'Header Center — stacked above brand name' },
   { value: 'none',   label: 'No Logo' },

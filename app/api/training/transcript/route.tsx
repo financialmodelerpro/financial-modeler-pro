@@ -28,24 +28,24 @@ const C = {
 const s = StyleSheet.create({
   page: {
     fontFamily: 'Helvetica', fontSize: 9, color: C.text,
-    backgroundColor: C.white, paddingBottom: 50,
+    backgroundColor: C.white, paddingBottom: 36,
   },
 
   /* Header */
   header: {
-    backgroundColor: C.navy, paddingHorizontal: 36, paddingTop: 22, paddingBottom: 18,
+    backgroundColor: C.navy, paddingHorizontal: 36, paddingTop: 14, paddingBottom: 12,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
   },
   hLogoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
   hLogo:    { width: 32, height: 32, marginRight: 8 },
-  hBrand: { fontSize: 13, fontFamily: 'Helvetica-Bold', color: C.white, marginBottom: 3 },
-  hSub:   { fontSize: 7.5, color: 'rgba(255,255,255,0.55)', marginBottom: 1 },
+  hBrand: { fontSize: 11, fontFamily: 'Helvetica-Bold', color: C.white, marginBottom: 2 },
+  hSub:   { fontSize: 7, color: 'rgba(255,255,255,0.55)', marginBottom: 1 },
   hTitle: {
-    fontSize: 10, fontFamily: 'Helvetica-Bold', color: '#90CAF9',
-    letterSpacing: 1.2, marginTop: 10,
+    fontSize: 9, fontFamily: 'Helvetica-Bold', color: '#90CAF9',
+    letterSpacing: 1.2, marginTop: 6,
   },
   hRight: {
-    alignItems: 'flex-end',
+    alignItems: 'center',
   },
   hBadge: {
     backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 4,
@@ -140,12 +140,13 @@ const s = StyleSheet.create({
 
   /* Footer */
   footer: {
-    position: 'absolute' as const, bottom: 24, left: 36, right: 36,
-    borderTopWidth: 1, borderTopColor: C.border, paddingTop: 7,
+    position: 'absolute' as const, bottom: 0, left: 0, right: 0,
+    backgroundColor: C.navy,
+    paddingHorizontal: 36, paddingVertical: 7,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
   },
-  footerText: { fontSize: 7, color: C.muted },
-  footerLink: { fontSize: 7, color: C.navy2 },
+  footerText: { fontSize: 7, color: 'rgba(255,255,255,0.55)' },
+  footerLink: { fontSize: 7, color: '#90CAF9' },
 });
 
 // ── Transcript settings ───────────────────────────────────────────────────────
@@ -159,7 +160,7 @@ interface TranscriptSettings {
   websiteUrl:    string;
   logoUrl:       string;   // transcript-specific logo URL (empty = use branding config logo)
   logoWidth:     number;   // logo width in PDF points
-  logoPosition:  'left' | 'center' | 'none';
+  logoPosition:  'left' | 'center' | 'right' | 'none';
 }
 
 const DEFAULTS: TranscriptSettings = {
@@ -171,7 +172,7 @@ const DEFAULTS: TranscriptSettings = {
   websiteUrl:   'www.financialmodelerpro.com',
   logoUrl:      '',
   logoWidth:    32,
-  logoPosition: 'left',
+  logoPosition: 'right',
 };
 
 async function loadTranscriptSettings(): Promise<TranscriptSettings> {
@@ -195,7 +196,7 @@ async function loadTranscriptSettings(): Promise<TranscriptSettings> {
       websiteUrl:   map['transcript_website_url']   || DEFAULTS.websiteUrl,
       logoUrl:      map['transcript_logo_url']      || DEFAULTS.logoUrl,
       logoWidth:    Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : DEFAULTS.logoWidth,
-      logoPosition: (['left', 'center', 'none'] as const).includes(rawPos as 'left' | 'center' | 'none')
+      logoPosition: (['left', 'center', 'right', 'none'] as const).includes(rawPos as TranscriptSettings['logoPosition'])
         ? rawPos as TranscriptSettings['logoPosition']
         : DEFAULTS.logoPosition,
     };
@@ -457,14 +458,15 @@ function TranscriptDocument({
 
         {/* ── Header ──────────────────────────────────────────────────── */}
         <View style={s.header}>
+          {/* Left block */}
           <View style={{ flex: 1 }}>
-            {/* Logo — center position: logo stacked above brand name */}
+            {/* Center position: logo stacked and centered above brand name */}
             {logoBase64 && settings.logoPosition === 'center' && (
-              <View style={{ alignItems: 'center', marginBottom: 6 }}>
+              <View style={{ alignItems: 'center', marginBottom: 5 }}>
                 <Image style={{ width: settings.logoWidth, height: settings.logoWidth }} src={logoBase64} />
               </View>
             )}
-            {/* Logo — left position: logo inline with brand name */}
+            {/* Left position: logo inline with brand name */}
             <View style={s.hLogoRow}>
               {logoBase64 && settings.logoPosition === 'left' && (
                 <Image style={{ width: settings.logoWidth, height: settings.logoWidth, marginRight: 8 }} src={logoBase64} />
@@ -475,10 +477,21 @@ function TranscriptDocument({
             <Text style={s.hSub}>{settings.instructor}</Text>
             <Text style={s.hTitle}>{settings.headerTitle}</Text>
           </View>
+
+          {/* Right block — logo + subtitle (right position) or just subtitle badge */}
           <View style={s.hRight}>
-            <View style={s.hBadge}>
-              <Text style={s.hBadgeText}>{settings.subtitle}</Text>
-            </View>
+            {logoBase64 && settings.logoPosition === 'right' ? (
+              <>
+                <Image style={{ width: settings.logoWidth, height: settings.logoWidth, marginBottom: 5 }} src={logoBase64} />
+                <View style={s.hBadge}>
+                  <Text style={s.hBadgeText}>{settings.subtitle}</Text>
+                </View>
+              </>
+            ) : (
+              <View style={s.hBadge}>
+                <Text style={s.hBadgeText}>{settings.subtitle}</Text>
+              </View>
+            )}
           </View>
         </View>
 
