@@ -446,7 +446,7 @@ interface CourseContentProps {
   onSwitchTo3sfm?: () => void;
 }
 
-function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating, studentName, onShare, testimonialSubmitted, onOpenTestimonial, notes, onNoteSave, feedbackGiven, onFeedbackRequest, bvmLocked, sfmProgress = 0, sfmTotal = 0, onSwitchTo3sfm }: CourseContentProps) {
+function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating, studentName, studentEmail, onShare, testimonialSubmitted, onOpenTestimonial, notes, onNoteSave, feedbackGiven, onFeedbackRequest, bvmLocked, sfmProgress = 0, sfmTotal = 0, onSwitchTo3sfm }: CourseContentProps) {
   const course = COURSES[courseId];
   if (!course) return null;
 
@@ -456,6 +456,36 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
     try { return new Set(JSON.parse(sessionStorage.getItem('fmp_banners') || '[]')); } catch { return new Set(); }
   });
   const [copiedCert, setCopiedCert] = useState(false);
+
+  // Transcript share link state (per courseId)
+  const [shareUrl,        setShareUrl]        = useState<string | null>(null);
+  const [sharingLink,     setSharingLink]      = useState(false);
+  const [showSharePanel,  setShowSharePanel]   = useState(false);
+  const [copiedShareLink, setCopiedShareLink]  = useState(false);
+
+  async function handleShareTranscript(regId: string, email: string, cId: string) {
+    if (shareUrl && showSharePanel) { setShowSharePanel(false); return; }
+    if (shareUrl) { setShowSharePanel(true); return; }
+    setSharingLink(true);
+    try {
+      const res  = await fetch('/api/training/transcript-link', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ regId, email, courseId: cId }),
+      });
+      const data = await res.json() as { url?: string; error?: string };
+      if (data.url) { setShareUrl(data.url); setShowSharePanel(true); }
+    } catch { /* ignore */ }
+    setSharingLink(false);
+  }
+
+  function copyShareLink() {
+    if (!shareUrl) return;
+    navigator.clipboard.writeText(shareUrl).then(() => {
+      setCopiedShareLink(true);
+      setTimeout(() => setCopiedShareLink(false), 2500);
+    });
+  }
 
   function dismissBanner(key: string) {
     setDismissedBanners(prev => {
@@ -582,6 +612,26 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
               ) : '📄'}
               {generating ? 'Generating…' : isOfficial ? 'Official Transcript' : 'Progress Transcript'}
             </button>
+            {/* Share transcript */}
+            {hasAny && (
+              <button
+                onClick={() => handleShareTranscript(regId, studentEmail, courseId)}
+                disabled={sharingLink}
+                title="Get a shareable link anyone can use to view this transcript"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '8px 16px', borderRadius: 7, fontSize: 12, fontWeight: 700,
+                  background: showSharePanel ? 'rgba(46,170,74,0.25)' : 'rgba(255,255,255,0.12)',
+                  color: '#fff', border: '1px solid rgba(255,255,255,0.2)',
+                  cursor: sharingLink ? 'wait' : 'pointer',
+                }}
+              >
+                {sharingLink
+                  ? <span style={{ width: 12, height: 12, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />
+                  : '🔗'}
+                {sharingLink ? 'Generating…' : showSharePanel ? 'Hide Link' : 'Share Link'}
+              </button>
+            )}
             {courseCert && finalPassed && (
               <a href={courseCert.certifierUrl} target="_blank" rel="noopener noreferrer"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#C9A84C', color: '#fff', textDecoration: 'none' }}>
@@ -590,6 +640,25 @@ function CourseContent({ courseId, progressMap, certificates, liveLinks, courseD
             )}
           </div>
         </div>
+
+        {/* Share link panel */}
+        {showSharePanel && shareUrl && (
+          <div style={{ marginBottom: 12, padding: '12px 16px', background: 'rgba(255,255,255,0.06)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.15)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', flexShrink: 0 }}>🔗 Shareable link:</span>
+            <span style={{ flex: 1, fontSize: 11, color: 'rgba(255,255,255,0.85)', fontFamily: 'monospace', background: 'rgba(0,0,0,0.2)', borderRadius: 4, padding: '4px 8px', wordBreak: 'break-all', minWidth: 200 }}>
+              {shareUrl}
+            </span>
+            <button onClick={copyShareLink}
+              style={{ flexShrink: 0, padding: '6px 14px', background: copiedShareLink ? '#2EAA4A' : 'rgba(255,255,255,0.18)', color: '#fff', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              {copiedShareLink ? '✓ Copied!' : 'Copy Link'}
+            </button>
+            <a href={shareUrl} target="_blank" rel="noopener noreferrer"
+              style={{ flexShrink: 0, padding: '6px 14px', background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 6, fontSize: 11, fontWeight: 600, textDecoration: 'none', whiteSpace: 'nowrap' }}>
+              Preview ↗
+            </a>
+          </div>
+        )}
+
         {/* Progress bar */}
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12 }}>
