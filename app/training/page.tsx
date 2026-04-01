@@ -6,6 +6,7 @@ import { getCmsContent, cms, getTestimonialsForPage } from '@/src/lib/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { getServerClient } from '@/src/lib/supabase';
 import { CurriculumCard, type CourseDescription } from './CurriculumCard';
+import { TestimonialsCarousel } from './TestimonialsCarousel';
 
 export const revalidate = 300; // 5-minute ISR cache — training page content changes rarely
 
@@ -330,47 +331,12 @@ export default async function TrainingPage() {
         </div>
       </section>
 
-      {/* ── Section 6 — Testimonials ─────────────────────────────────────── */}
-      {testimonials.length > 0 && (
-        <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
-          <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-            <div style={{ textAlign: 'center', marginBottom: 48 }}>
-              <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 10 }}>{testimonialsH2}</h2>
-              <p style={{ fontSize: 14, color: '#6B7280' }}>{testimonialsSub}</p>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 24 }}>
-              {testimonials.map(t => (
-                <div key={t.id} style={{ background: '#F9FAFB', border: `1px solid ${t.is_featured ? '#C9A84C' : '#E5E7EB'}`, borderRadius: 14, padding: 24, display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ display: 'flex', gap: 2, marginBottom: 12 }}>
-                    {Array.from({length:5}).map((_,i) => <span key={i} style={{ fontSize: 14, color: i < (t.rating ?? 5) ? '#F59E0B' : '#E5E7EB' }}>★</span>)}
-                  </div>
-                  {t.testimonial_type === 'video' && t.video_url ? (
-                    <a href={t.video_url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#0D2E5A', borderRadius: 8, padding: 20, marginBottom: 16, textDecoration: 'none', gap: 6 }}>
-                      <span style={{ fontSize: 28 }}>▶️</span>
-                      <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>Watch video testimonial ↗</span>
-                    </a>
-                  ) : (
-                    <>
-                      <div style={{ fontSize: 28, color: '#2EAA4A', fontFamily: 'Georgia,serif', marginBottom: 8 }}>&ldquo;</div>
-                      <p style={{ fontSize: 13.5, color: '#374151', lineHeight: 1.75, marginBottom: 16, fontStyle: 'italic', flex: 1 }}>{t.text}</p>
-                    </>
-                  )}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'linear-gradient(135deg,#1A7A30,#0D3B1A)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
-                      {t.name.charAt(0).toUpperCase()}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B' }}>{t.name}</div>
-                      {(t.role || t.company) && <div style={{ fontSize: 11, color: '#9CA3AF' }}>{[t.role, t.company].filter(Boolean).join(' · ')}</div>}
-                      {t.source === 'student' && t.course_name && <div style={{ fontSize: 10, color: '#2EAA4A', fontWeight: 700, marginTop: 2 }}>✅ Verified · {t.course_name}</div>}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
+      {/* ── Section 6 — Testimonials carousel ───────────────────────────── */}
+      <TestimonialsCarousel
+        testimonials={testimonials}
+        heading={testimonialsH2}
+        subheading={testimonialsSub}
+      />
 
       {/* ── Section 7 — Bottom CTA ────────────────────────────────────────── */}
       {ctaSection_visible && (
