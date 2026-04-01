@@ -670,12 +670,7 @@ export default function AdminCourseLessonsPage() {
                             ) : (
                               <span style={{ fontSize: 12, color: '#D1D5DB' }}>No video</span>
                             )}
-                            {link?.formUrl && (
-                              <a href={link.formUrl} target="_blank" rel="noopener noreferrer"
-                                style={{ fontSize: 11, color: '#1B4F8A', textDecoration: 'none', border: '1px solid #C7D9F2', borderRadius: 4, padding: '1px 7px' }}>
-                                Form ↗
-                              </a>
-                            )}
+                            {/* Form URL hidden from UI — stored in Apps Script Form Registry only */}
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
@@ -1065,23 +1060,7 @@ export default function AdminCourseLessonsPage() {
               )}
             </div>
 
-            {/* Form URL (read-only) */}
-            <div style={{ marginBottom: 24 }}>
-              <label style={labelStyle}>Form URL <span style={{ fontSize: 10, fontWeight: 400, color: '#9CA3AF', textTransform: 'none' }}>(read-only — synced from Apps Script)</span></label>
-              {editSessionLink.formUrl ? (
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <div style={{ flex: 1, padding: '8px 12px', background: '#F3F4F6', borderRadius: 7, fontSize: 12, color: '#6B7280', border: '1px solid #E5E7EB', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {editSessionLink.formUrl}
-                  </div>
-                  <button
-                    onClick={() => navigator.clipboard.writeText(editSessionLink.formUrl).then(() => showToast('Copied'), () => showToast('Copy failed', 'error'))}
-                    style={{ ...ghostBtn, padding: '8px 14px', fontSize: 12, whiteSpace: 'nowrap', flexShrink: 0 }}
-                  >Copy</button>
-                </div>
-              ) : (
-                <div style={{ padding: '8px 12px', background: '#F3F4F6', borderRadius: 7, fontSize: 13, color: '#D1D5DB', border: '1px solid #E5E7EB' }}>No form URL</div>
-              )}
-            </div>
+            {/* Form URL removed from UI — stored silently in Apps Script Form Registry */}
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setShowSessionModal(false)} style={ghostBtn}>Cancel</button>
