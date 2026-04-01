@@ -524,7 +524,12 @@ export default function AssessmentPage() {
     const allAnswered = answered === totalQ;
 
     return (
-      <div style={{ minHeight: '100vh', background: LIGHT_BG }}>
+      <div
+        style={{ minHeight: '100vh', background: LIGHT_BG }}
+        onCopy={e => e.preventDefault()}
+        onCut={e => e.preventDefault()}
+        onContextMenu={e => e.preventDefault()}
+      >
         <NavBar isFinal={isFinal} sessionName={sessionName} />
 
         {/* Progress + timer bar — sticky below navbar */}
@@ -571,10 +576,11 @@ export default function AssessmentPage() {
             ))}
           </div>
 
-          {/* Question card */}
+          {/* Question card — copy/select disabled to prevent cheating */}
           <div style={{
             background: WHITE, borderRadius: 12, border: `1px solid ${BORDER}`,
             boxShadow: '0 2px 8px rgba(0,0,0,0.06)', padding: 32,
+            userSelect: 'none', WebkitUserSelect: 'none',
           }}>
             <div style={{ fontSize: 12, color: '#94A3B8', marginBottom: 12 }}>
               Question {currentQ + 1} of {totalQ}
