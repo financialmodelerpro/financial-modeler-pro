@@ -694,7 +694,12 @@ export default function AssessmentPage() {
     const scoreColor = passed ? GREEN : '#DC2626';
 
     return (
-      <div style={{ minHeight: '100vh', background: LIGHT_BG }}>
+      <div
+        style={{ minHeight: '100vh', background: LIGHT_BG }}
+        onCopy={e => e.preventDefault()}
+        onCut={e => e.preventDefault()}
+        onContextMenu={e => e.preventDefault()}
+      >
         <NavBar isFinal={isFinal} sessionName={sessionName} />
 
         <div style={{ maxWidth: 600, margin: '60px auto 32px', padding: '0 24px', textAlign: 'center' }}>
@@ -818,7 +823,8 @@ export default function AssessmentPage() {
                     <div style={{
                       background: isCorrect ? '#F0FDF4' : '#FEF2F2',
                       padding: '14px 20px', display: 'flex', alignItems: 'center', gap: 10,
-                    }}>
+                      userSelect: 'none', WebkitUserSelect: 'none',
+                    } as React.CSSProperties}>
                       <span style={{
                         width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
                         background: isCorrect ? GREEN : '#DC2626', color: WHITE,
@@ -834,7 +840,7 @@ export default function AssessmentPage() {
 
                     {/* Options — only rendered if the API returned them */}
                     {options.length > 0 && (
-                      <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 8, userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}>
                         {options.map((opt, oi) => {
                           const letter      = String.fromCharCode(65 + oi);
                           const optCorrect  = oi === correctIdx;
@@ -876,7 +882,7 @@ export default function AssessmentPage() {
 
                     {/* Fallback when options not in API response: show correct/your answer as text */}
                     {options.length === 0 && (qr?.submittedText || qr?.correctText) && (
-                      <div style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <div style={{ padding: '12px 20px', display: 'flex', flexDirection: 'column', gap: 6, userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}>
                         {qr.submittedText && (
                           <div style={{ fontSize: 13, color: isCorrect ? '#15803D' : '#DC2626', fontWeight: 600 }}>
                             Your answer: {qr.submittedText}
@@ -896,7 +902,8 @@ export default function AssessmentPage() {
                         margin: '0 20px 16px', padding: '10px 14px', borderRadius: 8,
                         background: '#F0F9FF', border: '1px solid #BAE6FD',
                         fontSize: 13, color: '#0369A1', lineHeight: 1.6,
-                      }}>
+                        userSelect: 'none', WebkitUserSelect: 'none',
+                      } as React.CSSProperties}>
                         💡 {qr.explanation}
                       </div>
                     )}
