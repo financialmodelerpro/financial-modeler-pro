@@ -53,9 +53,9 @@ const s = StyleSheet.create({
   },
   hBadgeText: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: 'rgba(255,255,255,0.8)' },
 
-  /* Student info strip */
+  /* Student info strip — bg overridden at runtime via settings.studentStripBg */
   studentStrip: {
-    backgroundColor: C.lBlue, paddingHorizontal: 36, paddingVertical: 10,
+    paddingHorizontal: 36, paddingVertical: 10,
     flexDirection: 'row',
   },
   infoCol: { flex: 1 },
@@ -151,31 +151,61 @@ const s = StyleSheet.create({
 // ── Transcript settings ───────────────────────────────────────────────────────
 
 interface TranscriptSettings {
-  headerTitle:      string;
-  subtitle:         string;
-  footer1:          string;
-  footer2:          string;
-  instructor:       string;
-  websiteUrl:       string;
-  logoUrl:          string;   // transcript-specific logo URL (empty = use branding config logo)
-  logoWidth:        number;   // logo width in PDF points
-  logoPosition:     'left' | 'center' | 'right' | 'none';
-  headerBgColor:    string;
-  tableHeaderColor: string;
+  brandName:          string;
+  headerTitle:        string;
+  subtitle:           string;
+  footer1:            string;
+  footer2:            string;
+  instructor:         string;
+  websiteUrl:         string;
+  logoUrl:            string;
+  logoWidth:          number;
+  logoPosition:       'left' | 'center' | 'right' | 'none';
+  headerBgColor:      string;
+  tableHeaderColor:   string;
+  studentStripBg:     string;
+  passedBg:           string;
+  passedColor:        string;
+  failedBg:           string;
+  failedColor:        string;
+  colNum:             string;
+  colSession:         string;
+  colScore:           string;
+  colStatus:          string;
+  colAttempts:        string;
+  bannerCompleteTitle: string;
+  bannerCompleteSub:   string;
+  bannerProgressTitle: string;
+  bannerProgressSub:   string;
 }
 
 const DEFAULTS: TranscriptSettings = {
-  headerTitle:      'OFFICIAL ACADEMIC TRANSCRIPT',
-  subtitle:         'FMP Training Hub',
-  footer1:          'This transcript is an official record issued by Financial Modeler Pro.',
-  footer2:          'Verify certificate authenticity at certifier.io',
-  instructor:       'Ahmad Din | Corporate Finance Expert',
-  websiteUrl:       'www.financialmodelerpro.com',
-  logoUrl:          '',
-  logoWidth:        32,
-  logoPosition:     'right',
-  headerBgColor:    '#0D2E5A',
-  tableHeaderColor: '#1B4F8A',
+  brandName:          'Financial Modeler Pro',
+  headerTitle:        'OFFICIAL ACADEMIC TRANSCRIPT',
+  subtitle:           'FMP Training Hub',
+  footer1:            'This transcript is an official record issued by Financial Modeler Pro.',
+  footer2:            'Verify certificate authenticity at certifier.io',
+  instructor:         'Ahmad Din | Corporate Finance Expert',
+  websiteUrl:         'www.financialmodelerpro.com',
+  logoUrl:            '',
+  logoWidth:          32,
+  logoPosition:       'right',
+  headerBgColor:      '#0D2E5A',
+  tableHeaderColor:   '#1B4F8A',
+  studentStripBg:     '#EBF3FC',
+  passedBg:           '#D1FAE5',
+  passedColor:        '#065F46',
+  failedBg:           '#FEE2E2',
+  failedColor:        '#991B1B',
+  colNum:             '#',
+  colSession:         'Session Name',
+  colScore:           'Score',
+  colStatus:          'Status',
+  colAttempts:        'Attempts',
+  bannerCompleteTitle: '✓ OFFICIAL TRANSCRIPT — Course Complete',
+  bannerCompleteSub:   'All requirements fulfilled. Certificate issued as of [date].',
+  bannerProgressTitle: '⏳ PROGRESS TRANSCRIPT — Course in Progress',
+  bannerProgressSub:   'This transcript reflects current progress as of [date]. A final transcript will be issued upon course completion.',
 };
 
 async function loadTranscriptSettings(): Promise<TranscriptSettings> {
@@ -190,20 +220,35 @@ async function loadTranscriptSettings(): Promise<TranscriptSettings> {
     for (const row of data) map[row.key] = row.value;
     const rawWidth = parseInt(map['transcript_logo_width'] ?? '', 10);
     const rawPos   = map['transcript_logo_position'] ?? '';
+    function g(key: string, def: string) { return map[key] || def; }
     return {
-      headerTitle:  map['transcript_header_title'] || DEFAULTS.headerTitle,
-      subtitle:     map['transcript_subtitle']      || DEFAULTS.subtitle,
-      footer1:      map['transcript_footer_1']      || DEFAULTS.footer1,
-      footer2:      map['transcript_footer_2']      || DEFAULTS.footer2,
-      instructor:   map['transcript_instructor']    || DEFAULTS.instructor,
-      websiteUrl:   map['transcript_website_url']   || DEFAULTS.websiteUrl,
-      logoUrl:          map['transcript_logo_url']          || DEFAULTS.logoUrl,
-      logoWidth:        Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : DEFAULTS.logoWidth,
-      logoPosition:     (['left', 'center', 'right', 'none'] as const).includes(rawPos as TranscriptSettings['logoPosition'])
-        ? rawPos as TranscriptSettings['logoPosition']
-        : DEFAULTS.logoPosition,
-      headerBgColor:    map['transcript_header_bg_color']    || DEFAULTS.headerBgColor,
-      tableHeaderColor: map['transcript_table_header_color'] || DEFAULTS.tableHeaderColor,
+      brandName:          g('transcript_brand_name',          DEFAULTS.brandName),
+      headerTitle:        g('transcript_header_title',        DEFAULTS.headerTitle),
+      subtitle:           g('transcript_subtitle',            DEFAULTS.subtitle),
+      footer1:            g('transcript_footer_1',            DEFAULTS.footer1),
+      footer2:            g('transcript_footer_2',            DEFAULTS.footer2),
+      instructor:         g('transcript_instructor',          DEFAULTS.instructor),
+      websiteUrl:         g('transcript_website_url',         DEFAULTS.websiteUrl),
+      logoUrl:            g('transcript_logo_url',            DEFAULTS.logoUrl),
+      logoWidth:          Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : DEFAULTS.logoWidth,
+      logoPosition:       (['left','center','right','none'] as const).includes(rawPos as TranscriptSettings['logoPosition'])
+        ? rawPos as TranscriptSettings['logoPosition'] : DEFAULTS.logoPosition,
+      headerBgColor:      g('transcript_header_bg_color',     DEFAULTS.headerBgColor),
+      tableHeaderColor:   g('transcript_table_header_color',  DEFAULTS.tableHeaderColor),
+      studentStripBg:     g('transcript_student_strip_bg',    DEFAULTS.studentStripBg),
+      passedBg:           g('transcript_passed_bg',           DEFAULTS.passedBg),
+      passedColor:        g('transcript_passed_color',        DEFAULTS.passedColor),
+      failedBg:           g('transcript_failed_bg',           DEFAULTS.failedBg),
+      failedColor:        g('transcript_failed_color',        DEFAULTS.failedColor),
+      colNum:             g('transcript_col_num',             DEFAULTS.colNum),
+      colSession:         g('transcript_col_session',         DEFAULTS.colSession),
+      colScore:           g('transcript_col_score',           DEFAULTS.colScore),
+      colStatus:          g('transcript_col_status',          DEFAULTS.colStatus),
+      colAttempts:        g('transcript_col_attempts',        DEFAULTS.colAttempts),
+      bannerCompleteTitle: g('transcript_banner_complete_title', DEFAULTS.bannerCompleteTitle),
+      bannerCompleteSub:   g('transcript_banner_complete_sub',   DEFAULTS.bannerCompleteSub),
+      bannerProgressTitle: g('transcript_banner_progress_title', DEFAULTS.bannerProgressTitle),
+      bannerProgressSub:   g('transcript_banner_progress_sub',   DEFAULTS.bannerProgressSub),
     };
   } catch {
     return DEFAULTS;
@@ -271,29 +316,32 @@ interface CertData {
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function StatusBadge({ passed, attempts, isFinal }: { passed: boolean; attempts: number; isFinal: boolean }) {
-  if (passed) return <View style={s.badgePassed}><Text style={s.badgePassedTxt}>PASSED</Text></View>;
-  if (attempts > 0) return <View style={s.badgeFailed}><Text style={s.badgeFailedTxt}>FAILED</Text></View>;
+interface BadgeColors { passedBg: string; passedColor: string; failedBg: string; failedColor: string; }
+
+function StatusBadge({ passed, attempts, isFinal, bc }: { passed: boolean; attempts: number; isFinal: boolean; bc: BadgeColors }) {
+  if (passed) return <View style={[s.badgePassed, { backgroundColor: bc.passedBg }]}><Text style={[s.badgePassedTxt, { color: bc.passedColor }]}>PASSED</Text></View>;
+  if (attempts > 0) return <View style={[s.badgeFailed, { backgroundColor: bc.failedBg }]}><Text style={[s.badgeFailedTxt, { color: bc.failedColor }]}>FAILED</Text></View>;
   if (isFinal) return <View style={s.badgeGold}><Text style={s.badgeGoldTxt}>LOCKED</Text></View>;
   return <View style={s.badgeGrey}><Text style={s.badgeGreyTxt}>NOT STARTED</Text></View>;
 }
 
-function CourseTable({ courseId, progressMap, tableHeaderColor }: { courseId: string; progressMap: Map<string, ProgRow>; tableHeaderColor: string }) {
+function CourseTable({ courseId, progressMap, settings }: { courseId: string; progressMap: Map<string, ProgRow>; settings: TranscriptSettings }) {
   const course = COURSES[courseId];
   if (!course) return null;
-  const regularSessions = course.sessions.filter(s => !s.isFinal);
-  const finalSession    = course.sessions.find(s => s.isFinal);
+  const regularSessions  = course.sessions.filter(s => !s.isFinal);
+  const finalSession     = course.sessions.find(s => s.isFinal);
   const allRegularPassed = regularSessions.every(s => progressMap.get(s.id)?.passed);
+  const bc: BadgeColors  = { passedBg: settings.passedBg, passedColor: settings.passedColor, failedBg: settings.failedBg, failedColor: settings.failedColor };
 
   return (
     <View style={s.tableWrap}>
       {/* Table header */}
-      <View style={[s.tHead, { backgroundColor: tableHeaderColor }]}>
-        <View style={s.colNum}><Text style={s.thText}>#</Text></View>
-        <View style={s.colName}><Text style={s.thText}>Session Name</Text></View>
-        <View style={s.colScore}><Text style={s.thText}>Score</Text></View>
-        <View style={s.colStatus}><Text style={s.thText}>Status</Text></View>
-        <View style={s.colAttempt}><Text style={s.thText}>Attempts</Text></View>
+      <View style={[s.tHead, { backgroundColor: settings.tableHeaderColor }]}>
+        <View style={s.colNum}><Text style={s.thText}>{settings.colNum}</Text></View>
+        <View style={s.colName}><Text style={s.thText}>{settings.colSession}</Text></View>
+        <View style={s.colScore}><Text style={s.thText}>{settings.colScore}</Text></View>
+        <View style={s.colStatus}><Text style={s.thText}>{settings.colStatus}</Text></View>
+        <View style={s.colAttempt}><Text style={s.thText}>{settings.colAttempts}</Text></View>
       </View>
 
       {/* Regular sessions */}
@@ -310,7 +358,7 @@ function CourseTable({ courseId, progressMap, tableHeaderColor }: { courseId: st
               </Text>
             </View>
             <View style={s.colStatus}>
-              <StatusBadge passed={!!prog?.passed} attempts={prog?.attempts ?? 0} isFinal={false} />
+              <StatusBadge passed={!!prog?.passed} attempts={prog?.attempts ?? 0} isFinal={false} bc={bc} />
             </View>
             <View style={s.colAttempt}>
               <Text style={s.tdText}>{prog?.attempts ?? 0} / {session.maxAttempts}</Text>
@@ -343,7 +391,7 @@ function CourseTable({ courseId, progressMap, tableHeaderColor }: { courseId: st
               if (!allRegularPassed && !fp?.attempts) {
                 return <View style={s.badgeGold}><Text style={s.badgeGoldTxt}>LOCKED</Text></View>;
               }
-              return <StatusBadge passed={!!fp?.passed} attempts={fp?.attempts ?? 0} isFinal />;
+              return <StatusBadge passed={!!fp?.passed} attempts={fp?.attempts ?? 0} isFinal bc={bc} />;
             })()}
           </View>
           <View style={s.colAttempt}>
@@ -476,7 +524,7 @@ function TranscriptDocument({
               {logoBase64 && settings.logoPosition === 'left' && (
                 <Image style={{ width: settings.logoWidth, height: settings.logoWidth, marginRight: 8 }} src={logoBase64} />
               )}
-              <Text style={s.hBrand}>Financial Modeler Pro</Text>
+              <Text style={s.hBrand}>{settings.brandName}</Text>
             </View>
             <Text style={s.hSub}>{settings.websiteUrl}</Text>
             <Text style={s.hSub}>{settings.instructor}</Text>
@@ -501,7 +549,7 @@ function TranscriptDocument({
         </View>
 
         {/* ── Student Info ─────────────────────────────────────────────── */}
-        <View style={s.studentStrip}>
+        <View style={[s.studentStrip, { backgroundColor: settings.studentStripBg }]}>
           <View style={s.infoCol}>
             <View style={s.infoRow}>
               <Text style={s.infoLabel}>Student Name</Text>
@@ -535,17 +583,16 @@ function TranscriptDocument({
         {/* ── Status Banner ─────────────────────────────────────────────── */}
         {isComplete ? (
           <View style={s.bannerComplete}>
-            <Text style={[s.bannerTitle, { color: '#166534' }]}>✓ OFFICIAL TRANSCRIPT — Course Complete</Text>
+            <Text style={[s.bannerTitle, { color: '#166534' }]}>{settings.bannerCompleteTitle}</Text>
             <Text style={[s.bannerSub, { color: '#166534' }]}>
-              All requirements fulfilled. Certificate issued as of {todayStr()}.
+              {settings.bannerCompleteSub.replace('[date]', todayStr())}
             </Text>
           </View>
         ) : (
           <View style={s.bannerProgress}>
-            <Text style={[s.bannerTitle, { color: '#92400E' }]}>⏳ PROGRESS TRANSCRIPT — Course in Progress</Text>
+            <Text style={[s.bannerTitle, { color: '#92400E' }]}>{settings.bannerProgressTitle}</Text>
             <Text style={[s.bannerSub, { color: '#92400E' }]}>
-              This transcript reflects current progress as of {todayStr()}.
-              A final transcript will be issued upon course completion.
+              {settings.bannerProgressSub.replace('[date]', todayStr())}
             </Text>
           </View>
         )}
@@ -556,7 +603,7 @@ function TranscriptDocument({
             <Text style={s.sectionTitle}>{courseLabel}</Text>
             <View style={s.sectionLine} />
           </View>
-          <CourseTable courseId={courseId} progressMap={progressMap} tableHeaderColor={settings.tableHeaderColor} />
+          <CourseTable courseId={courseId} progressMap={progressMap} settings={settings} />
         </View>
 
         {/* ── Summary Boxes ──────────────────────────────────────────────── */}
