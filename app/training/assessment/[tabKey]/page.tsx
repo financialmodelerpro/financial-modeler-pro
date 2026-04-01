@@ -212,9 +212,9 @@ export default function AssessmentPage() {
   const handleSubmitRef = useRef<() => void>(() => { /* placeholder */ });
 
   useEffect(() => {
-    if (pageState !== 'taking' || !questions?.timeLimit) return;
+    if (pageState !== 'taking' || !effectiveTimeLimit) return;
 
-    const totalSeconds = questions.timeLimit * 60;
+    const totalSeconds = effectiveTimeLimit * 60;
     setTimeLeft(totalSeconds);
 
     timerRef.current = setInterval(() => {
@@ -304,6 +304,8 @@ export default function AssessmentPage() {
   const totalQ       = questions?.questions.length ?? 0;
   const answered     = Object.keys(answers).length;
   const passingScore = questions?.passingScore ?? 70;
+  // 1 minute per question; Apps Script timeLimit takes priority if provided
+  const effectiveTimeLimit = questions ? (questions.timeLimit || totalQ) : 0;
 
   function formatTime(secs: number) {
     const m = Math.floor(secs / 60).toString().padStart(2, '0');
@@ -464,7 +466,7 @@ export default function AssessmentPage() {
                   { label: 'Questions', value: totalQ },
                   { label: 'Passing Score', value: `${passingScore}%` },
                   { label: 'Attempt', value: `${attemptNumber} of ${maxAttempts}` },
-                  ...(questions?.timeLimit ? [{ label: 'Time Limit', value: `${questions.timeLimit} min` }] : []),
+                  ...(effectiveTimeLimit ? [{ label: 'Time Limit', value: `${effectiveTimeLimit} min` }] : []),
                 ].map(({ label, value }) => (
                   <div key={label} style={{ textAlign: 'center' }}>
                     <div style={{ fontSize: 24, fontWeight: 800, color: NAVY }}>{value}</div>
@@ -495,7 +497,7 @@ export default function AssessmentPage() {
               <ul style={{ color: '#475569', fontSize: 14, lineHeight: 1.7, paddingLeft: 20, marginBottom: 32 }}>
                 <li>Select one answer per question.</li>
                 <li>You can navigate between questions before submitting.</li>
-                {questions?.timeLimit ? <li>Timer starts when you begin. The assessment will auto-submit when time runs out.</li> : null}
+                {effectiveTimeLimit ? <li>You have <strong>{effectiveTimeLimit} minutes</strong> total. Timer starts when you begin — assessment auto-submits when time runs out.</li> : null}
                 <li>Your answers are saved as you go — refreshing is safe.</li>
               </ul>
 
