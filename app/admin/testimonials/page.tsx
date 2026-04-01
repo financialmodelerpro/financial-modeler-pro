@@ -204,7 +204,7 @@ export default function AdminTestimonialsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#1B4F8A' }}>
-                  {['Source', 'Hub', 'Landing', 'Type', 'Name / Course', 'Content', 'Rating', 'Status', 'Date', 'Actions'].map(h => (
+                  {['Source', 'Hub', 'Type', 'Name / Course', 'Content', 'Rating', 'Status', 'Date', 'Actions'].map(h => (
                     <th key={h} style={{ padding: '11px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#fff', letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
@@ -234,19 +234,6 @@ export default function AdminTestimonialsPage() {
                           <option value="modeling">Modeling</option>
                           <option value="training">Training</option>
                         </select>
-                      </td>
-                      {/* Show on landing */}
-                      <td style={{ padding: '12px 14px', whiteSpace: 'nowrap', textAlign: 'center' }}>
-                        <button
-                          onClick={() => toggleLanding(t.id, t.source, t.show_on_landing ?? false)}
-                          title={t.show_on_landing ? 'Shown on landing — click to hide' : 'Hidden from landing — click to show'}
-                          style={{ fontSize: 14, background: 'none', border: 'none', cursor: 'pointer', opacity: t.show_on_landing ? 1 : 0.3 }}
-                        >
-                          {t.show_on_landing ? '🏠' : '🏠'}
-                        </button>
-                        <div style={{ fontSize: 9, color: t.show_on_landing ? '#1A7A30' : '#9CA3AF', fontWeight: 700, marginTop: 2 }}>
-                          {t.show_on_landing ? 'ON' : 'OFF'}
-                        </div>
                       </td>
                       {/* Type */}
                       <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
@@ -283,9 +270,15 @@ export default function AdminTestimonialsPage() {
                       </td>
                       {/* Status */}
                       <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
-                        <span style={{ background: sc.bg, color: sc.color, fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 20, textTransform: 'capitalize' }}>
-                          {t.status}
-                        </span>
+                        <select
+                          value={t.status}
+                          onChange={e => updateStatus(t.id, t.source, e.target.value)}
+                          style={{ fontSize: 11, fontWeight: 700, padding: '4px 8px', border: `1.5px solid ${sc.color}60`, borderRadius: 6, background: sc.bg, color: sc.color, cursor: 'pointer', outline: 'none' }}
+                        >
+                          <option value="pending">Pending</option>
+                          <option value="approved">Approved</option>
+                          <option value="rejected">Rejected</option>
+                        </select>
                       </td>
                       {/* Date */}
                       <td style={{ padding: '12px 14px', fontSize: 11, color: '#9CA3AF', whiteSpace: 'nowrap' }}>
@@ -293,31 +286,28 @@ export default function AdminTestimonialsPage() {
                       </td>
                       {/* Actions */}
                       <td style={{ padding: '12px 14px' }}>
-                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', minWidth: 160 }}>
-                          {t.status === 'pending' && (
-                            <>
-                              <button onClick={() => updateStatus(t.id, t.source, 'approved')}
-                                style={{ fontSize: 10, fontWeight: 700, background: '#E8F7EC', color: '#1A7A30', border: '1px solid #A3D9AE', borderRadius: 5, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                                Approve
-                              </button>
-                              <button onClick={() => updateStatus(t.id, t.source, 'rejected')}
-                                style={{ fontSize: 10, fontWeight: 700, background: '#FEE2E2', color: '#DC2626', border: '1px solid #FECACA', borderRadius: 5, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                                Reject
-                              </button>
-                            </>
-                          )}
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', minWidth: 140 }}>
+                          {/* Hide / Show */}
+                          <button onClick={() => toggleLanding(t.id, t.source, t.show_on_landing ?? false)}
+                            title={t.show_on_landing ? 'Visible — click to hide' : 'Hidden — click to show'}
+                            style={{ fontSize: 10, fontWeight: 700, background: t.show_on_landing ? '#F0FFF4' : '#F3F4F6', color: t.show_on_landing ? '#1A7A30' : '#6B7280', border: `1px solid ${t.show_on_landing ? '#A3D9AE' : '#E5E7EB'}`, borderRadius: 5, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                            {t.show_on_landing ? '👁 Visible' : '🚫 Hidden'}
+                          </button>
+                          {/* Reset to pending */}
                           {(t.status === 'approved' || t.status === 'rejected') && (
                             <button onClick={() => updateStatus(t.id, t.source, 'pending')}
                               style={{ fontSize: 10, fontWeight: 700, background: '#F3F4F6', color: '#6B7280', border: '1px solid #E5E7EB', borderRadius: 5, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                               Reset
                             </button>
                           )}
+                          {/* Feature toggle (student only) */}
                           {t.source === 'student' && (
                             <button onClick={() => toggleFeatured(t.id, t.source, t.is_featured)}
                               style={{ fontSize: 10, fontWeight: 700, background: t.is_featured ? '#FEF3C7' : '#F9FAFB', color: t.is_featured ? '#92400E' : '#6B7280', border: `1px solid ${t.is_featured ? '#FDE68A' : '#E5E7EB'}`, borderRadius: 5, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                               {t.is_featured ? '★ Unfeature' : '☆ Feature'}
                             </button>
                           )}
+                          {/* Delete */}
                           <button onClick={() => deleteTestimonial(t.id, t.source)}
                             style={{ fontSize: 10, fontWeight: 700, background: '#FEE2E2', color: '#DC2626', border: '1px solid #FECACA', borderRadius: 5, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                             Delete
