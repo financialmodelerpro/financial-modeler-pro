@@ -55,11 +55,11 @@ const s = StyleSheet.create({
 
   /* Student info strip */
   studentStrip: {
-    backgroundColor: C.lBlue, paddingHorizontal: 36, paddingVertical: 14,
+    backgroundColor: C.lBlue, paddingHorizontal: 36, paddingVertical: 10,
     flexDirection: 'row',
   },
   infoCol: { flex: 1 },
-  infoRow: { flexDirection: 'row', marginBottom: 5 },
+  infoRow: { flexDirection: 'row', marginBottom: 3 },
   infoLabel: {
     fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.navy2, width: 100,
   },
@@ -67,12 +67,12 @@ const s = StyleSheet.create({
 
   /* Status banner */
   bannerProgress: {
-    backgroundColor: '#FFFBEB', paddingHorizontal: 36, paddingVertical: 9,
+    backgroundColor: '#FFFBEB', paddingHorizontal: 36, paddingVertical: 6,
     borderTopWidth: 1, borderTopColor: '#FDE68A',
     borderBottomWidth: 1, borderBottomColor: '#FDE68A',
   },
   bannerComplete: {
-    backgroundColor: '#F0FFF4', paddingHorizontal: 36, paddingVertical: 9,
+    backgroundColor: '#F0FFF4', paddingHorizontal: 36, paddingVertical: 6,
     borderTopWidth: 1, borderTopColor: '#BBF7D0',
     borderBottomWidth: 1, borderBottomColor: '#BBF7D0',
   },
@@ -81,7 +81,7 @@ const s = StyleSheet.create({
 
   /* Section heading */
   sectionHead: {
-    paddingHorizontal: 36, paddingTop: 18, paddingBottom: 6,
+    paddingHorizontal: 36, paddingTop: 12, paddingBottom: 5,
     flexDirection: 'row', alignItems: 'center',
   },
   sectionTitle: { fontSize: 10, fontFamily: 'Helvetica-Bold', color: C.navy, marginRight: 8 },
@@ -91,11 +91,11 @@ const s = StyleSheet.create({
   tableWrap: { paddingHorizontal: 36 },
   tHead: {
     flexDirection: 'row', backgroundColor: C.navy2,
-    paddingVertical: 7, borderRadius: 4,
+    paddingVertical: 5, borderRadius: 4,
   },
   tRow: {
     flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: C.border,
-    paddingVertical: 6,
+    paddingVertical: 4,
   },
   tRowAlt:   { backgroundColor: C.lGrey },
   tRowFinal: { backgroundColor: C.goldBg },
@@ -122,8 +122,8 @@ const s = StyleSheet.create({
   badgeGoldTxt:   { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#92400E' },
 
   /* Summary boxes */
-  summaryWrap: { flexDirection: 'row', paddingHorizontal: 36, paddingTop: 16, gap: 12 },
-  summaryBox: { flex: 1, borderWidth: 1.5, borderRadius: 6, padding: 14 },
+  summaryWrap: { flexDirection: 'row', paddingHorizontal: 36, paddingTop: 10, gap: 12 },
+  summaryBox: { flex: 1, borderWidth: 1.5, borderRadius: 6, padding: 10 },
   summaryBoxNavy:  { borderColor: C.navy2 },
   summaryBoxGreen: { borderColor: C.green },
   summaryBoxGrey:  { borderColor: C.border },
@@ -131,7 +131,7 @@ const s = StyleSheet.create({
     fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.navy,
     letterSpacing: 0.5, marginBottom: 10, textTransform: 'uppercase' as const,
   },
-  sumRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 },
+  sumRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
   sumLabel: { fontSize: 8, color: C.muted },
   sumVal:   { fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.text },
   sumValGreen: { fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.green },
