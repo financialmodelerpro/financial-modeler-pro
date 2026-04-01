@@ -47,10 +47,9 @@ const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
   rejected: { bg: '#FEE2E2', color: '#DC2626' },
 };
 
-const TYPE_COLORS: Record<string, { bg: string; color: string }> = {
-  written: { bg: '#EFF6FF', color: '#1D4ED8' },
-  video:   { bg: '#F0FDF4', color: '#166534' },
-  manual:  { bg: '#F3F4F6', color: '#6B7280' },
+const HUB_BADGE: Record<string, { bg: string; color: string; label: string }> = {
+  training: { bg: '#E8F7EC', color: '#1A7A30', label: 'Training' },
+  modeling: { bg: '#EFF6FF', color: '#1B4F8A', label: 'Modeling' },
 };
 
 function buildShareText(t: Testimonial) {
@@ -67,28 +66,6 @@ function ShareButtons({ t, onCopied }: { t: Testimonial; onCopied: () => void })
   const shareText   = buildShareText(t);
   const fullMessage = `${shareText}\n\n${pageUrl}`;
 
-  function openLinkedIn() {
-    const url = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(pageUrl)}&summary=${encodeURIComponent(shareText)}`;
-    window.open(url, '_blank', 'width=600,height=500');
-  }
-
-  function openFacebook() {
-    const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}&quote=${encodeURIComponent(shareText)}`;
-    window.open(url, '_blank', 'width=600,height=500');
-  }
-
-  function openWhatsApp() {
-    window.open(`https://wa.me/?text=${encodeURIComponent(fullMessage)}`, '_blank');
-  }
-
-  function openYouTube() {
-    if (t.video_url) {
-      window.open(t.video_url, '_blank');
-    } else {
-      navigator.clipboard.writeText(fullMessage).then(onCopied);
-    }
-  }
-
   const btnBase: React.CSSProperties = {
     fontSize: 11, fontWeight: 700, padding: '4px 8px', border: 'none',
     borderRadius: 5, cursor: 'pointer', whiteSpace: 'nowrap',
@@ -96,14 +73,13 @@ function ShareButtons({ t, onCopied }: { t: Testimonial; onCopied: () => void })
 
   return (
     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 4 }}>
-      <button onClick={openLinkedIn} title="Share on LinkedIn"
+      <button onClick={() => window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(pageUrl)}&summary=${encodeURIComponent(shareText)}`, '_blank', 'width=600,height=500')}
         style={{ ...btnBase, background: '#0A66C2', color: '#fff' }}>in</button>
-      <button onClick={openFacebook} title="Share on Facebook"
+      <button onClick={() => window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}&quote=${encodeURIComponent(shareText)}`, '_blank', 'width=600,height=500')}
         style={{ ...btnBase, background: '#1877F2', color: '#fff' }}>fb</button>
-      <button onClick={openWhatsApp} title="Share on WhatsApp"
+      <button onClick={() => window.open(`https://wa.me/?text=${encodeURIComponent(fullMessage)}`, '_blank')}
         style={{ ...btnBase, background: '#25D366', color: '#fff' }}>wa</button>
-      <button onClick={openYouTube}
-        title={t.video_url ? 'Open YouTube video' : 'Copy text to clipboard'}
+      <button onClick={() => t.video_url ? window.open(t.video_url, '_blank') : navigator.clipboard.writeText(fullMessage).then(onCopied)}
         style={{ ...btnBase, background: t.video_url ? '#FF0000' : '#6B7280', color: '#fff' }}>
         {t.video_url ? '▶yt' : '📋'}
       </button>
@@ -112,7 +88,6 @@ function ShareButtons({ t, onCopied }: { t: Testimonial; onCopied: () => void })
 }
 
 interface SharedProps {
-  /** Pre-select a hub tab on mount. 'all' (default) shows all hubs. */
   defaultHub?: HubTab;
 }
 
@@ -157,17 +132,6 @@ export default function AdminTestimonialsPage({ defaultHub = 'all' }: SharedProp
     }
   }
 
-  async function updateHub(id: string, source: string, hub: string) {
-    try {
-      await fetch('/api/admin/testimonials', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, source, hub }),
-      });
-      await fetchTestimonials();
-    } catch { showToast('Failed to update hub', 'error'); }
-  }
-
   async function toggleLanding(id: string, source: string, current: boolean) {
     try {
       await fetch('/api/admin/testimonials', {
@@ -206,7 +170,6 @@ export default function AdminTestimonialsPage({ defaultHub = 'all' }: SharedProp
     }
   }
 
-  // Hub-filtered base
   const hubFiltered = hubTab === 'all' ? testimonials : testimonials.filter(t => t.hub === hubTab);
 
   const counts = {
@@ -226,8 +189,8 @@ export default function AdminTestimonialsPage({ defaultHub = 'all' }: SharedProp
   const totalPending = testimonials.filter(t => t.status === 'pending').length;
 
   const filtered = (() => {
-    if (statusTab === 'video')    return hubFiltered.filter(t => t.testimonial_type === 'video');
-    if (statusTab === 'all')      return hubFiltered;
+    if (statusTab === 'video') return hubFiltered.filter(t => t.testimonial_type === 'video');
+    if (statusTab === 'all')   return hubFiltered;
     return hubFiltered.filter(t => t.status === statusTab);
   })();
 
@@ -240,16 +203,16 @@ export default function AdminTestimonialsPage({ defaultHub = 'all' }: SharedProp
   ];
 
   const HUB_TABS: { key: HubTab; label: string; color: string }[] = [
-    { key: 'all',      label: `All Hubs (${hubCounts.all})`,          color: '#1B4F8A' },
-    { key: 'training', label: `Training Hub (${hubCounts.training})`,  color: '#2EAA4A' },
-    { key: 'modeling', label: `Modeling Hub (${hubCounts.modeling})`,  color: '#1B4F8A' },
+    { key: 'all',      label: `All Hubs (${hubCounts.all})`,         color: '#1B4F8A' },
+    { key: 'training', label: `Training Hub (${hubCounts.training})`, color: '#2EAA4A' },
+    { key: 'modeling', label: `Modeling Hub (${hubCounts.modeling})`, color: '#1B4F8A' },
   ];
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter',sans-serif", background: '#F4F7FC' }}>
       <CmsAdminNav
-        active={defaultHub === 'training' ? '/admin/testimonials/training' : defaultHub === 'modeling' ? '/admin/testimonials/modeling' : '/admin/testimonials'}
-        badges={totalPending > 0 ? { '/admin/testimonials/training': totalPending } : undefined}
+        active="/admin/testimonials"
+        badges={totalPending > 0 ? { '/admin/testimonials': totalPending } : undefined}
       />
       <main style={{ flex: 1, padding: 40, overflowY: 'auto' }}>
 
@@ -265,11 +228,11 @@ export default function AdminTestimonialsPage({ defaultHub = 'all' }: SharedProp
           </button>
         </div>
 
-        {/* Hub tabs */}
-        <div style={{ display: 'flex', gap: 4, marginBottom: 12, flexWrap: 'wrap' }}>
+        {/* Hub filter tabs */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
           {HUB_TABS.map(({ key, label, color }) => (
             <button key={key} onClick={() => { setHubTab(key); setStatusTab('all'); }}
-              style={{ padding: '8px 18px', borderRadius: 8, border: `2px solid ${hubTab === key ? color : '#D1D5DB'}`, cursor: 'pointer', fontSize: 13, background: hubTab === key ? color : '#fff', color: hubTab === key ? '#fff' : '#6B7280', fontWeight: 700, transition: 'all 0.15s' }}>
+              style={{ padding: '8px 20px', borderRadius: 8, border: `2px solid ${hubTab === key ? color : '#D1D5DB'}`, cursor: 'pointer', fontSize: 13, background: hubTab === key ? color : '#fff', color: hubTab === key ? '#fff' : '#6B7280', fontWeight: 700, transition: 'all 0.15s' }}>
               {label}
             </button>
           ))}
@@ -295,65 +258,57 @@ export default function AdminTestimonialsPage({ defaultHub = 'all' }: SharedProp
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
               <thead>
                 <tr style={{ background: '#1B4F8A' }}>
-                  {['Source', 'Hub', 'Type', 'Name / Course', 'Content', 'Rating', 'Status', 'Date', 'Actions'].map(h => (
+                  {['Hub', 'Name / Course', 'Content', 'Rating', 'Status', 'Date', 'Actions'].map(h => (
                     <th key={h} style={{ padding: '11px 14px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#fff', letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filtered.map((t, i) => {
-                  const sc = STATUS_COLORS[t.status] ?? STATUS_COLORS.pending;
-                  const tc = TYPE_COLORS[t.testimonial_type] ?? TYPE_COLORS.manual;
+                  const sc  = STATUS_COLORS[t.status] ?? STATUS_COLORS.pending;
+                  const hub = HUB_BADGE[t.hub] ?? HUB_BADGE.modeling;
                   return (
                     <tr key={t.id} style={{ borderBottom: '1px solid #F3F4F6', background: i % 2 === 0 ? '#fff' : '#FAFBFF' }}>
-                      {/* Source */}
+
+                      {/* Hub — read-only badge */}
                       <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: t.source === 'student' ? '#EFF6FF' : '#F3F4F6', color: t.source === 'student' ? '#1D4ED8' : '#6B7280' }}>
-                          {t.source === 'student' ? 'Student' : 'Manual'}
-                        </span>
-                        {t.is_featured && (
-                          <span style={{ display: 'block', marginTop: 4, fontSize: 9, fontWeight: 700, color: '#C9A84C' }}>★ Featured</span>
-                        )}
-                      </td>
-                      {/* Hub */}
-                      <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
-                        <select
-                          value={t.hub ?? (t.source === 'student' ? 'training' : 'modeling')}
-                          onChange={e => updateHub(t.id, t.source, e.target.value)}
-                          style={{ fontSize: 11, padding: '3px 6px', border: '1px solid #D1D5DB', borderRadius: 5, background: '#fff', cursor: 'pointer' }}
-                        >
-                          <option value="modeling">Modeling</option>
-                          <option value="training">Training</option>
-                        </select>
-                      </td>
-                      {/* Type */}
-                      <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: tc.bg, color: tc.color }}>
-                          {t.testimonial_type}
+                        <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: hub.bg, color: hub.color }}>
+                          {hub.label}
                         </span>
                       </td>
+
                       {/* Name / Course */}
-                      <td style={{ padding: '12px 14px', fontSize: 12, minWidth: 140 }}>
+                      <td style={{ padding: '12px 14px', fontSize: 12, minWidth: 160 }}>
                         <div style={{ fontWeight: 600, color: '#1B3A6B' }}>{t.name}</div>
-                        {t.role && <div style={{ color: '#9CA3AF', fontSize: 11 }}>{t.role}{t.company ? ` · ${t.company}` : ''}</div>}
+                        {(t.role || t.company) && (
+                          <div style={{ color: '#9CA3AF', fontSize: 11 }}>{[t.role, t.company].filter(Boolean).join(' · ')}</div>
+                        )}
                         {t.location && <div style={{ color: '#9CA3AF', fontSize: 10 }}>{t.location}</div>}
                         {t.course_name && <div style={{ fontSize: 10, color: '#1B4F8A', marginTop: 2, fontWeight: 600 }}>{t.course_name}</div>}
-                        {t.linkedin_url && (
-                          <a href={t.linkedin_url} target="_blank" rel="noopener noreferrer"
-                            style={{ fontSize: 9, color: '#0A66C2', textDecoration: 'none', fontWeight: 600 }}>in ↗</a>
-                        )}
+                        <div style={{ marginTop: 3, display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 10, background: t.source === 'student' ? '#EFF6FF' : '#F3F4F6', color: t.source === 'student' ? '#1D4ED8' : '#6B7280' }}>
+                            {t.source === 'student' ? 'Student' : 'Manual'}
+                          </span>
+                          {t.is_featured && <span style={{ fontSize: 9, fontWeight: 700, color: '#C9A84C' }}>★ Featured</span>}
+                          {t.linkedin_url && (
+                            <a href={t.linkedin_url} target="_blank" rel="noopener noreferrer"
+                              style={{ fontSize: 9, color: '#0A66C2', textDecoration: 'none', fontWeight: 600 }}>in ↗</a>
+                          )}
+                        </div>
                       </td>
+
                       {/* Content */}
-                      <td style={{ padding: '12px 14px', fontSize: 12, color: '#374151', maxWidth: 200 }}>
+                      <td style={{ padding: '12px 14px', fontSize: 12, color: '#374151', maxWidth: 220 }}>
                         {t.testimonial_type === 'video' && t.video_url ? (
                           <a href={t.video_url} target="_blank" rel="noopener noreferrer"
                             style={{ color: '#166534', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
                             ▶ Watch Video ↗
                           </a>
                         ) : (
-                          <span title={t.text}>{t.text.slice(0, 80)}{t.text.length > 80 ? '…' : ''}</span>
+                          <span title={t.text}>{t.text.slice(0, 90)}{t.text.length > 90 ? '…' : ''}</span>
                         )}
                       </td>
+
                       {/* Rating */}
                       <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
                         {t.rating != null ? (
@@ -362,6 +317,7 @@ export default function AdminTestimonialsPage({ defaultHub = 'all' }: SharedProp
                           ))
                         ) : <span style={{ color: '#E5E7EB', fontSize: 11 }}>—</span>}
                       </td>
+
                       {/* Status */}
                       <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
                         <select
@@ -374,40 +330,37 @@ export default function AdminTestimonialsPage({ defaultHub = 'all' }: SharedProp
                           <option value="rejected">Rejected</option>
                         </select>
                       </td>
+
                       {/* Date */}
                       <td style={{ padding: '12px 14px', fontSize: 11, color: '#9CA3AF', whiteSpace: 'nowrap' }}>
                         {new Date(t.created_at).toLocaleDateString()}
                       </td>
+
                       {/* Actions */}
                       <td style={{ padding: '12px 14px' }}>
-                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', minWidth: 120 }}>
-                          {/* Hide / Show */}
+                        <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', minWidth: 130 }}>
                           <button onClick={() => toggleLanding(t.id, t.source, t.show_on_landing ?? false)}
-                            title={t.show_on_landing ? 'Visible — click to hide' : 'Hidden — click to show'}
+                            title={t.show_on_landing ? 'Visible on site — click to hide' : 'Hidden — click to show'}
                             style={{ fontSize: 10, fontWeight: 700, background: t.show_on_landing ? '#F0FFF4' : '#F3F4F6', color: t.show_on_landing ? '#1A7A30' : '#6B7280', border: `1px solid ${t.show_on_landing ? '#A3D9AE' : '#E5E7EB'}`, borderRadius: 5, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                             {t.show_on_landing ? '👁 Visible' : '🚫 Hidden'}
                           </button>
-                          {/* Reset to pending */}
                           {(t.status === 'approved' || t.status === 'rejected') && (
                             <button onClick={() => updateStatus(t.id, t.source, 'pending')}
                               style={{ fontSize: 10, fontWeight: 700, background: '#F3F4F6', color: '#6B7280', border: '1px solid #E5E7EB', borderRadius: 5, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                               Reset
                             </button>
                           )}
-                          {/* Feature toggle (student only) */}
                           {t.source === 'student' && (
                             <button onClick={() => toggleFeatured(t.id, t.source, t.is_featured)}
                               style={{ fontSize: 10, fontWeight: 700, background: t.is_featured ? '#FEF3C7' : '#F9FAFB', color: t.is_featured ? '#92400E' : '#6B7280', border: `1px solid ${t.is_featured ? '#FDE68A' : '#E5E7EB'}`, borderRadius: 5, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                               {t.is_featured ? '★ Unfeature' : '☆ Feature'}
                             </button>
                           )}
-                          {/* Delete */}
                           <button onClick={() => deleteTestimonial(t.id, t.source)}
                             style={{ fontSize: 10, fontWeight: 700, background: '#FEE2E2', color: '#DC2626', border: '1px solid #FECACA', borderRadius: 5, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                             Delete
                           </button>
                         </div>
-                        {/* Share buttons */}
                         <ShareButtons t={t} onCopied={() => showToast('Copied to clipboard')} />
                       </td>
                     </tr>

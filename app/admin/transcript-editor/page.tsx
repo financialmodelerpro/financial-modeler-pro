@@ -5,633 +5,773 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 
-// ── PDF virtual dimensions (mirrors @react-pdf/renderer A4 output) ────────────
-const PDF_W  = 595;
-const PDF_H  = 842;
-const SCALE  = 0.68;    // preview scale factor
-const H_PAD  = 36;      // horizontal padding (matches PDF)
+// ── Canvas constants ───────────────────────────────────────────────────────────
+const PDF_W = 595;
+const PDF_H = 842;
+const SCALE = 0.68;
+const CW    = Math.round(PDF_W * SCALE); // 404px
+const CH    = Math.round(PDF_H * SCALE); // 572px
 
-// Brand colours (mirror the transcript route)
-const C = {
-  navy:   '#0D2E5A',
-  navy2:  '#1B4F8A',
-  green:  '#2EAA4A',
-  lBlue:  '#EBF3FC',
-  border: '#E5E7EB',
-  lGrey:  '#F9FAFB',
-  gold:   '#C9A84C',
-  goldBg: '#FDF3DC',
-  text:   '#111827',
-  muted:  '#6B7280',
-};
+// ── Sample data ────────────────────────────────────────────────────────────────
+const SAMPLE_SESSIONS = [
+  { name: 'Introduction to Financial Modeling',  score: 90, status: 'PASSED', attempts: 1 },
+  { name: 'Income Statement & Revenue Drivers',  score: 87, status: 'PASSED', attempts: 1 },
+  { name: 'Balance Sheet Mechanics',             score: 84, status: 'PASSED', attempts: 2 },
+  { name: 'Cash Flow Statement',                 score: 81, status: 'PASSED', attempts: 1 },
+  { name: 'Three-Statement Integration',         score: 75, status: 'PASSED', attempts: 2 },
+  { name: 'Final Assessment',                    score: 88, status: 'PASSED', attempts: 1 },
+];
 
-type LogoPos = 'left' | 'center' | 'right' | 'none';
-
+// ── Settings ───────────────────────────────────────────────────────────────────
 interface Settings {
-  headerTitle:  string;
-  subtitle:     string;
-  footer1:      string;
-  footer2:      string;
-  instructor:   string;
-  websiteUrl:   string;
-  logoUrl:      string;
-  logoWidth:    number;
-  logoPosition: LogoPos;
+  logoUrl:          string;
+  logoX:            number;
+  logoY:            number;
+  logoWidth:        number;
+  headerTitle:      string;
+  subtitle:         string;
+  instructor:       string;
+  websiteUrl:       string;
+  headerBgColor:    string;
+  headerTextColor:  string;
+  tableHeaderColor: string;
+  passedColor:      string;
+  failedColor:      string;
+  fontSizeHeader:   number;
+  fontSizeSubtitle: number;
+  fontSizeBody:     number;
+  fontSizeTable:    number;
+  marginTop:        number;
+  marginBottom:     number;
+  marginLeft:       number;
+  marginRight:      number;
+  footer1:          string;
+  footer2:          string;
+  footerFontSize:   number;
+  pageSize:         string;
+  colNum:           number;
+  colSession:       number;
+  colScore:         number;
+  colStatus:        number;
+  colAttempts:      number;
+  rowHdrH:          number;
+  rowDataH:         number;
+  infoColLeft:      number;
+  infoRowH:         number;
 }
 
 const DEFAULTS: Settings = {
-  headerTitle:  'OFFICIAL ACADEMIC TRANSCRIPT',
-  subtitle:     'FMP Training Hub',
-  footer1:      'This transcript is an official record issued by Financial Modeler Pro.',
-  footer2:      'Verify certificate authenticity at certifier.io',
-  instructor:   'Ahmad Din | Corporate Finance Expert',
-  websiteUrl:   'www.financialmodelerpro.com',
-  logoUrl:      '',
-  logoWidth:    32,
-  logoPosition: 'right',
+  logoUrl:          '',
+  logoX:            499,
+  logoY:            18,
+  logoWidth:        60,
+  headerTitle:      'OFFICIAL ACADEMIC TRANSCRIPT',
+  subtitle:         'FMP Training Hub',
+  instructor:       'Ahmad Din | Corporate Finance Expert',
+  websiteUrl:       'www.financialmodelerpro.com',
+  headerBgColor:    '#0D2E5A',
+  headerTextColor:  '#FFFFFF',
+  tableHeaderColor: '#1B4F8A',
+  passedColor:      '#2EAA4A',
+  failedColor:      '#DC2626',
+  fontSizeHeader:   15,
+  fontSizeSubtitle: 9,
+  fontSizeBody:     8.5,
+  fontSizeTable:    7.5,
+  marginTop:        20,
+  marginBottom:     20,
+  marginLeft:       36,
+  marginRight:      36,
+  footer1:          'This transcript is an official record issued by Financial Modeler Pro.',
+  footer2:          'Verify certificate authenticity at certifier.io',
+  footerFontSize:   7.5,
+  pageSize:         'A4',
+  colNum:           30,
+  colSession:       220,
+  colScore:         55,
+  colStatus:        80,
+  colAttempts:      55,
+  rowHdrH:          22,
+  rowDataH:         17,
+  infoColLeft:      145,
+  infoRowH:         18,
 };
 
-function logoX(pos: LogoPos, w: number): number {
-  if (pos === 'left')   return H_PAD;
-  if (pos === 'center') return (PDF_W - w) / 2;
-  return PDF_W - H_PAD - w; // right (and fallback)
+const CMS_KEYS: Record<keyof Settings, string> = {
+  logoUrl:          'transcript_logo_url',
+  logoX:            'transcript_logo_x',
+  logoY:            'transcript_logo_y',
+  logoWidth:        'transcript_logo_width',
+  headerTitle:      'transcript_header_title',
+  subtitle:         'transcript_subtitle',
+  instructor:       'transcript_instructor',
+  websiteUrl:       'transcript_website_url',
+  headerBgColor:    'transcript_header_bg_color',
+  headerTextColor:  'transcript_header_text_color',
+  tableHeaderColor: 'transcript_table_header_color',
+  passedColor:      'transcript_passed_color',
+  failedColor:      'transcript_failed_color',
+  fontSizeHeader:   'transcript_font_size_header',
+  fontSizeSubtitle: 'transcript_font_size_subtitle',
+  fontSizeBody:     'transcript_font_size_body',
+  fontSizeTable:    'transcript_font_size_table',
+  marginTop:        'transcript_margin_top',
+  marginBottom:     'transcript_margin_bottom',
+  marginLeft:       'transcript_margin_left',
+  marginRight:      'transcript_margin_right',
+  footer1:          'transcript_footer_1',
+  footer2:          'transcript_footer_2',
+  footerFontSize:   'transcript_footer_font_size',
+  pageSize:         'transcript_page_size',
+  colNum:           'transcript_col_width_num',
+  colSession:       'transcript_col_width_session',
+  colScore:         'transcript_col_width_score',
+  colStatus:        'transcript_col_width_status',
+  colAttempts:      'transcript_col_width_attempts',
+  rowHdrH:          'transcript_row_height_header',
+  rowDataH:         'transcript_row_height_data',
+  infoColLeft:      'transcript_info_col_width_left',
+  infoRowH:         'transcript_info_row_height',
+};
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+function s(v: number) { return Math.round(v * SCALE); } // pdf pts → screen px
+function p(v: number) { return v / SCALE; }              // screen px → pdf pts
+
+function Section({ title, open, onToggle, children }: {
+  title: string; open: boolean; onToggle: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div style={{ borderBottom: '1px solid #E8F0FB' }}>
+      <button onClick={onToggle} style={{ width: '100%', padding: '10px 16px', background: 'none', border: 'none', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 12, fontWeight: 700, color: '#1B3A6B', letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+        {title}
+        <span style={{ fontSize: 10, color: '#9CA3AF' }}>{open ? '▲' : '▼'}</span>
+      </button>
+      {open && <div style={{ padding: '4px 16px 14px' }}>{children}</div>}
+    </div>
+  );
 }
 
-function snapPos(x: number, w: number): LogoPos {
-  const pts = [
-    { p: 'left'   as LogoPos, d: Math.abs(x - H_PAD) },
-    { p: 'center' as LogoPos, d: Math.abs(x - (PDF_W - w) / 2) },
-    { p: 'right'  as LogoPos, d: Math.abs(x - (PDF_W - H_PAD - w)) },
-  ];
-  return pts.sort((a, b) => a.d - b.d)[0].p;
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{label}</div>
+      {children}
+    </div>
+  );
 }
 
-// Sample session names for the preview table
-const SAMPLE_SESSIONS = [
-  'Introduction & Framework Overview',
-  'Project Overview & Timeline',
-  'Capex & Funding Requirement',
-  'Plant Capacity & Production Plan',
-  'Revenue & Inventory Modeling',
-  'COGS & Raw Material Cost Modeling',
-  'Operating Expenses',
-  'EBITDA & Depreciation',
-  'Working Capital Cycle',
-  'Income Statement Build',
-  'Balance Sheet Build',
-  'Cash Flow Statement',
-  'Debt Schedule',
-  'Fixed Assets Schedule',
-  'Financial Ratios',
-  'Sensitivity Analysis',
-  'Charts & Visualization',
-  'Final Review & Integration',
-];
+function Slider({ value, min, max, step = 0.5, onChange }: { value: number; min: number; max: number; step?: number; onChange: (v: number) => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={e => onChange(parseFloat(e.target.value))}
+        style={{ flex: 1, accentColor: '#1B4F8A' }} />
+      <input type="number" min={min} max={max} step={step} value={value}
+        onChange={e => onChange(parseFloat(e.target.value) || min)}
+        style={{ width: 48, padding: '3px 5px', fontSize: 11, border: '1px solid #D1D5DB', borderRadius: 4, textAlign: 'center' }} />
+    </div>
+  );
+}
 
+function ColorPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <input type="color" value={value} onChange={e => onChange(e.target.value)}
+        style={{ width: 36, height: 28, border: '1px solid #D1D5DB', borderRadius: 4, padding: 2, cursor: 'pointer' }} />
+      <input type="text" value={value} onChange={e => onChange(e.target.value)}
+        style={{ flex: 1, padding: '4px 7px', fontSize: 11, border: '1px solid #D1D5DB', borderRadius: 4, fontFamily: 'monospace' }} />
+    </div>
+  );
+}
+
+function TextInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+  return (
+    <input type="text" value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
+      style={{ width: '100%', padding: '6px 8px', fontSize: 12, border: '1px solid #D1D5DB', borderRadius: 5, boxSizing: 'border-box', fontFamily: "'Inter',sans-serif" }} />
+  );
+}
+
+// ── Inline editable text on canvas ────────────────────────────────────────────
+function EditableText({
+  value, onChange, editing, onStartEdit, onEndEdit,
+  style, inputStyle, multiline = false,
+}: {
+  value: string; onChange: (v: string) => void;
+  editing: boolean; onStartEdit: () => void; onEndEdit: () => void;
+  style?: React.CSSProperties; inputStyle?: React.CSSProperties;
+  multiline?: boolean;
+}) {
+  if (editing) {
+    const common: React.CSSProperties = {
+      background: 'rgba(255,255,255,0.15)',
+      border: '1.5px solid rgba(255,255,255,0.6)',
+      borderRadius: 3,
+      outline: 'none',
+      color: 'inherit',
+      fontFamily: 'inherit',
+      fontSize: 'inherit',
+      fontWeight: 'inherit',
+      letterSpacing: 'inherit',
+      textAlign: 'inherit' as React.CSSProperties['textAlign'],
+      width: '100%',
+      padding: '1px 3px',
+      boxSizing: 'border-box' as const,
+      ...inputStyle,
+    };
+    if (multiline) {
+      return <textarea value={value} onChange={e => onChange(e.target.value)} onBlur={onEndEdit}
+        autoFocus rows={2} style={{ ...common, resize: 'none', lineHeight: 'inherit' }} />;
+    }
+    return <input type="text" value={value} onChange={e => onChange(e.target.value)}
+      onBlur={onEndEdit} onKeyDown={e => e.key === 'Enter' && onEndEdit()} autoFocus style={common} />;
+  }
+  return (
+    <div onClick={onStartEdit} title="Click to edit" style={{ cursor: 'text', ...style }}>
+      {value || <span style={{ opacity: 0.4 }}>Click to edit…</span>}
+    </div>
+  );
+}
+
+// ── Main page ──────────────────────────────────────────────────────────────────
 export default function TranscriptEditorPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
 
-  const [settings,      setSettings]      = useState<Settings>(DEFAULTS);
-  const [dirty,         setDirty]         = useState(false);
-  const [loading,       setLoading]       = useState(true);
-  const [saving,        setSaving]        = useState(false);
-  const [logoUploading, setLogoUploading] = useState(false);
-  const [toast,         setToast]         = useState('');
+  const [s_,   setS]    = useState<Settings>(DEFAULTS);
+  const [open,  setOpen] = useState({ logo: true, typography: false, colors: false, page: false, footer: false });
+  const [editF, setEditF] = useState<string | null>(null);
+  const [selEl, setSelEl] = useState<'logo' | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [toast,  setToast]  = useState('');
+  const [uploading, setUploading] = useState(false);
 
-  // Drag state
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragX,      setDragX]      = useState(0);
-  const dragStartRef = useRef<{ mouseX: number; initLogoX: number } | null>(null);
-  const previewRef   = useRef<HTMLDivElement>(null);
+  // Drag/resize refs (avoid state churn during mouse move)
+  const logoDragRef   = useRef<{ startX: number; startY: number; initX: number; initY: number } | null>(null);
+  const logoResizeRef = useRef<{ startX: number; initW: number } | null>(null);
+  const colDragRef    = useRef<{ col: 'colNum'|'colSession'|'colScore'|'colStatus'|'colAttempts'; startX: number; initW: number; nextCol: keyof Settings; initNext: number } | null>(null);
+  const canvasRef     = useRef<HTMLDivElement>(null);
+  const fileRef       = useRef<HTMLInputElement>(null);
 
-  // Auth guard
+  // shorthand update
+  const upd = useCallback((patch: Partial<Settings>) => setS(prev => ({ ...prev, ...patch })), []);
+  const tog  = useCallback((k: keyof typeof open) => setOpen(prev => ({ ...prev, [k]: !prev[k] })), []);
+
+  // auth guard
   useEffect(() => {
-    if (status === 'unauthenticated') { router.replace('/login'); return; }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (status === 'authenticated' && (session?.user as any)?.role !== 'admin') router.replace('/');
+    if (status === 'unauthenticated') router.replace('/login');
+    if (status === 'authenticated' && (session.user as { role?: string }).role !== 'admin') router.replace('/');
   }, [status, session, router]);
 
-  // Load settings
+  // load from supabase
   useEffect(() => {
     fetch('/api/admin/content?section=transcript')
       .then(r => r.json())
       .then((cms: { rows?: { key: string; value: string }[] }) => {
-        const rows = Array.isArray(cms.rows) ? cms.rows : [];
         const map: Record<string, string> = {};
-        rows.forEach(r => { map[r.key] = r.value; });
-        const rawW = parseInt(map['transcript_logo_width'] ?? '', 10);
-        const rawP = map['transcript_logo_position'] ?? '';
-        setSettings({
-          headerTitle:  map['transcript_header_title']  || DEFAULTS.headerTitle,
-          subtitle:     map['transcript_subtitle']       || DEFAULTS.subtitle,
-          footer1:      map['transcript_footer_1']       || DEFAULTS.footer1,
-          footer2:      map['transcript_footer_2']       || DEFAULTS.footer2,
-          instructor:   map['transcript_instructor']     || DEFAULTS.instructor,
-          websiteUrl:   map['transcript_website_url']    || DEFAULTS.websiteUrl,
-          logoUrl:      map['transcript_logo_url']       || '',
-          logoWidth:    Number.isFinite(rawW) && rawW > 0 ? rawW : DEFAULTS.logoWidth,
-          logoPosition: (['left', 'center', 'right', 'none'] as const).includes(rawP as LogoPos)
-            ? rawP as LogoPos : DEFAULTS.logoPosition,
+        (cms.rows ?? []).forEach(r => { map[r.key] = r.value; });
+        const patch: Partial<Settings> = {};
+        (Object.entries(CMS_KEYS) as [keyof Settings, string][]).forEach(([sk, ck]) => {
+          if (map[ck] !== undefined) {
+            const def = DEFAULTS[sk];
+            (patch as Record<string, unknown>)[sk] = typeof def === 'number' ? parseFloat(map[ck]) || def : map[ck];
+          }
         });
-        setLoading(false);
+        if (Object.keys(patch).length) upd(patch);
       })
-      .catch(() => setLoading(false));
-  }, []);
+      .catch(() => {});
+  }, [upd]);
 
-  function upd<K extends keyof Settings>(key: K, value: Settings[K]) {
-    setSettings(prev => ({ ...prev, [key]: value }));
-    setDirty(true);
-  }
+  const showToast = useCallback((msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); }, []);
 
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(''), 3000);
-  }, []);
-
-  async function saveAll() {
+  // ── Save all ────────────────────────────────────────────────────────────────
+  const saveAll = useCallback(async () => {
     setSaving(true);
-    const pairs: [string, string][] = [
-      ['transcript_header_title',  settings.headerTitle],
-      ['transcript_subtitle',      settings.subtitle],
-      ['transcript_footer_1',      settings.footer1],
-      ['transcript_footer_2',      settings.footer2],
-      ['transcript_instructor',    settings.instructor],
-      ['transcript_website_url',   settings.websiteUrl],
-      ['transcript_logo_url',      settings.logoUrl],
-      ['transcript_logo_width',    String(settings.logoWidth)],
-      ['transcript_logo_position', settings.logoPosition],
-    ];
     try {
-      await Promise.all(pairs.map(([key, value]) =>
-        fetch('/api/admin/content', {
-          method:  'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ section: 'transcript', key, value }),
-        }),
-      ));
-      showToast('All settings saved ✓');
-      setDirty(false);
+      await Promise.all(
+        (Object.entries(CMS_KEYS) as [keyof Settings, string][]).map(([sk, ck]) =>
+          fetch('/api/admin/content', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ section: 'transcript', key: ck, value: String(s_[sk]) }),
+          })
+        )
+      );
+      showToast('All settings saved');
     } catch {
       showToast('Save failed');
     }
     setSaving(false);
-  }
+  }, [s_, showToast]);
 
-  async function uploadLogo(file: File) {
-    setLogoUploading(true);
+  // ── Reset ───────────────────────────────────────────────────────────────────
+  const resetDefaults = useCallback(() => {
+    if (!confirm('Reset all settings to defaults?')) return;
+    setS(DEFAULTS);
+    showToast('Reset to defaults — click Save to persist');
+  }, [showToast]);
+
+  // ── Logo upload ─────────────────────────────────────────────────────────────
+  const uploadLogo = useCallback(async (file: File) => {
+    setUploading(true);
     try {
       const form = new FormData();
       form.append('file', file);
       form.append('bucket', 'cms-assets');
       form.append('folder', 'transcript-logos');
-      const res = await fetch('/api/admin/media', { method: 'POST', body: form });
-      if (!res.ok) { showToast('Upload failed'); return; }
-      const { url } = await res.json() as { url: string };
-      upd('logoUrl', url);
-      showToast('Logo uploaded — click Save All to apply');
-    } catch {
-      showToast('Upload failed');
-    }
-    setLogoUploading(false);
-  }
+      const res  = await fetch('/api/admin/media', { method: 'POST', body: form });
+      const data = await res.json() as { url?: string };
+      if (data.url) upd({ logoUrl: data.url });
+      showToast('Logo uploaded');
+    } catch { showToast('Upload failed'); }
+    setUploading(false);
+  }, [upd, showToast]);
 
-  // ── Logo drag ─────────────────────────────────────────────────────────────────
-  function handleLogoDragStart(e: React.MouseEvent) {
+  // ── Logo drag ───────────────────────────────────────────────────────────────
+  const onLogoDragStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    const initX = isDragging ? dragX : logoX(settings.logoPosition, settings.logoWidth);
-    dragStartRef.current = { mouseX: e.clientX, initLogoX: initX };
-    setDragX(initX);
-    setIsDragging(true);
-  }
+    e.stopPropagation();
+    logoDragRef.current = { startX: e.clientX, startY: e.clientY, initX: s_.logoX, initY: s_.logoY };
+    setSelEl('logo');
 
-  useEffect(() => {
-    if (!isDragging) return;
-    const w = settings.logoWidth;
-    function onMouseMove(e: MouseEvent) {
-      if (!dragStartRef.current) return;
-      const dx = (e.clientX - dragStartRef.current.mouseX) / SCALE;
-      const nx = dragStartRef.current.initLogoX + dx;
-      setDragX(Math.max(H_PAD, Math.min(PDF_W - H_PAD - w, nx)));
-    }
-    function onMouseUp() {
-      const snapped = snapPos(dragX, w);
-      setSettings(prev => ({ ...prev, logoPosition: snapped }));
-      setDirty(true);
-      setIsDragging(false);
-      dragStartRef.current = null;
-    }
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-    return () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
+    const onMove = (ev: MouseEvent) => {
+      if (!logoDragRef.current) return;
+      const dx = ev.clientX - logoDragRef.current.startX;
+      const dy = ev.clientY - logoDragRef.current.startY;
+      setS(prev => ({
+        ...prev,
+        logoX: Math.max(0, Math.min(PDF_W - prev.logoWidth, logoDragRef.current!.initX + p(dx))),
+        logoY: Math.max(0, Math.min(100, logoDragRef.current!.initY + p(dy))),
+      }));
     };
-  }, [isDragging, dragX, settings.logoWidth]);
+    const onUp = () => {
+      logoDragRef.current = null;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [s_.logoX, s_.logoY]);
 
-  const currentLogoX = isDragging ? dragX : (settings.logoPosition !== 'none' ? logoX(settings.logoPosition, settings.logoWidth) : 0);
-  const logoTop = 14; // fixed vertical position within header
+  // ── Logo resize ─────────────────────────────────────────────────────────────
+  const onLogoResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    logoResizeRef.current = { startX: e.clientX, initW: s_.logoWidth };
 
-  const fieldStyle: React.CSSProperties = {
-    width: '100%', padding: '8px 10px', fontSize: 12,
-    border: '1px solid #D1D5DB', borderRadius: 6,
-    background: '#FFFBEB', fontFamily: 'Inter,sans-serif',
-    outline: 'none', boxSizing: 'border-box', color: '#1B3A6B',
-  };
-  const labelStyle: React.CSSProperties = {
-    fontSize: 10, fontWeight: 700, color: '#6B7280',
-    textTransform: 'uppercase', letterSpacing: '0.05em',
-    marginBottom: 4, display: 'block',
-  };
+    const onMove = (ev: MouseEvent) => {
+      if (!logoResizeRef.current) return;
+      const dx = ev.clientX - logoResizeRef.current.startX;
+      setS(prev => ({ ...prev, logoWidth: Math.max(30, Math.min(180, logoResizeRef.current!.initW + p(dx))) }));
+    };
+    const onUp = () => {
+      logoResizeRef.current = null;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [s_.logoWidth]);
 
-  // Approximate header height (for spacing)
-  const HEADER_H = Math.max(70, settings.logoWidth + logoTop + 12);
+  // ── Column resize ───────────────────────────────────────────────────────────
+  type ColKey = 'colNum' | 'colSession' | 'colScore' | 'colStatus' | 'colAttempts';
+  const COL_PAIRS: [ColKey, ColKey][] = [
+    ['colNum', 'colSession'], ['colSession', 'colScore'],
+    ['colScore', 'colStatus'], ['colStatus', 'colAttempts'],
+  ];
+
+  const onColDividerDown = useCallback((leftCol: ColKey, rightCol: ColKey) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    colDragRef.current = {
+      col: leftCol, startX: e.clientX,
+      initW: s_[leftCol] as number,
+      nextCol: rightCol, initNext: s_[rightCol] as number,
+    };
+    const onMove = (ev: MouseEvent) => {
+      if (!colDragRef.current) return;
+      const dx = p(ev.clientX - colDragRef.current.startX);
+      setS(prev => {
+        const newLeft  = Math.max(20, colDragRef.current!.initW   + dx);
+        const newRight = Math.max(20, colDragRef.current!.initNext - dx);
+        return { ...prev, [colDragRef.current!.col]: newLeft, [colDragRef.current!.nextCol]: newRight };
+      });
+    };
+    const onUp = () => {
+      colDragRef.current = null;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [s_]);
+
+  // ── Derived values ──────────────────────────────────────────────────────────
+  const tableW = PDF_W - s_.marginLeft - s_.marginRight;
+  const colWidths = [s_.colNum, s_.colSession, s_.colScore, s_.colStatus, s_.colAttempts];
+  const colTotal  = colWidths.reduce((a, b) => a + b, 0);
+  const colPct    = colWidths.map(w => (w / colTotal) * 100);
+  const infoRightW = (PDF_W - s_.marginLeft - s_.marginRight) - s_.infoColLeft;
+
+  // ── Info rows ───────────────────────────────────────────────────────────────
+  const INFO_ROWS = [
+    ['Student Name',     'Ahmed Al-Rashidi'],
+    ['Registration ID',  'FMP-2024-001'],
+    ['Email Address',    'ahmed@example.com'],
+    ['Course',           '3-Statement Financial Modeling (3SFM)'],
+    ['Enrollment Date',  '1 January 2024'],
+    ['Issue Date',       '1 April 2026'],
+  ];
+
+  // ── Render ──────────────────────────────────────────────────────────────────
+  if (status === 'loading' || status === 'unauthenticated') return null;
+
+  const headerH = 110; // PDF pts
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter',sans-serif", background: '#F4F7FC' }}>
-      <CmsAdminNav active="/admin/transcript-editor" />
-      <main style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', height: '100vh' }}>
+      <CmsAdminNav />
+      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-        {/* ── Top bar ───────────────────────────────────────────────────── */}
-        <div style={{ background: '#fff', borderBottom: '1px solid #E5E7EB', padding: '14px 24px', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 16, fontWeight: 800, color: '#1B3A6B' }}>📄 Transcript Editor</div>
-            <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>
-              Edit all transcript settings and drag the logo in the preview to reposition it · Applies to all student transcripts
-            </div>
+        {/* Top bar */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 24px', background: '#fff', borderBottom: '1px solid #E8F0FB', flexShrink: 0 }}>
+          <div>
+            <h1 style={{ fontSize: 17, fontWeight: 800, color: '#1B3A6B', margin: 0 }}>Transcript Editor</h1>
+            <p style={{ fontSize: 11, color: '#9CA3AF', margin: 0 }}>Click text on the preview to edit · Drag logo · Drag column dividers to resize</p>
           </div>
-          <button onClick={() => { setSettings(DEFAULTS); setDirty(true); }}
-            style={{ padding: '8px 14px', background: '#F3F4F6', color: '#374151', border: '1px solid #D1D5DB', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
-            Reset Defaults
+          <div style={{ flex: 1 }} />
+          <button onClick={resetDefaults} style={{ padding: '7px 14px', background: '#F3F4F6', color: '#374151', border: '1px solid #D1D5DB', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+            Reset
           </button>
-          <button onClick={saveAll} disabled={saving || !dirty}
-            style={{ padding: '8px 22px', background: dirty ? '#1B4F8A' : '#F3F4F6', color: dirty ? '#fff' : '#9CA3AF', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: dirty ? 'pointer' : 'default', opacity: saving ? 0.7 : 1 }}>
-            {saving ? 'Saving…' : dirty ? '💾 Save All' : '✓ Saved'}
+          <a href="/api/training/transcript?regId=FMP-2024-001&email=ahmed@example.com&course=3sfm" target="_blank" rel="noopener noreferrer"
+            style={{ padding: '7px 14px', background: '#F3F4F6', color: '#374151', border: '1px solid #D1D5DB', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', textDecoration: 'none' }}>
+            ↓ PDF Preview
+          </a>
+          <button onClick={saveAll} disabled={saving}
+            style={{ padding: '7px 20px', background: saving ? '#86EFAC' : '#1B4F8A', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer' }}>
+            {saving ? 'Saving…' : 'Save All'}
           </button>
         </div>
 
-        {loading ? (
-          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6B7280', fontSize: 14 }}>
-            Loading settings…
-          </div>
-        ) : (
-          <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+        {/* Editor body */}
+        <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
 
-            {/* ── Settings panel ────────────────────────────────────────── */}
-            <div style={{ width: 320, flexShrink: 0, background: '#fff', borderRight: '1px solid #E5E7EB', overflowY: 'auto', padding: '20px 18px' }}>
+          {/* ── Left panel ─────────────────────────────────────────────────── */}
+          <div style={{ width: 300, background: '#fff', borderRight: '1px solid #E8F0FB', overflowY: 'auto', flexShrink: 0 }}>
 
-              {/* Logo */}
-              <div style={{ marginBottom: 22 }}>
-                <div style={{ fontSize: 12, fontWeight: 800, color: '#1B3A6B', marginBottom: 12, paddingBottom: 7, borderBottom: '1.5px solid #E5E7EB' }}>
-                  🖼 Logo
-                </div>
-
-                {settings.logoUrl ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={settings.logoUrl} alt="Logo"
-                      style={{ height: 40, maxWidth: 130, objectFit: 'contain', background: C.navy, padding: 4, borderRadius: 4 }} />
-                    <button onClick={() => upd('logoUrl', '')}
-                      style={{ fontSize: 11, color: '#DC2626', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', fontWeight: 600 }}>
+            {/* LOGO */}
+            <Section title="Logo" open={open.logo} onToggle={() => tog('logo')}>
+              <Row label="Upload">
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button onClick={() => fileRef.current?.click()} disabled={uploading}
+                    style={{ flex: 1, padding: '6px 10px', background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
+                    {uploading ? 'Uploading…' : '↑ Upload Logo'}
+                  </button>
+                  {s_.logoUrl && (
+                    <button onClick={() => upd({ logoUrl: '' })}
+                      style={{ padding: '6px 10px', background: '#FEE2E2', color: '#DC2626', border: '1px solid #FECACA', borderRadius: 5, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>
                       Remove
                     </button>
-                  </div>
-                ) : (
-                  <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 10, fontStyle: 'italic' }}>
-                    No logo set — branding logo used as fallback
+                  )}
+                </div>
+                <input ref={fileRef} type="file" accept="image/*" style={{ display: 'none' }}
+                  onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f); e.target.value = ''; }} />
+              </Row>
+              {s_.logoUrl && (
+                <>
+                  <Row label={`Width: ${Math.round(s_.logoWidth)}pt`}>
+                    <Slider value={s_.logoWidth} min={30} max={180} onChange={v => upd({ logoWidth: v })} />
+                  </Row>
+                  <Row label="Position presets">
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {[
+                        { label: 'Left',   x: s_.marginLeft },
+                        { label: 'Center', x: (PDF_W - s_.logoWidth) / 2 },
+                        { label: 'Right',  x: PDF_W - s_.marginRight - s_.logoWidth },
+                      ].map(({ label, x }) => (
+                        <button key={label} onClick={() => upd({ logoX: x })}
+                          style={{ flex: 1, padding: '5px 6px', fontSize: 10, fontWeight: 700, background: '#F3F4F6', border: '1px solid #D1D5DB', borderRadius: 4, cursor: 'pointer' }}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </Row>
+                </>
+              )}
+            </Section>
+
+            {/* TYPOGRAPHY */}
+            <Section title="Typography" open={open.typography} onToggle={() => tog('typography')}>
+              <Row label={`Header title: ${s_.fontSizeHeader}pt`}>
+                <Slider value={s_.fontSizeHeader} min={10} max={24} onChange={v => upd({ fontSizeHeader: v })} />
+              </Row>
+              <Row label={`Subtitle: ${s_.fontSizeSubtitle}pt`}>
+                <Slider value={s_.fontSizeSubtitle} min={6} max={16} onChange={v => upd({ fontSizeSubtitle: v })} />
+              </Row>
+              <Row label={`Body text: ${s_.fontSizeBody}pt`}>
+                <Slider value={s_.fontSizeBody} min={6} max={14} onChange={v => upd({ fontSizeBody: v })} />
+              </Row>
+              <Row label={`Table text: ${s_.fontSizeTable}pt`}>
+                <Slider value={s_.fontSizeTable} min={5} max={12} onChange={v => upd({ fontSizeTable: v })} />
+              </Row>
+              <Row label={`Footer text: ${s_.footerFontSize}pt`}>
+                <Slider value={s_.footerFontSize} min={5} max={12} onChange={v => upd({ footerFontSize: v })} />
+              </Row>
+            </Section>
+
+            {/* COLORS */}
+            <Section title="Colors" open={open.colors} onToggle={() => tog('colors')}>
+              <Row label="Header background"><ColorPicker value={s_.headerBgColor}    onChange={v => upd({ headerBgColor: v })} /></Row>
+              <Row label="Header text">      <ColorPicker value={s_.headerTextColor}  onChange={v => upd({ headerTextColor: v })} /></Row>
+              <Row label="Table header">     <ColorPicker value={s_.tableHeaderColor} onChange={v => upd({ tableHeaderColor: v })} /></Row>
+              <Row label="Passed badge">     <ColorPicker value={s_.passedColor}      onChange={v => upd({ passedColor: v })} /></Row>
+              <Row label="Failed badge">     <ColorPicker value={s_.failedColor}      onChange={v => upd({ failedColor: v })} /></Row>
+            </Section>
+
+            {/* PAGE & MARGINS */}
+            <Section title="Page & Margins" open={open.page} onToggle={() => tog('page')}>
+              <Row label="Page size">
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {['A4', 'Letter'].map(sz => (
+                    <button key={sz} onClick={() => upd({ pageSize: sz })}
+                      style={{ flex: 1, padding: '5px', fontSize: 11, fontWeight: 700, background: s_.pageSize === sz ? '#1B4F8A' : '#F3F4F6', color: s_.pageSize === sz ? '#fff' : '#374151', border: '1px solid #D1D5DB', borderRadius: 4, cursor: 'pointer' }}>
+                      {sz}
+                    </button>
+                  ))}
+                </div>
+              </Row>
+              <Row label={`Margin top: ${Math.round(s_.marginTop)}pt`}>
+                <Slider value={s_.marginTop} min={10} max={60} step={1} onChange={v => upd({ marginTop: v })} />
+              </Row>
+              <Row label={`Margin bottom: ${Math.round(s_.marginBottom)}pt`}>
+                <Slider value={s_.marginBottom} min={10} max={60} step={1} onChange={v => upd({ marginBottom: v })} />
+              </Row>
+              <Row label={`Margin left: ${Math.round(s_.marginLeft)}pt`}>
+                <Slider value={s_.marginLeft} min={10} max={80} step={1} onChange={v => upd({ marginLeft: v })} />
+              </Row>
+              <Row label={`Margin right: ${Math.round(s_.marginRight)}pt`}>
+                <Slider value={s_.marginRight} min={10} max={80} step={1} onChange={v => upd({ marginRight: v })} />
+              </Row>
+              <Row label={`Table header row: ${Math.round(s_.rowHdrH)}pt`}>
+                <Slider value={s_.rowHdrH} min={14} max={36} step={1} onChange={v => upd({ rowHdrH: v })} />
+              </Row>
+              <Row label={`Table data row: ${Math.round(s_.rowDataH)}pt`}>
+                <Slider value={s_.rowDataH} min={12} max={30} step={1} onChange={v => upd({ rowDataH: v })} />
+              </Row>
+              <Row label={`Info row height: ${Math.round(s_.infoRowH)}pt`}>
+                <Slider value={s_.infoRowH} min={12} max={28} step={1} onChange={v => upd({ infoRowH: v })} />
+              </Row>
+            </Section>
+
+            {/* FOOTER */}
+            <Section title="Footer" open={open.footer} onToggle={() => tog('footer')}>
+              <Row label="Footer line 1"><TextInput value={s_.footer1} onChange={v => upd({ footer1: v })} /></Row>
+              <Row label="Footer line 2"><TextInput value={s_.footer2} onChange={v => upd({ footer2: v })} /></Row>
+            </Section>
+
+          </div>
+
+          {/* ── Right panel: canvas ─────────────────────────────────────────── */}
+          <div style={{ flex: 1, overflowY: 'auto', background: '#E8EDEF', display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '24px 24px 48px' }}>
+
+            {/* Scale indicator */}
+            <div style={{ alignSelf: 'flex-start', marginBottom: 10, fontSize: 11, color: '#6B7280', fontWeight: 600 }}>
+              {s_.pageSize} Preview — {Math.round(SCALE * 100)}% scale · Click text to edit · Drag logo · Drag column dividers
+            </div>
+
+            {/* Canvas */}
+            <div
+              ref={canvasRef}
+              onClick={() => { setSelEl(null); if (editF) setEditF(null); }}
+              style={{ width: CW, minHeight: CH, background: '#fff', boxShadow: '0 4px 32px rgba(0,0,0,0.18)', position: 'relative', flexShrink: 0, userSelect: 'none' }}
+            >
+              {/* ── HEADER ─────────────────────────────────────────────────── */}
+              <div style={{ background: s_.headerBgColor, padding: `${s(s_.marginTop)}px ${s(s_.marginRight)}px ${s(14)}px ${s(s_.marginLeft)}px`, position: 'relative', minHeight: s(headerH) }}>
+
+                {/* Logo (draggable + resizable) */}
+                {s_.logoUrl && (
+                  <div
+                    onClick={e => e.stopPropagation()}
+                    style={{
+                      position: 'absolute',
+                      left: s(s_.logoX), top: s(s_.logoY),
+                      width: s(s_.logoWidth),
+                      cursor: 'grab',
+                      outline: selEl === 'logo' ? '2px solid #3B82F6' : 'none',
+                      outlineOffset: 2,
+                      zIndex: 10,
+                    }}
+                    onMouseDown={onLogoDragStart}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={s_.logoUrl} alt="logo" style={{ width: '100%', height: 'auto', display: 'block', pointerEvents: 'none' }} />
+                    {/* Resize handle */}
+                    <div
+                      onMouseDown={onLogoResizeStart}
+                      style={{ position: 'absolute', bottom: -4, right: -4, width: 10, height: 10, background: '#3B82F6', borderRadius: 2, cursor: 'se-resize', zIndex: 11 }}
+                    />
                   </div>
                 )}
 
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: logoUploading ? '#F3F4F6' : '#1B4F8A', color: logoUploading ? '#9CA3AF' : '#fff', borderRadius: 6, fontSize: 11, fontWeight: 700, cursor: logoUploading ? 'default' : 'pointer', marginBottom: 14 }}>
-                  {logoUploading ? 'Uploading…' : '📁 Upload Logo'}
-                  <input type="file" accept="image/*" disabled={logoUploading} style={{ display: 'none' }}
-                    onChange={e => { const f = e.target.files?.[0]; if (f) uploadLogo(f); e.target.value = ''; }} />
-                </label>
-
-                <div style={{ marginBottom: 12 }}>
-                  <label style={labelStyle}>Size in PDF</label>
-                  <select value={settings.logoWidth} onChange={e => upd('logoWidth', parseInt(e.target.value))}
-                    style={{ ...fieldStyle, background: '#fff', cursor: 'pointer' }}>
-                    <option value={24}>Small — 24pt</option>
-                    <option value={32}>Medium — 32pt (default)</option>
-                    <option value={48}>Large — 48pt</option>
-                    <option value={64}>X-Large — 64pt</option>
-                  </select>
+                {/* Header title — editable */}
+                <div style={{ color: s_.headerTextColor, textAlign: 'center', fontSize: s(s_.fontSizeHeader), fontWeight: 800, letterSpacing: '0.06em', marginBottom: s(6) }}>
+                  <EditableText
+                    value={s_.headerTitle} onChange={v => upd({ headerTitle: v })}
+                    editing={editF === 'headerTitle'} onStartEdit={() => setEditF('headerTitle')} onEndEdit={() => setEditF(null)}
+                    style={{ color: s_.headerTextColor }} inputStyle={{ color: s_.headerTextColor }}
+                  />
                 </div>
 
-                <div>
-                  <label style={{ ...labelStyle, marginBottom: 6 }}>
-                    Position{' '}
-                    <span style={{ fontWeight: 400, textTransform: 'none', color: '#9CA3AF' }}>
-                      — or drag in preview →
-                    </span>
-                  </label>
-                  <div style={{ display: 'flex', gap: 5 }}>
-                    {(['left', 'center', 'right', 'none'] as const).map(p => (
-                      <button key={p} onClick={() => upd('logoPosition', p)}
-                        style={{ flex: 1, padding: '6px 4px', borderRadius: 5, border: `1.5px solid ${settings.logoPosition === p ? C.navy2 : '#D1D5DB'}`, background: settings.logoPosition === p ? C.navy2 : '#fff', color: settings.logoPosition === p ? '#fff' : '#6B7280', fontSize: 11, fontWeight: 600, cursor: 'pointer', textTransform: 'capitalize' }}>
-                        {p}
-                      </button>
-                    ))}
+                {/* Subtitle badge */}
+                <div style={{ textAlign: 'center', marginBottom: s(8) }}>
+                  <div style={{ display: 'inline-block', background: 'rgba(255,255,255,0.15)', borderRadius: 20, padding: `${s(3)}px ${s(14)}px`, fontSize: s(s_.fontSizeSubtitle), color: s_.headerTextColor, letterSpacing: '0.05em' }}>
+                    <EditableText
+                      value={s_.subtitle} onChange={v => upd({ subtitle: v })}
+                      editing={editF === 'subtitle'} onStartEdit={() => setEditF('subtitle')} onEndEdit={() => setEditF(null)}
+                      style={{ color: s_.headerTextColor }} inputStyle={{ color: s_.headerTextColor }}
+                    />
                   </div>
                 </div>
-              </div>
 
-              {/* Text fields */}
-              <div style={{ fontSize: 12, fontWeight: 800, color: '#1B3A6B', marginBottom: 12, paddingBottom: 7, borderBottom: '1.5px solid #E5E7EB' }}>
-                ✏️ Text Content
-              </div>
-
-              {([
-                { key: 'headerTitle' as keyof Settings, label: 'Header Title',    placeholder: DEFAULTS.headerTitle },
-                { key: 'subtitle'    as keyof Settings, label: 'Subtitle Badge',  placeholder: DEFAULTS.subtitle },
-                { key: 'instructor'  as keyof Settings, label: 'Instructor',      placeholder: DEFAULTS.instructor },
-                { key: 'websiteUrl'  as keyof Settings, label: 'Website URL',     placeholder: DEFAULTS.websiteUrl },
-                { key: 'footer1'     as keyof Settings, label: 'Footer Line 1',   placeholder: DEFAULTS.footer1 },
-                { key: 'footer2'     as keyof Settings, label: 'Footer Line 2',   placeholder: DEFAULTS.footer2 },
-              ]).map(({ key, label, placeholder }) => (
-                <div key={key} style={{ marginBottom: 13 }}>
-                  <label style={labelStyle}>{label}</label>
-                  <input value={settings[key] as string} placeholder={placeholder}
-                    onChange={e => upd(key, e.target.value)} style={fieldStyle} />
-                </div>
-              ))}
-
-              <div style={{ marginTop: 6, background: '#EFF6FF', borderRadius: 7, padding: '10px 12px', fontSize: 11, color: '#1E40AF', lineHeight: 1.5 }}>
-                💡 Drag the logo in the preview panel to reposition it. Changes are live in the preview — click <strong>Save All</strong> to apply to generated PDFs.
-              </div>
-            </div>
-
-            {/* ── Live preview panel ────────────────────────────────────── */}
-            <div style={{
-              flex: 1, overflowY: 'auto', overflowX: 'auto',
-              background: '#D8DDE8',
-              display: 'flex', justifyContent: 'center',
-              padding: '28px 32px',
-              userSelect: isDragging ? 'none' : undefined,
-            }}>
-              <div>
-                <div style={{ fontSize: 11, color: '#6B7280', textAlign: 'center', marginBottom: 10, fontWeight: 600, letterSpacing: '0.03em' }}>
-                  A4 PREVIEW — {Math.round(SCALE * 100)}% scale
-                  {isDragging && <span style={{ color: C.navy2, marginLeft: 8 }}>· Dragging logo…</span>}
-                  {settings.logoPosition !== 'none' && settings.logoUrl && (
-                    <span style={{ color: C.muted, marginLeft: 8 }}>· Logo: <strong style={{ color: C.navy }}>{settings.logoPosition}</strong></span>
-                  )}
+                {/* Instructor */}
+                <div style={{ textAlign: 'center', fontSize: s(s_.fontSizeBody - 0.5), color: `${s_.headerTextColor}CC`, marginBottom: s(4) }}>
+                  <EditableText
+                    value={s_.instructor} onChange={v => upd({ instructor: v })}
+                    editing={editF === 'instructor'} onStartEdit={() => setEditF('instructor')} onEndEdit={() => setEditF(null)}
+                    style={{ color: `${s_.headerTextColor}CC` }} inputStyle={{ color: s_.headerTextColor }}
+                  />
                 </div>
 
-                {/* A4 page at PDF_W × PDF_H */}
-                <div ref={previewRef} style={{
-                  width: PDF_W, height: PDF_H,
-                  transform: `scale(${SCALE})`,
-                  transformOrigin: 'top left',
-                  background: '#fff',
-                  boxShadow: '0 6px 40px rgba(0,0,0,0.25)',
-                  position: 'relative',
-                  cursor: isDragging ? 'grabbing' : 'default',
-                  fontFamily: 'Helvetica,Arial,sans-serif',
-                  overflow: 'hidden',
-                }}>
+                {/* Website */}
+                <div style={{ textAlign: 'center', fontSize: s(s_.fontSizeBody - 1), color: `${s_.headerTextColor}80` }}>
+                  <EditableText
+                    value={s_.websiteUrl} onChange={v => upd({ websiteUrl: v })}
+                    editing={editF === 'websiteUrl'} onStartEdit={() => setEditF('websiteUrl')} onEndEdit={() => setEditF(null)}
+                    style={{ color: `${s_.headerTextColor}80` }} inputStyle={{ color: s_.headerTextColor }}
+                  />
+                </div>
+              </div>
 
-                  {/* ── Header ──────────────────────────────────── */}
-                  <div style={{
-                    background: C.navy,
-                    paddingLeft: H_PAD, paddingRight: H_PAD,
-                    paddingTop: 14, paddingBottom: 12,
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-                    position: 'relative',
-                    minHeight: HEADER_H,
-                    boxSizing: 'border-box',
-                  }}>
-                    {/* Left text block */}
-                    <div style={{ flex: 1, paddingRight: 16 }}>
-                      {/* Center: logo placeholder pushes text down */}
-                      {settings.logoPosition === 'center' && settings.logoUrl && (
-                        <div style={{ height: settings.logoWidth + 8 }} />
-                      )}
-                      <div style={{
-                        display: 'flex', alignItems: 'center', marginBottom: 2,
-                        // Left: indent brand name to make room for the logo
-                        paddingLeft: settings.logoPosition === 'left' && settings.logoUrl ? settings.logoWidth + 10 : 0,
-                      }}>
-                        <span style={{ fontSize: 11, fontWeight: 'bold', color: '#fff' }}>Financial Modeler Pro</span>
+              {/* ── STUDENT INFO TABLE ──────────────────────────────────────── */}
+              <div style={{ background: '#EBF3FC', padding: `${s(10)}px ${s(s_.marginLeft)}px` }}>
+                <div style={{ display: 'flex', fontSize: s(s_.fontSizeBody), color: '#111827', flexWrap: 'wrap', gap: `${s(2)}px 0` }}>
+                  {INFO_ROWS.map(([label, val]) => (
+                    <div key={label} style={{ display: 'flex', width: '100%', minHeight: s(s_.infoRowH) }}>
+                      <div style={{ width: s(s_.infoColLeft), fontWeight: 700, color: '#1B4F8A', flexShrink: 0, fontSize: s(s_.fontSizeBody - 0.5) }}>
+                        {label}
                       </div>
-                      <div style={{
-                        fontSize: 7, color: 'rgba(255,255,255,0.55)', marginBottom: 1,
-                        paddingLeft: settings.logoPosition === 'left' && settings.logoUrl ? settings.logoWidth + 10 : 0,
-                      }}>
-                        {settings.websiteUrl || DEFAULTS.websiteUrl}
-                      </div>
-                      <div style={{
-                        fontSize: 7, color: 'rgba(255,255,255,0.55)',
-                        paddingLeft: settings.logoPosition === 'left' && settings.logoUrl ? settings.logoWidth + 10 : 0,
-                      }}>
-                        {settings.instructor || DEFAULTS.instructor}
-                      </div>
-                      <div style={{ fontSize: 9, fontWeight: 'bold', color: '#90CAF9', letterSpacing: 1.2, marginTop: 6 }}>
-                        {settings.headerTitle || DEFAULTS.headerTitle}
-                      </div>
+                      <div style={{ flex: 1, color: '#374151' }}>{val}</div>
                     </div>
+                  ))}
+                </div>
+              </div>
 
-                    {/* Right: subtitle badge (+ space for logo if position=right) */}
-                    <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                      {settings.logoPosition === 'right' && settings.logoUrl && (
-                        <div style={{ height: settings.logoWidth + 6 }} />
-                      )}
-                      <div style={{ background: 'rgba(255,255,255,0.12)', borderRadius: 4, padding: '4px 8px' }}>
-                        <span style={{ fontSize: 7.5, fontWeight: 'bold', color: 'rgba(255,255,255,0.8)' }}>
-                          {settings.subtitle || DEFAULTS.subtitle}
+              {/* ── STATUS BANNER ───────────────────────────────────────────── */}
+              <div style={{ background: s_.passedColor, padding: `${s(5)}px ${s(s_.marginLeft)}px`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: s(s_.fontSizeBody), fontWeight: 700, color: '#fff' }}>Course Status</span>
+                <span style={{ fontSize: s(s_.fontSizeBody), fontWeight: 800, color: '#fff', letterSpacing: '0.05em' }}>✓ COURSE COMPLETE</span>
+              </div>
+
+              {/* ── SESSIONS TABLE ──────────────────────────────────────────── */}
+              <div style={{ padding: `${s(10)}px ${s(s_.marginLeft)}px ${s(8)}px` }}>
+                <div style={{ fontSize: s(s_.fontSizeBody - 0.5), fontWeight: 700, color: '#1B3A6B', marginBottom: s(5), textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Session Results
+                </div>
+
+                {/* Table header with resizable columns */}
+                <div style={{ position: 'relative' }}>
+                  <div style={{ display: 'flex', background: s_.tableHeaderColor, minHeight: s(s_.rowHdrH), alignItems: 'center', borderRadius: `${s(3)}px ${s(3)}px 0 0` }}>
+                    {['#', 'Session Name', 'Score', 'Status', 'Attempts'].map((h, ci) => (
+                      <div key={h} style={{ width: `${colPct[ci]}%`, padding: `0 ${s(4)}px`, fontSize: s(s_.fontSizeTable - 0.5), fontWeight: 700, color: '#fff', letterSpacing: '0.04em', textTransform: 'uppercase', position: 'relative', flexShrink: 0 }}>
+                        {h}
+                        {/* Column divider handle (except after last) */}
+                        {ci < 4 && (
+                          <div
+                            onMouseDown={e => { e.stopPropagation(); onColDividerDown(COL_PAIRS[ci][0], COL_PAIRS[ci][1])(e); }}
+                            style={{ position: 'absolute', top: 0, right: -3, width: 6, height: '100%', cursor: 'col-resize', background: 'rgba(255,255,255,0.25)', zIndex: 5, borderRadius: 2 }}
+                            title="Drag to resize column"
+                          />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Table rows */}
+                  {SAMPLE_SESSIONS.map((sess, ri) => (
+                    <div key={ri} style={{ display: 'flex', borderBottom: '1px solid #E5E7EB', background: ri % 2 === 0 ? '#fff' : '#F9FAFB', minHeight: s(s_.rowDataH), alignItems: 'center' }}>
+                      <div style={{ width: `${colPct[0]}%`, padding: `0 ${s(4)}px`, fontSize: s(s_.fontSizeTable), color: '#374151', flexShrink: 0 }}>{ri + 1}</div>
+                      <div style={{ width: `${colPct[1]}%`, padding: `0 ${s(4)}px`, fontSize: s(s_.fontSizeTable), color: '#111827', flexShrink: 0 }}>{sess.name}</div>
+                      <div style={{ width: `${colPct[2]}%`, padding: `0 ${s(4)}px`, fontSize: s(s_.fontSizeTable), color: '#374151', flexShrink: 0 }}>{sess.score}%</div>
+                      <div style={{ width: `${colPct[3]}%`, padding: `0 ${s(4)}px`, fontSize: s(s_.fontSizeTable - 0.5), flexShrink: 0 }}>
+                        <span style={{ background: s_.passedColor + '22', color: s_.passedColor, fontWeight: 700, padding: `${s(1.5)}px ${s(5)}px`, borderRadius: s(10), fontSize: s(s_.fontSizeTable - 1) }}>
+                          {sess.status}
                         </span>
                       </div>
+                      <div style={{ width: `${colPct[4]}%`, padding: `0 ${s(4)}px`, fontSize: s(s_.fontSizeTable), color: '#374151', flexShrink: 0 }}>{sess.attempts}</div>
                     </div>
-
-                    {/* Draggable logo (absolute overlay) */}
-                    {settings.logoPosition !== 'none' && (
-                      settings.logoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={settings.logoUrl}
-                          alt="Logo"
-                          draggable={false}
-                          onMouseDown={handleLogoDragStart}
-                          style={{
-                            position: 'absolute',
-                            left: currentLogoX,
-                            top: logoTop,
-                            width: settings.logoWidth,
-                            height: settings.logoWidth,
-                            objectFit: 'contain',
-                            cursor: isDragging ? 'grabbing' : 'grab',
-                            zIndex: 10,
-                            borderRadius: 2,
-                            border: isDragging ? '2px dashed rgba(255,255,255,0.55)' : '2px dashed transparent',
-                            transition: isDragging ? 'none' : 'left 0.2s ease',
-                          }}
-                        />
-                      ) : (
-                        /* Logo placeholder when no logo is set */
-                        <div style={{
-                          position: 'absolute',
-                          left: logoX(settings.logoPosition, 32),
-                          top: logoTop,
-                          width: 32, height: 32,
-                          background: 'rgba(255,255,255,0.07)',
-                          border: '1.5px dashed rgba(255,255,255,0.2)',
-                          borderRadius: 3,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        }}>
-                          <span style={{ fontSize: 7, color: 'rgba(255,255,255,0.35)' }}>logo</span>
-                        </div>
-                      )
-                    )}
-                  </div>
-
-                  {/* ── Student info strip ──────────────────────── */}
-                  <div style={{
-                    background: C.lBlue,
-                    paddingLeft: H_PAD, paddingRight: H_PAD,
-                    paddingTop: 10, paddingBottom: 10,
-                    display: 'flex', gap: 16,
-                  }}>
-                    {[
-                      [['Student Name', 'Ahmed Al-Rashidi'], ['Registration ID', 'FMP-2024-001'], ['Email', 'ahmed@example.com']],
-                      [['Course', '3-Statement Financial Modeling (3SFM)'], ['Enrollment Date', '1 January 2024'], ['Issue Date', '1 April 2026']],
-                    ].map((col, ci) => (
-                      <div key={ci} style={{ flex: 1 }}>
-                        {col.map(([lbl, val]) => (
-                          <div key={lbl} style={{ display: 'flex', marginBottom: 3 }}>
-                            <span style={{ fontSize: 8, fontWeight: 'bold', color: C.navy2, width: 100, flexShrink: 0 }}>{lbl}</span>
-                            <span style={{ fontSize: 8.5, color: C.text, fontWeight: lbl === 'Student Name' ? 'bold' : 'normal' }}>{val}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* ── Status banner ───────────────────────────── */}
-                  <div style={{
-                    background: '#F0FFF4', paddingLeft: H_PAD, paddingRight: H_PAD,
-                    paddingTop: 6, paddingBottom: 6,
-                    borderTop: '1px solid #BBF7D0', borderBottom: '1px solid #BBF7D0',
-                  }}>
-                    <div style={{ fontSize: 9, fontWeight: 'bold', color: '#166534' }}>✓ OFFICIAL TRANSCRIPT — Course Complete</div>
-                    <div style={{ fontSize: 8, color: '#166534', marginTop: 2 }}>
-                      All requirements fulfilled. Certificate issued as of 1 April 2026.
-                    </div>
-                  </div>
-
-                  {/* ── Section heading ─────────────────────────── */}
-                  <div style={{ paddingLeft: H_PAD, paddingRight: H_PAD, paddingTop: 12, paddingBottom: 5, display: 'flex', alignItems: 'center' }}>
-                    <span style={{ fontSize: 10, fontWeight: 'bold', color: C.navy, marginRight: 8 }}>
-                      3-Statement Financial Modeling (3SFM)
-                    </span>
-                    <div style={{ flex: 1, height: 1, background: C.border }} />
-                  </div>
-
-                  {/* ── Session table ────────────────────────────── */}
-                  <div style={{ paddingLeft: H_PAD, paddingRight: H_PAD }}>
-                    {/* Header row */}
-                    <div style={{ background: C.navy2, display: 'flex', borderRadius: 4, paddingTop: 5, paddingBottom: 5 }}>
-                      {[['28px','#'],['flex','Session Name'],['46px','Score'],['76px','Status'],['52px','Attempts']].map(([w, h]) => (
-                        <div key={h} style={{ width: w === 'flex' ? undefined : w, flex: w === 'flex' ? 1 : undefined, paddingLeft: 6, paddingRight: 4 }}>
-                          <span style={{ fontSize: 8, fontWeight: 'bold', color: '#fff' }}>{h}</span>
-                        </div>
-                      ))}
-                    </div>
-                    {/* Data rows */}
-                    {SAMPLE_SESSIONS.map((name, i) => (
-                      <div key={i} style={{
-                        display: 'flex', borderBottom: `1px solid ${C.border}`,
-                        paddingTop: 4, paddingBottom: 4,
-                        background: i % 2 === 1 ? C.lGrey : '#fff',
-                      }}>
-                        <div style={{ width: 28, paddingLeft: 6 }}>
-                          <span style={{ fontSize: 8, color: C.muted }}>S{i + 1}</span>
-                        </div>
-                        <div style={{ flex: 1, paddingLeft: 6 }}>
-                          <span style={{ fontSize: 8.5, color: C.text }}>Session {i + 1}: {name}</span>
-                        </div>
-                        <div style={{ width: 46, paddingLeft: 4, textAlign: 'center' }}>
-                          <span style={{ fontSize: 8.5, fontWeight: 'bold', color: C.text }}>{78 + (i % 7) * 3}%</span>
-                        </div>
-                        <div style={{ width: 76, paddingLeft: 4 }}>
-                          <span style={{ fontSize: 7.5, fontWeight: 'bold', background: '#D1FAE5', borderRadius: 3, padding: '2px 5px', color: '#065F46' }}>PASSED</span>
-                        </div>
-                        <div style={{ width: 52, paddingLeft: 6, textAlign: 'center' }}>
-                          <span style={{ fontSize: 8.5, color: C.text }}>1 / 3</span>
-                        </div>
-                      </div>
-                    ))}
-                    {/* Final exam */}
-                    <div style={{ display: 'flex', borderBottom: `1px solid ${C.border}`, paddingTop: 4, paddingBottom: 4, background: C.goldBg }}>
-                      <div style={{ width: 28, paddingLeft: 6 }}>
-                        <span style={{ fontSize: 7.5, fontWeight: 'bold', color: C.gold }}>FINAL</span>
-                      </div>
-                      <div style={{ flex: 1, paddingLeft: 6 }}>
-                        <div style={{ fontSize: 8.5, fontWeight: 'bold', color: C.text }}>Final Examination</div>
-                        <div style={{ fontSize: 7, color: C.muted, marginTop: 2 }}>50 questions · Pass mark 70%</div>
-                      </div>
-                      <div style={{ width: 46, paddingLeft: 4, textAlign: 'center' }}>
-                        <span style={{ fontSize: 8.5, fontWeight: 'bold', color: C.text }}>84%</span>
-                      </div>
-                      <div style={{ width: 76, paddingLeft: 4 }}>
-                        <span style={{ fontSize: 7.5, fontWeight: 'bold', background: '#D1FAE5', borderRadius: 3, padding: '2px 5px', color: '#065F46' }}>PASSED</span>
-                      </div>
-                      <div style={{ width: 52, paddingLeft: 6, textAlign: 'center' }}>
-                        <span style={{ fontSize: 8.5, color: C.text }}>1 / 3</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* ── Summary boxes ────────────────────────────── */}
-                  <div style={{ display: 'flex', paddingLeft: H_PAD, paddingRight: H_PAD, paddingTop: 10, gap: 12 }}>
-                    <div style={{ flex: 1, border: `1.5px solid ${C.navy2}`, borderRadius: 6, padding: 10 }}>
-                      <div style={{ fontSize: 8.5, fontWeight: 'bold', color: C.navy, letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' }}>Academic Summary — 3SFM</div>
-                      {[['Sessions Completed', '18 of 18'], ['Sessions Passed', '18 of 18'], ['Average Score', '86%'], ['Final Exam Score', '84%'], ['Overall Result', 'PASSED']].map(([l, v]) => (
-                        <div key={l} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                          <span style={{ fontSize: 8, color: C.muted }}>{l}</span>
-                          <span style={{ fontSize: 8, fontWeight: 'bold', color: v === 'PASSED' ? C.green : C.text }}>{v}</span>
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ flex: 1, border: `1.5px solid ${C.green}`, borderRadius: 6, padding: 10 }}>
-                      <div style={{ fontSize: 8.5, fontWeight: 'bold', color: C.navy, letterSpacing: 0.5, marginBottom: 8, textTransform: 'uppercase' }}>Certification Status</div>
-                      {[['Status', 'CERTIFIED'], ['Certificate ID', 'CERT-2024-3SFM-001'], ['Issued', '15 March 2024'], ['Verify at', 'certifier.io/verify →']].map(([l, v]) => (
-                        <div key={l} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                          <span style={{ fontSize: 8, color: C.muted }}>{l}</span>
-                          <span style={{ fontSize: 8, fontWeight: 'bold', color: l === 'Status' ? C.green : C.navy2 }}>{v}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* ── Footer (absolute bottom) ─────────────────── */}
-                  <div style={{
-                    position: 'absolute', bottom: 0, left: 0, right: 0,
-                    background: C.navy,
-                    paddingLeft: H_PAD, paddingRight: H_PAD,
-                    paddingTop: 7, paddingBottom: 7,
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  }}>
-                    <span style={{ fontSize: 7, color: 'rgba(255,255,255,0.55)' }}>Issue Date: 1 April 2026</span>
-                    <span style={{ fontSize: 7, color: 'rgba(255,255,255,0.55)', textAlign: 'center', flex: 1, margin: '0 8px' }}>
-                      {settings.footer1 || DEFAULTS.footer1}{'  '}{settings.footer2 || DEFAULTS.footer2}
-                    </span>
-                    <span style={{ fontSize: 7, color: 'rgba(255,255,255,0.55)' }}>{settings.websiteUrl || DEFAULTS.websiteUrl}</span>
-                  </div>
-
+                  ))}
                 </div>
-
-                {/* Wrapper div height to match scaled content */}
-                <div style={{ height: PDF_H * SCALE, marginTop: -(PDF_H - PDF_H * SCALE) }} />
               </div>
-            </div>
 
-          </div>
-        )}
-      </main>
+              {/* ── SUMMARY BOXES ───────────────────────────────────────────── */}
+              <div style={{ display: 'flex', gap: s(10), padding: `${s(6)}px ${s(s_.marginLeft)}px` }}>
+                {/* Academic summary */}
+                <div style={{ flex: 1, background: '#F0F7FF', border: '1px solid #BFDBFE', borderRadius: s(6), padding: `${s(8)}px ${s(10)}px` }}>
+                  <div style={{ fontSize: s(s_.fontSizeBody - 0.5), fontWeight: 700, color: '#1B4F8A', marginBottom: s(5), textTransform: 'uppercase', letterSpacing: '0.04em' }}>Academic Summary</div>
+                  {[
+                    ['Sessions Completed', `${SAMPLE_SESSIONS.length} / ${SAMPLE_SESSIONS.length}`],
+                    ['Average Score', `${Math.round(SAMPLE_SESSIONS.reduce((a, b) => a + b.score, 0) / SAMPLE_SESSIONS.length)}%`],
+                    ['Overall Result', 'PASSED'],
+                  ].map(([k, v]) => (
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: s(s_.fontSizeTable), marginBottom: s(3), color: '#374151' }}>
+                      <span>{k}</span>
+                      <span style={{ fontWeight: 700, color: k === 'Overall Result' ? s_.passedColor : '#111827' }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+                {/* Certification status */}
+                <div style={{ flex: 1, background: '#F0FFF4', border: '1px solid #A7F3D0', borderRadius: s(6), padding: `${s(8)}px ${s(10)}px` }}>
+                  <div style={{ fontSize: s(s_.fontSizeBody - 0.5), fontWeight: 700, color: '#1A7A30', marginBottom: s(5), textTransform: 'uppercase', letterSpacing: '0.04em' }}>Certification Status</div>
+                  {[
+                    ['Certificate', 'Issued'],
+                    ['Issue Date', '1 April 2026'],
+                    ['Verify At', 'certifier.io'],
+                  ].map(([k, v]) => (
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: s(s_.fontSizeTable), marginBottom: s(3), color: '#374151' }}>
+                      <span>{k}</span>
+                      <span style={{ fontWeight: 700, color: '#1A7A30' }}>{v}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* ── FOOTER ─────────────────────────────────────────────────── */}
+              <div style={{ background: s_.headerBgColor, padding: `${s(10)}px ${s(s_.marginLeft)}px`, marginTop: s(6) }}>
+                <div style={{ textAlign: 'center', fontSize: s(s_.footerFontSize), color: `${s_.headerTextColor}CC`, marginBottom: s(3) }}>
+                  <EditableText
+                    value={s_.footer1} onChange={v => upd({ footer1: v })}
+                    editing={editF === 'footer1'} onStartEdit={() => setEditF('footer1')} onEndEdit={() => setEditF(null)}
+                    style={{ color: `${s_.headerTextColor}CC` }} inputStyle={{ color: s_.headerTextColor }}
+                  />
+                </div>
+                <div style={{ textAlign: 'center', fontSize: s(s_.footerFontSize - 0.5), color: `${s_.headerTextColor}80` }}>
+                  <EditableText
+                    value={s_.footer2} onChange={v => upd({ footer2: v })}
+                    editing={editF === 'footer2'} onStartEdit={() => setEditF('footer2')} onEndEdit={() => setEditF(null)}
+                    style={{ color: `${s_.headerTextColor}80` }} inputStyle={{ color: s_.headerTextColor }}
+                  />
+                </div>
+                <div style={{ textAlign: 'center', fontSize: s(s_.footerFontSize - 1), color: `${s_.headerTextColor}55`, marginTop: s(6) }}>
+                  {s_.websiteUrl} · Generated {new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+                </div>
+              </div>
+
+            </div>{/* /canvas */}
+          </div>{/* /right panel */}
+        </div>{/* /editor body */}
+      </div>{/* /main content */}
 
       {toast && (
-        <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#1B3A6B', color: '#fff', padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 999, boxShadow: '0 4px 20px rgba(0,0,0,0.2)' }}>
+        <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#1B3A6B', color: '#fff', padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 999 }}>
           {toast}
         </div>
       )}
