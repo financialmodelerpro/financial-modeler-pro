@@ -346,6 +346,24 @@ export default async function ModelingHubPage() {
         </section>
       )}
 
+      {/* ── Section 5b — Submit testimonial CTA ─────────────────────────── */}
+      <section style={{ background: '#EEF2FF', padding: 'clamp(28px,4vw,48px) 40px', textAlign: 'center', borderTop: '1px solid #C7D2FE', borderBottom: '1px solid #C7D2FE' }}>
+        <div style={{ maxWidth: 540, margin: '0 auto' }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#4F46E5', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
+            Your Voice Matters
+          </div>
+          <h2 style={{ fontSize: 'clamp(18px,3vw,24px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 10 }}>
+            Using the Modeling Hub? Share Your Experience
+          </h2>
+          <p style={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.7, marginBottom: 22 }}>
+            Your feedback helps other finance professionals and helps us build a better platform.
+          </p>
+          <Link href="/modeling/submit-testimonial" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14, padding: '11px 26px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 16px rgba(27,79,138,0.25)' }}>
+            ⭐ Submit Your Testimonial
+          </Link>
+        </div>
+      </section>
+
       {/* ── Section 6 — CTA Banner ────────────────────────────────────────── */}
       {ctaSection_visible && (
         <section style={{ background: '#1B4F8A', padding: 'clamp(48px,7vw,80px) 40px', textAlign: 'center' }}>
