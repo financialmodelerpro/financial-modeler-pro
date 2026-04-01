@@ -66,7 +66,11 @@
       "Bash(done)",
       "Bash(python3 -c \"import json,sys; data=json.load\\(sys.stdin\\); print\\(data[0][''''text'''']\\)\")",
       "Bash(find /d/FMP/financial-modeler-pro/components -type f \\\\\\(-name *footer* -o -name *Footer* \\\\\\))",
-      "Bash(find D:/FMP/financial-modeler-pro/app/api/admin -type f \\\\\\(-name *.tsx -o -name *.ts \\\\\\))"
+      "Bash(find D:/FMP/financial-modeler-pro/app/api/admin -type f \\\\\\(-name *.tsx -o -name *.ts \\\\\\))",
+      "Bash(gh run:*)",
+      "Bash(npx vercel:*)",
+      "Bash(SCRIPT_URL=\"https://script.google.com/macros/s/AKfycbys_5ObqxUyh3Dz-E5ND95rWqeSuWz0GYd2VpZLAQz6NWTsw1uMpxINBKPo0kCkPorA/exec\" curl -s \"$SCRIPT_URL?action=ping\")",
+      "Bash(SCRIPT_URL=\"https://script.google.com/macros/s/AKfycbys_5ObqxUyh3Dz-E5ND95rWqeSuWz0GYd2VpZLAQz6NWTsw1uMpxINBKPo0kCkPorA/exec\" curl -sL \"$SCRIPT_URL?action=listStudents\")"
     ]
   }
 }

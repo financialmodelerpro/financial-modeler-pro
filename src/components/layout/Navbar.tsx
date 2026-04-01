@@ -124,13 +124,13 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
               Sign In / Register
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-              <Link href="/login" onClick={() => setMobileMenuOpen(false)}
+              <Link href="/modeling/signin" onClick={() => setMobileMenuOpen(false)}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '14px 12px', borderRadius: 10, background: '#1B4F8A', color: '#fff', textDecoration: 'none', textAlign: 'center' }}>
                 <span style={{ fontSize: 20 }}>📐</span>
                 <span style={{ fontSize: 12, fontWeight: 700 }}>Modeling Hub</span>
                 <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Sign In</span>
               </Link>
-              <Link href="/training/login" onClick={() => setMobileMenuOpen(false)}
+              <Link href="/training/signin" onClick={() => setMobileMenuOpen(false)}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '14px 12px', borderRadius: 10, background: '#1A7A30', color: '#fff', textDecoration: 'none', textAlign: 'center' }}>
                 <span style={{ fontSize: 20 }}>🎓</span>
                 <span style={{ fontSize: 12, fontWeight: 700 }}>Training Hub</span>
@@ -199,7 +199,7 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
               background: '#1B4F8A', color: '#fff', border: 'none', cursor: 'pointer',
             }}
           >
-            Login / Sign Up
+            Sign In / Sign Up
             <span style={{ fontSize: 10, opacity: 0.7 }}>{dropdownOpen ? '▲' : '▼'}</span>
           </button>
 
@@ -214,12 +214,12 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
                 <span style={{ fontSize: 15 }}>📐</span>
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#1B3A6B', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Modeling Hub</span>
               </div>
-              <Link href="/login" onClick={() => setDropdownOpen(false)}
+              <Link href="/modeling/signin" onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 9px 24px', textDecoration: 'none', color: '#374151', fontSize: 13, borderBottom: '1px solid #F9FAFB' }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>🔑</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Sign In</span>
               </Link>
-              <Link href="/login" onClick={() => setDropdownOpen(false)}
+              <Link href="/modeling/signin" onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 12px 24px', textDecoration: 'none', color: '#374151', fontSize: 13 }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>✏️</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Create Account</span>
@@ -232,7 +232,7 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
                 <span style={{ fontSize: 15 }}>🎓</span>
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#1B3A6B', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Training Hub</span>
               </div>
-              <Link href="/training/login" onClick={() => setDropdownOpen(false)}
+              <Link href="/training/signin" onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 9px 24px', textDecoration: 'none', color: '#374151', fontSize: 13, borderBottom: '1px solid #F9FAFB' }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>🔑</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Sign In</span>
