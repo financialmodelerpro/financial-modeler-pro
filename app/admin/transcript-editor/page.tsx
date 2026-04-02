@@ -378,8 +378,10 @@ export default function TranscriptEditorPage() {
   useEffect(() => {
     fetch('/api/admin/content?section=transcript')
       .then(r => r.json())
-      .then((rows: {key:string;value:string}[]) => {
-        if (!Array.isArray(rows) || !rows.length) return;
+      .then((data: { rows?: { key: string; value: string }[] }) => {
+        // API returns { rows: [...] }, not a plain array
+        const rows = Array.isArray(data) ? data : (data?.rows ?? []);
+        if (!rows.length) return;
         const map: Record<string,string> = {};
         for (const r of rows) map[r.key] = r.value;
         setCfg(prev => {
@@ -390,7 +392,7 @@ export default function TranscriptEditorPage() {
             const def = D[k];
             if (typeof def === 'number') { const n = parseFloat(raw); if (Number.isFinite(n)) (next as Record<string,unknown>)[k] = n; }
             else if (typeof def === 'boolean') (next as Record<string,unknown>)[k] = raw === 'true';
-            else (next as Record<string,unknown>)[k] = raw;
+            else (next as Record<string,unknown>)[k] = raw;  // includes empty string (user deleted text)
           });
           return next;
         });
@@ -455,8 +457,8 @@ export default function TranscriptEditorPage() {
           <div style={{ marginLeft:'auto', display:'flex', gap:8, alignItems:'center' }}>
             {toast && <span style={{ fontSize:12, color:toast.includes('fail')||toast.includes('Failed')?'#DC2626':'#2EAA4A', fontWeight:600 }}>{toast}</span>}
             <button onClick={()=>setCfg(D)} style={{ padding:'6px 12px', borderRadius:7, border:'1px solid #D1D5DB', background:'#fff', fontSize:12, cursor:'pointer' }}>Reset</button>
-            <a href="/api/training/transcript?regId=FMP-2024-001&email=demo%40example.com" target="_blank" rel="noopener noreferrer"
-              style={{ padding:'6px 12px', borderRadius:7, border:'1px solid #1B4F8A', background:'#EFF6FF', fontSize:12, color:'#1B4F8A', textDecoration:'none' }}>PDF ↗</a>
+            <a href="/api/training/transcript?preview=true" target="_blank" rel="noopener noreferrer"
+              style={{ padding:'6px 12px', borderRadius:7, border:'1px solid #1B4F8A', background:'#EFF6FF', fontSize:12, color:'#1B4F8A', textDecoration:'none' }}>PDF Preview ↗</a>
             <button onClick={save} disabled={saving}
               style={{ padding:'6px 16px', borderRadius:7, background:saving?'#9CA3AF':'#0D2E5A', color:'#fff', border:'none', fontSize:13, fontWeight:700, cursor:saving?'default':'pointer' }}>
               {saving?'Saving…':'Save'}

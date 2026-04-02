@@ -5,6 +5,84 @@ import { getStudentProgress, getCertificatesByEmail } from '@/src/lib/sheets';
 import { COURSES } from '@/src/config/courses';
 import type { Metadata } from 'next';
 
+// ── CMS transcript settings ───────────────────────────────────────────────────
+interface TxSettings {
+  headerBgColor: string;
+  brandText: string; brandVisible: boolean;
+  websiteText: string; websiteVisible: boolean;
+  instructorText: string; instructorVisible: boolean;
+  titleText: string; titleVisible: boolean;
+  subtitleText: string; subtitleVisible: boolean;
+  tableHeaderColor: string; studentStripBg: string;
+  passedBg: string; passedColor: string;
+  failedBg: string; failedColor: string;
+  bannerCompleteTitle: string; bannerCompleteSub: string;
+  bannerProgressTitle: string; bannerProgressSub: string;
+  footerBgColor: string;
+  footerLeftText: string; footerLeftVisible: boolean;
+  footerMidText: string;  footerMidVisible: boolean;
+  footerRightText: string; footerRightVisible: boolean;
+}
+
+const TX_DEFAULTS: TxSettings = {
+  headerBgColor: '#0D2E5A',
+  brandText: 'Financial Modeler Pro', brandVisible: true,
+  websiteText: 'www.financialmodelerpro.com', websiteVisible: true,
+  instructorText: 'Ahmad Din | Corporate Finance Expert', instructorVisible: true,
+  titleText: 'OFFICIAL ACADEMIC TRANSCRIPT', titleVisible: true,
+  subtitleText: 'FMP Training Hub', subtitleVisible: true,
+  tableHeaderColor: '#1B4F8A', studentStripBg: '#EBF3FC',
+  passedBg: '#D1FAE5', passedColor: '#065F46',
+  failedBg: '#FEE2E2', failedColor: '#991B1B',
+  bannerCompleteTitle: '✓ OFFICIAL TRANSCRIPT — Course Complete',
+  bannerCompleteSub:   'All requirements fulfilled. Certificate issued as of [date].',
+  bannerProgressTitle: '⏳ PROGRESS TRANSCRIPT — Course in Progress',
+  bannerProgressSub:   'This transcript reflects current progress as of [date].',
+  footerBgColor: '#0D2E5A',
+  footerLeftText: 'Issue Date: [date]', footerLeftVisible: true,
+  footerMidText:  'This transcript is an official record issued by Financial Modeler Pro.', footerMidVisible: true,
+  footerRightText: 'www.financialmodelerpro.com', footerRightVisible: true,
+};
+
+const TX_CMS: Record<keyof TxSettings, string> = {
+  headerBgColor:'transcript_header_bg',
+  brandText:'transcript_brand_t', brandVisible:'transcript_brand_vis',
+  websiteText:'transcript_web_t', websiteVisible:'transcript_web_vis',
+  instructorText:'transcript_instr_t', instructorVisible:'transcript_instr_vis',
+  titleText:'transcript_title_t', titleVisible:'transcript_title_vis',
+  subtitleText:'transcript_sub_t', subtitleVisible:'transcript_sub_vis',
+  tableHeaderColor:'transcript_tbl_hdr', studentStripBg:'transcript_strip_bg',
+  passedBg:'transcript_pass_bg', passedColor:'transcript_pass_color',
+  failedBg:'transcript_fail_bg', failedColor:'transcript_fail_color',
+  bannerCompleteTitle:'transcript_ban_ctitle', bannerCompleteSub:'transcript_ban_csub',
+  bannerProgressTitle:'transcript_ban_ptitle', bannerProgressSub:'transcript_ban_psub',
+  footerBgColor:'transcript_footer_bg',
+  footerLeftText:'transcript_fl_t', footerLeftVisible:'transcript_fl_vis',
+  footerMidText:'transcript_fm_t', footerMidVisible:'transcript_fm_vis',
+  footerRightText:'transcript_fr_t', footerRightVisible:'transcript_fr_vis',
+};
+
+async function loadTxSettings(): Promise<TxSettings> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb.from('cms_content').select('key, value').eq('section', 'transcript');
+    if (!data?.length) return TX_DEFAULTS;
+    const map: Record<string, string> = {};
+    for (const row of data) map[row.key] = row.value;
+    const result = { ...TX_DEFAULTS };
+    (Object.keys(TX_DEFAULTS) as (keyof TxSettings)[]).forEach(k => {
+      const raw = map[TX_CMS[k]];
+      if (raw === undefined || raw === null) return;
+      const def = TX_DEFAULTS[k];
+      if (typeof def === 'boolean') (result as Record<string, unknown>)[k] = raw === 'true';
+      else if (raw) (result as Record<string, unknown>)[k] = raw;
+    });
+    return result;
+  } catch {
+    return TX_DEFAULTS;
+  }
+}
+
 // Revalidate every 5 minutes so the view is reasonably fresh
 export const revalidate = 300;
 
@@ -93,6 +171,9 @@ export default async function PublicTranscriptPage(
   const avgScore         = scoresArr.length ? Math.round(scoresArr.reduce((a, b) => a + b, 0) / scoresArr.length) : null;
   const pdfUrl           = `/api/t/${token}/pdf`;
 
+  // ── Load CMS settings ──────────────────────────────────────────────────────
+  const tx = await loadTxSettings();
+
   // ── Brand colours ──────────────────────────────────────────────────────────
   const C = {
     navy:   '#0D2E5A',
@@ -138,19 +219,19 @@ export default async function PublicTranscriptPage(
         <div style={{ background: '#fff', borderRadius: 12, overflow: 'hidden', boxShadow: '0 4px 32px rgba(0,0,0,0.12)' }}>
 
           {/* Header */}
-          <div style={{ background: C.navy, padding: '18px 36px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div style={{ background: tx.headerBgColor, padding: '18px 36px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', marginBottom: 3 }}>Financial Modeler Pro</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 1 }}>www.financialmodelerpro.com</div>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 6 }}>Ahmad Din | Corporate Finance Expert</div>
-              <div style={{ fontSize: 12, fontWeight: 800, color: '#90CAF9', letterSpacing: 1.5, textTransform: 'uppercase' }}>
-                Official Academic Transcript
-              </div>
+              {tx.brandVisible && <div style={{ fontSize: 15, fontWeight: 800, color: '#fff', marginBottom: 3 }}>{tx.brandText}</div>}
+              {tx.websiteVisible && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 1 }}>{tx.websiteText}</div>}
+              {tx.instructorVisible && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 6 }}>{tx.instructorText}</div>}
+              {tx.titleVisible && <div style={{ fontSize: 12, fontWeight: 800, color: '#90CAF9', letterSpacing: 1.5, textTransform: 'uppercase' }}>{tx.titleText}</div>}
             </div>
             <div style={{ textAlign: 'right' }}>
-              <div style={{ background: 'rgba(255,255,255,0.12)', borderRadius: 6, padding: '6px 14px', display: 'inline-block' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.8)' }}>FMP Training Hub</div>
-              </div>
+              {tx.subtitleVisible && (
+                <div style={{ background: 'rgba(255,255,255,0.12)', borderRadius: 6, padding: '6px 14px', display: 'inline-block' }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.8)' }}>{tx.subtitleText}</div>
+                </div>
+              )}
               {cert && (
                 <div style={{ marginTop: 8 }}>
                   <span style={{ fontSize: 10, color: '#A7F3D0', fontWeight: 600 }}>✓ Certificate Verified</span>
@@ -160,7 +241,7 @@ export default async function PublicTranscriptPage(
           </div>
 
           {/* Student info strip */}
-          <div style={{ background: C.lBlue, padding: '14px 36px', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+          <div style={{ background: tx.studentStripBg, padding: '14px 36px', display: 'flex', gap: 24, flexWrap: 'wrap' }}>
             {[
               [['Student Name', student.name || link.registration_id], ['Registration ID', link.registration_id], ['Email', link.email]],
               [['Course', course.title], ['Enrollment Date', fmtDate(student.registeredAt)], ['Issue Date', today()]],
@@ -179,16 +260,16 @@ export default async function PublicTranscriptPage(
           {/* Status banner */}
           {allComplete ? (
             <div style={{ background: '#F0FFF4', padding: '10px 36px', borderTop: '2px solid #BBF7D0', borderBottom: '2px solid #BBF7D0' }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: '#166534' }}>✓ OFFICIAL TRANSCRIPT — Course Complete</div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#166534' }}>{tx.bannerCompleteTitle}</div>
               <div style={{ fontSize: 11, color: '#166534', marginTop: 2 }}>
-                All requirements fulfilled. Certificate issued as of {today()}.
+                {tx.bannerCompleteSub.replace('[date]', today())}
               </div>
             </div>
           ) : (
             <div style={{ background: '#FFFBEB', padding: '10px 36px', borderTop: '2px solid #FDE68A', borderBottom: '2px solid #FDE68A' }}>
-              <div style={{ fontSize: 12, fontWeight: 800, color: '#92400E' }}>⏳ PROGRESS TRANSCRIPT — Course in Progress</div>
+              <div style={{ fontSize: 12, fontWeight: 800, color: '#92400E' }}>{tx.bannerProgressTitle}</div>
               <div style={{ fontSize: 11, color: '#92400E', marginTop: 2 }}>
-                This transcript reflects current progress as of {today()}.
+                {tx.bannerProgressSub.replace('[date]', today())}
               </div>
             </div>
           )}
@@ -203,7 +284,7 @@ export default async function PublicTranscriptPage(
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                 <thead>
-                  <tr style={{ background: C.navy2 }}>
+                  <tr style={{ background: tx.tableHeaderColor }}>
                     {['#', 'Session', 'Score', 'Status', 'Attempts'].map((h, hi) => (
                       <th key={h} style={{ padding: '8px 10px', textAlign: hi > 1 ? 'center' : 'left', fontSize: 10, fontWeight: 700, color: '#fff', letterSpacing: '0.06em', textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
@@ -221,9 +302,9 @@ export default async function PublicTranscriptPage(
                         </td>
                         <td style={{ padding: '7px 10px', textAlign: 'center' }}>
                           {prog?.passed
-                            ? <span style={{ fontSize: 10, fontWeight: 700, background: '#D1FAE5', color: '#065F46', borderRadius: 4, padding: '2px 8px' }}>PASSED</span>
+                            ? <span style={{ fontSize: 10, fontWeight: 700, background: tx.passedBg, color: tx.passedColor, borderRadius: 4, padding: '2px 8px' }}>PASSED</span>
                             : prog?.attempts
-                              ? <span style={{ fontSize: 10, fontWeight: 700, background: '#FEE2E2', color: '#991B1B', borderRadius: 4, padding: '2px 8px' }}>FAILED</span>
+                              ? <span style={{ fontSize: 10, fontWeight: 700, background: tx.failedBg, color: tx.failedColor, borderRadius: 4, padding: '2px 8px' }}>FAILED</span>
                               : <span style={{ fontSize: 10, fontWeight: 700, background: '#F3F4F6', color: C.muted, borderRadius: 4, padding: '2px 8px' }}>NOT STARTED</span>
                           }
                         </td>
@@ -253,9 +334,9 @@ export default async function PublicTranscriptPage(
                           {!passedCount && !fp?.attempts
                             ? <span style={{ fontSize: 10, fontWeight: 700, background: '#FEF3C7', color: '#92400E', borderRadius: 4, padding: '2px 8px' }}>LOCKED</span>
                             : fp?.passed
-                              ? <span style={{ fontSize: 10, fontWeight: 700, background: '#D1FAE5', color: '#065F46', borderRadius: 4, padding: '2px 8px' }}>PASSED</span>
+                              ? <span style={{ fontSize: 10, fontWeight: 700, background: tx.passedBg, color: tx.passedColor, borderRadius: 4, padding: '2px 8px' }}>PASSED</span>
                               : fp?.attempts
-                                ? <span style={{ fontSize: 10, fontWeight: 700, background: '#FEE2E2', color: '#991B1B', borderRadius: 4, padding: '2px 8px' }}>FAILED</span>
+                                ? <span style={{ fontSize: 10, fontWeight: 700, background: tx.failedBg, color: tx.failedColor, borderRadius: 4, padding: '2px 8px' }}>FAILED</span>
                                 : <span style={{ fontSize: 10, fontWeight: 700, background: '#F3F4F6', color: C.muted, borderRadius: 4, padding: '2px 8px' }}>NOT STARTED</span>
                           }
                         </td>
@@ -317,12 +398,10 @@ export default async function PublicTranscriptPage(
           </div>
 
           {/* Footer */}
-          <div style={{ background: C.navy, padding: '12px 36px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)' }}>Issue Date: {today()}</span>
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', textAlign: 'center' }}>
-              This transcript is an official record issued by Financial Modeler Pro.
-            </span>
-            <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)' }}>www.financialmodelerpro.com</span>
+          <div style={{ background: tx.footerBgColor, padding: '12px 36px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+            {tx.footerLeftVisible && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)' }}>{tx.footerLeftText.replace('[date]', today())}</span>}
+            {tx.footerMidVisible && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', textAlign: 'center', flex: 1 }}>{tx.footerMidText}</span>}
+            {tx.footerRightVisible && <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)' }}>{tx.footerRightText}</span>}
           </div>
         </div>
 

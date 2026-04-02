@@ -595,6 +595,49 @@ export async function GET(req: NextRequest) {
   const email      = searchParams.get('email')?.trim().toLowerCase() ?? '';
   const courseParam = searchParams.get('course')?.trim().toLowerCase() ?? '';
 
+  // ── Preview mode — bypasses Apps Script, uses sample data ────────────────
+  if (searchParams.get('preview') === 'true') {
+    const settings  = await loadTranscriptSettings();
+    const logoBase64 = (settings.logoVisible && settings.logoUrl)
+      ? await loadLogoBase64(settings.logoUrl)
+      : null;
+
+    const previewCourseId = Object.keys(COURSES)[0] ?? '3sfm';
+    const course = COURSES[previewCourseId];
+    const progressMap = new Map<string, ProgRow>();
+    if (course) {
+      course.sessions.forEach((sess, idx) => {
+        if (!sess.isFinal && idx % 3 !== 2) {
+          progressMap.set(sess.id, { sessionId: sess.id, passed: true, score: 70 + (idx * 7 % 25), attempts: idx % 2 === 0 ? 1 : 2 });
+        }
+      });
+    }
+
+    try {
+      const buffer = await renderToBuffer(
+        <TranscriptDocument
+          studentName="Sample Student"
+          registrationId="FMP-2026-DEMO"
+          email="demo@example.com"
+          courseId={previewCourseId}
+          enrolledDate={new Date().toISOString()}
+          progressMap={progressMap}
+          certs={new Map()}
+          isComplete={false}
+          settings={settings}
+          logoBase64={logoBase64}
+        />
+      );
+      return new NextResponse(buffer as unknown as BodyInit, {
+        status: 200,
+        headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="FMP-Transcript-Preview.pdf"', 'Cache-Control': 'no-store' },
+      });
+    } catch (err) {
+      console.error('[transcript] preview render error:', err);
+      return NextResponse.json({ error: 'Failed to generate preview PDF' }, { status: 500 });
+    }
+  }
+
   if (!regId || !email) {
     return NextResponse.json({ error: 'regId and email are required' }, { status: 400 });
   }
