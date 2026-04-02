@@ -1,11 +1,10 @@
 /**
  * POST /api/training/set-password
- * Allows a student to set (or reset) their password after verifying identity.
- * Identity is verified against Apps Script using Registration ID + Email.
+ * Allows a student to set (or reset) their password.
+ * Identity is confirmed by verifying a one-time code that was emailed to them.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { validateStudent } from '@/src/lib/sheets';
 import { getServerClient } from '@/src/lib/supabase';
 import bcrypt from 'bcryptjs';
 
@@ -14,31 +13,60 @@ export async function POST(req: NextRequest) {
     const body = await req.json() as {
       registrationId?: string;
       email?: string;
+      code?: string;
       password?: string;
     };
 
     const regId    = body.registrationId?.trim() ?? '';
     const email    = body.email?.trim().toLowerCase() ?? '';
+    const code     = body.code?.trim() ?? '';
     const password = body.password ?? '';
 
     if (!regId || !email) {
       return NextResponse.json({ success: false, error: 'Registration ID and email are required.' }, { status: 400 });
     }
+    if (!code) {
+      return NextResponse.json({ success: false, error: 'Verification code is required.' }, { status: 400 });
+    }
     if (!password || password.length < 8) {
       return NextResponse.json({ success: false, error: 'Password must be at least 8 characters.' }, { status: 400 });
     }
 
-    // Verify identity via Apps Script
-    const result = await validateStudent(email, regId);
-    if (!result.success) {
+    const sb = getServerClient();
+
+    // ── Verify OTP ────────────────────────────────────────────────────────────
+    const { data: otp } = await sb
+      .from('training_email_otps')
+      .select('id, code, expires_at, used')
+      .eq('email', email)
+      .eq('used', false)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!otp) {
       return NextResponse.json(
-        { success: false, error: 'We could not verify your identity. Check your Registration ID and email.' },
-        { status: 401 },
+        { success: false, error: 'No active verification code found. Please request a new one.' },
+        { status: 400 },
+      );
+    }
+    if (new Date(otp.expires_at) < new Date()) {
+      return NextResponse.json(
+        { success: false, error: 'Verification code has expired. Please request a new one.' },
+        { status: 400 },
+      );
+    }
+    if (otp.code !== code) {
+      return NextResponse.json(
+        { success: false, error: 'Incorrect verification code. Please try again.' },
+        { status: 400 },
       );
     }
 
-    // Save / update password hash in Supabase
-    const sb = getServerClient();
+    // Mark OTP as used (consume it)
+    await sb.from('training_email_otps').update({ used: true }).eq('id', otp.id);
+
+    // ── Save new password ─────────────────────────────────────────────────────
     const hash = await bcrypt.hash(password, 10);
 
     await sb.from('training_passwords').upsert(
@@ -46,7 +74,7 @@ export async function POST(req: NextRequest) {
       { onConflict: 'registration_id' },
     );
 
-    // Also ensure the lookup table entry exists
+    // Ensure lookup table entry exists
     await sb.from('training_registrations_meta').upsert(
       { registration_id: regId, email },
       { onConflict: 'registration_id' },

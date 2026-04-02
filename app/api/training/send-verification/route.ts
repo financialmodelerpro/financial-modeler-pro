@@ -32,6 +32,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/lib/supabase';
+import { validateStudent } from '@/src/lib/sheets';
 import crypto from 'crypto';
 
 function generateOTP(): string {
@@ -41,11 +42,23 @@ function generateOTP(): string {
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json() as { email?: string };
-    const email = body.email?.trim().toLowerCase();
+    const body = await req.json() as { email?: string; registrationId?: string };
+    const email  = body.email?.trim().toLowerCase();
+    const regId  = body.registrationId?.trim();
 
     if (!email) {
       return NextResponse.json({ success: false, error: 'email is required' }, { status: 400 });
+    }
+
+    // If a registration ID is supplied (password-reset flow), verify identity first
+    if (regId) {
+      const check = await validateStudent(email, regId);
+      if (!check.success) {
+        return NextResponse.json(
+          { success: false, error: 'We could not verify your identity. Check your Registration ID and email.' },
+          { status: 401 },
+        );
+      }
     }
 
     const code      = generateOTP();
