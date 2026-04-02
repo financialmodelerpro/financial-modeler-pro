@@ -102,7 +102,7 @@ export default function TrainingRegisterPage() {
           email: email.trim().toLowerCase(),
           course,
           phone: phone.trim() || undefined,
-          password: password || undefined,
+          password,
         }),
       });
       const json = await res.json() as { success: boolean; duplicate?: boolean };
@@ -127,14 +127,14 @@ export default function TrainingRegisterPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErrorMsg('');
-    if (password && password !== confirm) {
-      setStatus('error');
-      setErrorMsg('Passwords do not match.');
-      return;
-    }
-    if (password && password.length < 8) {
+    if (!password || password.length < 8) {
       setStatus('error');
       setErrorMsg('Password must be at least 8 characters.');
+      return;
+    }
+    if (password !== confirm) {
+      setStatus('error');
+      setErrorMsg('Passwords do not match.');
       return;
     }
     // Trigger email verification first
@@ -329,27 +329,24 @@ export default function TrainingRegisterPage() {
                 </select>
               </div>
 
-              {/* Password (optional) */}
+              {/* Password (required) */}
               <div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 18 }}>
                 <label style={labelStyle}>
-                  PASSWORD{' '}
-                  <span style={{ color: '#9CA3AF', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional — adds extra security)</span>
+                  PASSWORD <span style={{ color: '#DC2626' }}>*</span>
                 </label>
-                <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+                <input type="password" required value={password} onChange={e => setPassword(e.target.value)}
                   placeholder="min 8 characters" minLength={8} style={inputStyle}
                   onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
                   onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
               </div>
 
-              {password && (
-                <div>
-                  <label style={labelStyle}>CONFIRM PASSWORD</label>
-                  <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)}
+              <div>
+                  <label style={labelStyle}>CONFIRM PASSWORD <span style={{ color: '#DC2626' }}>*</span></label>
+                  <input type="password" required value={confirm} onChange={e => setConfirm(e.target.value)}
                     placeholder="re-enter password" minLength={8} style={inputStyle}
                     onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
                     onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
                 </div>
-              )}
 
               {/* Submit */}
               <button

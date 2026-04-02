@@ -20,6 +20,12 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+    if (!password || password.length < 8) {
+      return NextResponse.json(
+        { success: false, error: 'Password must be at least 8 characters.' },
+        { status: 400 },
+      );
+    }
 
     // Register via Apps Script (creates the Sheets row and sends the reg ID email)
     const result = await registerStudent(name.trim(), email.trim().toLowerCase(), course.trim());
@@ -45,23 +51,19 @@ export async function POST(req: NextRequest) {
       const registrationId: string = (result.data as { registrationId?: string })?.registrationId ?? '';
 
       if (registrationId) {
-        // Store phone in training_registrations_meta (create if needed)
-        if (phone?.trim()) {
-          await sb.from('training_registrations_meta').upsert({
-            registration_id: registrationId,
-            email: email.trim().toLowerCase(),
-            phone: phone.trim(),
-          }, { onConflict: 'registration_id' });
-        }
+        // Always save email + regId to lookup table (enables "login with email" later)
+        await sb.from('training_registrations_meta').upsert({
+          registration_id: registrationId,
+          email: email.trim().toLowerCase(),
+          ...(phone?.trim() ? { phone: phone.trim() } : {}),
+        }, { onConflict: 'registration_id' });
 
-        // Store hashed password in training_passwords
-        if (password && password.length >= 8) {
-          const hash = await bcrypt.hash(password, 10);
-          await sb.from('training_passwords').upsert({
-            registration_id: registrationId,
-            password_hash: hash,
-          }, { onConflict: 'registration_id' });
-        }
+        // Store hashed password (required at registration)
+        const hash = await bcrypt.hash(password!, 10);
+        await sb.from('training_passwords').upsert({
+          registration_id: registrationId,
+          password_hash: hash,
+        }, { onConflict: 'registration_id' });
       }
     } catch {
       // Non-fatal — registration still succeeded in Sheets
