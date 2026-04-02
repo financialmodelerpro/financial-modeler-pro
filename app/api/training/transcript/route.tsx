@@ -227,7 +227,7 @@ async function loadTranscriptSettings(): Promise<TranscriptSettings> {
       const def = DEFAULTS[k];
       if (typeof def === 'number') { const n = parseFloat(raw); if (Number.isFinite(n)) (result as Record<string,unknown>)[k] = n; }
       else if (typeof def === 'boolean') (result as Record<string,unknown>)[k] = raw === 'true';
-      else if (raw) (result as Record<string,unknown>)[k] = raw;
+      else (result as Record<string,unknown>)[k] = raw; // empty string is valid (user cleared a field)
     });
     return result;
   } catch {
@@ -476,7 +476,7 @@ function TranscriptDocument({
         {/* ── Header — absolute canvas ──────────────────────────────── */}
         <View style={{ backgroundColor: settings.headerBgColor, height: settings.headerHeight, position: 'relative' }}>
           {settings.logoVisible && settings.logoUrl && logoBase64 && (
-            <Image style={{ position: 'absolute', left: settings.logoX, top: settings.logoY, width: settings.logoWidth, height: settings.logoWidth }} src={logoBase64} />
+            <Image style={{ position: 'absolute', left: settings.logoX, top: settings.logoY, width: settings.logoWidth }} src={logoBase64} />
           )}
           {settings.brandVisible && settings.brandText ? (
             <Text style={{ position: 'absolute', left: settings.brandX, top: settings.brandY, fontSize: 11, fontFamily: 'Helvetica-Bold', color: C.white }}>{settings.brandText}</Text>

@@ -75,7 +75,7 @@ async function loadTxSettings(): Promise<TxSettings> {
       if (raw === undefined || raw === null) return;
       const def = TX_DEFAULTS[k];
       if (typeof def === 'boolean') (result as Record<string, unknown>)[k] = raw === 'true';
-      else if (raw) (result as Record<string, unknown>)[k] = raw;
+      else (result as Record<string, unknown>)[k] = raw; // empty string is valid (user cleared a field)
     });
     return result;
   } catch {
