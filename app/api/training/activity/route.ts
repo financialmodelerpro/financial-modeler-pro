@@ -28,17 +28,20 @@ export async function POST(req: NextRequest) {
     // Load existing profile
     const { data: existing } = await sb.from('student_profiles').select('last_active_at,streak_days,total_points').eq('registration_id', registrationId).maybeSingle();
 
-    // Compute streak
+    // Compute streak — compare calendar dates, not raw elapsed ms
     let streak = existing?.streak_days ?? 0;
     if (existing?.last_active_at) {
-      const lastDate = new Date(existing.last_active_at);
-      const diffDays = Math.floor((now.getTime() - lastDate.getTime()) / 86400000);
+      // Strip time component so 11 PM → midnight counts as "next day"
+      const todayDate = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+      const last      = new Date(existing.last_active_at);
+      const lastDate  = Date.UTC(last.getUTCFullYear(), last.getUTCMonth(), last.getUTCDate());
+      const diffDays  = Math.round((todayDate - lastDate) / 86400000);
       if (diffDays === 0) {
-        // same day — no change
+        // Same calendar day — no change
       } else if (diffDays === 1) {
-        streak += 1;
+        streak += 1;   // Consecutive day — extend streak
       } else {
-        streak = 1; // reset
+        streak = 1;    // Gap of 2+ days — reset
       }
     } else {
       streak = 1;
