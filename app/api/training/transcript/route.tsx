@@ -151,105 +151,85 @@ const s = StyleSheet.create({
 // ── Transcript settings ───────────────────────────────────────────────────────
 
 interface TranscriptSettings {
-  brandName:          string;
-  headerTitle:        string;
-  subtitle:           string;
-  footer1:            string;
-  footer2:            string;
-  instructor:         string;
-  websiteUrl:         string;
-  logoUrl:            string;
-  logoWidth:          number;
-  logoPosition:       'left' | 'center' | 'right' | 'none';
-  headerBgColor:      string;
-  tableHeaderColor:   string;
-  studentStripBg:     string;
-  passedBg:           string;
-  passedColor:        string;
-  failedBg:           string;
-  failedColor:        string;
-  colNum:             string;
-  colSession:         string;
-  colScore:           string;
-  colStatus:          string;
-  colAttempts:        string;
-  bannerCompleteTitle: string;
-  bannerCompleteSub:   string;
-  bannerProgressTitle: string;
-  bannerProgressSub:   string;
+  headerBgColor: string; headerHeight: number;
+  logoUrl: string; logoX: number; logoY: number; logoWidth: number; logoVisible: boolean;
+  brandText: string; brandX: number; brandY: number; brandVisible: boolean;
+  titleText: string; titleX: number; titleY: number; titleVisible: boolean;
+  subtitleText: string; subtitleX: number; subtitleY: number; subtitleVisible: boolean;
+  instructorText: string; instructorX: number; instructorY: number; instructorVisible: boolean;
+  websiteText: string; websiteX: number; websiteY: number; websiteVisible: boolean;
+  tableHeaderColor: string; studentStripBg: string;
+  passedBg: string; passedColor: string; failedBg: string; failedColor: string;
+  colNum: string; colSession: string; colScore: string; colStatus: string; colAttempts: string;
+  bannerCompleteTitle: string; bannerCompleteSub: string;
+  bannerProgressTitle: string; bannerProgressSub: string;
+  footerBgColor: string;
+  footerLeftText: string; footerLeftVisible: boolean;
+  footerMidText: string;  footerMidVisible: boolean;
+  footerRightText: string; footerRightVisible: boolean;
 }
 
 const DEFAULTS: TranscriptSettings = {
-  brandName:          'Financial Modeler Pro',
-  headerTitle:        'OFFICIAL ACADEMIC TRANSCRIPT',
-  subtitle:           'FMP Training Hub',
-  footer1:            'This transcript is an official record issued by Financial Modeler Pro.',
-  footer2:            'Verify certificate authenticity at certifier.io',
-  instructor:         'Ahmad Din | Corporate Finance Expert',
-  websiteUrl:         'www.financialmodelerpro.com',
-  logoUrl:            '',
-  logoWidth:          32,
-  logoPosition:       'right',
-  headerBgColor:      '#0D2E5A',
-  tableHeaderColor:   '#1B4F8A',
-  studentStripBg:     '#EBF3FC',
-  passedBg:           '#D1FAE5',
-  passedColor:        '#065F46',
-  failedBg:           '#FEE2E2',
-  failedColor:        '#991B1B',
-  colNum:             '#',
-  colSession:         'Session Name',
-  colScore:           'Score',
-  colStatus:          'Status',
-  colAttempts:        'Attempts',
+  headerBgColor: '#0D2E5A', headerHeight: 80,
+  logoUrl: '', logoX: 520, logoY: 14, logoWidth: 40, logoVisible: true,
+  brandText: 'Financial Modeler Pro', brandX: 36, brandY: 18, brandVisible: true,
+  titleText: 'OFFICIAL ACADEMIC TRANSCRIPT', titleX: 36, titleY: 56, titleVisible: true,
+  subtitleText: 'FMP Training Hub', subtitleX: 455, subtitleY: 60, subtitleVisible: true,
+  instructorText: 'Ahmad Din | Corporate Finance Expert', instructorX: 36, instructorY: 31, instructorVisible: true,
+  websiteText: 'www.financialmodelerpro.com', websiteX: 36, websiteY: 41, websiteVisible: true,
+  tableHeaderColor: '#1B4F8A', studentStripBg: '#EBF3FC',
+  passedBg: '#D1FAE5', passedColor: '#065F46',
+  failedBg: '#FEE2E2', failedColor: '#991B1B',
+  colNum: '#', colSession: 'Session Name', colScore: 'Score', colStatus: 'Status', colAttempts: 'Attempts',
   bannerCompleteTitle: '✓ OFFICIAL TRANSCRIPT — Course Complete',
   bannerCompleteSub:   'All requirements fulfilled. Certificate issued as of [date].',
   bannerProgressTitle: '⏳ PROGRESS TRANSCRIPT — Course in Progress',
   bannerProgressSub:   'This transcript reflects current progress as of [date]. A final transcript will be issued upon course completion.',
+  footerBgColor: '#0D2E5A',
+  footerLeftText: 'Issue Date: [date]', footerLeftVisible: true,
+  footerMidText:  'This transcript is an official record issued by Financial Modeler Pro. Verify at certifier.io', footerMidVisible: true,
+  footerRightText: 'www.financialmodelerpro.com', footerRightVisible: true,
+};
+
+// CMS key map (mirrors editor K object)
+const CMS: Record<keyof TranscriptSettings, string> = {
+  headerBgColor:'transcript_header_bg', headerHeight:'transcript_header_h',
+  logoUrl:'transcript_logo_url', logoX:'transcript_logo_x', logoY:'transcript_logo_y', logoWidth:'transcript_logo_w', logoVisible:'transcript_logo_vis',
+  brandText:'transcript_brand_t', brandX:'transcript_brand_x', brandY:'transcript_brand_y', brandVisible:'transcript_brand_vis',
+  titleText:'transcript_title_t', titleX:'transcript_title_x', titleY:'transcript_title_y', titleVisible:'transcript_title_vis',
+  subtitleText:'transcript_sub_t', subtitleX:'transcript_sub_x', subtitleY:'transcript_sub_y', subtitleVisible:'transcript_sub_vis',
+  instructorText:'transcript_instr_t', instructorX:'transcript_instr_x', instructorY:'transcript_instr_y', instructorVisible:'transcript_instr_vis',
+  websiteText:'transcript_web_t', websiteX:'transcript_web_x', websiteY:'transcript_web_y', websiteVisible:'transcript_web_vis',
+  tableHeaderColor:'transcript_tbl_hdr', studentStripBg:'transcript_strip_bg',
+  passedBg:'transcript_pass_bg', passedColor:'transcript_pass_color',
+  failedBg:'transcript_fail_bg', failedColor:'transcript_fail_color',
+  colNum:'transcript_col_num', colSession:'transcript_col_sess', colScore:'transcript_col_score',
+  colStatus:'transcript_col_status', colAttempts:'transcript_col_att',
+  bannerCompleteTitle:'transcript_ban_ctitle', bannerCompleteSub:'transcript_ban_csub',
+  bannerProgressTitle:'transcript_ban_ptitle', bannerProgressSub:'transcript_ban_psub',
+  footerBgColor:'transcript_footer_bg',
+  footerLeftText:'transcript_fl_t', footerLeftVisible:'transcript_fl_vis',
+  footerMidText:'transcript_fm_t', footerMidVisible:'transcript_fm_vis',
+  footerRightText:'transcript_fr_t', footerRightVisible:'transcript_fr_vis',
 };
 
 async function loadTranscriptSettings(): Promise<TranscriptSettings> {
   try {
     const sb = getServerClient();
-    const { data } = await sb
-      .from('cms_content')
-      .select('key, value')
-      .eq('section', 'transcript');
+    const { data } = await sb.from('cms_content').select('key, value').eq('section', 'transcript');
     if (!data?.length) return DEFAULTS;
     const map: Record<string, string> = {};
     for (const row of data) map[row.key] = row.value;
-    const rawWidth = parseInt(map['transcript_logo_width'] ?? '', 10);
-    const rawPos   = map['transcript_logo_position'] ?? '';
-    function g(key: string, def: string) { return map[key] || def; }
-    return {
-      brandName:          g('transcript_brand_name',          DEFAULTS.brandName),
-      headerTitle:        g('transcript_header_title',        DEFAULTS.headerTitle),
-      subtitle:           g('transcript_subtitle',            DEFAULTS.subtitle),
-      footer1:            g('transcript_footer_1',            DEFAULTS.footer1),
-      footer2:            g('transcript_footer_2',            DEFAULTS.footer2),
-      instructor:         g('transcript_instructor',          DEFAULTS.instructor),
-      websiteUrl:         g('transcript_website_url',         DEFAULTS.websiteUrl),
-      logoUrl:            g('transcript_logo_url',            DEFAULTS.logoUrl),
-      logoWidth:          Number.isFinite(rawWidth) && rawWidth > 0 ? rawWidth : DEFAULTS.logoWidth,
-      logoPosition:       (['left','center','right','none'] as const).includes(rawPos as TranscriptSettings['logoPosition'])
-        ? rawPos as TranscriptSettings['logoPosition'] : DEFAULTS.logoPosition,
-      headerBgColor:      g('transcript_header_bg_color',     DEFAULTS.headerBgColor),
-      tableHeaderColor:   g('transcript_table_header_color',  DEFAULTS.tableHeaderColor),
-      studentStripBg:     g('transcript_student_strip_bg',    DEFAULTS.studentStripBg),
-      passedBg:           g('transcript_passed_bg',           DEFAULTS.passedBg),
-      passedColor:        g('transcript_passed_color',        DEFAULTS.passedColor),
-      failedBg:           g('transcript_failed_bg',           DEFAULTS.failedBg),
-      failedColor:        g('transcript_failed_color',        DEFAULTS.failedColor),
-      colNum:             g('transcript_col_num',             DEFAULTS.colNum),
-      colSession:         g('transcript_col_session',         DEFAULTS.colSession),
-      colScore:           g('transcript_col_score',           DEFAULTS.colScore),
-      colStatus:          g('transcript_col_status',          DEFAULTS.colStatus),
-      colAttempts:        g('transcript_col_attempts',        DEFAULTS.colAttempts),
-      bannerCompleteTitle: g('transcript_banner_complete_title', DEFAULTS.bannerCompleteTitle),
-      bannerCompleteSub:   g('transcript_banner_complete_sub',   DEFAULTS.bannerCompleteSub),
-      bannerProgressTitle: g('transcript_banner_progress_title', DEFAULTS.bannerProgressTitle),
-      bannerProgressSub:   g('transcript_banner_progress_sub',   DEFAULTS.bannerProgressSub),
-    };
+    const result = { ...DEFAULTS };
+    (Object.keys(DEFAULTS) as (keyof TranscriptSettings)[]).forEach(k => {
+      const raw = map[CMS[k]];
+      if (raw === undefined || raw === null) return;
+      const def = DEFAULTS[k];
+      if (typeof def === 'number') { const n = parseFloat(raw); if (Number.isFinite(n)) (result as Record<string,unknown>)[k] = n; }
+      else if (typeof def === 'boolean') (result as Record<string,unknown>)[k] = raw === 'true';
+      else if (raw) (result as Record<string,unknown>)[k] = raw;
+    });
+    return result;
   } catch {
     return DEFAULTS;
   }
@@ -269,24 +249,8 @@ async function urlToBase64(url: string): Promise<string | null> {
   }
 }
 
-async function loadLogoBase64(overrideUrl?: string): Promise<string | null> {
-  // 1. Use transcript-specific logo if set
-  if (overrideUrl) return urlToBase64(overrideUrl);
-  // 2. Fall back to branding config logo
-  try {
-    const sb = getServerClient();
-    const { data } = await sb
-      .from('branding_config')
-      .select('config')
-      .eq('scope', 'global')
-      .maybeSingle();
-    const config = data?.config as Record<string, unknown> | null;
-    const brandingUrl = (config?.platformLogoImage ?? config?.portalLogoImage) as string | null;
-    if (!brandingUrl || !brandingUrl.startsWith('http')) return null;
-    return urlToBase64(brandingUrl);
-  } catch {
-    return null;
-  }
+async function loadLogoBase64(url: string): Promise<string | null> {
+  return urlToBase64(url);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -509,43 +473,28 @@ function TranscriptDocument({
     <Document title={`FMP Transcript — ${registrationId}`} author="Financial Modeler Pro">
       <Page size="A4" style={s.page}>
 
-        {/* ── Header ──────────────────────────────────────────────────── */}
-        <View style={[s.header, { backgroundColor: settings.headerBgColor }]}>
-          {/* Left block */}
-          <View style={{ flex: 1 }}>
-            {/* Center position: logo stacked and centered above brand name */}
-            {logoBase64 && settings.logoPosition === 'center' && (
-              <View style={{ alignItems: 'center', marginBottom: 5 }}>
-                <Image style={{ width: settings.logoWidth, height: settings.logoWidth }} src={logoBase64} />
-              </View>
-            )}
-            {/* Left position: logo inline with brand name */}
-            <View style={s.hLogoRow}>
-              {logoBase64 && settings.logoPosition === 'left' && (
-                <Image style={{ width: settings.logoWidth, height: settings.logoWidth, marginRight: 8 }} src={logoBase64} />
-              )}
-              <Text style={s.hBrand}>{settings.brandName}</Text>
+        {/* ── Header — absolute canvas ──────────────────────────────── */}
+        <View style={{ backgroundColor: settings.headerBgColor, height: settings.headerHeight, position: 'relative' }}>
+          {settings.logoVisible && settings.logoUrl && logoBase64 && (
+            <Image style={{ position: 'absolute', left: settings.logoX, top: settings.logoY, width: settings.logoWidth, height: settings.logoWidth }} src={logoBase64} />
+          )}
+          {settings.brandVisible && settings.brandText ? (
+            <Text style={{ position: 'absolute', left: settings.brandX, top: settings.brandY, fontSize: 11, fontFamily: 'Helvetica-Bold', color: C.white }}>{settings.brandText}</Text>
+          ) : null}
+          {settings.instructorVisible && settings.instructorText ? (
+            <Text style={{ position: 'absolute', left: settings.instructorX, top: settings.instructorY, fontSize: 7, color: 'rgba(255,255,255,0.55)' }}>{settings.instructorText}</Text>
+          ) : null}
+          {settings.websiteVisible && settings.websiteText ? (
+            <Text style={{ position: 'absolute', left: settings.websiteX, top: settings.websiteY, fontSize: 7, color: 'rgba(255,255,255,0.55)' }}>{settings.websiteText}</Text>
+          ) : null}
+          {settings.titleVisible && settings.titleText ? (
+            <Text style={{ position: 'absolute', left: settings.titleX, top: settings.titleY, fontSize: 9, fontFamily: 'Helvetica-Bold', color: '#90CAF9', letterSpacing: 1.2 }}>{settings.titleText}</Text>
+          ) : null}
+          {settings.subtitleVisible && settings.subtitleText ? (
+            <View style={{ position: 'absolute', left: settings.subtitleX, top: settings.subtitleY, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 4, paddingHorizontal: 8, paddingVertical: 4 }}>
+              <Text style={{ fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: 'rgba(255,255,255,0.8)' }}>{settings.subtitleText}</Text>
             </View>
-            <Text style={s.hSub}>{settings.websiteUrl}</Text>
-            <Text style={s.hSub}>{settings.instructor}</Text>
-            <Text style={s.hTitle}>{settings.headerTitle}</Text>
-          </View>
-
-          {/* Right block — logo + subtitle (right position) or just subtitle badge */}
-          <View style={s.hRight}>
-            {logoBase64 && settings.logoPosition === 'right' ? (
-              <>
-                <Image style={{ width: settings.logoWidth, height: settings.logoWidth, marginBottom: 5 }} src={logoBase64} />
-                <View style={s.hBadge}>
-                  <Text style={s.hBadgeText}>{settings.subtitle}</Text>
-                </View>
-              </>
-            ) : (
-              <View style={s.hBadge}>
-                <Text style={s.hBadgeText}>{settings.subtitle}</Text>
-              </View>
-            )}
-          </View>
+          ) : null}
         </View>
 
         {/* ── Student Info ─────────────────────────────────────────────── */}
@@ -615,10 +564,16 @@ function TranscriptDocument({
         />
 
         {/* ── Footer ─────────────────────────────────────────────────────── */}
-        <View style={[s.footer, { backgroundColor: settings.headerBgColor }]} fixed>
-          <Text style={s.footerText}>Issue Date: {todayStr()}</Text>
-          <Text style={s.footerText}>{settings.footer1} {settings.footer2}</Text>
-          <Text style={s.footerText}>{settings.websiteUrl}</Text>
+        <View style={[s.footer, { backgroundColor: settings.footerBgColor }]} fixed>
+          {settings.footerLeftVisible && settings.footerLeftText ? (
+            <Text style={s.footerText}>{settings.footerLeftText.replace('[date]', todayStr())}</Text>
+          ) : <Text />}
+          {settings.footerMidVisible && settings.footerMidText ? (
+            <Text style={[s.footerText, { flex: 1, textAlign: 'center' }]}>{settings.footerMidText}</Text>
+          ) : <Text style={{ flex: 1 }} />}
+          {settings.footerRightVisible && settings.footerRightText ? (
+            <Text style={s.footerText}>{settings.footerRightText}</Text>
+          ) : <Text />}
         </View>
 
       </Page>
@@ -649,9 +604,9 @@ export async function GET(req: NextRequest) {
     getStudentProgress(email, regId),
     loadTranscriptSettings(),
   ]);
-  // Logo loaded after settings so we can pass the transcript-specific URL override
-  const logoBase64 = settings.logoPosition !== 'none'
-    ? await loadLogoBase64(settings.logoUrl || undefined)
+  // Only fetch logo if visible and a URL is set
+  const logoBase64 = (settings.logoVisible && settings.logoUrl)
+    ? await loadLogoBase64(settings.logoUrl)
     : null;
 
   if (!result.success || !result.data) {
