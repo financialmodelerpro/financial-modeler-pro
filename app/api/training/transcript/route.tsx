@@ -100,7 +100,7 @@ const s = StyleSheet.create({
   tRowAlt:   { backgroundColor: C.lGrey },
   tRowFinal: { backgroundColor: C.goldBg },
 
-  colNum:     { width: 28, paddingHorizontal: 6 },
+  colNum:     { width: 48, paddingHorizontal: 6 },
   colName:    { flex: 1, paddingHorizontal: 6 },
   colScore:   { width: 46, paddingHorizontal: 4, textAlign: 'center' as const },
   colStatus:  { width: 76, paddingHorizontal: 4 },
@@ -152,7 +152,7 @@ const s = StyleSheet.create({
 
 interface TranscriptSettings {
   headerBgColor: string; headerHeight: number;
-  logoUrl: string; logoX: number; logoY: number; logoWidth: number; logoVisible: boolean;
+  logoUrl: string; logoX: number; logoY: number; logoWidth: number; logoHeight: number; logoVisible: boolean;
   brandText: string; brandX: number; brandY: number; brandVisible: boolean;
   titleText: string; titleX: number; titleY: number; titleVisible: boolean;
   subtitleText: string; subtitleX: number; subtitleY: number; subtitleVisible: boolean;
@@ -171,7 +171,7 @@ interface TranscriptSettings {
 
 const DEFAULTS: TranscriptSettings = {
   headerBgColor: '#0D2E5A', headerHeight: 80,
-  logoUrl: '', logoX: 520, logoY: 14, logoWidth: 40, logoVisible: true,
+  logoUrl: '', logoX: 520, logoY: 14, logoWidth: 40, logoHeight: 40, logoVisible: true,
   brandText: 'Financial Modeler Pro', brandX: 36, brandY: 18, brandVisible: true,
   titleText: 'OFFICIAL ACADEMIC TRANSCRIPT', titleX: 36, titleY: 56, titleVisible: true,
   subtitleText: 'FMP Training Hub', subtitleX: 455, subtitleY: 60, subtitleVisible: true,
@@ -194,7 +194,7 @@ const DEFAULTS: TranscriptSettings = {
 // CMS key map (mirrors editor K object)
 const CMS: Record<keyof TranscriptSettings, string> = {
   headerBgColor:'transcript_header_bg', headerHeight:'transcript_header_h',
-  logoUrl:'transcript_logo_url', logoX:'transcript_logo_x', logoY:'transcript_logo_y', logoWidth:'transcript_logo_w', logoVisible:'transcript_logo_vis',
+  logoUrl:'transcript_logo_url', logoX:'transcript_logo_x', logoY:'transcript_logo_y', logoWidth:'transcript_logo_w', logoHeight:'transcript_logo_h', logoVisible:'transcript_logo_vis',
   brandText:'transcript_brand_t', brandX:'transcript_brand_x', brandY:'transcript_brand_y', brandVisible:'transcript_brand_vis',
   titleText:'transcript_title_t', titleX:'transcript_title_x', titleY:'transcript_title_y', titleVisible:'transcript_title_vis',
   subtitleText:'transcript_sub_t', subtitleX:'transcript_sub_x', subtitleY:'transcript_sub_y', subtitleVisible:'transcript_sub_vis',
@@ -476,7 +476,7 @@ function TranscriptDocument({
         {/* ── Header — absolute canvas ──────────────────────────────── */}
         <View style={{ backgroundColor: settings.headerBgColor, height: settings.headerHeight, position: 'relative' }}>
           {settings.logoVisible && settings.logoUrl && logoBase64 && (
-            <Image style={{ position: 'absolute', left: settings.logoX, top: settings.logoY, width: settings.logoWidth }} src={logoBase64} />
+            <Image style={{ position: 'absolute', left: settings.logoX, top: settings.logoY, width: settings.logoWidth, height: settings.logoHeight }} src={logoBase64} />
           )}
           {settings.brandVisible && settings.brandText ? (
             <Text style={{ position: 'absolute', left: settings.brandX, top: settings.brandY, fontSize: 11, fontFamily: 'Helvetica-Bold', color: C.white }}>{settings.brandText}</Text>

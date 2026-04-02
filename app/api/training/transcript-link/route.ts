@@ -58,7 +58,7 @@ export async function GET(req: NextRequest) {
 
     const base = getAppUrl(req);
     return NextResponse.json({
-      link: { token: data.token, url: `${base}/t/${data.token}`, createdAt: data.created_at, viewCount: data.view_count },
+      link: { token: data.token, url: `${base}/training/transcript/${data.token}`, createdAt: data.created_at, viewCount: data.view_count },
     });
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       token,
-      url:       `${base}/t/${token}`,
+      url:       `${base}/training/transcript/${token}`,
       viewCount: 0,
       createdAt: new Date().toISOString(),
       isNew:     true,

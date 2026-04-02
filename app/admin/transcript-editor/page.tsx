@@ -35,7 +35,7 @@ interface Settings {
   headerBgColor: string;
   headerHeight:  number;  // PDF pts
   // Logo
-  logoUrl: string; logoX: number; logoY: number; logoWidth: number; logoVisible: boolean;
+  logoUrl: string; logoX: number; logoY: number; logoWidth: number; logoHeight: number; logoVisible: boolean;
   // Brand name
   brandText: string; brandX: number; brandY: number; brandVisible: boolean;
   // Document title
@@ -63,7 +63,7 @@ interface Settings {
 
 const D: Settings = {
   headerBgColor: '#0D2E5A', headerHeight: 80,
-  logoUrl: '', logoX: 520, logoY: 14, logoWidth: 40, logoVisible: true,
+  logoUrl: '', logoX: 520, logoY: 14, logoWidth: 40, logoHeight: 40, logoVisible: true,
   brandText: 'Financial Modeler Pro', brandX: 36, brandY: 18, brandVisible: true,
   titleText: 'OFFICIAL ACADEMIC TRANSCRIPT', titleX: 36, titleY: 56, titleVisible: true,
   subtitleText: 'FMP Training Hub', subtitleX: 455, subtitleY: 60, subtitleVisible: true,
@@ -86,7 +86,7 @@ const D: Settings = {
 // Flat CMS key map
 const K: Record<keyof Settings, string> = {
   headerBgColor:'transcript_header_bg', headerHeight:'transcript_header_h',
-  logoUrl:'transcript_logo_url', logoX:'transcript_logo_x', logoY:'transcript_logo_y', logoWidth:'transcript_logo_w', logoVisible:'transcript_logo_vis',
+  logoUrl:'transcript_logo_url', logoX:'transcript_logo_x', logoY:'transcript_logo_y', logoWidth:'transcript_logo_w', logoHeight:'transcript_logo_h', logoVisible:'transcript_logo_vis',
   brandText:'transcript_brand_t', brandX:'transcript_brand_x', brandY:'transcript_brand_y', brandVisible:'transcript_brand_vis',
   titleText:'transcript_title_t', titleX:'transcript_title_x', titleY:'transcript_title_y', titleVisible:'transcript_title_vis',
   subtitleText:'transcript_sub_t', subtitleX:'transcript_sub_x', subtitleY:'transcript_sub_y', subtitleVisible:'transcript_sub_vis',
@@ -168,7 +168,7 @@ function HeaderCanvas({ cfg, selected, onSelect, onMove }: HeaderCanvasProps) {
         <div onMouseDown={e => startDrag(e,'logo',cfg.logoX,cfg.logoY)}
           style={{ position:'absolute', left:px(cfg.logoX), top:px(cfg.logoY), cursor:'grab', userSelect:'none', ...(selected==='logo' ? sel : {}) }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={cfg.logoUrl} alt="Logo" style={{ width:px(cfg.logoWidth), height:px(cfg.logoWidth), objectFit:'contain', display:'block' }} />
+          <img src={cfg.logoUrl} alt="Logo" style={{ width:px(cfg.logoWidth), height:px(cfg.logoHeight), objectFit:'contain', display:'block' }} />
         </div>
       )}
       {/* Brand name */}
@@ -208,7 +208,7 @@ function HeaderCanvas({ cfg, selected, onSelect, onMove }: HeaderCanvasProps) {
       )}
       {/* Hint when no logo */}
       {cfg.logoVisible && !cfg.logoUrl && (
-        <div style={{ position:'absolute', left:px(cfg.logoX), top:px(cfg.logoY), width:px(cfg.logoWidth), height:px(cfg.logoWidth), border:'1px dashed rgba(255,255,255,0.3)', borderRadius:4, display:'flex', alignItems:'center', justifyContent:'center' }}>
+        <div style={{ position:'absolute', left:px(cfg.logoX), top:px(cfg.logoY), width:px(cfg.logoWidth), height:px(cfg.logoHeight), border:'1px dashed rgba(255,255,255,0.3)', borderRadius:4, display:'flex', alignItems:'center', justifyContent:'center' }}>
           <span style={{ fontSize:px(7), color:'rgba(255,255,255,0.4)' }}>Logo</span>
         </div>
       )}
@@ -514,8 +514,10 @@ export default function TranscriptEditorPage() {
                     <input type="file" accept="image/*" style={{ display:'none' }} disabled={uploading} onChange={e=>{if(e.target.files?.[0]) uploadLogo(e.target.files[0]);}} />
                   </label>
                   <input style={{ ...IS, marginBottom:8 }} placeholder="or paste URL…" value={cfg.logoUrl} onChange={e=>set('logoUrl',e.target.value)} />
-                  <label style={LS}>Size: {cfg.logoWidth} pt</label>
-                  <input type="range" min={16} max={100} value={cfg.logoWidth} onChange={e=>set('logoWidth',parseInt(e.target.value))} style={{ width:'100%', marginBottom:8 }} />
+                  <label style={LS}>Width: {cfg.logoWidth} pt</label>
+                  <input type="range" min={16} max={120} value={cfg.logoWidth} onChange={e=>set('logoWidth',parseInt(e.target.value))} style={{ width:'100%', marginBottom:8 }} />
+                  <label style={LS}>Height: {cfg.logoHeight} pt</label>
+                  <input type="range" min={10} max={100} value={cfg.logoHeight} onChange={e=>set('logoHeight',parseInt(e.target.value))} style={{ width:'100%', marginBottom:8 }} />
                 </>
               ) : (
                 <F label="Text" value={cfg[`${selected}Text` as keyof Settings] as string} onChange={v=>set(`${selected}Text` as keyof Settings, v as never)} />
