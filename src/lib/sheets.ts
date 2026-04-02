@@ -606,6 +606,69 @@ export async function listAllCertificates(): Promise<ScriptResponse<SheetCertifi
   return { success: true, data: [] };
 }
 
+// ── Certificate Lookup (by Registration ID or all) ───────────────────────────
+
+export interface CertRow {
+  certifierUuid: string;
+  registrationId: string;
+  fullName: string;
+  email: string;
+  course: string;
+  completionDate: string;
+  finalExamScore: string;
+  avgSessionScore: string;
+  certStatus: string;
+  certificateUrl: string;
+  issuedDate: string;
+}
+
+function mapRawCertRow(raw: Record<string, unknown>): CertRow {
+  return {
+    certifierUuid:   String(raw.certifierUuid   ?? raw.certifier_uuid   ?? ''),
+    registrationId:  String(raw.registrationId  ?? raw.registration_id  ?? ''),
+    fullName:        String(raw.fullName         ?? raw.full_name        ?? ''),
+    email:           String(raw.email            ?? ''),
+    course:          String(raw.course           ?? ''),
+    completionDate:  String(raw.completionDate   ?? raw.completion_date  ?? ''),
+    finalExamScore:  String(raw.finalExamScore   ?? raw.final_exam_score ?? ''),
+    avgSessionScore: String(raw.avgSessionScore  ?? raw.avg_session_score ?? ''),
+    certStatus:      String(raw.certStatus       ?? raw.cert_status      ?? ''),
+    certificateUrl:  String(raw.certificateUrl   ?? raw.certificate_url  ?? ''),
+    issuedDate:      String(raw.issuedDate       ?? raw.issued_date      ?? ''),
+  };
+}
+
+/** Fetch certificates for a specific registration ID. */
+export async function getCertificatesByRegistrationId(
+  registrationId: string,
+): Promise<{ success: boolean; data?: CertRow[] }> {
+  const raw = await callScript<unknown>({ action: 'getCertificates', registrationId });
+  if (!raw.success) return { success: false };
+  if (Array.isArray(raw.data)) {
+    return { success: true, data: (raw.data as Record<string, unknown>[]).map(mapRawCertRow) };
+  }
+  // Apps Script may return { success: true, certificates: [...] } at root level
+  const root = raw as unknown as { certificates?: Record<string, unknown>[] };
+  if (Array.isArray(root.certificates)) {
+    return { success: true, data: root.certificates.map(mapRawCertRow) };
+  }
+  return { success: true, data: [] };
+}
+
+/** Fetch all certificates (no filter). */
+export async function getAllCertificates(): Promise<{ success: boolean; data?: CertRow[] }> {
+  const raw = await callScript<unknown>({ action: 'getCertificates' });
+  if (!raw.success) return { success: false };
+  if (Array.isArray(raw.data)) {
+    return { success: true, data: (raw.data as Record<string, unknown>[]).map(mapRawCertRow) };
+  }
+  const root = raw as unknown as { certificates?: Record<string, unknown>[] };
+  if (Array.isArray(root.certificates)) {
+    return { success: true, data: root.certificates.map(mapRawCertRow) };
+  }
+  return { success: true, data: [] };
+}
+
 // ── Assessment Engine ─────────────────────────────────────────────────────────
 
 export interface AssessmentQuestion {

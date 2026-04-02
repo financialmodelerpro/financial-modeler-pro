@@ -33,6 +33,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Course Manager',    href: '/admin/training',                       icon: '🎓' },
   { label: 'Students',          href: '/admin/training-hub/students',          icon: '👨‍🎓' },
   { label: 'Certificates',      href: '/admin/training-hub/certificates',      icon: '🏆' },
+  { label: 'Cert Verification', href: '/admin/certificates',                   icon: '🏅' },
   { label: 'Transcript Editor', href: '/admin/transcript-editor',              icon: '📄' },
   { label: 'Analytics',         href: '/admin/training-hub/analytics',         icon: '📈' },
   { label: 'Assessments',       href: '/admin/training-hub/assessments',       icon: '📋' },
