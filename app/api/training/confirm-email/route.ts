@@ -1,0 +1,112 @@
+/**
+ * GET /api/training/confirm-email?token=xxx
+ *
+ * 1. Verify the confirmation token
+ * 2. Read pending registration data
+ * 3. Call Apps Script to register (generates Registration ID + sends welcome email)
+ * 4. Store registration_id, city, country, email_confirmed in training_registrations_meta
+ * 5. Store password in training_passwords
+ * 6. Delete pending row
+ * 7. Redirect to /training/signin?confirmed=true
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { verifyConfirmationToken } from '@/src/lib/shared/emailConfirmation';
+import { getServerClient } from '@/src/lib/shared/supabase';
+import { registerStudent } from '@/src/lib/training/sheets';
+import bcrypt from 'bcryptjs';
+
+const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+
+export async function GET(req: NextRequest) {
+  const token = req.nextUrl.searchParams.get('token') ?? '';
+
+  if (!token) {
+    return NextResponse.redirect(`${LEARN_URL}/training/register?error=invalid-token`);
+  }
+
+  const { valid, email } = await verifyConfirmationToken(token, 'training');
+  if (!valid || !email) {
+    return NextResponse.redirect(`${LEARN_URL}/training/register?error=invalid-token`);
+  }
+
+  const sb = getServerClient();
+
+  // Read pending registration
+  const { data: pending } = await sb
+    .from('training_pending_registrations')
+    .select('*')
+    .eq('email', email)
+    .maybeSingle();
+
+  if (!pending) {
+    // Already confirmed or pending row expired — redirect to signin
+    return NextResponse.redirect(`${LEARN_URL}/training/signin?confirmed=true`);
+  }
+
+  // Call Apps Script to create the Google Sheets record and generate Registration ID
+  const result = await registerStudent(pending.name, pending.email, pending.course);
+
+  if (!result.success) {
+    const errorLower = (result.error ?? '').toLowerCase();
+    const isDuplicate =
+      result.duplicate === true ||
+      errorLower.includes('already') ||
+      errorLower.includes('duplicate') ||
+      errorLower.includes('exists');
+
+    if (isDuplicate) {
+      // Already in Sheets — look up existing regId
+      const { data: meta } = await sb
+        .from('training_registrations_meta')
+        .select('registration_id')
+        .eq('email', email)
+        .maybeSingle();
+
+      if (meta?.registration_id) {
+        // Mark confirmed and clean up
+        await sb.from('training_registrations_meta').update({
+          email_confirmed: true,
+          confirmed_at: new Date().toISOString(),
+          city: pending.city ?? null,
+          country: pending.country ?? null,
+        }).eq('email', email);
+
+        await sb.from('training_passwords').upsert({
+          registration_id: meta.registration_id,
+          password_hash: pending.password_hash,
+        }, { onConflict: 'registration_id' });
+
+        await sb.from('training_pending_registrations').delete().eq('email', email);
+        return NextResponse.redirect(`${LEARN_URL}/training/signin?confirmed=true`);
+      }
+    }
+    return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=registration-failed`);
+  }
+
+  const registrationId: string = (result.data as { registrationId?: string })?.registrationId ?? '';
+
+  if (registrationId) {
+    // Store in lookup table as confirmed
+    await sb.from('training_registrations_meta').upsert({
+      registration_id: registrationId,
+      email,
+      phone:           pending.phone ?? null,
+      city:            pending.city  ?? null,
+      country:         pending.country ?? null,
+      email_confirmed: true,
+      confirmed_at:    new Date().toISOString(),
+    }, { onConflict: 'registration_id' });
+
+    // Store password
+    await sb.from('training_passwords').upsert({
+      registration_id: registrationId,
+      password_hash:   pending.password_hash,
+    }, { onConflict: 'registration_id' });
+  }
+
+  // Clean up pending row
+  await sb.from('training_pending_registrations').delete().eq('email', email);
+
+  return NextResponse.redirect(`${LEARN_URL}/training/signin?confirmed=true`);
+}

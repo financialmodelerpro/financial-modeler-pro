@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training/training-session';
+import { useInactivityLogout } from '@/src/hooks/useInactivityLogout';
 import { COURSES } from '@/src/config/courses';
 import {
   type LiveLinksMap,
@@ -27,6 +28,12 @@ import {
 
 export default function TrainingDashboardPage() {
   const router = useRouter();
+
+  // Auto sign-out after 1 hour of inactivity
+  useInactivityLogout({
+    logoutUrl:   '/api/training/logout',
+    redirectUrl: '/training/signin?reason=inactivity',
+  });
 
   const [localSession, setLocalSession]           = useState<{ email: string; registrationId: string } | null>(null);
   const [loading, setLoading]                     = useState(true);

@@ -2,12 +2,15 @@ import type { AuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { serverClient } from '@/src/lib/shared/supabase';
 import { verifyPassword } from '@/src/lib/shared/password';
+import { isDeviceTrusted } from '@/src/lib/shared/deviceTrust';
+
+const DEVICE_COOKIE_NAME = 'fmp-trusted-device';
 
 export const authOptions: AuthOptions = {
-  session: { strategy: 'jwt' },
+  session: { strategy: 'jwt', maxAge: 60 * 60 }, // 1 hour
   pages: {
-    signIn: '/login',
-    error: '/login',
+    signIn: '/modeling/signin',
+    error:  '/modeling/signin',
   },
   providers: [
     CredentialsProvider({
@@ -16,12 +19,12 @@ export const authOptions: AuthOptions = {
         email:    { label: 'Email',    type: 'email'    },
         password: { label: 'Password', type: 'password' },
       },
-      async authorize(credentials) {
+      async authorize(credentials, req) {
         if (!credentials?.email || !credentials?.password) return null;
 
         const { data: user, error } = await serverClient
           .from('users')
-          .select('id, email, name, role, password_hash, subscription_plan, subscription_status')
+          .select('id, email, name, role, password_hash, subscription_plan, subscription_status, email_confirmed')
           .eq('email', credentials.email.toLowerCase().trim())
           .single();
 
@@ -30,6 +33,24 @@ export const authOptions: AuthOptions = {
 
         const valid = await verifyPassword(credentials.password, user.password_hash);
         if (!valid) return null;
+
+        // Block unconfirmed accounts
+        if (!user.email_confirmed) {
+          throw new Error('EmailNotConfirmed');
+        }
+
+        // Check device trust
+        const cookieHeader = (req as { headers?: { cookie?: string } }).headers?.cookie ?? '';
+        const deviceCookieMatch = cookieHeader.match(new RegExp(`${DEVICE_COOKIE_NAME}=([^;]+)`));
+        const deviceToken = deviceCookieMatch?.[1] ?? null;
+
+        const trusted = deviceToken
+          ? await isDeviceTrusted(deviceToken, user.id, 'modeling')
+          : false;
+
+        if (!trusted) {
+          throw new Error('DEVICE_VERIFICATION_REQUIRED');
+        }
 
         return {
           id:                  user.id,

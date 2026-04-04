@@ -6,6 +6,7 @@ import { useEffect } from 'react';
 import Link from 'next/link';
 import { PLATFORMS } from '@/src/config/platforms';
 import type { Platform } from '@/src/config/platforms';
+import { useInactivityLogout } from '@/src/hooks/useInactivityLogout';
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
 
@@ -105,6 +106,11 @@ function PlatformCard({ platform }: { platform: Platform }) {
 export default function ModelingDashboardPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+
+  useInactivityLogout({
+    onLogout: async () => { await signOut({ redirect: false }); },
+    redirectUrl: '/modeling/signin?reason=inactivity',
+  });
 
   useEffect(() => {
     if (status === 'unauthenticated') {

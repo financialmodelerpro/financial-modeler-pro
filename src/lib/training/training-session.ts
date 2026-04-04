@@ -6,7 +6,7 @@
  */
 
 const STORAGE_KEY = 'training_session';
-const SESSION_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
+const SESSION_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 export interface TrainingSession {
   email: string;
@@ -31,7 +31,7 @@ export function getTrainingSession(): Omit<TrainingSession, 'expiresAt'> | null 
   }
 }
 
-/** Stores a training session with a 24-hour expiry. */
+/** Stores a training session with a 1-hour expiry. */
 export function setTrainingSession(email: string, registrationId: string): void {
   if (typeof window === 'undefined') return;
   const session: TrainingSession = {

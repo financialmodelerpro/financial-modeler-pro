@@ -5,6 +5,7 @@ import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { PLATFORMS } from '@/src/config/platforms';
 import type { Platform } from '@/src/config/platforms';
+import { useInactivityLogout } from '@/src/hooks/useInactivityLogout';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -138,6 +139,11 @@ export default function AppHubPage() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [profileDropdown,  setProfileDropdown]  = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
+
+  useInactivityLogout({
+    onLogout: async () => { await signOut({ redirect: false }); },
+    redirectUrl: '/modeling/signin?reason=inactivity',
+  });
 
   // Restore sidebar state
   useEffect(() => {

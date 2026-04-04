@@ -2,16 +2,23 @@
  * POST /api/training/validate
  * Sign in with Registration ID OR Email + password (required).
  *
- * Body: { identifier: string; password: string; secondField?: string }
- *   identifier  — Registration ID (e.g. FMP-2026-XXXX) OR email address
- *   password    — required for all accounts
- *   secondField — only needed when the first lookup couldn't resolve the other credential
+ * Body: { identifier, password, secondField? }
+ *
+ * Returns:
+ *   { success: true, email, registrationId }           — fully authenticated
+ *   { requiresDeviceVerification: true, email, registrationId } — new device
+ *   { needsBoth: true, provide }                        — lookup needs both fields
+ *   { needsPasswordSetup: true }                        — no password set
+ *   { success: false, error }                           — auth failure
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { validateStudent } from '@/src/lib/training/sheets';
 import { getServerClient } from '@/src/lib/shared/supabase';
+import { isDeviceTrusted } from '@/src/lib/shared/deviceTrust';
 import bcrypt from 'bcryptjs';
+
+const SESSION_MAX_AGE = 60 * 60; // 1 hour
 
 export async function POST(req: NextRequest) {
   try {
@@ -19,12 +26,10 @@ export async function POST(req: NextRequest) {
       identifier?: string;
       password?: string;
       secondField?: string;
-      // Legacy fields kept for backwards-compat with any direct API callers
       email?: string;
       registrationId?: string;
     };
 
-    // ── Resolve identifier & secondField (with legacy fallback) ───────────────
     const rawIdentifier = (body.identifier ?? body.email ?? '').trim();
     const rawSecond     = (body.secondField ?? body.registrationId ?? '').trim();
     const password      = body.password ?? '';
@@ -47,7 +52,6 @@ export async function POST(req: NextRequest) {
       if (rawSecond) {
         regId = rawSecond.toUpperCase();
       } else {
-        // Look up Registration ID from Supabase lookup table
         const { data } = await sb
           .from('training_registrations_meta')
           .select('registration_id')
@@ -55,9 +59,7 @@ export async function POST(req: NextRequest) {
           .maybeSingle();
         if (!data?.registration_id) {
           return NextResponse.json({
-            success: false,
-            needsBoth: true,
-            provide: 'registrationId',
+            success: false, needsBoth: true, provide: 'registrationId',
             error: 'Please also provide your Registration ID.',
           }, { status: 200 });
         }
@@ -68,7 +70,6 @@ export async function POST(req: NextRequest) {
       if (rawSecond) {
         email = rawSecond.toLowerCase();
       } else {
-        // Look up email from Supabase lookup table
         const { data } = await sb
           .from('training_registrations_meta')
           .select('email')
@@ -76,9 +77,7 @@ export async function POST(req: NextRequest) {
           .maybeSingle();
         if (!data?.email) {
           return NextResponse.json({
-            success: false,
-            needsBoth: true,
-            provide: 'email',
+            success: false, needsBoth: true, provide: 'email',
             error: 'Please also provide your email address.',
           }, { status: 200 });
         }
@@ -86,7 +85,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // ── Validate against Apps Script (source of truth) ────────────────────────
+    // Validate against Apps Script
     const result = await validateStudent(email, regId);
     if (!result.success) {
       return NextResponse.json(
@@ -95,7 +94,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // ── Check if account is blocked ───────────────────────────────────────────
+    // Check blocked
     try {
       const { data: blockRecord } = await sb
         .from('training_admin_actions')
@@ -112,7 +111,7 @@ export async function POST(req: NextRequest) {
       }
     } catch { /* fail open */ }
 
-    // ── Password check (always required) ─────────────────────────────────────
+    // Password check
     try {
       const { data: pwRow } = await sb
         .from('training_passwords')
@@ -121,36 +120,40 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       if (!pwRow) {
-        // No password set — direct them to set one up
         return NextResponse.json({
-          success: false,
-          needsPasswordSetup: true,
+          success: false, needsPasswordSetup: true,
           error: 'No password set for this account.',
-          email,
-          registrationId: regId,
+          email, registrationId: regId,
         }, { status: 401 });
       }
 
       const match = await bcrypt.compare(password, pwRow.password_hash);
       if (!match) {
-        return NextResponse.json(
-          { success: false, error: 'Incorrect password.' },
-          { status: 401 },
-        );
+        return NextResponse.json({ success: false, error: 'Incorrect password.' }, { status: 401 });
       }
     } catch {
-      return NextResponse.json(
-        { success: false, error: 'Authentication error. Please try again.' },
-        { status: 500 },
-      );
+      return NextResponse.json({ success: false, error: 'Authentication error. Please try again.' }, { status: 500 });
     }
 
-    // ── Success — set session cookie ──────────────────────────────────────────
+    // Device trust check
+    const deviceCookie = req.cookies.get('fmp-trusted-device')?.value;
+    const trusted = await isDeviceTrusted(deviceCookie, regId, 'training');
+
+    if (!trusted) {
+      return NextResponse.json({
+        success: false,
+        requiresDeviceVerification: true,
+        email,
+        registrationId: regId,
+      });
+    }
+
+    // Fully authenticated — set session cookie
     const response = NextResponse.json({ success: true, email, registrationId: regId });
     response.cookies.set(
       'training_session',
       JSON.stringify({ email, registrationId: regId }),
-      { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 },
+      { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: SESSION_MAX_AGE },
     );
     return response;
 

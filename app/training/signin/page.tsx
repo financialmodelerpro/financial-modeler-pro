@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { setTrainingSession } from '@/src/lib/training/training-session';
 import { Navbar } from '@/src/components/layout/Navbar';
@@ -22,30 +22,40 @@ const labelStyle: React.CSSProperties = {
 
 type ResendStatus = 'idle' | 'loading' | 'sent' | 'error';
 
-export default function TrainingSignInPage() {
-  const router = useRouter();
+function TrainingSignInInner() {
+  const router       = useRouter();
+  const searchParams = useSearchParams();
+  const confirmed    = searchParams.get('confirmed') === 'true';
+  const reason       = searchParams.get('reason');
 
-  const [identifier,  setIdentifier]  = useState('');   // regId OR email
-  const [secondField, setSecondField] = useState('');   // shown only if lookup fails
+  const [identifier,  setIdentifier]  = useState('');
+  const [secondField, setSecondField] = useState('');
   const [password,    setPassword]    = useState('');
   const [loading,     setLoading]     = useState(false);
   const [errorMsg,    setErrorMsg]    = useState('');
 
-  // When Supabase lookup can't resolve from one field alone
-  const [needsBoth,  setNeedsBoth]  = useState(false);
+  const [needsBoth,   setNeedsBoth]   = useState(false);
   const [provideType, setProvideType] = useState<'email' | 'registrationId'>('email');
 
-  // When account has no password set
-  const [needsSetup, setNeedsSetup]   = useState(false);
-  const [setupEmail, setSetupEmail]   = useState('');
-  const [setupRegId, setSetupRegId]   = useState('');
+  const [needsSetup, setNeedsSetup] = useState(false);
+  const [setupEmail, setSetupEmail] = useState('');
+  const [setupRegId, setSetupRegId] = useState('');
 
-  // Forgot Registration ID
   const [showForgot,   setShowForgot]   = useState(false);
   const [forgotEmail,  setForgotEmail]  = useState('');
   const [resendStatus, setResendStatus] = useState<ResendStatus>('idle');
 
   const [showPw, setShowPw] = useState(false);
+
+  // Device verification
+  const [deviceStep,    setDeviceStep]    = useState<'credentials' | 'otp'>('credentials');
+  const [deviceEmail,   setDeviceEmail]   = useState('');
+  const [deviceRegId,   setDeviceRegId]   = useState('');
+  const [deviceOtp,     setDeviceOtp]     = useState('');
+  const [trustChecked,  setTrustChecked]  = useState(false);
+  const [sendingDevOtp, setSendingDevOtp] = useState(false);
+  const [verifyingDev,  setVerifyingDev]  = useState(false);
+  const [deviceError,   setDeviceError]   = useState('');
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -68,6 +78,7 @@ export default function TrainingSignInPage() {
         needsBoth?: boolean;
         provide?: 'email' | 'registrationId';
         needsPasswordSetup?: boolean;
+        requiresDeviceVerification?: boolean;
         email?: string;
         registrationId?: string;
       };
@@ -75,6 +86,15 @@ export default function TrainingSignInPage() {
       if (json.success && json.email && json.registrationId) {
         setTrainingSession(json.email, json.registrationId);
         router.push('/training/dashboard');
+        return;
+      }
+
+      if (json.requiresDeviceVerification && json.email && json.registrationId) {
+        setDeviceEmail(json.email);
+        setDeviceRegId(json.registrationId);
+        await sendDeviceOtp(json.email);
+        setDeviceStep('otp');
+        setLoading(false);
         return;
       }
 
@@ -102,6 +122,54 @@ export default function TrainingSignInPage() {
     }
   }
 
+  async function sendDeviceOtp(email: string) {
+    setSendingDevOtp(true);
+    setDeviceError('');
+    try {
+      await fetch('/api/training/device-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'send', email }),
+      });
+    } catch { /* non-fatal */ }
+    setSendingDevOtp(false);
+  }
+
+  async function handleDeviceVerify(e: React.FormEvent) {
+    e.preventDefault();
+    if (!deviceOtp.trim()) return;
+    setVerifyingDev(true);
+    setDeviceError('');
+    try {
+      const res = await fetch('/api/training/device-verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'check',
+          email: deviceEmail,
+          registrationId: deviceRegId,
+          code: deviceOtp.trim(),
+          trustDevice: trustChecked,
+        }),
+      });
+      const json = await res.json() as { success: boolean; error?: string };
+      if (!json.success) {
+        setDeviceError(json.error ?? 'Invalid code. Please try again.');
+        setVerifyingDev(false);
+        return;
+      }
+      // Device verified — set session and redirect
+      setTrainingSession(deviceEmail, deviceRegId);
+
+      // Also set the httpOnly session cookie via validate (with device now trusted)
+      // Re-call validate so server sets its cookie — device is now trusted
+      router.push('/training/dashboard');
+    } catch {
+      setDeviceError('Verification failed. Please try again.');
+    }
+    setVerifyingDev(false);
+  }
+
   async function handleResend(e: React.FormEvent) {
     e.preventDefault();
     setResendStatus('loading');
@@ -116,8 +184,96 @@ export default function TrainingSignInPage() {
     } catch { setResendStatus('error'); }
   }
 
-  const identifierIsEmail = identifier.includes('@');
-  const identifierLabel   = identifierIsEmail ? 'EMAIL ADDRESS' : (identifier.match(/^FMP-/i) ? 'REGISTRATION ID' : 'REGISTRATION ID OR EMAIL');
+  // ── Device verification step ──────────────────────────────────────────────
+  if (deviceStep === 'otp') {
+    return (
+      <>
+        <Navbar />
+        <div style={{ minHeight: 'calc(100vh - 64px)', background: '#F5F7FA', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', fontFamily: "'Inter', sans-serif" }}>
+          <div style={{ width: '100%', maxWidth: 440 }}>
+            <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', boxShadow: '0 4px 24px rgba(0,0,0,0.07)', padding: '36px 36px 32px' }}>
+              <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                <div style={{ fontSize: 36, marginBottom: 10 }}>🔒</div>
+                <h1 style={{ fontSize: 20, fontWeight: 800, color: NAVY, margin: 0, marginBottom: 6 }}>New Device Detected</h1>
+                <p style={{ fontSize: 13, color: '#6B7280', margin: 0, lineHeight: 1.5 }}>
+                  We sent a verification code to <strong>{deviceEmail}</strong>.<br />Enter it below to continue.
+                </p>
+              </div>
+
+              {deviceError && (
+                <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 13, color: '#DC2626' }}>
+                  ❌ {deviceError}
+                </div>
+              )}
+
+              <form onSubmit={handleDeviceVerify} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div>
+                  <label style={labelStyle}>VERIFICATION CODE</label>
+                  <input
+                    type="text"
+                    value={deviceOtp}
+                    onChange={e => setDeviceOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="123456"
+                    maxLength={6}
+                    autoFocus
+                    style={{ ...inputStyle, fontSize: 22, fontWeight: 700, textAlign: 'center', letterSpacing: '0.3em' }}
+                    onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
+                    onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }}
+                  />
+                  <div style={{ marginTop: 6, fontSize: 11.5, color: '#9CA3AF' }}>Code expires in 10 minutes</div>
+                </div>
+
+                {/* Trust device */}
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13, color: '#374151', fontWeight: 500 }}>
+                  <input
+                    type="checkbox"
+                    checked={trustChecked}
+                    onChange={e => setTrustChecked(e.target.checked)}
+                    style={{ width: 16, height: 16, cursor: 'pointer' }}
+                  />
+                  Trust this device for 30 days
+                </label>
+
+                <button
+                  type="submit"
+                  disabled={verifyingDev || deviceOtp.length < 6}
+                  style={{
+                    width: '100%', padding: '12px', fontSize: 14, fontWeight: 700,
+                    background: (verifyingDev || deviceOtp.length < 6) ? '#86EFAC' : GREEN,
+                    color: '#fff', border: 'none', borderRadius: 8,
+                    cursor: (verifyingDev || deviceOtp.length < 6) ? 'not-allowed' : 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                  }}
+                >
+                  {verifyingDev ? (<><span style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />Verifying…</>) : 'Verify & Sign In →'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => sendDeviceOtp(deviceEmail)}
+                  disabled={sendingDevOtp}
+                  style={{ background: 'none', border: 'none', fontSize: 13, color: GREEN, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', padding: 0, textAlign: 'center' }}
+                >
+                  {sendingDevOtp ? 'Sending…' : 'Resend code'}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => { setDeviceStep('credentials'); setDeviceOtp(''); setDeviceError(''); }}
+                  style={{ background: 'none', border: 'none', fontSize: 13, color: '#9CA3AF', cursor: 'pointer', padding: 0, textAlign: 'center' }}
+                >
+                  ← Back to sign in
+                </button>
+              </form>
+            </div>
+          </div>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      </>
+    );
+  }
+
+  const identifierLabel = identifier.includes('@') ? 'EMAIL ADDRESS' : (identifier.match(/^FMP-/i) ? 'REGISTRATION ID' : 'REGISTRATION ID OR EMAIL');
 
   return (
     <>
@@ -130,24 +286,26 @@ export default function TrainingSignInPage() {
       }}>
         <div style={{ width: '100%', maxWidth: 440 }}>
 
-          <div style={{
-            background: '#fff', borderRadius: 14,
-            border: '1px solid #E5E7EB',
-            boxShadow: '0 4px 24px rgba(0,0,0,0.07)',
-            padding: '36px 36px 32px',
-          }}>
+          <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', boxShadow: '0 4px 24px rgba(0,0,0,0.07)', padding: '36px 36px 32px' }}>
             {/* Header */}
-            <div style={{ textAlign: 'center', marginBottom: 28 }}>
+            <div style={{ textAlign: 'center', marginBottom: 24 }}>
               <div style={{ fontSize: 32, marginBottom: 8 }}>🎓</div>
-              <h1 style={{ fontSize: 22, fontWeight: 800, color: NAVY, margin: 0, marginBottom: 4 }}>
-                Sign In to Training Hub
-              </h1>
-              <p style={{ fontSize: 13, color: '#6B7280', margin: 0 }}>
-                Continue your certification journey
-              </p>
+              <h1 style={{ fontSize: 22, fontWeight: 800, color: NAVY, margin: 0, marginBottom: 4 }}>Sign In to Training Hub</h1>
+              <p style={{ fontSize: 13, color: '#6B7280', margin: 0 }}>Continue your certification journey</p>
             </div>
 
-            {/* No-password setup prompt */}
+            {/* Status banners */}
+            {confirmed && (
+              <div style={{ background: '#F0FFF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 13, color: '#15803D', fontWeight: 600 }}>
+                ✅ Email confirmed! Your Registration ID has been sent to your email. Sign in to access your dashboard.
+              </div>
+            )}
+            {reason === 'inactivity' && (
+              <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 13, color: '#92400E' }}>
+                ⏰ You were signed out after 1 hour of inactivity.
+              </div>
+            )}
+
             {needsSetup ? (
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: 36, marginBottom: 12 }}>🔐</div>
@@ -169,7 +327,6 @@ export default function TrainingSignInPage() {
               </div>
             ) : (
               <>
-                {/* Error */}
                 {errorMsg && (
                   <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 13, color: '#DC2626', lineHeight: 1.5 }}>
                     ❌ {errorMsg}
@@ -178,15 +335,10 @@ export default function TrainingSignInPage() {
 
                 <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
 
-                  {/* Identifier field */}
                   <div>
-                    <label style={labelStyle}>
-                      REGISTRATION ID OR EMAIL <span style={{ color: '#DC2626' }}>*</span>
-                    </label>
+                    <label style={labelStyle}>REGISTRATION ID OR EMAIL <span style={{ color: '#DC2626' }}>*</span></label>
                     <input
-                      type="text"
-                      required
-                      autoComplete="username"
+                      type="text" required autoComplete="username"
                       value={identifier}
                       onChange={e => { setIdentifier(e.target.value); setNeedsBoth(false); setErrorMsg(''); }}
                       placeholder="FMP-2026-XXXX or you@example.com"
@@ -199,7 +351,6 @@ export default function TrainingSignInPage() {
                     </div>
                   </div>
 
-                  {/* Second field — shown when Supabase lookup couldn't resolve */}
                   {needsBoth && (
                     <div>
                       <label style={labelStyle}>
@@ -208,8 +359,7 @@ export default function TrainingSignInPage() {
                       </label>
                       <input
                         type={provideType === 'email' ? 'email' : 'text'}
-                        required
-                        autoFocus
+                        required autoFocus
                         value={secondField}
                         onChange={e => setSecondField(e.target.value)}
                         placeholder={provideType === 'email' ? 'you@example.com' : 'FMP-2026-XXXX'}
@@ -218,21 +368,17 @@ export default function TrainingSignInPage() {
                         onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }}
                       />
                       <div style={{ marginTop: 5, fontSize: 11.5, color: '#6B7280' }}>
-                        We couldn&apos;t find your account with just {identifierLabel.toLowerCase()}. Please also provide your {provideType === 'email' ? 'email address' : 'Registration ID'}.
+                        We couldn&apos;t find your account with just {identifierLabel.toLowerCase()}. Please also provide your {provideType === 'email' ? 'email' : 'Registration ID'}.
                       </div>
                     </div>
                   )}
 
-                  {/* Password — always shown, always required */}
                   <div>
-                    <label style={labelStyle}>
-                      PASSWORD <span style={{ color: '#DC2626' }}>*</span>
-                    </label>
+                    <label style={labelStyle}>PASSWORD <span style={{ color: '#DC2626' }}>*</span></label>
                     <div style={{ position: 'relative' }}>
                       <input
                         type={showPw ? 'text' : 'password'}
-                        required
-                        autoComplete="current-password"
+                        required autoComplete="current-password"
                         value={password}
                         onChange={e => setPassword(e.target.value)}
                         placeholder="••••••••"
@@ -246,27 +392,20 @@ export default function TrainingSignInPage() {
                       </button>
                     </div>
                     <div style={{ marginTop: 6, display: 'flex', justifyContent: 'flex-end' }}>
-                      <Link href="/training/set-password" style={{ fontSize: 12, color: GREEN, fontWeight: 600, textDecoration: 'none' }}>
-                        Forgot password?
-                      </Link>
+                      <Link href="/training/set-password" style={{ fontSize: 12, color: GREEN, fontWeight: 600, textDecoration: 'none' }}>Forgot password?</Link>
                     </div>
                   </div>
 
-                  <button
-                    type="submit"
-                    disabled={loading}
+                  <button type="submit" disabled={loading}
                     style={{
                       width: '100%', padding: '12px', fontSize: 14, fontWeight: 700,
                       background: loading ? '#86EFAC' : GREEN,
                       color: '#fff', border: 'none', borderRadius: 8,
                       cursor: loading ? 'not-allowed' : 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                      marginTop: 4,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4,
                     }}
                   >
-                    {loading ? (
-                      <><span style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} /> Signing in…</>
-                    ) : 'Sign In →'}
+                    {loading ? (<><span style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />Signing in…</>) : 'Sign In →'}
                   </button>
                 </form>
 
@@ -278,7 +417,6 @@ export default function TrainingSignInPage() {
                   >
                     Forgot my Registration ID?
                   </button>
-
                   {showForgot && (
                     <div style={{ marginTop: 12, padding: '16px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8 }}>
                       {resendStatus === 'sent' ? (
@@ -311,7 +449,6 @@ export default function TrainingSignInPage() {
               </>
             )}
 
-            {/* Bottom links */}
             {!needsSetup && (
               <div style={{ marginTop: 22, textAlign: 'center', borderTop: '1px solid #F3F4F6', paddingTop: 18 }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>
@@ -332,9 +469,7 @@ export default function TrainingSignInPage() {
               <div style={{ flex: 1, height: 1, background: '#F3F4F6' }} />
             </div>
             <div style={{ marginTop: 14, textAlign: 'center' }}>
-              <span style={{ fontSize: 12, color: '#9CA3AF' }}>
-                <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/modeling/signin`} style={{ color: '#9CA3AF', textDecoration: 'underline' }}>Modeling Hub Sign In →</a>
-              </span>
+              <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/modeling/signin`} style={{ fontSize: 12, color: '#9CA3AF', textDecoration: 'underline' }}>Modeling Hub Sign In →</a>
             </div>
           </div>
 
@@ -345,5 +480,13 @@ export default function TrainingSignInPage() {
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     </>
+  );
+}
+
+export default function TrainingSignInPage() {
+  return (
+    <Suspense>
+      <TrainingSignInInner />
+    </Suspense>
   );
 }
