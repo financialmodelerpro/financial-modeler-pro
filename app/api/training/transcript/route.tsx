@@ -3,8 +3,8 @@ import React from 'react';
 import {
   renderToBuffer, Document, Page, View, Text, Link, StyleSheet, Image,
 } from '@react-pdf/renderer';
-import { getStudentProgress, getCertificatesByEmail } from '@/src/lib/sheets';
-import { getServerClient } from '@/src/lib/supabase';
+import { getStudentProgress, getCertificatesByEmail } from '@/src/lib/training/sheets';
+import { getServerClient } from '@/src/lib/shared/supabase';
 import { COURSES } from '@/src/config/courses';
 
 // ── Brand colours ─────────────────────────────────────────────────────────────

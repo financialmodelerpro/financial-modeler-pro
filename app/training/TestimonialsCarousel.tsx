@@ -1,6 +1,6 @@
 'use client';
 
-import type { Testimonial } from '@/src/lib/cms';
+import type { Testimonial } from '@/src/lib/shared/cms';
 
 interface Props {
   testimonials: Testimonial[];

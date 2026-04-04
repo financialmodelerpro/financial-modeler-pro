@@ -9,7 +9,7 @@ import type {
   AttemptStatus,
   SubmitAssessmentResult,
   QuestionResult,
-} from '@/src/lib/sheets';
+} from '@/src/lib/training/sheets';
 import { COURSES } from '@/src/config/courses';
 
 // Resolve a human-readable session name from a tabKey (e.g. "3SFM_S1" → "Session 1: Introduction…")

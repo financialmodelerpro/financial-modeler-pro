@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { serverClient } from '@/src/lib/supabase';
-import { hashPassword } from '@/src/lib/password';
+import { serverClient } from '@/src/lib/shared/supabase';
+import { hashPassword } from '@/src/lib/shared/password';
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null);

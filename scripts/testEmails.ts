@@ -16,15 +16,15 @@
 // Load env vars (run from project root)
 import 'dotenv/config';
 
-import { sendEmail, FROM } from '../lib/email/sendEmail';
-import { otpVerificationTemplate }          from '../lib/email/templates/otpVerification';
-import { registrationConfirmationTemplate } from '../lib/email/templates/registrationConfirmation';
-import { resendRegistrationIdTemplate }     from '../lib/email/templates/resendRegistrationId';
-import { quizResultTemplate }               from '../lib/email/templates/quizResult';
-import { certificateIssuedTemplate }        from '../lib/email/templates/certificateIssued';
-import { lockedOutTemplate }                from '../lib/email/templates/lockedOut';
-import { passwordResetTemplate }            from '../lib/email/templates/passwordReset';
-import { accountConfirmationTemplate }      from '../lib/email/templates/accountConfirmation';
+import { sendEmail, FROM } from '../src/lib/email/sendEmail';
+import { otpVerificationTemplate }          from '../src/lib/email/templates/otpVerification';
+import { registrationConfirmationTemplate } from '../src/lib/email/templates/registrationConfirmation';
+import { resendRegistrationIdTemplate }     from '../src/lib/email/templates/resendRegistrationId';
+import { quizResultTemplate }               from '../src/lib/email/templates/quizResult';
+import { certificateIssuedTemplate }        from '../src/lib/email/templates/certificateIssued';
+import { lockedOutTemplate }                from '../src/lib/email/templates/lockedOut';
+import { passwordResetTemplate }            from '../src/lib/email/templates/passwordReset';
+import { accountConfirmationTemplate }      from '../src/lib/email/templates/accountConfirmation';
 
 // ── Change this to your test inbox ───────────────────────────────────────────
 const TEST_TO = process.env.TEST_EMAIL ?? 'your-test@email.com';

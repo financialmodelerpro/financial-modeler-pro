@@ -7,7 +7,7 @@
  *   2. training_settings.apps_script_url row in Supabase
  */
 
-import { getServerClient } from '@/src/lib/supabase';
+import { getServerClient } from '@/src/lib/shared/supabase';
 
 async function getAppsScriptUrl(): Promise<string> {
   if (process.env.APPS_SCRIPT_URL) return process.env.APPS_SCRIPT_URL;

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/auth';
-import { serverClient } from '@/src/lib/supabase';
+import { authOptions } from '@/src/lib/shared/auth';
+import { serverClient } from '@/src/lib/shared/supabase';
 
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);

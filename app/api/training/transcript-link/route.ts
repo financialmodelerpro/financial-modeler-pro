@@ -19,7 +19,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/src/lib/supabase';
+import { getServerClient } from '@/src/lib/shared/supabase';
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
 

@@ -4,8 +4,8 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/auth';
-import { getServerClient } from '@/src/lib/supabase';
+import { authOptions } from '@/src/lib/shared/auth';
+import { getServerClient } from '@/src/lib/shared/supabase';
 
 export async function DELETE(req: NextRequest) {
   const session = await getServerSession(authOptions);

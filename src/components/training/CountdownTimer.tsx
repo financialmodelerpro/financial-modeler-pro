@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { getTimerStatus, formatCountdown } from '@/src/lib/videoTimer';
+import { getTimerStatus, formatCountdown } from '@/src/lib/training/videoTimer';
 
 interface Props {
   regId: string;

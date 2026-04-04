@@ -21,7 +21,7 @@ import ProjectModal from './modals/ProjectModal';
 import VersionModal from './modals/VersionModal';
 import RbacModal from './modals/RbacModal';
 import ExportModal from './modals/ExportModal';
-import UpgradePrompt from '@/src/components/UpgradePrompt';
+import UpgradePrompt from '@/src/components/shared/UpgradePrompt';
 import { useSubscription } from '@/src/hooks/useSubscription';
 
 // ── Storage helpers ──────────────────────────────────────────────────────────

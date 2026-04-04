@@ -15,10 +15,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/src/lib/supabase';
-import { validateStudent } from '@/src/lib/sheets';
-import { sendEmail, FROM } from '@/lib/email/sendEmail';
-import { otpVerificationTemplate } from '@/lib/email/templates/otpVerification';
+import { getServerClient } from '@/src/lib/shared/supabase';
+import { validateStudent } from '@/src/lib/training/sheets';
+import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
+import { otpVerificationTemplate } from '@/src/lib/email/templates/otpVerification';
 import crypto from 'crypto';
 
 function generateOTP(): string {

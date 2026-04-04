@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { getCourseWithLessons } from '@/src/lib/cms';
+import { getCourseWithLessons } from '@/src/lib/shared/cms';
 import { VideoPlayer } from '@/src/components/landing/VideoPlayer';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 

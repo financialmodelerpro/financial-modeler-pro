@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/src/lib/supabase';
+import { getServerClient } from '@/src/lib/shared/supabase';
 
 /**
  * GET /api/t/[token]/pdf

@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
-import { getServerClient } from '@/src/lib/supabase';
-import { getCertifierCredential } from '@/src/lib/certifier';
+import { getServerClient } from '@/src/lib/shared/supabase';
+import { getCertifierCredential } from '@/src/lib/training/certifier';
 
 export const dynamic = 'force-dynamic';
 

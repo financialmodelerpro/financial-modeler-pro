@@ -5,10 +5,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { cache } from 'react';
-import { getCertificateByRegId } from '@/src/lib/sheets';
-import type { SheetCertificate } from '@/src/lib/sheets';
+import { getCertificateByRegId } from '@/src/lib/training/sheets';
+import type { SheetCertificate } from '@/src/lib/training/sheets';
 import { COURSES } from '@/src/config/courses';
-import { getServerClient } from '@/src/lib/supabase';
+import { getServerClient } from '@/src/lib/shared/supabase';
 
 // ── Layout types (mirrored from API route) ────────────────────────────────────
 

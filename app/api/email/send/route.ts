@@ -12,15 +12,15 @@
  *   data      — template-specific payload (see each template file for fields)
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { sendEmail, FROM } from '@/lib/email/sendEmail';
-import { otpVerificationTemplate }          from '@/lib/email/templates/otpVerification';
-import { registrationConfirmationTemplate } from '@/lib/email/templates/registrationConfirmation';
-import { resendRegistrationIdTemplate }     from '@/lib/email/templates/resendRegistrationId';
-import { quizResultTemplate }               from '@/lib/email/templates/quizResult';
-import { certificateIssuedTemplate }        from '@/lib/email/templates/certificateIssued';
-import { lockedOutTemplate }                from '@/lib/email/templates/lockedOut';
-import { passwordResetTemplate }            from '@/lib/email/templates/passwordReset';
-import { accountConfirmationTemplate }      from '@/lib/email/templates/accountConfirmation';
+import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
+import { otpVerificationTemplate }          from '@/src/lib/email/templates/otpVerification';
+import { registrationConfirmationTemplate } from '@/src/lib/email/templates/registrationConfirmation';
+import { resendRegistrationIdTemplate }     from '@/src/lib/email/templates/resendRegistrationId';
+import { quizResultTemplate }               from '@/src/lib/email/templates/quizResult';
+import { certificateIssuedTemplate }        from '@/src/lib/email/templates/certificateIssued';
+import { lockedOutTemplate }                from '@/src/lib/email/templates/lockedOut';
+import { passwordResetTemplate }            from '@/src/lib/email/templates/passwordReset';
+import { accountConfirmationTemplate }      from '@/src/lib/email/templates/accountConfirmation';
 
 // Training templates send from training@; system templates from no-reply@
 const NOREPLY_TEMPLATES = new Set(['passwordReset', 'accountConfirmation']);

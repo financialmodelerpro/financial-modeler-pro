@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { submitAssessment } from '@/src/lib/sheets';
+import { submitAssessment } from '@/src/lib/training/sheets';
 
 export async function POST(req: NextRequest) {
   try {

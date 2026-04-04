@@ -1,7 +1,7 @@
 import type { AuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
-import { serverClient } from '@/src/lib/supabase';
-import { verifyPassword } from '@/src/lib/password';
+import { serverClient } from '@/src/lib/shared/supabase';
+import { verifyPassword } from '@/src/lib/shared/password';
 
 export const authOptions: AuthOptions = {
   session: { strategy: 'jwt' },

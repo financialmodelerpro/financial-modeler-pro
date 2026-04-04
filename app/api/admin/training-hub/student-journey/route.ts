@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/auth';
-import { getStudentProgress } from '@/src/lib/sheets';
-import { getServerClient } from '@/src/lib/supabase';
+import { authOptions } from '@/src/lib/shared/auth';
+import { getStudentProgress } from '@/src/lib/training/sheets';
+import { getServerClient } from '@/src/lib/shared/supabase';
 
 export const revalidate = 0;
 

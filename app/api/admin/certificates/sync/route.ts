@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/auth';
-import { getAllCertificates, type CertRow } from '@/src/lib/sheets';
-import { getServerClient } from '@/src/lib/supabase';
+import { authOptions } from '@/src/lib/shared/auth';
+import { getAllCertificates, type CertRow } from '@/src/lib/training/sheets';
+import { getServerClient } from '@/src/lib/shared/supabase';
 
 export const revalidate = 0;
 

@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { PLATFORMS } from '@/src/config/platforms';
-import { getCmsContent, cms, getModules, getTestimonialsForPage } from '@/src/lib/cms';
-import type { Module } from '@/src/lib/cms';
+import { getCmsContent, cms, getModules, getTestimonialsForPage } from '@/src/lib/shared/cms';
+import type { Module } from '@/src/lib/shared/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 
 export const revalidate = 60;

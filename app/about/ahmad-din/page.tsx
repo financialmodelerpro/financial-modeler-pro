@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getFounderProfile, cms } from '@/src/lib/cms';
+import { getFounderProfile, cms } from '@/src/lib/shared/cms';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 
 export const revalidate = 60;

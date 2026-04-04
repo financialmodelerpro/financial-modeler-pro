@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/auth';
-import { serverClient } from '@/src/lib/supabase';
+import { authOptions } from '@/src/lib/shared/auth';
+import { serverClient } from '@/src/lib/shared/supabase';
 import type { BrandingConfig } from '@/src/types/branding.types';
 
 /**

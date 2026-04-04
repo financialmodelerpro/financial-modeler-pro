@@ -9,7 +9,7 @@
  * Import in API routes only. Never import in client components.
  */
 
-import { getServerClient } from '@/src/lib/supabase';
+import { getServerClient } from '@/src/lib/shared/supabase';
 import type { FeatureKey, PermissionCache } from '@/src/types/subscription.types';
 
 /**

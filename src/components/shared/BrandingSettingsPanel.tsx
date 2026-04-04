@@ -1,10 +1,10 @@
 'use client';
 
 import React from 'react';
-import { BrandingConfig } from '../types/branding.types';
-import { DEFAULT_BRANDING, PLATFORM_REGISTRY, USER_SUBSCRIPTION } from '../core/branding';
-import ColorPicker from './ColorPicker';
-import OfficeColorPicker from './OfficeColorPicker';
+import { BrandingConfig } from '@/src/types/branding.types';
+import { DEFAULT_BRANDING, PLATFORM_REGISTRY, USER_SUBSCRIPTION } from '@/src/core/branding';
+import ColorPicker from '@/src/components/ui/ColorPicker';
+import OfficeColorPicker from '@/src/components/ui/OfficeColorPicker';
 
 // ── Colour preset themes ───────────────────────────────────────────────────────
 const COLOR_THEMES = [

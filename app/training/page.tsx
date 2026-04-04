@@ -2,9 +2,9 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { COURSES } from '@/src/config/courses';
-import { getCmsContent, cms, getTestimonialsForPage } from '@/src/lib/cms';
+import { getCmsContent, cms, getTestimonialsForPage } from '@/src/lib/shared/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { getServerClient } from '@/src/lib/supabase';
+import { getServerClient } from '@/src/lib/shared/supabase';
 import { CurriculumCard, type CourseDescription } from './CurriculumCard';
 import { TestimonialsCarousel } from './TestimonialsCarousel';
 

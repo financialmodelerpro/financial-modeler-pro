@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCertificatesByEmail, getCertificateByRegId } from '@/src/lib/sheets';
+import { getCertificatesByEmail, getCertificateByRegId } from '@/src/lib/training/sheets';
 
 // Public endpoint — no auth required
 export async function GET(req: NextRequest) {

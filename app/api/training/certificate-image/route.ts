@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCertifierCredential } from '@/src/lib/certifier';
+import { getCertifierCredential } from '@/src/lib/training/certifier';
 
 export async function GET(req: NextRequest) {
   const uuid = req.nextUrl.searchParams.get('uuid');

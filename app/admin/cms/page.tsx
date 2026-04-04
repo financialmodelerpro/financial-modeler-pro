@@ -1,4 +1,4 @@
-import { getServerClient } from '@/src/lib/supabase';
+import { getServerClient } from '@/src/lib/shared/supabase';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import Link from 'next/link';
 import { getServerSession } from 'next-auth';

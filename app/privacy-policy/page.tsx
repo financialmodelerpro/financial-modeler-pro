@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { getCmsContent, cms } from '@/src/lib/cms';
+import { getCmsContent, cms } from '@/src/lib/shared/cms';
 
 export const revalidate = 3600;
 

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
-import { getPublishedArticles, getCmsContent, cms } from '@/src/lib/cms';
+import { getPublishedArticles, getCmsContent, cms } from '@/src/lib/shared/cms';
 import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/ArticleCard';
 import { CategoryFilter } from '@/src/components/landing/CategoryFilter';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';

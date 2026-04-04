@@ -4,7 +4,7 @@ import { notFound } from 'next/navigation';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { PLATFORMS, getPlatform } from '@/src/config/platforms';
 import type { PlatformModule } from '@/src/config/platforms';
-import { getModules } from '@/src/lib/cms';
+import { getModules } from '@/src/lib/shared/cms';
 
 export const revalidate = 60;
 

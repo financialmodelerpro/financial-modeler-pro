@@ -3,9 +3,9 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getTrainingSession, clearTrainingSession } from '@/src/lib/training-session';
+import { getTrainingSession, clearTrainingSession } from '@/src/lib/training/training-session';
 import { COURSES } from '@/src/config/courses';
-import { startTimer, getTimerStatus, type TimerStatus } from '@/src/lib/videoTimer';
+import { startTimer, getTimerStatus, type TimerStatus } from '@/src/lib/training/videoTimer';
 import { CountdownTimer } from '@/src/components/training/CountdownTimer';
 
 interface LiveSessionLink { tabKey: string; sessionName: string; youtubeUrl: string; formUrl: string; videoDuration: number; isFinal: boolean; hasVideo: boolean; }

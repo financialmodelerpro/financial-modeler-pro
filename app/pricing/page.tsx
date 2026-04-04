@@ -5,8 +5,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
-import { getCmsContent, cms } from '@/src/lib/cms';
-import { getServerClient } from '@/src/lib/supabase';
+import { getCmsContent, cms } from '@/src/lib/shared/cms';
+import { getServerClient } from '@/src/lib/shared/supabase';
 import { PricingAccordion } from '@/src/components/pricing/PricingAccordion';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 

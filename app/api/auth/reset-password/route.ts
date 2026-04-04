@@ -4,8 +4,8 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
-import { getServerClient } from '@/src/lib/supabase';
-import { hashPassword } from '@/src/lib/password';
+import { getServerClient } from '@/src/lib/shared/supabase';
+import { hashPassword } from '@/src/lib/shared/password';
 
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({})) as { token?: string; newPassword?: string };

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/src/lib/supabase';
+import { getServerClient } from '@/src/lib/shared/supabase';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/auth';
+import { authOptions } from '@/src/lib/shared/auth';
 
 interface QuestionOption {
   text: string;

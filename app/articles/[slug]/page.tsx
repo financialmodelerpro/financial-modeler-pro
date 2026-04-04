@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { getArticleBySlug, estimateReadTime } from '@/src/lib/cms';
+import { getArticleBySlug, estimateReadTime } from '@/src/lib/shared/cms';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 
 export const revalidate = 60;

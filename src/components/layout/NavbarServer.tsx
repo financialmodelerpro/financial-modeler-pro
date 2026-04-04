@@ -4,7 +4,7 @@
  * and logo URL from CMS. All public pages should use this instead
  * of importing <Navbar /> directly.
  */
-import { getSitePages, getCmsContent, cms } from '@/src/lib/cms';
+import { getSitePages, getCmsContent, cms } from '@/src/lib/shared/cms';
 import { Navbar } from './Navbar';
 
 interface Props {

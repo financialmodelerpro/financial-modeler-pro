@@ -5,9 +5,9 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/auth';
-import { getServerClient } from '@/src/lib/supabase';
-import { verifyPassword } from '@/src/lib/password';
+import { authOptions } from '@/src/lib/shared/auth';
+import { getServerClient } from '@/src/lib/shared/supabase';
+import { verifyPassword } from '@/src/lib/shared/password';
 
 async function getSession() {
   const session = await getServerSession(authOptions);

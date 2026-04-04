@@ -8,14 +8,14 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/auth';
+import { authOptions } from '@/src/lib/shared/auth';
 import {
   loadPermissionsMatrix,
   setPlanPermission,
   setUserPermissionOverride,
-} from '@/src/lib/permissions';
-import { getServerClient } from '@/src/lib/supabase';
-import { writeAuditLog } from '@/src/lib/audit';
+} from '@/src/lib/shared/permissions';
+import { getServerClient } from '@/src/lib/shared/supabase';
+import { writeAuditLog } from '@/src/lib/shared/audit';
 
 // ── Admin guard helper ────────────────────────────────────────────────────────
 async function requireAdmin() {

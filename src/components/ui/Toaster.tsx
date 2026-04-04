@@ -4,7 +4,7 @@
  * Global toast notification system.
  *
  * Usage:
- *   import { useToast } from '@/src/components/Toaster';
+ *   import { useToast } from '@/src/components/ui/Toaster';
  *   const { showToast } = useToast();
  *   showToast('Saved!');
  *   showToast('Something went wrong', 'error');

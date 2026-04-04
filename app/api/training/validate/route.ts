@@ -9,8 +9,8 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { validateStudent } from '@/src/lib/sheets';
-import { getServerClient } from '@/src/lib/supabase';
+import { validateStudent } from '@/src/lib/training/sheets';
+import { getServerClient } from '@/src/lib/shared/supabase';
 import bcrypt from 'bcryptjs';
 
 export async function POST(req: NextRequest) {

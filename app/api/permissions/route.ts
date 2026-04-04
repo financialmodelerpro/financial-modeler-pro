@@ -9,8 +9,8 @@
 
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/auth';
-import { loadUserPermissions } from '@/src/lib/permissions';
+import { authOptions } from '@/src/lib/shared/auth';
+import { loadUserPermissions } from '@/src/lib/shared/permissions';
 
 export async function GET() {
   const session = await getServerSession(authOptions);

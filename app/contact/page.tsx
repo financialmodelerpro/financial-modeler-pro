@@ -2,7 +2,7 @@
  * /contact — Public contact page
  */
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
-import { getCmsContent, cms } from '@/src/lib/cms';
+import { getCmsContent, cms } from '@/src/lib/shared/cms';
 import { ContactForm } from './ContactForm';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 

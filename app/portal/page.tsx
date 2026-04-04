@@ -14,7 +14,7 @@ import {
 } from '@/src/core/branding';
 import { useBrandingStore } from '@/src/core/core-state';
 import { useWhiteLabel } from '@/src/hooks/useWhiteLabel';
-import BrandingSettingsPanel from '@/src/components/BrandingSettingsPanel';
+import BrandingSettingsPanel from '@/src/components/shared/BrandingSettingsPanel';
 
 // ── UserDropdown ─────────────────────────────────────────────────────────────
 

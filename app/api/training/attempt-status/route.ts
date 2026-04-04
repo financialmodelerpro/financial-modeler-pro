@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAttemptStatus } from '@/src/lib/sheets';
+import { getAttemptStatus } from '@/src/lib/training/sheets';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);

@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getModules, type Module } from '@/src/lib/cms';
+import { getModules, type Module } from '@/src/lib/shared/cms';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 
 const FALLBACK_MODULES: Module[] = [

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
-import { getTrainingSession } from '@/src/lib/training-session';
+import { getTrainingSession } from '@/src/lib/training/training-session';
 
 const COURSE_OPTIONS = [
   { value: '3-Statement Financial Modeling (3SFM)', label: '3-Statement Financial Modeling (3SFM)' },

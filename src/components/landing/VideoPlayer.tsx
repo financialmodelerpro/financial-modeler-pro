@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import type { Lesson } from '@/src/lib/cms';
-import { extractYouTubeId } from '@/src/lib/cms';
+import type { Lesson } from '@/src/lib/shared/cms';
+import { extractYouTubeId } from '@/src/lib/shared/cms';
 
 interface Props {
   lessons: Lesson[];

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { getStudentProgress } from '@/src/lib/sheets';
+import { getStudentProgress } from '@/src/lib/training/sheets';
 
 // ── 2-minute server-side cache ────────────────────────────────────────────────
 const _cache = new Map<string, { data: unknown; at: number }>();

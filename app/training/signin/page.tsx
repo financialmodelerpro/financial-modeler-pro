@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { setTrainingSession } from '@/src/lib/training-session';
+import { setTrainingSession } from '@/src/lib/training/training-session';
 import { Navbar } from '@/src/components/layout/Navbar';
 
 const GREEN = '#2EAA4A';

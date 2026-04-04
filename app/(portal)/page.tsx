@@ -12,9 +12,9 @@ import {
   getFounderProfile, getSitePages,
   getTestimonialsForPage,
   getSectionStyles,
-} from '@/src/lib/cms';
+} from '@/src/lib/shared/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { getServerClient } from '@/src/lib/supabase';
+import { getServerClient } from '@/src/lib/shared/supabase';
 import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/ArticleCard';
 import { InlineEdit } from '@/src/components/landing/InlineEdit';
 import { AdminEditBar } from '@/src/components/landing/AdminEditBar';

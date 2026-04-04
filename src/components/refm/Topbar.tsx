@@ -8,7 +8,7 @@ import type { PermissionMap } from '@/src/types/settings.types';
 import { ROLE_META } from '@/src/core/core-state';
 import { useWhiteLabel } from '@/src/hooks/useWhiteLabel';
 import { useBrandingStore } from '@/src/core/core-state';
-import OfficeColorPicker from '@/src/components/OfficeColorPicker';
+import OfficeColorPicker from '@/src/components/ui/OfficeColorPicker';
 import type { StorageProject } from './RealEstatePlatform';
 
 interface TopbarProps {

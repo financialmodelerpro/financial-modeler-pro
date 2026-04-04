@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/auth';
-import { listAllStudents, listAllCertificates } from '@/src/lib/sheets';
+import { authOptions } from '@/src/lib/shared/auth';
+import { listAllStudents, listAllCertificates } from '@/src/lib/training/sheets';
 
 export const revalidate = 0;
 
