@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { resendRegistrationId } from '@/src/lib/sheets';
+import { getServerClient } from '@/src/lib/supabase';
+import { sendEmail, FROM } from '@/lib/email/sendEmail';
+import { resendRegistrationIdTemplate } from '@/lib/email/templates/resendRegistrationId';
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as { email?: string };
-    const { email } = body;
+    const email = body.email?.trim().toLowerCase();
 
     if (!email) {
       return NextResponse.json(
@@ -13,22 +15,23 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await resendRegistrationId(email.trim().toLowerCase());
+    const sb = getServerClient();
 
-    if (!result.success) {
-      // Detect "not found": Apps Script may return notFound:true, or mention it in the error message
-      const errorLower = (result.error ?? '').toLowerCase();
-      const isNotFound =
-        result.notFound === true ||
-        errorLower.includes('not found') ||
-        errorLower.includes('no account') ||
-        errorLower.includes('not registered') ||
-        errorLower.includes('does not exist');
-      return NextResponse.json(
-        { success: false, notFound: isNotFound },
-        { status: 400 },
-      );
+    // Look up registration ID from Supabase
+    const { data } = await sb
+      .from('training_registrations_meta')
+      .select('registration_id')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (!data?.registration_id) {
+      return NextResponse.json({ success: false, notFound: true }, { status: 400 });
     }
+
+    const { subject, html, text } = resendRegistrationIdTemplate({
+      registrationId: data.registration_id,
+    });
+    await sendEmail({ to: email, subject, html, text, from: FROM.training });
 
     return NextResponse.json({ success: true });
   } catch {

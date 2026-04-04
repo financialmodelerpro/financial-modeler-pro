@@ -6,6 +6,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes, createHash } from 'crypto';
 import { getServerClient } from '@/src/lib/supabase';
+import { sendEmail, FROM } from '@/lib/email/sendEmail';
+import { passwordResetTemplate } from '@/lib/email/templates/passwordReset';
 
 const TOKEN_TTL_MINUTES = 60;
 
@@ -39,12 +41,15 @@ export async function POST(req: NextRequest) {
     const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/reset-password?token=${plainToken}`;
 
     if (process.env.NODE_ENV !== 'production') {
-      // In development: log the reset link since no email provider is configured
       console.log('[forgot-password] Reset URL:', resetUrl);
     }
 
-    // TODO: plug in a transactional email provider (e.g. Resend, SendGrid):
-    // await sendEmail({ to: email, subject: 'Reset your password', resetUrl });
+    try {
+      const { subject, html, text } = passwordResetTemplate({ resetUrl, expiresMinutes: TOKEN_TTL_MINUTES });
+      await sendEmail({ to: email, subject, html, text, from: FROM.noreply });
+    } catch (err) {
+      console.error('[forgot-password] Email send failed:', err);
+    }
   }
 
   return NextResponse.json({ ok: true });

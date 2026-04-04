@@ -1,9 +1,8 @@
 /**
  * POST /api/training/send-verification
- * Generates a 6-digit OTP, stores it in Supabase, then emails it via Apps Script.
+ * Generates a 6-digit OTP, stores it in Supabase, then emails it via Resend.
  *
- * Run this migration in Supabase before use:
- * ─────────────────────────────────────────
+ * Supabase table required:
  * CREATE TABLE IF NOT EXISTS training_email_otps (
  *   id         uuid    DEFAULT gen_random_uuid() PRIMARY KEY,
  *   email      text    NOT NULL,
@@ -13,26 +12,13 @@
  *   created_at timestamptz DEFAULT now()
  * );
  * CREATE INDEX IF NOT EXISTS idx_email_otps_email ON training_email_otps(email);
- * ─────────────────────────────────────────
- *
- * Apps Script — add this handler to Code.gs:
- * ─────────────────────────────────────────
- * function sendVerificationCode(email, code) {
- *   var subject = 'Your FMP Email Verification Code';
- *   var body = 'Your verification code is: ' + code + '\n\nThis code expires in 10 minutes.';
- *   GmailApp.sendEmail(email, subject, body);
- *   return { success: true };
- * }
- * // In doPost, add case 'sendVerificationCode':
- * //   return ContentService.createTextOutput(
- * //     JSON.stringify(sendVerificationCode(e.parameter.email, e.parameter.code))
- * //   ).setMimeType(ContentService.MimeType.JSON);
- * ─────────────────────────────────────────
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/lib/supabase';
 import { validateStudent } from '@/src/lib/sheets';
+import { sendEmail, FROM } from '@/lib/email/sendEmail';
+import { otpVerificationTemplate } from '@/lib/email/templates/otpVerification';
 import crypto from 'crypto';
 
 function generateOTP(): string {
@@ -83,21 +69,10 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Failed to generate code' }, { status: 500 });
     }
 
-    // Send via Apps Script
+    // Send OTP via Resend
     try {
-      const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL;
-      let scriptUrl = APPS_SCRIPT_URL;
-      if (!scriptUrl) {
-        const { data } = await sb.from('training_settings').select('value').eq('key', 'apps_script_url').single();
-        scriptUrl = data?.value ?? '';
-      }
-      if (scriptUrl) {
-        const url = new URL(scriptUrl);
-        url.searchParams.set('action', 'sendVerificationCode');
-        url.searchParams.set('email', email);
-        url.searchParams.set('code', code);
-        await fetch(url.toString(), { cache: 'no-store' });
-      }
+      const { subject, html, text } = otpVerificationTemplate({ code, expiresMinutes: 10 });
+      await sendEmail({ to: email, subject, html, text, from: FROM.training });
     } catch {
       // Email sending failed — code still generated; UI will show error
     }
