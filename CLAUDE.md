@@ -176,7 +176,30 @@ When migrating logic from it:
 
 ---
 
-git push origin main
+---
+
+## Auto-Scoping Rules — Read ONLY What's Relevant
+
+Before reading any file, identify the task domain and constrain reads to that folder. Do NOT read the full codebase.
+
+| Task domain | Read ONLY these paths |
+|-------------|----------------------|
+| Training dashboard UI | `app/training/dashboard/page.tsx`, `src/components/training/dashboard/` |
+| Training assessment/quiz | `app/training/assessment/`, `src/components/training/assessment/`, `app/api/training/` |
+| Training auth (login/register) | `app/training/login/`, `app/training/register/`, `app/training/forgot/`, `app/api/training/` |
+| Certificate / transcript | `app/training/certificate/`, `app/training/transcript/`, `src/components/training/dashboard/CertificateImageCard.tsx`, `src/lib/training/certifier.ts` |
+| Admin panel | `app/admin/`, `src/components/admin/`, `app/api/admin/` |
+| Email templates / sending | `src/lib/email/` |
+| Branding / white-label | `src/core/branding.ts`, `src/types/branding.types.ts`, `src/components/shared/BrandingSettingsPanel.tsx` |
+| Financial modeling (Module 1) | `src/lib/modeling/real-estate/`, `app/refm/` |
+| Shared utilities | `src/lib/shared/`, `src/core/` |
+| Auth (portal login) | `app/login/`, `app/api/auth/`, `src/lib/shared/auth.ts` |
+
+**Never** read unrelated page files or component trees when working on a scoped task.
+When a task spans two domains, read only those two folders — nothing else.
+
+---
+
 ## Build Notes (Windows / OneDrive path)
 - The project path is deep (OneDrive) — webpack is used instead of Turbopack to avoid MAX_PATH issues
 - Build script: `npm run build` uses `--webpack` flag (see package.json)
