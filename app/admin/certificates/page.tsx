@@ -83,6 +83,13 @@ export default function AdminCertificatesPage() {
     '3sfm-cert': false, 'bvm-cert': false, '3sfm-badge': false, 'bvm-badge': false,
   });
   const [uploading, setUploading]       = useState<string | null>(null);
+
+  // ── Generation settings state ──
+  const [autoEnabled,    setAutoEnabled]    = useState(false);
+  const [togglingAuto,   setTogglingAuto]   = useState(false);
+  const [generating,     setGenerating]     = useState(false);
+  const [lastGenerated,  setLastGenerated]  = useState<string | null>(null);
+
   const fileRefs = {
     '3sfm-cert':  useRef<HTMLInputElement>(null),
     'bvm-cert':   useRef<HTMLInputElement>(null),
@@ -100,19 +107,66 @@ export default function AdminCertificatesPage() {
   const fetchCerts = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/certificates/sync');
-      if (res.ok) {
-        const json = await res.json() as { certs: CertRecord[]; lastSynced: string | null };
+      const [certsRes, settingsRes] = await Promise.all([
+        fetch('/api/admin/certificates/sync'),
+        fetch('/api/admin/certificates/settings'),
+      ]);
+      if (certsRes.ok) {
+        const json = await certsRes.json() as { certs: CertRecord[]; lastSynced: string | null };
         setCerts(json.certs ?? []);
         setLastSynced(json.lastSynced ?? null);
       } else {
         showToast('Failed to load certificates');
+      }
+      if (settingsRes.ok) {
+        const sj = await settingsRes.json() as { autoEnabled: boolean; lastGenerated: string | null };
+        setAutoEnabled(sj.autoEnabled);
+        setLastGenerated(sj.lastGenerated ?? null);
       }
     } catch {
       showToast('Network error');
     }
     setLoading(false);
   }, []);
+
+  async function handleToggleAuto() {
+    setTogglingAuto(true);
+    const next = !autoEnabled;
+    try {
+      const res = await fetch('/api/admin/certificates/settings', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ autoEnabled: next }),
+      });
+      if (res.ok) {
+        setAutoEnabled(next);
+        showToast(next ? 'Automatic generation enabled' : 'Automatic generation disabled');
+      } else {
+        showToast('Failed to save setting');
+      }
+    } catch {
+      showToast('Network error');
+    }
+    setTogglingAuto(false);
+  }
+
+  async function handleGenerateNow() {
+    setGenerating(true);
+    try {
+      const res  = await fetch('/api/admin/certificates/generate', { method: 'POST' });
+      const json = await res.json() as { ok?: boolean; processed?: number; errors?: unknown[]; generatedAt?: string; error?: string };
+      if (json.ok) {
+        showToast(`Generated: ${json.processed ?? 0} certificate(s)`);
+        setLastGenerated(json.generatedAt ?? new Date().toISOString());
+        await fetchCerts();
+      } else {
+        showToast(`Generation failed: ${json.error ?? 'Unknown error'}`);
+      }
+    } catch {
+      showToast('Network error');
+    }
+    setGenerating(false);
+  }
 
   useEffect(() => { fetchCerts(); }, [fetchCerts]);
 
@@ -236,6 +290,78 @@ export default function AdminCertificatesPage() {
           </div>
         </div>
 
+        {/* ── Certificate Generation Settings ── */}
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8F0FB', padding: '24px', marginBottom: 28 }}>
+          <div style={{ marginBottom: 20 }}>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0D2E5A' }}>⚙️ Certificate Generation</h2>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: '#9CA3AF' }}>
+              Control when certificates are generated. Use &quot;Generate Now&quot; to process pending certificates immediately.
+            </p>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 16 }}>
+            {/* Toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#1F2937', marginBottom: 2 }}>Automatic Generation</div>
+                <div style={{ fontSize: 12, color: '#9CA3AF' }}>
+                  Runs daily at midnight (Hobby plan) ·{' '}
+                  <span style={{ color: '#C9A84C', fontWeight: 600 }}>Upgrade to Pro for every 15 min</span>
+                </div>
+              </div>
+              {/* Toggle switch */}
+              <button
+                onClick={handleToggleAuto}
+                disabled={togglingAuto}
+                aria-label="Toggle automatic generation"
+                style={{
+                  position: 'relative', display: 'inline-flex', alignItems: 'center',
+                  width: 48, height: 26, borderRadius: 13,
+                  background: autoEnabled ? '#2EAA4A' : '#D1D5DB',
+                  border: 'none', cursor: togglingAuto ? 'not-allowed' : 'pointer',
+                  padding: 0, transition: 'background 0.2s', flexShrink: 0,
+                }}
+              >
+                <span style={{
+                  position: 'absolute',
+                  left: autoEnabled ? 24 : 2,
+                  width: 22, height: 22, borderRadius: '50%',
+                  background: '#fff', boxShadow: '0 1px 4px rgba(0,0,0,0.2)',
+                  transition: 'left 0.2s',
+                }} />
+              </button>
+              <span style={{ fontSize: 13, fontWeight: 600, color: autoEnabled ? '#2EAA4A' : '#9CA3AF' }}>
+                {autoEnabled ? 'ON' : 'OFF'}
+              </span>
+            </div>
+
+            {/* Generate Now + last generated */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              {lastGenerated && (
+                <div style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'right' }}>
+                  Last generated<br />
+                  <span style={{ color: '#4B5563', fontWeight: 600 }}>{formatDate(lastGenerated)}</span>
+                </div>
+              )}
+              <button
+                onClick={handleGenerateNow}
+                disabled={generating}
+                style={{
+                  padding: '10px 20px', borderRadius: 8, border: 'none',
+                  cursor: generating ? 'not-allowed' : 'pointer',
+                  background: generating ? '#9CA3AF' : '#1B4F8A',
+                  color: '#fff', fontSize: 13, fontWeight: 700,
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}
+              >
+                {generating
+                  ? <><span style={{ width: 14, height: 14, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />Generating…</>
+                  : '⚡ Generate Now'}
+              </button>
+            </div>
+          </div>
+        </div>
+
         {/* ── Header ── */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28, flexWrap: 'wrap', gap: 16 }}>
           <div>
@@ -313,6 +439,7 @@ export default function AdminCertificatesPage() {
           )}
         </div>
       </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
