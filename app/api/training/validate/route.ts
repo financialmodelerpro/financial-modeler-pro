@@ -65,8 +65,8 @@ export async function POST(req: NextRequest) {
           .select('email_confirmed')
           .eq('email', email)
           .maybeSingle();
-        if (metaConfirmed?.email_confirmed === true) {
-          // Clean up stale pending row and let them through
+        if (metaConfirmed?.email_confirmed !== false) {
+          // email_confirmed is true or null (pre-027 student) — treat as confirmed, clean up stale row
           await sb.from('training_pending_registrations').delete().eq('email', email);
         } else {
           return NextResponse.json({
