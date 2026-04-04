@@ -16,45 +16,45 @@ export default withAuth(
     const isLearn = host.includes('learn.');
     const isApp   = host.includes('app.');
 
-    // Admin protection — main domain only
-    if (pathname.startsWith('/admin')) {
-      if (!token) return NextResponse.redirect(new URL('/login', req.url));
-      if (token.role !== 'admin') return NextResponse.redirect(new URL('/portal', req.url));
-      return NextResponse.next();
-    }
-
-    // learn. — only allow /training/* and /api/*
+    // ── FIRST: handle learn. subdomain ──────────────────────────────────────
     if (isLearn) {
       if (
         pathname.startsWith('/training') ||
-        pathname.startsWith('/api') ||
-        pathname === '/'
+        pathname.startsWith('/api/training') ||
+        pathname.startsWith('/api/_next') ||
+        pathname.startsWith('/_next')
       ) return NextResponse.next();
 
       return NextResponse.redirect(new URL('/training', req.url));
     }
 
-    // app. — only allow /refm/* /modeling/* /settings/*
+    // ── SECOND: handle app. subdomain ───────────────────────────────────────
     if (isApp) {
       if (
         pathname.startsWith('/refm')     ||
         pathname.startsWith('/modeling') ||
         pathname.startsWith('/settings') ||
         pathname.startsWith('/api')      ||
-        pathname === '/'
+        pathname.startsWith('/_next')
       ) return NextResponse.next();
 
       return NextResponse.redirect(new URL('/modeling', req.url));
     }
 
-    // Main domain — redirect /training to learn.
+    // ── Admin protection (main domain only) ─────────────────────────────────
+    if (pathname.startsWith('/admin')) {
+      if (!token) return NextResponse.redirect(new URL('/login', req.url));
+      if (token.role !== 'admin') return NextResponse.redirect(new URL('/portal', req.url));
+      return NextResponse.next();
+    }
+
+    // ── Main domain redirects ────────────────────────────────────────────────
     if (pathname.startsWith('/training')) {
       return NextResponse.redirect(
         new URL(pathname, process.env.NEXT_PUBLIC_LEARN_URL),
       );
     }
 
-    // Main domain — redirect /refm and /modeling to app.
     if (pathname.startsWith('/refm') || pathname.startsWith('/modeling')) {
       return NextResponse.redirect(
         new URL(pathname, process.env.NEXT_PUBLIC_APP_URL),
@@ -77,11 +77,17 @@ export default withAuth(
 
 export const config = {
   matcher: [
+    '/',
     '/admin/:path*',
     '/training/:path*',
     '/refm/:path*',
     '/modeling/:path*',
     '/settings/:path*',
+    '/about/:path*',
+    '/articles/:path*',
+    '/pricing',
+    '/contact',
+    '/login',
     '/((?!_next/static|_next/image|favicon.ico).*)',
   ],
 };
