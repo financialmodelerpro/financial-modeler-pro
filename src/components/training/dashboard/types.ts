@@ -50,6 +50,12 @@ export interface Certificate {
   course: string;
   issuedAt: string;
   certifierUrl: string;
+  // Internal system fields (populated after migration to internal cert system)
+  certPdfUrl?:     string;
+  badgeUrl?:       string;
+  transcriptUrl?:  string;
+  verificationUrl?: string;
+  grade?:          string;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

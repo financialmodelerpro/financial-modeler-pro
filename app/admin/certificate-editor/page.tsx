@@ -21,6 +21,34 @@ interface CertLayout {
 
 type BlockKey = keyof CertLayout;
 
+// PDF layout field (for pdf-lib certificate generation)
+interface PdfField {
+  x: number;
+  y: number;
+  fontSize: number;
+  color: string;
+  fontWeight?: string;
+}
+
+interface PdfQrField {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+interface PdfLayout {
+  studentName?:       PdfField;
+  courseName?:        PdfField;
+  courseSubheading?:  PdfField;
+  courseDescription?: PdfField;
+  issueDate?:         PdfField;
+  certificateId?:     PdfField;
+  qrCode?:            PdfQrField;
+}
+
+type PdfFieldKey = keyof PdfLayout;
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const CANVAS_W = 680;
@@ -32,6 +60,26 @@ const DEFAULT_LAYOUT: CertLayout = {
   heading:      { left: 40,  top: 185, width: 600, height: 60  },
   studentBlock: { left: 40,  top: 280, width: 600, height: 380 },
   signature:    { left: 80,  top: 750, width: 520, height: 70  },
+};
+
+const DEFAULT_PDF_LAYOUT: PdfLayout = {
+  studentName:       { x: 120, y: 280, fontSize: 28, color: '#0D2E5A', fontWeight: 'bold' },
+  courseName:        { x: 120, y: 340, fontSize: 22, color: '#C9A84C' },
+  courseSubheading:  { x: 120, y: 375, fontSize: 14, color: '#374151' },
+  courseDescription: { x: 120, y: 400, fontSize: 12, color: '#6B7280' },
+  issueDate:         { x: 120, y: 460, fontSize: 13, color: '#374151' },
+  certificateId:     { x: 120, y: 490, fontSize: 11, color: '#9CA3AF' },
+  qrCode:            { x: 650, y: 420, width: 120, height: 120 },
+};
+
+const PDF_FIELD_LABELS: Record<PdfFieldKey, string> = {
+  studentName:       'Student Name',
+  courseName:        'Course Name',
+  courseSubheading:  'Course Subheading',
+  courseDescription: 'Course Description',
+  issueDate:         'Issue Date',
+  certificateId:     'Certificate ID',
+  qrCode:            'QR Code',
 };
 
 const BLOCK_LABELS: Record<BlockKey, string> = {
@@ -169,24 +217,33 @@ function SignatureContent() {
 
 export default function CertificateEditorPage() {
   const [layout, setLayout]         = useState<CertLayout>(DEFAULT_LAYOUT);
+  const [pdfLayout, setPdfLayout]   = useState<PdfLayout>(DEFAULT_PDF_LAYOUT);
   const [selected, setSelected]     = useState<BlockKey | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [saving, setSaving]         = useState(false);
   const [saveMsg, setSaveMsg]       = useState('');
   const [loading, setLoading]       = useState(true);
+  const [templateBg, setTemplateBg] = useState<string | null>(null);
+  const [course, setCourse]         = useState<'3sfm' | 'bvm'>('3sfm');
 
   const dragRef = useRef<DragState | null>(null);
 
-  // ── Load layout from server ──
+  // ── Load layouts + template background ──
   useEffect(() => {
-    fetch('/api/admin/certificate-layout')
-      .then(r => r.json())
-      .then(d => {
-        if (d.layout) setLayout(d.layout as CertLayout);
-      })
-      .catch(() => {/* use default */})
-      .finally(() => setLoading(false));
+    Promise.all([
+      fetch('/api/admin/certificate-layout').then(r => r.json()).catch(() => ({})),
+    ]).then(([d]) => {
+      if ((d as Record<string, unknown>).layout) setLayout((d as { layout: CertLayout }).layout);
+      if ((d as Record<string, unknown>).pdfLayout) setPdfLayout((d as { pdfLayout: PdfLayout }).pdfLayout);
+    }).finally(() => setLoading(false));
   }, []);
+
+  // ── Load template background image when course changes ──
+  useEffect(() => {
+    // Try to load template preview from storage (if it exists as an image conversion)
+    // Templates are PDFs — we show a placeholder background instead
+    setTemplateBg(null);
+  }, [course]);
 
   // ── Mouse move / up handlers ──
   const handleMouseMove = useCallback((e: MouseEvent) => {
@@ -267,7 +324,7 @@ export default function CertificateEditorPage() {
       const r = await fetch('/api/admin/certificate-layout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ layout }),
+        body: JSON.stringify({ layout, pdfLayout }),
       });
       const d = await r.json() as { ok?: boolean; error?: string };
       if (d.ok) {
@@ -281,6 +338,14 @@ export default function CertificateEditorPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  // ── Update PDF field ──
+  function handlePdfFieldChange(key: PdfFieldKey, field: string, value: string | number) {
+    setPdfLayout(prev => {
+      const existing = prev[key] ?? (key === 'qrCode' ? { x: 0, y: 0, width: 120, height: 120 } : { x: 0, y: 0, fontSize: 14, color: '#000000' });
+      return { ...prev, [key]: { ...existing, [field]: value } };
+    });
   }
 
   // ── Reset ──
@@ -462,57 +527,107 @@ export default function CertificateEditorPage() {
         <div style={{ display: 'flex', flex: 1, gap: 24, padding: 24, overflow: 'auto', minHeight: 0 }}>
 
           {/* ── Canvas area ── */}
-          <div
-            style={{ flex: 1, display: 'flex', justifyContent: 'flex-start', alignItems: 'flex-start' }}
-            onClick={() => setSelected(null)}
-          >
-            {/* Outer container sized to the scaled canvas */}
-            <div style={{
-              width:    CANVAS_W * SCALE,
-              height:   CANVAS_H * SCALE,
-              flexShrink: 0,
-              overflow: 'hidden',
-              boxShadow: '0 8px 40px rgba(0,0,0,0.15)',
-              borderRadius: 4,
-            }}>
-              {/* The actual certificate canvas, scaled down */}
-              <div
-                style={{
-                  width:           CANVAS_W,
-                  height:          CANVAS_H,
-                  transform:       `scale(${SCALE})`,
-                  transformOrigin: 'top left',
-                  background:      '#fff',
-                  position:        'relative',
-                  fontFamily:      "'Inter', sans-serif",
-                  cursor:          'default',
-                }}
-              >
-                {/* Gold top stripe — fixed, not draggable */}
-                <div style={{
-                  position: 'absolute', top: 0, left: 0, right: 0, height: 6, zIndex: 1,
-                  background: 'linear-gradient(90deg, #C9A84C 0%, #E8C96E 50%, #C9A84C 100%)',
-                }} />
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Course selector */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 12, fontWeight: 700, color: '#6B7280' }}>Course:</span>
+              {(['3sfm', 'bvm'] as const).map(c => (
+                <button key={c} onClick={() => setCourse(c)}
+                  style={{ padding: '5px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', background: course === c ? '#1B4F8A' : '#E5E7EB', color: course === c ? '#fff' : '#374151' }}>
+                  {c.toUpperCase()}
+                </button>
+              ))}
+              <span style={{ fontSize: 11, color: '#9CA3AF', marginLeft: 8 }}>
+                Template: upload a PDF at{' '}
+                <a href="/admin/certificates" style={{ color: '#1B4F8A' }}>/admin/certificates</a>
+              </span>
+            </div>
 
-                {/* Gold bottom stripe — fixed */}
-                <div style={{
-                  position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, zIndex: 1,
-                  background: 'linear-gradient(90deg, #C9A84C 0%, #E8C96E 50%, #C9A84C 100%)',
-                }} />
+            <div
+              style={{ flex: 1, display: 'flex', justifyContent: 'flex-start', alignItems: 'flex-start' }}
+              onClick={() => setSelected(null)}
+            >
+              {/* Outer container sized to the scaled canvas */}
+              <div style={{
+                width:    CANVAS_W * SCALE,
+                height:   CANVAS_H * SCALE,
+                flexShrink: 0,
+                overflow: 'hidden',
+                boxShadow: '0 8px 40px rgba(0,0,0,0.15)',
+                borderRadius: 4,
+              }}>
+                {/* The actual certificate canvas, scaled down */}
+                <div
+                  style={{
+                    width:           CANVAS_W,
+                    height:          CANVAS_H,
+                    transform:       `scale(${SCALE})`,
+                    transformOrigin: 'top left',
+                    background:      templateBg ? `url(${templateBg}) center/cover` : '#fff',
+                    position:        'relative',
+                    fontFamily:      "'Inter', sans-serif",
+                    cursor:          'default',
+                  }}
+                >
+                  {/* Template background placeholder (shown when no template uploaded) */}
+                  {!templateBg && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 0 }}>
+                      <div style={{ fontSize: 13, color: '#D1D5DB', textAlign: 'center' }}>
+                        <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
+                        <div>Upload a PDF template to see it here</div>
+                        <div style={{ fontSize: 11, marginTop: 4 }}>({course.toUpperCase()} template)</div>
+                      </div>
+                    </div>
+                  )}
 
-                {/* Draggable blocks */}
-                {BLOCKS.map(k => renderBlock(k))}
+                  {/* Gold top stripe — fixed, not draggable */}
+                  <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 6, zIndex: 1, background: 'linear-gradient(90deg, #C9A84C 0%, #E8C96E 50%, #C9A84C 100%)' }} />
+
+                  {/* Gold bottom stripe — fixed */}
+                  <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: 4, zIndex: 1, background: 'linear-gradient(90deg, #C9A84C 0%, #E8C96E 50%, #C9A84C 100%)' }} />
+
+                  {/* PDF layout field markers */}
+                  {(Object.keys(pdfLayout) as PdfFieldKey[]).map(key => {
+                    const field = pdfLayout[key];
+                    if (!field) return null;
+                    const isQr = key === 'qrCode';
+                    const qr = field as PdfQrField;
+                    const tf = field as PdfField;
+                    return (
+                      <div key={key} style={{
+                        position: 'absolute',
+                        left:   isQr ? qr.x : tf.x,
+                        top:    isQr ? qr.y : tf.y,
+                        width:  isQr ? qr.width : 200,
+                        height: isQr ? qr.height : (tf.fontSize + 4),
+                        border: '1.5px dashed #10B981',
+                        background: 'rgba(16,185,129,0.06)',
+                        zIndex: 8,
+                        pointerEvents: 'none',
+                        overflow: 'hidden',
+                      }}>
+                        <div style={{ position: 'absolute', top: 1, left: 2, fontSize: 7, fontWeight: 800, color: '#10B981', letterSpacing: '0.06em', background: 'rgba(255,255,255,0.8)', padding: '0 3px', borderRadius: 2, lineHeight: 1.6, whiteSpace: 'nowrap' }}>
+                          {PDF_FIELD_LABELS[key]}
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Draggable HTML blocks */}
+                  {BLOCKS.map(k => renderBlock(k))}
+                </div>
               </div>
             </div>
           </div>
 
-          {/* ── Properties panel ── */}
+          {/* ── Right panels ── */}
+          <div style={{ width: 240, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* Properties panel */}
           <div style={{
-            width: 220, flexShrink: 0,
             background: '#fff', borderRadius: 10,
             border: '1px solid #E5E7EB',
             padding: 16,
-            alignSelf: 'flex-start',
             boxShadow: '0 2px 12px rgba(0,0,0,0.05)',
           }}>
             {selected ? (
@@ -574,6 +689,64 @@ export default function CertificateEditorPage() {
               </div>
             )}
           </div>
+
+          {/* PDF Layout panel */}
+          <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #10B981', padding: 16, boxShadow: '0 2px 12px rgba(0,0,0,0.05)', maxHeight: 420, overflowY: 'auto' }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: '#10B981', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 12 }}>
+              PDF Field Positions
+            </div>
+            <div style={{ fontSize: 10, color: '#9CA3AF', marginBottom: 10, lineHeight: 1.5 }}>
+              These coordinates are used when generating certificate PDFs. X/Y are from top-left.
+            </div>
+            {(Object.keys(pdfLayout) as PdfFieldKey[]).map(key => {
+              const field = pdfLayout[key];
+              if (!field) return null;
+              const isQr = key === 'qrCode';
+              const qr   = field as PdfQrField;
+              const tf   = field as PdfField;
+              return (
+                <div key={key} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #F3F4F6' }}>
+                  <div style={{ fontSize: 10, fontWeight: 800, color: '#374151', marginBottom: 6 }}>
+                    {PDF_FIELD_LABELS[key]}
+                  </div>
+                  {isQr ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                      {(['x', 'y', 'width', 'height'] as const).map(f => (
+                        <div key={f}>
+                          <div style={{ fontSize: 9, color: '#9CA3AF', marginBottom: 2 }}>{f.toUpperCase()}</div>
+                          <input type="number" value={qr[f]} onChange={e => handlePdfFieldChange(key, f, parseInt(e.target.value, 10) || 0)}
+                            style={{ width: '100%', boxSizing: 'border-box', padding: '4px 6px', borderRadius: 4, border: '1px solid #D1D5DB', fontSize: 11, background: '#F0FFF4', outline: 'none' }} />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
+                        {(['x', 'y', 'fontSize'] as const).map(f => (
+                          <div key={f}>
+                            <div style={{ fontSize: 9, color: '#9CA3AF', marginBottom: 2 }}>{f === 'fontSize' ? 'SIZE' : f.toUpperCase()}</div>
+                            <input type="number" value={tf[f]} onChange={e => handlePdfFieldChange(key, f, parseInt(e.target.value, 10) || 0)}
+                              style={{ width: '100%', boxSizing: 'border-box', padding: '4px 6px', borderRadius: 4, border: '1px solid #D1D5DB', fontSize: 11, background: '#F0FFF4', outline: 'none' }} />
+                          </div>
+                        ))}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 9, color: '#9CA3AF', marginBottom: 2 }}>COLOR</div>
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <input type="color" value={tf.color} onChange={e => handlePdfFieldChange(key, 'color', e.target.value)}
+                            style={{ width: 32, height: 24, padding: 0, border: '1px solid #D1D5DB', borderRadius: 3, cursor: 'pointer' }} />
+                          <input type="text" value={tf.color} onChange={e => handlePdfFieldChange(key, 'color', e.target.value)}
+                            style={{ flex: 1, padding: '4px 6px', borderRadius: 4, border: '1px solid #D1D5DB', fontSize: 11, background: '#F0FFF4', outline: 'none', fontFamily: 'monospace' }} />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          </div>{/* end right panels */}
         </div>
       </main>
     </div>

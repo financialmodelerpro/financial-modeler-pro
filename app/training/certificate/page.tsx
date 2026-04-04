@@ -103,7 +103,7 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   }
 
   const title       = `${cert.studentName} — ${courseLabel(cert.course)} Certificate | Financial Modeler Pro`;
-  const description = `${cert.studentName} earned the ${courseLabel(cert.course)} certificate from Financial Modeler Pro on ${formatDateFull(cert.issuedAt)}. Verified by Certifier.io.`;
+  const description = `${cert.studentName} earned the ${courseLabel(cert.course)} certificate from Financial Modeler Pro on ${formatDateFull(cert.issuedAt)}. Verified by Financial Modeler Pro.`;
 
   return {
     title,
@@ -143,7 +143,11 @@ export default async function CertificatePage({ searchParams }: Props) {
   }
 
   const layout      = await fetchLayout();
-  const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(cert.certifierUrl)}`;
+  const learnUrl   = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+  const verifyUrl  = cert.certifierUrl.startsWith('http')
+    ? cert.certifierUrl
+    : `${learnUrl}/verify/${cert.certificateId}`;
+  const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(verifyUrl)}`;
 
   return (
     <div style={{
@@ -310,11 +314,11 @@ export default async function CertificatePage({ searchParams }: Props) {
               ✓ Verified
             </span>
             <span style={{ fontSize: 13, color: '#166534' }}>
-              Independently verified by <strong>Certifier.io</strong>
+              Issued and verified by <strong>Financial Modeler Pro</strong>
             </span>
           </div>
           <a
-            href={cert.certifierUrl}
+            href={verifyUrl}
             target="_blank"
             rel="noopener noreferrer"
             style={{ fontSize: 13, color: '#15803D', fontWeight: 700, textDecoration: 'none' }}
@@ -326,7 +330,7 @@ export default async function CertificatePage({ searchParams }: Props) {
         {/* ── Action buttons ────────────────────────────────────────────── */}
         <div style={{ marginTop: 20, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
           <a
-            href={cert.certifierUrl}
+            href={verifyUrl}
             target="_blank"
             rel="noopener noreferrer"
             style={{
@@ -336,19 +340,7 @@ export default async function CertificatePage({ searchParams }: Props) {
               boxShadow: '0 2px 12px rgba(46,170,74,0.3)',
             }}
           >
-            View on Certifier.io →
-          </a>
-          <a
-            href={cert.certifierUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 7,
-              padding: '11px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-              background: '#1B4F8A', color: '#fff', textDecoration: 'none',
-            }}
-          >
-            Download Certificate
+            Verify Certificate →
           </a>
           <a
             href={linkedInUrl}

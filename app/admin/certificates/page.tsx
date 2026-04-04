@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
@@ -8,31 +8,42 @@ import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface CertRecord {
-  certifier_uuid: string;
-  registration_id: string;
-  full_name: string;
-  email: string;
-  course: string;
-  completion_date: string | null;
-  final_exam_score: string | null;
-  cert_status: string;
-  certificate_url: string | null;
-  issued_date: string | null;
+  certificate_id?:   string | null;
+  certifier_uuid?:   string | null;
+  registration_id:   string;
+  full_name:         string;
+  email:             string;
+  course:            string;
+  completion_date:   string | null;
+  final_exam_score:  string | null;
+  cert_status:       string;
+  certificate_url?:  string | null;
+  cert_pdf_url?:     string | null;
+  badge_url?:        string | null;
+  grade?:            string | null;
+  issued_date?:      string | null;
+  issued_at?:        string | null;
 }
 
-// ── Mock data for testing ─────────────────────────────────────────────────────
+interface TemplateStatus {
+  '3sfm-cert':  boolean;
+  'bvm-cert':   boolean;
+  '3sfm-badge': boolean;
+  'bvm-badge':  boolean;
+}
 
-const MOCK_CERT: CertRecord = {
-  certifier_uuid:   'mock-cert-uuid-dev-001',
-  registration_id:  'FMP-2024-001',
-  full_name:        'Ahmad Al-Rashidi',
-  email:            'ahmad@example.com',
-  course:           '3-Statement Financial Model',
-  completion_date:  '2024-03-10',
-  final_exam_score: '89',
-  cert_status:      'Issued',
-  certificate_url:  null,
-  issued_date:      '2024-03-15',
+const TEMPLATE_LABELS: Record<keyof TemplateStatus, string> = {
+  '3sfm-cert':  '3SFM Certificate Template (PDF)',
+  'bvm-cert':   'BVM Certificate Template (PDF)',
+  '3sfm-badge': '3SFM Badge (PNG)',
+  'bvm-badge':  'BVM Badge (PNG)',
+};
+
+const TEMPLATE_ACCEPT: Record<keyof TemplateStatus, string> = {
+  '3sfm-cert':  '.pdf',
+  'bvm-cert':   '.pdf',
+  '3sfm-badge': '.png',
+  'bvm-badge':  '.png',
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -51,10 +62,7 @@ function StatusBadge({ status }: { status: string }) {
   };
   const style = map[status] ?? { bg: '#F3F4F6', color: '#374151' };
   return (
-    <span style={{
-      display: 'inline-block', padding: '2px 10px', borderRadius: 20, fontSize: 11,
-      fontWeight: 700, background: style.bg, color: style.color,
-    }}>
+    <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: style.bg, color: style.color }}>
       {status}
     </span>
   );
@@ -66,11 +74,21 @@ export default function AdminCertificatesPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
 
-  const [certs, setCerts]             = useState<CertRecord[]>([]);
-  const [lastSynced, setLastSynced]   = useState<string | null>(null);
-  const [loading, setLoading]         = useState(true);
-  const [syncing, setSyncing]         = useState(false);
-  const [toast, setToast]             = useState('');
+  const [certs, setCerts]               = useState<CertRecord[]>([]);
+  const [lastSynced, setLastSynced]     = useState<string | null>(null);
+  const [loading, setLoading]           = useState(true);
+  const [syncing, setSyncing]           = useState(false);
+  const [toast, setToast]               = useState('');
+  const [templateStatus, setTemplateStatus] = useState<TemplateStatus>({
+    '3sfm-cert': false, 'bvm-cert': false, '3sfm-badge': false, 'bvm-badge': false,
+  });
+  const [uploading, setUploading]       = useState<string | null>(null);
+  const fileRefs = {
+    '3sfm-cert':  useRef<HTMLInputElement>(null),
+    'bvm-cert':   useRef<HTMLInputElement>(null),
+    '3sfm-badge': useRef<HTMLInputElement>(null),
+    'bvm-badge':  useRef<HTMLInputElement>(null),
+  };
 
   useEffect(() => {
     if (status === 'unauthenticated') { router.replace('/login'); return; }
@@ -106,7 +124,7 @@ export default function AdminCertificatesPage() {
   async function handleSync() {
     setSyncing(true);
     try {
-      const res = await fetch('/api/admin/certificates/sync', { method: 'POST' });
+      const res  = await fetch('/api/admin/certificates/sync', { method: 'POST' });
       const json = await res.json() as { ok?: boolean; synced?: number; skipped?: number; error?: string };
       if (json.ok) {
         showToast(`Sync complete: ${json.synced} synced, ${json.skipped} skipped`);
@@ -120,12 +138,41 @@ export default function AdminCertificatesPage() {
     setSyncing(false);
   }
 
-  function copyLink(uuid: string) {
-    const url = `${process.env.NEXT_PUBLIC_MAIN_URL || 'https://financialmodelerpro.com'}/verify/${uuid}`;
-    navigator.clipboard.writeText(url).then(() => showToast('Verification link copied!')).catch(() => showToast('Copy failed'));
+  async function handleTemplateUpload(type: keyof TemplateStatus, file: File) {
+    setUploading(type);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      form.append('type', type);
+      const res  = await fetch('/api/admin/certificates/upload-template', { method: 'POST', body: form });
+      const json = await res.json() as { success?: boolean; error?: string };
+      if (json.success) {
+        setTemplateStatus(prev => ({ ...prev, [type]: true }));
+        showToast(`${TEMPLATE_LABELS[type]} uploaded ✓`);
+      } else {
+        showToast(`Upload failed: ${json.error ?? 'unknown error'}`);
+      }
+    } catch {
+      showToast('Upload failed — network error');
+    }
+    setUploading(null);
   }
 
-  const displayCerts = certs.length > 0 ? certs : [MOCK_CERT];
+  const learnUrl = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+  const mainUrl  = process.env.NEXT_PUBLIC_MAIN_URL  ?? 'https://financialmodelerpro.com';
+
+  function getVerifyLink(cert: CertRecord): string {
+    if (cert.certificate_id) return `${learnUrl}/verify/${cert.certificate_id}`;
+    if (cert.certifier_uuid)  return `${mainUrl}/verify/${cert.certifier_uuid}`;
+    return '#';
+  }
+
+  function copyLink(cert: CertRecord) {
+    const url = getVerifyLink(cert);
+    navigator.clipboard.writeText(url)
+      .then(() => showToast('Verification link copied!'))
+      .catch(() => showToast('Copy failed'));
+  }
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#F5F7FA', fontFamily: 'Inter, -apple-system, sans-serif' }}>
@@ -134,101 +181,125 @@ export default function AdminCertificatesPage() {
       <div style={{ flex: 1, padding: '32px', overflowY: 'auto' }}>
         {/* Toast */}
         {toast && (
-          <div style={{
-            position: 'fixed', top: 20, right: 20, zIndex: 9999,
-            background: '#1B4F8A', color: '#fff', padding: '12px 20px',
-            borderRadius: 8, fontSize: 13, fontWeight: 600,
-            boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
-          }}>
+          <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, background: '#1B4F8A', color: '#fff', padding: '12px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, boxShadow: '0 4px 16px rgba(0,0,0,0.2)' }}>
             {toast}
           </div>
         )}
 
-        {/* Header */}
+        {/* ── Template Upload Section ── */}
+        <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8F0FB', padding: '24px', marginBottom: 28 }}>
+          <div style={{ marginBottom: 16 }}>
+            <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#0D2E5A' }}>📁 Certificate Templates</h2>
+            <p style={{ margin: '4px 0 0', fontSize: 12, color: '#9CA3AF' }}>
+              Upload PDF templates and badge PNGs. These are used to auto-generate certificates for each student.
+            </p>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
+            {(Object.keys(TEMPLATE_LABELS) as (keyof TemplateStatus)[]).map(type => (
+              <div key={type} style={{ border: '1.5px dashed #D1D5DB', borderRadius: 10, padding: '16px', display: 'flex', flexDirection: 'column', gap: 10, background: '#FAFAFA' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 20 }}>{type.includes('badge') ? '🎖' : '📄'}</span>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A' }}>{TEMPLATE_LABELS[type]}</div>
+                </div>
+                {templateStatus[type] && (
+                  <div style={{ fontSize: 11, color: '#2EAA4A', fontWeight: 700 }}>✓ Template uploaded</div>
+                )}
+                <input
+                  ref={fileRefs[type]}
+                  type="file"
+                  accept={TEMPLATE_ACCEPT[type]}
+                  style={{ display: 'none' }}
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) handleTemplateUpload(type, file);
+                    e.target.value = '';
+                  }}
+                />
+                <button
+                  onClick={() => fileRefs[type].current?.click()}
+                  disabled={uploading === type}
+                  style={{
+                    padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700,
+                    background: uploading === type ? '#9CA3AF' : '#1B4F8A',
+                    color: '#fff', border: 'none', cursor: uploading === type ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {uploading === type ? 'Uploading…' : 'Upload'}
+                </button>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 14, padding: '10px 14px', background: '#EFF6FF', borderRadius: 8, fontSize: 12, color: '#1D4ED8' }}>
+            💡 After uploading templates, use the{' '}
+            <a href="/admin/certificate-editor" style={{ fontWeight: 700, color: '#1D4ED8' }}>Certificate Editor</a>
+            {' '}to position text fields on the PDF, then the cron job will auto-generate certificates every 15 minutes.
+          </div>
+        </div>
+
+        {/* ── Header ── */}
         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 28, flexWrap: 'wrap', gap: 16 }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: '#0D2E5A' }}>🏅 Certificates</h1>
-            <p style={{ margin: '4px 0 0', fontSize: 13, color: '#6B7280' }}>Manage and verify student certificates</p>
+            <p style={{ margin: '4px 0 0', fontSize: 13, color: '#6B7280' }}>Issued student certificates</p>
             {lastSynced && (
-              <p style={{ margin: '4px 0 0', fontSize: 11, color: '#9CA3AF' }}>
-                Last synced: {formatDate(lastSynced)}
-              </p>
+              <p style={{ margin: '4px 0 0', fontSize: 11, color: '#9CA3AF' }}>Last synced: {formatDate(lastSynced)}</p>
             )}
           </div>
           <button
             onClick={handleSync}
             disabled={syncing}
-            style={{
-              padding: '10px 20px', borderRadius: 8, border: 'none', cursor: syncing ? 'not-allowed' : 'pointer',
-              background: syncing ? '#9CA3AF' : '#2EAA4A', color: '#fff', fontSize: 13, fontWeight: 600,
-            }}
+            style={{ padding: '10px 20px', borderRadius: 8, border: 'none', cursor: syncing ? 'not-allowed' : 'pointer', background: syncing ? '#9CA3AF' : '#2EAA4A', color: '#fff', fontSize: 13, fontWeight: 600 }}
           >
             {syncing ? 'Syncing…' : '🔄 Sync from Apps Script'}
           </button>
         </div>
 
-        {/* Table */}
+        {/* ── Table ── */}
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8F0FB', overflow: 'hidden' }}>
           {loading ? (
             <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Loading certificates…</div>
-          ) : displayCerts.length === 0 ? (
+          ) : certs.length === 0 ? (
             <div style={{ padding: 60, textAlign: 'center' }}>
               <div style={{ fontSize: 40, marginBottom: 12 }}>📋</div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: '#374151', marginBottom: 8 }}>No certificates synced yet</div>
-              <div style={{ fontSize: 13, color: '#9CA3AF' }}>Click &quot;Sync from Apps Script&quot; to import certificates.</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#374151', marginBottom: 8 }}>No certificates yet</div>
+              <div style={{ fontSize: 13, color: '#9CA3AF' }}>Click &quot;Sync from Apps Script&quot; to import, or wait for the cron job to generate certificates.</div>
             </div>
           ) : (
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
-                    {['Registration ID', 'Full Name', 'Course', 'Issue Date', 'Score', 'Status', 'Actions'].map(h => (
-                      <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 700, color: '#374151', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>
-                        {h}
-                      </th>
+                    {['Cert ID', 'Name', 'Course', 'Grade', 'Issue Date', 'Status', 'Actions'].map(h => (
+                      <th key={h} style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 700, color: '#374151', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {displayCerts.map((cert, i) => (
-                    <tr key={cert.certifier_uuid} style={{ borderBottom: i < displayCerts.length - 1 ? '1px solid #F3F4F6' : 'none' }}>
-                      <td style={{ padding: '12px 16px', color: '#374151', fontFamily: 'monospace', fontSize: 12 }}>
-                        {cert.registration_id}
+                  {certs.map((cert, i) => (
+                    <tr key={cert.registration_id + i} style={{ borderBottom: i < certs.length - 1 ? '1px solid #F3F4F6' : 'none' }}>
+                      <td style={{ padding: '12px 16px', color: '#374151', fontFamily: 'monospace', fontSize: 11 }}>
+                        {cert.certificate_id ?? cert.registration_id}
                       </td>
-                      <td style={{ padding: '12px 16px', fontWeight: 600, color: '#1F2937' }}>
-                        {cert.full_name}
-                      </td>
-                      <td style={{ padding: '12px 16px', color: '#4B5563' }}>
-                        {cert.course}
-                      </td>
+                      <td style={{ padding: '12px 16px', fontWeight: 600, color: '#1F2937' }}>{cert.full_name}</td>
+                      <td style={{ padding: '12px 16px', color: '#4B5563' }}>{cert.course}</td>
+                      <td style={{ padding: '12px 16px', color: '#4B5563' }}>{cert.grade ?? '—'}</td>
                       <td style={{ padding: '12px 16px', color: '#4B5563', whiteSpace: 'nowrap' }}>
-                        {formatDate(cert.issued_date)}
+                        {formatDate(cert.issued_at ?? cert.issued_date)}
                       </td>
-                      <td style={{ padding: '12px 16px', color: '#4B5563' }}>
-                        {cert.final_exam_score ? `${cert.final_exam_score}%` : '—'}
-                      </td>
-                      <td style={{ padding: '12px 16px' }}>
-                        <StatusBadge status={cert.cert_status} />
-                      </td>
+                      <td style={{ padding: '12px 16px' }}><StatusBadge status={cert.cert_status} /></td>
                       <td style={{ padding: '12px 16px' }}>
                         <div style={{ display: 'flex', gap: 6 }}>
                           <a
-                            href={`/verify/${cert.certifier_uuid}`}
+                            href={getVerifyLink(cert)}
                             target="_blank"
                             rel="noopener noreferrer"
-                            style={{
-                              padding: '5px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-                              background: '#EFF6FF', color: '#1D4ED8', textDecoration: 'none', whiteSpace: 'nowrap',
-                            }}
+                            style={{ padding: '5px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#EFF6FF', color: '#1D4ED8', textDecoration: 'none', whiteSpace: 'nowrap' }}
                           >
                             Verify ↗
                           </a>
                           <button
-                            onClick={() => copyLink(cert.certifier_uuid)}
-                            style={{
-                              padding: '5px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600,
-                              background: '#F3F4F6', color: '#374151', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
-                            }}
+                            onClick={() => copyLink(cert)}
+                            style={{ padding: '5px 10px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#F3F4F6', color: '#374151', border: 'none', cursor: 'pointer', whiteSpace: 'nowrap' }}
                           >
                             Copy Link
                           </button>
@@ -241,12 +312,6 @@ export default function AdminCertificatesPage() {
             </div>
           )}
         </div>
-
-        {certs.length === 0 && !loading && (
-          <p style={{ marginTop: 10, fontSize: 11, color: '#9CA3AF', textAlign: 'center' }}>
-            Showing mock data for testing purposes. Sync to load real certificates.
-          </p>
-        )}
       </div>
     </div>
   );

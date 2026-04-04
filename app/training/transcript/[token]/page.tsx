@@ -149,11 +149,25 @@ export default async function PublicTranscriptPage(
     progMap.set(s.sessionId, { sessionId: s.sessionId, passed: s.passed, score: s.score, attempts: s.attempts });
   }
 
+  const learnUrl = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+
+  // Also check Supabase for internal certificate_id
+  const { data: supaCell } = await sb
+    .from('student_certificates')
+    .select('certificate_id, cert_pdf_url')
+    .eq('registration_id', link.registration_id)
+    .maybeSingle();
+  const internalCertId = supaCell?.certificate_id ?? null;
+
   const certMap = new Map<string, CertData>();
   if (certsResult.success && certsResult.data) {
     for (const c of certsResult.data) {
       const k = c.course?.toLowerCase().includes('bvm') ? 'bvm' : '3sfm';
-      certMap.set(k, { certificateId: c.certificateId, issuedAt: c.issuedAt, certifierUrl: c.certifierUrl });
+      // Use internal verify URL if available, fall back to certifierUrl
+      const verifyUrl = internalCertId
+        ? `${learnUrl}/verify/${internalCertId}`
+        : c.certifierUrl;
+      certMap.set(k, { certificateId: c.certificateId || internalCertId || '', issuedAt: c.issuedAt, certifierUrl: verifyUrl });
     }
   }
 
@@ -165,7 +179,7 @@ export default async function PublicTranscriptPage(
   const cert            = certMap.get(courseId) ?? null;
   const scoresArr       = regularSessions.map(s => progMap.get(s.id)).filter(p => p && p.attempts > 0).map(p => p!.score);
   const avgScore        = scoresArr.length ? Math.round(scoresArr.reduce((a, b) => a + b, 0) / scoresArr.length) : null;
-  const pdfUrl          = `/api/t/${token}/pdf`;
+  const pdfUrl          = `/api/t/${token}/pdf?autoprint=1`;
 
   const tx = await loadTxSettings();
 
@@ -363,12 +377,29 @@ export default async function PublicTranscriptPage(
                 <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
                   <a href={cert.certifierUrl} target="_blank" rel="noopener noreferrer"
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: C.navy2, textDecoration: 'none', border: `1.5px solid ${C.navy2}`, borderRadius: 6, padding: '6px 14px' }}>
-                    🏅 Verify on Certifier.io ↗
+                    🏅 Verify Certificate ↗
                   </a>
                 </div>
               )}
             </div>
           </div>
+
+          {/* QR Code — only when certificate issued */}
+          {cert?.certifierUrl && (
+            <div style={{ padding: '16px 36px', borderTop: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 16 }}>
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(cert.certifierUrl)}`}
+                alt="Verification QR"
+                width={100}
+                height={100}
+                style={{ borderRadius: 6, border: `1px solid ${C.border}`, flexShrink: 0 }}
+              />
+              <div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 4 }}>Scan to verify this certificate</div>
+                <div style={{ fontSize: 10, color: C.muted, wordBreak: 'break-all', lineHeight: 1.5 }}>{cert.certifierUrl}</div>
+              </div>
+            </div>
+          )}
 
           {/* Footer */}
           <div style={{ background: tx.footerBgColor, padding: '12px 36px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>

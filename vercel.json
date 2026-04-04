@@ -6,6 +6,12 @@
   "env": {
     "NEXT_TELEMETRY_DISABLED": "1"
   },
+  "crons": [
+    {
+      "path": "/api/cron/certificates",
+      "schedule": "*/15 * * * *"
+    }
+  ],
   "headers": [
     {
       "source": "/api/(.*)",

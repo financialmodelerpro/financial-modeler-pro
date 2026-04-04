@@ -82,9 +82,9 @@ async function run() {
       label: '[training@] Certificate Issued',
       fn: async () => {
         const t = certificateIssuedTemplate({
-          name: 'Test User',
+          studentName: 'Test User',
           courseName: '3-Statement Financial Modeling',
-          certifierUrl: 'https://financialmodelerpro.com/verify/test-uuid',
+          verificationUrl: 'https://financialmodelerpro.com/verify/test-uuid',
         });
         return sendEmail({ to: TEST_TO, ...t, from: FROM.training });
       },

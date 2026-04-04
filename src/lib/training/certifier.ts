@@ -1,4 +1,9 @@
-const CERTIFIER_API_BASE = 'https://api.certifier.io/v1';
+/**
+ * certifier.ts — DEPRECATED
+ * Certifier.io integration has been replaced with the internal certificate system.
+ * This file is kept as a stub to avoid import errors during the transition.
+ * All certificate generation now happens via certificateEngine.ts + Supabase storage.
+ */
 
 export interface CertifierCredential {
   id: string;
@@ -11,28 +16,7 @@ export interface CertifierCredential {
   attributes: Record<string, string>;
 }
 
-export async function getCertifierCredential(uuid: string): Promise<CertifierCredential | null> {
-  try {
-    const res = await fetch(`${CERTIFIER_API_BASE}/credentials/${uuid}`, {
-      headers: {
-        Authorization: `Bearer ${process.env.CERTIFIER_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      next: { revalidate: 3600 },
-    });
-    if (!res.ok) return null;
-    const data = await res.json();
-    return {
-      id:             data.id ?? uuid,
-      recipientName:  data.recipient?.name ?? '',
-      recipientEmail: data.recipient?.email ?? '',
-      issuedOn:       data.issuedOn ?? '',
-      courseTitle:    data.group?.title ?? '',
-      imageUrl:       data.imageUrl ?? '',
-      certUrl:        data.certUrl ?? '',
-      attributes:     data.attributes ?? {},
-    };
-  } catch {
-    return null;
-  }
+/** @deprecated Use internal certificate system via student_certificates table */
+export async function getCertifierCredential(_uuid: string): Promise<CertifierCredential | null> {
+  return null;
 }

@@ -9,7 +9,7 @@
 
 import { getServerClient } from '@/src/lib/shared/supabase';
 
-async function getAppsScriptUrl(): Promise<string> {
+export async function getAppsScriptUrl(): Promise<string> {
   if (process.env.APPS_SCRIPT_URL) return process.env.APPS_SCRIPT_URL;
   try {
     const sb = getServerClient();
@@ -757,4 +757,63 @@ export async function submitAssessment(
     regId,
     answers,
   });
+}
+
+// ── Internal Certificate System ───────────────────────────────────────────────
+
+export interface PendingCertificate {
+  registrationId: string;
+  email: string;
+  studentName: string;
+  courseName: string;
+  courseCode: string;        // '3SFM' | 'BVM'
+  courseSubheading: string;
+  courseDescription: string;
+  finalScore: number;
+  avgScore: number;
+  grade: string;             // 'Distinction' | 'Merit' | 'Pass'
+  completionDate: string;
+}
+
+/** Fetch pending certificates from Apps Script Certificate Queue sheet. */
+export async function getPendingCertificates(): Promise<PendingCertificate[]> {
+  const raw = await callScript<PendingCertificate[]>({ action: 'getPendingCertificates' });
+  if (!raw.success) return [];
+  if (Array.isArray(raw.data)) return raw.data;
+  const root = raw as unknown as { certificates?: PendingCertificate[]; pending?: PendingCertificate[] };
+  if (Array.isArray(root.certificates)) return root.certificates;
+  if (Array.isArray(root.pending)) return root.pending;
+  return [];
+}
+
+/** Write issued certificate URLs back to the Apps Script Certificate Queue. */
+export async function updateCertificateUrls(params: {
+  certificateId: string;
+  certPdfUrl:    string;
+  badgeUrl:      string;
+  transcriptUrl: string;
+  status:        'Issued';
+}): Promise<void> {
+  await callScriptPostJson<unknown>({ action: 'updateCertificateUrls', ...params });
+}
+
+/** Fetch a single certificate by its internal certificate ID (e.g. FMP-3SFM-2026-0001). */
+export async function getCertificateById(certificateId: string): Promise<{
+  certificateId: string;
+  studentName: string;
+  email: string;
+  courseName: string;
+  courseSubheading: string;
+  courseDescription: string;
+  courseCode: string;
+  grade: string;
+  finalScore: number;
+  issuedAt: string;
+  certPdfUrl: string;
+  badgeUrl: string;
+  transcriptUrl: string;
+} | null> {
+  const raw = await callScript<unknown>({ action: 'getCertificateById', certificateId });
+  if (!raw.success || !raw.data) return null;
+  return raw.data as ReturnType<typeof getCertificateById> extends Promise<infer T> ? NonNullable<T> : never;
 }

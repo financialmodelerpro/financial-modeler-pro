@@ -29,6 +29,7 @@
     "lucide-react": "^0.577.0",
     "next": "^16.2.1",
     "next-auth": "^4.24.13",
+    "pdf-lib": "^1.17.1",
     "qrcode": "^1.5.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -36,6 +37,7 @@
     "react-hot-toast": "^2.6.0",
     "recharts": "^3.8.0",
     "resend": "^6.10.0",
+    "sharp": "^0.34.5",
     "tailwind-merge": "^3.5.0",
     "zod": "^4.3.6",
     "zustand": "^5.0.11"
