@@ -52,6 +52,10 @@ function ModelingSignInInner() {
   const [showResendConfirm,   setShowResendConfirm]   = useState(false);
   const [resendConfirmStatus, setResendConfirmStatus] = useState<'idle' | 'loading' | 'sent' | 'error'>('idle');
 
+  // Password visibility
+  const [showPassword,  setShowPassword]  = useState(false);
+  const [showConfirm,   setShowConfirm]   = useState(false);
+
   // Device verification (sign in)
   const [deviceStep,   setDeviceStep]   = useState<'credentials' | 'otp'>('credentials');
   const [deviceEmail,  setDeviceEmail]  = useState('');
@@ -324,10 +328,16 @@ function ModelingSignInInner() {
                       <label style={{ ...labelStyle, marginBottom: 0 }}>PASSWORD</label>
                       <a href={`${process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com'}/forgot-password`} style={{ fontSize: 12, color: BLUE, textDecoration: 'none' }}>Forgot password?</a>
                     </div>
-                    <input type="password" required value={password} onChange={e => setPassword(e.target.value)}
-                      placeholder="••••••••" style={inputStyle}
-                      onFocus={e => { e.currentTarget.style.borderColor = BLUE; }}
-                      onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
+                    <div style={{ position: 'relative' }}>
+                      <input type={showPassword ? 'text' : 'password'} required value={password} onChange={e => setPassword(e.target.value)}
+                        placeholder="••••••••" style={{ ...inputStyle, paddingRight: 40 }}
+                        onFocus={e => { e.currentTarget.style.borderColor = BLUE; }}
+                        onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
+                      <button type="button" onClick={() => setShowPassword(v => !v)} tabIndex={-1}
+                        style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#9CA3AF', lineHeight: 1 }}>
+                        {showPassword ? '🙈' : '👁️'}
+                      </button>
+                    </div>
                   </div>
                   <button type="submit" disabled={loading} style={{
                     width: '100%', padding: '12px', fontSize: 14, fontWeight: 700,
@@ -380,17 +390,29 @@ function ModelingSignInInner() {
                   </div>
                   <div>
                     <label style={labelStyle}>PASSWORD <span style={{ color: '#9CA3AF', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(min 8 characters)</span></label>
-                    <input type="password" required minLength={8} value={password} onChange={e => setPassword(e.target.value)}
-                      placeholder="••••••••" style={inputStyle}
-                      onFocus={e => { e.currentTarget.style.borderColor = BLUE; }}
-                      onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
+                    <div style={{ position: 'relative' }}>
+                      <input type={showPassword ? 'text' : 'password'} required minLength={8} value={password} onChange={e => setPassword(e.target.value)}
+                        placeholder="••••••••" style={{ ...inputStyle, paddingRight: 40 }}
+                        onFocus={e => { e.currentTarget.style.borderColor = BLUE; }}
+                        onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
+                      <button type="button" onClick={() => setShowPassword(v => !v)} tabIndex={-1}
+                        style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#9CA3AF', lineHeight: 1 }}>
+                        {showPassword ? '🙈' : '👁️'}
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <label style={labelStyle}>CONFIRM PASSWORD <span style={{ color: '#DC2626' }}>*</span></label>
-                    <input type="password" required minLength={8} value={confirm} onChange={e => setConfirm(e.target.value)}
-                      placeholder="••••••••" style={inputStyle}
-                      onFocus={e => { e.currentTarget.style.borderColor = BLUE; }}
-                      onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
+                    <div style={{ position: 'relative' }}>
+                      <input type={showConfirm ? 'text' : 'password'} required minLength={8} value={confirm} onChange={e => setConfirm(e.target.value)}
+                        placeholder="••••••••" style={{ ...inputStyle, paddingRight: 40 }}
+                        onFocus={e => { e.currentTarget.style.borderColor = BLUE; }}
+                        onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
+                      <button type="button" onClick={() => setShowConfirm(v => !v)} tabIndex={-1}
+                        style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', padding: 2, color: '#9CA3AF', lineHeight: 1 }}>
+                        {showConfirm ? '🙈' : '👁️'}
+                      </button>
+                    </div>
                   </div>
 
                   {/* hCaptcha */}
