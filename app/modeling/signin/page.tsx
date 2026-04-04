@@ -26,7 +26,7 @@ const labelStyle: React.CSSProperties = {
 function ModelingSignInInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl  = searchParams.get('callbackUrl') ?? '/portal';
+  const callbackUrl  = searchParams.get('callbackUrl') ?? '/refm';
 
   const [mode,     setMode]     = useState<Mode>('signin');
   const [name,     setName]     = useState('');
@@ -68,7 +68,7 @@ function ModelingSignInInner() {
     const result = await signIn('credentials', { email, password, redirect: false });
     setLoading(false);
     if (result?.error) { setSuccess('Account created! Please sign in.'); setMode('signin'); return; }
-    router.push('/portal');
+    router.push('/refm');
     router.refresh();
   };
 
@@ -134,7 +134,7 @@ function ModelingSignInInner() {
                   <div>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
                       <label style={{ ...labelStyle, marginBottom: 0 }}>PASSWORD</label>
-                      <a href="/forgot-password" style={{ fontSize: 12, color: BLUE, textDecoration: 'none' }}>Forgot password?</a>
+                      <a href={`${process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com'}/forgot-password`} style={{ fontSize: 12, color: BLUE, textDecoration: 'none' }}>Forgot password?</a>
                     </div>
                     <input type="password" required value={password} onChange={e => setPassword(e.target.value)}
                       placeholder="••••••••" style={inputStyle}

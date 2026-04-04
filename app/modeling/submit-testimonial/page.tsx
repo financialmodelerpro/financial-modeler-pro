@@ -112,7 +112,7 @@ export default function SubmitModelingTestimonialPage() {
             <p style={{ fontSize: 14, color: '#6B7280', marginBottom: 28, lineHeight: 1.6 }}>
               Please log in to your Modeling Hub account to submit a testimonial.
             </p>
-            <Link href="/login" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#0D2E5A', color: '#fff', fontWeight: 700, fontSize: 15, padding: '12px 28px', borderRadius: 8, textDecoration: 'none' }}>
+            <Link href="/modeling/signin" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#0D2E5A', color: '#fff', fontWeight: 700, fontSize: 15, padding: '12px 28px', borderRadius: 8, textDecoration: 'none' }}>
               Login to Modeling Hub →
             </Link>
           </div>

@@ -138,7 +138,7 @@ export default async function PlatformDetailPage({
 
             {/* CTAs */}
             <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-              <Link href="/login" style={{
+              <Link href="/modeling/signin" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 background: '#fff', color: platform.color,
                 fontWeight: 700, fontSize: 15, padding: '13px 32px',
@@ -308,7 +308,7 @@ export default async function PlatformDetailPage({
             <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}>
               Start with Module 1 — free, structured, and ready to use right now.
             </p>
-            <Link href="/login" style={{
+            <Link href="/modeling/signin" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               background: '#fff', color: platform.color,
               fontWeight: 800, fontSize: 16, padding: '14px 40px',
@@ -333,7 +333,7 @@ export default async function PlatformDetailPage({
           <div style={{ display: 'flex', gap: 20 }}>
             <Link href="/" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>← Home</Link>
             <Link href="/modeling" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Modeling Hub</Link>
-            <Link href="/login" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Login</Link>
+            <Link href="/modeling/signin" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Login</Link>
           </div>
         </footer>
       </div>
@@ -502,7 +502,7 @@ export default async function PlatformDetailPage({
             }}>
               See All Platforms →
             </Link>
-            <Link href="/login" style={{
+            <Link href="/modeling/signin" style={{
               display: 'inline-flex', alignItems: 'center', gap: 7,
               background: 'transparent', color: '#B45309',
               fontWeight: 700, fontSize: 14, padding: '10px 26px',
@@ -543,7 +543,7 @@ export default async function PlatformDetailPage({
                     {p.description}
                   </p>
                   <div style={{ display: 'flex', gap: 10 }}>
-                    <Link href="/login" style={{
+                    <Link href="/modeling/signin" style={{
                       fontSize: 12, fontWeight: 700, padding: '7px 16px',
                       borderRadius: 6, background: p.color, color: '#fff',
                       textDecoration: 'none',
@@ -578,7 +578,7 @@ export default async function PlatformDetailPage({
         <div style={{ display: 'flex', gap: 20 }}>
           <Link href="/" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>← Home</Link>
           <Link href="/modeling" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Modeling Hub</Link>
-          <Link href="/login" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Login</Link>
+          <Link href="/modeling/signin" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Login</Link>
         </div>
       </footer>
     </div>

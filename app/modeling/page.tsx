@@ -106,7 +106,7 @@ export default async function ModelingHubPage() {
 
           {/* CTA buttons */}
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link href="/login" style={{
+            <Link href="/modeling/signin" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               background: '#1B4F8A', color: '#fff',
               fontWeight: 700, fontSize: 15, padding: '13px 32px',
@@ -115,7 +115,7 @@ export default async function ModelingHubPage() {
             }}>
               {ctaPrimary}
             </Link>
-            <Link href="/login" style={{
+            <Link href="/modeling/signin" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               background: 'transparent', color: '#fff',
               fontWeight: 700, fontSize: 15, padding: '13px 32px',
@@ -128,7 +128,7 @@ export default async function ModelingHubPage() {
 
           <p style={{ marginTop: 20, fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>
             Already have an account?{' '}
-            <Link href="/login" style={{ color: '#93C5FD', textDecoration: 'none', fontWeight: 600 }}>
+            <Link href="/modeling/signin" style={{ color: '#93C5FD', textDecoration: 'none', fontWeight: 600 }}>
               Login →
             </Link>
           </p>
@@ -250,7 +250,7 @@ export default async function ModelingHubPage() {
                 {/* CTA buttons */}
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   {displayStatus === 'live' && (
-                    <Link href="/login" style={{
+                    <Link href="/modeling/signin" style={{
                       display: 'inline-flex', alignItems: 'center', gap: 5,
                       background: platform.color, color: '#fff',
                       fontSize: 12, fontWeight: 700, padding: '8px 18px',
@@ -374,7 +374,7 @@ export default async function ModelingHubPage() {
             <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}>
               Join financial professionals around the world building institutional-grade models — completely free.
             </p>
-            <Link href="/login" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1B4F8A', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
+            <Link href="/modeling/signin" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1B4F8A', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
               Launch Platform Free →
             </Link>
           </div>
