@@ -44,7 +44,8 @@ export async function POST(req: NextRequest) {
         .eq('email', email)
         .maybeSingle();
 
-      if (meta && meta.email_confirmed === false) {
+      if (meta && meta.email_confirmed !== true) {
+        // email_confirmed is false OR null (pre-027 users who may have been missed) — resend
         shouldSend = true;
       }
     }

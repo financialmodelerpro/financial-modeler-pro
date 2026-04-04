@@ -1,307 +1,359 @@
 'use client';
 
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, Suspense } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useWhiteLabel } from '@/src/hooks/useWhiteLabel';
+import Link from 'next/link';
 
-type Mode = 'signin' | 'signup';
+const NAVY  = '#0D2E5A';
+const GREEN = '#2EAA4A';
+
+const inputStyle: React.CSSProperties = {
+  width: '100%', padding: '10px 12px', fontSize: 14,
+  border: '1.5px solid #D1D5DB', borderRadius: 7,
+  outline: 'none', boxSizing: 'border-box',
+  fontFamily: "'Inter', sans-serif", background: '#fff',
+};
+
+const labelStyle: React.CSSProperties = {
+  display: 'block', fontSize: 12, fontWeight: 700,
+  color: '#374151', marginBottom: 6, letterSpacing: '0.03em',
+};
+
+type ResendStatus = 'idle' | 'loading' | 'sent' | 'error';
 
 function LoginInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl  = searchParams.get('callbackUrl') ?? '/portal';
-  const { displayName, displayLogo, displayLogoEmoji } = useWhiteLabel();
+  const callbackUrl  = searchParams.get('callbackUrl') ?? '/admin';
 
-  const [mode,     setMode]     = useState<Mode>('signin');
-  const [name,     setName]     = useState('');
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
-  const [confirm,  setConfirm]  = useState('');
+  const [showPw,   setShowPw]   = useState(false);
   const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState('');
-  const [success,  setSuccess]  = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
 
-  // Clear messages when switching tabs
-  useEffect(() => { setError(''); setSuccess(''); }, [mode]);
+  // Email not confirmed state
+  const [emailNotConfirmed,   setEmailNotConfirmed]   = useState(false);
+  const [resendStatus,        setResendStatus]        = useState<ResendStatus>('idle');
 
-  const handleSignIn = async (e: React.FormEvent) => {
+  // Device verification state
+  const [deviceStep,    setDeviceStep]    = useState<'credentials' | 'otp'>('credentials');
+  const [deviceEmail,   setDeviceEmail]   = useState('');
+  const [deviceOtp,     setDeviceOtp]     = useState('');
+  const [trustChecked,  setTrustChecked]  = useState(true);
+  const [sendingOtp,    setSendingOtp]    = useState(false);
+  const [verifyingOtp,  setVerifyingOtp]  = useState(false);
+  const [deviceError,   setDeviceError]   = useState('');
+
+  async function sendDeviceOtp(toEmail: string) {
+    setSendingOtp(true);
+    setDeviceError('');
+    try {
+      await fetch('/api/auth/device-verify', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ action: 'send', email: toEmail }),
+      });
+    } catch { /* non-fatal */ }
+    setSendingOtp(false);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    setError('');
+    setErrorMsg('');
+    setEmailNotConfirmed(false);
 
     const result = await signIn('credentials', {
-      email,
+      email: email.trim().toLowerCase(),
       password,
       redirect: false,
     });
 
     setLoading(false);
 
-    if (result?.error) {
-      setError('Invalid email or password. Please try again.');
+    if (!result?.error) {
+      router.push(callbackUrl);
+      router.refresh();
       return;
     }
 
-    router.push(callbackUrl);
-    router.refresh();
-  };
+    if (result.error === 'DEVICE_VERIFICATION_REQUIRED') {
+      setDeviceEmail(email.trim().toLowerCase());
+      await sendDeviceOtp(email.trim().toLowerCase());
+      setDeviceStep('otp');
+      return;
+    }
 
-  const handleSignUp = async (e: React.FormEvent) => {
+    if (result.error === 'EmailNotConfirmed') {
+      setEmailNotConfirmed(true);
+      setErrorMsg('Your email address has not been confirmed yet.');
+      return;
+    }
+
+    setErrorMsg('Invalid email or password. Please try again.');
+  }
+
+  async function handleDeviceVerify(e: React.FormEvent) {
     e.preventDefault();
-    if (password !== confirm) {
-      setError('Passwords do not match.');
-      return;
+    if (!deviceOtp.trim()) return;
+    setVerifyingOtp(true);
+    setDeviceError('');
+
+    try {
+      const res  = await fetch('/api/auth/device-verify', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          action:      'check',
+          email:       deviceEmail,
+          code:        deviceOtp.trim(),
+          trustDevice: trustChecked,
+        }),
+      });
+      const json = await res.json() as { success: boolean; error?: string };
+
+      if (!json.success) {
+        setDeviceError(json.error ?? 'Invalid code. Please try again.');
+        setVerifyingOtp(false);
+        return;
+      }
+
+      // Device is now trusted — retry signIn
+      const result = await signIn('credentials', {
+        email:    deviceEmail,
+        password,
+        redirect: false,
+      });
+
+      if (!result?.error) {
+        router.push(callbackUrl);
+        router.refresh();
+        return;
+      }
+
+      setDeviceError('Sign in failed after verification. Please try again.');
+    } catch {
+      setDeviceError('Verification failed. Please try again.');
     }
-    setLoading(true);
-    setError('');
-    setSuccess('');
+    setVerifyingOtp(false);
+  }
 
-    // 1 — Register
-    const res = await fetch('/api/auth/register', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ name, email, password }),
-    });
-
-    if (!res.ok) {
-      const json = await res.json().catch(() => ({}));
-      setLoading(false);
-      setError(json.error ?? 'Registration failed. Please try again.');
-      return;
+  async function handleResendConfirmation() {
+    setResendStatus('loading');
+    try {
+      await fetch('/api/auth/resend-confirmation', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+      setResendStatus('sent');
+    } catch {
+      setResendStatus('error');
     }
+  }
 
-    // 2 — Auto sign-in after registration
-    const result = await signIn('credentials', {
-      email,
-      password,
-      redirect: false,
-    });
-
-    setLoading(false);
-
-    if (result?.error) {
-      setSuccess('Account created! Please sign in.');
-      setMode('signin');
-      return;
-    }
-
-    router.push('/portal');
-    router.refresh();
-  };
-
-  return (
-    <div style={{
-      minHeight: '100vh',
-      background: 'var(--color-bg)',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: 'var(--sp-3)',
-    }}>
-
-      {/* Logo / Brand */}
-      <div style={{ textAlign: 'center', marginBottom: 'var(--sp-4)' }}>
-        <div style={{
-          width: 52, height: 52,
-          background: 'var(--color-primary)',
-          borderRadius: 14,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 26, margin: '0 auto var(--sp-2)',
-          boxShadow: '0 8px 24px rgba(30,58,138,0.3)',
-          overflow: 'hidden',
-        }}>
-          {displayLogo
-            ? <img src={displayLogo} style={{ width: '100%', height: '100%', objectFit: 'contain' }} alt="logo" />
-            : displayLogoEmoji || '💼'}
-        </div>
-        <div style={{
-          fontSize: 'var(--font-h2)',
-          fontWeight: 'var(--fw-bold)',
-          color: 'var(--color-heading)',
-          letterSpacing: '-0.02em',
-        }}>{displayName}</div>
-        <div style={{
-          fontSize: 'var(--font-meta)',
-          color: 'var(--color-meta)',
-          marginTop: 4,
-        }}>Professional real estate financial modeling</div>
-      </div>
-
-      {/* Card */}
+  // ── Device verification step ───────────────────────────────────────────────
+  if (deviceStep === 'otp') {
+    return (
       <div style={{
-        background: 'var(--color-surface)',
-        borderRadius: 'var(--radius-md)',
-        border: '1px solid var(--color-border)',
-        boxShadow: 'var(--shadow-2)',
-        width: '100%',
-        maxWidth: 420,
-        overflow: 'hidden',
+        minHeight: '100vh', background: '#F5F7FA',
+        display: 'flex', flexDirection: 'column', alignItems: 'center',
+        justifyContent: 'center', padding: '40px 20px',
+        fontFamily: "'Inter', sans-serif",
       }}>
+        <div style={{ width: '100%', maxWidth: 440 }}>
+          <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', boxShadow: '0 4px 24px rgba(0,0,0,0.07)', padding: '36px 36px 32px' }}>
+            <div style={{ textAlign: 'center', marginBottom: 24 }}>
+              <div style={{ fontSize: 36, marginBottom: 10 }}>🔒</div>
+              <h1 style={{ fontSize: 20, fontWeight: 800, color: NAVY, margin: 0, marginBottom: 6 }}>New Device Detected</h1>
+              <p style={{ fontSize: 13, color: '#6B7280', margin: 0, lineHeight: 1.5 }}>
+                We sent a verification code to <strong>{deviceEmail}</strong>.<br />Enter it below to continue.
+              </p>
+            </div>
 
-        {/* Tab switcher */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: '1fr 1fr',
-          borderBottom: '1px solid var(--color-border)',
-        }}>
-          {(['signin', 'signup'] as Mode[]).map((m) => (
-            <button key={m} onClick={() => setMode(m)} style={{
-              padding: 'var(--sp-2)',
-              border: 'none',
-              background: mode === m ? 'var(--color-surface)' : 'var(--color-row-alt)',
-              color: mode === m ? 'var(--color-primary)' : 'var(--color-meta)',
-              fontWeight: mode === m ? 'var(--fw-semibold)' : 'var(--fw-normal)',
-              fontSize: 'var(--font-body)',
-              cursor: 'pointer',
-              borderBottom: mode === m ? '2px solid var(--color-primary)' : '2px solid transparent',
-              transition: 'var(--transition)',
-              fontFamily: 'Inter, sans-serif',
-            }}>
-              {m === 'signin' ? 'Sign In' : 'Create Account'}
-            </button>
-          ))}
-        </div>
-
-        {/* Form body */}
-        <div style={{ padding: 'var(--sp-4)' }}>
-
-          {/* Error / success banners */}
-          {error   && <div className="alert-error"   style={{ marginBottom: 'var(--sp-2)' }}>{error}</div>}
-          {success && <div className="alert-success" style={{ marginBottom: 'var(--sp-2)' }}>{success}</div>}
-
-          {mode === 'signin' ? (
-            <form onSubmit={handleSignIn} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
-              <div>
-                <label style={labelStyle}>Email address</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoComplete="email"
-                  placeholder="you@example.com"
-                  style={inputStyle}
-                />
+            {deviceError && (
+              <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 13, color: '#DC2626' }}>
+                ❌ {deviceError}
               </div>
+            )}
+
+            <form onSubmit={handleDeviceVerify} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
-                  <label style={{ ...labelStyle, marginBottom: 0 }}>Password</label>
-                  <a href="/forgot-password" style={{ fontSize: 'var(--font-micro)', color: 'var(--color-primary)', textDecoration: 'none' }}>
-                    Forgot password?
-                  </a>
-                </div>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  autoComplete="current-password"
-                  placeholder="••••••••"
-                  style={inputStyle}
-                />
-              </div>
-              <button
-                type="submit"
-                disabled={loading}
-                className="btn-primary"
-                style={{ width: '100%', marginTop: 'var(--sp-1)', height: 42, fontSize: 15 }}
-              >
-                {loading ? 'Signing in…' : 'Sign In →'}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handleSignUp} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
-              <div>
-                <label style={labelStyle}>Full name</label>
+                <label style={labelStyle}>VERIFICATION CODE</label>
                 <input
                   type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  autoComplete="name"
-                  placeholder="Jane Smith"
-                  style={inputStyle}
+                  value={deviceOtp}
+                  onChange={e => setDeviceOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="123456"
+                  maxLength={6}
+                  autoFocus
+                  style={{ ...inputStyle, fontSize: 22, fontWeight: 700, textAlign: 'center', letterSpacing: '0.3em' }}
+                  onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
+                  onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }}
                 />
+                <div style={{ marginTop: 6, fontSize: 11.5, color: '#9CA3AF' }}>Code expires in 10 minutes</div>
               </div>
-              <div>
-                <label style={labelStyle}>Email address</label>
+
+              <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 13, color: '#374151', fontWeight: 500 }}>
                 <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  autoComplete="email"
-                  placeholder="you@example.com"
-                  style={inputStyle}
+                  type="checkbox"
+                  checked={trustChecked}
+                  onChange={e => setTrustChecked(e.target.checked)}
+                  style={{ width: 16, height: 16, cursor: 'pointer' }}
                 />
-              </div>
-              <div>
-                <label style={labelStyle}>Password <span style={{ color: 'var(--color-muted)', fontWeight: 400 }}>(min 8 characters)</span></label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={8}
-                  autoComplete="new-password"
-                  placeholder="••••••••"
-                  style={inputStyle}
-                />
-              </div>
-              <div>
-                <label style={labelStyle}>Confirm password</label>
-                <input
-                  type="password"
-                  value={confirm}
-                  onChange={(e) => setConfirm(e.target.value)}
-                  required
-                  minLength={8}
-                  autoComplete="new-password"
-                  placeholder="••••••••"
-                  style={inputStyle}
-                />
-              </div>
+                Trust this device for 30 days
+              </label>
+
               <button
                 type="submit"
-                disabled={loading}
-                className="btn-primary"
-                style={{ width: '100%', marginTop: 'var(--sp-1)', height: 42, fontSize: 15 }}
+                disabled={verifyingOtp || deviceOtp.length < 6}
+                style={{
+                  width: '100%', padding: '12px', fontSize: 14, fontWeight: 700,
+                  background: (verifyingOtp || deviceOtp.length < 6) ? '#86EFAC' : GREEN,
+                  color: '#fff', border: 'none', borderRadius: 8,
+                  cursor: (verifyingOtp || deviceOtp.length < 6) ? 'not-allowed' : 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                }}
               >
-                {loading ? 'Creating account…' : 'Create Account →'}
+                {verifyingOtp
+                  ? <><span style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />Verifying…</>
+                  : 'Verify & Sign In →'}
               </button>
-              <p style={{ fontSize: 'var(--font-meta)', color: 'var(--color-muted)', textAlign: 'center', margin: 0 }}>
-                Free plan · 3 projects included · No credit card required
-              </p>
+
+              <button
+                type="button"
+                onClick={() => sendDeviceOtp(deviceEmail)}
+                disabled={sendingOtp}
+                style={{ background: 'none', border: 'none', fontSize: 13, color: GREEN, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', padding: 0, textAlign: 'center' }}
+              >
+                {sendingOtp ? 'Sending…' : 'Resend code'}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { setDeviceStep('credentials'); setDeviceOtp(''); setDeviceError(''); }}
+                style={{ background: 'none', border: 'none', fontSize: 13, color: '#9CA3AF', cursor: 'pointer', padding: 0, textAlign: 'center' }}
+              >
+                ← Back to sign in
+              </button>
             </form>
-          )}
+          </div>
         </div>
-
-        {/* Footer */}
-        <div style={{
-          borderTop: '1px solid var(--color-border)',
-          background: 'var(--color-row-alt)',
-          padding: 'var(--sp-2) var(--sp-4)',
-          textAlign: 'center',
-          fontSize: 'var(--font-micro)',
-          color: 'var(--color-muted)',
-        }}>
-          By continuing you agree to our Terms of Service and Privacy Policy.
-        </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
+    );
+  }
 
-      {/* Back to portal */}
-      <a href="/" style={{
-        marginTop: 'var(--sp-3)',
-        fontSize: 'var(--font-meta)',
-        color: 'var(--color-primary)',
-        textDecoration: 'none',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 4,
-      }}>
-        ← Back to Portal
-      </a>
+  // ── Sign-in step ──────────────────────────────────────────────────────────
+  return (
+    <div style={{
+      minHeight: '100vh', background: '#F5F7FA',
+      display: 'flex', flexDirection: 'column', alignItems: 'center',
+      justifyContent: 'center', padding: '40px 20px',
+      fontFamily: "'Inter', sans-serif",
+    }}>
+      <div style={{ width: '100%', maxWidth: 440 }}>
+
+        <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', boxShadow: '0 4px 24px rgba(0,0,0,0.07)', padding: '36px 36px 32px' }}>
+
+          {/* Header */}
+          <div style={{ textAlign: 'center', marginBottom: 28 }}>
+            <div style={{
+              width: 52, height: 52, borderRadius: 12, background: NAVY,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 24, margin: '0 auto 14px', boxShadow: '0 4px 16px rgba(13,46,90,0.3)',
+            }}>🏢</div>
+            <h1 style={{ fontSize: 22, fontWeight: 800, color: NAVY, margin: 0, marginBottom: 4 }}>
+              Admin Sign In
+            </h1>
+            <p style={{ fontSize: 13, color: '#6B7280', margin: 0 }}>Financial Modeler Pro · Admin Panel</p>
+          </div>
+
+          {/* Error banner */}
+          {errorMsg && (
+            <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 13, color: '#DC2626', lineHeight: 1.5 }}>
+              ❌ {errorMsg}
+              {emailNotConfirmed && (
+                <div style={{ marginTop: 8 }}>
+                  {resendStatus === 'sent'
+                    ? <span style={{ color: '#15803D', fontWeight: 600 }}>✅ Confirmation email sent — check your inbox.</span>
+                    : resendStatus === 'error'
+                    ? <span>Failed to send. Please try again.</span>
+                    : (
+                      <button type="button" onClick={handleResendConfirmation} disabled={resendStatus === 'loading'}
+                        style={{ background: 'none', border: 'none', fontSize: 12, color: GREEN, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                        {resendStatus === 'loading' ? 'Sending…' : 'Resend confirmation email →'}
+                      </button>
+                    )}
+                </div>
+              )}
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+
+            <div>
+              <label style={labelStyle}>EMAIL ADDRESS <span style={{ color: '#DC2626' }}>*</span></label>
+              <input
+                type="email" required autoComplete="email"
+                value={email}
+                onChange={e => { setEmail(e.target.value); setErrorMsg(''); setEmailNotConfirmed(false); }}
+                placeholder="admin@financialmodelerpro.com"
+                style={inputStyle}
+                onFocus={e => { e.currentTarget.style.borderColor = NAVY; }}
+                onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }}
+              />
+            </div>
+
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+                <label style={{ ...labelStyle, marginBottom: 0 }}>PASSWORD <span style={{ color: '#DC2626' }}>*</span></label>
+                <Link href="/forgot-password" style={{ fontSize: 12, color: NAVY, fontWeight: 600, textDecoration: 'none', opacity: 0.7 }}>
+                  Forgot password?
+                </Link>
+              </div>
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showPw ? 'text' : 'password'} required autoComplete="current-password"
+                  value={password}
+                  onChange={e => { setPassword(e.target.value); setErrorMsg(''); }}
+                  placeholder="••••••••"
+                  style={{ ...inputStyle, paddingRight: 42 }}
+                  onFocus={e => { e.currentTarget.style.borderColor = NAVY; }}
+                  onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }}
+                />
+                <button type="button" onClick={() => setShowPw(v => !v)}
+                  style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', fontSize: 15, color: '#9CA3AF' }}>
+                  {showPw ? '🙈' : '👁'}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              style={{
+                width: '100%', padding: '12px', fontSize: 14, fontWeight: 700,
+                background: loading ? '#6B92C4' : NAVY,
+                color: '#fff', border: 'none', borderRadius: 8,
+                cursor: loading ? 'not-allowed' : 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4,
+              }}
+            >
+              {loading
+                ? <><span style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />Signing in…</>
+                : 'Sign In to Admin Panel →'}
+            </button>
+          </form>
+        </div>
+
+        <p style={{ textAlign: 'center', marginTop: 20, fontSize: 12, color: '#9CA3AF' }}>
+          <Link href="/" style={{ color: '#9CA3AF', textDecoration: 'none' }}>← Back to Main Site</Link>
+        </p>
+      </div>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }
@@ -313,26 +365,3 @@ export default function LoginPage() {
     </Suspense>
   );
 }
-
-// ── Shared inline styles (avoid Tailwind per CLAUDE.md) ─────────────────────
-
-const labelStyle: React.CSSProperties = {
-  display: 'block',
-  fontSize: 'var(--font-meta)',
-  fontWeight: 'var(--fw-semibold)',
-  color: 'var(--color-body)',
-  marginBottom: 6,
-};
-
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '10px var(--sp-2)',
-  fontSize: 'var(--font-body)',
-  background: 'var(--color-warning-bg)',
-  color: 'var(--color-warning-text)',
-  border: '1px solid var(--color-border)',
-  borderRadius: 'var(--radius-sm)',
-  fontFamily: 'Inter, sans-serif',
-  boxSizing: 'border-box',
-  outline: 'none',
-};

@@ -33,8 +33,8 @@ export const authOptions: AuthOptions = {
         const valid = await verifyPassword(credentials.password, user.password_hash);
         if (!valid) return null;
 
-        // Block unconfirmed accounts
-        if (!user.email_confirmed) {
+        // Block unconfirmed accounts (admin accounts are manually created — skip this check)
+        if (!user.email_confirmed && user.role !== 'admin') {
           throw new Error('EmailNotConfirmed');
         }
 
