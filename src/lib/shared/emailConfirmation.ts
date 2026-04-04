@@ -8,17 +8,32 @@ export async function createConfirmationToken(
   email: string,
   hub: 'training' | 'modeling',
 ): Promise<string> {
-  const token     = crypto.randomBytes(32).toString('hex');
-  const expiresAt = new Date();
+  const normalEmail = email.toLowerCase().trim();
+  const token       = crypto.randomBytes(32).toString('hex');
+  const expiresAt   = new Date();
   expiresAt.setHours(expiresAt.getHours() + TOKEN_TTL_HOURS);
 
   const sb = getServerClient();
-  await sb.from('email_confirmations').insert({
+
+  // Remove any existing unused tokens for this email+hub to prevent stale tokens
+  await sb
+    .from('email_confirmations')
+    .delete()
+    .eq('email', normalEmail)
+    .eq('hub', hub)
+    .is('used_at', null);
+
+  const { error } = await sb.from('email_confirmations').insert({
     hub,
-    email: email.toLowerCase().trim(),
+    email:      normalEmail,
     token,
     expires_at: expiresAt.toISOString(),
   });
+
+  if (error) {
+    console.error('[createConfirmationToken] insert failed:', error);
+    throw new Error('Failed to create confirmation token');
+  }
 
   return token;
 }

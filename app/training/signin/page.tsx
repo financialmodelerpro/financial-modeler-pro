@@ -27,6 +27,7 @@ function TrainingSignInInner() {
   const searchParams = useSearchParams();
   const confirmed    = searchParams.get('confirmed') === 'true';
   const reason       = searchParams.get('reason');
+  const urlError     = searchParams.get('error');
 
   const [identifier,  setIdentifier]  = useState('');
   const [secondField, setSecondField] = useState('');
@@ -326,7 +327,12 @@ function TrainingSignInInner() {
             {/* Status banners */}
             {confirmed && (
               <div style={{ background: '#F0FFF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 13, color: '#15803D', fontWeight: 600 }}>
-                ✅ Email confirmed! Your Registration ID has been sent to your email. Sign in to access your dashboard.
+                ✅ Email confirmed! You can now sign in.
+              </div>
+            )}
+            {urlError === 'link-expired' && (
+              <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 13, color: '#92400E' }}>
+                ⚠️ Your confirmation link has expired or already been used. Please sign in and request a new one below.
               </div>
             )}
             {reason === 'inactivity' && (

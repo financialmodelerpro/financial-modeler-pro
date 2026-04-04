@@ -50,19 +50,32 @@ export async function POST(req: NextRequest) {
     if (isEmail) {
       email = rawIdentifier.toLowerCase();
 
-      // Block students who registered but haven't confirmed their email yet
+      // Block students who registered but haven't confirmed their email yet.
+      // But first check if they already have a confirmed meta row — a stale pending row
+      // can exist if a student tried to re-register after already being confirmed.
       const { data: pending } = await sb
         .from('training_pending_registrations')
         .select('email')
         .eq('email', email)
         .maybeSingle();
       if (pending) {
-        return NextResponse.json({
-          success: false,
-          emailNotConfirmed: true,
-          email,
-          error: 'Please confirm your email address before signing in. Check your inbox for the confirmation link.',
-        }, { status: 200 });
+        // Check if they're already confirmed in meta — stale pending row
+        const { data: metaConfirmed } = await sb
+          .from('training_registrations_meta')
+          .select('email_confirmed')
+          .eq('email', email)
+          .maybeSingle();
+        if (metaConfirmed?.email_confirmed === true) {
+          // Clean up stale pending row and let them through
+          await sb.from('training_pending_registrations').delete().eq('email', email);
+        } else {
+          return NextResponse.json({
+            success: false,
+            emailNotConfirmed: true,
+            email,
+            error: 'Please confirm your email address before signing in. Check your inbox for the confirmation link.',
+          }, { status: 200 });
+        }
       }
 
       if (rawSecond) {

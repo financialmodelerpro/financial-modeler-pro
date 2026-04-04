@@ -22,12 +22,14 @@ export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token') ?? '';
 
   if (!token) {
-    return NextResponse.redirect(`${LEARN_URL}/training/register?error=invalid-token`);
+    console.error('[confirm-email] No token in request');
+    return NextResponse.redirect(`${LEARN_URL}/training/signin?error=link-expired`);
   }
 
   const { valid, email } = await verifyConfirmationToken(token, 'training');
   if (!valid || !email) {
-    return NextResponse.redirect(`${LEARN_URL}/training/register?error=invalid-token`);
+    console.error('[confirm-email] Token invalid or expired. token_prefix=', token.slice(0, 8));
+    return NextResponse.redirect(`${LEARN_URL}/training/signin?error=link-expired`);
   }
 
   const sb = getServerClient();
@@ -40,7 +42,13 @@ export async function GET(req: NextRequest) {
     .maybeSingle();
 
   if (!pending) {
-    // Already confirmed or pending row expired — redirect to signin
+    // Existing student confirming email (no pending row) — mark confirmed and redirect to signin
+    console.log('[confirm-email] No pending row for', email, '— marking existing meta row confirmed');
+    await sb
+      .from('training_registrations_meta')
+      .update({ email_confirmed: true, confirmed_at: new Date().toISOString() })
+      .eq('email', email)
+      .is('email_confirmed', false); // only update if currently false — don't touch already-confirmed
     return NextResponse.redirect(`${LEARN_URL}/training/signin?confirmed=true`);
   }
 
