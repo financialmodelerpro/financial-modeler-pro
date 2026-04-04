@@ -12,17 +12,18 @@ interface NavPage {
   can_toggle?: boolean;
 }
 
+const MAIN_URL  = process.env.NEXT_PUBLIC_MAIN_URL  ?? 'https://financialmodelerpro.com';
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const APP_URL   = process.env.NEXT_PUBLIC_APP_URL   ?? 'https://app.financialmodelerpro.com';
 
 const DEFAULT_PAGES: NavPage[] = [
-  { id: '1', label: 'Home',          href: '/' },
+  { id: '1', label: 'Home',          href: `${MAIN_URL}/` },
   { id: '2', label: 'Modeling Hub',  href: `${APP_URL}/modeling` },
   { id: '3', label: 'Training Hub',  href: `${LEARN_URL}/training` },
-  { id: '4', label: 'Articles',      href: '/articles' },
-  { id: '5', label: 'About',         href: '/about' },
-  { id: '6', label: 'Pricing',       href: '/pricing' },
-  { id: '7', label: 'Contact',       href: '/contact' },
+  { id: '4', label: 'Articles',      href: `${MAIN_URL}/articles` },
+  { id: '5', label: 'About',         href: `${MAIN_URL}/about` },
+  { id: '6', label: 'Pricing',       href: `${MAIN_URL}/pricing` },
+  { id: '7', label: 'Contact',       href: `${MAIN_URL}/contact` },
 ];
 
 interface NavbarProps {
