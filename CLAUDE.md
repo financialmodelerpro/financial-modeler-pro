@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-04**
+**Last updated: 2026-04-05**
 
 ---
 
@@ -119,6 +119,7 @@
 - **New device OTP**: `modeling_email_otps` table, 6-digit code, 10-min expiry
 - **Inactivity logout**: 1-hour `useInactivityLogout` hook on portal + dashboard → `signOut()` from next-auth
 - **Resend confirmation**: `POST /api/auth/resend-confirmation` — only sends if `email_confirmed=false` in users table
+- **Device trust identifier**: `trusted_devices.identifier` stores `email` (not user UUID). `isDeviceTrusted()` in `auth.ts` must check with `user.email` — do NOT change to `user.id` or trust lookup will always fail
 - **Key files**: `src/lib/shared/auth.ts`, `app/api/auth/register/route.ts`, `app/api/auth/confirm-email/route.ts`, `app/api/auth/device-verify/route.ts`, `app/api/auth/resend-confirmation/route.ts`
 
 ---
@@ -305,7 +306,7 @@ app/training/
 ├── dashboard/page.tsx
 ├── forgot/page.tsx
 ├── login/page.tsx
-├── register/page.tsx            # hCaptcha + city/country fields
+├── register/page.tsx            # hCaptcha + city/country + PhoneInput component
 ├── set-password/page.tsx
 ├── signin/page.tsx              # Sign-in + device OTP + resend confirmation link
 ├── submit-testimonial/page.tsx
@@ -320,7 +321,7 @@ app/modeling/
 ├── confirm-email/page.tsx       # Forwards token to /api/auth/confirm-email
 ├── dashboard/page.tsx           # Inactivity logout wired
 ├── login/page.tsx
-├── signin/page.tsx              # Sign-in + signup + device OTP + resend confirmation link
+├── signin/page.tsx              # Sign-in + signup + device OTP + resend confirmation link + password visibility toggle + PhoneInput
 └── submit-testimonial/page.tsx
 
 app/refm/page.tsx                # REFM platform
@@ -425,6 +426,7 @@ src/components/
 │   └── modules/ — Module1Area  Module1Costs  Module1Financing  Module1Timeline
 ├── shared/
 │   ├── BrandingSettingsPanel.tsx  BrandingThemeApplier.tsx
+│   ├── PhoneInput.tsx               # Searchable country-code dropdown (57 countries, keyboard nav)
 │   ├── SessionProviderWrapper.tsx  UpgradePrompt.tsx
 ├── training/
 │   ├── CountdownTimer.tsx
