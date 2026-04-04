@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-05**
+**Last updated: 2026-04-06**
 
 ---
 
@@ -31,7 +31,8 @@
 - Any new environment variables added
 
 ### Do NOT touch list
-- `next.config.ts` — subdomain routing is live and correct
+- `next.config.ts` — subdomain routing is live and correct; `/login` → `/admin/login` permanent redirect is in place
+- `src/middleware.ts` — `/admin/:path*` protection is live; `/admin/login` is explicitly excluded to prevent redirect loop
 - `app/globals.css` — design system tokens, do not restructure
 - `vercel.json` — deployment config is live
 - `supabase/migrations/` — never edit existing migrations; create new ones only
@@ -109,6 +110,8 @@
 - **New device OTP**: `training_email_otps` table, 6-digit code, 10-min expiry
 - **Inactivity logout**: 1-hour `useInactivityLogout` hook on dashboard → `POST /api/training/logout`
 - **Resend confirmation**: `POST /api/training/resend-confirmation` — checks `training_pending_registrations` or `email_confirmed=false` in meta
+- **email_confirmed null handling**: Pre-migration-027 students have `email_confirmed = null`. `validate/route.ts` treats `null` as confirmed (`!== false`). Do NOT use `=== true` or these users will be blocked
+- **Resend confirmation**: `resend-confirmation/route.ts` sends for `email_confirmed !== true` (covers both `false` and `null`)
 - **Key files**: `src/lib/training/training-session.ts`, `app/api/training/validate/route.ts`, `app/api/training/register/route.ts`
 
 ### Modeling Hub (app.financialmodelerpro.com)
@@ -122,6 +125,7 @@
 - **Inactivity logout**: 1-hour `useInactivityLogout` hook on portal + dashboard → `signOut()` from next-auth
 - **Resend confirmation**: `POST /api/auth/resend-confirmation` — only sends if `email_confirmed=false` in users table
 - **Device trust identifier**: `trusted_devices.identifier` stores `email` (not user UUID). `isDeviceTrusted()` in `auth.ts` must check with `user.email` — do NOT change to `user.id` or trust lookup will always fail
+- **Admin bypass**: In `auth.ts` `authorize()`, admin role skips BOTH `EmailNotConfirmed` and `DEVICE_VERIFICATION_REQUIRED` checks — returns immediately after password verification
 - **Key files**: `src/lib/shared/auth.ts`, `app/api/auth/register/route.ts`, `app/api/auth/confirm-email/route.ts`, `app/api/auth/device-verify/route.ts`, `app/api/auth/resend-confirmation/route.ts`
 
 ---
@@ -202,7 +206,7 @@
 | **Training Hub — Inactivity Logout** | ✅ Complete | `useInactivityLogout` on dashboard |
 | **Training Hub — Dashboard** | ✅ Complete | Video player, progress, notes, feedback |
 | **Training Hub — Assessments / Quiz** | ✅ Complete | Question bank, attempts, auto-score |
-| **Training Hub — Certificate System** | ✅ Complete | Internal pdf-lib PDF gen, sharp badge overlay, Supabase storage, cron every 15min, no Certifier.io |
+| **Training Hub — Certificate System** | ✅ Complete | Internal pdf-lib PDF gen, sharp badge overlay, Supabase storage, daily cron (midnight) + manual Generate Now button in admin, no Certifier.io |
 | **Training Hub — Transcript** | ✅ Complete | Shareable token-gated HTML transcript (auto-print PDF), fixed 502 dead link |
 | **Training Hub — Profile** | ✅ Complete | Avatar upload, name/city/country |
 | **Modeling Hub — Auth (login/logout/session)** | ✅ Complete | NextAuth JWT, 1hr session |
@@ -211,7 +215,7 @@
 | **Modeling Hub — Resend Confirmation Email** | ✅ Complete | `POST /api/auth/resend-confirmation`, shown on signin on EmailNotConfirmed |
 | **Modeling Hub — Inactivity Logout** | ✅ Complete | `useInactivityLogout` on portal + dashboard |
 | **Subdomain Routing** | ✅ Complete | next.config.ts rewrites/redirects, no middleware auth |
-| **Admin Panel** | ✅ Complete | Users, training, certificates, CMS, branding, pricing, audit |
+| **Admin Panel** | ✅ Complete | Users, training, certificates, CMS, branding, pricing, audit; login at `/admin/login` |
 | **Admin — Training Hub section** | ✅ Complete | Students, cohorts, assessments, analytics, comms |
 | **Admin — Certificate Editor** | ✅ Complete | Dual layout: HTML block editor + PDF field editor (x/y/fontSize/color per field), course selector, template upload |
 | **CMS / Dynamic Nav** | ✅ Complete | `site_pages` table, admin editable |
@@ -249,7 +253,7 @@ app/
 ├── confidentiality/page.tsx
 ├── contact/page.tsx
 ├── forgot-password/page.tsx
-├── login/page.tsx
+├── login/page.tsx               # Thin client redirect → /admin/login (server redirect in next.config.ts)
 ├── portal/page.tsx              # Authenticated app hub (all platforms grid)
 ├── pricing/page.tsx
 ├── privacy-policy/page.tsx
@@ -264,6 +268,7 @@ app/
 ```
 app/admin/
 ├── layout.tsx
+├── login/page.tsx               # Full admin login UI (email+password, OTP step, navy theme)
 ├── page.tsx
 ├── announcements/page.tsx
 ├── articles/page.tsx + [id]/ + new/
@@ -381,6 +386,8 @@ app/api/admin/
 ├── announcements/ articles/ asset-types/ audit-log/
 ├── assessments/ + attempts/ + questions/
 ├── certificate-layout/ certificates/sync/ certificates/upload-template/
+├── certificates/settings/       # GET/POST auto_generation_enabled toggle (cms_content)
+├── certificates/generate/       # POST: trigger processPendingCertificates(), maxDuration 300s
 ├── contact-submissions/ content/ env-check/ founder/ media/ modules/ pages/ permissions/
 ├── pricing/features/ + modules/ + plans/
 ├── projects/ testimonials/ training/ + [courseId]/lessons/
@@ -604,7 +611,8 @@ npm run verify       # type-check + lint + build
 | `025_testimonial_hub_visibility.sql` | Hub-specific testimonial flags |
 | `026_session_config.sql` | Session configuration |
 | `027_auth_enhancements.sql` | hCaptcha cols, device trust, email confirm, OTP tables ✅ Run |
-| `028_certificate_system.sql` | certificate_id, cert_pdf_url, badge_url, grade, issued_at cols on student_certificates ⚠️ Run in Supabase |
+| `028_certificate_system.sql` | certificate_id, cert_pdf_url, badge_url, grade, issued_at cols on student_certificates ✅ Run |
+| `029_fix_email_confirmed.sql` | Backfill email_confirmed=true for NULL rows; clean up stale unused email_confirmations tokens ⚠️ Run in Supabase |
 
 ---
 
