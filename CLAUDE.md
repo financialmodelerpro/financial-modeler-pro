@@ -74,6 +74,8 @@
 | Export | exceljs + @react-pdf/renderer | ^4.4.0 / ^4.3.2 |
 | Captcha | @hcaptcha/react-hcaptcha | ^2.0.2 |
 | QR Codes | qrcode | ^1.5.4 |
+| PDF Generation | pdf-lib | ^1.17.1 |
+| Image Processing | sharp | ^0.33.5 |
 | Rich Text | @tiptap/react + starter-kit + image | 2.27.2 |
 | Drag & Drop | @hello-pangea/dnd | ^18.0.1 |
 | Passwords | bcryptjs (Training Hub) / scrypt via Node (Modeling Hub) | ^3.0.3 |
@@ -200,8 +202,8 @@
 | **Training Hub — Inactivity Logout** | ✅ Complete | `useInactivityLogout` on dashboard |
 | **Training Hub — Dashboard** | ✅ Complete | Video player, progress, notes, feedback |
 | **Training Hub — Assessments / Quiz** | ✅ Complete | Question bank, attempts, auto-score |
-| **Training Hub — Certificate System** | ✅ Complete | PDF cert, QR verify, Certifier API, public verify page |
-| **Training Hub — Transcript** | ✅ Complete | Shareable token-gated PDF transcript |
+| **Training Hub — Certificate System** | ✅ Complete | Internal pdf-lib PDF gen, sharp badge overlay, Supabase storage, cron every 15min, no Certifier.io |
+| **Training Hub — Transcript** | ✅ Complete | Shareable token-gated HTML transcript (auto-print PDF), fixed 502 dead link |
 | **Training Hub — Profile** | ✅ Complete | Avatar upload, name/city/country |
 | **Modeling Hub — Auth (login/logout/session)** | ✅ Complete | NextAuth JWT, 1hr session |
 | **Modeling Hub — Registration + Email Confirm** | ✅ Complete | hCaptcha + email_confirmed flag + confirmation email |
@@ -211,7 +213,7 @@
 | **Subdomain Routing** | ✅ Complete | next.config.ts rewrites/redirects, no middleware auth |
 | **Admin Panel** | ✅ Complete | Users, training, certificates, CMS, branding, pricing, audit |
 | **Admin — Training Hub section** | ✅ Complete | Students, cohorts, assessments, analytics, comms |
-| **Admin — Certificate Editor** | ✅ Complete | Layout config, sync to Certifier API |
+| **Admin — Certificate Editor** | ✅ Complete | Dual layout: HTML block editor + PDF field editor (x/y/fontSize/color per field), course selector, template upload |
 | **CMS / Dynamic Nav** | ✅ Complete | `site_pages` table, admin editable |
 | **Email System** | ✅ Complete | Resend, 11 templates, FROM.training + FROM.noreply |
 | **Apps Script Integration** | ✅ Complete | Register student, fetch registration ID, attendance |
@@ -378,7 +380,7 @@ app/api/training/
 app/api/admin/
 ├── announcements/ articles/ asset-types/ audit-log/
 ├── assessments/ + attempts/ + questions/
-├── certificate-layout/ certificates/sync/
+├── certificate-layout/ certificates/sync/ certificates/upload-template/
 ├── contact-submissions/ content/ env-check/ founder/ media/ modules/ pages/ permissions/
 ├── pricing/features/ + modules/ + plans/
 ├── projects/ testimonials/ training/ + [courseId]/lessons/
@@ -393,7 +395,7 @@ app/api/admin/
 ```
 app/api/
 ├── agents/market-rates/ + research/
-├── branding/ cms/ contact/ email/send/
+├── branding/ cms/ contact/ cron/certificates/ email/send/
 ├── export/excel/ + pdf/
 ├── health/ modeling/submit-testimonial/
 ├── permissions/ projects/ qr/
@@ -460,7 +462,7 @@ src/lib/
 │   ├── deviceTrust.ts emailConfirmation.ts  password.ts  permissions.ts
 │   ├── storage.ts     supabase.ts      urls.ts
 └── training/
-    ├── certificateLayout.ts  certifier.ts  sheets.ts
+    ├── appsScript.ts  certificateEngine.ts  certificateLayout.ts  certifier.ts (deprecated stub)  sheets.ts
     ├── training-session.ts   videoTimer.ts
 ```
 
@@ -558,6 +560,7 @@ branding.ts  core-calculations.ts  core-formatters.ts  core-state.ts  core-valid
 | `EMAIL_FROM_NOREPLY` | No-reply sender address |
 | `HCAPTCHA_SECRET_KEY` | hCaptcha server-side secret |
 | `NEXT_PUBLIC_HCAPTCHA_SITE_KEY` | hCaptcha client-side site key |
+| `CRON_SECRET` | Bearer token for Vercel cron job auth (`/api/cron/certificates`) |
 
 ### Scripts
 ```bash
@@ -601,6 +604,7 @@ npm run verify       # type-check + lint + build
 | `025_testimonial_hub_visibility.sql` | Hub-specific testimonial flags |
 | `026_session_config.sql` | Session configuration |
 | `027_auth_enhancements.sql` | hCaptcha cols, device trust, email confirm, OTP tables ✅ Run |
+| `028_certificate_system.sql` | certificate_id, cert_pdf_url, badge_url, grade, issued_at cols on student_certificates ⚠️ Run in Supabase |
 
 ---
 
