@@ -28,7 +28,7 @@ export function CertificateImageCard({ cert }: CertificateImageCardProps) {
   }, [uuid]);
 
   const verifyUrl = uuid
-    ? `https://financialmodelerpro.com/verify/${uuid}`
+    ? `${process.env.NEXT_PUBLIC_MAIN_URL || 'https://financialmodelerpro.com'}/verify/${uuid}`
     : cert.certifierUrl;
 
   const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(verifyUrl)}`;

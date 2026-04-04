@@ -297,7 +297,7 @@ function MyCertificates({ userEmail }: { userEmail: string | null | undefined })
             </div>
           </div>
           <a
-            href="/training"
+            href={`${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training`}
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               padding: '9px 18px', borderRadius: 7, fontSize: 12, fontWeight: 700,

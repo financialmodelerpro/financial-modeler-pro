@@ -89,7 +89,7 @@ export default async function VerifyPage({ params }: PageProps) {
   const issueDate = cert?.issued_date ?? certifierData?.issuedOn ?? '';
   const finalScore = cert?.final_exam_score ?? '';
   const registrationId = cert?.registration_id ?? '';
-  const verifyUrl = `https://financialmodelerpro.com/verify/${uuid}`;
+  const verifyUrl = `${process.env.NEXT_PUBLIC_MAIN_URL || 'https://financialmodelerpro.com'}/verify/${uuid}`;
 
   const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(verifyUrl)}`;
 

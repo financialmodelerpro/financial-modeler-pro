@@ -12,10 +12,13 @@ interface NavPage {
   can_toggle?: boolean;
 }
 
+const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+const APP_URL   = process.env.NEXT_PUBLIC_APP_URL   ?? 'https://app.financialmodelerpro.com';
+
 const DEFAULT_PAGES: NavPage[] = [
   { id: '1', label: 'Home',          href: '/' },
-  { id: '2', label: 'Modeling Hub',  href: '/modeling' },
-  { id: '3', label: 'Training Hub',  href: '/training' },
+  { id: '2', label: 'Modeling Hub',  href: `${APP_URL}/modeling` },
+  { id: '3', label: 'Training Hub',  href: `${LEARN_URL}/training` },
   { id: '4', label: 'Articles',      href: '/articles' },
   { id: '5', label: 'About',         href: '/about' },
   { id: '6', label: 'Pricing',       href: '/pricing' },
@@ -124,23 +127,23 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
               Sign In / Register
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-              <Link href="/modeling/signin" onClick={() => setMobileMenuOpen(false)}
+              <a href={`${APP_URL}/modeling/signin`}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '14px 12px', borderRadius: 10, background: '#1B4F8A', color: '#fff', textDecoration: 'none', textAlign: 'center' }}>
                 <span style={{ fontSize: 20 }}>📐</span>
                 <span style={{ fontSize: 12, fontWeight: 700 }}>Modeling Hub</span>
                 <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Sign In</span>
-              </Link>
-              <Link href="/training/signin" onClick={() => setMobileMenuOpen(false)}
+              </a>
+              <a href={`${LEARN_URL}/training/signin`}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '14px 12px', borderRadius: 10, background: '#1A7A30', color: '#fff', textDecoration: 'none', textAlign: 'center' }}>
                 <span style={{ fontSize: 20 }}>🎓</span>
                 <span style={{ fontSize: 12, fontWeight: 700 }}>Training Hub</span>
                 <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Sign In</span>
-              </Link>
+              </a>
             </div>
-            <Link href="/training/register" onClick={() => setMobileMenuOpen(false)}
+            <a href={`${LEARN_URL}/training/register`}
               style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '13px', borderRadius: 10, background: '#2EAA4A', color: '#fff', textDecoration: 'none', fontSize: 14, fontWeight: 700 }}>
               Register Free →
-            </Link>
+            </a>
           </div>
         </div>
       )}
@@ -214,16 +217,16 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
                 <span style={{ fontSize: 15 }}>📐</span>
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#1B3A6B', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Modeling Hub</span>
               </div>
-              <Link href="/modeling/signin" onClick={() => setDropdownOpen(false)}
+              <a href={`${APP_URL}/modeling/signin`} onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 9px 24px', textDecoration: 'none', color: '#374151', fontSize: 13, borderBottom: '1px solid #F9FAFB' }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>🔑</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Sign In</span>
-              </Link>
-              <Link href="/modeling/signin" onClick={() => setDropdownOpen(false)}
+              </a>
+              <a href={`${APP_URL}/modeling/signin`} onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 12px 24px', textDecoration: 'none', color: '#374151', fontSize: 13 }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>✏️</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Create Account</span>
-              </Link>
+              </a>
 
               <div style={{ height: 1, background: '#E5E7EB' }} />
 
@@ -232,16 +235,16 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
                 <span style={{ fontSize: 15 }}>🎓</span>
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#1B3A6B', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Training Hub</span>
               </div>
-              <Link href="/training/signin" onClick={() => setDropdownOpen(false)}
+              <a href={`${LEARN_URL}/training/signin`} onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 9px 24px', textDecoration: 'none', color: '#374151', fontSize: 13, borderBottom: '1px solid #F9FAFB' }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>🔑</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Sign In</span>
-              </Link>
-              <Link href="/training/register" onClick={() => setDropdownOpen(false)}
+              </a>
+              <a href={`${LEARN_URL}/training/register`} onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 14px 24px', textDecoration: 'none', color: '#374151', fontSize: 13 }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>✏️</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Create Account</span>
-              </Link>
+              </a>
             </div>
           )}
         </div>

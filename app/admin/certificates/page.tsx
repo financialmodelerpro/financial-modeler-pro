@@ -121,7 +121,7 @@ export default function AdminCertificatesPage() {
   }
 
   function copyLink(uuid: string) {
-    const url = `https://financialmodelerpro.com/verify/${uuid}`;
+    const url = `${process.env.NEXT_PUBLIC_MAIN_URL || 'https://financialmodelerpro.com'}/verify/${uuid}`;
     navigator.clipboard.writeText(url).then(() => showToast('Verification link copied!')).catch(() => showToast('Copy failed'));
   }
 

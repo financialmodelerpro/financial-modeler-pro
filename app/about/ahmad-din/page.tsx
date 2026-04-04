@@ -63,7 +63,7 @@ export default async function FounderPage() {
             <div style={{ fontSize: 15, color: '#4A90D9', fontWeight: 600, marginBottom: 20 }}>{title}</div>
             <p style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.55)', lineHeight: 1.75, marginBottom: 24 }}>{shortBio}</p>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              <Link href="/training" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1B4F8A', color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}>
+              <Link href={`${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1B4F8A', color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}>
                 View Training Courses →
               </Link>
               {linkedin && (
@@ -120,7 +120,7 @@ export default async function FounderPage() {
           Browse the free training library — video courses on real estate financial modeling taught from first principles.
         </p>
         <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-          <Link href="/training" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1A7A30', color: '#fff', fontWeight: 700, fontSize: 14, padding: '12px 28px', borderRadius: 8, textDecoration: 'none' }}>
+          <Link href={`${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training`} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1A7A30', color: '#fff', fontWeight: 700, fontSize: 14, padding: '12px 28px', borderRadius: 8, textDecoration: 'none' }}>
             Browse Free Courses →
           </Link>
           <Link href="/login" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14, padding: '12px 28px', borderRadius: 8, textDecoration: 'none' }}>

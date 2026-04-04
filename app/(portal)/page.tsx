@@ -223,7 +223,7 @@ export default async function LandingPage() {
                 </Link>
               )}
               {heroCta2_visible && (
-                <Link href="/modeling" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.2)', color:'rgba(255,255,255,0.9)', fontWeight:600, fontSize:15, padding:'14px 32px', borderRadius:8, textDecoration:'none' }}>
+                <Link href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/modeling`} style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.2)', color:'rgba(255,255,255,0.9)', fontWeight:600, fontSize:15, padding:'14px 32px', borderRadius:8, textDecoration:'none' }}>
                   {heroCta2}
                 </Link>
               )}
@@ -342,7 +342,7 @@ export default async function LandingPage() {
                   <li key={t} style={{ fontSize:13, color:'#4B5563', display:'flex', gap:8, alignItems:'center' }}><span style={{ color:'#1B4F8A', fontWeight:700 }}>→</span> {t}</li>
                 ))}
               </ul>
-              <Link href="/modeling" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1B4F8A', color:'#fff', fontSize:13, fontWeight:700, padding:'10px 22px', borderRadius:7, textDecoration:'none' }}>Explore Modeling Hub →</Link>
+              <Link href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/modeling`} style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1B4F8A', color:'#fff', fontSize:13, fontWeight:700, padding:'10px 22px', borderRadius:7, textDecoration:'none' }}>Explore Modeling Hub →</Link>
             </div>
             {/* Training card */}
             <div style={{ background:'#fff', border:'1px solid #C3E9CE', borderTop:'4px solid #1A7A30', borderRadius:16, padding:'36px 32px', boxShadow:'0 2px 12px rgba(26,122,48,0.06)' }}>
@@ -361,7 +361,7 @@ export default async function LandingPage() {
                   <li key={t} style={{ fontSize:13, color:'#4B5563', display:'flex', gap:8, alignItems:'center' }}><span style={{ color:'#1A7A30', fontWeight:700 }}>→</span> {t}</li>
                 ))}
               </ul>
-              <Link href="/training" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1A7A30', color:'#fff', fontSize:13, fontWeight:700, padding:'10px 22px', borderRadius:7, textDecoration:'none' }}>Browse Free Courses →</Link>
+              <Link href={`${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training`} style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1A7A30', color:'#fff', fontSize:13, fontWeight:700, padding:'10px 22px', borderRadius:7, textDecoration:'none' }}>Browse Free Courses →</Link>
             </div>
           </div>
         </div>
@@ -569,7 +569,7 @@ export default async function LandingPage() {
           )}
           {/* Submit testimonial link */}
           <div style={{ textAlign:'center', marginTop:32 }}>
-            <Link href="/training" style={{ fontSize:13, color:'#1B4F8A', fontWeight:600, textDecoration:'none', borderBottom:'1px solid #C7D9F2', paddingBottom:2 }}>
+            <Link href={`${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training`} style={{ fontSize:13, color:'#1B4F8A', fontWeight:600, textDecoration:'none', borderBottom:'1px solid #C7D9F2', paddingBottom:2 }}>
               Join the free course →
             </Link>
           </div>

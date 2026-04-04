@@ -333,7 +333,7 @@ export default function TrainingSignInPage() {
             </div>
             <div style={{ marginTop: 14, textAlign: 'center' }}>
               <span style={{ fontSize: 12, color: '#9CA3AF' }}>
-                <Link href="/modeling/signin" style={{ color: '#9CA3AF', textDecoration: 'underline' }}>Modeling Hub Sign In →</Link>
+                <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/modeling/signin`} style={{ color: '#9CA3AF', textDecoration: 'underline' }}>Modeling Hub Sign In →</a>
               </span>
             </div>
           </div>

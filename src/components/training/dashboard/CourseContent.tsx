@@ -487,12 +487,12 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#0A66C2', color: '#fff', textDecoration: 'none' }}>
               in LinkedIn
             </a>
-            <a href={`https://wa.me/?text=${encodeURIComponent(`I just earned my ${course.shortTitle} certificate from Financial Modeler Pro! 🎓\n\nCheck out the free course: https://financialmodelerpro.com/training\n\nVerify my certificate: ${courseCert.certifierUrl}`)}`}
+            <a href={`https://wa.me/?text=${encodeURIComponent(`I just earned my ${course.shortTitle} certificate from Financial Modeler Pro! 🎓\n\nCheck out the free course: ${process.env.NEXT_PUBLIC_LEARN_URL || 'https://learn.financialmodelerpro.com'}/training\n\nVerify my certificate: ${courseCert.certifierUrl}`)}`}
               target="_blank" rel="noopener noreferrer"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#25D366', color: '#fff', textDecoration: 'none' }}>
               WhatsApp
             </a>
-            <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`Just earned my ${course.shortTitle} certification! 🏆\n\nFree course at https://financialmodelerpro.com/training\n\n#FinancialModeling #Finance`)}`}
+            <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`Just earned my ${course.shortTitle} certification! 🏆\n\nFree course at ${process.env.NEXT_PUBLIC_LEARN_URL || 'https://learn.financialmodelerpro.com'}/training\n\n#FinancialModeling #Finance`)}`}
               target="_blank" rel="noopener noreferrer"
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#000', color: '#fff', textDecoration: 'none' }}>
               𝕏 Twitter
