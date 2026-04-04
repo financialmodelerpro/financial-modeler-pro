@@ -1,10 +1,9 @@
 import type { AuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
+import { cookies } from 'next/headers';
 import { serverClient } from '@/src/lib/shared/supabase';
 import { verifyPassword } from '@/src/lib/shared/password';
-import { isDeviceTrusted } from '@/src/lib/shared/deviceTrust';
-
-const DEVICE_COOKIE_NAME = 'fmp-trusted-device';
+import { isDeviceTrusted, DEVICE_COOKIE_NAME } from '@/src/lib/shared/deviceTrust';
 
 export const authOptions: AuthOptions = {
   session: { strategy: 'jwt', maxAge: 60 * 60 }, // 1 hour
@@ -19,7 +18,7 @@ export const authOptions: AuthOptions = {
         email:    { label: 'Email',    type: 'email'    },
         password: { label: 'Password', type: 'password' },
       },
-      async authorize(credentials, req) {
+      async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null;
 
         const { data: user, error } = await serverClient
@@ -39,10 +38,9 @@ export const authOptions: AuthOptions = {
           throw new Error('EmailNotConfirmed');
         }
 
-        // Check device trust
-        const cookieHeader = (req as { headers?: { cookie?: string } }).headers?.cookie ?? '';
-        const deviceCookieMatch = cookieHeader.match(new RegExp(`${DEVICE_COOKIE_NAME}=([^;]+)`));
-        const deviceToken = deviceCookieMatch?.[1] ?? null;
+        // Check device trust via next/headers cookies() — reliable in App Router context
+        const cookieStore = await cookies();
+        const deviceToken = cookieStore.get(DEVICE_COOKIE_NAME)?.value ?? null;
 
         const trusted = deviceToken
           ? await isDeviceTrusted(deviceToken, user.id, 'modeling')
