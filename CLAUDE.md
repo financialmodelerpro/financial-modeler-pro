@@ -612,7 +612,7 @@ npm run verify       # type-check + lint + build
 | `026_session_config.sql` | Session configuration |
 | `027_auth_enhancements.sql` | hCaptcha cols, device trust, email confirm, OTP tables ✅ Run |
 | `028_certificate_system.sql` | certificate_id, cert_pdf_url, badge_url, grade, issued_at cols on student_certificates ✅ Run |
-| `029_fix_email_confirmed.sql` | Backfill email_confirmed=true for NULL rows; clean up stale unused email_confirmations tokens ⚠️ Run in Supabase |
+| `029_fix_email_confirmed.sql` | Backfill email_confirmed=true for NULL rows; clean up stale unused email_confirmations tokens ✅ Run |
 
 ---
 
