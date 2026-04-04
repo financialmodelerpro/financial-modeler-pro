@@ -69,6 +69,9 @@ const nextConfig: NextConfig = {
     ]);
 
     return [
+      // /login permanently moved to /admin/login
+      { source: '/login', destination: '/admin/login', permanent: true },
+
       // Existing slug redirects
       { source: '/modeling-hub',        destination: '/modeling',        permanent: true },
       { source: '/modeling-hub/:path*', destination: '/modeling/:path*', permanent: true },

@@ -18,7 +18,7 @@ export function useRequireAdmin(): { loading: boolean } {
   useEffect(() => {
     if (status === 'loading') return;
     if (!session) {
-      router.replace('/login');
+      router.replace('/admin/login');
       return;
     }
     if ((session.user as { role?: string }).role !== 'admin') {

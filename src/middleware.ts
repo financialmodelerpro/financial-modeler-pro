@@ -5,9 +5,10 @@ import type { NextRequest } from 'next/server';
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  if (pathname.startsWith('/admin')) {
+  // Protect /admin/* but not the login page itself (would cause redirect loop)
+  if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-    if (!token) return NextResponse.redirect(new URL('/login', req.url));
+    if (!token) return NextResponse.redirect(new URL('/admin/login', req.url));
     if ((token as { role?: string }).role !== 'admin') {
       return NextResponse.redirect(new URL('/portal', req.url));
     }
