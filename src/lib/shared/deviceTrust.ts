@@ -33,15 +33,16 @@ export async function isDeviceTrusted(
 
 /**
  * Generate and persist a new device trust token for the given identifier.
- * Returns the plaintext token to set as a cookie.
+ * @param ttlMs - TTL in milliseconds. Defaults to 30 days. Pass a shorter value
+ *                for session-level trust (e.g. 2 * 60 * 60 * 1000 for 2 hours).
  */
 export async function trustDevice(
   identifier: string,
   hub: 'training' | 'modeling',
+  ttlMs: number = TRUST_DAYS * 24 * 60 * 60 * 1000,
 ): Promise<string> {
   const token     = crypto.randomBytes(32).toString('hex');
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + TRUST_DAYS);
+  const expiresAt = new Date(Date.now() + ttlMs);
 
   const sb = getServerClient();
   await sb.from('trusted_devices').insert({
@@ -54,11 +55,12 @@ export async function trustDevice(
   return token;
 }
 
-/** Returns the Set-Cookie header value for a trust token. */
-export function buildTrustCookieHeader(token: string, secure: boolean): string {
+/** Returns the Set-Cookie header value for a trust token.
+ *  @param maxAge - Cookie Max-Age in seconds. Defaults to 30 days. */
+export function buildTrustCookieHeader(token: string, secure: boolean, maxAge: number = COOKIE_MAX_AGE): string {
   return (
     `${DEVICE_COOKIE_NAME}=${token}; HttpOnly; SameSite=Lax; ` +
-    `Max-Age=${COOKIE_MAX_AGE}; Path=/` +
+    `Max-Age=${maxAge}; Path=/` +
     (secure ? '; Secure' : '')
   );
 }

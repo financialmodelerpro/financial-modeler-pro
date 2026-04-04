@@ -11,6 +11,68 @@ type Status = 'idle' | 'loading' | 'error' | 'duplicate';
 const GREEN = '#2EAA4A';
 const NAVY  = '#0D2E5A';
 
+const COUNTRY_CODES = [
+  { code: '+1',   flag: '🇺🇸', label: 'US / Canada' },
+  { code: '+44',  flag: '🇬🇧', label: 'UK' },
+  { code: '+92',  flag: '🇵🇰', label: 'Pakistan' },
+  { code: '+971', flag: '🇦🇪', label: 'UAE' },
+  { code: '+966', flag: '🇸🇦', label: 'Saudi Arabia' },
+  { code: '+91',  flag: '🇮🇳', label: 'India' },
+  { code: '+61',  flag: '🇦🇺', label: 'Australia' },
+  { code: '+49',  flag: '🇩🇪', label: 'Germany' },
+  { code: '+33',  flag: '🇫🇷', label: 'France' },
+  { code: '+86',  flag: '🇨🇳', label: 'China' },
+  { code: '+93',  flag: '🇦🇫', label: 'Afghanistan' },
+  { code: '+213', flag: '🇩🇿', label: 'Algeria' },
+  { code: '+54',  flag: '🇦🇷', label: 'Argentina' },
+  { code: '+880', flag: '🇧🇩', label: 'Bangladesh' },
+  { code: '+55',  flag: '🇧🇷', label: 'Brazil' },
+  { code: '+20',  flag: '🇪🇬', label: 'Egypt' },
+  { code: '+251', flag: '🇪🇹', label: 'Ethiopia' },
+  { code: '+233', flag: '🇬🇭', label: 'Ghana' },
+  { code: '+62',  flag: '🇮🇩', label: 'Indonesia' },
+  { code: '+98',  flag: '🇮🇷', label: 'Iran' },
+  { code: '+964', flag: '🇮🇶', label: 'Iraq' },
+  { code: '+972', flag: '🇮🇱', label: 'Israel' },
+  { code: '+39',  flag: '🇮🇹', label: 'Italy' },
+  { code: '+81',  flag: '🇯🇵', label: 'Japan' },
+  { code: '+962', flag: '🇯🇴', label: 'Jordan' },
+  { code: '+254', flag: '🇰🇪', label: 'Kenya' },
+  { code: '+965', flag: '🇰🇼', label: 'Kuwait' },
+  { code: '+961', flag: '🇱🇧', label: 'Lebanon' },
+  { code: '+218', flag: '🇱🇾', label: 'Libya' },
+  { code: '+60',  flag: '🇲🇾', label: 'Malaysia' },
+  { code: '+52',  flag: '🇲🇽', label: 'Mexico' },
+  { code: '+212', flag: '🇲🇦', label: 'Morocco' },
+  { code: '+31',  flag: '🇳🇱', label: 'Netherlands' },
+  { code: '+64',  flag: '🇳🇿', label: 'New Zealand' },
+  { code: '+234', flag: '🇳🇬', label: 'Nigeria' },
+  { code: '+47',  flag: '🇳🇴', label: 'Norway' },
+  { code: '+968', flag: '🇴🇲', label: 'Oman' },
+  { code: '+63',  flag: '🇵🇭', label: 'Philippines' },
+  { code: '+48',  flag: '🇵🇱', label: 'Poland' },
+  { code: '+351', flag: '🇵🇹', label: 'Portugal' },
+  { code: '+974', flag: '🇶🇦', label: 'Qatar' },
+  { code: '+7',   flag: '🇷🇺', label: 'Russia' },
+  { code: '+65',  flag: '🇸🇬', label: 'Singapore' },
+  { code: '+27',  flag: '🇿🇦', label: 'South Africa' },
+  { code: '+82',  flag: '🇰🇷', label: 'South Korea' },
+  { code: '+34',  flag: '🇪🇸', label: 'Spain' },
+  { code: '+249', flag: '🇸🇩', label: 'Sudan' },
+  { code: '+46',  flag: '🇸🇪', label: 'Sweden' },
+  { code: '+41',  flag: '🇨🇭', label: 'Switzerland' },
+  { code: '+963', flag: '🇸🇾', label: 'Syria' },
+  { code: '+255', flag: '🇹🇿', label: 'Tanzania' },
+  { code: '+66',  flag: '🇹🇭', label: 'Thailand' },
+  { code: '+216', flag: '🇹🇳', label: 'Tunisia' },
+  { code: '+90',  flag: '🇹🇷', label: 'Turkey' },
+  { code: '+256', flag: '🇺🇬', label: 'Uganda' },
+  { code: '+380', flag: '🇺🇦', label: 'Ukraine' },
+  { code: '+84',  flag: '🇻🇳', label: 'Vietnam' },
+  { code: '+967', flag: '🇾🇪', label: 'Yemen' },
+  { code: '+263', flag: '🇿🇼', label: 'Zimbabwe' },
+];
+
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '10px 12px', fontSize: 14,
   border: '1.5px solid #D1D5DB', borderRadius: 7,
@@ -29,9 +91,10 @@ export default function TrainingRegisterPage() {
   const [errorMsg, setErrorMsg] = useState('');
 
   // Form fields
-  const [name,     setName]     = useState('');
-  const [email,    setEmail]    = useState('');
-  const [phone,    setPhone]    = useState('');
+  const [name,       setName]       = useState('');
+  const [email,      setEmail]      = useState('');
+  const [phoneCode,  setPhoneCode]  = useState('+1');
+  const [phoneLocal, setPhoneLocal] = useState('');
   const [city,     setCity]     = useState('');
   const [country,  setCountry]  = useState('');
   const [course,   setCourse]   = useState('3sfm');
@@ -105,7 +168,7 @@ export default function TrainingRegisterPage() {
           name:         name.trim(),
           email:        email.trim().toLowerCase(),
           course,
-          phone:        phone.trim() || undefined,
+          phone:        phoneLocal.trim() ? phoneCode + phoneLocal.trim() : undefined,
           city:         city.trim() || undefined,
           country:      country.trim() || undefined,
           password,
@@ -297,7 +360,7 @@ export default function TrainingRegisterPage() {
               <div>
                 <label style={labelStyle}>FULL NAME <span style={{ color: '#DC2626' }}>*</span></label>
                 <input type="text" required value={name} onChange={e => setName(e.target.value)}
-                  placeholder="Ahmad Din" style={inputStyle}
+                  placeholder="Your full name" style={inputStyle}
                   onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
                   onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
               </div>
@@ -317,10 +380,20 @@ export default function TrainingRegisterPage() {
               {/* Phone */}
               <div>
                 <label style={labelStyle}>PHONE NUMBER <span style={{ color: '#9CA3AF', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
-                <input type="tel" value={phone} onChange={e => setPhone(e.target.value)}
-                  placeholder="+92 300 1234567" style={inputStyle}
-                  onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
-                  onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
+                <div style={{ display: 'flex' }}>
+                  <select value={phoneCode} onChange={e => setPhoneCode(e.target.value)}
+                    style={{ padding: '10px 6px', fontSize: 13, border: '1.5px solid #D1D5DB', borderRadius: '7px 0 0 7px', borderRight: 'none', background: '#fff', cursor: 'pointer', fontFamily: "'Inter', sans-serif", outline: 'none', flexShrink: 0 }}
+                    onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
+                    onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }}>
+                    {COUNTRY_CODES.map(c => (
+                      <option key={c.code + c.label} value={c.code}>{c.flag} {c.code} — {c.label}</option>
+                    ))}
+                  </select>
+                  <input type="tel" value={phoneLocal} onChange={e => setPhoneLocal(e.target.value)}
+                    placeholder="Local number" style={{ ...inputStyle, borderRadius: '0 7px 7px 0', flex: 1, minWidth: 0 }}
+                    onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
+                    onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
+                </div>
               </div>
 
               {/* City + Country */}

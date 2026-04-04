@@ -70,15 +70,17 @@ export async function POST(req: NextRequest) {
 
       const response = NextResponse.json({ success: true });
 
-      // Trust device if requested
-      if (body.trustDevice) {
-        const identifier = userId ?? email;
-        const token = await trustDevice(identifier, 'modeling');
-        response.headers.append(
-          'Set-Cookie',
-          buildTrustCookieHeader(token, process.env.NODE_ENV === 'production'),
-        );
-      }
+      // Always set a trust cookie so the subsequent signIn() call passes authorize().
+      // 30-day persistent trust if user checked the box, otherwise 2-hour session trust.
+      const isPersistent = !!body.trustDevice;
+      const ttlMs        = isPersistent ? 30 * 24 * 60 * 60 * 1000 : 2 * 60 * 60 * 1000;
+      const cookieMaxAge = isPersistent ? 30 * 24 * 60 * 60         : 2 * 60 * 60;
+      const identifier   = userId ?? email;
+      const token        = await trustDevice(identifier, 'modeling', ttlMs);
+      response.headers.append(
+        'Set-Cookie',
+        buildTrustCookieHeader(token, process.env.NODE_ENV === 'production', cookieMaxAge),
+      );
 
       return response;
     }
