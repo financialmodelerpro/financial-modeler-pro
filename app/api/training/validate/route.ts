@@ -49,6 +49,22 @@ export async function POST(req: NextRequest) {
 
     if (isEmail) {
       email = rawIdentifier.toLowerCase();
+
+      // Block students who registered but haven't confirmed their email yet
+      const { data: pending } = await sb
+        .from('training_pending_registrations')
+        .select('email')
+        .eq('email', email)
+        .maybeSingle();
+      if (pending) {
+        return NextResponse.json({
+          success: false,
+          emailNotConfirmed: true,
+          email,
+          error: 'Please confirm your email address before signing in. Check your inbox for the confirmation link.',
+        }, { status: 200 });
+      }
+
       if (rawSecond) {
         regId = rawSecond.toUpperCase();
       } else {
@@ -133,6 +149,21 @@ export async function POST(req: NextRequest) {
       }
     } catch {
       return NextResponse.json({ success: false, error: 'Authentication error. Please try again.' }, { status: 500 });
+    }
+
+    // Block if email_confirmed explicitly false (edge case — null means pre-027 confirmed user)
+    const { data: metaRow } = await sb
+      .from('training_registrations_meta')
+      .select('email_confirmed')
+      .eq('email', email)
+      .maybeSingle();
+    if (metaRow?.email_confirmed === false) {
+      return NextResponse.json({
+        success: false,
+        emailNotConfirmed: true,
+        email,
+        error: 'Please confirm your email address before signing in. Check your inbox for the confirmation link.',
+      }, { status: 200 });
     }
 
     // Device trust check

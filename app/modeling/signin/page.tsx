@@ -45,6 +45,10 @@ function ModelingSignInInner() {
   const [captchaToken, setCaptchaToken] = useState('');
   const captchaRef = useRef<HCaptcha>(null);
 
+  // Resend confirmation email
+  const [showResendConfirm,   setShowResendConfirm]   = useState(false);
+  const [resendConfirmStatus, setResendConfirmStatus] = useState<'idle' | 'loading' | 'sent' | 'error'>('idle');
+
   // Device verification (sign in)
   const [deviceStep,   setDeviceStep]   = useState<'credentials' | 'otp'>('credentials');
   const [deviceEmail,  setDeviceEmail]  = useState('');
@@ -59,7 +63,7 @@ function ModelingSignInInner() {
   const errorParam = searchParams.get('error');
   const reason     = searchParams.get('reason');
 
-  useEffect(() => { setError(''); setSuccess(''); setCaptchaToken(''); captchaRef.current?.resetCaptcha(); }, [mode]);
+  useEffect(() => { setError(''); setSuccess(''); setCaptchaToken(''); setShowResendConfirm(false); setResendConfirmStatus('idle'); captchaRef.current?.resetCaptcha(); }, [mode]);
 
   const handleSignIn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,6 +76,7 @@ function ModelingSignInInner() {
 
     if (result.error === 'EmailNotConfirmed') {
       setError('Please confirm your email address before signing in. Check your inbox for the confirmation link.');
+      setShowResendConfirm(true);
       return;
     }
     if (result.error === 'DEVICE_VERIFICATION_REQUIRED') {
@@ -112,6 +117,20 @@ function ModelingSignInInner() {
     captchaRef.current?.resetCaptcha();
     setCaptchaToken('');
   };
+
+  async function handleResendConfirm() {
+    setResendConfirmStatus('loading');
+    try {
+      await fetch('/api/auth/resend-confirmation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      });
+      setResendConfirmStatus('sent');
+    } catch {
+      setResendConfirmStatus('error');
+    }
+  }
 
   async function sendDeviceOtp(emailAddr: string) {
     setSendingOtp(true);
@@ -267,7 +286,25 @@ function ModelingSignInInner() {
                 </div>
               )}
 
-              {error   && <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 13, color: '#DC2626' }}>{error}</div>}
+              {error && (
+                <div style={{ marginBottom: 18 }}>
+                  <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: '#DC2626' }}>{error}</div>
+                  {showResendConfirm && (
+                    <div style={{ marginTop: 8, textAlign: 'center' }}>
+                      {resendConfirmStatus === 'sent' ? (
+                        <span style={{ fontSize: 12, color: '#15803D', fontWeight: 600 }}>✅ Confirmation email sent — check your inbox.</span>
+                      ) : resendConfirmStatus === 'error' ? (
+                        <span style={{ fontSize: 12, color: '#DC2626' }}>Failed to send. Please try again.</span>
+                      ) : (
+                        <button type="button" onClick={handleResendConfirm} disabled={resendConfirmStatus === 'loading'}
+                          style={{ background: 'none', border: 'none', fontSize: 12, color: BLUE, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                          {resendConfirmStatus === 'loading' ? 'Sending…' : 'Resend confirmation email →'}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
               {success && <div style={{ background: '#F0FFF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 13, color: '#15803D' }}>{success}</div>}
 
               {mode === 'signin' ? (

@@ -45,6 +45,11 @@ function TrainingSignInInner() {
   const [forgotEmail,  setForgotEmail]  = useState('');
   const [resendStatus, setResendStatus] = useState<ResendStatus>('idle');
 
+  // Resend confirmation email
+  const [emailNotConfirmed,    setEmailNotConfirmed]    = useState(false);
+  const [resendConfirmEmail,   setResendConfirmEmail]   = useState('');
+  const [resendConfirmStatus,  setResendConfirmStatus]  = useState<ResendStatus>('idle');
+
   const [showPw, setShowPw] = useState(false);
 
   // Device verification
@@ -79,6 +84,7 @@ function TrainingSignInInner() {
         provide?: 'email' | 'registrationId';
         needsPasswordSetup?: boolean;
         requiresDeviceVerification?: boolean;
+        emailNotConfirmed?: boolean;
         email?: string;
         registrationId?: string;
       };
@@ -86,6 +92,15 @@ function TrainingSignInInner() {
       if (json.success && json.email && json.registrationId) {
         setTrainingSession(json.email, json.registrationId);
         router.push('/training/dashboard');
+        return;
+      }
+
+      if (json.emailNotConfirmed) {
+        setEmailNotConfirmed(true);
+        setResendConfirmEmail(json.email ?? identifier.trim().toLowerCase());
+        setResendConfirmStatus('idle');
+        setErrorMsg(json.error ?? 'Please confirm your email address before signing in.');
+        setLoading(false);
         return;
       }
 
@@ -119,6 +134,20 @@ function TrainingSignInInner() {
       setErrorMsg('An unexpected error occurred. Please try again.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleResendConfirm() {
+    setResendConfirmStatus('loading');
+    try {
+      await fetch('/api/training/resend-confirmation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: resendConfirmEmail }),
+      });
+      setResendConfirmStatus('sent');
+    } catch {
+      setResendConfirmStatus('error');
     }
   }
 
@@ -328,8 +357,24 @@ function TrainingSignInInner() {
             ) : (
               <>
                 {errorMsg && (
-                  <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 13, color: '#DC2626', lineHeight: 1.5 }}>
-                    ❌ {errorMsg}
+                  <div style={{ marginBottom: 18 }}>
+                    <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px 14px', fontSize: 13, color: '#DC2626', lineHeight: 1.5 }}>
+                      ❌ {errorMsg}
+                    </div>
+                    {emailNotConfirmed && (
+                      <div style={{ marginTop: 8, textAlign: 'center' }}>
+                        {resendConfirmStatus === 'sent' ? (
+                          <span style={{ fontSize: 12, color: '#15803D', fontWeight: 600 }}>✅ Confirmation email sent — check your inbox.</span>
+                        ) : resendConfirmStatus === 'error' ? (
+                          <span style={{ fontSize: 12, color: '#DC2626' }}>Failed to send. Please try again.</span>
+                        ) : (
+                          <button type="button" onClick={handleResendConfirm} disabled={resendConfirmStatus === 'loading'}
+                            style={{ background: 'none', border: 'none', fontSize: 12, color: GREEN, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', padding: 0 }}>
+                            {resendConfirmStatus === 'loading' ? 'Sending…' : 'Resend confirmation email →'}
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -340,7 +385,7 @@ function TrainingSignInInner() {
                     <input
                       type="text" required autoComplete="username"
                       value={identifier}
-                      onChange={e => { setIdentifier(e.target.value); setNeedsBoth(false); setErrorMsg(''); }}
+                      onChange={e => { setIdentifier(e.target.value); setNeedsBoth(false); setErrorMsg(''); setEmailNotConfirmed(false); }}
                       placeholder="FMP-2026-XXXX or you@example.com"
                       style={inputStyle}
                       onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
