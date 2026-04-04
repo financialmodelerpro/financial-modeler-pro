@@ -1,6 +1,10 @@
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+let _resend: Resend | null = null;
+function getResend(): Resend {
+  if (!_resend) _resend = new Resend(process.env.RESEND_API_KEY);
+  return _resend;
+}
 
 export const FROM = {
   training: `Financial Modeler Pro Training <${process.env.EMAIL_FROM_TRAINING ?? 'training@financialmodelerpro.com'}>`,
@@ -16,7 +20,7 @@ interface SendEmailOptions {
 }
 
 export async function sendEmail({ to, subject, html, text, from }: SendEmailOptions) {
-  const { data, error } = await resend.emails.send({
+  const { data, error } = await getResend().emails.send({
     from:    from ?? FROM.training,
     to:      Array.isArray(to) ? to : [to],
     subject,
