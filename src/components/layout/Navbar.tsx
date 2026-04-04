@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useState, useRef, useEffect } from 'react';
 
 interface NavPage {
@@ -63,7 +62,7 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
   const logoH = logoHeightInches ? Math.round(parseFloat(logoHeightInches) * 96) : 36;
 
   const logo = (
-    <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
+    <a href={`${MAIN_URL}/`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
       {logoUrl ? (
         /* eslint-disable-next-line @next/next/no-img-element */
         <img src={logoUrl} alt={logoAlt} style={{ height: logoH, width: logoW ?? 'auto', objectFit: 'contain' }} />
@@ -80,7 +79,7 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
           </div>
         </>
       )}
-    </Link>
+    </a>
   );
 
   return (
@@ -96,10 +95,10 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
         }}>
           {/* Mobile menu header */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', height: 64, borderBottom: '1px solid rgba(255,255,255,0.1)', flexShrink: 0 }}>
-            <Link href="/" onClick={() => setMobileMenuOpen(false)} style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
+            <a href={`${MAIN_URL}/`} onClick={() => setMobileMenuOpen(false)} style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none' }}>
               <span style={{ fontSize: 20 }}>📐</span>
               <span style={{ fontWeight: 800, fontSize: 14, color: '#fff' }}>Financial Modeler Pro</span>
-            </Link>
+            </a>
             <button
               onClick={() => setMobileMenuOpen(false)}
               style={{ width: 36, height: 36, borderRadius: 8, background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
@@ -111,14 +110,14 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
           {/* Nav links */}
           <nav style={{ padding: '16px 20px', flex: 1 }}>
             {pages.map(({ id, label, href }) => (
-              <Link
+              <a
                 key={id}
                 href={href}
                 onClick={() => setMobileMenuOpen(false)}
                 style={{ display: 'block', padding: '14px 0', fontSize: 18, fontWeight: 600, color: 'rgba(255,255,255,0.85)', textDecoration: 'none', borderBottom: '1px solid rgba(255,255,255,0.08)' }}
               >
                 {label}
-              </Link>
+              </a>
             ))}
           </nav>
 
@@ -180,13 +179,13 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
         {/* Desktop nav links */}
         <div className="nav-desktop-links" style={{ alignItems: 'center', gap: 2 }}>
           {pages.map(({ id, label, href }) => (
-            <Link
+            <a
               key={id}
               href={href}
               style={{ padding: '6px 12px', borderRadius: 6, fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.75)', textDecoration: 'none' }}
             >
               {label}
-            </Link>
+            </a>
           ))}
         </div>
 

@@ -26,7 +26,7 @@ const labelStyle: React.CSSProperties = {
 function ModelingSignInInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl  = searchParams.get('callbackUrl') ?? '/refm';
+  const callbackUrl  = searchParams.get('callbackUrl') ?? '/modeling/dashboard';
 
   const [mode,     setMode]     = useState<Mode>('signin');
   const [name,     setName]     = useState('');
@@ -68,7 +68,7 @@ function ModelingSignInInner() {
     const result = await signIn('credentials', { email, password, redirect: false });
     setLoading(false);
     if (result?.error) { setSuccess('Account created! Please sign in.'); setMode('signin'); return; }
-    router.push('/refm');
+    router.push('/modeling/dashboard');
     router.refresh();
   };
 
