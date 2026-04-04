@@ -15,7 +15,8 @@ function getSubdomain(hostname: string): 'main' | 'learn' | 'app' {
 export default withAuth(
   function middleware(req: NextRequest) {
     const { pathname } = req.nextUrl;
-    const hostname     = req.headers.get('host') ?? '';
+    const hostname     = req.headers.get('x-forwarded-host') ?? req.headers.get('host') ?? '';
+    console.log('Middleware hostname:', hostname, 'pathname:', pathname);
     const subdomain    = getSubdomain(hostname);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const token        = (req as any).nextauth?.token;
