@@ -43,7 +43,7 @@ export const authOptions: AuthOptions = {
         const deviceToken = cookieStore.get(DEVICE_COOKIE_NAME)?.value ?? null;
 
         const trusted = deviceToken
-          ? await isDeviceTrusted(deviceToken, user.id, 'modeling')
+          ? await isDeviceTrusted(deviceToken, user.email, 'modeling')
           : false;
 
         if (!trusted) {
