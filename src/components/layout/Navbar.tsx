@@ -222,7 +222,7 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
                 <span style={{ fontSize: 13, color: '#6B7280' }}>🔑</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Sign In</span>
               </a>
-              <a href={`${APP_URL}/modeling/signin`} onClick={() => setDropdownOpen(false)}
+              <a href={`${APP_URL}/modeling/signin?tab=signup`} onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 12px 24px', textDecoration: 'none', color: '#374151', fontSize: 13 }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>✏️</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Create Account</span>

@@ -28,7 +28,7 @@ function ModelingSignInInner() {
   const searchParams = useSearchParams();
   const callbackUrl  = searchParams.get('callbackUrl') ?? '/modeling/dashboard';
 
-  const [mode,     setMode]     = useState<Mode>('signin');
+  const [mode,     setMode]     = useState<Mode>(searchParams.get('tab') === 'signup' ? 'signup' : 'signin');
   const [name,     setName]     = useState('');
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
