@@ -127,7 +127,7 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
               Sign In / Register
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-              <a href={`${APP_URL}/modeling/signin`}
+              <a href={`${APP_URL}/signin`}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '14px 12px', borderRadius: 10, background: '#1B4F8A', color: '#fff', textDecoration: 'none', textAlign: 'center' }}>
                 <span style={{ fontSize: 20 }}>📐</span>
                 <span style={{ fontSize: 12, fontWeight: 700 }}>Modeling Hub</span>
@@ -217,7 +217,7 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
                 <span style={{ fontSize: 15 }}>📐</span>
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#1B3A6B', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Modeling Hub</span>
               </div>
-              <a href={`${APP_URL}/modeling/signin`} onClick={() => setDropdownOpen(false)}
+              <a href={`${APP_URL}/signin`} onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 9px 24px', textDecoration: 'none', color: '#374151', fontSize: 13, borderBottom: '1px solid #F9FAFB' }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>🔑</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Sign In</span>
