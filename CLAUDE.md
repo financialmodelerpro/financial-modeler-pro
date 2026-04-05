@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-06**
+**Last updated: 2026-04-07**
 
 ---
 
@@ -31,8 +31,8 @@
 - Any new environment variables added
 
 ### Do NOT touch list
-- `next.config.ts` — subdomain routing is live and correct; `/login` → `/admin/login` permanent redirect is in place; clean auth URL rewrites + redirects added for both subdomains
-- `src/middleware.ts` — `/admin/:path*` protection is live; `/admin/login` is explicitly excluded to prevent redirect loop
+- `next.config.ts` — subdomain routing is live and correct; `/login → /admin/login` permanent redirect was **removed** (caused browser-cached loop); clean auth URL rewrites + redirects added for both subdomains; `Cache-Control: no-store` headers on `/login` and `/admin/login`
+- `src/middleware.ts` — `/admin/:path*` protection is live; `/admin/login` AND `/admin` root are explicitly excluded to prevent redirect loop
 - `app/globals.css` — design system tokens, do not restructure
 - `vercel.json` — deployment config is live
 - `supabase/migrations/` — never edit existing migrations; create new ones only
@@ -126,6 +126,9 @@
 - **Resend confirmation**: `POST /api/auth/resend-confirmation` — only sends if `email_confirmed=false` in users table
 - **Device trust identifier**: `trusted_devices.identifier` stores `email` (not user UUID). `isDeviceTrusted()` in `auth.ts` must check with `user.email` — do NOT change to `user.id` or trust lookup will always fail
 - **Admin bypass**: In `auth.ts` `authorize()`, admin role skips BOTH `EmailNotConfirmed` and `DEVICE_VERIFICATION_REQUIRED` checks — returns immediately after password verification
+- **Admin login flow**: `/admin` (public landing, no auth) → `/admin/login` (form, excluded from middleware) → on success → `/admin/dashboard` (redirects to `/admin/cms`). `NextAuth pages.signIn` points to `/admin/login` (not `/modeling/signin`) to prevent callbackUrl injection into admin redirects
+- **Admin layout guard**: `AdminGuard` uses child component `AdminProtected` to isolate `useRequireAdmin` hook — prevents hook firing on `/admin/login` page itself (would cause infinite loop)
+- **Non-admin redirect**: `useRequireAdmin` redirects non-admins to `/` (not `/refm`)
 - **Key files**: `src/lib/shared/auth.ts`, `app/api/auth/register/route.ts`, `app/api/auth/confirm-email/route.ts`, `app/api/auth/device-verify/route.ts`, `app/api/auth/resend-confirmation/route.ts`
 
 ---
@@ -215,7 +218,7 @@
 | **Modeling Hub — Resend Confirmation Email** | ✅ Complete | `POST /api/auth/resend-confirmation`, shown on signin on EmailNotConfirmed |
 | **Modeling Hub — Inactivity Logout** | ✅ Complete | `useInactivityLogout` on portal + dashboard |
 | **Subdomain Routing** | ✅ Complete | next.config.ts rewrites/redirects, no middleware auth |
-| **Admin Panel** | ✅ Complete | Users, training, certificates, CMS, branding, pricing, audit; login at `/admin/login` |
+| **Admin Panel** | ✅ Complete | Users, training, certificates, CMS, branding, pricing, audit; login at `/admin/login`; public landing at `/admin`; two-step login UI (welcome→form) with navy/gold branding; `/admin/dashboard` is protected entry point |
 | **Admin — Training Hub section** | ✅ Complete | Students, cohorts, assessments, analytics, comms |
 | **Admin — Certificate Editor** | ✅ Complete | Dual layout: HTML block editor + PDF field editor (x/y/fontSize/color per field), course selector, template upload |
 | **CMS / Dynamic Nav** | ✅ Complete | `site_pages` table, admin editable |
@@ -253,7 +256,7 @@ app/
 ├── confidentiality/page.tsx
 ├── contact/page.tsx
 ├── forgot-password/page.tsx
-├── login/page.tsx               # Thin client redirect → /admin/login (server redirect in next.config.ts)
+├── login/page.tsx               # Full admin login UI (200 response, no redirect) — prevents edge-cached 301 loop
 ├── portal/page.tsx              # Authenticated app hub (all platforms grid)
 ├── pricing/page.tsx
 ├── privacy-policy/page.tsx
@@ -267,9 +270,10 @@ app/
 #### Admin (`financialmodelerpro.com/admin`)
 ```
 app/admin/
-├── layout.tsx
-├── login/page.tsx               # Full admin login UI (email+password, OTP step, navy theme)
-├── page.tsx
+├── layout.tsx                   # AdminGuard: splits AdminProtected child to prevent useRequireAdmin running on login page
+├── login/page.tsx               # Full admin login UI — two-step (welcome card → login form), navy bg, gold branding, OTP step
+├── page.tsx                     # PUBLIC landing page (no auth) — navy gradient, "Sign In to Admin Panel →" CTA
+├── dashboard/page.tsx           # Protected entry point post-login — redirects to /admin/cms
 ├── announcements/page.tsx
 ├── articles/page.tsx + [id]/ + new/
 ├── audit/page.tsx
@@ -480,7 +484,7 @@ src/lib/
 src/hooks/
 ├── useInactivityLogout.ts   # 1hr idle → logout; accepts logoutUrl OR onLogout callback
 ├── useProject.ts
-├── useRequireAdmin.ts
+├── useRequireAdmin.ts           # Non-admin redirects to `/` (not `/refm`)
 ├── useRequireAuth.ts
 ├── useSubscription.ts
 └── useWhiteLabel.ts
@@ -542,6 +546,8 @@ branding.ts  core-calculations.ts  core-formatters.ts  core-state.ts  core-valid
 **All internal links** updated to use clean URLs. Use `/signin`, `/register`, `/forgot` for all training/modeling auth links.
 
 **Critical**: All `<Link>` in Navbar uses plain `<a>` tags with absolute URLs. NavbarServer `absolutizeHref()` converts DB-sourced relative hrefs to absolute before rendering.
+
+**Navbar auth links**: All 7 signin/register/create-account links in `Navbar.tsx` use explicit `process.env.NEXT_PUBLIC_APP_URL` / `process.env.NEXT_PUBLIC_LEARN_URL` — do NOT use file-level constants or hardcoded strings for these.
 
 ---
 
