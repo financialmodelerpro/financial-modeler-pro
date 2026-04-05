@@ -4,18 +4,22 @@ import { useRequireAdmin } from '@/src/hooks/useRequireAdmin';
 import { usePathname } from 'next/navigation';
 
 /**
- * Admin layout — applies useRequireAdmin guard to every /admin/* page
- * except /admin/login (would cause a redirect loop).
- * Middleware handles the server-side auth check for /admin/*.
+ * Rendered only for non-login admin pages.
+ * Keeping useRequireAdmin in its own component means the hook
+ * is never called on /admin/login, which would trigger
+ * router.replace('/admin/login') in a render loop.
  */
-function AdminGuard({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
+function AdminProtected({ children }: { children: React.ReactNode }) {
   const { loading } = useRequireAdmin();
-
-  // Never guard the login page itself — middleware already protects other routes
-  if (pathname === '/admin/login') return <>{children}</>;
   if (loading) return null;
   return <>{children}</>;
+}
+
+function AdminGuard({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  // Login page must never run the auth hook — it has no session by definition
+  if (pathname === '/admin/login') return <>{children}</>;
+  return <AdminProtected>{children}</AdminProtected>;
 }
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {

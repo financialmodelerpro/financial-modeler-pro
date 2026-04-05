@@ -85,9 +85,6 @@ const nextConfig: NextConfig = {
       { source: '/training/login',    destination: '/signin',   permanent: false, has: [{ type: 'host' as const, value: 'learn.financialmodelerpro.com' }] },
       { source: '/training/forgot',   destination: '/forgot',   permanent: false, has: [{ type: 'host' as const, value: 'learn.financialmodelerpro.com' }] },
 
-      // app. — /modeling/signin redirect to clean URL
-      { source: '/modeling/signin',   destination: '/signin',   permanent: false, has: [{ type: 'host' as const, value: 'app.financialmodelerpro.com' }] },
-
       // Existing slug redirects
       { source: '/modeling-hub',        destination: '/modeling',        permanent: true },
       { source: '/modeling-hub/:path*', destination: '/modeling/:path*', permanent: true },
