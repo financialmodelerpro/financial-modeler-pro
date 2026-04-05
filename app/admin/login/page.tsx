@@ -355,6 +355,9 @@ function LoginInner() {
         <p style={{ textAlign: 'center', marginTop: 20, fontSize: 12, color: '#9CA3AF' }}>
           <Link href="/" style={{ color: '#9CA3AF', textDecoration: 'none' }}>← Back to Main Site</Link>
         </p>
+        <p style={{ fontSize: '10px', color: '#999', textAlign: 'center' }}>
+          v8.0.1
+        </p>
       </div>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
