@@ -1,3 +1,4 @@
+// v2 - loop fix deployed
 'use client';
 
 import React, { useState, Suspense } from 'react';
