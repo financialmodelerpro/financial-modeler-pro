@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
@@ -83,6 +84,7 @@ export default function AdminCertificatesPage() {
     '3sfm-cert': false, 'bvm-cert': false, '3sfm-badge': false, 'bvm-badge': false,
   });
   const [uploading, setUploading]       = useState<string | null>(null);
+  const [templateUrls, setTemplateUrls] = useState<Partial<Record<keyof TemplateStatus, string>>>({});
 
   // ── Generation settings state ──
   const [autoEnabled,    setAutoEnabled]    = useState(false);
@@ -170,6 +172,33 @@ export default function AdminCertificatesPage() {
 
   useEffect(() => { fetchCerts(); }, [fetchCerts]);
 
+  // Check which templates already exist in storage on load
+  useEffect(() => {
+    const sb = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    );
+    const checks: Array<{ type: keyof TemplateStatus; bucket: string; filePath: string }> = [
+      { type: '3sfm-cert',  bucket: 'certificates', filePath: 'templates/3sfm-template.pdf' },
+      { type: 'bvm-cert',   bucket: 'certificates', filePath: 'templates/bvm-template.pdf'  },
+      { type: '3sfm-badge', bucket: 'badges',       filePath: 'templates/3sfm-badge.png'    },
+      { type: 'bvm-badge',  bucket: 'badges',       filePath: 'templates/bvm-badge.png'     },
+    ];
+    async function checkTemplates() {
+      for (const { type, bucket, filePath } of checks) {
+        const { data: { publicUrl } } = sb.storage.from(bucket).getPublicUrl(filePath);
+        try {
+          const res = await fetch(publicUrl, { method: 'HEAD' });
+          if (res.ok) {
+            setTemplateStatus(prev => ({ ...prev, [type]: true }));
+            setTemplateUrls(prev => ({ ...prev, [type]: publicUrl }));
+          }
+        } catch { /* network error — skip */ }
+      }
+    }
+    void checkTemplates();
+  }, []);
+
   function showToast(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(''), 3500);
@@ -199,9 +228,10 @@ export default function AdminCertificatesPage() {
       form.append('file', file);
       form.append('type', type);
       const res  = await fetch('/api/admin/certificates/upload-template', { method: 'POST', body: form });
-      const json = await res.json() as { success?: boolean; error?: string };
+      const json = await res.json() as { success?: boolean; error?: string; url?: string };
       if (json.success) {
         setTemplateStatus(prev => ({ ...prev, [type]: true }));
+        if (json.url) setTemplateUrls(prev => ({ ...prev, [type]: json.url! }));
         showToast(`${TEMPLATE_LABELS[type]} uploaded ✓`);
       } else {
         showToast(`Upload failed: ${json.error ?? 'unknown error'}`);
@@ -249,39 +279,60 @@ export default function AdminCertificatesPage() {
             </p>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: 16 }}>
-            {(Object.keys(TEMPLATE_LABELS) as (keyof TemplateStatus)[]).map(type => (
-              <div key={type} style={{ border: '1.5px dashed #D1D5DB', borderRadius: 10, padding: '16px', display: 'flex', flexDirection: 'column', gap: 10, background: '#FAFAFA' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 20 }}>{type.includes('badge') ? '🎖' : '📄'}</span>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A' }}>{TEMPLATE_LABELS[type]}</div>
+            {(Object.keys(TEMPLATE_LABELS) as (keyof TemplateStatus)[]).map(type => {
+              const url = templateUrls[type];
+              const isBadge = type.includes('badge');
+              return (
+                <div key={type} style={{ border: '1.5px dashed #D1D5DB', borderRadius: 10, padding: '16px', display: 'flex', flexDirection: 'column', gap: 10, background: '#FAFAFA' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 20 }}>{isBadge ? '🎖' : '📄'}</span>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A' }}>{TEMPLATE_LABELS[type]}</div>
+                  </div>
+                  {templateStatus[type] && (
+                    <>
+                      <div style={{ fontSize: 11, color: '#2EAA4A', fontWeight: 700 }}>✓ Template uploaded</div>
+                      {url && (
+                        <div style={{ borderRadius: 6, overflow: 'hidden', border: '1px solid #E5E7EB' }}>
+                          {isBadge ? (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img src={url} alt="Badge preview" style={{ width: '100%', height: 80, objectFit: 'contain', background: '#F9FAFB', display: 'block' }} />
+                          ) : (
+                            <iframe src={url} style={{ width: '100%', height: 80, border: 'none', pointerEvents: 'none', display: 'block' }} title="PDF preview" />
+                          )}
+                        </div>
+                      )}
+                      {!isBadge && (
+                        <a href="/admin/certificate-editor" style={{ fontSize: 11, color: '#1D4ED8', fontWeight: 600, textDecoration: 'none' }}>
+                          Open in Certificate Editor →
+                        </a>
+                      )}
+                    </>
+                  )}
+                  <input
+                    ref={fileRefs[type]}
+                    type="file"
+                    accept={TEMPLATE_ACCEPT[type]}
+                    style={{ display: 'none' }}
+                    onChange={e => {
+                      const file = e.target.files?.[0];
+                      if (file) handleTemplateUpload(type, file);
+                      e.target.value = '';
+                    }}
+                  />
+                  <button
+                    onClick={() => fileRefs[type].current?.click()}
+                    disabled={uploading === type}
+                    style={{
+                      padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700,
+                      background: uploading === type ? '#9CA3AF' : '#1B4F8A',
+                      color: '#fff', border: 'none', cursor: uploading === type ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {uploading === type ? 'Uploading…' : 'Upload'}
+                  </button>
                 </div>
-                {templateStatus[type] && (
-                  <div style={{ fontSize: 11, color: '#2EAA4A', fontWeight: 700 }}>✓ Template uploaded</div>
-                )}
-                <input
-                  ref={fileRefs[type]}
-                  type="file"
-                  accept={TEMPLATE_ACCEPT[type]}
-                  style={{ display: 'none' }}
-                  onChange={e => {
-                    const file = e.target.files?.[0];
-                    if (file) handleTemplateUpload(type, file);
-                    e.target.value = '';
-                  }}
-                />
-                <button
-                  onClick={() => fileRefs[type].current?.click()}
-                  disabled={uploading === type}
-                  style={{
-                    padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700,
-                    background: uploading === type ? '#9CA3AF' : '#1B4F8A',
-                    color: '#fff', border: 'none', cursor: uploading === type ? 'not-allowed' : 'pointer',
-                  }}
-                >
-                  {uploading === type ? 'Uploading…' : 'Upload'}
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <div style={{ marginTop: 14, padding: '10px 14px', background: '#EFF6FF', borderRadius: 8, fontSize: 12, color: '#1D4ED8' }}>
             💡 After uploading templates, use the{' '}

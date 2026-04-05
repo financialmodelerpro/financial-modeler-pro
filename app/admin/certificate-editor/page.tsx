@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -240,9 +241,17 @@ export default function CertificateEditorPage() {
 
   // ── Load template background image when course changes ──
   useEffect(() => {
-    // Try to load template preview from storage (if it exists as an image conversion)
-    // Templates are PDFs — we show a placeholder background instead
-    setTemplateBg(null);
+    const sb = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    );
+    const { data: { publicUrl } } = sb.storage
+      .from('certificates')
+      .getPublicUrl(`templates/${course.toLowerCase()}-template.pdf`);
+    // Verify the file actually exists before showing it
+    fetch(publicUrl, { method: 'HEAD' })
+      .then(res => { setTemplateBg(res.ok ? publicUrl : null); })
+      .catch(() => { setTemplateBg(null); });
   }, [course]);
 
   // ── Mouse move / up handlers ──
@@ -328,6 +337,7 @@ export default function CertificateEditorPage() {
       });
       const d = await r.json() as { ok?: boolean; error?: string };
       if (d.ok) {
+        console.log('[CertEditor] Layout saved:', { course, layout, pdfLayout });
         setSaveMsg('Saved!');
         setTimeout(() => setSaveMsg(''), 2500);
       } else {
@@ -563,14 +573,28 @@ export default function CertificateEditorPage() {
                     height:          CANVAS_H,
                     transform:       `scale(${SCALE})`,
                     transformOrigin: 'top left',
-                    background:      templateBg ? `url(${templateBg}) center/cover` : '#fff',
+                    background:      '#fff',
                     position:        'relative',
                     fontFamily:      "'Inter', sans-serif",
                     cursor:          'default',
                   }}
                 >
-                  {/* Template background placeholder (shown when no template uploaded) */}
-                  {!templateBg && (
+                  {/* PDF template background */}
+                  {templateBg ? (
+                    <iframe
+                      src={templateBg}
+                      style={{
+                        position:      'absolute',
+                        inset:         0,
+                        width:         '100%',
+                        height:        '100%',
+                        border:        'none',
+                        pointerEvents: 'none',
+                        zIndex:        0,
+                      }}
+                      title="Certificate template preview"
+                    />
+                  ) : (
                     <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none', zIndex: 0 }}>
                       <div style={{ fontSize: 13, color: '#D1D5DB', textAlign: 'center' }}>
                         <div style={{ fontSize: 32, marginBottom: 8 }}>📄</div>
