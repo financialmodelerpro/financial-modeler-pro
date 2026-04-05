@@ -60,7 +60,7 @@ const nextConfig: NextConfig = {
         },
         // app. clean auth URLs
         { source: '/signin',   destination: '/modeling/signin',             has: [{ type: 'host', value: 'app.financialmodelerpro.com' }] },
-        { source: '/register', destination: '/modeling/signin?tab=register', has: [{ type: 'host', value: 'app.financialmodelerpro.com' }] },
+        { source: '/register', destination: '/modeling/register',            has: [{ type: 'host', value: 'app.financialmodelerpro.com' }] },
       ],
     };
   },
