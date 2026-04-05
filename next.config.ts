@@ -16,6 +16,29 @@ const nextConfig: NextConfig = {
   // Silence the workspace root lockfile warning on Windows/OneDrive paths
   outputFileTracingRoot: path.join(__dirname),
 
+  async headers() {
+    return [
+      {
+        source: '/login',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-store, no-cache, must-revalidate',
+          },
+        ],
+      },
+      {
+        source: '/admin/login',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-store, no-cache, must-revalidate',
+          },
+        ],
+      },
+    ];
+  },
+
   async rewrites() {
     return {
       beforeFiles: [
