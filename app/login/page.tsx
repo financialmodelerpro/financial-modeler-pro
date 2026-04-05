@@ -26,9 +26,9 @@ type ResendStatus = 'idle' | 'loading' | 'sent' | 'error';
 function LoginInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
-  const rawCallback  = searchParams.get('callbackUrl') ?? '/admin';
+  const rawCallback  = searchParams.get('callbackUrl') ?? '/admin/dashboard';
   // Sanitize: never redirect back to the login page itself — breaks infinite loop
-  const callbackUrl  = (rawCallback.startsWith('/admin/login') || rawCallback.startsWith('/login')) ? '/admin' : rawCallback;
+  const callbackUrl  = (rawCallback.startsWith('/admin/login') || rawCallback.startsWith('/login')) ? '/admin/dashboard' : rawCallback;
 
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');

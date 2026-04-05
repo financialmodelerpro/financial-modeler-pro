@@ -6,7 +6,7 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Protect /admin/* but not the login page itself (would cause redirect loop)
-  if (pathname.startsWith('/admin') && pathname !== '/admin/login') {
+  if (pathname.startsWith('/admin') && pathname !== '/admin/login' && pathname !== '/admin') {
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
     if (!token) return NextResponse.redirect(new URL('/admin/login', req.url));
     if ((token as { role?: string }).role !== 'admin') {

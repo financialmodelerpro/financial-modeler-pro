@@ -30,8 +30,8 @@ type Step = 'welcome' | 'login';
 function LoginInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
-  const rawCallback  = searchParams.get('callbackUrl') ?? '/admin';
-  const callbackUrl  = rawCallback.startsWith('/admin/login') ? '/admin' : rawCallback;
+  const rawCallback  = searchParams.get('callbackUrl') ?? '/admin/dashboard';
+  const callbackUrl  = rawCallback.startsWith('/admin/login') ? '/admin/dashboard' : rawCallback;
 
   const [step,     setStep]     = useState<Step>('welcome');
   const [email,    setEmail]    = useState('');
