@@ -76,9 +76,6 @@ const nextConfig: NextConfig = {
     ]);
 
     return [
-      // /login permanently moved to /admin/login
-      { source: '/login', destination: '/admin/login', permanent: true },
-
       // learn. — old /training/* auth paths redirect to clean URLs
       { source: '/training/signin',   destination: '/signin',   permanent: false, has: [{ type: 'host' as const, value: 'learn.financialmodelerpro.com' }] },
       { source: '/training/register', destination: '/register', permanent: false, has: [{ type: 'host' as const, value: 'learn.financialmodelerpro.com' }] },

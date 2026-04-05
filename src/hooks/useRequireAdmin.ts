@@ -22,7 +22,7 @@ export function useRequireAdmin(): { loading: boolean } {
       return;
     }
     if ((session.user as { role?: string }).role !== 'admin') {
-      router.replace('/refm');
+      router.replace('/');
     }
   }, [session, status, router]);
 

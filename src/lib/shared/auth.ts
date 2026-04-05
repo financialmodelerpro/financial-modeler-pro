@@ -8,8 +8,8 @@ import { isDeviceTrusted, DEVICE_COOKIE_NAME } from '@/src/lib/shared/deviceTrus
 export const authOptions: AuthOptions = {
   session: { strategy: 'jwt', maxAge: 60 * 60 }, // 1 hour
   pages: {
-    signIn: '/modeling/signin',
-    error:  '/modeling/signin',
+    signIn: '/admin/login',
+    error:  '/admin/login',
   },
   providers: [
     CredentialsProvider({
