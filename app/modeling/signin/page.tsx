@@ -31,7 +31,7 @@ function ModelingSignInInner() {
   const searchParams = useSearchParams();
   const callbackUrl  = searchParams.get('callbackUrl') ?? '/modeling/dashboard';
 
-  const [mode,     setMode]     = useState<Mode>(searchParams.get('tab') === 'signup' ? 'signup' : 'signin');
+  const [mode,     setMode]     = useState<Mode>((searchParams.get('tab') === 'signup' || searchParams.get('tab') === 'register') ? 'signup' : 'signin');
   const [name,     setName]     = useState('');
   const [email,    setEmail]    = useState('');
   const [phoneCode,  setPhoneCode]  = useState('+1');
@@ -453,7 +453,7 @@ function ModelingSignInInner() {
           <div style={{ marginTop: 12, textAlign: 'center' }}>
             <span style={{ fontSize: 12, color: '#9CA3AF' }}>
               Training Hub?{' '}
-              <a href={`${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training/signin`} style={{ color: '#9CA3AF', textDecoration: 'underline' }}>Sign In here →</a>
+              <a href={`${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/signin`} style={{ color: '#9CA3AF', textDecoration: 'underline' }}>Sign In here →</a>
             </span>
           </div>
 

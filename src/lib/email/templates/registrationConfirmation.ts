@@ -1,6 +1,6 @@
 import { baseLayout, h1, p, button, divider } from './_base';
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://financialmodelerpro.com';
+const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
 interface RegistrationConfirmationData {
   name: string;
@@ -24,14 +24,14 @@ export function registrationConfirmationTemplate({ name, registrationId, courseN
     ${p('Use this ID along with your email address to sign in to the Training Dashboard.')}
 
     <div style="text-align:center;margin:28px 0;">
-      ${button('Go to Training Dashboard', `${APP_URL}/training/signin`)}
+      ${button('Go to Training Dashboard', `${LEARN_URL}/signin`)}
     </div>
 
     ${divider()}
     ${p('If you have any questions, our support team is here to help.', 'font-size:13px;color:#64748B;')}
   `);
 
-  const text = `Welcome to Financial Modeler Pro Training!\n\nHi ${name},\n\nYou are now enrolled in ${courseName}.\n\nYour Registration ID: ${registrationId}\n\nSign in at: ${APP_URL}/training/signin\n\nKeep this ID safe — you need it to access your courses.`;
+  const text = `Welcome to Financial Modeler Pro Training!\n\nHi ${name},\n\nYou are now enrolled in ${courseName}.\n\nYour Registration ID: ${registrationId}\n\nSign in at: ${LEARN_URL}/signin\n\nKeep this ID safe — you need it to access your courses.`;
 
   return { subject, html, text };
 }

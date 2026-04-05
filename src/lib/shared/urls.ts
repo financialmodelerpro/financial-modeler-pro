@@ -8,7 +8,7 @@ export const URLS = {
 
   // Training (learn subdomain)
   training:      () => `${URLS.learn}/training`,
-  trainingLogin: () => `${URLS.learn}/training/login`,
+  trainingLogin: () => `${URLS.learn}/signin`,
   dashboard:     () => `${URLS.learn}/training/dashboard`,
 
   // Modeling (app subdomain)

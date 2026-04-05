@@ -131,12 +131,12 @@ export default function SubmitTrainingTestimonialPage() {
             <p style={{ fontSize: 14, color: '#6B7280', marginBottom: 28, lineHeight: 1.6 }}>
               You need to be logged in to your Training Hub account to submit a testimonial.
             </p>
-            <Link href="/training/login" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 15, padding: '12px 28px', borderRadius: 8, textDecoration: 'none' }}>
+            <Link href="/signin" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 15, padding: '12px 28px', borderRadius: 8, textDecoration: 'none' }}>
               Login to Training Hub →
             </Link>
             <p style={{ marginTop: 16, fontSize: 13, color: '#9CA3AF' }}>
               Don&apos;t have an account?{' '}
-              <Link href="/training/register" style={{ color: '#2EAA4A', fontWeight: 600, textDecoration: 'none' }}>Register free</Link>
+              <Link href="/register" style={{ color: '#2EAA4A', fontWeight: 600, textDecoration: 'none' }}>Register free</Link>
             </p>
           </div>
         ) : submitted ? (

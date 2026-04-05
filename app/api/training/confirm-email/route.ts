@@ -7,7 +7,7 @@
  * 4. Store registration_id, city, country, email_confirmed in training_registrations_meta
  * 5. Store password in training_passwords
  * 6. Delete pending row
- * 7. Redirect to /training/signin?confirmed=true
+ * 7. Redirect to /signin?confirmed=true
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -23,13 +23,13 @@ export async function GET(req: NextRequest) {
 
   if (!token) {
     console.error('[confirm-email] No token in request');
-    return NextResponse.redirect(`${LEARN_URL}/training/signin?error=link-expired`);
+    return NextResponse.redirect(`${LEARN_URL}/signin?error=link-expired`);
   }
 
   const { valid, email } = await verifyConfirmationToken(token, 'training');
   if (!valid || !email) {
     console.error('[confirm-email] Token invalid or expired. token_prefix=', token.slice(0, 8));
-    return NextResponse.redirect(`${LEARN_URL}/training/signin?error=link-expired`);
+    return NextResponse.redirect(`${LEARN_URL}/signin?error=link-expired`);
   }
 
   const sb = getServerClient();
@@ -49,7 +49,7 @@ export async function GET(req: NextRequest) {
       .update({ email_confirmed: true, confirmed_at: new Date().toISOString() })
       .eq('email', email)
       .is('email_confirmed', false); // only update if currently false — don't touch already-confirmed
-    return NextResponse.redirect(`${LEARN_URL}/training/signin?confirmed=true`);
+    return NextResponse.redirect(`${LEARN_URL}/signin?confirmed=true`);
   }
 
   // Call Apps Script to create the Google Sheets record and generate Registration ID
@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
         }, { onConflict: 'registration_id' });
 
         await sb.from('training_pending_registrations').delete().eq('email', email);
-        return NextResponse.redirect(`${LEARN_URL}/training/signin?confirmed=true`);
+        return NextResponse.redirect(`${LEARN_URL}/signin?confirmed=true`);
       }
     }
     return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=registration-failed`);
@@ -116,5 +116,5 @@ export async function GET(req: NextRequest) {
   // Clean up pending row
   await sb.from('training_pending_registrations').delete().eq('email', email);
 
-  return NextResponse.redirect(`${LEARN_URL}/training/signin?confirmed=true`);
+  return NextResponse.redirect(`${LEARN_URL}/signin?confirmed=true`);
 }

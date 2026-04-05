@@ -138,7 +138,7 @@ export default async function TrainingPage() {
 
           {/* CTA buttons */}
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link href="/training/register" style={{
+            <Link href="/register" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               background: '#2EAA4A', color: '#fff',
               fontWeight: 700, fontSize: 15, padding: '13px 32px',
@@ -147,7 +147,7 @@ export default async function TrainingPage() {
             }}>
               {ctaPrimary}
             </Link>
-            <Link href="/training/login" style={{
+            <Link href="/signin" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               background: 'transparent', color: '#fff',
               fontWeight: 700, fontSize: 15, padding: '13px 32px',
@@ -160,7 +160,7 @@ export default async function TrainingPage() {
 
           <p style={{ marginTop: 20, fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>
             Already registered?{' '}
-            <Link href="/training/login" style={{ color: '#6EE589', textDecoration: 'none', fontWeight: 600 }}>
+            <Link href="/signin" style={{ color: '#6EE589', textDecoration: 'none', fontWeight: 600 }}>
               Login →
             </Link>
           </p>
@@ -366,12 +366,12 @@ export default async function TrainingPage() {
             <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', marginBottom: 36, lineHeight: 1.6 }}>
               {bottomCtaSub}
             </p>
-            <Link href="/training/register" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1A7A30', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
+            <Link href="/register" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1A7A30', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
               Register Free →
             </Link>
             <p style={{ marginTop: 20, fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>
               Already registered?{' '}
-              <Link href="/training/login" style={{ color: '#fff', fontWeight: 700, textDecoration: 'underline' }}>
+              <Link href="/signin" style={{ color: '#fff', fontWeight: 700, textDecoration: 'underline' }}>
                 Login to Dashboard →
               </Link>
             </p>

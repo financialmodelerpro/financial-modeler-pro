@@ -85,7 +85,7 @@ export default function TrainingForgotPage() {
               <div style={{ fontSize: 13, color: '#166534', lineHeight: 1.5, marginBottom: 14 }}>
                 Your Registration ID has been sent to <strong>{email}</strong>.
               </div>
-              <Link href="/training/login" style={{
+              <Link href="/signin" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6,
                 background: '#2EAA4A', color: '#fff',
                 fontSize: 13, fontWeight: 700, padding: '9px 20px',
@@ -104,7 +104,7 @@ export default function TrainingForgotPage() {
               fontSize: 13, color: '#DC2626', lineHeight: 1.5,
             }}>
               ❌ No account found with that email.{' '}
-              <Link href="/training/register" style={{ color: '#DC2626', fontWeight: 700, textDecoration: 'underline' }}>
+              <Link href="/register" style={{ color: '#DC2626', fontWeight: 700, textDecoration: 'underline' }}>
                 Register here →
               </Link>
             </div>
@@ -171,7 +171,7 @@ export default function TrainingForgotPage() {
 
           {/* Back to login */}
           <div style={{ marginTop: 24, textAlign: 'center', borderTop: '1px solid #F3F4F6', paddingTop: 20 }}>
-            <Link href="/training/login" style={{ fontSize: 13, color: '#2EAA4A', fontWeight: 600, textDecoration: 'none' }}>
+            <Link href="/signin" style={{ fontSize: 13, color: '#2EAA4A', fontWeight: 600, textDecoration: 'none' }}>
               ← Back to Login
             </Link>
           </div>

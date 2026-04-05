@@ -491,7 +491,7 @@ function TrainingSignInInner() {
                       {resendStatus === 'error' && (
                         <div style={{ marginTop: 8, fontSize: 12, color: '#DC2626' }}>
                           Could not find that email.{' '}
-                          <Link href="/training/register" style={{ color: '#DC2626', fontWeight: 700 }}>Register here →</Link>
+                          <Link href="/register" style={{ color: '#DC2626', fontWeight: 700 }}>Register here →</Link>
                         </div>
                       )}
                     </div>
@@ -504,7 +504,7 @@ function TrainingSignInInner() {
               <div style={{ marginTop: 22, textAlign: 'center', borderTop: '1px solid #F3F4F6', paddingTop: 18 }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>
                   Not registered yet?{' '}
-                  <Link href="/training/register" style={{ color: GREEN, fontWeight: 700, textDecoration: 'none' }}>Register Free →</Link>
+                  <Link href="/register" style={{ color: GREEN, fontWeight: 700, textDecoration: 'none' }}>Register Free →</Link>
                 </span>
                 <div style={{ marginTop: 10 }}>
                   <Link href="/training/set-password" style={{ fontSize: 12, color: '#9CA3AF', textDecoration: 'underline' }}>

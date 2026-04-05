@@ -1,6 +1,6 @@
 import { baseLayout, h1, p, button, divider } from './_base';
 
-const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://financialmodelerpro.com';
+const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
 interface ResendRegistrationIdData {
   name?: string;
@@ -23,14 +23,14 @@ export function resendRegistrationIdTemplate({ name, registrationId }: ResendReg
     ${p('Use this ID along with your email address and password to access the Training Dashboard.')}
 
     <div style="text-align:center;margin:28px 0;">
-      ${button('Sign In Now', `${APP_URL}/training/signin`)}
+      ${button('Sign In Now', `${LEARN_URL}/signin`)}
     </div>
 
     ${divider()}
     ${p('If you did not request this, please contact our support team immediately.', 'font-size:13px;color:#64748B;')}
   `);
 
-  const text = `Financial Modeler Pro — Your Registration ID\n\n${name ? `Hi ${name},\n\n` : ''}Your Registration ID is: ${registrationId}\n\nSign in at: ${APP_URL}/training/signin`;
+  const text = `Financial Modeler Pro — Your Registration ID\n\n${name ? `Hi ${name},\n\n` : ''}Your Registration ID is: ${registrationId}\n\nSign in at: ${LEARN_URL}/signin`;
 
   return { subject, html, text };
 }

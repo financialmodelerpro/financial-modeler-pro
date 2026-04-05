@@ -25,12 +25,19 @@ const nextConfig: NextConfig = {
           destination: '/training',
           has: [{ type: 'host', value: 'learn.financialmodelerpro.com' }],
         },
+        // learn. clean auth URLs
+        { source: '/signin',   destination: '/training/signin',   has: [{ type: 'host', value: 'learn.financialmodelerpro.com' }] },
+        { source: '/register', destination: '/training/register', has: [{ type: 'host', value: 'learn.financialmodelerpro.com' }] },
+        { source: '/forgot',   destination: '/training/forgot',   has: [{ type: 'host', value: 'learn.financialmodelerpro.com' }] },
         // app. root → serve /modeling page (no redirect, clean URL)
         {
           source: '/',
           destination: '/modeling',
           has: [{ type: 'host', value: 'app.financialmodelerpro.com' }],
         },
+        // app. clean auth URLs
+        { source: '/signin',   destination: '/modeling/signin',             has: [{ type: 'host', value: 'app.financialmodelerpro.com' }] },
+        { source: '/register', destination: '/modeling/signin?tab=register', has: [{ type: 'host', value: 'app.financialmodelerpro.com' }] },
       ],
     };
   },
@@ -71,6 +78,15 @@ const nextConfig: NextConfig = {
     return [
       // /login permanently moved to /admin/login
       { source: '/login', destination: '/admin/login', permanent: true },
+
+      // learn. — old /training/* auth paths redirect to clean URLs
+      { source: '/training/signin',   destination: '/signin',   permanent: false, has: [{ type: 'host' as const, value: 'learn.financialmodelerpro.com' }] },
+      { source: '/training/register', destination: '/register', permanent: false, has: [{ type: 'host' as const, value: 'learn.financialmodelerpro.com' }] },
+      { source: '/training/login',    destination: '/signin',   permanent: false, has: [{ type: 'host' as const, value: 'learn.financialmodelerpro.com' }] },
+      { source: '/training/forgot',   destination: '/forgot',   permanent: false, has: [{ type: 'host' as const, value: 'learn.financialmodelerpro.com' }] },
+
+      // app. — /modeling/signin redirect to clean URL
+      { source: '/modeling/signin',   destination: '/signin',   permanent: false, has: [{ type: 'host' as const, value: 'app.financialmodelerpro.com' }] },
 
       // Existing slug redirects
       { source: '/modeling-hub',        destination: '/modeling',        permanent: true },

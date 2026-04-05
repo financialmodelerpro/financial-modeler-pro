@@ -253,7 +253,7 @@ export function CurriculumCard({
               Free to enrol · Certificates issued on completion
             </span>
             <Link
-              href="/training/register"
+              href="/register"
               style={{
                 fontSize: 12, fontWeight: 700, padding: '8px 20px',
                 borderRadius: 6, background: accentColor, color: '#fff',

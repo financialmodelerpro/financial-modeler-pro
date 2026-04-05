@@ -130,7 +130,7 @@ function SetPasswordForm() {
           Your password has been saved. You can now sign in.
         </p>
         <button
-          onClick={() => router.push('/training/signin')}
+          onClick={() => router.push('/signin')}
           style={{ padding: '12px 28px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}
         >
           Sign In Now →
@@ -194,7 +194,7 @@ function SetPasswordForm() {
         </form>
 
         <div style={{ marginTop: 20, textAlign: 'center' }}>
-          <Link href="/training/signin" style={{ fontSize: 13, color: '#6B7280', textDecoration: 'underline' }}>
+          <Link href="/signin" style={{ fontSize: 13, color: '#6B7280', textDecoration: 'underline' }}>
             ← Back to Sign In
           </Link>
         </div>

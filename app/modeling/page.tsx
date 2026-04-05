@@ -106,7 +106,7 @@ export default async function ModelingHubPage() {
 
           {/* CTA buttons */}
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link href="/modeling/signin?tab=signup" style={{
+            <Link href="/register" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               background: '#1B4F8A', color: '#fff',
               fontWeight: 700, fontSize: 15, padding: '13px 32px',
@@ -374,7 +374,7 @@ export default async function ModelingHubPage() {
             <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}>
               Join financial professionals around the world building institutional-grade models — completely free.
             </p>
-            <Link href="/modeling/signin?tab=signup" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1B4F8A', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
+            <Link href="/register" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1B4F8A', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
               Launch Platform Free →
             </Link>
           </div>

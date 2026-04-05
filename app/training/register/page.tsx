@@ -168,7 +168,7 @@ export default function TrainingRegisterPage() {
               <div style={{ background: '#F0FFF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '12px 16px', fontSize: 12.5, color: '#15803D', marginBottom: 24 }}>
                 ✅ The confirmation link expires in 24 hours.
               </div>
-              <Link href="/training/signin" style={{
+              <Link href="/signin" style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6,
                 background: GREEN, color: '#fff', fontSize: 14, fontWeight: 700,
                 padding: '11px 24px', borderRadius: 8, textDecoration: 'none',
@@ -408,7 +408,7 @@ export default function TrainingRegisterPage() {
             <div style={{ marginTop: 24, textAlign: 'center', borderTop: '1px solid #F3F4F6', paddingTop: 20 }}>
               <span style={{ fontSize: 13, color: '#6B7280' }}>
                 Already have a Registration ID?{' '}
-                <Link href="/training/signin" style={{ color: GREEN, fontWeight: 700, textDecoration: 'none' }}>Sign In →</Link>
+                <Link href="/signin" style={{ color: GREEN, fontWeight: 700, textDecoration: 'none' }}>Sign In →</Link>
               </span>
             </div>
           </div>

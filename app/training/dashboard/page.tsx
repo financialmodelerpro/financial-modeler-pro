@@ -32,7 +32,7 @@ export default function TrainingDashboardPage() {
   // Auto sign-out after 1 hour of inactivity
   useInactivityLogout({
     logoutUrl:   '/api/training/logout',
-    redirectUrl: '/training/signin?reason=inactivity',
+    redirectUrl: '/signin?reason=inactivity',
   });
 
   const [localSession, setLocalSession]           = useState<{ email: string; registrationId: string } | null>(null);
@@ -211,7 +211,7 @@ export default function TrainingDashboardPage() {
 
   useEffect(() => {
     const sess = getTrainingSession();
-    if (!sess) { router.replace('/training/login'); return; }
+    if (!sess) { router.replace('/signin'); return; }
     setLocalSession(sess);
     loadData(sess);
     // Restore testimonial submitted state from localStorage
@@ -655,7 +655,7 @@ export default function TrainingDashboardPage() {
             {!isEnrolledInBvm && (
               sidebarCollapsed ? (
                 bvmUnlocked ? (
-                  <a href="/training/register?course=bvm" title="Enrol in BVM"
+                  <a href="/register?course=bvm" title="Enrol in BVM"
                     style={{ width: '100%', background: 'transparent', border: 'none', padding: '10px 0', cursor: 'pointer', color: '#2EAA4A', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
                     ➕
                   </a>
@@ -663,7 +663,7 @@ export default function TrainingDashboardPage() {
                   <div title="BVM — Complete 3SFM first" style={{ width: '100%', padding: '10px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, color: 'rgba(255,255,255,0.2)' }}>🔒</div>
                 )
               ) : bvmUnlocked ? (
-                <a href="/training/register?course=bvm"
+                <a href="/register?course=bvm"
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 12px', borderRadius: 8, background: 'rgba(46,170,74,0.1)', border: '1px dashed rgba(46,170,74,0.35)', color: '#2EAA4A', textDecoration: 'none', fontSize: 12, fontWeight: 700, marginTop: 4 }}>
                   ➕ Enrol in BVM →
                 </a>

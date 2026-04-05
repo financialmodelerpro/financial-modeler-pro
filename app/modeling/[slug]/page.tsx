@@ -308,7 +308,7 @@ export default async function PlatformDetailPage({
             <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}>
               Start with Module 1 — free, structured, and ready to use right now.
             </p>
-            <Link href="/modeling/signin?tab=signup" style={{
+            <Link href="/register" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               background: '#fff', color: platform.color,
               fontWeight: 800, fontSize: 16, padding: '14px 40px',
@@ -502,7 +502,7 @@ export default async function PlatformDetailPage({
             }}>
               See All Platforms →
             </Link>
-            <Link href="/modeling/signin?tab=signup" style={{
+            <Link href="/register" style={{
               display: 'inline-flex', alignItems: 'center', gap: 7,
               background: 'transparent', color: '#B45309',
               fontWeight: 700, fontSize: 14, padding: '10px 26px',

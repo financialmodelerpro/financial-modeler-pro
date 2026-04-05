@@ -27,7 +27,7 @@ function ConfirmEmailInner() {
           <p style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.6, marginBottom: 24 }}>
             This confirmation link is invalid or has expired. Please register again to receive a new link.
           </p>
-          <Link href="/training/register" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#2EAA4A', color: '#fff', fontSize: 14, fontWeight: 700, padding: '11px 24px', borderRadius: 8, textDecoration: 'none' }}>
+          <Link href="/register" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#2EAA4A', color: '#fff', fontSize: 14, fontWeight: 700, padding: '11px 24px', borderRadius: 8, textDecoration: 'none' }}>
             Register Again →
           </Link>
         </div>

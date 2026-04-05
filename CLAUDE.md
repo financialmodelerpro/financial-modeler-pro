@@ -31,7 +31,7 @@
 - Any new environment variables added
 
 ### Do NOT touch list
-- `next.config.ts` — subdomain routing is live and correct; `/login` → `/admin/login` permanent redirect is in place
+- `next.config.ts` — subdomain routing is live and correct; `/login` → `/admin/login` permanent redirect is in place; clean auth URL rewrites + redirects added for both subdomains
 - `src/middleware.ts` — `/admin/:path*` protection is live; `/admin/login` is explicitly excluded to prevent redirect loop
 - `app/globals.css` — design system tokens, do not restructure
 - `vercel.json` — deployment config is live
@@ -529,6 +529,17 @@ branding.ts  core-calculations.ts  core-formatters.ts  core-state.ts  core-valid
 - Main-site paths on learn. or app. → redirect to `financialmodelerpro.com`
 - `/training/*` on main domain → redirect to `learn.financialmodelerpro.com`
 - `/modeling/*` or `/refm/*` on main domain → redirect to `app.financialmodelerpro.com`
+
+### Clean Auth URLs (added 2026-04-06)
+| Subdomain | Clean URL | Served from | Old URL (now redirects) |
+|-----------|-----------|-------------|------------------------|
+| learn. | `/signin` | `/training/signin` | `/training/signin`, `/training/login` |
+| learn. | `/register` | `/training/register` | `/training/register` |
+| learn. | `/forgot` | `/training/forgot` | `/training/forgot` |
+| app. | `/signin` | `/modeling/signin` | `/modeling/signin` |
+| app. | `/register` | `/modeling/signin?tab=register` | `/modeling/signin?tab=signup` |
+
+**All internal links** updated to use clean URLs. Use `/signin`, `/register`, `/forgot` for all training/modeling auth links.
 
 **Critical**: All `<Link>` in Navbar uses plain `<a>` tags with absolute URLs. NavbarServer `absolutizeHref()` converts DB-sourced relative hrefs to absolute before rendering.
 
