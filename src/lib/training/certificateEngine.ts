@@ -22,6 +22,8 @@ interface PdfLayoutField {
   fontSize: number;
   color: string;
   fontWeight?: string;
+  textAlign?: 'left' | 'center' | 'right';
+  fontFamily?: string; // 'Helvetica' | 'Times-Roman' | 'Courier'
 }
 
 interface PdfLayout {
@@ -121,9 +123,22 @@ export async function generateCertificatePdf(data: {
     if (cms?.value) layout = JSON.parse(cms.value) as PdfLayout;
   } catch { /* use defaults */ }
 
-  // 3. Embed fonts
-  const fontRegular = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontBold    = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  // 3. Embed all font variants
+  const embeddedFonts = {
+    Helvetica:     await pdfDoc.embedFont(StandardFonts.Helvetica),
+    HelveticaBold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
+    TimesRoman:    await pdfDoc.embedFont(StandardFonts.TimesRoman),
+    TimesBold:     await pdfDoc.embedFont(StandardFonts.TimesRomanBold),
+    Courier:       await pdfDoc.embedFont(StandardFonts.Courier),
+    CourierBold:   await pdfDoc.embedFont(StandardFonts.CourierBold),
+  };
+
+  function selectFont(family?: string, weight?: string) {
+    const bold = weight === 'bold';
+    if (family === 'Times-Roman') return bold ? embeddedFonts.TimesBold    : embeddedFonts.TimesRoman;
+    if (family === 'Courier')     return bold ? embeddedFonts.CourierBold  : embeddedFonts.Courier;
+    return bold ? embeddedFonts.HelveticaBold : embeddedFonts.Helvetica;
+  }
 
   // 4. Draw text fields
   const fields: Array<{ key: keyof Omit<PdfLayout, 'qrCode'>; value: string }> = [
@@ -140,14 +155,22 @@ export async function generateCertificatePdf(data: {
     const pos = layout[key];
     if (!pos) continue;
     const { r, g, b } = hexToRgb(pos.color ?? '#000000');
-    const font = pos.fontWeight === 'bold' ? fontBold : fontRegular;
+    const font     = selectFont(pos.fontFamily, pos.fontWeight);
+    const fontSize = pos.fontSize ?? 14;
+
+    // Adjust X for text alignment
+    const textWidth = font.widthOfTextAtSize(value, fontSize);
+    let drawX = pos.x;
+    if (pos.textAlign === 'center') drawX = pos.x - textWidth / 2;
+    if (pos.textAlign === 'right')  drawX = pos.x - textWidth;
+
     page.drawText(value, {
-      x:        pos.x,
+      x:        drawX,
       y:        height - pos.y,   // pdf-lib origin is bottom-left
-      size:     pos.fontSize ?? 14,
+      size:     fontSize,
       font,
       color:    rgb(r, g, b),
-      maxWidth: width - pos.x - 20,
+      maxWidth: width - drawX - 20,
     });
   }
 
