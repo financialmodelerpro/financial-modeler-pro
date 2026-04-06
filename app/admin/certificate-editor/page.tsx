@@ -35,18 +35,20 @@ type PdfFieldKey = keyof PdfLayout;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const CANVAS_W = 680;
-const CANVAS_H = 960;
-const SCALE    = 0.75;
+// Landscape A4 canvas — coordinates are in this unscaled pixel space.
+// These same values are used by pdf-lib when generating certificates.
+const CANVAS_W = 1240;
+const CANVAS_H = 877;
+const SCALE    = 0.65;
 
 const DEFAULT_PDF_LAYOUT: PdfLayout = {
-  studentName:       { x: 120, y: 280, fontSize: 28, color: '#0D2E5A', fontWeight: 'bold' },
-  courseName:        { x: 120, y: 340, fontSize: 22, color: '#C9A84C' },
-  courseSubheading:  { x: 120, y: 375, fontSize: 14, color: '#374151' },
-  courseDescription: { x: 120, y: 400, fontSize: 12, color: '#6B7280' },
-  issueDate:         { x: 120, y: 460, fontSize: 13, color: '#374151' },
-  certificateId:     { x: 120, y: 490, fontSize: 11, color: '#9CA3AF' },
-  qrCode:            { x: 650, y: 420, width: 120, height: 120 },
+  studentName:       { x: 180, y: 310, fontSize: 36, color: '#0D2E5A', fontWeight: 'bold' },
+  courseName:        { x: 180, y: 380, fontSize: 26, color: '#C9A84C' },
+  courseSubheading:  { x: 180, y: 425, fontSize: 16, color: '#374151' },
+  courseDescription: { x: 180, y: 460, fontSize: 13, color: '#6B7280' },
+  issueDate:         { x: 180, y: 530, fontSize: 14, color: '#374151' },
+  certificateId:     { x: 180, y: 560, fontSize: 12, color: '#9CA3AF' },
+  qrCode:            { x: 1050, y: 680, width: 130, height: 130 },
 };
 
 const PDF_FIELD_LABELS: Record<PdfFieldKey, string> = {
@@ -159,7 +161,7 @@ export default function CertificateEditorPage() {
               🎨 Certificate Editor
             </h1>
             <p style={{ margin: '2px 0 0', fontSize: 12, color: '#9CA3AF' }}>
-              Position text fields on the PDF template using the panel on the right. Green markers show placement.
+              Landscape canvas (1240×877). Green markers show field placement. X/Y are in unscaled canvas coordinates.
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -195,7 +197,7 @@ export default function CertificateEditorPage() {
         <div style={{ display: 'flex', flex: 1, gap: 24, padding: 24, overflow: 'auto', minHeight: 0 }}>
 
           {/* ── Canvas area ── */}
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
 
             {/* Course selector */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -212,7 +214,7 @@ export default function CertificateEditorPage() {
               </span>
             </div>
 
-            {/* Canvas — PDF background fills entire area, field markers overlay on top */}
+            {/* Canvas — landscape 1240×877, scaled to 0.65 */}
             <div style={{
               position:        'relative',
               width:           CANVAS_W * SCALE,
@@ -225,10 +227,11 @@ export default function CertificateEditorPage() {
               flexShrink:      0,
             }}>
 
-              {/* PDF background — unscaled iframe scaled via transform */}
+              {/* PDF background — unscaled <object> scaled via transform */}
               {templateBg ? (
-                <iframe
-                  src={templateBg}
+                <object
+                  data={`${templateBg}#toolbar=0&navpanes=0`}
+                  type="application/pdf"
                   style={{
                     position:        'absolute',
                     top:             0,
@@ -239,10 +242,12 @@ export default function CertificateEditorPage() {
                     transformOrigin: 'top left',
                     border:          'none',
                     pointerEvents:   'none',
-                    zIndex:          0,
                   }}
-                  title="Certificate template preview"
-                />
+                >
+                  <p style={{ color: '#999', fontSize: 13, padding: 20 }}>
+                    PDF preview not available in this browser
+                  </p>
+                </object>
               ) : (
                 <div style={{
                   position:       'absolute',
@@ -259,7 +264,7 @@ export default function CertificateEditorPage() {
                 </div>
               )}
 
-              {/* Field position markers — same 680×960 coordinate space, scaled with transform wrapper */}
+              {/* Field position markers — 1240×877 coordinate space, scaled with transform */}
               <div style={{
                 position:        'absolute',
                 top:             0,
@@ -282,7 +287,7 @@ export default function CertificateEditorPage() {
                       position:   'absolute',
                       left:       isQr ? qr.x : tf.x,
                       top:        isQr ? qr.y : tf.y,
-                      width:      isQr ? qr.width  : 200,
+                      width:      isQr ? qr.width  : 280,
                       height:     isQr ? qr.height : (tf.fontSize + 4),
                       border:     '1.5px dashed #10B981',
                       background: 'rgba(16,185,129,0.06)',
@@ -291,11 +296,11 @@ export default function CertificateEditorPage() {
                       <div style={{
                         position:      'absolute',
                         top: 1, left: 2,
-                        fontSize:      7,
+                        fontSize:      8,
                         fontWeight:    800,
                         color:         '#10B981',
                         letterSpacing: '0.06em',
-                        background:    'rgba(255,255,255,0.8)',
+                        background:    'rgba(255,255,255,0.85)',
                         padding:       '0 3px',
                         borderRadius:  2,
                         lineHeight:    1.6,
@@ -326,7 +331,7 @@ export default function CertificateEditorPage() {
                 PDF Field Positions
               </div>
               <div style={{ fontSize: 10, color: '#9CA3AF', marginBottom: 10, lineHeight: 1.5 }}>
-                These coordinates are used when generating certificate PDFs. X/Y are from top-left.
+                Coordinates are in the 1240×877 canvas space used by pdf-lib. X/Y from top-left.
               </div>
 
               {(Object.keys(pdfLayout) as PdfFieldKey[]).map(key => {
