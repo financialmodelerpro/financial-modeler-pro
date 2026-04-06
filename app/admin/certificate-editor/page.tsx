@@ -589,37 +589,52 @@ export default function CertificateEditorPage() {
                     </div>
 
                     {isQr ? (
-                      /* QR: 2×2 grid */
+                      /* QR: 2×2 grid with steppers */
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
-                        {(['x', 'y', 'width', 'height'] as const).map(f => (
+                        {([
+                          { f: 'x', label: 'X', step: 1, min: 0 },
+                          { f: 'y', label: 'Y', step: 1, min: 0 },
+                          { f: 'width',  label: 'WIDTH',  step: 5, min: 20 },
+                          { f: 'height', label: 'HEIGHT', step: 5, min: 20 },
+                        ] as const).map(({ f, label, step, min }) => (
                           <div key={f}>
-                            <div style={labelStyle}>{f.toUpperCase()}</div>
-                            <input type="number" value={qr[f]}
-                              onChange={e => handleFieldChange(key, f, parseInt(e.target.value, 10) || 0)}
-                              style={inputStyle} />
+                            <div style={labelStyle}>{label}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                              <button onClick={() => handleFieldChange(key, f, Math.max(min, qr[f] - step))} style={stepBtnStyle}>−</button>
+                              <input type="number" value={qr[f]}
+                                onChange={e => handleFieldChange(key, f, parseInt(e.target.value, 10) || 0)}
+                                style={{ ...inputStyle, textAlign: 'center', minWidth: 0 }} />
+                              <button onClick={() => handleFieldChange(key, f, qr[f] + step)} style={stepBtnStyle}>+</button>
+                            </div>
                           </div>
                         ))}
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
 
-                        {/* X / Y / SIZE / WIDTH — 2×2 grid */}
+                        {/* X / Y / SIZE / WIDTH — 2×2 grid with steppers */}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
                           {([
-                            { f: 'x',         label: 'X' },
-                            { f: 'y',         label: 'Y' },
-                            { f: 'fontSize',  label: 'SIZE' },
-                            { f: 'width',     label: 'WIDTH' },
-                          ] as const).map(({ f, label }) => (
-                            <div key={f}>
-                              <div style={labelStyle}>{label}</div>
-                              <input type="number"
-                                value={f === 'width' ? (tf.width ?? 320) : tf[f as 'x' | 'y' | 'fontSize']}
-                                onChange={e => handleFieldChange(key, f, parseInt(e.target.value, 10) || 0)}
-                                style={{ ...inputStyle, background: isActive ? '#EFF6FF' : '#F0FFF4' }}
-                              />
-                            </div>
-                          ))}
+                            { f: 'x',        label: 'X',     step: 1, min: 0 },
+                            { f: 'y',        label: 'Y',     step: 1, min: 0 },
+                            { f: 'fontSize', label: 'SIZE',  step: 1, min: 6 },
+                            { f: 'width',    label: 'WIDTH', step: 5, min: 30 },
+                          ] as const).map(({ f, label, step, min }) => {
+                            const val = f === 'width' ? (tf.width ?? 320) : tf[f as 'x' | 'y' | 'fontSize'];
+                            return (
+                              <div key={f}>
+                                <div style={labelStyle}>{label}</div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                                  <button onClick={() => handleFieldChange(key, f, Math.max(min, val - step))} style={stepBtnStyle}>−</button>
+                                  <input type="number" value={val}
+                                    onChange={e => handleFieldChange(key, f, parseInt(e.target.value, 10) || 0)}
+                                    style={{ ...inputStyle, textAlign: 'center', minWidth: 0, background: isActive ? '#EFF6FF' : '#F0FFF4' }}
+                                  />
+                                  <button onClick={() => handleFieldChange(key, f, val + step)} style={stepBtnStyle}>+</button>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
 
                         {/* Align + Bold */}
@@ -706,4 +721,13 @@ const inputStyle: React.CSSProperties = {
 
 const labelStyle: React.CSSProperties = {
   fontSize: 9, color: '#9CA3AF', marginBottom: 2,
+};
+
+const stepBtnStyle: React.CSSProperties = {
+  width: 20, height: 22, padding: 0, flexShrink: 0,
+  borderRadius: 3, border: '1px solid #D1D5DB',
+  background: '#F3F4F6', cursor: 'pointer',
+  fontSize: 14, fontWeight: 700, color: '#374151',
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  lineHeight: 1,
 };
