@@ -127,23 +127,29 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
               Sign In / Register
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
-              <a href={`${process.env.NEXT_PUBLIC_APP_URL}/signin`}
+              <a href={`${APP_URL}/signin`}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '14px 12px', borderRadius: 10, background: '#1B4F8A', color: '#fff', textDecoration: 'none', textAlign: 'center' }}>
                 <span style={{ fontSize: 20 }}>📐</span>
                 <span style={{ fontSize: 12, fontWeight: 700 }}>Modeling Hub</span>
                 <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Sign In</span>
               </a>
-              <a href={`${process.env.NEXT_PUBLIC_LEARN_URL}/signin`}
+              <a href={`${LEARN_URL}/signin`}
                 style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, padding: '14px 12px', borderRadius: 10, background: '#1A7A30', color: '#fff', textDecoration: 'none', textAlign: 'center' }}>
                 <span style={{ fontSize: 20 }}>🎓</span>
                 <span style={{ fontSize: 12, fontWeight: 700 }}>Training Hub</span>
                 <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Sign In</span>
               </a>
             </div>
-            <a href={`${process.env.NEXT_PUBLIC_LEARN_URL}/register`}
-              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '13px', borderRadius: 10, background: '#2EAA4A', color: '#fff', textDecoration: 'none', fontSize: 14, fontWeight: 700 }}>
-              Register Free →
-            </a>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <a href={`${APP_URL}/register`}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '13px', borderRadius: 10, background: '#1B4F8A', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
+                Create Account →
+              </a>
+              <a href={`${LEARN_URL}/register`}
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '13px', borderRadius: 10, background: '#2EAA4A', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
+                Register Free →
+              </a>
+            </div>
           </div>
         </div>
       )}
@@ -217,12 +223,12 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
                 <span style={{ fontSize: 15 }}>📐</span>
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#1B3A6B', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Modeling Hub</span>
               </div>
-              <a href={`${process.env.NEXT_PUBLIC_APP_URL}/signin`} onClick={() => setDropdownOpen(false)}
+              <a href={`${APP_URL}/signin`} onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 9px 24px', textDecoration: 'none', color: '#374151', fontSize: 13, borderBottom: '1px solid #F9FAFB' }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>🔑</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Sign In</span>
               </a>
-              <a href={`${process.env.NEXT_PUBLIC_APP_URL}/register`} onClick={() => setDropdownOpen(false)}
+              <a href={`${APP_URL}/register`} onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 12px 24px', textDecoration: 'none', color: '#374151', fontSize: 13 }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>✏️</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Create Account</span>
@@ -235,12 +241,12 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
                 <span style={{ fontSize: 15 }}>🎓</span>
                 <span style={{ fontSize: 11, fontWeight: 800, color: '#1B3A6B', letterSpacing: '0.06em', textTransform: 'uppercase' }}>Training Hub</span>
               </div>
-              <a href={`${process.env.NEXT_PUBLIC_LEARN_URL}/signin`} onClick={() => setDropdownOpen(false)}
+              <a href={`${LEARN_URL}/signin`} onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 9px 24px', textDecoration: 'none', color: '#374151', fontSize: 13, borderBottom: '1px solid #F9FAFB' }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>🔑</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Sign In</span>
               </a>
-              <a href={`${process.env.NEXT_PUBLIC_LEARN_URL}/register`} onClick={() => setDropdownOpen(false)}
+              <a href={`${LEARN_URL}/register`} onClick={() => setDropdownOpen(false)}
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 16px 14px 24px', textDecoration: 'none', color: '#374151', fontSize: 13 }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>✏️</span>
                 <span style={{ fontWeight: 600, color: '#1B3A6B' }}>Create Account</span>
