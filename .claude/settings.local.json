@@ -73,7 +73,8 @@
       "Bash(SCRIPT_URL=\"https://script.google.com/macros/s/AKfycbys_5ObqxUyh3Dz-E5ND95rWqeSuWz0GYd2VpZLAQz6NWTsw1uMpxINBKPo0kCkPorA/exec\" curl -sL \"$SCRIPT_URL?action=listStudents\")",
       "Bash(sort find:*)",
       "Bash(xargs sed:*)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash(python -c \"import sys, json; lines = sys.stdin.read\\(\\).strip\\(\\).split\\('\\\\n'\\); [print\\(json.loads\\(l\\).get\\('content',''\\)[:2000] if isinstance\\(json.loads\\(l\\).get\\('content',''\\), str\\) else str\\(json.loads\\(l\\).get\\('content',''\\)\\)[:2000]\\) for l in lines[-10:] if l.strip\\(\\)]\")"
     ]
   }
 }

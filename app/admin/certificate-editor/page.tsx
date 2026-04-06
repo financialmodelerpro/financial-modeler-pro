@@ -13,7 +13,8 @@ interface PdfField {
   color: string;
   fontWeight?: string;
   textAlign?: 'left' | 'center' | 'right';
-  fontFamily?: string; // 'Helvetica' | 'Times-Roman' | 'Courier'
+  fontFamily?: string;
+  width?: number; // field box width in unscaled canvas coords
 }
 
 interface PdfQrField {
@@ -37,18 +38,19 @@ type PdfFieldKey = keyof PdfLayout;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const CANVAS_W   = 1240;
-const CANVAS_H   = 877;
-const SCALE      = 0.65;
-const MARKER_W   = 320; // default text marker width
+const CANVAS_W    = 1240;
+const CANVAS_H    = 877;
+const SCALE       = 0.65;
+const MIN_W       = 60;   // minimum field width
+const RESIZE_HANDLE_W = 12; // resize grip width in unscaled px
 
 const DEFAULT_PDF_LAYOUT: PdfLayout = {
-  studentName:       { x: 180, y: 310, fontSize: 36, color: '#0D2E5A', fontWeight: 'bold',  textAlign: 'left', fontFamily: 'Helvetica' },
-  courseName:        { x: 180, y: 380, fontSize: 26, color: '#C9A84C', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica' },
-  courseSubheading:  { x: 180, y: 425, fontSize: 16, color: '#374151', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica' },
-  courseDescription: { x: 180, y: 460, fontSize: 13, color: '#6B7280', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica' },
-  issueDate:         { x: 180, y: 530, fontSize: 14, color: '#374151', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica' },
-  certificateId:     { x: 180, y: 560, fontSize: 12, color: '#9CA3AF', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica' },
+  studentName:       { x: 180, y: 310, fontSize: 36, color: '#0D2E5A', fontWeight: 'bold',   textAlign: 'left', fontFamily: 'Helvetica',   width: 620 },
+  courseName:        { x: 180, y: 380, fontSize: 26, color: '#C9A84C', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica',   width: 680 },
+  courseSubheading:  { x: 180, y: 425, fontSize: 16, color: '#374151', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica',   width: 500 },
+  courseDescription: { x: 180, y: 460, fontSize: 13, color: '#6B7280', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica',   width: 660 },
+  issueDate:         { x: 180, y: 530, fontSize: 14, color: '#374151', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica',   width: 300 },
+  certificateId:     { x: 180, y: 560, fontSize: 12, color: '#9CA3AF', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica',   width: 320 },
   qrCode:            { x: 1050, y: 680, width: 130, height: 130 },
 };
 
@@ -86,10 +88,9 @@ const CSS_FONT: Record<string, string> = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Returns the CSS left offset for a text marker given its alignment */
-function alignOffset(textAlign: string | undefined): number {
-  if (textAlign === 'center') return -MARKER_W / 2;
-  if (textAlign === 'right')  return -MARKER_W;
+function alignOffset(textAlign: string | undefined, width: number): number {
+  if (textAlign === 'center') return -width / 2;
+  if (textAlign === 'right')  return -width;
   return 0;
 }
 
@@ -104,13 +105,16 @@ export default function CertificateEditorPage() {
   const [course,         setCourse]         = useState<'3sfm' | 'bvm'>('3sfm');
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  // Active drag key — only for visual feedback
+  // Active key — shared visual feedback for move AND resize
   const [activeKey, setActiveKey] = useState<PdfFieldKey | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
 
-  // Refs for drag state (avoids stale closures in window listeners)
-  const canvasRef      = useRef<HTMLDivElement>(null);
-  const draggingKeyRef = useRef<PdfFieldKey | null>(null);
-  const dragOffsetRef  = useRef({ x: 0, y: 0 });
+  // Refs — avoids stale closures in window event listeners
+  const canvasRef       = useRef<HTMLDivElement>(null);
+  const draggingKeyRef  = useRef<PdfFieldKey | null>(null);
+  const dragOffsetRef   = useRef({ x: 0, y: 0 });
+  const resizingKeyRef  = useRef<PdfFieldKey | null>(null);
+  const resizeStartRef  = useRef({ startLogX: 0, startWidth: 0 });
 
   // ── Load pdfLayout from API ──
   useEffect(() => {
@@ -123,7 +127,7 @@ export default function CertificateEditorPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // ── Load template background when course changes ──
+  // ── Load template background ──
   useEffect(() => {
     const sb = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -137,28 +141,49 @@ export default function CertificateEditorPage() {
       .catch(() => { setTemplateBg(null); });
   }, [course]);
 
-  // ── Global mouse handlers for drag ──
+  // ── Global mouse handlers — shared by drag-move AND drag-resize ──
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
-      const key = draggingKeyRef.current;
-      if (!key || !canvasRef.current) return;
+      if (!canvasRef.current) return;
       const rect = canvasRef.current.getBoundingClientRect();
       const logX = (e.clientX - rect.left) / SCALE;
       const logY = (e.clientY - rect.top)  / SCALE;
-      const newX = Math.round(Math.max(0, Math.min(CANVAS_W - 10, logX - dragOffsetRef.current.x)));
-      const newY = Math.round(Math.max(0, Math.min(CANVAS_H - 10, logY - dragOffsetRef.current.y)));
-      setPdfLayout(prev => {
-        const existing = prev[key];
-        if (!existing) return prev;
-        return { ...prev, [key]: { ...existing, x: newX, y: newY } };
-      });
-    }
-    function onMouseUp() {
-      if (draggingKeyRef.current) {
-        draggingKeyRef.current = null;
-        setActiveKey(null);
+
+      // Resize takes priority
+      const rKey = resizingKeyRef.current;
+      if (rKey) {
+        const delta    = logX - resizeStartRef.current.startLogX;
+        const newWidth = Math.round(Math.max(MIN_W, Math.min(CANVAS_W, resizeStartRef.current.startWidth + delta)));
+        setPdfLayout(prev => {
+          const f = prev[rKey];
+          if (!f) return prev;
+          return { ...prev, [rKey]: { ...f, width: newWidth } };
+        });
+        return;
+      }
+
+      // Move
+      const mKey = draggingKeyRef.current;
+      if (mKey) {
+        const newX = Math.round(Math.max(0, Math.min(CANVAS_W - 10, logX - dragOffsetRef.current.x)));
+        const newY = Math.round(Math.max(0, Math.min(CANVAS_H - 10, logY - dragOffsetRef.current.y)));
+        setPdfLayout(prev => {
+          const f = prev[mKey];
+          if (!f) return prev;
+          return { ...prev, [mKey]: { ...f, x: newX, y: newY } };
+        });
       }
     }
+
+    function onMouseUp() {
+      if (resizingKeyRef.current || draggingKeyRef.current) {
+        resizingKeyRef.current = null;
+        draggingKeyRef.current = null;
+        setActiveKey(null);
+        setIsResizing(false);
+      }
+    }
+
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup',   onMouseUp);
     return () => {
@@ -167,48 +192,36 @@ export default function CertificateEditorPage() {
     };
   }, []);
 
-  // ── Start dragging ──
-  const handleMarkerMouseDown = useCallback(
-    (e: React.MouseEvent, key: PdfFieldKey) => {
-      e.preventDefault();
-      if (!canvasRef.current) return;
-      const rect  = canvasRef.current.getBoundingClientRect();
-      const logX  = (e.clientX - rect.left) / SCALE;
-      const logY  = (e.clientY - rect.top)  / SCALE;
-      const curX  = (pdfLayout[key] as { x: number } | undefined)?.x ?? 0;
-      const curY  = (pdfLayout[key] as { y: number } | undefined)?.y ?? 0;
-      dragOffsetRef.current  = { x: logX - curX, y: logY - curY };
-      draggingKeyRef.current = key;
-      setActiveKey(key);
-    },
-    [pdfLayout],
-  );
+  // ── Start drag-to-move ──
+  const handleMarkerMouseDown = useCallback((e: React.MouseEvent, key: PdfFieldKey) => {
+    e.preventDefault();
+    if (!canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    const logX = (e.clientX - rect.left) / SCALE;
+    const logY = (e.clientY - rect.top)  / SCALE;
+    const curX = (pdfLayout[key] as { x: number } | undefined)?.x ?? 0;
+    const curY = (pdfLayout[key] as { y: number } | undefined)?.y ?? 0;
+    dragOffsetRef.current  = { x: logX - curX, y: logY - curY };
+    draggingKeyRef.current = key;
+    setActiveKey(key);
+    setIsResizing(false);
+  }, [pdfLayout]);
 
-  // ── Save layout ──
-  async function handleSave() {
-    setSaving(true);
-    setSaveMsg('');
-    try {
-      const r = await fetch('/api/admin/certificate-layout', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ pdfLayout }),
-      });
-      const d = await r.json() as { ok?: boolean; error?: string };
-      if (d.ok) {
-        setSaveMsg('Saved!');
-        setTimeout(() => setSaveMsg(''), 2500);
-      } else {
-        setSaveMsg(d.error ?? 'Error saving');
-      }
-    } catch (e) {
-      setSaveMsg(String(e));
-    } finally {
-      setSaving(false);
-    }
-  }
+  // ── Start drag-to-resize ──
+  const handleResizerMouseDown = useCallback((e: React.MouseEvent, key: PdfFieldKey) => {
+    e.preventDefault();
+    e.stopPropagation(); // don't trigger parent marker's move handler
+    if (!canvasRef.current) return;
+    const rect       = canvasRef.current.getBoundingClientRect();
+    const startLogX  = (e.clientX - rect.left) / SCALE;
+    const startWidth = (pdfLayout[key] as PdfField | undefined)?.width ?? 320;
+    resizeStartRef.current = { startLogX, startWidth };
+    resizingKeyRef.current = key;
+    setActiveKey(key);
+    setIsResizing(true);
+  }, [pdfLayout]);
 
-  // ── Generate PDF preview with sample data ──
+  // ── Generate and open PDF preview ──
   async function handlePreview() {
     setPreviewLoading(true);
     try {
@@ -224,12 +237,39 @@ export default function CertificateEditorPage() {
       }
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
-      window.open(url, '_blank');
+      // Named target reuses the same tab on subsequent opens
+      window.open(url, 'cert-preview');
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (e) {
       alert(`Preview failed: ${String(e)}`);
     } finally {
       setPreviewLoading(false);
+    }
+  }
+
+  // ── Save layout, then auto-refresh preview ──
+  async function handleSave() {
+    setSaving(true);
+    setSaveMsg('');
+    try {
+      const r = await fetch('/api/admin/certificate-layout', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ pdfLayout }),
+      });
+      const d = await r.json() as { ok?: boolean; error?: string };
+      if (d.ok) {
+        setSaveMsg('Saved! Refreshing preview…');
+        // Auto-refresh the preview tab with the saved layout
+        void handlePreview().then(() => setSaveMsg('Saved!'));
+        setTimeout(() => setSaveMsg(''), 4000);
+      } else {
+        setSaveMsg(d.error ?? 'Error saving');
+      }
+    } catch (e) {
+      setSaveMsg(String(e));
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -239,7 +279,7 @@ export default function CertificateEditorPage() {
       const existing = prev[key] ?? (
         key === 'qrCode'
           ? { x: 0, y: 0, width: 120, height: 120 }
-          : { x: 0, y: 0, fontSize: 14, color: '#000000', textAlign: 'left' as const, fontFamily: 'Helvetica' }
+          : { x: 0, y: 0, fontSize: 14, color: '#000000', textAlign: 'left' as const, fontFamily: 'Helvetica', width: 320 }
       );
       return { ...prev, [key]: { ...existing, [field]: value } };
     });
@@ -273,18 +313,18 @@ export default function CertificateEditorPage() {
               🎨 Certificate Editor
             </h1>
             <p style={{ margin: '2px 0 0', fontSize: 12, color: '#9CA3AF' }}>
-              Drag fields to reposition. Sample text shows live on canvas. Save then Preview to generate PDF.
+              Drag to move · Drag right edge ↔ to resize · Save Layout auto-updates preview tab
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             {saveMsg && (
               <span style={{
                 fontSize: 12, fontWeight: 600,
-                color:      saveMsg === 'Saved!' ? '#2EAA4A' : '#DC2626',
+                color:      saveMsg.startsWith('Saved') ? '#2EAA4A' : '#DC2626',
                 padding:   '6px 12px',
-                background: saveMsg === 'Saved!' ? '#F0FFF4' : '#FEF2F2',
+                background: saveMsg.startsWith('Saved') ? '#F0FFF4' : '#FEF2F2',
                 borderRadius: 6,
-                border: `1px solid ${saveMsg === 'Saved!' ? '#BBF7D0' : '#FECACA'}`,
+                border: `1px solid ${saveMsg.startsWith('Saved') ? '#BBF7D0' : '#FECACA'}`,
               }}>
                 {saveMsg}
               </span>
@@ -341,7 +381,7 @@ export default function CertificateEditorPage() {
                 borderRadius:    4,
                 flexShrink:      0,
                 userSelect:      'none',
-                cursor:          activeKey ? 'grabbing' : 'default',
+                cursor:          isResizing ? 'ew-resize' : (activeKey ? 'grabbing' : 'default'),
               }}
             >
               {/* PDF background */}
@@ -350,14 +390,10 @@ export default function CertificateEditorPage() {
                   data={`${templateBg}#toolbar=0&navpanes=0`}
                   type="application/pdf"
                   style={{
-                    position:        'absolute',
-                    top: 0, left: 0,
-                    width:           `${CANVAS_W}px`,
-                    height:          `${CANVAS_H}px`,
-                    transform:       `scale(${SCALE})`,
-                    transformOrigin: 'top left',
-                    border:          'none',
-                    pointerEvents:   'none',
+                    position: 'absolute', top: 0, left: 0,
+                    width: `${CANVAS_W}px`, height: `${CANVAS_H}px`,
+                    transform: `scale(${SCALE})`, transformOrigin: 'top left',
+                    border: 'none', pointerEvents: 'none',
                   }}
                 >
                   <p style={{ color: '#999', fontSize: 13, padding: 20 }}>
@@ -376,14 +412,10 @@ export default function CertificateEditorPage() {
 
               {/* Field markers — 1240×877 unscaled coordinate space */}
               <div style={{
-                position:        'absolute',
-                top: 0, left: 0,
-                width:           CANVAS_W,
-                height:          CANVAS_H,
-                transform:       `scale(${SCALE})`,
-                transformOrigin: 'top left',
-                zIndex:          1,
-                pointerEvents:   'none',
+                position: 'absolute', top: 0, left: 0,
+                width: CANVAS_W, height: CANVAS_H,
+                transform: `scale(${SCALE})`, transformOrigin: 'top left',
+                zIndex: 1, pointerEvents: 'none',
               }}>
                 {(Object.keys(pdfLayout) as PdfFieldKey[]).map(key => {
                   const field      = pdfLayout[key];
@@ -391,16 +423,14 @@ export default function CertificateEditorPage() {
                   const isQr       = key === 'qrCode';
                   const qr         = field as PdfQrField;
                   const tf         = field as PdfField;
-                  const isDragging = activeKey === key;
-                  const sample     = SAMPLE_TEXT[key];
+                  const isActive   = activeKey === key;
+                  const fieldWidth = isQr ? qr.width  : (tf.width ?? 320);
+                  const fieldHeight= isQr ? qr.height : Math.max(tf.fontSize + 10, 28);
                   const align      = tf.textAlign ?? 'left';
                   const cssFont    = CSS_FONT[tf.fontFamily ?? 'Helvetica'] ?? CSS_FONT['Helvetica'];
-
-                  // Adjust marker left based on text alignment
-                  const markerLeft = isQr ? qr.x : (tf.x + alignOffset(align));
+                  const markerLeft = isQr ? qr.x : (tf.x + alignOffset(align, fieldWidth));
                   const markerTop  = isQr ? qr.y : tf.y;
-                  const markerW    = isQr ? qr.width  : MARKER_W;
-                  const markerH    = isQr ? qr.height : Math.max(tf.fontSize + 10, 28);
+                  const borderColor = isActive ? '#3B82F6' : '#10B981';
 
                   return (
                     <div
@@ -410,26 +440,25 @@ export default function CertificateEditorPage() {
                         position:      'absolute',
                         left:          markerLeft,
                         top:           markerTop,
-                        width:         markerW,
-                        height:        markerH,
-                        border:        `2px ${isDragging ? 'solid' : 'dashed'} ${isDragging ? '#3B82F6' : '#10B981'}`,
-                        background:    isDragging ? 'rgba(59,130,246,0.08)' : 'rgba(255,255,255,0.55)',
+                        width:         fieldWidth,
+                        height:        fieldHeight,
+                        border:        `2px ${isActive ? 'solid' : 'dashed'} ${borderColor}`,
+                        background:    isActive ? 'rgba(59,130,246,0.07)' : 'rgba(255,255,255,0.55)',
                         pointerEvents: 'auto',
-                        cursor:        isDragging ? 'grabbing' : 'grab',
+                        cursor:        isActive && !isResizing ? 'grabbing' : 'grab',
                         boxSizing:     'border-box',
-                        overflow:      'hidden',
+                        overflow:      'visible',
                         display:       'flex',
-                        flexDirection: 'column',
-                        justifyContent: 'center',
+                        alignItems:    'center',
                       }}
                     >
                       {isQr ? (
-                        // QR placeholder
+                        /* QR placeholder */
                         <div style={{
                           width: '100%', height: '100%',
                           display: 'flex', flexDirection: 'column',
                           alignItems: 'center', justifyContent: 'center',
-                          background: 'repeating-linear-gradient(45deg, #e5e7eb 0px, #e5e7eb 4px, #f3f4f6 4px, #f3f4f6 12px)',
+                          background: 'repeating-linear-gradient(45deg,#e5e7eb 0,#e5e7eb 4px,#f3f4f6 4px,#f3f4f6 12px)',
                           fontSize: 10, color: '#6B7280', fontWeight: 700, gap: 4,
                         }}>
                           <span style={{ fontSize: 22 }}>▦</span>
@@ -437,46 +466,82 @@ export default function CertificateEditorPage() {
                           <span style={{ fontSize: 9, fontWeight: 400 }}>{qr.width}×{qr.height}</span>
                         </div>
                       ) : (
-                        // Sample text
+                        /* Sample text */
                         <div style={{
-                          padding:     '0 4px',
-                          fontSize:    tf.fontSize,
-                          fontWeight:  tf.fontWeight === 'bold' ? 700 : 400,
-                          color:       tf.color,
-                          fontFamily:  cssFont,
-                          textAlign:   align as React.CSSProperties['textAlign'],
-                          lineHeight:  1,
-                          whiteSpace:  'nowrap',
-                          overflow:    'hidden',
+                          padding:      '0 4px',
+                          width:        '100%',
+                          fontSize:     tf.fontSize,
+                          fontWeight:   tf.fontWeight === 'bold' ? 700 : 400,
+                          color:        tf.color,
+                          fontFamily:   cssFont,
+                          textAlign:    align as React.CSSProperties['textAlign'],
+                          lineHeight:   1,
+                          whiteSpace:   'nowrap',
+                          overflow:     'hidden',
                           textOverflow: 'ellipsis',
-                          width:       '100%',
                         }}>
-                          {sample}
+                          {SAMPLE_TEXT[key]}
                         </div>
                       )}
 
-                      {/* Label chip — top-left corner */}
+                      {/* Label chip */}
                       <div style={{
                         position:   'absolute',
-                        top: 0, left: 0,
-                        fontSize:   7,
+                        top: -16, left: 0,
+                        fontSize:   8,
                         fontWeight: 800,
-                        color:      isDragging ? '#3B82F6' : '#10B981',
-                        background: 'rgba(255,255,255,0.92)',
-                        padding:    '1px 3px',
-                        lineHeight: 1.5,
-                        borderRadius: '0 0 3px 0',
-                        letterSpacing: '0.05em',
-                        whiteSpace: 'nowrap',
+                        color:      borderColor,
+                        background: 'rgba(255,255,255,0.95)',
+                        padding:    '1px 4px',
+                        borderRadius: 3,
+                        letterSpacing: '0.04em',
+                        whiteSpace:  'nowrap',
                         pointerEvents: 'none',
+                        border:      `1px solid ${borderColor}`,
                       }}>
                         {PDF_FIELD_LABELS[key]}
-                        {isDragging && (
+                        {isActive && !isQr && (
                           <span style={{ marginLeft: 4, color: '#6B7280', fontWeight: 400 }}>
-                            ({isQr ? qr.x : tf.x}, {isQr ? qr.y : tf.y})
+                            {isResizing
+                              ? `w:${tf.width ?? 320}`
+                              : `(${tf.x}, ${tf.y})`}
                           </span>
                         )}
                       </div>
+
+                      {/* Resize handle — right edge (text fields only) */}
+                      {!isQr && (
+                        <div
+                          onMouseDown={e => handleResizerMouseDown(e, key)}
+                          title="Drag to resize field width"
+                          style={{
+                            position:   'absolute',
+                            right:      -RESIZE_HANDLE_W / 2,
+                            top:        0,
+                            bottom:     0,
+                            width:      RESIZE_HANDLE_W,
+                            cursor:     'ew-resize',
+                            background: isActive ? 'rgba(59,130,246,0.25)' : 'rgba(16,185,129,0.18)',
+                            borderRadius: 3,
+                            display:    'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            pointerEvents: 'auto',
+                            zIndex:     2,
+                          }}
+                        >
+                          <span style={{
+                            fontSize: 8,
+                            color:    isActive ? '#3B82F6' : '#10B981',
+                            fontWeight: 900,
+                            lineHeight: 1,
+                            letterSpacing: '-1px',
+                            userSelect: 'none',
+                          }}>
+                            ⋮⋮
+                          </span>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -485,7 +550,7 @@ export default function CertificateEditorPage() {
           </div>
 
           {/* ── Right panel ── */}
-          <div style={{ width: 256, flexShrink: 0 }}>
+          <div style={{ width: 260, flexShrink: 0 }}>
             <div style={{
               background:   '#fff',
               borderRadius: 10,
@@ -499,7 +564,7 @@ export default function CertificateEditorPage() {
                 PDF Field Positions
               </div>
               <div style={{ fontSize: 10, color: '#9CA3AF', marginBottom: 12, lineHeight: 1.5 }}>
-                Drag on canvas or type values. Coords are in 1240×877 unscaled space.
+                Drag to move · Right-edge grip ↔ to resize · Coords in 1240×877 space.
               </div>
 
               {(Object.keys(pdfLayout) as PdfFieldKey[]).map(key => {
@@ -519,37 +584,37 @@ export default function CertificateEditorPage() {
                     outline:       isActive ? '2px solid #3B82F6' : 'none',
                     outlineOffset: 3,
                   }}>
-                    {/* Field label */}
                     <div style={{ fontSize: 10, fontWeight: 800, color: isActive ? '#3B82F6' : '#374151', marginBottom: 6 }}>
                       {PDF_FIELD_LABELS[key]}
                     </div>
 
                     {isQr ? (
-                      // QR: X / Y / W / H
+                      /* QR: 2×2 grid */
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
                         {(['x', 'y', 'width', 'height'] as const).map(f => (
                           <div key={f}>
-                            <div style={{ fontSize: 9, color: '#9CA3AF', marginBottom: 2 }}>{f.toUpperCase()}</div>
-                            <input
-                              type="number"
-                              value={qr[f]}
+                            <div style={labelStyle}>{f.toUpperCase()}</div>
+                            <input type="number" value={qr[f]}
                               onChange={e => handleFieldChange(key, f, parseInt(e.target.value, 10) || 0)}
-                              style={inputStyle}
-                            />
+                              style={inputStyle} />
                           </div>
                         ))}
                       </div>
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
 
-                        {/* Row 1: X / Y / SIZE */}
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
-                          {(['x', 'y', 'fontSize'] as const).map(f => (
+                        {/* X / Y / SIZE / WIDTH — 2×2 grid */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                          {([
+                            { f: 'x',         label: 'X' },
+                            { f: 'y',         label: 'Y' },
+                            { f: 'fontSize',  label: 'SIZE' },
+                            { f: 'width',     label: 'WIDTH' },
+                          ] as const).map(({ f, label }) => (
                             <div key={f}>
-                              <div style={{ fontSize: 9, color: '#9CA3AF', marginBottom: 2 }}>{f === 'fontSize' ? 'SIZE' : f.toUpperCase()}</div>
-                              <input
-                                type="number"
-                                value={tf[f]}
+                              <div style={labelStyle}>{label}</div>
+                              <input type="number"
+                                value={f === 'width' ? (tf.width ?? 320) : tf[f as 'x' | 'y' | 'fontSize']}
                                 onChange={e => handleFieldChange(key, f, parseInt(e.target.value, 10) || 0)}
                                 style={{ ...inputStyle, background: isActive ? '#EFF6FF' : '#F0FFF4' }}
                               />
@@ -557,63 +622,44 @@ export default function CertificateEditorPage() {
                           ))}
                         </div>
 
-                        {/* Row 2: Align + Bold */}
+                        {/* Align + Bold */}
                         <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                           <div style={{ fontSize: 9, color: '#9CA3AF', marginRight: 2 }}>ALIGN</div>
                           {(['left', 'center', 'right'] as const).map(a => (
-                            <button
-                              key={a}
-                              onClick={() => handleFieldChange(key, 'textAlign', a)}
-                              style={{
-                                padding: '3px 7px',
-                                borderRadius: 4,
-                                fontSize: 11,
-                                fontWeight: 700,
-                                border: '1px solid',
-                                cursor: 'pointer',
-                                background: tf.textAlign === a ? '#1B4F8A' : '#F3F4F6',
-                                borderColor: tf.textAlign === a ? '#1B4F8A' : '#D1D5DB',
-                                color: tf.textAlign === a ? '#fff' : '#6B7280',
-                              }}
+                            <button key={a} onClick={() => handleFieldChange(key, 'textAlign', a)}
                               title={`Align ${a}`}
-                            >
+                              style={{
+                                padding: '3px 7px', borderRadius: 4, fontSize: 11,
+                                fontWeight: 700, border: '1px solid', cursor: 'pointer',
+                                background:  (tf.textAlign ?? 'left') === a ? '#1B4F8A' : '#F3F4F6',
+                                borderColor: (tf.textAlign ?? 'left') === a ? '#1B4F8A' : '#D1D5DB',
+                                color:       (tf.textAlign ?? 'left') === a ? '#fff' : '#6B7280',
+                              }}>
                               {a === 'left' ? '⬅' : a === 'center' ? '↔' : '➡'}
                             </button>
                           ))}
                           <div style={{ marginLeft: 6, fontSize: 9, color: '#9CA3AF' }}>BOLD</div>
-                          <button
-                            onClick={() => handleFieldChange(key, 'fontWeight', tf.fontWeight === 'bold' ? 'normal' : 'bold')}
+                          <button onClick={() => handleFieldChange(key, 'fontWeight', tf.fontWeight === 'bold' ? 'normal' : 'bold')}
                             style={{
-                              padding: '3px 8px',
-                              borderRadius: 4,
-                              fontSize: 11,
-                              fontWeight: 800,
-                              border: '1px solid',
-                              cursor: 'pointer',
-                              background: tf.fontWeight === 'bold' ? '#1B4F8A' : '#F3F4F6',
+                              padding: '3px 8px', borderRadius: 4, fontSize: 11,
+                              fontWeight: 800, border: '1px solid', cursor: 'pointer',
+                              background:  tf.fontWeight === 'bold' ? '#1B4F8A' : '#F3F4F6',
                               borderColor: tf.fontWeight === 'bold' ? '#1B4F8A' : '#D1D5DB',
-                              color: tf.fontWeight === 'bold' ? '#fff' : '#6B7280',
-                            }}
-                          >
-                            B
-                          </button>
+                              color:       tf.fontWeight === 'bold' ? '#fff' : '#6B7280',
+                            }}>B</button>
                         </div>
 
-                        {/* Row 3: Font family */}
+                        {/* Font */}
                         <div>
-                          <div style={{ fontSize: 9, color: '#9CA3AF', marginBottom: 2 }}>FONT</div>
-                          <select
-                            value={tf.fontFamily ?? 'Helvetica'}
+                          <div style={labelStyle}>FONT</div>
+                          <select value={tf.fontFamily ?? 'Helvetica'}
                             onChange={e => handleFieldChange(key, 'fontFamily', e.target.value)}
                             style={{
-                              width: '100%', boxSizing: 'border-box',
-                              padding: '4px 6px', borderRadius: 4,
-                              border: '1px solid #D1D5DB', fontSize: 11,
+                              width: '100%', boxSizing: 'border-box', padding: '4px 6px',
+                              borderRadius: 4, border: '1px solid #D1D5DB', fontSize: 11,
                               background: '#F0FFF4', outline: 'none',
-                              fontFamily: CSS_FONT[tf.fontFamily ?? 'Helvetica'],
-                              cursor: 'pointer',
-                            }}
-                          >
+                              fontFamily: CSS_FONT[tf.fontFamily ?? 'Helvetica'], cursor: 'pointer',
+                            }}>
                             {FONT_OPTIONS.map(o => (
                               <option key={o.value} value={o.value} style={{ fontFamily: CSS_FONT[o.value] }}>
                                 {o.label}
@@ -622,22 +668,16 @@ export default function CertificateEditorPage() {
                           </select>
                         </div>
 
-                        {/* Row 4: Color */}
+                        {/* Color */}
                         <div>
-                          <div style={{ fontSize: 9, color: '#9CA3AF', marginBottom: 2 }}>COLOR</div>
+                          <div style={labelStyle}>COLOR</div>
                           <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                            <input
-                              type="color"
-                              value={tf.color}
+                            <input type="color" value={tf.color}
                               onChange={e => handleFieldChange(key, 'color', e.target.value)}
-                              style={{ width: 32, height: 24, padding: 0, border: '1px solid #D1D5DB', borderRadius: 3, cursor: 'pointer' }}
-                            />
-                            <input
-                              type="text"
-                              value={tf.color}
+                              style={{ width: 32, height: 24, padding: 0, border: '1px solid #D1D5DB', borderRadius: 3, cursor: 'pointer' }} />
+                            <input type="text" value={tf.color}
                               onChange={e => handleFieldChange(key, 'color', e.target.value)}
-                              style={{ flex: 1, padding: '4px 6px', borderRadius: 4, border: '1px solid #D1D5DB', fontSize: 11, background: '#F0FFF4', outline: 'none', fontFamily: 'monospace' }}
-                            />
+                              style={{ flex: 1, padding: '4px 6px', borderRadius: 4, border: '1px solid #D1D5DB', fontSize: 11, background: '#F0FFF4', outline: 'none', fontFamily: 'monospace' }} />
                           </div>
                         </div>
 
@@ -655,15 +695,15 @@ export default function CertificateEditorPage() {
   );
 }
 
-// ── Shared input style ────────────────────────────────────────────────────────
+// ── Shared micro-styles ───────────────────────────────────────────────────────
 
 const inputStyle: React.CSSProperties = {
-  width: '100%',
-  boxSizing: 'border-box',
-  padding: '4px 6px',
-  borderRadius: 4,
-  border: '1px solid #D1D5DB',
-  fontSize: 11,
-  background: '#F0FFF4',
-  outline: 'none',
+  width: '100%', boxSizing: 'border-box',
+  padding: '4px 6px', borderRadius: 4,
+  border: '1px solid #D1D5DB', fontSize: 11,
+  background: '#F0FFF4', outline: 'none',
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 9, color: '#9CA3AF', marginBottom: 2,
 };
