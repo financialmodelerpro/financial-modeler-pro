@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 
@@ -64,12 +64,20 @@ const PDF_FIELD_LABELS: Record<PdfFieldKey, string> = {
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function CertificateEditorPage() {
-  const [pdfLayout, setPdfLayout]   = useState<PdfLayout>(DEFAULT_PDF_LAYOUT);
-  const [saving,    setSaving]      = useState(false);
-  const [saveMsg,   setSaveMsg]     = useState('');
-  const [loading,   setLoading]     = useState(true);
-  const [templateBg, setTemplateBg] = useState<string | null>(null);
-  const [course,    setCourse]      = useState<'3sfm' | 'bvm'>('3sfm');
+  const [pdfLayout,   setPdfLayout]   = useState<PdfLayout>(DEFAULT_PDF_LAYOUT);
+  const [saving,      setSaving]      = useState(false);
+  const [saveMsg,     setSaveMsg]     = useState('');
+  const [loading,     setLoading]     = useState(true);
+  const [templateBg,  setTemplateBg]  = useState<string | null>(null);
+  const [course,      setCourse]      = useState<'3sfm' | 'bvm'>('3sfm');
+
+  // Active drag key — only for visual feedback (border colour, cursor)
+  const [activeKey, setActiveKey] = useState<PdfFieldKey | null>(null);
+
+  // Refs used inside window event listeners — avoids stale closures
+  const canvasRef      = useRef<HTMLDivElement>(null);
+  const draggingKeyRef = useRef<PdfFieldKey | null>(null);
+  const dragOffsetRef  = useRef({ x: 0, y: 0 });
 
   // ── Load pdfLayout from API ──
   useEffect(() => {
@@ -96,6 +104,60 @@ export default function CertificateEditorPage() {
       .catch(() => { setTemplateBg(null); });
   }, [course]);
 
+  // ── Global mouse-move / mouse-up handlers for drag ──
+  useEffect(() => {
+    function onMouseMove(e: MouseEvent) {
+      const key = draggingKeyRef.current;
+      if (!key || !canvasRef.current) return;
+
+      const rect = canvasRef.current.getBoundingClientRect();
+      // Convert screen coords → unscaled canvas coords
+      const logX = (e.clientX - rect.left) / SCALE;
+      const logY = (e.clientY - rect.top)  / SCALE;
+
+      const newX = Math.round(Math.max(0, Math.min(CANVAS_W - 10, logX - dragOffsetRef.current.x)));
+      const newY = Math.round(Math.max(0, Math.min(CANVAS_H - 10, logY - dragOffsetRef.current.y)));
+
+      setPdfLayout(prev => {
+        const existing = prev[key];
+        if (!existing) return prev;
+        return { ...prev, [key]: { ...existing, x: newX, y: newY } };
+      });
+    }
+
+    function onMouseUp() {
+      if (draggingKeyRef.current) {
+        draggingKeyRef.current = null;
+        setActiveKey(null);
+      }
+    }
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup',   onMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup',   onMouseUp);
+    };
+  }, []); // empty — reads state only through refs
+
+  // ── Start dragging a marker ──
+  const handleMarkerMouseDown = useCallback(
+    (e: React.MouseEvent, key: PdfFieldKey) => {
+      e.preventDefault();
+      if (!canvasRef.current) return;
+      const rect   = canvasRef.current.getBoundingClientRect();
+      const logX   = (e.clientX - rect.left) / SCALE;
+      const logY   = (e.clientY - rect.top)  / SCALE;
+      const field  = DEFAULT_PDF_LAYOUT[key]; // use current state via closure below
+      const curX   = (pdfLayout[key] as { x: number; y: number } | undefined)?.x ?? (field?.x ?? 0);
+      const curY   = (pdfLayout[key] as { x: number; y: number } | undefined)?.y ?? (field?.y ?? 0);
+      dragOffsetRef.current  = { x: logX - curX, y: logY - curY };
+      draggingKeyRef.current = key;
+      setActiveKey(key);
+    },
+    [pdfLayout],
+  );
+
   // ── Save ──
   async function handleSave() {
     setSaving(true);
@@ -121,7 +183,7 @@ export default function CertificateEditorPage() {
     }
   }
 
-  // ── Update a single PDF field value ──
+  // ── Update a single PDF field value (from right-panel inputs) ──
   function handlePdfFieldChange(key: PdfFieldKey, field: string, value: string | number) {
     setPdfLayout(prev => {
       const existing = prev[key] ?? (
@@ -161,15 +223,15 @@ export default function CertificateEditorPage() {
               🎨 Certificate Editor
             </h1>
             <p style={{ margin: '2px 0 0', fontSize: 12, color: '#9CA3AF' }}>
-              Landscape canvas (1240×877). Green markers show field placement. X/Y are in unscaled canvas coordinates.
+              Drag fields to reposition. X/Y update live in the panel. Click Save Layout when done.
             </p>
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
             {saveMsg && (
               <span style={{
                 fontSize: 12, fontWeight: 600,
-                color: saveMsg === 'Saved!' ? '#2EAA4A' : '#DC2626',
-                padding: '6px 12px',
+                color:      saveMsg === 'Saved!' ? '#2EAA4A' : '#DC2626',
+                padding:   '6px 12px',
                 background: saveMsg === 'Saved!' ? '#F0FFF4' : '#FEF2F2',
                 borderRadius: 6,
                 border: `1px solid ${saveMsg === 'Saved!' ? '#BBF7D0' : '#FECACA'}`,
@@ -215,19 +277,23 @@ export default function CertificateEditorPage() {
             </div>
 
             {/* Canvas — landscape 1240×877, scaled to 0.65 */}
-            <div style={{
-              position:        'relative',
-              width:           CANVAS_W * SCALE,
-              height:          CANVAS_H * SCALE,
-              overflow:        'hidden',
-              border:          '1px solid #ddd',
-              backgroundColor: '#fff',
-              boxShadow:       '0 8px 40px rgba(0,0,0,0.15)',
-              borderRadius:    4,
-              flexShrink:      0,
-            }}>
-
-              {/* PDF background — unscaled <object> scaled via transform */}
+            <div
+              ref={canvasRef}
+              style={{
+                position:        'relative',
+                width:           CANVAS_W * SCALE,
+                height:          CANVAS_H * SCALE,
+                overflow:        'hidden',
+                border:          '1px solid #ddd',
+                backgroundColor: '#fff',
+                boxShadow:       '0 8px 40px rgba(0,0,0,0.15)',
+                borderRadius:    4,
+                flexShrink:      0,
+                userSelect:      'none',
+                cursor:          activeKey ? 'grabbing' : 'default',
+              }}
+            >
+              {/* PDF background — <object> scaled via CSS transform */}
               {templateBg ? (
                 <object
                   data={`${templateBg}#toolbar=0&navpanes=0`}
@@ -264,7 +330,9 @@ export default function CertificateEditorPage() {
                 </div>
               )}
 
-              {/* Field position markers — 1240×877 coordinate space, scaled with transform */}
+              {/* Field markers — 1240×877 unscaled space, scaled via transform.
+                  Parent pointer-events:none so the PDF background is unobstructed;
+                  each marker overrides with pointer-events:auto for drag. */}
               <div style={{
                 position:        'absolute',
                 top:             0,
@@ -277,42 +345,57 @@ export default function CertificateEditorPage() {
                 pointerEvents:   'none',
               }}>
                 {(Object.keys(pdfLayout) as PdfFieldKey[]).map(key => {
-                  const field = pdfLayout[key];
+                  const field    = pdfLayout[key];
                   if (!field) return null;
-                  const isQr = key === 'qrCode';
-                  const qr   = field as PdfQrField;
-                  const tf   = field as PdfField;
+                  const isQr     = key === 'qrCode';
+                  const qr       = field as PdfQrField;
+                  const tf       = field as PdfField;
+                  const isDragging = activeKey === key;
+
                   return (
-                    <div key={key} style={{
-                      position:   'absolute',
-                      left:       isQr ? qr.x : tf.x,
-                      top:        isQr ? qr.y : tf.y,
-                      width:      isQr ? qr.width  : 280,
-                      height:     isQr ? qr.height : (tf.fontSize + 4),
-                      border:     '1.5px dashed #10B981',
-                      background: 'rgba(16,185,129,0.06)',
-                      overflow:   'hidden',
-                    }}>
+                    <div
+                      key={key}
+                      onMouseDown={e => handleMarkerMouseDown(e, key)}
+                      style={{
+                        position:     'absolute',
+                        left:         isQr ? qr.x : tf.x,
+                        top:          isQr ? qr.y : tf.y,
+                        width:        isQr ? qr.width  : 280,
+                        height:       isQr ? qr.height : (tf.fontSize + 6),
+                        border:       `2px ${isDragging ? 'solid' : 'dashed'} ${isDragging ? '#3B82F6' : '#10B981'}`,
+                        background:   isDragging ? 'rgba(59,130,246,0.10)' : 'rgba(16,185,129,0.06)',
+                        pointerEvents: 'auto',
+                        cursor:       isDragging ? 'grabbing' : 'grab',
+                        boxSizing:    'border-box',
+                        overflow:     'hidden',
+                      }}
+                    >
+                      {/* Label chip */}
                       <div style={{
                         position:      'absolute',
                         top: 1, left: 2,
                         fontSize:      8,
                         fontWeight:    800,
-                        color:         '#10B981',
+                        color:         isDragging ? '#3B82F6' : '#10B981',
                         letterSpacing: '0.06em',
-                        background:    'rgba(255,255,255,0.85)',
+                        background:    'rgba(255,255,255,0.9)',
                         padding:       '0 3px',
                         borderRadius:  2,
                         lineHeight:    1.6,
                         whiteSpace:    'nowrap',
+                        userSelect:    'none',
                       }}>
                         {PDF_FIELD_LABELS[key]}
+                        {isDragging && (
+                          <span style={{ marginLeft: 4, color: '#6B7280', fontWeight: 400 }}>
+                            ({isQr ? qr.x : tf.x}, {isQr ? qr.y : tf.y})
+                          </span>
+                        )}
                       </div>
                     </div>
                   );
                 })}
               </div>
-
             </div>
           </div>
 
@@ -331,18 +414,27 @@ export default function CertificateEditorPage() {
                 PDF Field Positions
               </div>
               <div style={{ fontSize: 10, color: '#9CA3AF', marginBottom: 10, lineHeight: 1.5 }}>
-                Coordinates are in the 1240×877 canvas space used by pdf-lib. X/Y from top-left.
+                Drag markers on the canvas or type values here. Coordinates are in the 1240×877 unscaled space.
               </div>
 
               {(Object.keys(pdfLayout) as PdfFieldKey[]).map(key => {
-                const field = pdfLayout[key];
+                const field      = pdfLayout[key];
                 if (!field) return null;
-                const isQr = key === 'qrCode';
-                const qr   = field as PdfQrField;
-                const tf   = field as PdfField;
+                const isQr       = key === 'qrCode';
+                const qr         = field as PdfQrField;
+                const tf         = field as PdfField;
+                const isActive   = activeKey === key;
+
                 return (
-                  <div key={key} style={{ marginBottom: 12, paddingBottom: 12, borderBottom: '1px solid #F3F4F6' }}>
-                    <div style={{ fontSize: 10, fontWeight: 800, color: '#374151', marginBottom: 6 }}>
+                  <div key={key} style={{
+                    marginBottom: 12,
+                    paddingBottom: 12,
+                    borderBottom: '1px solid #F3F4F6',
+                    borderRadius: 6,
+                    outline: isActive ? '2px solid #3B82F6' : 'none',
+                    outlineOffset: 2,
+                  }}>
+                    <div style={{ fontSize: 10, fontWeight: 800, color: isActive ? '#3B82F6' : '#374151', marginBottom: 6 }}>
                       {PDF_FIELD_LABELS[key]}
                     </div>
                     {isQr ? (
@@ -369,7 +461,7 @@ export default function CertificateEditorPage() {
                                 type="number"
                                 value={tf[f]}
                                 onChange={e => handlePdfFieldChange(key, f, parseInt(e.target.value, 10) || 0)}
-                                style={{ width: '100%', boxSizing: 'border-box', padding: '4px 6px', borderRadius: 4, border: '1px solid #D1D5DB', fontSize: 11, background: '#F0FFF4', outline: 'none' }}
+                                style={{ width: '100%', boxSizing: 'border-box', padding: '4px 6px', borderRadius: 4, border: '1px solid #D1D5DB', fontSize: 11, background: isActive ? '#EFF6FF' : '#F0FFF4', outline: 'none' }}
                               />
                             </div>
                           ))}
