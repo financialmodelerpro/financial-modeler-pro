@@ -31,7 +31,7 @@
 - Any new environment variables added
 
 ### Do NOT touch list
-- `next.config.ts` — subdomain routing is live and correct; `/login → /admin/login` permanent redirect was **removed** (caused browser-cached loop); clean auth URL rewrites + redirects added for both subdomains; `Cache-Control: no-store` headers on `/login` and `/admin/login`
+- `next.config.ts` — subdomain routing is live and correct; `/login → /admin/login` permanent redirect was **removed** (caused browser-cached loop); clean auth URL rewrites + redirects added for both subdomains; `Cache-Control: no-store` headers on `/login` and `/admin/login`; app. `/register` rewrite goes to `/modeling/register` (dedicated page, NOT `/modeling/signin?tab=register` — beforeFiles rewrites are transparent to the client so `useSearchParams()` never sees the `?tab` param)
 - `src/middleware.ts` — `/admin/:path*` protection is live; `/admin/login` AND `/admin` root are explicitly excluded to prevent redirect loop
 - `app/globals.css` — design system tokens, do not restructure
 - `vercel.json` — deployment config is live
@@ -332,6 +332,7 @@ app/modeling/
 ├── confirm-email/page.tsx       # Forwards token to /api/auth/confirm-email
 ├── dashboard/page.tsx           # Inactivity logout wired
 ├── login/page.tsx
+├── register/page.tsx            # Standalone signup-only form at app.financialmodelerpro.com/register
 ├── signin/page.tsx              # Sign-in + signup + device OTP + resend confirmation link + password visibility toggle + PhoneInput
 └── submit-testimonial/page.tsx
 
@@ -541,7 +542,7 @@ branding.ts  core-calculations.ts  core-formatters.ts  core-state.ts  core-valid
 | learn. | `/register` | `/training/register` | `/training/register` |
 | learn. | `/forgot` | `/training/forgot` | `/training/forgot` |
 | app. | `/signin` | `/modeling/signin` | `/modeling/signin` |
-| app. | `/register` | `/modeling/signin?tab=register` | `/modeling/signin?tab=signup` |
+| app. | `/register` | `/modeling/register` | `/modeling/signin?tab=signup` |
 
 **All internal links** updated to use clean URLs. Use `/signin`, `/register`, `/forgot` for all training/modeling auth links.
 
