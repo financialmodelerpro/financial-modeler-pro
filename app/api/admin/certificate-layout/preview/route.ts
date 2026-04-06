@@ -22,7 +22,12 @@ interface PdfField {
   fontWeight?: string;
   textAlign?: 'left' | 'center' | 'right';
   fontFamily?: string;
+  width?: number; // field box width in editor (1240×877) space
 }
+
+// Editor canvas dimensions — must match the certificate-editor page constants
+const EDITOR_W = 1240;
+const EDITOR_H = 877;
 
 interface PdfLayout {
   studentName?:       PdfField;
@@ -111,14 +116,18 @@ export async function POST(req: NextRequest) {
     const page = pdfDoc.getPages()[0];
     const { width, height } = page.getSize();
 
+    // Scale factors: convert editor coords (1240×877) → PDF page points
+    const scaleX = width  / EDITOR_W;
+    const scaleY = height / EDITOR_H;
+
     // 2. Embed all font variants upfront
     const fonts: Record<string, PDFFont> = {
-      Helvetica:    await pdfDoc.embedFont(StandardFonts.Helvetica),
+      Helvetica:     await pdfDoc.embedFont(StandardFonts.Helvetica),
       HelveticaBold: await pdfDoc.embedFont(StandardFonts.HelveticaBold),
-      TimesRoman:   await pdfDoc.embedFont(StandardFonts.TimesRoman),
-      TimesBold:    await pdfDoc.embedFont(StandardFonts.TimesRomanBold),
-      Courier:      await pdfDoc.embedFont(StandardFonts.Courier),
-      CourierBold:  await pdfDoc.embedFont(StandardFonts.CourierBold),
+      TimesRoman:    await pdfDoc.embedFont(StandardFonts.TimesRoman),
+      TimesBold:     await pdfDoc.embedFont(StandardFonts.TimesRomanBold),
+      Courier:       await pdfDoc.embedFont(StandardFonts.Courier),
+      CourierBold:   await pdfDoc.embedFont(StandardFonts.CourierBold),
     };
 
     // 3. Draw text fields
@@ -130,18 +139,20 @@ export async function POST(req: NextRequest) {
       const pos = layout[key];
       if (!pos || !value) continue;
 
-      const font     = selectFont(fonts, pos.fontFamily, pos.fontWeight);
-      const fontSize = pos.fontSize ?? 14;
+      const font      = selectFont(fonts, pos.fontFamily, pos.fontWeight);
+      const fontSize  = (pos.fontSize ?? 14) * scaleY;
+      const fieldW    = (pos.width ?? EDITOR_W) * scaleX;
       const { r, g, b } = hexToRgb(pos.color ?? '#000000');
 
-      // X position adjusted for alignment
+      // Scale anchor x from editor space, then adjust for text alignment
+      const anchorX   = pos.x * scaleX;
       const textWidth = font.widthOfTextAtSize(value, fontSize);
-      let drawX = pos.x;
-      if (pos.textAlign === 'center') drawX = pos.x - textWidth / 2;
-      if (pos.textAlign === 'right')  drawX = pos.x - textWidth;
+      let drawX = anchorX;
+      if (pos.textAlign === 'center') drawX = anchorX - textWidth / 2;
+      if (pos.textAlign === 'right')  drawX = anchorX - textWidth;
 
-      // pdf-lib origin is bottom-left; layout uses top-left
-      const drawY = height - pos.y;
+      // pdf-lib origin is bottom-left; editor uses top-left origin
+      const drawY = height - pos.y * scaleY;
 
       page.drawText(value, {
         x:        drawX,
@@ -149,7 +160,7 @@ export async function POST(req: NextRequest) {
         size:     fontSize,
         font,
         color:    rgb(r, g, b),
-        maxWidth: width - drawX - 20,
+        maxWidth: fieldW,
       });
     }
 
@@ -157,19 +168,20 @@ export async function POST(req: NextRequest) {
     const qrPos = layout.qrCode;
     if (qrPos) {
       try {
-        const qrSize = qrPos.width ?? 120;
+        const qrW    = Math.round((qrPos.width  ?? 120) * scaleX);
+        const qrH    = Math.round((qrPos.height ?? 120) * scaleY);
         const qrRes  = await fetch(
-          `${QR_API}/?size=${qrSize}x${qrSize}&data=${encodeURIComponent(SAMPLE_VERIFY_URL)}`,
+          `${QR_API}/?size=${qrW}x${qrH}&data=${encodeURIComponent(SAMPLE_VERIFY_URL)}`,
           { signal: AbortSignal.timeout(5000) },
         );
         if (qrRes.ok) {
           const qrBytes = await qrRes.arrayBuffer();
           const qrImage = await pdfDoc.embedPng(qrBytes);
           page.drawImage(qrImage, {
-            x:      qrPos.x,
-            y:      height - qrPos.y - (qrPos.height ?? 120),
-            width:  qrPos.width  ?? 120,
-            height: qrPos.height ?? 120,
+            x:      qrPos.x * scaleX,
+            y:      height - qrPos.y * scaleY - qrH,
+            width:  qrW,
+            height: qrH,
           });
         }
       } catch {

@@ -24,7 +24,12 @@ interface PdfLayoutField {
   fontWeight?: string;
   textAlign?: 'left' | 'center' | 'right';
   fontFamily?: string; // 'Helvetica' | 'Times-Roman' | 'Courier'
+  width?: number;      // field box width in editor (1240×877) space
 }
+
+// Editor canvas dimensions — must match the certificate-editor page constants
+const EDITOR_W = 1240;
+const EDITOR_H = 877;
 
 interface PdfLayout {
   studentName?:       PdfLayoutField;
@@ -111,6 +116,10 @@ export async function generateCertificatePdf(data: {
   const page = pdfDoc.getPages()[0];
   const { width, height } = page.getSize();
 
+  // Scale factors: convert editor coords (1240×877) → PDF page points
+  const scaleX = width  / EDITOR_W;
+  const scaleY = height / EDITOR_H;
+
   // 2. Load PDF layout from cms_content
   let layout: PdfLayout = {};
   try {
@@ -155,22 +164,24 @@ export async function generateCertificatePdf(data: {
     const pos = layout[key];
     if (!pos) continue;
     const { r, g, b } = hexToRgb(pos.color ?? '#000000');
-    const font     = selectFont(pos.fontFamily, pos.fontWeight);
-    const fontSize = pos.fontSize ?? 14;
+    const font      = selectFont(pos.fontFamily, pos.fontWeight);
+    const fontSize  = (pos.fontSize ?? 14) * scaleY;
+    const fieldW    = (pos.width ?? EDITOR_W) * scaleX;
 
-    // Adjust X for text alignment
+    // Scale anchor x, then adjust for text alignment
+    const anchorX   = pos.x * scaleX;
     const textWidth = font.widthOfTextAtSize(value, fontSize);
-    let drawX = pos.x;
-    if (pos.textAlign === 'center') drawX = pos.x - textWidth / 2;
-    if (pos.textAlign === 'right')  drawX = pos.x - textWidth;
+    let drawX = anchorX;
+    if (pos.textAlign === 'center') drawX = anchorX - textWidth / 2;
+    if (pos.textAlign === 'right')  drawX = anchorX - textWidth;
 
     page.drawText(value, {
       x:        drawX,
-      y:        height - pos.y,   // pdf-lib origin is bottom-left
+      y:        height - pos.y * scaleY,  // pdf-lib origin is bottom-left
       size:     fontSize,
       font,
       color:    rgb(r, g, b),
-      maxWidth: width - drawX - 20,
+      maxWidth: fieldW,
     });
   }
 
@@ -178,17 +189,19 @@ export async function generateCertificatePdf(data: {
   const qrPos = layout.qrCode;
   if (qrPos) {
     try {
+      const qrW   = Math.round((qrPos.width  ?? 150) * scaleX);
+      const qrH   = Math.round((qrPos.height ?? 150) * scaleY);
       const qrRes = await fetch(
-        `${QR_API}/?size=${qrPos.width ?? 150}x${qrPos.height ?? 150}&data=${encodeURIComponent(data.verificationUrl)}`
+        `${QR_API}/?size=${qrW}x${qrH}&data=${encodeURIComponent(data.verificationUrl)}`
       );
       if (qrRes.ok) {
         const qrBytes = await qrRes.arrayBuffer();
         const qrImage = await pdfDoc.embedPng(qrBytes);
         page.drawImage(qrImage, {
-          x:      qrPos.x,
-          y:      height - qrPos.y - (qrPos.height ?? 150),
-          width:  qrPos.width ?? 150,
-          height: qrPos.height ?? 150,
+          x:      qrPos.x * scaleX,
+          y:      height - qrPos.y * scaleY - qrH,
+          width:  qrW,
+          height: qrH,
         });
       }
     } catch { /* QR optional */ }
