@@ -108,6 +108,7 @@ export default function CertificateEditorPage() {
   // Active key — shared visual feedback for move AND resize
   const [activeKey, setActiveKey] = useState<PdfFieldKey | null>(null);
   const [isResizing, setIsResizing] = useState(false);
+  const [showGuides, setShowGuides] = useState(true);
 
   // Refs — avoids stale closures in window event listeners
   const canvasRef       = useRef<HTMLDivElement>(null);
@@ -285,6 +286,19 @@ export default function CertificateEditorPage() {
     });
   }
 
+  // ── Snap a text field's visual position to canvas left / center / right ──
+  function snapFieldH(key: PdfFieldKey, target: 'left' | 'center' | 'right') {
+    const tf    = pdfLayout[key] as PdfField;
+    if (!tf) return;
+    const width = tf.width ?? 320;
+    const ao    = alignOffset(tf.textAlign, width); // 0, -w/2, or -w
+    let newX: number;
+    if (target === 'left')   newX = -ao;                          // visual left  = 0
+    if (target === 'center') newX = CANVAS_W / 2 - ao - width / 2; // visual mid   = 620
+    else if (target === 'right') newX = CANVAS_W - ao - width;    // visual right = 1240
+    handleFieldChange(key, 'x', Math.round(newX!));
+  }
+
   if (loading) {
     return (
       <div style={{ display: 'flex', minHeight: '100vh', background: '#F5F7FA' }}>
@@ -329,6 +343,12 @@ export default function CertificateEditorPage() {
                 {saveMsg}
               </span>
             )}
+            <button
+              onClick={() => setShowGuides(v => !v)}
+              style={{ padding: '8px 14px', borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: showGuides ? '#EEF2FF' : '#fff', border: `1px solid ${showGuides ? '#6366F1' : '#D1D5DB'}`, color: showGuides ? '#4F46E5' : '#6B7280' }}
+            >
+              {showGuides ? '📐 Guides On' : '📐 Guides Off'}
+            </button>
             <button
               onClick={handlePreview}
               disabled={previewLoading}
@@ -410,12 +430,47 @@ export default function CertificateEditorPage() {
                 </div>
               )}
 
+              {/* Center guidelines overlay */}
+              {showGuides && (
+                <div style={{
+                  position: 'absolute', top: 0, left: 0,
+                  width: CANVAS_W, height: CANVAS_H,
+                  transform: `scale(${SCALE})`, transformOrigin: 'top left',
+                  zIndex: 1, pointerEvents: 'none',
+                }}>
+                  {/* Vertical center line */}
+                  <div style={{
+                    position: 'absolute',
+                    left: CANVAS_W / 2, top: 0,
+                    width: 1, height: CANVAS_H,
+                    borderLeft: '1.5px dashed rgba(99,102,241,0.55)',
+                  }} />
+                  {/* Horizontal center line */}
+                  <div style={{
+                    position: 'absolute',
+                    left: 0, top: CANVAS_H / 2,
+                    width: CANVAS_W, height: 1,
+                    borderTop: '1.5px dashed rgba(99,102,241,0.55)',
+                  }} />
+                  {/* Center label */}
+                  <div style={{
+                    position: 'absolute',
+                    left: CANVAS_W / 2 + 4, top: CANVAS_H / 2 + 4,
+                    fontSize: 9, color: 'rgba(99,102,241,0.7)',
+                    fontWeight: 700, fontFamily: 'Arial, sans-serif',
+                    background: 'rgba(255,255,255,0.8)', padding: '1px 4px', borderRadius: 2,
+                  }}>
+                    center
+                  </div>
+                </div>
+              )}
+
               {/* Field markers — 1240×877 unscaled coordinate space */}
               <div style={{
                 position: 'absolute', top: 0, left: 0,
                 width: CANVAS_W, height: CANVAS_H,
                 transform: `scale(${SCALE})`, transformOrigin: 'top left',
-                zIndex: 1, pointerEvents: 'none',
+                zIndex: 2, pointerEvents: 'none',
               }}>
                 {(Object.keys(pdfLayout) as PdfFieldKey[]).map(key => {
                   const field      = pdfLayout[key];
@@ -635,6 +690,22 @@ export default function CertificateEditorPage() {
                               </div>
                             );
                           })}
+                        </div>
+
+                        {/* Snap to canvas position */}
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <div style={{ fontSize: 9, color: '#9CA3AF', marginRight: 2 }}>SNAP</div>
+                          {(['left', 'center', 'right'] as const).map(t => (
+                            <button key={t} onClick={() => snapFieldH(key, t)}
+                              title={`Snap to canvas ${t}`}
+                              style={{
+                                flex: 1, padding: '3px 0', borderRadius: 4, fontSize: 11,
+                                fontWeight: 700, border: '1px solid #D1D5DB',
+                                cursor: 'pointer', background: '#F3F4F6', color: '#374151',
+                              }}>
+                              {t === 'left' ? '|◀' : t === 'center' ? '↔' : '▶|'}
+                            </button>
+                          ))}
                         </div>
 
                         {/* Align + Bold */}
