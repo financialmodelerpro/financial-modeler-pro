@@ -78,6 +78,18 @@ function selectFont(
   return bold ? fonts.HelveticaBold : fonts.Helvetica;
 }
 
+/**
+ * pdf-lib drawText y = baseline (text extends upward from there).
+ * The editor shows text with its visual TOP at pos.y.
+ * To align text top with pos.y we subtract the font's ascent from drawY.
+ * Ascent ratios: Helvetica ~0.718, Times-Roman ~0.683, Courier ~0.627.
+ */
+function fontAscent(family?: string): number {
+  if (family === 'Times-Roman') return 0.683;
+  if (family === 'Courier')     return 0.627;
+  return 0.718; // Helvetica / default
+}
+
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -151,8 +163,10 @@ export async function POST(req: NextRequest) {
       if (pos.textAlign === 'center') drawX = anchorX - textWidth / 2;
       if (pos.textAlign === 'right')  drawX = anchorX - textWidth;
 
-      // pdf-lib origin is bottom-left; editor uses top-left origin
-      const drawY = height - pos.y * scaleY;
+      // pdf-lib origin is bottom-left; editor uses top-left origin.
+      // Subtract ascent so the text's visual TOP aligns with pos.y (not the baseline).
+      const ascent = fontAscent(pos.fontFamily);
+      const drawY  = height - pos.y * scaleY - fontSize * ascent;
 
       page.drawText(value, {
         x:        drawX,

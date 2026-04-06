@@ -43,6 +43,13 @@ interface PdfLayout {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/** Ascent ratio: fraction of fontSize that text extends above baseline. */
+function fontAscent(family?: string): number {
+  if (family === 'Times-Roman') return 0.683;
+  if (family === 'Courier')     return 0.627;
+  return 0.718; // Helvetica / default
+}
+
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
   const clean = hex.replace('#', '');
   const r = parseInt(clean.substring(0, 2), 16) / 255;
@@ -175,9 +182,13 @@ export async function generateCertificatePdf(data: {
     if (pos.textAlign === 'center') drawX = anchorX - textWidth / 2;
     if (pos.textAlign === 'right')  drawX = anchorX - textWidth;
 
+    // pdf-lib origin is bottom-left; subtract ascent so text TOP aligns with editor pos.y
+    const ascent = fontAscent(pos.fontFamily);
+    const drawY  = height - pos.y * scaleY - fontSize * ascent;
+
     page.drawText(value, {
       x:        drawX,
-      y:        height - pos.y * scaleY,  // pdf-lib origin is bottom-left
+      y:        drawY,
       size:     fontSize,
       font,
       color:    rgb(r, g, b),
