@@ -112,9 +112,9 @@ export default function SubmitModelingTestimonialPage() {
             <p style={{ fontSize: 14, color: '#6B7280', marginBottom: 28, lineHeight: 1.6 }}>
               Please log in to your Modeling Hub account to submit a testimonial.
             </p>
-            <Link href="/modeling/signin" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#0D2E5A', color: '#fff', fontWeight: 700, fontSize: 15, padding: '12px 28px', borderRadius: 8, textDecoration: 'none' }}>
+            <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/signin`} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#0D2E5A', color: '#fff', fontWeight: 700, fontSize: 15, padding: '12px 28px', borderRadius: 8, textDecoration: 'none' }}>
               Login to Modeling Hub →
-            </Link>
+            </a>
           </div>
         ) : submitted ? (
           <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #BBF7D0', padding: '48px 32px', textAlign: 'center' }}>

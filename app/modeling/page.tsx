@@ -106,7 +106,7 @@ export default async function ModelingHubPage() {
 
           {/* CTA buttons */}
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <Link href="/register" style={{
+            <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/register`} style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               background: '#1B4F8A', color: '#fff',
               fontWeight: 700, fontSize: 15, padding: '13px 32px',
@@ -114,7 +114,7 @@ export default async function ModelingHubPage() {
               boxShadow: '0 4px 20px rgba(27,79,138,0.4)',
             }}>
               {ctaPrimary}
-            </Link>
+            </a>
             <a href={`${process.env.NEXT_PUBLIC_APP_URL}/signin`} style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               background: 'transparent', color: '#fff',
@@ -374,9 +374,9 @@ export default async function ModelingHubPage() {
             <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}>
               Join financial professionals around the world building institutional-grade models — completely free.
             </p>
-            <Link href="/register" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1B4F8A', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
+            <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/register`} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1B4F8A', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
               Launch Platform Free →
-            </Link>
+            </a>
           </div>
         </section>
       )}

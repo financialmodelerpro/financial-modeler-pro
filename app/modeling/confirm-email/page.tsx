@@ -27,9 +27,9 @@ function ConfirmEmailInner() {
           <p style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.6, marginBottom: 24 }}>
             This confirmation link is invalid or has expired. Please sign up again to receive a new confirmation email.
           </p>
-          <Link href="/register" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1E40AF', color: '#fff', fontSize: 14, fontWeight: 700, padding: '11px 24px', borderRadius: 8, textDecoration: 'none' }}>
+          <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/register`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1E40AF', color: '#fff', fontSize: 14, fontWeight: 700, padding: '11px 24px', borderRadius: 8, textDecoration: 'none' }}>
             Register Again →
-          </Link>
+          </a>
         </div>
       </div>
     );
