@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-07**
+**Last updated: 2026-04-06**
 
 ---
 
@@ -220,7 +220,7 @@
 | **Subdomain Routing** | ✅ Complete | next.config.ts rewrites/redirects, no middleware auth |
 | **Admin Panel** | ✅ Complete | Users, training, certificates, CMS, branding, pricing, audit; login at `/admin/login`; public landing at `/admin`; two-step login UI (welcome→form) with navy/gold branding; `/admin/dashboard` is protected entry point |
 | **Admin — Training Hub section** | ✅ Complete | Students, cohorts, assessments, analytics, comms |
-| **Admin — Certificate Editor** | ✅ Complete | Dual layout: HTML block editor + PDF field editor (x/y/fontSize/color per field), course selector, template upload |
+| **Admin — Certificate Editor** | ✅ Complete | Dual layout: HTML block editor + PDF field editor (x/y/fontSize/color/width per field), course selector, template upload; ±stepper buttons on all numeric fields (X/Y/SIZE/WIDTH for text, X/Y/WIDTH/HEIGHT for QR); toggle-able center guidelines overlay (dashed purple crosshair); snap-to-left/center/right buttons per field; PDF preview coordinate scaling fixed (scaleX/scaleY from editor 1240×877 → PDF points); text baseline ascent correction applied (Helvetica 0.718, Times 0.683, Courier 0.627) |
 | **CMS / Dynamic Nav** | ✅ Complete | `site_pages` table, admin editable |
 | **Email System** | ✅ Complete | Resend, 11 templates, FROM.training + FROM.noreply |
 | **Apps Script Integration** | ✅ Complete | Register student, fetch registration ID, attendance |
@@ -327,13 +327,14 @@ app/training/
 #### Modeling Hub (`app.financialmodelerpro.com` → `/modeling/`)
 ```
 app/modeling/
-├── page.tsx
+├── page.tsx                     # CTA links use APP_URL constant (with fallback) — not raw process.env
 ├── [slug]/page.tsx
 ├── confirm-email/page.tsx       # Forwards token to /api/auth/confirm-email
-├── dashboard/page.tsx           # Inactivity logout wired
+├── dashboard/page.tsx           # Inactivity logout → /signin (not /modeling/signin)
 ├── register/page.tsx            # Standalone signup-only form at app.financialmodelerpro.com/register
 ├── signin/page.tsx              # Sign-in + signup + device OTP + resend confirmation link + password visibility toggle + PhoneInput
 └── submit-testimonial/page.tsx
+# NOTE: app/modeling/login/page.tsx was DELETED — /login is not a valid Modeling Hub auth route; canonical URL is /signin
 
 app/refm/page.tsx                # REFM platform
 app/portal/page.tsx              # Authenticated hub — inactivity logout wired
@@ -475,6 +476,7 @@ src/lib/
 └── training/
     ├── appsScript.ts  certificateEngine.ts  certificateLayout.ts  certifier.ts (deprecated stub)  sheets.ts
     ├── training-session.ts   videoTimer.ts
+    # certificateEngine.ts: PDF generation uses scaleX/scaleY (editor 1240×877 → PDF points) and per-font ascent correction (drawY = height - pos.y*scaleY - fontSize*ascent) — matches preview route logic exactly
 ```
 
 ---
@@ -547,7 +549,7 @@ branding.ts  core-calculations.ts  core-formatters.ts  core-state.ts  core-valid
 
 **Critical**: All `<Link>` in Navbar uses plain `<a>` tags with absolute URLs. NavbarServer `absolutizeHref()` converts DB-sourced relative hrefs to absolute before rendering.
 
-**Navbar auth links**: All 7 signin/register/create-account links in `Navbar.tsx` use explicit `process.env.NEXT_PUBLIC_APP_URL` / `process.env.NEXT_PUBLIC_LEARN_URL` — do NOT use file-level constants or hardcoded strings for these.
+**Navbar auth links**: All signin/register/create-account links in `Navbar.tsx` use file-level constants `APP_URL` and `LEARN_URL` (defined at top of file with `??` fallbacks) — do NOT use raw `process.env.NEXT_PUBLIC_APP_URL` / `process.env.NEXT_PUBLIC_LEARN_URL` without a fallback, as these are `undefined` when env vars are missing and will produce broken URLs like `undefined/signin`. Same pattern applies in `app/modeling/page.tsx`.
 
 ---
 
