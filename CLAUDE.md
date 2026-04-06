@@ -331,7 +331,6 @@ app/modeling/
 ├── [slug]/page.tsx
 ├── confirm-email/page.tsx       # Forwards token to /api/auth/confirm-email
 ├── dashboard/page.tsx           # Inactivity logout wired
-├── login/page.tsx
 ├── register/page.tsx            # Standalone signup-only form at app.financialmodelerpro.com/register
 ├── signin/page.tsx              # Sign-in + signup + device OTP + resend confirmation link + password visibility toggle + PhoneInput
 └── submit-testimonial/page.tsx

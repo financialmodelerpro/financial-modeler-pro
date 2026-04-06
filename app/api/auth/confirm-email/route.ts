@@ -16,13 +16,13 @@ export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token') ?? '';
 
   if (!token) {
-    return NextResponse.redirect(`${APP_URL}/modeling/signin?error=invalid-token`);
+    return NextResponse.redirect(`${APP_URL}/signin?error=invalid-token`);
   }
 
   const result = await verifyConfirmationToken(token, 'modeling');
 
   if (!result.valid || !result.email) {
-    return NextResponse.redirect(`${APP_URL}/modeling/signin?error=invalid-token`);
+    return NextResponse.redirect(`${APP_URL}/signin?error=invalid-token`);
   }
 
   // Update user record
@@ -36,8 +36,8 @@ export async function GET(req: NextRequest) {
 
   if (error) {
     console.error('[auth/confirm-email] update error:', error);
-    return NextResponse.redirect(`${APP_URL}/modeling/signin?error=invalid-token`);
+    return NextResponse.redirect(`${APP_URL}/signin?error=invalid-token`);
   }
 
-  return NextResponse.redirect(`${APP_URL}/modeling/signin?confirmed=true`);
+  return NextResponse.redirect(`${APP_URL}/signin?confirmed=true`);
 }

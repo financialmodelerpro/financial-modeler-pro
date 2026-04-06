@@ -142,7 +142,7 @@ export default function AppHubPage() {
 
   useInactivityLogout({
     onLogout: async () => { await signOut({ redirect: false }); },
-    redirectUrl: '/modeling/signin?reason=inactivity',
+    redirectUrl: '/signin?reason=inactivity',
   });
 
   // Restore sidebar state
@@ -154,7 +154,7 @@ export default function AppHubPage() {
 
   // Redirect if not authenticated
   useEffect(() => {
-    if (status === 'unauthenticated') router.replace('/login');
+    if (status === 'unauthenticated') router.replace('/signin');
   }, [status, router]);
 
   // Close profile dropdown on outside click

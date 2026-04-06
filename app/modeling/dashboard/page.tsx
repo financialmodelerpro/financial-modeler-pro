@@ -109,12 +109,12 @@ export default function ModelingDashboardPage() {
 
   useInactivityLogout({
     onLogout: async () => { await signOut({ redirect: false }); },
-    redirectUrl: '/modeling/signin?reason=inactivity',
+    redirectUrl: '/signin?reason=inactivity',
   });
 
   useEffect(() => {
     if (status === 'unauthenticated') {
-      router.replace('/modeling/signin');
+      router.replace('/signin');
     }
   }, [status, router]);
 
