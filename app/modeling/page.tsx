@@ -106,7 +106,7 @@ export default async function ModelingHubPage() {
 
           {/* CTA buttons */}
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/register`} style={{
+            <a href={`${process.env.NEXT_PUBLIC_APP_URL}/register`} style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               background: '#1B4F8A', color: '#fff',
               fontWeight: 700, fontSize: 15, padding: '13px 32px',
