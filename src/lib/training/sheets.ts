@@ -189,9 +189,9 @@ function normalizeSession(raw: Record<string, unknown>): SessionProgress {
 const PASSING_SCORE_PCT = 70;
 
 type CourseProgressEntry = {
-  sessions: Record<string, { status: string; bestScore: number | null; attempts: number; maxAttempts: number }>;
+  sessions: Record<string, { status: string; bestScore: number | null; score?: number | null; passed?: boolean; attempts: number; maxAttempts: number }>;
   allSessionsPassed?: boolean;
-  finalExam?: { status: string; bestScore: number | null };
+  finalExam?: { status: string; bestScore: number | null; score?: number | null; passed?: boolean };
   certificateStatus?: string;
 };
 
@@ -212,18 +212,29 @@ function normalizeProgressObject(
 
   for (const courseProgress of Object.values(progressMap)) {
     for (const [sessionId, sd] of Object.entries(courseProgress.sessions ?? {})) {
-      const passed   = sd.status === 'passed';
+      const scoreVal = sd.bestScore ?? sd.score ?? 0;
+      const passed   = sd.status === 'passed'
+                    || sd.passed === true
+                    || (typeof sd.score === 'number' && sd.score >= PASSING_SCORE_PCT)
+                    || (typeof sd.bestScore === 'number' && sd.bestScore >= PASSING_SCORE_PCT);
       const attempts = sd.attempts ?? 0;
       allSessions.push({
         sessionId,
         passed,
-        score:       sd.bestScore ?? 0,
+        score:       scoreVal,
         // If a session is marked passed, it must have had at least 1 attempt
         attempts:    passed && attempts === 0 ? 1 : attempts,
         completedAt: null,
       });
     }
-    if (courseProgress.allSessionsPassed || courseProgress.finalExam?.status === 'passed') finalPassed = true;
+    const fe = courseProgress.finalExam;
+    const fePassed = fe
+      ? (fe.status === 'passed'
+        || fe.passed === true
+        || (typeof fe.score === 'number' && fe.score >= PASSING_SCORE_PCT)
+        || (typeof fe.bestScore === 'number' && fe.bestScore >= PASSING_SCORE_PCT))
+      : false;
+    if (courseProgress.allSessionsPassed || fePassed) finalPassed = true;
     if (courseProgress.certificateStatus === 'earned') certificateIssued = true;
   }
 
