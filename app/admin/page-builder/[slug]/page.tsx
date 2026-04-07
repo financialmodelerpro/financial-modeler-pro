@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { RichTextEditor } from '@/src/components/admin/RichTextEditor';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -100,7 +101,8 @@ function RichTextEditor2({ content, onChange }: { content: Record<string, unknow
     <>
       <label style={LS}>Badge</label><input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
       <label style={{ ...LS, marginTop: 10 }}>Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
-      <label style={{ ...LS, marginTop: 10 }}>HTML Content</label><textarea style={{ ...TA, minHeight: 120, fontFamily: 'monospace', fontSize: 12 }} value={(content.html as string) ?? ''} onChange={e => set('html', e.target.value)} />
+      <label style={{ ...LS, marginTop: 10 }}>Content</label>
+      <RichTextEditor value={(content.html as string) ?? ''} onChange={v => set('html', v)} />
     </>
   );
 }
@@ -121,7 +123,8 @@ function TextImageEditor({ content, onChange }: { content: Record<string, unknow
   return (
     <>
       <label style={LS}>Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
-      <label style={{ ...LS, marginTop: 10 }}>HTML Content</label><textarea style={{ ...TA, minHeight: 80, fontFamily: 'monospace', fontSize: 12 }} value={(content.html as string) ?? ''} onChange={e => set('html', e.target.value)} />
+      <label style={{ ...LS, marginTop: 10 }}>Content</label>
+      <RichTextEditor value={(content.html as string) ?? ''} onChange={v => set('html', v)} compact />
       <label style={{ ...LS, marginTop: 10 }}>Image URL</label><input style={IS} value={(content.imageSrc as string) ?? ''} onChange={e => set('imageSrc', e.target.value)} />
       <label style={{ ...LS, marginTop: 10 }}>Image Alt</label><input style={IS} value={(content.imageAlt as string) ?? ''} onChange={e => set('imageAlt', e.target.value)} />
       <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
