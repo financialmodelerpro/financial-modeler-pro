@@ -55,11 +55,11 @@ const s = StyleSheet.create({
 
   /* Student info strip — bg overridden at runtime via settings.studentStripBg */
   studentStrip: {
-    paddingHorizontal: 36, paddingVertical: 10,
+    paddingHorizontal: 36, paddingVertical: 7,
     flexDirection: 'row',
   },
   infoCol: { flex: 1 },
-  infoRow: { flexDirection: 'row', marginBottom: 3 },
+  infoRow: { flexDirection: 'row', marginBottom: 2 },
   infoLabel: {
     fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.navy2, width: 100,
   },
@@ -67,12 +67,12 @@ const s = StyleSheet.create({
 
   /* Status banner */
   bannerProgress: {
-    backgroundColor: '#FFFBEB', paddingHorizontal: 36, paddingVertical: 6,
+    backgroundColor: '#FFFBEB', paddingHorizontal: 36, paddingVertical: 4,
     borderTopWidth: 1, borderTopColor: '#FDE68A',
     borderBottomWidth: 1, borderBottomColor: '#FDE68A',
   },
   bannerComplete: {
-    backgroundColor: '#F0FFF4', paddingHorizontal: 36, paddingVertical: 6,
+    backgroundColor: '#F0FFF4', paddingHorizontal: 36, paddingVertical: 4,
     borderTopWidth: 1, borderTopColor: '#BBF7D0',
     borderBottomWidth: 1, borderBottomColor: '#BBF7D0',
   },
@@ -81,7 +81,7 @@ const s = StyleSheet.create({
 
   /* Section heading */
   sectionHead: {
-    paddingHorizontal: 36, paddingTop: 12, paddingBottom: 5,
+    paddingHorizontal: 36, paddingTop: 8, paddingBottom: 4,
     flexDirection: 'row', alignItems: 'center',
   },
   sectionTitle: { fontSize: 10, fontFamily: 'Helvetica-Bold', color: C.navy, marginRight: 8 },
@@ -95,7 +95,7 @@ const s = StyleSheet.create({
   },
   tRow: {
     flexDirection: 'row', borderBottomWidth: 1, borderBottomColor: C.border,
-    paddingVertical: 4,
+    paddingVertical: 3,
   },
   tRowAlt:   { backgroundColor: C.lGrey },
   tRowFinal: { backgroundColor: C.goldBg },
@@ -122,16 +122,16 @@ const s = StyleSheet.create({
   badgeGoldTxt:   { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: '#92400E' },
 
   /* Summary boxes */
-  summaryWrap: { flexDirection: 'row', paddingHorizontal: 36, paddingTop: 10, gap: 12 },
-  summaryBox: { flex: 1, borderWidth: 1.5, borderRadius: 6, padding: 10 },
+  summaryWrap: { flexDirection: 'row', paddingHorizontal: 36, paddingTop: 6, gap: 10 },
+  summaryBox: { flex: 1, borderWidth: 1.5, borderRadius: 6, padding: 8 },
   summaryBoxNavy:  { borderColor: C.navy2 },
   summaryBoxGreen: { borderColor: C.green },
   summaryBoxGrey:  { borderColor: C.border },
   summaryTitle: {
-    fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: C.navy,
-    letterSpacing: 0.5, marginBottom: 10, textTransform: 'uppercase' as const,
+    fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.navy,
+    letterSpacing: 0.5, marginBottom: 6, textTransform: 'uppercase' as const,
   },
-  sumRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+  sumRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 3 },
   sumLabel: { fontSize: 8, color: C.muted },
   sumVal:   { fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.text },
   sumValGreen: { fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.green },
@@ -564,31 +564,31 @@ function TranscriptDocument({
           certBorderColor={certs.has(courseId) ? C.green : C.border}
         />
 
-        {/* ── Verify Certificate — QR + link ──────────────────────────── */}
+        {/* ── Verify Certificate — QR + link (compact) ─────────────────── */}
         {(() => {
           const cert = certs.get(courseId);
           const qrB64 = qrBase64Map.get(courseId);
           if (cert && cert.verificationUrl) {
             return (
-              <View style={{ marginHorizontal: 36, marginTop: 12, borderWidth: 1.5, borderColor: C.navy2, borderRadius: 6, padding: 12, backgroundColor: '#F0F7FF', flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+              <View style={{ marginHorizontal: 36, marginTop: 6, borderWidth: 1, borderColor: C.navy2, borderRadius: 4, paddingVertical: 6, paddingHorizontal: 10, backgroundColor: '#F0F7FF', flexDirection: 'row', alignItems: 'center', gap: 10 }}>
                 {qrB64 && (
-                  <Image src={qrB64} style={{ width: 70, height: 70, borderRadius: 4 }} />
+                  <Image src={qrB64} style={{ width: 48, height: 48 }} />
                 )}
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 2 }}>Verify Certificate</Text>
-                  <Text style={{ fontSize: 7.5, color: C.muted, marginBottom: 6 }}>Scan QR code or use the link below</Text>
-                  <Link src={cert.verificationUrl} style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.navy2, textDecoration: 'none' }}>
+                  <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 1 }}>Verify Certificate</Text>
+                  <Text style={{ fontSize: 7, color: C.muted, marginBottom: 3 }}>Scan QR code or use the link below</Text>
+                  <Link src={cert.verificationUrl} style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: C.navy2, textDecoration: 'none' }}>
                     Verify Certificate ↗
                   </Link>
-                  <Text style={{ fontSize: 6.5, color: C.muted, marginTop: 4 }}>{cert.verificationUrl}</Text>
+                  <Text style={{ fontSize: 6, color: C.muted, marginTop: 2 }}>{cert.verificationUrl}</Text>
                 </View>
               </View>
             );
           }
           if (!cert) {
             return (
-              <View style={{ marginHorizontal: 36, marginTop: 12, padding: 10, backgroundColor: C.lGrey, borderRadius: 6, borderWidth: 1, borderColor: C.border }}>
-                <Text style={{ fontSize: 8, color: C.muted }}>QR code and verification link will appear here once the certificate is issued.</Text>
+              <View style={{ marginHorizontal: 36, marginTop: 6, padding: 6, backgroundColor: C.lGrey, borderRadius: 4, borderWidth: 1, borderColor: C.border }}>
+                <Text style={{ fontSize: 7, color: C.muted }}>QR code and verification link will appear here once the certificate is issued.</Text>
               </View>
             );
           }
