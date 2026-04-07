@@ -299,7 +299,18 @@ export default function AssessmentPage() {
 
     const { email, registrationId: regId } = session;
     const total = questions?.questions.length ?? 0;
-    const answersArray: number[] = Array.from({ length: total }, (_, i) => answers[i] ?? -1);
+    // If options were shuffled client-side, remap answers back to original indices
+    // so the server (which scores against original order) gets correct values.
+    // optionMaps[i] = [shuffledIdx0→origIdx, shuffledIdx1→origIdx, ...]
+    // If student picked shuffled index S, the original index is optionMaps[i][S].
+    const answersArray: number[] = Array.from({ length: total }, (_, i) => {
+      const picked = answers[i] ?? -1;
+      if (picked < 0) return -1;
+      if (optionMaps.length > 0 && optionMaps[i]) {
+        return optionMaps[i][picked]; // map shuffled → original
+      }
+      return picked;
+    });
 
     const res = await fetch('/api/training/submit-assessment', {
       method: 'POST',

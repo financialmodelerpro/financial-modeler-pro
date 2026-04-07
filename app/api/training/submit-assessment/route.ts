@@ -14,9 +14,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Missing required fields' }, { status: 400 });
     }
 
-    // 1. Fetch questions server-side (includes correctIndex for local scoring)
-    const questionsRes = await getAssessmentQuestions(tabKey, email, regId);
+    // 1. Fetch questions server-side in ORIGINAL order (shuffle=false) for scoring.
+    //    Client already un-mapped shuffled answer indices back to original before sending.
+    const questionsRes = await getAssessmentQuestions(tabKey, email, regId, false);
     if (!questionsRes.success || !questionsRes.data) {
+      console.error('[submit-assessment] Failed to fetch questions for scoring:', questionsRes.error, { tabKey, email });
       return NextResponse.json({
         success: false,
         error: questionsRes.error ?? 'Failed to fetch assessment questions',
