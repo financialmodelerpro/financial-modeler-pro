@@ -777,8 +777,23 @@ export interface PendingCertificate {
 
 /** Fetch pending certificates from Apps Script Certificate Queue sheet. */
 export async function getPendingCertificates(): Promise<PendingCertificate[]> {
+  // ── Debug: env var + resolved URL ──────────────────────────────────────────
+  const envUrl      = process.env.APPS_SCRIPT_URL;
+  const resolvedUrl = await getAppsScriptUrl();
+  console.log('[getPendingCertificates] APPS_SCRIPT_URL env var set?', !!envUrl);
+  console.log('[getPendingCertificates] resolved Apps Script URL:', resolvedUrl || '(empty — not configured)');
+
+  if (resolvedUrl) {
+    const debugUrl = new URL(resolvedUrl);
+    debugUrl.searchParams.set('action', 'getPendingCertificates');
+    console.log('[getPendingCertificates] fetching URL:', debugUrl.toString());
+  } else {
+    console.log('[getPendingCertificates] fetching URL: SKIPPED — no URL configured');
+  }
+  // ───────────────────────────────────────────────────────────────────────────
+
   const raw = await callScript<PendingCertificate[]>({ action: 'getPendingCertificates' });
-  console.log('[getPendingCertificates] raw Apps Script response:', JSON.stringify(raw, null, 2));
+  console.log('[getPendingCertificates] Apps Script response:', JSON.stringify(raw, null, 2));
   if (!raw.success) return [];
   if (Array.isArray(raw.data)) return raw.data;
   const root = raw as unknown as { certificates?: PendingCertificate[]; pending?: PendingCertificate[] };
