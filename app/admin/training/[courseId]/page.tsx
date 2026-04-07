@@ -723,6 +723,86 @@ export default function AdminCourseLessonsPage() {
         {/* ── ASSESSMENT TAB ────────────────────────────────────────────────── */}
         {activeTab === 'assessment' && (
           <>
+            {/* Shuffle settings — always visible on assessment tab */}
+            <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: 28, marginBottom: 24 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1B3A6B', marginBottom: 16 }}>Question Delivery</h2>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* Shuffle Questions toggle */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#F9FAFB', borderRadius: 8, border: '1px solid #E5E7EB' }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A' }}>Shuffle Questions</div>
+                    <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>Randomize the order questions are presented to students</div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      const next = !shuffleQuestions;
+                      setShuffleQuestions(next);
+                      const code = courseId?.toLowerCase() === 'bvm' ? 'bvm' : '3sfm';
+                      try {
+                        await fetch('/api/admin/training-settings', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ [`shuffle_questions_${code}`]: next ? 'true' : 'false' }),
+                        });
+                        setToast({ msg: 'Settings saved', type: 'success' });
+                        setTimeout(() => setToast(null), 2000);
+                      } catch { setShuffleQuestions(!next); }
+                    }}
+                    style={{
+                      width: 48, height: 26, borderRadius: 13, border: 'none', cursor: 'pointer',
+                      background: shuffleQuestions ? '#2EAA4A' : '#D1D5DB',
+                      position: 'relative', flexShrink: 0, transition: 'background 0.2s',
+                    }}
+                  >
+                    <div style={{
+                      width: 20, height: 20, borderRadius: '50%', background: '#fff',
+                      position: 'absolute', top: 3,
+                      left: shuffleQuestions ? 25 : 3,
+                      transition: 'left 0.2s',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    }} />
+                  </button>
+                </div>
+
+                {/* Shuffle Options toggle */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#F9FAFB', borderRadius: 8, border: '1px solid #E5E7EB' }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A' }}>Shuffle Options</div>
+                    <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>Randomize the order of A/B/C/D answer options</div>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      const next = !shuffleOptions;
+                      setShuffleOptions(next);
+                      const code = courseId?.toLowerCase() === 'bvm' ? 'bvm' : '3sfm';
+                      try {
+                        await fetch('/api/admin/training-settings', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ [`shuffle_options_${code}`]: next ? 'true' : 'false' }),
+                        });
+                        setToast({ msg: 'Settings saved', type: 'success' });
+                        setTimeout(() => setToast(null), 2000);
+                      } catch { setShuffleOptions(!next); }
+                    }}
+                    style={{
+                      width: 48, height: 26, borderRadius: 13, border: 'none', cursor: 'pointer',
+                      background: shuffleOptions ? '#2EAA4A' : '#D1D5DB',
+                      position: 'relative', flexShrink: 0, transition: 'background 0.2s',
+                    }}
+                  >
+                    <div style={{
+                      width: 20, height: 20, borderRadius: '50%', background: '#fff',
+                      position: 'absolute', top: 3,
+                      left: shuffleOptions ? 25 : 3,
+                      transition: 'left 0.2s',
+                      boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    }} />
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {assessmentLoading ? (
               <div style={{ textAlign: 'center', padding: 60, color: '#6B7280' }}>Loading…</div>
             ) : assessment === null ? (
@@ -796,86 +876,6 @@ export default function AdminCourseLessonsPage() {
                   <button onClick={saveAssessmentSettings} disabled={savingAssessment} style={primaryBtn}>
                     {savingAssessment ? 'Saving…' : 'Save Settings'}
                   </button>
-                </div>
-
-                {/* Shuffle settings */}
-                <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: 28, marginBottom: 24 }}>
-                  <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1B3A6B', marginBottom: 16 }}>Question Delivery</h2>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    {/* Shuffle Questions toggle */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#F9FAFB', borderRadius: 8, border: '1px solid #E5E7EB' }}>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A' }}>Shuffle Questions</div>
-                        <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>Randomize the order questions are presented to students</div>
-                      </div>
-                      <button
-                        onClick={async () => {
-                          const next = !shuffleQuestions;
-                          setShuffleQuestions(next);
-                          const code = courseId?.toLowerCase() === 'bvm' ? 'bvm' : '3sfm';
-                          try {
-                            await fetch('/api/admin/training-settings', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ [`shuffle_questions_${code}`]: next ? 'true' : 'false' }),
-                            });
-                            setToast({ msg: 'Settings saved', type: 'success' });
-                            setTimeout(() => setToast(null), 2000);
-                          } catch { setShuffleQuestions(!next); }
-                        }}
-                        style={{
-                          width: 48, height: 26, borderRadius: 13, border: 'none', cursor: 'pointer',
-                          background: shuffleQuestions ? '#2EAA4A' : '#D1D5DB',
-                          position: 'relative', flexShrink: 0, transition: 'background 0.2s',
-                        }}
-                      >
-                        <div style={{
-                          width: 20, height: 20, borderRadius: '50%', background: '#fff',
-                          position: 'absolute', top: 3,
-                          left: shuffleQuestions ? 25 : 3,
-                          transition: 'left 0.2s',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                        }} />
-                      </button>
-                    </div>
-
-                    {/* Shuffle Options toggle */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#F9FAFB', borderRadius: 8, border: '1px solid #E5E7EB' }}>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A' }}>Shuffle Options</div>
-                        <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>Randomize the order of A/B/C/D answer options</div>
-                      </div>
-                      <button
-                        onClick={async () => {
-                          const next = !shuffleOptions;
-                          setShuffleOptions(next);
-                          const code = courseId?.toLowerCase() === 'bvm' ? 'bvm' : '3sfm';
-                          try {
-                            await fetch('/api/admin/training-settings', {
-                              method: 'POST',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ [`shuffle_options_${code}`]: next ? 'true' : 'false' }),
-                            });
-                            setToast({ msg: 'Settings saved', type: 'success' });
-                            setTimeout(() => setToast(null), 2000);
-                          } catch { setShuffleOptions(!next); }
-                        }}
-                        style={{
-                          width: 48, height: 26, borderRadius: 13, border: 'none', cursor: 'pointer',
-                          background: shuffleOptions ? '#2EAA4A' : '#D1D5DB',
-                          position: 'relative', flexShrink: 0, transition: 'background 0.2s',
-                        }}
-                      >
-                        <div style={{
-                          width: 20, height: 20, borderRadius: '50%', background: '#fff',
-                          position: 'absolute', top: 3,
-                          left: shuffleOptions ? 25 : 3,
-                          transition: 'left 0.2s',
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                        }} />
-                      </button>
-                    </div>
-                  </div>
                 </div>
 
                 {/* Questions list */}
