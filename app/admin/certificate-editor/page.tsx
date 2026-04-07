@@ -61,10 +61,10 @@ const DEFAULT_CANVAS: CanvasSize = {
 // Default positions are in PDF points (A4 landscape ≈ 842 × 595 pt).
 // After uploading a non-A4 template the user should re-drag and re-save.
 const DEFAULT_PDF_LAYOUT: PdfLayout = {
-  studentName:   { x: 120, y: 190, fontSize: 36, color: '#0D2E5A', fontWeight: 'bold',   textAlign: 'left', fontFamily: 'Helvetica', width: 500 },
-  issueDate:     { x: 120, y: 350, fontSize: 14, color: '#374151', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica', width: 200 },
-  certificateId: { x: 120, y: 375, fontSize: 12, color: '#9CA3AF', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica', width: 220 },
-  qrCode:        { x: 685, y: 430, width: 100, height: 100 },
+  studentName:   { x: 120, y: 280, fontSize: 28, color: '#ffffff', fontWeight: 'bold',   textAlign: 'left', fontFamily: 'Helvetica', width: 500 },
+  issueDate:     { x: 750, y: 460, fontSize: 13, color: '#ffffff', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica', width: 200 },
+  certificateId: { x: 750, y: 490, fontSize: 11, color: '#a0b0c0', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica', width: 220 },
+  qrCode:        { x: 1050, y: 440, width: 120, height: 120 },
 };
 
 const PDF_FIELD_LABELS: Record<PdfFieldKey, string> = {
