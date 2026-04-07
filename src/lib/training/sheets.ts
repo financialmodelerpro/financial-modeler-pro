@@ -341,6 +341,7 @@ export async function getStudentProgress(
   regId: string,
 ): Promise<ScriptResponse<StudentProgress>> {
   const raw = await callScript<StudentProgress>({ action: 'getProgress', email, regId });
+  console.log('[DEBUG getProgress] raw response:', JSON.stringify(raw).substring(0, 1000));
 
   if (!raw.success) return raw;
 
