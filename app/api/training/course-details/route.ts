@@ -122,11 +122,14 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [rawSessions, courses, lessonDurations] = await Promise.all([
+    const sb = getServerClient();
+    const [rawSessions, courses, lessonDurations, bypassRow] = await Promise.all([
       getCourseDetails(course),
       fetchCourseDescriptions(),
       fetchLessonDurations(),
+      sb.from('training_settings').select('value').eq('key', 'timer_bypass_enabled').maybeSingle(),
     ]);
+    const timerBypassed = bypassRow.data?.value === 'true';
 
     // videoDuration priority: Apps Script col J > lessons.duration_minutes > 0
     const sessions = rawSessions.map(s => {
@@ -138,7 +141,7 @@ export async function GET(req: NextRequest) {
     });
 
     _cache.set(key, { sessions, courses, at: Date.now() });
-    return NextResponse.json({ sessions, courses });
+    return NextResponse.json({ sessions, courses, timerBypassed });
   } catch {
     return NextResponse.json({ sessions: [], courses: {} });
   }

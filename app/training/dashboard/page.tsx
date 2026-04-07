@@ -136,23 +136,10 @@ export default function TrainingDashboardPage() {
         fetch(`/api/training/notes?registrationId=${encodeURIComponent(sess.registrationId)}`),
         fetch(`/api/training/profile?registrationId=${encodeURIComponent(sess.registrationId)}`),
       ]);
-      // Timer bypass — lightweight fetch from Supabase directly (public anon key)
-      try {
-        const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-        const sbKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-        if (sbUrl && sbKey) {
-          const bypassRes = await fetch(
-            `${sbUrl}/rest/v1/training_settings?key=eq.timer_bypass_enabled&select=value`,
-            { headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` } },
-          );
-          const rows = await bypassRes.json() as { value: string }[];
-          setTimerBypassed(rows?.[0]?.value === 'true');
-        }
-      } catch { /* ignore — default false */ }
 
       const [json, detailsJson, notesJson, profileJson] = await Promise.all([
         progressRes.json() as Promise<{ success: boolean; fallback?: boolean; data?: ProgressData }>,
-        detailsRes.json() as Promise<{ sessions?: { tabKey: string; sessionName: string; youtubeUrl: string; formUrl: string; videoDuration: number; isFinal: boolean; hasVideo: boolean }[]; courses?: CourseDescsMap }>,
+        detailsRes.json() as Promise<{ sessions?: { tabKey: string; sessionName: string; youtubeUrl: string; formUrl: string; videoDuration: number; isFinal: boolean; hasVideo: boolean }[]; courses?: CourseDescsMap; timerBypassed?: boolean }>,
         notesRes.json() as Promise<{ notes?: { session_key: string; content: string }[] }>,
         profileRes.json() as Promise<{ profile?: { job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; streak_days?: number; total_points?: number; display_name?: string; avatar_url?: string } | null }>,
       ]);
@@ -180,6 +167,7 @@ export default function TrainingDashboardPage() {
       console.log('[CourseDetails] 3SFM_S1 duration:', map['3SFM_S1']?.videoDuration ?? 'undefined — check Apps Script col J');
       setLiveLinks(map);
       if (detailsJson.courses) setCourseDescs(detailsJson.courses);
+      setTimerBypassed(detailsJson.timerBypassed === true);
 
       // Apply progress
       if (json.success && json.data) {
