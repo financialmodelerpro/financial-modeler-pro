@@ -26,7 +26,8 @@ const SAMPLE = {
     { num:'6', name:'Scenario Analysis & Sensitivity',    score:'95%', attempts:'1 / 3' },
   ],
   final: { score:'89%', attempts:'1 / 2' },
-  certId: 'CERT-2024-FMP-001', certIssued: '20 March 2024',
+  certId: 'FMP-3SFM-2026-0001', certIssued: '20 March 2026',
+  verifyUrl: 'https://financialmodelerpro.com/verify/FMP-3SFM-2026-0001',
 };
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -79,7 +80,7 @@ const D: Settings = {
   bannerProgressSub:   'This transcript reflects current progress as of [date]. A final transcript will be issued upon course completion.',
   footerBgColor: '#0D2E5A',
   footerLeftText: 'Issue Date: [date]', footerLeftVisible: true,
-  footerMidText:  'This transcript is an official record issued by Financial Modeler Pro. Verify at certifier.io', footerMidVisible: true,
+  footerMidText:  'This transcript is an official record issued by Financial Modeler Pro.', footerMidVisible: true,
   footerRightText: 'www.financialmodelerpro.com', footerRightVisible: true,
 };
 
@@ -298,16 +299,29 @@ function BodyPreview({ cfg }: { cfg: Settings }) {
         </div>
         <div style={{ flex:1, border:'1.5px solid #2EAA4A', borderRadius:px(6), padding:px(10) }}>
           <div style={{ fontSize:px(8.5),fontWeight:800,color:'#0D2E5A',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:px(10) }}>Certification Status</div>
-          {[['Status','CERTIFIED'],['Certificate ID',SAMPLE.certId],['Issued',SAMPLE.certIssued]].map(([l,v])=>(
+          {[['Status','CERTIFIED'],['Certificate ID',SAMPLE.certId],['Completion Date',SAMPLE.certIssued]].map(([l,v])=>(
             <div key={l} style={{ display:'flex',justifyContent:'space-between',marginBottom:px(4) }}>
               <span style={{ fontSize:px(8),color:'#6B7280' }}>{l}</span>
-              <span style={{ fontSize:px(8),fontWeight:800,color:l==='Status'?'#2EAA4A':'#111827' }}>{v}</span>
+              <span style={{ fontSize:px(8),fontWeight:800,fontFamily:l==='Certificate ID'?'monospace':'inherit',color:l==='Status'?'#2EAA4A':'#111827' }}>{v}</span>
             </div>
           ))}
-          <div style={{ display:'flex',justifyContent:'space-between' }}>
-            <span style={{ fontSize:px(8),color:'#6B7280' }}>Verify at</span>
-            <span style={{ fontSize:px(8),color:'#1B4F8A' }}>certifier.io/verify →</span>
+        </div>
+      </div>
+      {/* Verify Certificate section — mirrors actual transcript output */}
+      <div style={{ margin:`0 ${px(36)}px ${px(14)}px`, border:'1.5px solid #1B4F8A', borderRadius:px(6), padding:`${px(10)}px ${px(14)}px`, display:'flex', alignItems:'center', gap:px(14), background:'#F0F7FF' }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(SAMPLE.verifyUrl)}`}
+          alt="QR Code"
+          style={{ width:px(70), height:px(70), borderRadius:px(4), border:'1px solid #E5E7EB', flexShrink:0 }}
+        />
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:px(9), fontWeight:800, color:'#0D2E5A', marginBottom:px(2) }}>Verify Certificate</div>
+          <div style={{ fontSize:px(7.5), color:'#6B7280', marginBottom:px(6) }}>Scan QR code or use the link below</div>
+          <div style={{ display:'inline-flex', alignItems:'center', gap:px(4), fontSize:px(8), fontWeight:700, color:'#1B4F8A', border:'1.5px solid #1B4F8A', borderRadius:px(4), padding:`${px(3)}px ${px(8)}px`, background:'#fff' }}>
+            Verify Certificate ↗
           </div>
+          <div style={{ marginTop:px(4), fontSize:px(7), color:'#9CA3AF', wordBreak:'break-all', lineHeight:1.4 }}>{SAMPLE.verifyUrl}</div>
         </div>
       </div>
     </>
