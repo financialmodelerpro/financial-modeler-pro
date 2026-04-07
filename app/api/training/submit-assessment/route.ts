@@ -9,34 +9,44 @@ import { submitAssessmentToAppsScript } from '@/src/lib/training/sheets';
  * questions or re-score. It only forwards the score to Apps Script for storage.
  */
 export async function POST(req: NextRequest) {
+  let body: Record<string, unknown> = {};
   try {
-    const body = await req.json() as {
-      tabKey?: string;
-      email?: string;
-      regId?: string;
-      score?: number;
-      passed?: boolean;
-      isFinal?: boolean;
-      attemptNo?: number;
-      // Legacy: accept answers array but ignore it (client scores now)
-      answers?: number[];
-    };
+    body = await req.json() as Record<string, unknown>;
+  } catch (parseErr) {
+    console.error('[submit-assessment] JSON parse error:', parseErr);
+    return NextResponse.json({ success: false, error: 'Invalid JSON body' }, { status: 400 });
+  }
 
-    const { tabKey, email, regId, score, passed, isFinal, attemptNo } = body;
+  try {
+    console.log('[submit-assessment] Received body:', JSON.stringify(body));
 
-    if (!tabKey || !email || !regId || typeof score !== 'number') {
-      return NextResponse.json({ success: false, error: 'Missing required fields (tabKey, email, regId, score)' }, { status: 400 });
+    const tabKey    = body.tabKey as string | undefined;
+    const email     = body.email as string | undefined;
+    const regId     = body.regId as string | undefined;
+    const score     = body.score as number | undefined;
+    const passed    = body.passed as boolean | undefined;
+    const isFinal   = body.isFinal as boolean | undefined;
+    const attemptNo = body.attemptNo as number | undefined;
+
+    if (!tabKey || !email || !regId || score === undefined || score === null) {
+      console.error('[submit-assessment] Missing fields:', { tabKey: !!tabKey, email: !!email, regId: !!regId, score, scoreType: typeof score });
+      return NextResponse.json({
+        success: false,
+        error: 'Missing required fields (tabKey, email, regId, score)',
+        received: { tabKey, email: email ? '***' : undefined, regId, score, scoreType: typeof score },
+      }, { status: 400 });
     }
 
     console.log('[submit-assessment] Recording score:', { tabKey, email, score, passed, attemptNo });
 
     // Record scored result in Apps Script (V8: website scores, Apps Script stores)
+    const numScore = Number(score);
     const recordRes = await submitAssessmentToAppsScript({
       tabKey,
       regId,
       email,
-      score,
-      passed:    passed ?? score >= 70,
+      score:     numScore,
+      passed:    passed ?? numScore >= 70,
       isFinal:   isFinal ?? false,
       attemptNo: attemptNo ?? 1,
     });

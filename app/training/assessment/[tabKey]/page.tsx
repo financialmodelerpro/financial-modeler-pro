@@ -346,23 +346,16 @@ export default function AssessmentPage() {
     const canRetry    = !passed && attemptNo < maxAtt;
     const isFinalExam = questions.isFinal ?? false;
 
-    console.log('[assessment] Client-side score:', { tabKey, score, passed, correctCount, total, attemptNo });
+    const submitPayload = { tabKey, regId, email, score, passed, isFinal: isFinalExam, attemptNo };
+    console.log('[assessment] Client-side score:', { correctCount, total });
+    console.log('[assessment] Submit payload:', JSON.stringify(submitPayload));
 
     // ── Step 2: Send scored result to server API (which writes to Apps Script) ──
     try {
-      console.log('[assessment] Submitting score to /api/training/submit-assessment');
       const res = await fetch('/api/training/submit-assessment', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tabKey,
-          email,
-          regId,
-          score,
-          passed,
-          isFinal: isFinalExam,
-          attemptNo,
-        }),
+        body: JSON.stringify(submitPayload),
       });
       const resData = await res.json();
       console.log('[assessment] Submit response:', resData);
