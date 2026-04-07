@@ -778,6 +778,7 @@ export interface PendingCertificate {
 /** Fetch pending certificates from Apps Script Certificate Queue sheet. */
 export async function getPendingCertificates(): Promise<PendingCertificate[]> {
   const raw = await callScript<PendingCertificate[]>({ action: 'getPendingCertificates' });
+  console.log('[getPendingCertificates] raw Apps Script response:', JSON.stringify(raw, null, 2));
   if (!raw.success) return [];
   if (Array.isArray(raw.data)) return raw.data;
   const root = raw as unknown as { certificates?: PendingCertificate[]; pending?: PendingCertificate[] };
