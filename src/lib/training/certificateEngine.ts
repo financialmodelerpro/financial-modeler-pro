@@ -220,13 +220,79 @@ export async function generateCertificatePdf(data: {
   return publicUrl;
 }
 
+// ── Badge Layout Types ───────────────────────────────────────────────────────
+
+export interface BadgeTextField {
+  x: number;
+  y: number;
+  fontSize: number;
+  color: string;
+  fontFamily?: string;
+  textAlign?: 'left' | 'center' | 'right';
+  visible: boolean;
+}
+
+export interface BadgeOverlay {
+  bgColor: string;
+  bgOpacity: number;
+  bgY: number;       // offset from bottom (px)
+  bgHeight: number;
+}
+
+export interface BadgeLayout {
+  certificateId: BadgeTextField;
+  issueDate:     BadgeTextField;
+  overlay:       BadgeOverlay;
+}
+
+/** Default badge layout — matches the previous hardcoded values */
+export const DEFAULT_BADGE_LAYOUT: BadgeLayout = {
+  certificateId: { x: 0, y: 44, fontSize: 12, color: '#ffffff', fontFamily: 'Arial', textAlign: 'center', visible: true },
+  issueDate:     { x: 0, y: 22, fontSize: 11, color: 'rgba(255,255,255,0.8)', fontFamily: 'Arial', textAlign: 'center', visible: true },
+  overlay:       { bgColor: '#000000', bgOpacity: 0.55, bgY: 50, bgHeight: 56 },
+};
+
+/** Load badge layout from cms_content, falling back to defaults */
+export async function loadBadgeLayout(): Promise<BadgeLayout> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('cms_content')
+      .select('value')
+      .eq('section', 'badge_layout')
+      .eq('key', 'layout_json')
+      .maybeSingle();
+    if (data?.value) {
+      const parsed = JSON.parse(data.value) as Partial<BadgeLayout>;
+      return {
+        certificateId: { ...DEFAULT_BADGE_LAYOUT.certificateId, ...parsed.certificateId },
+        issueDate:     { ...DEFAULT_BADGE_LAYOUT.issueDate,     ...parsed.issueDate },
+        overlay:       { ...DEFAULT_BADGE_LAYOUT.overlay,       ...parsed.overlay },
+      };
+    }
+  } catch { /* use defaults */ }
+  return DEFAULT_BADGE_LAYOUT;
+}
+
+function svgAnchor(align?: string): string {
+  if (align === 'left')  return 'start';
+  if (align === 'right') return 'end';
+  return 'middle';
+}
+
+function svgTextX(align: string | undefined, x: number, bw: number): number {
+  if (align === 'left')  return x;
+  if (align === 'right') return bw - x;
+  return bw / 2 + x;
+}
+
 // ── Badge Generation ──────────────────────────────────────────────────────────
 
 export async function generateBadgePng(data: {
   certificateId: string;
   issueDate:     string;
   courseCode:    string;
-}): Promise<string> {
+}, layoutOverride?: BadgeLayout): Promise<string> {
   const sb = getServerClient();
 
   // 1. Load base badge PNG
@@ -245,32 +311,52 @@ export async function generateBadgePng(data: {
   const bw          = meta.width  ?? 600;
   const bh          = meta.height ?? 600;
 
-  // 2. Build SVG text overlay (Certificate ID + Issue Date at bottom)
-  const lineHeight = 22;
-  const textY1     = bh - 44;
-  const textY2     = bh - 22;
+  // 2. Load badge layout from DB (or use override for previews)
+  const layout = layoutOverride ?? await loadBadgeLayout();
+  const { certificateId: cidField, issueDate: dateField, overlay } = layout;
 
-  const svgOverlay = Buffer.from(`
-    <svg width="${bw}" height="${bh}" xmlns="http://www.w3.org/2000/svg">
-      <rect x="0" y="${textY1 - 6}" width="${bw}" height="${lineHeight * 2 + 12}" fill="rgba(0,0,0,0.55)" />
-      <text x="${bw / 2}" y="${textY1 + 12}" text-anchor="middle"
-        font-family="Arial,Helvetica,sans-serif" font-size="12" fill="#ffffff">
-        ${data.certificateId}
-      </text>
-      <text x="${bw / 2}" y="${textY2 + 10}" text-anchor="middle"
-        font-family="Arial,Helvetica,sans-serif" font-size="11" fill="rgba(255,255,255,0.8)">
-        ${formatDate(data.issueDate)}
-      </text>
-    </svg>
-  `);
+  // 3. Build SVG text overlay
+  const overlayY = bh - overlay.bgY;
+  const svgParts: string[] = [];
 
-  // 3. Composite overlay onto badge
+  // Background band
+  svgParts.push(
+    `<rect x="0" y="${overlayY}" width="${bw}" height="${overlay.bgHeight}" fill="${overlay.bgColor}" fill-opacity="${overlay.bgOpacity}" />`
+  );
+
+  // Certificate ID text
+  if (cidField.visible) {
+    const cidY = bh - cidField.y;
+    svgParts.push(
+      `<text x="${svgTextX(cidField.textAlign, cidField.x, bw)}" y="${cidY}" text-anchor="${svgAnchor(cidField.textAlign)}"
+        font-family="${cidField.fontFamily ?? 'Arial'},Helvetica,sans-serif" font-size="${cidField.fontSize}" fill="${cidField.color}">
+        ${escapeXml(data.certificateId)}
+      </text>`
+    );
+  }
+
+  // Issue Date text
+  if (dateField.visible) {
+    const dateY = bh - dateField.y;
+    svgParts.push(
+      `<text x="${svgTextX(dateField.textAlign, dateField.x, bw)}" y="${dateY}" text-anchor="${svgAnchor(dateField.textAlign)}"
+        font-family="${dateField.fontFamily ?? 'Arial'},Helvetica,sans-serif" font-size="${dateField.fontSize}" fill="${dateField.color}">
+        ${escapeXml(formatDate(data.issueDate))}
+      </text>`
+    );
+  }
+
+  const svgOverlay = Buffer.from(
+    `<svg width="${bw}" height="${bh}" xmlns="http://www.w3.org/2000/svg">${svgParts.join('')}</svg>`
+  );
+
+  // 4. Composite overlay onto badge
   const outBuffer = await sharp(badgeBytes)
     .composite([{ input: svgOverlay, gravity: 'southeast' }])
     .png()
     .toBuffer();
 
-  // 4. Upload
+  // 5. Upload
   const filePath = `issued/${data.certificateId}-badge.png`;
   await sb.storage.from('badges').upload(filePath, outBuffer, {
     contentType: 'image/png',
@@ -279,6 +365,10 @@ export async function generateBadgePng(data: {
 
   const { data: { publicUrl } } = sb.storage.from('badges').getPublicUrl(filePath);
   return publicUrl;
+}
+
+function escapeXml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ── Main Orchestrator ─────────────────────────────────────────────────────────

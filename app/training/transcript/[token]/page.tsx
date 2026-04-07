@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getServerClient } from '@/src/lib/shared/supabase';
-import { getStudentProgress, getCertificatesByEmail } from '@/src/lib/training/sheets';
+import { getStudentProgress } from '@/src/lib/training/sheets';
 import { COURSES } from '@/src/config/courses';
 import type { Metadata } from 'next';
 
@@ -88,7 +88,14 @@ async function loadTxSettings(): Promise<TxSettings> {
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface ProgRow { sessionId: string; passed: boolean; score: number; attempts: number; }
-interface CertData { certificateId: string; issuedAt: string; certifierUrl: string; }
+
+/** Certificate data sourced exclusively from student_certificates (Supabase). */
+interface CertData {
+  certificateId:   string;
+  issuedAt:        string;   // ISO timestamp from issued_at
+  verificationUrl: string;   // internal: financialmodelerpro.com/verify/{certId}
+  certPdfUrl:      string;
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtDate(d?: string | null) {
@@ -99,6 +106,8 @@ function fmtDate(d?: string | null) {
 function today() {
   return new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 }
+
+const QR_API = 'https://api.qrserver.com/v1/create-qr-code';
 
 // ── Metadata ──────────────────────────────────────────────────────────────────
 export async function generateMetadata(
@@ -132,51 +141,53 @@ export default async function PublicTranscriptPage(
     .eq('token', token)
     .then(() => {});
 
-  const [progressResult, certsResult] = await Promise.all([
+  const courseId = link.course_id;
+  const course   = COURSES[courseId];
+  if (!course) notFound();
+
+  // Fetch progress + cert data in parallel.
+  // Certificate data comes exclusively from student_certificates — single source of truth.
+  const [progressResult, { data: certRow }] = await Promise.all([
     getStudentProgress(link.email, link.registration_id),
-    getCertificatesByEmail(link.email),
+    sb
+      .from('student_certificates')
+      .select('certificate_id, verification_url, issued_at, issued_date, cert_pdf_url, badge_url')
+      .eq('registration_id', link.registration_id)
+      .eq('course_code', courseId.toUpperCase())
+      .maybeSingle(),
   ]);
 
   if (!progressResult.success || !progressResult.data) notFound();
 
   const { student, sessions } = progressResult.data;
-  const courseId = link.course_id;
-  const course   = COURSES[courseId];
-  if (!course) notFound();
 
   const progMap = new Map<string, ProgRow>();
   for (const s of sessions) {
     progMap.set(s.sessionId, { sessionId: s.sessionId, passed: s.passed, score: s.score, attempts: s.attempts });
   }
 
-  const learnUrl = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+  // Build cert object from Supabase — never from Apps Script or any external source
+  const cert: CertData | null = certRow?.certificate_id
+    ? {
+        certificateId:   certRow.certificate_id,
+        issuedAt:        certRow.issued_at ?? certRow.issued_date ?? '',
+        verificationUrl: certRow.verification_url ?? '',
+        certPdfUrl:      certRow.cert_pdf_url ?? '',
+      }
+    : null;
 
-  // Also check Supabase for internal certificate_id
-  const { data: supaCell } = await sb
-    .from('student_certificates')
-    .select('certificate_id, cert_pdf_url')
-    .eq('registration_id', link.registration_id)
-    .maybeSingle();
-  const internalCertId = supaCell?.certificate_id ?? null;
-
-  const certMap = new Map<string, CertData>();
-  if (certsResult.success && certsResult.data) {
-    for (const c of certsResult.data) {
-      const k = c.course?.toLowerCase().includes('bvm') ? 'bvm' : '3sfm';
-      // Use internal verify URL if available, fall back to certifierUrl
-      const verifyUrl = internalCertId
-        ? `${learnUrl}/verify/${internalCertId}`
-        : c.certifierUrl;
-      certMap.set(k, { certificateId: c.certificateId || internalCertId || '', issuedAt: c.issuedAt, certifierUrl: verifyUrl });
-    }
-  }
+  // QR encodes the same verificationUrl stored in the DB — identical to the one
+  // embedded in the issued PDF (deterministic: same URL → same QR image).
+  const verifyUrl = cert?.verificationUrl ?? '';
+  const qrSrc     = verifyUrl
+    ? `${QR_API}/?size=100x100&data=${encodeURIComponent(verifyUrl)}`
+    : '';
 
   const regularSessions = course.sessions.filter(s => !s.isFinal);
   const finalSession    = course.sessions.find(s => s.isFinal);
   const passedCount     = regularSessions.filter(s => progMap.get(s.id)?.passed).length;
   const finalProg       = finalSession ? progMap.get(finalSession.id) : undefined;
   const allComplete     = passedCount === regularSessions.length && !!finalProg?.passed;
-  const cert            = certMap.get(courseId) ?? null;
   const scoresArr       = regularSessions.map(s => progMap.get(s.id)).filter(p => p && p.attempts > 0).map(p => p!.score);
   const avgScore        = scoresArr.length ? Math.round(scoresArr.reduce((a, b) => a + b, 0) / scoresArr.length) : null;
   const pdfUrl          = `/api/t/${token}/pdf?autoprint=1`;
@@ -258,7 +269,7 @@ export default async function PublicTranscriptPage(
           {allComplete ? (
             <div style={{ background: '#F0FFF4', padding: '10px 36px', borderTop: '2px solid #BBF7D0', borderBottom: '2px solid #BBF7D0' }}>
               <div style={{ fontSize: 12, fontWeight: 800, color: '#166534' }}>{tx.bannerCompleteTitle}</div>
-              <div style={{ fontSize: 11, color: '#166534', marginTop: 2 }}>{tx.bannerCompleteSub.replace('[date]', today())}</div>
+              <div style={{ fontSize: 11, color: '#166534', marginTop: 2 }}>{tx.bannerCompleteSub.replace('[date]', cert ? fmtDate(cert.issuedAt) : today())}</div>
             </div>
           ) : (
             <div style={{ background: '#FFFBEB', padding: '10px 36px', borderTop: '2px solid #FDE68A', borderBottom: '2px solid #FDE68A' }}>
@@ -343,6 +354,7 @@ export default async function PublicTranscriptPage(
 
           {/* Summary boxes */}
           <div style={{ display: 'flex', gap: 16, padding: '20px 36px', flexWrap: 'wrap' }}>
+            {/* Academic summary */}
             <div style={{ flex: 1, minWidth: 240, border: `1.5px solid ${C.navy2}`, borderRadius: 8, padding: '14px 16px' }}>
               <div style={{ fontSize: 11, fontWeight: 800, color: C.navy, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 }}>
                 Academic Summary — {course.shortTitle}
@@ -359,47 +371,97 @@ export default async function PublicTranscriptPage(
                 </div>
               ))}
             </div>
+
+            {/* Certification status — sourced from student_certificates */}
             <div style={{ flex: 1, minWidth: 240, border: `1.5px solid ${cert ? C.green : C.border}`, borderRadius: 8, padding: '14px 16px' }}>
               <div style={{ fontSize: 11, fontWeight: 800, color: C.navy, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 }}>
                 Certification Status
               </div>
               {[
-                ['Status',         cert ? 'CERTIFIED' : allComplete ? 'PROCESSING' : 'NOT EARNED'],
-                ['Certificate ID', cert?.certificateId ?? '—'],
-                ['Issued',         cert ? fmtDate(cert.issuedAt) : '—'],
+                ['Status',           cert ? 'CERTIFIED' : allComplete ? 'PROCESSING' : 'NOT EARNED'],
+                ['Certificate ID',   cert?.certificateId ?? '—'],
+                ['Completion Date',  cert ? fmtDate(cert.issuedAt) : '—'],
               ].map(([l, v]) => (
                 <div key={l} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                   <span style={{ fontSize: 11, color: C.muted }}>{l}</span>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: v === 'CERTIFIED' ? C.green : v === 'PROCESSING' ? C.gold : C.text }}>{v}</span>
+                  <span style={{
+                    fontSize: 11, fontWeight: 700,
+                    fontFamily: l === 'Certificate ID' ? 'monospace' : 'inherit',
+                    color: v === 'CERTIFIED' ? C.green : v === 'PROCESSING' ? C.gold : C.text,
+                  }}>{v}</span>
                 </div>
               ))}
-              {cert?.certifierUrl && (
-                <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px solid ${C.border}` }}>
-                  <a href={cert.certifierUrl} target="_blank" rel="noopener noreferrer"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: C.navy2, textDecoration: 'none', border: `1.5px solid ${C.navy2}`, borderRadius: 6, padding: '6px 14px' }}>
-                    🏅 Verify Certificate ↗
-                  </a>
+              {!cert && allComplete && (
+                <div style={{ marginTop: 8, fontSize: 11, color: C.gold }}>
+                  Certificate is being processed. Check back shortly.
+                </div>
+              )}
+              {!cert && !allComplete && (
+                <div style={{ marginTop: 8, fontSize: 11, color: C.muted }}>
+                  Complete all sessions and the final exam to earn your certificate.
                 </div>
               )}
             </div>
           </div>
 
-          {/* QR Code — only when certificate issued */}
-          {cert?.certifierUrl && (
-            <div style={{ padding: '16px 36px', borderTop: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', gap: 16 }}>
-              <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(cert.certifierUrl)}`}
-                alt="Verification QR"
-                width={100}
-                height={100}
-                style={{ borderRadius: 6, border: `1px solid ${C.border}`, flexShrink: 0 }}
-              />
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 4 }}>Scan to verify this certificate</div>
-                <div style={{ fontSize: 10, color: C.muted, wordBreak: 'break-all', lineHeight: 1.5 }}>{cert.certifierUrl}</div>
+          {/* ── Verify Certificate section — only when certificate issued ── */}
+          {cert && verifyUrl ? (
+            <div style={{
+              margin: '0 36px 20px',
+              border: `1.5px solid ${C.navy2}`,
+              borderRadius: 8,
+              padding: '16px 20px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 20,
+              flexWrap: 'wrap',
+              background: '#F0F7FF',
+            }}>
+              {/* QR — same verificationUrl → same QR as embedded in the issued certificate PDF */}
+              <div style={{ flexShrink: 0 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={qrSrc}
+                  alt="Certificate verification QR code"
+                  width={100}
+                  height={100}
+                  style={{ borderRadius: 6, border: `1px solid ${C.border}`, display: 'block' }}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontSize: 12, fontWeight: 800, color: C.navy, marginBottom: 3 }}>
+                  Verify Certificate
+                </div>
+                <div style={{ fontSize: 11, color: C.muted, marginBottom: 10 }}>
+                  Scan QR code or use the link below
+                </div>
+                <a
+                  href={verifyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 6,
+                    fontSize: 12, fontWeight: 700, color: C.navy2,
+                    textDecoration: 'none',
+                    border: `1.5px solid ${C.navy2}`,
+                    borderRadius: 6, padding: '6px 14px',
+                    background: '#fff',
+                  }}
+                >
+                  🔗 Verify Certificate ↗
+                </a>
+                <div style={{ marginTop: 8, fontSize: 10, color: C.muted, wordBreak: 'break-all', lineHeight: 1.5 }}>
+                  {verifyUrl}
+                </div>
               </div>
             </div>
-          )}
+          ) : !cert ? (
+            <div style={{ margin: '0 36px 20px', padding: '12px 16px', background: '#F9FAFB', borderRadius: 8, border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 11, color: C.muted }}>
+                QR code and verification link will appear here once the certificate is issued.
+              </div>
+            </div>
+          ) : null}
 
           {/* Footer */}
           <div style={{ background: tx.footerBgColor, padding: '12px 36px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>

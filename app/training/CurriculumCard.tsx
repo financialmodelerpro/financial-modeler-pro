@@ -101,7 +101,7 @@ export function CurriculumCard({
       }}>
         <span style={{ fontSize: 14 }}>✅</span>
         <span style={{ fontSize: 11, fontWeight: 700, color: '#15803D' }}>
-          Certificate issued via Certifier.io
+          Verified certificate with unique ID
         </span>
       </div>
 

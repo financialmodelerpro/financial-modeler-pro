@@ -12,7 +12,7 @@ export const revalidate = 300; // 5-minute ISR cache — training page content c
 
 export const metadata: Metadata = {
   title: 'Training Hub — Free Financial Modeling Certification | Financial Modeler Pro',
-  description: 'Get certified in financial modeling for free. Professional certification backed by real practitioner training. Certificates issued via Certifier.io.',
+  description: 'Get certified in financial modeling for free. Professional certification backed by real practitioner training. Verified certificates with unique IDs.',
 };
 
 // ── Static data ───────────────────────────────────────────────────────────────
@@ -29,7 +29,7 @@ const BENEFITS = [
   {
     icon: '🎓',
     title: 'Verifiable Certificate',
-    desc: 'Each certificate has a unique ID that employers can verify instantly at certifier.io.',
+    desc: 'Each certificate has a unique ID that employers can verify instantly online.',
   },
   {
     icon: '💼',
@@ -290,7 +290,7 @@ export default async function TrainingPage() {
         </div>
       </section>
 
-      {/* ── Section 5 — Certifier.io Trust ───────────────────────────────── */}
+      {/* ── Section 5 — Certificate Verification ────────────────────────── */}
       <section style={{ background: '#E8F7EC', padding: 'clamp(40px,6vw,64px) 40px', textAlign: 'center' }}>
         <div style={{ maxWidth: 640, margin: '0 auto' }}>
           <div style={{
@@ -301,7 +301,7 @@ export default async function TrainingPage() {
           }}>
             <span style={{ fontSize: 20 }}>🏅</span>
             <span style={{ fontSize: 15, fontWeight: 800, color: '#15803D' }}>
-              Certifier.io
+              Verified Certificates
             </span>
           </div>
 
@@ -309,15 +309,12 @@ export default async function TrainingPage() {
             Trusted Certificate Verification
           </h2>
           <p style={{ fontSize: 14, color: '#374151', lineHeight: 1.7, marginBottom: 24 }}>
-            All certificates are issued and verified via{' '}
-            <strong>Certifier.io</strong>. Each certificate has a unique, permanent verification
-            link. Employers and institutions can verify your certification at certifier.io
-            at any time.
+            All certificates are issued with a unique Certificate ID and QR code.
+            Each certificate has a permanent verification link. Employers and institutions
+            can verify your certification online at any time.
           </p>
-          <a
-            href="https://certifier.io"
-            target="_blank"
-            rel="noopener noreferrer"
+          <Link
+            href="/verify"
             style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               color: '#15803D', fontWeight: 700, fontSize: 13,
@@ -327,7 +324,7 @@ export default async function TrainingPage() {
             }}
           >
             Verify a Certificate →
-          </a>
+          </Link>
         </div>
       </section>
 

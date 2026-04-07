@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/lib/shared/supabase';
-import { getStudentProgress, getCertificatesByEmail } from '@/src/lib/training/sheets';
+import { getStudentProgress } from '@/src/lib/training/sheets';
 import { COURSES } from '@/src/config/courses';
 
 export const dynamic = 'force-dynamic';
+
+const QR_API = 'https://api.qrserver.com/v1/create-qr-code';
 
 function fmtDate(d?: string | null): string {
   if (!d) return '—';
@@ -32,9 +34,22 @@ export async function GET(
     return new NextResponse('Transcript link not found or expired.', { status: 404 });
   }
 
-  const [progressResult, certsResult] = await Promise.all([
+  const courseId = link.course_id;
+  const course   = COURSES[courseId];
+  if (!course) {
+    return new NextResponse('Course not found.', { status: 404 });
+  }
+
+  // Fetch progress + certificate data from single source of truth in parallel.
+  // student_certificates is the canonical store — no Apps Script or external cert lookup.
+  const [progressResult, { data: certRow }] = await Promise.all([
     getStudentProgress(link.email, link.registration_id),
-    getCertificatesByEmail(link.email),
+    sb
+      .from('student_certificates')
+      .select('certificate_id, verification_url, issued_at, issued_date, cert_pdf_url, badge_url')
+      .eq('registration_id', link.registration_id)
+      .eq('course_code', courseId.toUpperCase())
+      .maybeSingle(),
   ]);
 
   if (!progressResult.success || !progressResult.data) {
@@ -42,35 +57,19 @@ export async function GET(
   }
 
   const { student, sessions } = progressResult.data;
-  const courseId = link.course_id;
-  const course   = COURSES[courseId];
-  if (!course) {
-    return new NextResponse('Course not found.', { status: 404 });
-  }
 
   const progMap = new Map<string, { passed: boolean; score: number; attempts: number }>();
   for (const s of sessions) progMap.set(s.sessionId, { passed: s.passed, score: s.score, attempts: s.attempts });
 
-  const certData = certsResult.success && certsResult.data
-    ? certsResult.data.find(c => {
-        const k = c.course?.toLowerCase().includes('bvm') ? 'bvm' : '3sfm';
-        return k === courseId;
-      }) ?? null
-    : null;
+  // Build cert data from Supabase only
+  const certId    = certRow?.certificate_id ?? '';
+  const verifyUrl = certRow?.verification_url ?? '';
+  const issuedAt  = certRow?.issued_at ?? certRow?.issued_date ?? '';
+  const hasCert   = !!certId;
 
-  const learnUrl = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
-
-  // Look up internal cert for verify URL
-  const { data: supaCell } = await sb
-    .from('student_certificates')
-    .select('certificate_id, cert_pdf_url, transcript_url')
-    .eq('registration_id', link.registration_id)
-    .maybeSingle();
-
-  const certId    = supaCell?.certificate_id ?? certData?.certificateId ?? '';
-  const verifyUrl = certId ? `${learnUrl}/verify/${certId}` : '';
-  const qrSrc     = verifyUrl
-    ? `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(verifyUrl)}`
+  // QR encodes the same verificationUrl as the issued PDF — deterministic, no new generation logic.
+  const qrSrc = verifyUrl
+    ? `${QR_API}/?size=120x120&data=${encodeURIComponent(verifyUrl)}`
     : '';
 
   const regularSessions = course.sessions.filter(s => !s.isFinal);
@@ -115,6 +114,24 @@ export async function GET(
       </tr>`;
   })() : '';
 
+  // Verify / QR section — only rendered when certificate exists
+  const verifySection = hasCert && verifyUrl ? `
+  <!-- Verify Certificate -->
+  <div style="margin:0 36px 20px;border:1.5px solid #1B4F8A;border-radius:8px;padding:16px 20px;display:flex;align-items:flex-start;gap:20px;background:#F0F7FF;">
+    ${qrSrc ? `<img src="${qrSrc}" alt="Certificate verification QR code" width="100" height="100" style="border-radius:6px;border:1px solid #E5E7EB;flex-shrink:0;" />` : ''}
+    <div>
+      <div style="font-size:12px;font-weight:800;color:#0D2E5A;margin-bottom:3px;">Verify Certificate</div>
+      <div style="font-size:11px;color:#6B7280;margin-bottom:10px;">Scan QR code or use the link below</div>
+      <a href="${verifyUrl}" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#1B4F8A;text-decoration:none;border:1.5px solid #1B4F8A;border-radius:6px;padding:6px 14px;background:#fff;">
+        🔗 Verify Certificate ↗
+      </a>
+      <div style="margin-top:8px;font-size:10px;color:#9CA3AF;word-break:break-all;line-height:1.5;">${verifyUrl}</div>
+    </div>
+  </div>` : !hasCert ? `
+  <div style="margin:0 36px 20px;padding:12px 16px;background:#F9FAFB;border-radius:8px;border:1px solid #E5E7EB;">
+    <div style="font-size:11px;color:#6B7280;">QR code and verification link will appear here once the certificate is issued.</div>
+  </div>` : '';
+
   const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -153,7 +170,7 @@ export async function GET(
       <div style="background:rgba(255,255,255,0.12);border-radius:6px;padding:6px 14px;display:inline-block;">
         <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.8);">FMP Training Hub</div>
       </div>
-      ${certData ? `<div style="margin-top:8px;font-size:10px;color:#A7F3D0;font-weight:600;">✓ Certificate Verified</div>` : ''}
+      ${hasCert ? `<div style="margin-top:8px;font-size:10px;color:#A7F3D0;font-weight:600;">✓ Certificate Verified</div>` : ''}
     </div>
   </div>
 
@@ -175,7 +192,7 @@ export async function GET(
   ${allComplete
     ? `<div style="background:#F0FFF4;padding:10px 36px;border-top:2px solid #BBF7D0;border-bottom:2px solid #BBF7D0;">
         <div style="font-size:12px;font-weight:800;color:#166534;">✓ OFFICIAL TRANSCRIPT — Course Complete</div>
-        <div style="font-size:11px;color:#166534;margin-top:2px;">All requirements fulfilled. Certificate issued as of ${today()}.</div>
+        <div style="font-size:11px;color:#166534;margin-top:2px;">All requirements fulfilled. Certificate issued as of ${hasCert ? fmtDate(issuedAt) : today()}.</div>
        </div>`
     : `<div style="background:#FFFBEB;padding:10px 36px;border-top:2px solid #FDE68A;border-bottom:2px solid #FDE68A;">
         <div style="font-size:12px;font-weight:800;color:#92400E;">⏳ PROGRESS TRANSCRIPT — Course in Progress</div>
@@ -217,35 +234,23 @@ export async function GET(
           <span style="font-size:11px;font-weight:700;color:${v === 'PASSED' ? '#2EAA4A' : v === 'IN PROGRESS' ? '#C9A84C' : '#111827'};">${v}</span>
         </div>`).join('')}
     </div>
-    <div style="flex:1;min-width:240px;border:1.5px solid ${certData ? '#2EAA4A' : '#E5E7EB'};border-radius:8px;padding:14px 16px;">
+    <div style="flex:1;min-width:240px;border:1.5px solid ${hasCert ? '#2EAA4A' : '#E5E7EB'};border-radius:8px;padding:14px 16px;">
       <div style="font-size:11px;font-weight:800;color:#0D2E5A;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:12px;">Certification Status</div>
       ${[
-        ['Status', certData ? 'CERTIFIED' : allComplete ? 'PROCESSING' : 'NOT EARNED'],
-        ['Certificate ID', certId || certData?.certificateId || '—'],
-        ['Issued', certData ? fmtDate(certData.issuedAt) : '—'],
+        ['Status',           hasCert ? 'CERTIFIED' : allComplete ? 'PROCESSING' : 'NOT EARNED'],
+        ['Certificate ID',   certId || '—'],
+        ['Completion Date',  hasCert ? fmtDate(issuedAt) : '—'],
       ].map(([l, v]) => `
         <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
           <span style="font-size:11px;color:#6B7280;">${l}</span>
           <span style="font-size:11px;font-weight:700;font-family:${l === 'Certificate ID' ? 'monospace' : 'inherit'};color:${v === 'CERTIFIED' ? '#2EAA4A' : v === 'PROCESSING' ? '#C9A84C' : '#111827'};">${v}</span>
         </div>`).join('')}
-      ${verifyUrl ? `
-        <div style="margin-top:10px;padding-top:10px;border-top:1px solid #E5E7EB;">
-          <a href="${verifyUrl}" style="display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;color:#1B4F8A;text-decoration:none;border:1.5px solid #1B4F8A;border-radius:6px;padding:6px 14px;">
-            🏅 Verify Certificate ↗
-          </a>
-        </div>` : ''}
+      ${!hasCert && allComplete ? `<div style="margin-top:8px;font-size:11px;color:#C9A84C;">Certificate is being processed. Check back shortly.</div>` : ''}
+      ${!hasCert && !allComplete ? `<div style="margin-top:8px;font-size:11px;color:#6B7280;">Complete all sessions and the final exam to earn your certificate.</div>` : ''}
     </div>
   </div>
 
-  ${qrSrc ? `
-  <!-- QR Code -->
-  <div style="padding:16px 36px;border-top:1px solid #E5E7EB;display:flex;align-items:center;gap:16px;">
-    <img src="${qrSrc}" alt="Verification QR Code" width="100" height="100" style="border-radius:6px;border:1px solid #E5E7EB;flex-shrink:0;" />
-    <div>
-      <div style="font-size:11px;font-weight:700;color:#374151;margin-bottom:4px;">Scan to verify this transcript</div>
-      <div style="font-size:10px;color:#9CA3AF;word-break:break-all;">${verifyUrl}</div>
-    </div>
-  </div>` : ''}
+  ${verifySection}
 
   <!-- Footer -->
   <div style="background:#0D2E5A;padding:12px 36px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">

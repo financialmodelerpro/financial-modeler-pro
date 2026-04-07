@@ -1,8 +1,8 @@
 /**
  * POST /api/admin/badge-preview
  *
- * Generates a badge PNG preview with sample Certificate ID and Issue Date overlay.
- * Mirrors the logic in certificateEngine.generateBadgePng() exactly.
+ * Generates a badge PNG preview with Certificate ID and Issue Date overlay.
+ * Uses badge layout from cms_content (or accepts layout override from editor).
  * Returns the PNG bytes directly (no storage upload).
  */
 
@@ -11,9 +11,32 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import sharp from 'sharp';
+import {
+  loadBadgeLayout,
+  DEFAULT_BADGE_LAYOUT,
+  type BadgeLayout,
+  type BadgeTextField,
+  type BadgeOverlay,
+} from '@/src/lib/training/certificateEngine';
 
 const SAMPLE_CERT_ID = 'FMP-3SFM-2026-0001';
 const SAMPLE_DATE    = '15 January 2026';
+
+function escapeXml(str: string): string {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function svgAnchor(align?: string): string {
+  if (align === 'left')  return 'start';
+  if (align === 'right') return 'end';
+  return 'middle';
+}
+
+function svgTextX(align: string | undefined, x: number, bw: number): number {
+  if (align === 'left')  return x;
+  if (align === 'right') return bw - x;
+  return bw / 2 + x;
+}
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -25,7 +48,7 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const body   = (await req.json()) as { course?: string };
+    const body = (await req.json()) as { course?: string; layout?: BadgeLayout };
     const course = (body.course ?? '3sfm').toLowerCase();
     const sb     = getServerClient();
 
@@ -47,24 +70,51 @@ export async function POST(req: NextRequest) {
     const bw         = meta.width  ?? 600;
     const bh         = meta.height ?? 600;
 
-    // Build SVG text overlay — identical to certificateEngine.generateBadgePng()
-    const lineHeight = 22;
-    const textY1     = bh - 44;
-    const textY2     = bh - 22;
+    // Use layout override from editor, or load from DB, or use defaults
+    let layout: BadgeLayout;
+    if (body.layout) {
+      layout = {
+        certificateId: { ...DEFAULT_BADGE_LAYOUT.certificateId, ...body.layout.certificateId },
+        issueDate:     { ...DEFAULT_BADGE_LAYOUT.issueDate,     ...body.layout.issueDate },
+        overlay:       { ...DEFAULT_BADGE_LAYOUT.overlay,       ...body.layout.overlay },
+      };
+    } else {
+      layout = await loadBadgeLayout();
+    }
 
-    const svgOverlay = Buffer.from(`
-      <svg width="${bw}" height="${bh}" xmlns="http://www.w3.org/2000/svg">
-        <rect x="0" y="${textY1 - 6}" width="${bw}" height="${lineHeight * 2 + 12}" fill="rgba(0,0,0,0.55)" />
-        <text x="${bw / 2}" y="${textY1 + 12}" text-anchor="middle"
-          font-family="Arial,Helvetica,sans-serif" font-size="12" fill="#ffffff">
-          ${SAMPLE_CERT_ID}
-        </text>
-        <text x="${bw / 2}" y="${textY2 + 10}" text-anchor="middle"
-          font-family="Arial,Helvetica,sans-serif" font-size="11" fill="rgba(255,255,255,0.8)">
-          ${SAMPLE_DATE}
-        </text>
-      </svg>
-    `);
+    const { certificateId: cidField, issueDate: dateField, overlay } = layout;
+
+    // Build SVG text overlay
+    const overlayY = bh - overlay.bgY;
+    const svgParts: string[] = [];
+
+    svgParts.push(
+      `<rect x="0" y="${overlayY}" width="${bw}" height="${overlay.bgHeight}" fill="${overlay.bgColor}" fill-opacity="${overlay.bgOpacity}" />`
+    );
+
+    if (cidField.visible) {
+      const cidY = bh - cidField.y;
+      svgParts.push(
+        `<text x="${svgTextX(cidField.textAlign, cidField.x, bw)}" y="${cidY}" text-anchor="${svgAnchor(cidField.textAlign)}"
+          font-family="${cidField.fontFamily ?? 'Arial'},Helvetica,sans-serif" font-size="${cidField.fontSize}" fill="${cidField.color}">
+          ${escapeXml(SAMPLE_CERT_ID)}
+        </text>`
+      );
+    }
+
+    if (dateField.visible) {
+      const dateY = bh - dateField.y;
+      svgParts.push(
+        `<text x="${svgTextX(dateField.textAlign, dateField.x, bw)}" y="${dateY}" text-anchor="${svgAnchor(dateField.textAlign)}"
+          font-family="${dateField.fontFamily ?? 'Arial'},Helvetica,sans-serif" font-size="${dateField.fontSize}" fill="${dateField.color}">
+          ${escapeXml(SAMPLE_DATE)}
+        </text>`
+      );
+    }
+
+    const svgOverlay = Buffer.from(
+      `<svg width="${bw}" height="${bh}" xmlns="http://www.w3.org/2000/svg">${svgParts.join('')}</svg>`
+    );
 
     // Composite overlay onto badge
     const outBuffer = await sharp(badgeBytes)
