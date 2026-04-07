@@ -75,6 +75,7 @@ interface ScriptResponse<T = unknown> {
 // ── Internal fetch helper ─────────────────────────────────────────────────────
 
 async function callScript<T>(params: Record<string, string>): Promise<ScriptResponse<T>> {
+  console.log('[DEBUG] callScript called with:', JSON.stringify(params));
   const APPS_SCRIPT_URL = await getAppsScriptUrl();
   if (!APPS_SCRIPT_URL) {
     return { success: false, error: 'APPS_SCRIPT_URL not configured' };
@@ -84,6 +85,7 @@ async function callScript<T>(params: Record<string, string>): Promise<ScriptResp
     for (const [k, v] of Object.entries(params)) {
       url.searchParams.set(k, v);
     }
+    console.log('[DEBUG] callScript URL resolved:', url.toString());
     const res = await fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
@@ -340,12 +342,18 @@ export async function getStudentProgress(
   email: string,
   regId: string,
 ): Promise<ScriptResponse<StudentProgress>> {
+  console.log('[DEBUG] getStudentProgress called:', { email, regId });
   const raw = await callScript<StudentProgress>({ action: 'getProgress', email, regId });
-  console.log('[DEBUG getProgress] raw response:', JSON.stringify(raw).substring(0, 1000));
+  console.log('[DEBUG] raw Apps Script response:', JSON.stringify(raw).substring(0, 500));
+
+  // Log which shape branch will be taken
+  const root = raw as unknown as Record<string, unknown>;
+  const hasDataStudent = raw.data && typeof raw.data === 'object' && 'student' in raw.data;
+  const hasRootStudent = root.student && typeof root.student === 'object';
+  const hasFlatCols = typeof root['S1%'] !== 'undefined' || typeof root['L1%'] !== 'undefined';
+  console.log('[DEBUG] shape detection:', { success: raw.success, hasDataStudent, hasRootStudent, hasFlatCols });
 
   if (!raw.success) return raw;
-
-  const root = raw as unknown as Record<string, unknown>;
 
   // Shape A: properly nested under `data` key with a `student` object
   if (raw.data && typeof raw.data === 'object' && 'student' in raw.data) {
