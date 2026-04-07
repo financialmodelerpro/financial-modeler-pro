@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-06**
+**Last updated: 2026-04-07**
 
 ---
 
@@ -207,10 +207,10 @@
 | **Training Hub — Device Trust + OTP** | ✅ Complete | `training_email_otps`, 30-day trust cookie |
 | **Training Hub — Resend Confirmation Email** | ✅ Complete | `POST /api/training/resend-confirmation`, shown on signin on EmailNotConfirmed |
 | **Training Hub — Inactivity Logout** | ✅ Complete | `useInactivityLogout` on dashboard |
-| **Training Hub — Dashboard** | ✅ Complete | Video player, progress, notes, feedback |
+| **Training Hub — Dashboard** | ✅ Complete | Video player, progress, notes, feedback; timer bypass reads `timer_bypass_enabled` from training_settings DB (admin toggle in course manager saves to DB, not localStorage) |
 | **Training Hub — Assessments / Quiz** | ✅ Complete | Question bank, attempts, auto-score |
-| **Training Hub — Certificate System** | ✅ Complete | Internal pdf-lib PDF gen, sharp badge overlay, Supabase storage, daily cron (midnight) + manual Generate Now button in admin, no Certifier.io |
-| **Training Hub — Transcript** | ✅ Complete | Shareable token-gated HTML transcript (auto-print PDF), fixed 502 dead link |
+| **Training Hub — Certificate System** | ✅ Complete | Internal pdf-lib PDF gen, sharp badge overlay, Supabase storage, daily cron (midnight) + manual Generate Now button in admin, no Certifier.io; all Certifier.io marketing text removed from training page + CurriculumCard |
+| **Training Hub — Transcript** | ✅ Complete | Shareable token-gated HTML transcript + PDF with QR code, Certificate ID, verification URL from student_certificates (single source of truth); compact single-page A4 PDF layout; CMS-driven settings; no Certifier.io references |
 | **Training Hub — Profile** | ✅ Complete | Avatar upload, name/city/country |
 | **Modeling Hub — Auth (login/logout/session)** | ✅ Complete | NextAuth JWT, 1hr session |
 | **Modeling Hub — Registration + Email Confirm** | ✅ Complete | hCaptcha + email_confirmed flag + confirmation email |
@@ -221,6 +221,8 @@
 | **Admin Panel** | ✅ Complete | Users, training, certificates, CMS, branding, pricing, audit; login at `/admin/login`; public landing at `/admin`; two-step login UI (welcome→form) with navy/gold branding; `/admin/dashboard` is protected entry point |
 | **Admin — Training Hub section** | ✅ Complete | Students, cohorts, assessments, analytics, comms |
 | **Admin — Certificate Editor** | ✅ Complete | Dual layout: HTML block editor + PDF field editor (x/y/fontSize/color/width per field), course selector, template upload; ±stepper buttons on all numeric fields (X/Y/SIZE/WIDTH for text, X/Y/WIDTH/HEIGHT for QR); toggle-able center guidelines overlay (dashed purple crosshair); snap-to-left/center/right buttons per field; PDF preview coordinate scaling fixed (scaleX/scaleY from editor 1240×877 → PDF points); text baseline ascent correction applied (Helvetica 0.718, Times 0.683, Courier 0.627) |
+| **Admin — Badge Editor** | ✅ Complete | Field editor for Certificate ID + Issue Date overlay (x/y/fontSize/color/font/alignment/visibility); layout stored in cms_content (section: badge_layout); live CSS preview + server-rendered preview; no overlay band |
+| **Admin — Transcript Editor** | ✅ Complete | Header drag-to-position, CMS-driven colors/text, QR code + Certificate ID + verification section in preview; PDF Preview button generates real-time PDF with sample cert data |
 | **CMS / Dynamic Nav** | ✅ Complete | `site_pages` table, admin editable |
 | **Email System** | ✅ Complete | Resend, 11 templates, FROM.training + FROM.noreply |
 | **Apps Script Integration** | ✅ Complete | Register student, fetch registration ID, attendance |
@@ -277,6 +279,7 @@ app/admin/
 ├── announcements/page.tsx
 ├── articles/page.tsx + [id]/ + new/
 ├── audit/page.tsx
+├── badge-editor/page.tsx         # Badge overlay field editor (Certificate ID + Issue Date position/size/color/font)
 ├── branding/page.tsx
 ├── certificate-editor/page.tsx
 ├── certificates/page.tsx
@@ -390,6 +393,8 @@ app/api/training/
 app/api/admin/
 ├── announcements/ articles/ asset-types/ audit-log/
 ├── assessments/ + attempts/ + questions/
+├── badge-layout/                # GET/POST badge overlay field positions (cms_content section: badge_layout)
+├── badge-preview/               # POST: generate badge PNG preview with overlay (uses layout from DB or editor override)
 ├── certificate-layout/ certificates/sync/ certificates/upload-template/
 ├── certificates/settings/       # GET/POST auto_generation_enabled toggle (cms_content)
 ├── certificates/generate/       # POST: trigger processPendingCertificates(), maxDuration 300s
@@ -477,6 +482,9 @@ src/lib/
     ├── appsScript.ts  certificateEngine.ts  certificateLayout.ts  certifier.ts (deprecated stub)  sheets.ts
     ├── training-session.ts   videoTimer.ts
     # certificateEngine.ts: PDF generation uses scaleX/scaleY (editor 1240×877 → PDF points) and per-font ascent correction (drawY = height - pos.y*scaleY - fontSize*ascent) — matches preview route logic exactly
+    # certificateEngine.ts: Badge generation reads BadgeLayout from cms_content (section: badge_layout) — Certificate ID + Issue Date field positions (x/y/fontSize/color/font/align/visible); no overlay band; exports BadgeLayout, BadgeTextField, DEFAULT_BADGE_LAYOUT, loadBadgeLayout()
+    # videoTimer.ts: getTimerStatus() accepts optional timerBypassed param (server-side bypass from training_settings DB key: timer_bypass_enabled)
+    # sheets.ts: normalizeProgressObject() handles both bestScore/score field names and passed/status detection with score >= 70 fallback
 ```
 
 ---
