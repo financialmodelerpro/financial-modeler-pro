@@ -12,6 +12,7 @@ type NavItem =
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard',         href: '/admin/cms',                            icon: '🏠' },
   { type: 'divider',            label: 'Content' },
+  { label: 'Page Builder',      href: '/admin/page-builder',                   icon: '🧱' },
   { label: 'Page Content',      href: '/admin/content',                        icon: '📝' },
   { label: 'Pages & Nav',       href: '/admin/pages',                          icon: '🗂️' },
   { label: 'Articles',          href: '/admin/articles',                       icon: '📰' },
