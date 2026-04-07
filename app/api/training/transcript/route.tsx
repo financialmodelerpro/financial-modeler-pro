@@ -3,7 +3,7 @@ import React from 'react';
 import {
   renderToBuffer, Document, Page, View, Text, Link, StyleSheet, Image,
 } from '@react-pdf/renderer';
-import { getStudentProgress, getCertificatesByEmail } from '@/src/lib/training/sheets';
+import { getStudentProgress } from '@/src/lib/training/sheets';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { COURSES } from '@/src/config/courses';
 
@@ -187,7 +187,7 @@ const DEFAULTS: TranscriptSettings = {
   bannerProgressSub:   'This transcript reflects current progress as of [date]. A final transcript will be issued upon course completion.',
   footerBgColor: '#0D2E5A',
   footerLeftText: 'Issue Date: [date]', footerLeftVisible: true,
-  footerMidText:  'This transcript is an official record issued by Financial Modeler Pro. Verify at certifier.io', footerMidVisible: true,
+  footerMidText:  'This transcript is an official record issued by Financial Modeler Pro.', footerMidVisible: true,
   footerRightText: 'www.financialmodelerpro.com', footerRightVisible: true,
 };
 
@@ -275,7 +275,7 @@ interface ProgRow {
 interface CertData {
   certificateId: string;
   issuedAt: string;
-  certifierUrl: string;
+  verificationUrl: string;
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -430,18 +430,18 @@ function CourseSummaryBoxes({
         </View>
         <View style={s.sumRow}>
           <Text style={s.sumLabel}>Certificate ID</Text>
-          <Text style={s.sumVal}>{cert?.certificateId ?? '—'}</Text>
-        </View>
-        <View style={s.sumRow}>
-          <Text style={s.sumLabel}>Issued</Text>
-          <Text style={s.sumVal}>{cert ? fmtDate(cert.issuedAt) : '—'}</Text>
+          <Text style={[s.sumVal, { fontFamily: 'Courier' }]}>{cert?.certificateId ?? '—'}</Text>
         </View>
         <View style={[s.sumRow, { marginBottom: 0 }]}>
-          <Text style={s.sumLabel}>Verify at</Text>
-          {cert?.certifierUrl
-            ? <Link src={cert.certifierUrl} style={{ fontSize: 8, color: C.navy2 }}>certifier.io/verify →</Link>
-            : <Text style={s.sumLabel}>—</Text>}
+          <Text style={s.sumLabel}>Completion Date</Text>
+          <Text style={s.sumVal}>{cert ? fmtDate(cert.issuedAt) : '—'}</Text>
         </View>
+        {!cert && allComplete && (
+          <Text style={[s.sumLabel, { marginTop: 6, color: '#B45309' }]}>Certificate is being processed. Check back shortly.</Text>
+        )}
+        {!cert && !allComplete && (
+          <Text style={[s.sumLabel, { marginTop: 6 }]}>Complete all sessions and the final exam to earn your certificate.</Text>
+        )}
       </View>
     </View>
   );
@@ -460,11 +460,12 @@ interface TranscriptProps {
   isComplete: boolean;
   settings: TranscriptSettings;
   logoBase64: string | null;
+  qrBase64Map: Map<string, string>;
 }
 
 function TranscriptDocument({
   studentName, registrationId, email, courseId, enrolledDate,
-  progressMap, certs, isComplete, settings, logoBase64,
+  progressMap, certs, isComplete, settings, logoBase64, qrBase64Map,
 }: TranscriptProps) {
   const course = COURSES[courseId];
   const courseLabel = course?.title ?? courseId.toUpperCase();
@@ -563,6 +564,37 @@ function TranscriptDocument({
           certBorderColor={certs.has(courseId) ? C.green : C.border}
         />
 
+        {/* ── Verify Certificate — QR + link ──────────────────────────── */}
+        {(() => {
+          const cert = certs.get(courseId);
+          const qrB64 = qrBase64Map.get(courseId);
+          if (cert && cert.verificationUrl) {
+            return (
+              <View style={{ marginHorizontal: 36, marginTop: 12, borderWidth: 1.5, borderColor: C.navy2, borderRadius: 6, padding: 12, backgroundColor: '#F0F7FF', flexDirection: 'row', alignItems: 'center', gap: 14 }}>
+                {qrB64 && (
+                  <Image src={qrB64} style={{ width: 70, height: 70, borderRadius: 4 }} />
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 9, fontFamily: 'Helvetica-Bold', color: C.navy, marginBottom: 2 }}>Verify Certificate</Text>
+                  <Text style={{ fontSize: 7.5, color: C.muted, marginBottom: 6 }}>Scan QR code or use the link below</Text>
+                  <Link src={cert.verificationUrl} style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.navy2, textDecoration: 'none' }}>
+                    Verify Certificate ↗
+                  </Link>
+                  <Text style={{ fontSize: 6.5, color: C.muted, marginTop: 4 }}>{cert.verificationUrl}</Text>
+                </View>
+              </View>
+            );
+          }
+          if (!cert) {
+            return (
+              <View style={{ marginHorizontal: 36, marginTop: 12, padding: 10, backgroundColor: C.lGrey, borderRadius: 6, borderWidth: 1, borderColor: C.border }}>
+                <Text style={{ fontSize: 8, color: C.muted }}>QR code and verification link will appear here once the certificate is issued.</Text>
+              </View>
+            );
+          }
+          return null;
+        })()}
+
         {/* ── Footer ─────────────────────────────────────────────────────── */}
         <View style={[s.footer, { backgroundColor: settings.footerBgColor }]} fixed>
           {settings.footerLeftVisible && settings.footerLeftText ? (
@@ -613,6 +645,22 @@ export async function GET(req: NextRequest) {
       });
     }
 
+    // Sample cert data for preview
+    const sampleVerifyUrl = 'https://financialmodelerpro.com/verify/FMP-3SFM-2026-0001';
+    const previewCerts = new Map<string, CertData>();
+    previewCerts.set(previewCourseId, {
+      certificateId: 'FMP-3SFM-2026-0001',
+      issuedAt: new Date().toISOString(),
+      verificationUrl: sampleVerifyUrl,
+    });
+
+    // Fetch QR for preview
+    const previewQrMap = new Map<string, string>();
+    const qrB64 = await urlToBase64(
+      `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(sampleVerifyUrl)}`
+    );
+    if (qrB64) previewQrMap.set(previewCourseId, qrB64);
+
     try {
       const buffer = await renderToBuffer(
         <TranscriptDocument
@@ -622,10 +670,11 @@ export async function GET(req: NextRequest) {
           courseId={previewCourseId}
           enrolledDate={new Date().toISOString()}
           progressMap={progressMap}
-          certs={new Map()}
-          isComplete={false}
+          certs={previewCerts}
+          isComplete={true}
           settings={settings}
           logoBase64={logoBase64}
+          qrBase64Map={previewQrMap}
         />
       );
       return new NextResponse(buffer as unknown as BodyInit, {
@@ -678,23 +727,35 @@ export async function GET(req: NextRequest) {
     });
   }
 
-  // ── Determine completion & fetch certs ───────────────────────────────────
+  // ── Determine completion & fetch certs from student_certificates (single source of truth) ──
   const certsMap = new Map<string, CertData>();
+  const qrBase64Map = new Map<string, string>();
   let isComplete = false;
 
-  if (result.data.certificateIssued) {
-    const certResult = await getCertificatesByEmail(email);
-    if (certResult.success && certResult.data) {
-      for (const cert of certResult.data) {
-        const normCourse = cert.course?.toLowerCase().includes('bvm') ? 'bvm' : '3sfm';
-        certsMap.set(normCourse, {
-          certificateId: cert.certificateId,
-          issuedAt:      cert.issuedAt,
-          certifierUrl:  cert.certifierUrl,
-        });
+  const sb = getServerClient();
+  const { data: certRows } = await sb
+    .from('student_certificates')
+    .select('certificate_id, verification_url, issued_at, issued_date, course_code')
+    .eq('registration_id', regId);
+
+  if (certRows && certRows.length > 0) {
+    for (const row of certRows) {
+      const normCourse = (row.course_code ?? '').toLowerCase().includes('bvm') ? 'bvm' : '3sfm';
+      const verifyUrl = row.verification_url ?? '';
+      certsMap.set(normCourse, {
+        certificateId:   row.certificate_id ?? '',
+        issuedAt:        row.issued_at ?? row.issued_date ?? '',
+        verificationUrl: verifyUrl,
+      });
+      // Fetch QR code as base64 for PDF embedding
+      if (verifyUrl) {
+        const qrB64 = await urlToBase64(
+          `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(verifyUrl)}`
+        );
+        if (qrB64) qrBase64Map.set(normCourse, qrB64);
       }
-      isComplete = true;
     }
+    isComplete = true;
   }
 
   if (!isComplete) {
@@ -716,6 +777,7 @@ export async function GET(req: NextRequest) {
         isComplete={isComplete}
         settings={settings}
         logoBase64={logoBase64}
+        qrBase64Map={qrBase64Map}
       />
     );
 
