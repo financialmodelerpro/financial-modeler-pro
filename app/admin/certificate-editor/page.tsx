@@ -504,9 +504,9 @@ export default function CertificateEditorPage() {
                 cursor:          isResizing ? 'ew-resize' : (activeKey ? 'grabbing' : 'default'),
               }}
             >
-              {/* PDF background — rendered at natural PDF-point size then scaled.
-                  Extra 120px height pushes the browser PDF plugin toolbar
-                  below the canvas boundary so overflow:hidden clips it. */}
+              {/* PDF background — rendered at exact PDF-point size then CSS-scaled.
+                  Height matches the page exactly; any plugin toolbar lives below
+                  the page content and is clipped by the canvas overflow:hidden. */}
               {templateBg ? (
                 <object
                   data={`${templateBg}#toolbar=0&navpanes=0&scrollbar=0`}
@@ -516,7 +516,7 @@ export default function CertificateEditorPage() {
                     top:             0,
                     left:            0,
                     width:           `${canvasSize.pdfWidth}px`,
-                    height:          `${canvasSize.pdfHeight + 120}px`,
+                    height:          `${canvasSize.pdfHeight}px`,
                     transform:       `scale(${scale})`,
                     transformOrigin: 'top left',
                     border:          'none',
