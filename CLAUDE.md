@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-07**
+**Last updated: 2026-04-08**
 
 ---
 
@@ -77,7 +77,7 @@
 | QR Codes | qrcode | ^1.5.4 |
 | PDF Generation | pdf-lib | ^1.17.1 |
 | Image Processing | sharp | ^0.33.5 |
-| Rich Text | @tiptap/react + starter-kit + image | 2.27.2 |
+| Rich Text | @tiptap/react + starter-kit + image + text-align + link | 2.27.2 |
 | Drag & Drop | @hello-pangea/dnd | ^18.0.1 |
 | Passwords | bcryptjs (Training Hub) / scrypt via Node (Modeling Hub) | ^3.0.3 |
 | Toast | react-hot-toast | ^2.6.0 |
@@ -187,6 +187,12 @@
 | `certificate_layouts` | Admin-configurable certificate templates |
 | `transcript_tokens` | Shareable transcript access tokens |
 
+### Dynamic CMS
+| Table | Purpose |
+|-------|---------|
+| `cms_pages` | Page metadata: slug, title, seo_title, seo_description, status (draft/published), is_system |
+| `page_sections` | Modular content blocks: page_slug, section_type, content (JSONB), display_order, visible, styles (JSONB) |
+
 ### Admin & Misc
 | Table | Purpose |
 |-------|---------|
@@ -208,7 +214,7 @@
 | **Training Hub — Resend Confirmation Email** | ✅ Complete | `POST /api/training/resend-confirmation`, shown on signin on EmailNotConfirmed |
 | **Training Hub — Inactivity Logout** | ✅ Complete | `useInactivityLogout` on dashboard |
 | **Training Hub — Dashboard** | ✅ Complete | Video player, progress, notes, feedback; timer bypass reads `timer_bypass_enabled` from training_settings DB (admin toggle in course manager saves to DB, not localStorage) |
-| **Training Hub — Assessments / Quiz** | ✅ Complete | Question bank, attempts, auto-score |
+| **Training Hub — Assessments / Quiz** | ✅ Complete | Question bank, attempts, auto-score; shuffle questions + shuffle options toggles per course (training_settings DB); client-side option shuffling with correctIndex remap |
 | **Training Hub — Certificate System** | ✅ Complete | Internal pdf-lib PDF gen, sharp badge overlay, Supabase storage, daily cron (midnight) + manual Generate Now button in admin, no Certifier.io; all Certifier.io marketing text removed from training page + CurriculumCard |
 | **Training Hub — Transcript** | ✅ Complete | Shareable token-gated HTML transcript + PDF with QR code, Certificate ID, verification URL from student_certificates (single source of truth); compact single-page A4 PDF layout; CMS-driven settings; no Certifier.io references |
 | **Training Hub — Profile** | ✅ Complete | Avatar upload, name/city/country |
@@ -224,6 +230,7 @@
 | **Admin — Badge Editor** | ✅ Complete | Field editor for Certificate ID + Issue Date overlay (x/y/fontSize/color/font/alignment/visibility); layout stored in cms_content (section: badge_layout); live CSS preview + server-rendered preview; no overlay band |
 | **Admin — Transcript Editor** | ✅ Complete | Header drag-to-position, CMS-driven colors/text, QR code + Certificate ID + verification section in preview; PDF Preview button generates real-time PDF with sample cert data |
 | **CMS / Dynamic Nav** | ✅ Complete | `site_pages` table, admin editable |
+| **CMS — Dynamic Page Builder** | ✅ Complete | `page_sections` + `cms_pages` tables; 11 section types (hero, text, rich_text, image, text_image, columns, cards, cta, faq, stats, list); admin page builder at `/admin/page-builder` with drag-and-drop reorder, type-specific editors, style overrides, SEO; dynamic catch-all route `/(cms)/[slug]` renders any published page; RichTextEditor enhanced with headings, alignment, images, links |
 | **Email System** | ✅ Complete | Resend, 11 templates, FROM.training + FROM.noreply |
 | **Apps Script Integration** | ✅ Complete | Register student, fetch registration ID, attendance |
 | **REFM Module 1 — Project Setup** | ✅ Complete | Timeline, Land & Area, Dev Costs, Financing |
@@ -248,6 +255,7 @@
 #### Main Site (`financialmodelerpro.com`)
 ```
 app/
+├── (cms)/[slug]/page.tsx        # Dynamic CMS catch-all — renders any published page from page_sections
 ├── (portal)/page.tsx            # Legacy portal group
 ├── layout.tsx                   # Root layout, SessionProvider, Inter font
 ├── globals.css                  # SINGLE SOURCE OF TRUTH for all CSS tokens
@@ -291,6 +299,8 @@ app/admin/
 ├── media/page.tsx
 ├── modules/page.tsx
 ├── overrides/page.tsx
+├── page-builder/page.tsx         # CMS page list — create/delete/publish pages
+├── page-builder/[slug]/page.tsx  # Section editor — drag-and-drop, 11 section type editors, style overrides, SEO
 ├── pages/page.tsx
 ├── permissions/page.tsx
 ├── plans/page.tsx
@@ -405,6 +415,7 @@ app/api/admin/
 ├── training-hub/ + analytics/ + assessments/ + certificates/
 │   + cohorts/ + cohorts/[id]/ + communications/ + student-journey/
 │   + student-progress/ + students/
+├── page-sections/               # GET/POST/PATCH/DELETE: CRUD for page_sections + cms_pages (page builder)
 ├── training-settings/ users/ whitelabel/
 ```
 
@@ -418,6 +429,7 @@ app/api/
 ├── permissions/ projects/ qr/
 ├── t/[token]/pdf/
 ├── testimonials/ + student/
+├── training/assessment-settings/  # GET: shuffle questions/options settings per course
 └── user/account/ + password/ + profile/
 ```
 
@@ -428,8 +440,17 @@ app/api/
 src/components/
 ├── admin/
 │   ├── AnnouncementsManager.tsx  AuditLogViewer.tsx  CmsAdminNav.tsx
-│   ├── PermissionsManager.tsx  ProjectsBrowser.tsx  RichTextEditor.tsx
+│   ├── PermissionsManager.tsx  ProjectsBrowser.tsx
+│   ├── RichTextEditor.tsx       # Tiptap: bold/italic/strike, H1-H3, bullet/ordered lists, left/center/right align, link/unlink, image URL+upload, blockquote, code block, HR; compact mode
 │   └── SystemHealth.tsx
+├── cms/
+│   ├── SectionRenderer.tsx      # Maps section_type → component for dynamic page rendering
+│   ├── index.ts
+│   └── sections/
+│       ├── HeroSection.tsx  TextSection.tsx  RichTextSection.tsx
+│       ├── ImageSection.tsx  TextImageSection.tsx  ColumnsSection.tsx
+│       ├── CardsSection.tsx  CtaSection.tsx  FaqSection.tsx
+│       ├── StatsSection.tsx  ListSection.tsx
 ├── landing/
 │   ├── AdminEditBar.tsx  ArticleCard.tsx  CategoryFilter.tsx
 │   ├── CourseCard.tsx  InlineEdit.tsx  SharedFooter.tsx  VideoPlayer.tsx
@@ -475,7 +496,8 @@ src/lib/
 │   ├── export/ — export-excel-formula  export-excel-static  export-pdf
 │   └── modules/ — module1-setup(✅) module2–6(❌ stubs) module7–11(placeholders)
 ├── shared/
-│   ├── audit.ts       auth.ts          captcha.ts       cms.ts
+│   ├── audit.ts       auth.ts          captcha.ts
+│   ├── cms.ts         # CMS helpers: getCmsContent(), cms(), getPageSections(), getCmsPage(), getAllCmsPageSlugs(), getPublicPlanNames()
 │   ├── deviceTrust.ts emailConfirmation.ts  password.ts  permissions.ts
 │   ├── storage.ts     supabase.ts      urls.ts
 └── training/
@@ -640,6 +662,9 @@ npm run verify       # type-check + lint + build
 | `027_auth_enhancements.sql` | hCaptcha cols, device trust, email confirm, OTP tables ✅ Run |
 | `028_certificate_system.sql` | certificate_id, cert_pdf_url, badge_url, grade, issued_at cols on student_certificates ✅ Run |
 | `029_fix_email_confirmed.sql` | Backfill email_confirmed=true for NULL rows; clean up stale unused email_confirmations tokens ✅ Run |
+| `030_page_sections.sql` | Dynamic CMS: `page_sections` + `cms_pages` tables; seeds 7 system pages ✅ Run |
+| `031_seed_page_sections.sql` | Seeds page_sections for about/contact/training/modeling with hardcoded content ✅ Run |
+| `032_shuffle_settings.sql` | Assessment shuffle settings: shuffle_questions + shuffle_options per course in training_settings ✅ Run |
 
 ---
 
