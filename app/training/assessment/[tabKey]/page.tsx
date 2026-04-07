@@ -298,52 +298,93 @@ export default function AssessmentPage() {
     if (!session) { router.replace('/training'); return; }
 
     const { email, registrationId: regId } = session;
-    const total = questions?.questions.length ?? 0;
-    // If options were shuffled client-side, remap answers back to original indices
-    // so the server (which scores against original order) gets correct values.
-    // optionMaps[i] = [shuffledIdx0→origIdx, shuffledIdx1→origIdx, ...]
-    // If student picked shuffled index S, the original index is optionMaps[i][S].
-    const answersArray: number[] = Array.from({ length: total }, (_, i) => {
-      const picked = answers[i] ?? -1;
-      if (picked < 0) return -1;
-      if (optionMaps.length > 0 && optionMaps[i]) {
-        return optionMaps[i][picked]; // map shuffled → original
-      }
-      return picked;
-    });
 
-    const res = await fetch('/api/training/submit-assessment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tabKey, email, regId, answers: answersArray }),
-    });
-
-    const data = await res.json() as { success: boolean; data?: SubmitAssessmentResult; error?: string };
-
-    clearSavedAnswers(tabKey);
-
-    if (data.success && data.data) {
-      // Enrich results: Apps Script returns options+q, but as a safety net
-      // fill from loaded questions if missing.
-      const enriched: SubmitAssessmentResult = { ...data.data };
-      if (Array.isArray(enriched.results) && questions) {
-        enriched.results = enriched.results.map((qr, i) => {
-          const src = questions.questions[typeof qr.index === 'number' ? qr.index : i];
-          return {
-            ...qr,
-            q:       qr.q       || src?.q       || '',
-            options: Array.isArray(qr.options) && qr.options.length > 0
-              ? qr.options
-              : (src?.options ?? []),
-          };
-        });
-      }
-      setResult(enriched);
-      setPageState('results');
-    } else {
-      setErrorMsg(data.error ?? 'Submission failed. Please try again.');
+    if (!questions?.questions?.length) {
+      setErrorMsg('No questions loaded. Please refresh and try again.');
       setPageState('ready');
+      return;
     }
+
+    // ── Step 1: Score CLIENT-SIDE — compare answers to stored correctIndex ──
+    const total = questions.questions.length;
+    let correctCount = 0;
+    const results: QuestionResult[] = questions.questions.map((q, i) => {
+      // Student's picked index (in current display order)
+      const picked = answers[i] ?? -1;
+
+      // If options were shuffled, map back to original index for scoring
+      let originalPicked = picked;
+      if (picked >= 0 && optionMaps.length > 0 && optionMaps[i]) {
+        originalPicked = optionMaps[i][picked];
+      }
+
+      // correctIndex is already in display order (was remapped during shuffle)
+      // so compare picked (display) vs correctIndex (display) directly
+      const correct   = typeof q.correctIndex === 'number' ? q.correctIndex : -1;
+      const isCorrect = correct >= 0 && picked === correct;
+      if (isCorrect) correctCount++;
+
+      return {
+        index: i,
+        q: q.q,
+        type: undefined,
+        options: q.options,
+        submitted: picked,
+        submittedText: picked >= 0 ? (q.options[picked] ?? '') : '',
+        correct,
+        correctText: correct >= 0 ? (q.options[correct] ?? '') : '',
+        isCorrect,
+        explanation: '',
+      };
+    });
+
+    const score       = total > 0 ? Math.round((correctCount / total) * 100) : 0;
+    const passScore   = questions.passingScore ?? 70;
+    const passed      = score >= passScore;
+    const maxAtt      = questions.maxAttempts ?? 3;
+    const attemptNo   = (status?.attempts ?? 0) + 1;
+    const canRetry    = !passed && attemptNo < maxAtt;
+    const isFinalExam = questions.isFinal ?? false;
+
+    console.log('[assessment] Client-side score:', { tabKey, score, passed, correctCount, total, attemptNo });
+
+    // ── Step 2: Send scored result to server API (which writes to Apps Script) ──
+    try {
+      console.log('[assessment] Submitting score to /api/training/submit-assessment');
+      const res = await fetch('/api/training/submit-assessment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tabKey,
+          email,
+          regId,
+          score,
+          passed,
+          isFinal: isFinalExam,
+          attemptNo,
+        }),
+      });
+      const resData = await res.json();
+      console.log('[assessment] Submit response:', resData);
+    } catch (err) {
+      console.error('[assessment] Submit to Apps Script failed:', err);
+      // Non-fatal — show results anyway, score is calculated locally
+    }
+
+    // ── Step 3: Show results — NEVER re-fetch questions ──
+    clearSavedAnswers(tabKey);
+    setResult({
+      tabKey,
+      score,
+      passed,
+      correctCount,
+      totalQuestions: total,
+      attempts: attemptNo,
+      maxAttempts: maxAtt,
+      canRetry,
+      results,
+    });
+    setPageState('results');
   }
 
   // Keep timer ref in sync with latest handleSubmit on every render

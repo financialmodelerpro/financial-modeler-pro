@@ -6,14 +6,9 @@ import type { BrandingConfig } from '@/src/types/branding.types';
 
 /**
  * GET /api/branding?scope=<userId|global>
- * Returns the branding config for a given scope (admin only).
+ * Returns the branding config for a given scope. Public for read (no auth).
  */
 export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user || session.user.role !== 'admin') {
-    return NextResponse.json({ error: 'Admin only' }, { status: 403 });
-  }
-
   const scope = req.nextUrl.searchParams.get('scope') ?? 'global';
 
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
