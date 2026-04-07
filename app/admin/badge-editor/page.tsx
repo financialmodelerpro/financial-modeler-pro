@@ -622,54 +622,71 @@ export default function BadgeEditorPage() {
                       alt={`${course} badge template`}
                       style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                     />
-                    {/* Overlay band */}
+                    {/* Overlay band — bgY = distance from bottom to TOP of band (matches SVG y = bh - bgY) */}
                     <div style={{
                       position: 'absolute',
                       left: 0,
-                      bottom: layout.overlay.bgY * canvasScale,
+                      top: canvasH - layout.overlay.bgY * canvasScale,
                       width: '100%',
                       height: layout.overlay.bgHeight * canvasScale,
                       background: layout.overlay.bgColor,
                       opacity: layout.overlay.bgOpacity,
                     }} />
                     {/* Certificate ID text */}
-                    {layout.certificateId.visible && (
-                      <div style={{
-                        position: 'absolute',
-                        left: 0, right: 0,
-                        bottom: layout.certificateId.y * canvasScale,
-                        fontSize: layout.certificateId.fontSize * canvasScale,
-                        color: layout.certificateId.color,
-                        fontFamily: `${layout.certificateId.fontFamily ?? 'Arial'}, sans-serif`,
-                        textAlign: (layout.certificateId.textAlign ?? 'center') as React.CSSProperties['textAlign'],
-                        paddingLeft: layout.certificateId.textAlign === 'left' ? layout.certificateId.x * canvasScale : 0,
-                        paddingRight: layout.certificateId.textAlign === 'right' ? layout.certificateId.x * canvasScale : 0,
-                        transform: layout.certificateId.textAlign === 'center' ? `translateX(${layout.certificateId.x * canvasScale}px)` : 'none',
-                        lineHeight: 1.2,
-                        pointerEvents: 'none',
-                      }}>
-                        {SAMPLE_TEXT.certificateId}
-                      </div>
-                    )}
+                    {layout.certificateId.visible && (() => {
+                      const f = layout.certificateId;
+                      const fs = f.fontSize * canvasScale;
+                      const align = f.textAlign ?? 'center';
+                      // SVG: text baseline at y = bh - f.y → CSS top = canvasH - f.y*scale
+                      // Offset up by ~80% of fontSize to approximate baseline alignment
+                      const top = canvasH - f.y * canvasScale - fs * 0.8;
+                      // SVG x: center = bw/2 + x, left = x, right = bw - x
+                      const left = align === 'center' ? (CANVAS_W / 2 + f.x * canvasScale)
+                                 : align === 'right'  ? (CANVAS_W - f.x * canvasScale)
+                                 : (f.x * canvasScale);
+                      return (
+                        <div style={{
+                          position: 'absolute',
+                          top,
+                          left,
+                          transform: align === 'center' ? 'translateX(-50%)' : align === 'right' ? 'translateX(-100%)' : 'none',
+                          fontSize: fs,
+                          color: f.color,
+                          fontFamily: `${f.fontFamily ?? 'Arial'}, sans-serif`,
+                          lineHeight: 1,
+                          whiteSpace: 'nowrap',
+                          pointerEvents: 'none',
+                        }}>
+                          {SAMPLE_TEXT.certificateId}
+                        </div>
+                      );
+                    })()}
                     {/* Issue Date text */}
-                    {layout.issueDate.visible && (
-                      <div style={{
-                        position: 'absolute',
-                        left: 0, right: 0,
-                        bottom: layout.issueDate.y * canvasScale,
-                        fontSize: layout.issueDate.fontSize * canvasScale,
-                        color: layout.issueDate.color,
-                        fontFamily: `${layout.issueDate.fontFamily ?? 'Arial'}, sans-serif`,
-                        textAlign: (layout.issueDate.textAlign ?? 'center') as React.CSSProperties['textAlign'],
-                        paddingLeft: layout.issueDate.textAlign === 'left' ? layout.issueDate.x * canvasScale : 0,
-                        paddingRight: layout.issueDate.textAlign === 'right' ? layout.issueDate.x * canvasScale : 0,
-                        transform: layout.issueDate.textAlign === 'center' ? `translateX(${layout.issueDate.x * canvasScale}px)` : 'none',
-                        lineHeight: 1.2,
-                        pointerEvents: 'none',
-                      }}>
-                        {SAMPLE_TEXT.issueDate}
-                      </div>
-                    )}
+                    {layout.issueDate.visible && (() => {
+                      const f = layout.issueDate;
+                      const fs = f.fontSize * canvasScale;
+                      const align = f.textAlign ?? 'center';
+                      const top = canvasH - f.y * canvasScale - fs * 0.8;
+                      const left = align === 'center' ? (CANVAS_W / 2 + f.x * canvasScale)
+                                 : align === 'right'  ? (CANVAS_W - f.x * canvasScale)
+                                 : (f.x * canvasScale);
+                      return (
+                        <div style={{
+                          position: 'absolute',
+                          top,
+                          left,
+                          transform: align === 'center' ? 'translateX(-50%)' : align === 'right' ? 'translateX(-100%)' : 'none',
+                          fontSize: fs,
+                          color: f.color,
+                          fontFamily: `${f.fontFamily ?? 'Arial'}, sans-serif`,
+                          lineHeight: 1,
+                          whiteSpace: 'nowrap',
+                          pointerEvents: 'none',
+                        }}>
+                          {SAMPLE_TEXT.issueDate}
+                        </div>
+                      );
+                    })()}
                   </>
                 ) : (
                   <div style={placeholder}>

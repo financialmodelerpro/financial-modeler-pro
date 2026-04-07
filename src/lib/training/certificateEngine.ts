@@ -350,9 +350,9 @@ export async function generateBadgePng(data: {
     `<svg width="${bw}" height="${bh}" xmlns="http://www.w3.org/2000/svg">${svgParts.join('')}</svg>`
   );
 
-  // 4. Composite overlay onto badge
+  // 4. Composite overlay onto badge (SVG is full-size with absolute coords — use top-left gravity)
   const outBuffer = await sharp(badgeBytes)
-    .composite([{ input: svgOverlay, gravity: 'southeast' }])
+    .composite([{ input: svgOverlay, gravity: 'northwest' }])
     .png()
     .toBuffer();
 
