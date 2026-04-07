@@ -84,6 +84,7 @@ export default function AdminCertificatesPage() {
     '3sfm-cert': false, 'bvm-cert': false, '3sfm-badge': false, 'bvm-badge': false,
   });
   const [uploading, setUploading]       = useState<string | null>(null);
+  const [deleting,  setDeleting]        = useState<string | null>(null);
   const [templateUrls, setTemplateUrls] = useState<Partial<Record<keyof TemplateStatus, string>>>({});
 
   // ── Generation settings state ──
@@ -188,10 +189,10 @@ export default function AdminCertificatesPage() {
       for (const { type, bucket, filePath } of checks) {
         const { data: { publicUrl } } = sb.storage.from(bucket).getPublicUrl(filePath);
         try {
-          const res = await fetch(publicUrl, { method: 'HEAD' });
+          const res = await fetch(`${publicUrl}?t=${Date.now()}`, { method: 'HEAD' });
           if (res.ok) {
             setTemplateStatus(prev => ({ ...prev, [type]: true }));
-            setTemplateUrls(prev => ({ ...prev, [type]: publicUrl }));
+            setTemplateUrls(prev => ({ ...prev, [type]: `${publicUrl}?t=${Date.now()}` }));
           }
         } catch { /* network error — skip */ }
       }
@@ -231,7 +232,7 @@ export default function AdminCertificatesPage() {
       const json = await res.json() as { success?: boolean; error?: string; url?: string };
       if (json.success) {
         setTemplateStatus(prev => ({ ...prev, [type]: true }));
-        if (json.url) setTemplateUrls(prev => ({ ...prev, [type]: json.url! }));
+        if (json.url) setTemplateUrls(prev => ({ ...prev, [type]: `${json.url}?t=${Date.now()}` }));
         showToast(`${TEMPLATE_LABELS[type]} uploaded ✓`);
       } else {
         showToast(`Upload failed: ${json.error ?? 'unknown error'}`);
@@ -240,6 +241,29 @@ export default function AdminCertificatesPage() {
       showToast('Upload failed — network error');
     }
     setUploading(null);
+  }
+
+  async function handleTemplateDelete(type: keyof TemplateStatus) {
+    if (!confirm(`Remove ${TEMPLATE_LABELS[type]}? You can upload a new one afterwards.`)) return;
+    setDeleting(type);
+    try {
+      const res  = await fetch('/api/admin/certificates/upload-template', {
+        method:  'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ type }),
+      });
+      const json = await res.json() as { success?: boolean; error?: string };
+      if (json.success) {
+        setTemplateStatus(prev => ({ ...prev, [type]: false }));
+        setTemplateUrls(prev => { const next = { ...prev }; delete next[type]; return next; });
+        showToast(`${TEMPLATE_LABELS[type]} removed`);
+      } else {
+        showToast(`Remove failed: ${json.error ?? 'unknown error'}`);
+      }
+    } catch {
+      showToast('Remove failed — network error');
+    }
+    setDeleting(null);
   }
 
   const learnUrl = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
@@ -319,17 +343,34 @@ export default function AdminCertificatesPage() {
                       e.target.value = '';
                     }}
                   />
-                  <button
-                    onClick={() => fileRefs[type].current?.click()}
-                    disabled={uploading === type}
-                    style={{
-                      padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700,
-                      background: uploading === type ? '#9CA3AF' : '#1B4F8A',
-                      color: '#fff', border: 'none', cursor: uploading === type ? 'not-allowed' : 'pointer',
-                    }}
-                  >
-                    {uploading === type ? 'Uploading…' : 'Upload'}
-                  </button>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button
+                      onClick={() => fileRefs[type].current?.click()}
+                      disabled={uploading === type || deleting === type}
+                      style={{
+                        flex: 1, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700,
+                        background: uploading === type ? '#9CA3AF' : '#1B4F8A',
+                        color: '#fff', border: 'none', cursor: (uploading === type || deleting === type) ? 'not-allowed' : 'pointer',
+                      }}
+                    >
+                      {uploading === type ? 'Uploading…' : templateStatus[type] ? 'Replace' : 'Upload'}
+                    </button>
+                    {templateStatus[type] && (
+                      <button
+                        onClick={() => handleTemplateDelete(type)}
+                        disabled={deleting === type || uploading === type}
+                        title="Remove this template"
+                        style={{
+                          padding: '8px 12px', borderRadius: 7, fontSize: 12, fontWeight: 700,
+                          background: deleting === type ? '#9CA3AF' : '#FEF2F2',
+                          color: deleting === type ? '#fff' : '#DC2626',
+                          border: '1px solid #FECACA', cursor: (deleting === type || uploading === type) ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {deleting === type ? '…' : '🗑 Remove'}
+                      </button>
+                    )}
+                  </div>
                 </div>
               );
             })}

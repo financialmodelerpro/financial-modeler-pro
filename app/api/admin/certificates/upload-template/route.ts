@@ -57,3 +57,27 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user || (session.user as { role?: string }).role !== 'admin') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
+
+  try {
+    const { type } = (await req.json()) as { type?: string };
+    if (!type) return NextResponse.json({ error: 'type is required' }, { status: 400 });
+
+    const target = TYPE_MAP[type];
+    if (!target) return NextResponse.json({ error: `Unknown type: ${type}` }, { status: 400 });
+
+    const sb = getServerClient();
+    const { error } = await sb.storage.from(target.bucket).remove([target.path]);
+
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ success: true });
+  } catch (e) {
+    console.error('[delete-template]', e);
+    return NextResponse.json({ error: String(e) }, { status: 500 });
+  }
+}

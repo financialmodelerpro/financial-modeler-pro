@@ -116,7 +116,7 @@ export default async function VerifyPage({ params }: PageProps) {
   }
 
   const certId      = cert.certificate_id ?? uuid;
-  const verifyUrl   = `${learnUrl}/verify/${certId}`;
+  const verifyUrl   = `${mainUrl}/verify/${certId}`;
   const qrSrc       = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(verifyUrl)}`;
   const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(verifyUrl)}`;
   const issueDate   = cert.issued_at ?? cert.issued_date ?? '';
@@ -197,7 +197,7 @@ export default async function VerifyPage({ params }: PageProps) {
             <img src={qrSrc} alt="Verification QR Code" width={140} height={140} style={{ borderRadius: 8, border: '1px solid #E5E7EB' }} />
             <div style={{ fontSize: 11, color: '#9CA3AF' }}>Scan to verify</div>
             <div style={{ fontSize: 10, color: '#9CA3AF', wordBreak: 'break-all', maxWidth: 140, textAlign: 'center', lineHeight: 1.4 }}>
-              {learnUrl}/verify/{certId}
+              {mainUrl}/verify/{certId}
             </div>
           </div>
 
