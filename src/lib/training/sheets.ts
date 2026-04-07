@@ -717,6 +717,7 @@ export interface AssessmentQuestion {
   q:             string;
   options:       string[];
   correctIndex?: number;   // 0-based index of correct answer — used for local scoring (V8 architecture)
+  correctAnswer?: number;  // Apps Script may use this field name instead of correctIndex
   points?:       number;
 }
 

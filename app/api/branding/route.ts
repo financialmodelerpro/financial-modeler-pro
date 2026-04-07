@@ -6,22 +6,26 @@ import type { BrandingConfig } from '@/src/types/branding.types';
 
 /**
  * GET /api/branding?scope=<userId|global>
- * Returns the branding config for a given scope. Public for read (no auth).
+ * Public — no auth required. Returns branding config for a given scope.
  */
 export async function GET(req: NextRequest) {
-  const scope = req.nextUrl.searchParams.get('scope') ?? 'global';
+  try {
+    const scope = req.nextUrl.searchParams.get('scope') ?? 'global';
 
-  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return NextResponse.json({ config: null });
+    }
+
+    const { data } = await serverClient
+      .from('branding_config')
+      .select('config')
+      .eq('scope', scope)
+      .maybeSingle();
+
+    return NextResponse.json({ config: data?.config ?? null });
+  } catch {
     return NextResponse.json({ config: null });
   }
-
-  const { data } = await serverClient
-    .from('branding_config')
-    .select('config')
-    .eq('scope', scope)
-    .maybeSingle();
-
-  return NextResponse.json({ config: data?.config ?? null });
 }
 
 /**

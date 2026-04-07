@@ -308,6 +308,7 @@ export default function AssessmentPage() {
     // ── Step 1: Score CLIENT-SIDE — compare answers to stored correctIndex ──
     const total = questions.questions.length;
     let correctCount = 0;
+    console.log('[assessment] Scoring — first 3 questions correctIndex:', questions.questions.slice(0, 3).map(q => q.correctIndex));
     const results: QuestionResult[] = questions.questions.map((q, i) => {
       // Student's picked index (in current display order)
       const picked = answers[i] ?? -1;
