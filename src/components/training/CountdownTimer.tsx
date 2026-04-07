@@ -8,9 +8,10 @@ interface Props {
   tabKey: string;
   durationMinutes: number;
   onExpired: () => void;
+  timerBypassed?: boolean;
 }
 
-export function CountdownTimer({ regId, tabKey, durationMinutes, onExpired }: Props) {
+export function CountdownTimer({ regId, tabKey, durationMinutes, onExpired, timerBypassed }: Props) {
   const [secondsLeft, setSecondsLeft] = useState(durationMinutes * 60);
 
   const onExpiredRef = useRef(onExpired);
@@ -18,7 +19,7 @@ export function CountdownTimer({ regId, tabKey, durationMinutes, onExpired }: Pr
 
   useEffect(() => {
     function check() {
-      const status = getTimerStatus(regId, tabKey, durationMinutes);
+      const status = getTimerStatus(regId, tabKey, durationMinutes, timerBypassed);
       if (!status.locked) {
         onExpiredRef.current();
         return;
@@ -29,7 +30,7 @@ export function CountdownTimer({ regId, tabKey, durationMinutes, onExpired }: Pr
     check(); // sync immediately on mount / prop change
     const id = setInterval(check, 1_000); // tick every second
     return () => clearInterval(id);
-  }, [regId, tabKey, durationMinutes]);
+  }, [regId, tabKey, durationMinutes, timerBypassed]);
 
   return (
     <span

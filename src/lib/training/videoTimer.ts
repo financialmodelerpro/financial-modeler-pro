@@ -36,11 +36,15 @@ export const ADMIN_BYPASS_KEY = 'fmp_admin_bypass_timer';
 
 /**
  * Get current timer status for a session (second-level precision).
+ * @param timerBypassed — server-side bypass flag from training_settings DB
  */
-export function getTimerStatus(regId: string, tabKey: string, durationMinutes: number): TimerStatus {
+export function getTimerStatus(regId: string, tabKey: string, durationMinutes: number, timerBypassed?: boolean): TimerStatus {
   if (!durationMinutes || durationMinutes === 0)
     return { locked: false, secondsRemaining: 0, started: false };
-  // Admin bypass: set via admin panel to skip timer during testing
+  // Server-side bypass: admin toggled in course manager → stored in training_settings DB
+  if (timerBypassed)
+    return { locked: false, secondsRemaining: 0, started: true };
+  // Legacy local bypass: admin panel localStorage (same-browser only)
   if (typeof localStorage !== 'undefined' && localStorage.getItem(ADMIN_BYPASS_KEY) === '1')
     return { locked: false, secondsRemaining: 0, started: true };
   const key = TIMER_PREFIX + regId + '_' + tabKey;
@@ -76,8 +80,9 @@ export function isSessionUnlocked(
   durationMinutes: number,
   passed: boolean,
   hasVideo: boolean,
+  timerBypassed?: boolean,
 ): boolean {
   if (passed) return true;
   if (!hasVideo || !durationMinutes) return true;
-  return !getTimerStatus(regId, tabKey, durationMinutes).locked;
+  return !getTimerStatus(regId, tabKey, durationMinutes, timerBypassed).locked;
 }

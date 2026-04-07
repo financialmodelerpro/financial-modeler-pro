@@ -67,6 +67,8 @@ export default function TrainingDashboardPage() {
   // profile
   const [profileModal, setProfileModal]           = useState(false);
   const [profileDropdown, setProfileDropdown]     = useState(false);
+  // timer bypass (server-side, from training_settings DB)
+  const [timerBypassed, setTimerBypassed]         = useState(false);
   const [studentProfile, setStudentProfile]       = useState<{ job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; display_name?: string; avatar_url?: string } | null>(null);
   const [avatarUploading, setAvatarUploading]     = useState(false);
   const [avatarPreview, setAvatarPreview]         = useState<{ src: string; blob: Blob } | null>(null);
@@ -127,13 +129,26 @@ export default function TrainingDashboardPage() {
       const progressParams = new URLSearchParams({ email: sess.email, registrationId: sess.registrationId });
       if (forceRefresh) progressParams.set('refresh', '1');
 
-      // ── Fetch progress + course-details + notes + profile in PARALLEL ───
+      // ── Fetch progress + course-details + notes + profile + timer-bypass in PARALLEL ───
       const [progressRes, detailsRes, notesRes, profileRes] = await Promise.all([
         fetch(`/api/training/progress?${progressParams}`),
         fetch('/api/training/course-details'),
         fetch(`/api/training/notes?registrationId=${encodeURIComponent(sess.registrationId)}`),
         fetch(`/api/training/profile?registrationId=${encodeURIComponent(sess.registrationId)}`),
       ]);
+      // Timer bypass — lightweight fetch from Supabase directly (public anon key)
+      try {
+        const sbUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+        const sbKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+        if (sbUrl && sbKey) {
+          const bypassRes = await fetch(
+            `${sbUrl}/rest/v1/training_settings?key=eq.timer_bypass_enabled&select=value`,
+            { headers: { apikey: sbKey, Authorization: `Bearer ${sbKey}` } },
+          );
+          const rows = await bypassRes.json() as { value: string }[];
+          setTimerBypassed(rows?.[0]?.value === 'true');
+        }
+      } catch { /* ignore — default false */ }
 
       const [json, detailsJson, notesJson, profileJson] = await Promise.all([
         progressRes.json() as Promise<{ success: boolean; fallback?: boolean; data?: ProgressData }>,
@@ -911,6 +926,7 @@ export default function TrainingDashboardPage() {
               sfmProgress={sfmPassedCount}
               sfmTotal={sfmRegular.length}
               onSwitchTo3sfm={() => setActiveCourse('3sfm')}
+              timerBypassed={timerBypassed}
             />
           )}
 

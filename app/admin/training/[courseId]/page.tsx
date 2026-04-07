@@ -257,9 +257,14 @@ export default function AdminCourseLessonsPage() {
 
   useEffect(() => { fetchCourseData(); }, [fetchCourseData]);
 
-  // Sync timer bypass state from localStorage
+  // Sync timer bypass state from training_settings DB
   useEffect(() => {
-    setTimerBypassed(localStorage.getItem('fmp_admin_bypass_timer') === '1');
+    fetch('/api/admin/training-settings')
+      .then(r => r.json())
+      .then((d: { settings?: Record<string, string> }) => {
+        setTimerBypassed(d.settings?.timer_bypass_enabled === 'true');
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -571,15 +576,20 @@ export default function AdminCourseLessonsPage() {
           </div>
           {activeTab === 'lessons' && (
             <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              {/* Timer bypass toggle — for admin testing only, stored in localStorage */}
+              {/* Timer bypass toggle — stored in training_settings DB, applies to all students */}
               <button
-                onClick={() => {
+                onClick={async () => {
                   const next = !timerBypassed;
-                  if (next) localStorage.setItem('fmp_admin_bypass_timer', '1');
-                  else localStorage.removeItem('fmp_admin_bypass_timer');
-                  setTimerBypassed(next);
+                  try {
+                    await fetch('/api/admin/training-settings', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ timer_bypass_enabled: next ? 'true' : 'false' }),
+                    });
+                    setTimerBypassed(next);
+                  } catch { /* ignore */ }
                 }}
-                title={timerBypassed ? 'Timer bypass ON — click to restore timer lock for students' : 'Bypass video timer lock for testing (your browser only)'}
+                title={timerBypassed ? 'Timer bypass ON — countdown disabled for all students' : 'Bypass video timer for all students (disables countdown)'}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 6,
                   padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,

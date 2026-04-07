@@ -33,9 +33,11 @@ export interface CourseContentProps {
   sfmProgress?: number;
   sfmTotal?: number;
   onSwitchTo3sfm?: () => void;
+  /** Server-side timer bypass from training_settings DB */
+  timerBypassed?: boolean;
 }
 
-export function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating, studentName, studentEmail, onShare, testimonialSubmitted, onOpenTestimonial, notes, onNoteSave, feedbackGiven, onFeedbackRequest, bvmLocked, sfmProgress = 0, sfmTotal = 0, onSwitchTo3sfm }: CourseContentProps) {
+export function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating, studentName, studentEmail, onShare, testimonialSubmitted, onOpenTestimonial, notes, onNoteSave, feedbackGiven, onFeedbackRequest, bvmLocked, sfmProgress = 0, sfmTotal = 0, onSwitchTo3sfm, timerBypassed }: CourseContentProps) {
   const course = COURSES[courseId];
   if (!course) return null;
 
@@ -274,6 +276,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
               onFeedbackRequest={onFeedbackRequest}
               bvmLocked={bvmLocked}
               watchLocked={watchLocked}
+              timerBypassed={timerBypassed}
             />
           );
         })}

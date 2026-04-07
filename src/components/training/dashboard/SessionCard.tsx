@@ -32,13 +32,15 @@ export interface SessionCardProps {
   bvmLocked?: boolean;
   /** Watch Video is locked until the previous session assessment is passed (independent of assessment lock) */
   watchLocked?: boolean;
+  /** Server-side timer bypass — admin toggled in course manager, stored in training_settings DB */
+  timerBypassed?: boolean;
 }
 
 export function SessionCard({
   sessionTitle, maxAttempts, questionCount, passingScore,
   idx, prog, locked, ytUrl, formUrl, isFinal, passedCount, regularCount,
   tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
-  bvmLocked, watchLocked,
+  bvmLocked, watchLocked, timerBypassed,
 }: SessionCardProps) {
   const [timerStatus, setTimerStatus] = useState<TimerStatus>({ locked: false, secondsRemaining: 0, started: false });
   const [notesOpen, setNotesOpen] = useState(false);
@@ -50,8 +52,8 @@ export function SessionCard({
 
   useEffect(() => {
     if (typeof window === 'undefined' || !regId) return;
-    setTimerStatus(getTimerStatus(regId, tabKey, videoDuration));
-  }, [regId, tabKey, videoDuration]);
+    setTimerStatus(getTimerStatus(regId, tabKey, videoDuration, timerBypassed));
+  }, [regId, tabKey, videoDuration, timerBypassed]);
 
   let borderColor = '#E5E7EB';
   let bgColor = '#ffffff';
@@ -150,7 +152,7 @@ export function SessionCard({
           <a href={ytUrl} target="_blank" rel="noopener noreferrer"
             onClick={() => {
               startTimer(regId, tabKey, videoDuration);
-              setTimerStatus(getTimerStatus(regId, tabKey, videoDuration));
+              setTimerStatus(getTimerStatus(regId, tabKey, videoDuration, timerBypassed));
             }}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: '#FF0000', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
             ▶ Watch Video
@@ -196,6 +198,7 @@ export function SessionCard({
             tabKey={tabKey}
             durationMinutes={videoDuration}
             onExpired={() => setTimerStatus({ locked: false, secondsRemaining: 0, started: true })}
+            timerBypassed={timerBypassed}
           />
         ) : (
           // STATE 1 / 4: no lock or timer expired
