@@ -214,7 +214,7 @@
 | **Training Hub — Resend Confirmation Email** | ✅ Complete | `POST /api/training/resend-confirmation`, shown on signin on EmailNotConfirmed |
 | **Training Hub — Inactivity Logout** | ✅ Complete | `useInactivityLogout` on dashboard |
 | **Training Hub — Dashboard** | ✅ Complete | Video player, progress, notes, feedback; timer bypass reads `timer_bypass_enabled` from training_settings DB (admin toggle in course manager saves to DB, not localStorage) |
-| **Training Hub — Assessments / Quiz** | ✅ Complete | Question bank, attempts, auto-score; shuffle questions + shuffle options toggles per course (training_settings DB); client-side option shuffling with correctIndex remap |
+| **Training Hub — Assessments / Quiz** | ✅ Complete | Question bank, attempts, auto-score; shuffle questions + shuffle options toggles per course (training_settings DB); client-side option shuffling with correctIndex remap; toggles shown at top of course page alongside Timer Bypass (not in assessment tab) |
 | **Training Hub — Certificate System** | ✅ Complete | Internal pdf-lib PDF gen, sharp badge overlay, Supabase storage, daily cron (midnight) + manual Generate Now button in admin, no Certifier.io; all Certifier.io marketing text removed from training page + CurriculumCard |
 | **Training Hub — Transcript** | ✅ Complete | Shareable token-gated HTML transcript + PDF with QR code, Certificate ID, verification URL from student_certificates (single source of truth); compact single-page A4 PDF layout; CMS-driven settings; no Certifier.io references |
 | **Training Hub — Profile** | ✅ Complete | Avatar upload, name/city/country |
