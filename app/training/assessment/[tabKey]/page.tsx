@@ -136,6 +136,11 @@ export default function AssessmentPage() {
   const [currentQ, setCurrentQ]     = useState(0);
   const [timeLeft, setTimeLeft]     = useState<number | null>(null);
   const timerRef                    = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Shuffle settings
+  const [shuffleOptions, setShuffleOptions] = useState(false);
+  // Maps: for each question index, stores the mapping from shuffled option index → original option index
+  // e.g. optionMaps[0] = [2, 0, 3, 1] means shuffled option 0 was originally at index 2
+  const [optionMaps, setOptionMaps] = useState<number[][]>([]);
 
   // Update browser tab title when session name is known (FIX 1)
   useEffect(() => {
@@ -158,10 +163,24 @@ export default function AssessmentPage() {
 
     const { email, registrationId: regId } = session;
 
+    // Determine course code from tabKey (e.g. "3SFM_S1" → "3sfm", "BVM_L2" → "bvm")
+    const courseCode = tabKey.toUpperCase().startsWith('BVM') ? 'bvm' : '3sfm';
+
+    // Fetch settings first (needed to decide shuffle param for questions)
+    let shuffleQ = true;
+    let shuffleOpt = false;
+    try {
+      const settingsRes = await fetch(`/api/training/assessment-settings?course=${courseCode}`);
+      const settingsData = await settingsRes.json() as { shuffleQuestions?: boolean; shuffleOptions?: boolean };
+      shuffleQ   = settingsData.shuffleQuestions !== false;
+      shuffleOpt = settingsData.shuffleOptions === true;
+    } catch { /* use defaults */ }
+    setShuffleOptions(shuffleOpt);
+
     // Fetch status + questions in parallel
     const [statusRes, questionsRes] = await Promise.all([
       fetch(`/api/training/attempt-status?tabKey=${encodeURIComponent(tabKey)}&email=${encodeURIComponent(email)}&regId=${encodeURIComponent(regId)}`),
-      fetch(`/api/training/questions?tabKey=${encodeURIComponent(tabKey)}&email=${encodeURIComponent(email)}&regId=${encodeURIComponent(regId)}`),
+      fetch(`/api/training/questions?tabKey=${encodeURIComponent(tabKey)}&email=${encodeURIComponent(email)}&regId=${encodeURIComponent(regId)}${shuffleQ ? '' : '&shuffle=false'}`),
     ]);
 
     const statusData  = await statusRes.json()    as { success: boolean; data?: AttemptStatus; error?: string };
@@ -196,6 +215,31 @@ export default function AssessmentPage() {
     }
 
     const q = questData.data;
+
+    // Shuffle options client-side if enabled
+    if (shuffleOpt && q.questions?.length) {
+      const maps: number[][] = [];
+      for (const question of q.questions) {
+        const indices = question.options.map((_: unknown, i: number) => i);
+        // Fisher-Yates shuffle on index array
+        for (let i = indices.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [indices[i], indices[j]] = [indices[j], indices[i]];
+        }
+        maps.push(indices);
+        // Reorder options according to shuffled indices
+        const origOptions = [...question.options];
+        question.options = indices.map((idx: number) => origOptions[idx]);
+        // Remap correctIndex to match new order
+        if (typeof question.correctIndex === 'number') {
+          question.correctIndex = indices.indexOf(question.correctIndex);
+        }
+      }
+      setOptionMaps(maps);
+    } else {
+      setOptionMaps([]);
+    }
+
     setQuestions(q);
 
     // Restore saved answers

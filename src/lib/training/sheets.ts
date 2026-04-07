@@ -772,8 +772,11 @@ export async function getAssessmentQuestions(
   tabKey: string,
   email: string,
   regId: string,
+  shuffle?: boolean,
 ): Promise<ScriptResponse<AssessmentQuestionsData>> {
-  return callScript<AssessmentQuestionsData>({ action: 'getQuestions', tabKey, email, regId });
+  const params: Record<string, string> = { action: 'getQuestions', tabKey, email, regId };
+  if (shuffle === false) params.shuffle = 'false';
+  return callScript<AssessmentQuestionsData>(params);
 }
 
 /** Check attempt status (attempts used, passed, can attempt). */

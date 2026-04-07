@@ -3,15 +3,16 @@ import { getAssessmentQuestions } from '@/src/lib/training/sheets';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const tabKey = searchParams.get('tabKey');
-  const email  = searchParams.get('email');
-  const regId  = searchParams.get('regId');
+  const tabKey  = searchParams.get('tabKey');
+  const email   = searchParams.get('email');
+  const regId   = searchParams.get('regId');
+  const shuffle = searchParams.get('shuffle');
 
   if (!tabKey || !email || !regId) {
     return NextResponse.json({ success: false, error: 'Missing tabKey, email, or regId' }, { status: 400 });
   }
 
-  const result = await getAssessmentQuestions(tabKey, email, regId);
+  const result = await getAssessmentQuestions(tabKey, email, regId, shuffle === 'false' ? false : undefined);
 
   if (!result.success) {
     console.error('[questions] getAssessmentQuestions failed:', result.error, { tabKey, email });
