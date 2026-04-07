@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { PDFDocument } from 'pdf-lib';
 import { createClient } from '@supabase/supabase-js';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 
@@ -14,7 +15,7 @@ interface PdfField {
   fontWeight?: string;
   textAlign?: 'left' | 'center' | 'right';
   fontFamily?: string;
-  width?: number; // field box width in unscaled canvas coords
+  width?: number; // field box width in PDF-point coordinate space
 }
 
 interface PdfQrField {
@@ -25,54 +26,66 @@ interface PdfQrField {
 }
 
 interface PdfLayout {
-  studentName?:       PdfField;
-  courseName?:        PdfField;
-  courseSubheading?:  PdfField;
-  courseDescription?: PdfField;
-  issueDate?:         PdfField;
-  certificateId?:     PdfField;
-  qrCode?:            PdfQrField;
+  studentName?:   PdfField;
+  issueDate?:     PdfField;
+  certificateId?: PdfField;
+  qrCode?:        PdfQrField;
 }
 
 type PdfFieldKey = keyof PdfLayout;
 
+interface CanvasSize {
+  width:     number; // display pixel width
+  height:    number; // display pixel height
+  pdfWidth:  number; // PDF page width in points
+  pdfHeight: number; // PDF page height in points
+}
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const CANVAS_W    = 1240;
-const CANVAS_H    = 877;
-const SCALE       = 0.65;
-const MIN_W       = 60;   // minimum field width
-const RESIZE_HANDLE_W = 12; // resize grip width in unscaled px
+const DISPLAY_W       = 900;   // fixed display width in px
+const MIN_W           = 30;    // minimum field width (in PDF points)
+const RESIZE_HANDLE_W = 12;    // resize grip width in unscaled px
 
+// A4 landscape in PDF points — used as default before any template loads
+const A4_W = 841.89;
+const A4_H = 595.28;
+
+const DEFAULT_CANVAS: CanvasSize = {
+  width:     DISPLAY_W,
+  height:    Math.round(DISPLAY_W * (A4_H / A4_W)), // ≈ 636
+  pdfWidth:  A4_W,
+  pdfHeight: A4_H,
+};
+
+// Default positions are in PDF points (A4 landscape ≈ 842 × 595 pt).
+// After uploading a non-A4 template the user should re-drag and re-save.
 const DEFAULT_PDF_LAYOUT: PdfLayout = {
-  studentName:       { x: 180, y: 310, fontSize: 36, color: '#0D2E5A', fontWeight: 'bold',   textAlign: 'left', fontFamily: 'Helvetica',   width: 620 },
-  courseName:        { x: 180, y: 380, fontSize: 26, color: '#C9A84C', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica',   width: 680 },
-  courseSubheading:  { x: 180, y: 425, fontSize: 16, color: '#374151', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica',   width: 500 },
-  courseDescription: { x: 180, y: 460, fontSize: 13, color: '#6B7280', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica',   width: 660 },
-  issueDate:         { x: 180, y: 530, fontSize: 14, color: '#374151', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica',   width: 300 },
-  certificateId:     { x: 180, y: 560, fontSize: 12, color: '#9CA3AF', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica',   width: 320 },
-  qrCode:            { x: 1050, y: 680, width: 130, height: 130 },
+  studentName:   { x: 120, y: 190, fontSize: 36, color: '#0D2E5A', fontWeight: 'bold',   textAlign: 'left', fontFamily: 'Helvetica', width: 500 },
+  issueDate:     { x: 120, y: 350, fontSize: 14, color: '#374151', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica', width: 200 },
+  certificateId: { x: 120, y: 375, fontSize: 12, color: '#9CA3AF', fontWeight: 'normal', textAlign: 'left', fontFamily: 'Helvetica', width: 220 },
+  qrCode:        { x: 685, y: 430, width: 100, height: 100 },
 };
 
 const PDF_FIELD_LABELS: Record<PdfFieldKey, string> = {
-  studentName:       'Student Name',
-  courseName:        'Course Name',
-  courseSubheading:  'Course Subheading',
-  courseDescription: 'Course Description',
-  issueDate:         'Issue Date',
-  certificateId:     'Certificate ID',
-  qrCode:            'QR Code',
+  studentName:   'Student Name',
+  issueDate:     'Issue Date',
+  certificateId: 'Certificate ID',
+  qrCode:        'QR Code',
 };
 
 const SAMPLE_TEXT: Record<PdfFieldKey, string> = {
-  studentName:       'Ahmad Din',
-  courseName:        '3-Statement Financial Modeling',
-  courseSubheading:  'Corporate Finance Track',
-  courseDescription: 'Successfully completed with Distinction',
-  issueDate:         '15 January 2026',
-  certificateId:     'FMP-3SFM-2026-0001',
-  qrCode:            '',
+  studentName:   'Ahmad Din',
+  issueDate:     '15 January 2026',
+  certificateId: 'FMP-3SFM-2026-0001',
+  qrCode:        '',
 };
+
+// Real QR image for canvas preview (sample verify URL)
+const SAMPLE_QR_URL =
+  'https://api.qrserver.com/v1/create-qr-code/' +
+  '?size=300x300&data=' +
+  encodeURIComponent('https://financialmodelerpro.com/verify/FMP-3SFM-2026-XXXX');
 
 const FONT_OPTIONS = [
   { value: 'Helvetica',   label: 'Helvetica' },
@@ -102,20 +115,24 @@ export default function CertificateEditorPage() {
   const [saveMsg,        setSaveMsg]        = useState('');
   const [loading,        setLoading]        = useState(true);
   const [templateBg,     setTemplateBg]     = useState<string | null>(null);
+  const [canvasSize,     setCanvasSize]     = useState<CanvasSize>(DEFAULT_CANVAS);
   const [course,         setCourse]         = useState<'3sfm' | 'bvm'>('3sfm');
   const [previewLoading, setPreviewLoading] = useState(false);
 
-  // Active key — shared visual feedback for move AND resize
-  const [activeKey, setActiveKey] = useState<PdfFieldKey | null>(null);
+  const [activeKey,  setActiveKey]  = useState<PdfFieldKey | null>(null);
   const [isResizing, setIsResizing] = useState(false);
   const [showGuides, setShowGuides] = useState(true);
 
-  // Refs — avoids stale closures in window event listeners
+  // Refs — prevent stale closures in window event listeners
   const canvasRef       = useRef<HTMLDivElement>(null);
   const draggingKeyRef  = useRef<PdfFieldKey | null>(null);
   const dragOffsetRef   = useRef({ x: 0, y: 0 });
   const resizingKeyRef  = useRef<PdfFieldKey | null>(null);
   const resizeStartRef  = useRef({ startLogX: 0, startWidth: 0 });
+  const canvasSizeRef   = useRef<CanvasSize>(DEFAULT_CANVAS);
+
+  // Keep canvasSizeRef in sync so window handlers always see current dimensions
+  useEffect(() => { canvasSizeRef.current = canvasSize; }, [canvasSize]);
 
   // ── Load pdfLayout from API ──
   useEffect(() => {
@@ -128,7 +145,7 @@ export default function CertificateEditorPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  // ── Load template background ──
+  // ── Load template background + detect PDF page dimensions ──
   useEffect(() => {
     const sb = createClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -137,24 +154,57 @@ export default function CertificateEditorPage() {
     const { data: { publicUrl } } = sb.storage
       .from('certificates')
       .getPublicUrl(`templates/${course.toLowerCase()}-template.pdf`);
-    fetch(publicUrl, { method: 'HEAD' })
-      .then(res => { setTemplateBg(res.ok ? publicUrl : null); })
-      .catch(() => { setTemplateBg(null); });
+    const bust = `${publicUrl}?t=${Date.now()}`;
+
+    async function loadTemplate() {
+      try {
+        // HEAD check — does the template exist?
+        const headRes = await fetch(bust, { method: 'HEAD' });
+        if (!headRes.ok) {
+          setTemplateBg(null);
+          setCanvasSize(DEFAULT_CANVAS);
+          return;
+        }
+        setTemplateBg(bust);
+
+        // Fetch PDF bytes and read the first page's dimensions
+        const pdfRes   = await fetch(bust);
+        const pdfBytes = await pdfRes.arrayBuffer();
+        const pdfDoc   = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+        const page     = pdfDoc.getPages()[0];
+        const { width, height } = page.getSize();
+
+        const ratio = height / width;
+        setCanvasSize({
+          width:     DISPLAY_W,
+          height:    Math.round(DISPLAY_W * ratio),
+          pdfWidth:  width,
+          pdfHeight: height,
+        });
+      } catch {
+        // Template unreadable — fall back to A4 defaults
+        setTemplateBg(null);
+        setCanvasSize(DEFAULT_CANVAS);
+      }
+    }
+    void loadTemplate();
   }, [course]);
 
   // ── Global mouse handlers — shared by drag-move AND drag-resize ──
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
       if (!canvasRef.current) return;
-      const rect = canvasRef.current.getBoundingClientRect();
-      const logX = (e.clientX - rect.left) / SCALE;
-      const logY = (e.clientY - rect.top)  / SCALE;
+      const cs    = canvasSizeRef.current;
+      const scale = DISPLAY_W / cs.pdfWidth;
+      const rect  = canvasRef.current.getBoundingClientRect();
+      const logX  = (e.clientX - rect.left) / scale;
+      const logY  = (e.clientY - rect.top)  / scale;
 
       // Resize takes priority
       const rKey = resizingKeyRef.current;
       if (rKey) {
         const delta    = logX - resizeStartRef.current.startLogX;
-        const newWidth = Math.round(Math.max(MIN_W, Math.min(CANVAS_W, resizeStartRef.current.startWidth + delta)));
+        const newWidth = Math.round(Math.max(MIN_W, Math.min(cs.pdfWidth, resizeStartRef.current.startWidth + delta)));
         setPdfLayout(prev => {
           const f = prev[rKey];
           if (!f) return prev;
@@ -166,8 +216,8 @@ export default function CertificateEditorPage() {
       // Move
       const mKey = draggingKeyRef.current;
       if (mKey) {
-        const newX = Math.round(Math.max(0, Math.min(CANVAS_W - 10, logX - dragOffsetRef.current.x)));
-        const newY = Math.round(Math.max(0, Math.min(CANVAS_H - 10, logY - dragOffsetRef.current.y)));
+        const newX = Math.round(Math.max(0, Math.min(cs.pdfWidth  - 10, logX - dragOffsetRef.current.x)));
+        const newY = Math.round(Math.max(0, Math.min(cs.pdfHeight - 10, logY - dragOffsetRef.current.y)));
         setPdfLayout(prev => {
           const f = prev[mKey];
           if (!f) return prev;
@@ -197,11 +247,13 @@ export default function CertificateEditorPage() {
   const handleMarkerMouseDown = useCallback((e: React.MouseEvent, key: PdfFieldKey) => {
     e.preventDefault();
     if (!canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const logX = (e.clientX - rect.left) / SCALE;
-    const logY = (e.clientY - rect.top)  / SCALE;
-    const curX = (pdfLayout[key] as { x: number } | undefined)?.x ?? 0;
-    const curY = (pdfLayout[key] as { y: number } | undefined)?.y ?? 0;
+    const cs    = canvasSizeRef.current;
+    const scale = DISPLAY_W / cs.pdfWidth;
+    const rect  = canvasRef.current.getBoundingClientRect();
+    const logX  = (e.clientX - rect.left) / scale;
+    const logY  = (e.clientY - rect.top)  / scale;
+    const curX  = (pdfLayout[key] as { x: number } | undefined)?.x ?? 0;
+    const curY  = (pdfLayout[key] as { y: number } | undefined)?.y ?? 0;
     dragOffsetRef.current  = { x: logX - curX, y: logY - curY };
     draggingKeyRef.current = key;
     setActiveKey(key);
@@ -211,11 +263,13 @@ export default function CertificateEditorPage() {
   // ── Start drag-to-resize ──
   const handleResizerMouseDown = useCallback((e: React.MouseEvent, key: PdfFieldKey) => {
     e.preventDefault();
-    e.stopPropagation(); // don't trigger parent marker's move handler
+    e.stopPropagation();
     if (!canvasRef.current) return;
+    const cs         = canvasSizeRef.current;
+    const scale      = DISPLAY_W / cs.pdfWidth;
     const rect       = canvasRef.current.getBoundingClientRect();
-    const startLogX  = (e.clientX - rect.left) / SCALE;
-    const startWidth = (pdfLayout[key] as PdfField | undefined)?.width ?? 320;
+    const startLogX  = (e.clientX - rect.left) / scale;
+    const startWidth = (pdfLayout[key] as PdfField | undefined)?.width ?? 200;
     resizeStartRef.current = { startLogX, startWidth };
     resizingKeyRef.current = key;
     setActiveKey(key);
@@ -238,7 +292,6 @@ export default function CertificateEditorPage() {
       }
       const blob = await res.blob();
       const url  = URL.createObjectURL(blob);
-      // Named target reuses the same tab on subsequent opens
       window.open(url, 'cert-preview');
       setTimeout(() => URL.revokeObjectURL(url), 60_000);
     } catch (e) {
@@ -261,7 +314,6 @@ export default function CertificateEditorPage() {
       const d = await r.json() as { ok?: boolean; error?: string };
       if (d.ok) {
         setSaveMsg('Saved! Refreshing preview…');
-        // Auto-refresh the preview tab with the saved layout
         void handlePreview().then(() => setSaveMsg('Saved!'));
         setTimeout(() => setSaveMsg(''), 4000);
       } else {
@@ -279,8 +331,8 @@ export default function CertificateEditorPage() {
     setPdfLayout(prev => {
       const existing = prev[key] ?? (
         key === 'qrCode'
-          ? { x: 0, y: 0, width: 120, height: 120 }
-          : { x: 0, y: 0, fontSize: 14, color: '#000000', textAlign: 'left' as const, fontFamily: 'Helvetica', width: 320 }
+          ? { x: 0, y: 0, width: 100, height: 100 }
+          : { x: 0, y: 0, fontSize: 14, color: '#000000', textAlign: 'left' as const, fontFamily: 'Helvetica', width: 200 }
       );
       return { ...prev, [key]: { ...existing, [field]: value } };
     });
@@ -290,12 +342,13 @@ export default function CertificateEditorPage() {
   function snapFieldH(key: PdfFieldKey, target: 'left' | 'center' | 'right') {
     const tf    = pdfLayout[key] as PdfField;
     if (!tf) return;
-    const width = tf.width ?? 320;
-    const ao    = alignOffset(tf.textAlign, width); // 0, -w/2, or -w
+    const cw    = canvasSize.pdfWidth;
+    const width = tf.width ?? 200;
+    const ao    = alignOffset(tf.textAlign, width);
     let newX: number;
-    if (target === 'left')   newX = -ao;                          // visual left  = 0
-    if (target === 'center') newX = CANVAS_W / 2 - ao - width / 2; // visual mid   = 620
-    else if (target === 'right') newX = CANVAS_W - ao - width;    // visual right = 1240
+    if (target === 'left')        newX = -ao;
+    if (target === 'center')      newX = cw / 2 - ao - width / 2;
+    else if (target === 'right')  newX = cw - ao - width;
     handleFieldChange(key, 'x', Math.round(newX!));
   }
 
@@ -309,6 +362,9 @@ export default function CertificateEditorPage() {
       </div>
     );
   }
+
+  // Computed display scale: how many px per PDF point
+  const scale = DISPLAY_W / canvasSize.pdfWidth;
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#F5F7FA', fontFamily: "'Inter', sans-serif" }}>
@@ -372,7 +428,7 @@ export default function CertificateEditorPage() {
           {/* ── Canvas area ── */}
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
 
-            {/* Course selector */}
+            {/* Course selector + dimension indicator */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <span style={{ fontSize: 12, fontWeight: 700, color: '#6B7280' }}>Course:</span>
               {(['3sfm', 'bvm'] as const).map(c => (
@@ -385,15 +441,18 @@ export default function CertificateEditorPage() {
                 Upload templates at{' '}
                 <a href="/admin/certificates" style={{ color: '#1B4F8A' }}>/admin/certificates</a>
               </span>
+              <span style={{ marginLeft: 'auto', fontSize: 10, color: '#9CA3AF', fontFamily: 'monospace', flexShrink: 0 }}>
+                PDF: {Math.round(canvasSize.pdfWidth)} × {Math.round(canvasSize.pdfHeight)} pt
+              </span>
             </div>
 
-            {/* Canvas */}
+            {/* Canvas — width fixed at DISPLAY_W, height auto from PDF ratio */}
             <div
               ref={canvasRef}
               style={{
                 position:        'relative',
-                width:           CANVAS_W * SCALE,
-                height:          CANVAS_H * SCALE,
+                width:           canvasSize.width,
+                height:          canvasSize.height,
                 overflow:        'hidden',
                 border:          '1px solid #ddd',
                 backgroundColor: '#fff',
@@ -404,16 +463,21 @@ export default function CertificateEditorPage() {
                 cursor:          isResizing ? 'ew-resize' : (activeKey ? 'grabbing' : 'default'),
               }}
             >
-              {/* PDF background */}
+              {/* PDF background — rendered at natural PDF-point size then scaled */}
               {templateBg ? (
                 <object
                   data={`${templateBg}#toolbar=0&navpanes=0`}
                   type="application/pdf"
                   style={{
-                    position: 'absolute', top: 0, left: 0,
-                    width: `${CANVAS_W}px`, height: `${CANVAS_H}px`,
-                    transform: `scale(${SCALE})`, transformOrigin: 'top left',
-                    border: 'none', pointerEvents: 'none',
+                    position:        'absolute',
+                    top:             0,
+                    left:            0,
+                    width:           `${canvasSize.pdfWidth}px`,
+                    height:          `${canvasSize.pdfHeight}px`,
+                    transform:       `scale(${scale})`,
+                    transformOrigin: 'top left',
+                    border:          'none',
+                    pointerEvents:   'none',
                   }}
                 >
                   <p style={{ color: '#999', fontSize: 13, padding: 20 }}>
@@ -434,28 +498,28 @@ export default function CertificateEditorPage() {
               {showGuides && (
                 <div style={{
                   position: 'absolute', top: 0, left: 0,
-                  width: CANVAS_W, height: CANVAS_H,
-                  transform: `scale(${SCALE})`, transformOrigin: 'top left',
+                  width: canvasSize.pdfWidth, height: canvasSize.pdfHeight,
+                  transform: `scale(${scale})`, transformOrigin: 'top left',
                   zIndex: 1, pointerEvents: 'none',
                 }}>
                   {/* Vertical center line */}
                   <div style={{
                     position: 'absolute',
-                    left: CANVAS_W / 2, top: 0,
-                    width: 1, height: CANVAS_H,
+                    left: canvasSize.pdfWidth / 2, top: 0,
+                    width: 1, height: canvasSize.pdfHeight,
                     borderLeft: '1.5px dashed rgba(99,102,241,0.55)',
                   }} />
                   {/* Horizontal center line */}
                   <div style={{
                     position: 'absolute',
-                    left: 0, top: CANVAS_H / 2,
-                    width: CANVAS_W, height: 1,
+                    left: 0, top: canvasSize.pdfHeight / 2,
+                    width: canvasSize.pdfWidth, height: 1,
                     borderTop: '1.5px dashed rgba(99,102,241,0.55)',
                   }} />
                   {/* Center label */}
                   <div style={{
                     position: 'absolute',
-                    left: CANVAS_W / 2 + 4, top: CANVAS_H / 2 + 4,
+                    left: canvasSize.pdfWidth / 2 + 4, top: canvasSize.pdfHeight / 2 + 4,
                     fontSize: 9, color: 'rgba(99,102,241,0.7)',
                     fontWeight: 700, fontFamily: 'Arial, sans-serif',
                     background: 'rgba(255,255,255,0.8)', padding: '1px 4px', borderRadius: 2,
@@ -465,26 +529,26 @@ export default function CertificateEditorPage() {
                 </div>
               )}
 
-              {/* Field markers — 1240×877 unscaled coordinate space */}
+              {/* Field markers — unscaled PDF-point coordinate space */}
               <div style={{
                 position: 'absolute', top: 0, left: 0,
-                width: CANVAS_W, height: CANVAS_H,
-                transform: `scale(${SCALE})`, transformOrigin: 'top left',
+                width: canvasSize.pdfWidth, height: canvasSize.pdfHeight,
+                transform: `scale(${scale})`, transformOrigin: 'top left',
                 zIndex: 2, pointerEvents: 'none',
               }}>
                 {(Object.keys(pdfLayout) as PdfFieldKey[]).map(key => {
-                  const field      = pdfLayout[key];
+                  const field       = pdfLayout[key];
                   if (!field) return null;
-                  const isQr       = key === 'qrCode';
-                  const qr         = field as PdfQrField;
-                  const tf         = field as PdfField;
-                  const isActive   = activeKey === key;
-                  const fieldWidth = isQr ? qr.width  : (tf.width ?? 320);
-                  const fieldHeight= isQr ? qr.height : Math.max(tf.fontSize + 10, 28);
-                  const align      = tf.textAlign ?? 'left';
-                  const cssFont    = CSS_FONT[tf.fontFamily ?? 'Helvetica'] ?? CSS_FONT['Helvetica'];
-                  const markerLeft = isQr ? qr.x : (tf.x + alignOffset(align, fieldWidth));
-                  const markerTop  = isQr ? qr.y : tf.y;
+                  const isQr        = key === 'qrCode';
+                  const qr          = field as PdfQrField;
+                  const tf          = field as PdfField;
+                  const isActive    = activeKey === key;
+                  const fieldWidth  = isQr ? qr.width  : (tf.width ?? 200);
+                  const fieldHeight = isQr ? qr.height : Math.max(tf.fontSize + 10, 28);
+                  const align       = tf.textAlign ?? 'left';
+                  const cssFont     = CSS_FONT[tf.fontFamily ?? 'Helvetica'] ?? CSS_FONT['Helvetica'];
+                  const markerLeft  = isQr ? qr.x : (tf.x + alignOffset(align, fieldWidth));
+                  const markerTop   = isQr ? qr.y : tf.y;
                   const borderColor = isActive ? '#3B82F6' : '#10B981';
 
                   return (
@@ -508,18 +572,13 @@ export default function CertificateEditorPage() {
                       }}
                     >
                       {isQr ? (
-                        /* QR placeholder */
-                        <div style={{
-                          width: '100%', height: '100%',
-                          display: 'flex', flexDirection: 'column',
-                          alignItems: 'center', justifyContent: 'center',
-                          background: 'repeating-linear-gradient(45deg,#e5e7eb 0,#e5e7eb 4px,#f3f4f6 4px,#f3f4f6 12px)',
-                          fontSize: 10, color: '#6B7280', fontWeight: 700, gap: 4,
-                        }}>
-                          <span style={{ fontSize: 22 }}>▦</span>
-                          <span>QR CODE</span>
-                          <span style={{ fontSize: 9, fontWeight: 400 }}>{qr.width}×{qr.height}</span>
-                        </div>
+                        /* Live QR preview using sample verify URL */
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={SAMPLE_QR_URL}
+                          alt="QR Code preview"
+                          style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }}
+                        />
                       ) : (
                         /* Sample text */
                         <div style={{
@@ -558,7 +617,7 @@ export default function CertificateEditorPage() {
                         {isActive && !isQr && (
                           <span style={{ marginLeft: 4, color: '#6B7280', fontWeight: 400 }}>
                             {isResizing
-                              ? `w:${tf.width ?? 320}`
+                              ? `w:${tf.width ?? 200}`
                               : `(${tf.x}, ${tf.y})`}
                           </span>
                         )}
@@ -619,7 +678,7 @@ export default function CertificateEditorPage() {
                 PDF Field Positions
               </div>
               <div style={{ fontSize: 10, color: '#9CA3AF', marginBottom: 12, lineHeight: 1.5 }}>
-                Drag to move · Right-edge grip ↔ to resize · Coords in 1240×877 space.
+                Drag to move · Right-edge grip ↔ to resize · Coords in PDF points ({Math.round(canvasSize.pdfWidth)}×{Math.round(canvasSize.pdfHeight)}).
               </div>
 
               {(Object.keys(pdfLayout) as PdfFieldKey[]).map(key => {
@@ -647,8 +706,8 @@ export default function CertificateEditorPage() {
                       /* QR: 2×2 grid with steppers */
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
                         {([
-                          { f: 'x', label: 'X', step: 1, min: 0 },
-                          { f: 'y', label: 'Y', step: 1, min: 0 },
+                          { f: 'x',      label: 'X',      step: 1, min: 0 },
+                          { f: 'y',      label: 'Y',      step: 1, min: 0 },
                           { f: 'width',  label: 'WIDTH',  step: 5, min: 20 },
                           { f: 'height', label: 'HEIGHT', step: 5, min: 20 },
                         ] as const).map(({ f, label, step, min }) => (
@@ -675,7 +734,7 @@ export default function CertificateEditorPage() {
                             { f: 'fontSize', label: 'SIZE',  step: 1, min: 6 },
                             { f: 'width',    label: 'WIDTH', step: 5, min: 30 },
                           ] as const).map(({ f, label, step, min }) => {
-                            const val = f === 'width' ? (tf.width ?? 320) : tf[f as 'x' | 'y' | 'fontSize'];
+                            const val = f === 'width' ? (tf.width ?? 200) : tf[f as 'x' | 'y' | 'fontSize'];
                             return (
                               <div key={f}>
                                 <div style={labelStyle}>{label}</div>

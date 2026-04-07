@@ -11,7 +11,7 @@ import { getPendingCertificates, updateCertificateUrls } from '@/src/lib/trainin
 import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
 import { certificateIssuedTemplate } from '@/src/lib/email/templates/certificateIssued';
 
-const LEARN_URL  = process.env.NEXT_PUBLIC_LEARN_URL  ?? 'https://learn.financialmodelerpro.com';
+const MAIN_URL   = process.env.NEXT_PUBLIC_MAIN_URL   ?? 'https://financialmodelerpro.com';
 const QR_API     = 'https://api.qrserver.com/v1/create-qr-code';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -27,18 +27,13 @@ interface PdfLayoutField {
   width?: number;      // field box width in editor (1240×877) space
 }
 
-// Editor canvas dimensions — must match the certificate-editor page constants
-const EDITOR_W = 1240;
-const EDITOR_H = 877;
+// Coordinates are stored in PDF points — no editor-to-PDF scaling needed.
 
 interface PdfLayout {
-  studentName?:       PdfLayoutField;
-  courseName?:        PdfLayoutField;
-  courseSubheading?:  PdfLayoutField;
-  courseDescription?: PdfLayoutField;
-  issueDate?:         PdfLayoutField;
-  certificateId?:     PdfLayoutField;
-  qrCode?:            { x: number; y: number; width: number; height: number };
+  studentName?:   PdfLayoutField;
+  issueDate?:     PdfLayoutField;
+  certificateId?: PdfLayoutField;
+  qrCode?:        { x: number; y: number; width: number; height: number };
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -92,15 +87,12 @@ async function generateCertificateId(courseCode: string): Promise<string> {
 // ── PDF Generation ────────────────────────────────────────────────────────────
 
 export async function generateCertificatePdf(data: {
-  certificateId:     string;
-  studentName:       string;
-  courseName:        string;
-  courseSubheading:  string;
-  courseDescription: string;
-  issueDate:         string;
-  grade:             string;
-  verificationUrl:   string;
-  courseCode:        string;
+  certificateId:   string;
+  studentName:     string;
+  issueDate:       string;
+  grade:           string;
+  verificationUrl: string;
+  courseCode:      string;
 }): Promise<string> {
   const sb = getServerClient();
 
@@ -123,9 +115,9 @@ export async function generateCertificatePdf(data: {
   const page = pdfDoc.getPages()[0];
   const { width, height } = page.getSize();
 
-  // Scale factors: convert editor coords (1240×877) → PDF page points
-  const scaleX = width  / EDITOR_W;
-  const scaleY = height / EDITOR_H;
+  // Coordinates are already in PDF points — scale is 1:1
+  const scaleX = 1;
+  const scaleY = 1;
 
   // 2. Load PDF layout from cms_content
   let layout: PdfLayout = {};
@@ -158,12 +150,9 @@ export async function generateCertificatePdf(data: {
 
   // 4. Draw text fields
   const fields: Array<{ key: keyof Omit<PdfLayout, 'qrCode'>; value: string }> = [
-    { key: 'studentName',       value: data.studentName },
-    { key: 'courseName',        value: data.courseName },
-    { key: 'courseSubheading',  value: data.courseSubheading },
-    { key: 'courseDescription', value: data.courseDescription },
-    { key: 'issueDate',         value: formatDate(data.issueDate) },
-    { key: 'certificateId',     value: data.certificateId },
+    { key: 'studentName',   value: data.studentName },
+    { key: 'issueDate',     value: formatDate(data.issueDate) },
+    { key: 'certificateId', value: data.certificateId },
   ];
 
   for (const { key, value } of fields) {
@@ -173,7 +162,7 @@ export async function generateCertificatePdf(data: {
     const { r, g, b } = hexToRgb(pos.color ?? '#000000');
     const font      = selectFont(pos.fontFamily, pos.fontWeight);
     const fontSize  = (pos.fontSize ?? 14) * scaleY;
-    const fieldW    = (pos.width ?? EDITOR_W) * scaleX;
+    const fieldW    = (pos.width ?? width) * scaleX;
 
     // Scale anchor x, then adjust for text alignment
     const anchorX   = pos.x * scaleX;
@@ -313,21 +302,18 @@ export async function processPendingCertificates(): Promise<{
   for (const cert of pending) {
     try {
       const certificateId  = await generateCertificateId(cert.courseCode);
-      const verificationUrl = `${LEARN_URL}/verify/${certificateId}`;
+      const verificationUrl = `${MAIN_URL}/verify/${certificateId}`;
       const grade           = cert.grade || deriveGrade(cert.finalScore ?? 0, cert.avgScore ?? 0);
       const issueDate       = cert.completionDate || new Date().toISOString();
 
       // 2. Generate certificate PDF
       const certPdfUrl = await generateCertificatePdf({
         certificateId,
-        studentName:       cert.studentName,
-        courseName:        cert.courseName,
-        courseSubheading:  cert.courseSubheading ?? '',
-        courseDescription: cert.courseDescription ?? '',
+        studentName:     cert.studentName,
         issueDate,
         grade,
         verificationUrl,
-        courseCode:        cert.courseCode,
+        courseCode:      cert.courseCode,
       });
 
       // 3. Generate badge PNG

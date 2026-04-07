@@ -25,29 +25,21 @@ interface PdfField {
   width?: number; // field box width in editor (1240×877) space
 }
 
-// Editor canvas dimensions — must match the certificate-editor page constants
-const EDITOR_W = 1240;
-const EDITOR_H = 877;
+// Coordinates are stored in PDF points — no editor-to-PDF scaling needed.
 
 interface PdfLayout {
-  studentName?:       PdfField;
-  courseName?:        PdfField;
-  courseSubheading?:  PdfField;
-  courseDescription?: PdfField;
-  issueDate?:         PdfField;
-  certificateId?:     PdfField;
-  qrCode?:            { x: number; y: number; width: number; height: number };
+  studentName?:   PdfField;
+  issueDate?:     PdfField;
+  certificateId?: PdfField;
+  qrCode?:        { x: number; y: number; width: number; height: number };
 }
 
 // ── Sample data ───────────────────────────────────────────────────────────────
 
 const SAMPLE: Record<keyof Omit<PdfLayout, 'qrCode'>, string> = {
-  studentName:       'Ahmad Din',
-  courseName:        '3-Statement Financial Modeling',
-  courseSubheading:  'Corporate Finance Track',
-  courseDescription: 'Successfully completed with Distinction',
-  issueDate:         '15 January 2026',
-  certificateId:     'FMP-3SFM-2026-0001',
+  studentName:   'Ahmad Din',
+  issueDate:     '15 January 2026',
+  certificateId: 'FMP-3SFM-2026-0001',
 };
 
 const SAMPLE_VERIFY_URL = 'https://financialmodelerpro.com/verify/FMP-3SFM-2026-0001';
@@ -128,9 +120,9 @@ export async function POST(req: NextRequest) {
     const page = pdfDoc.getPages()[0];
     const { width, height } = page.getSize();
 
-    // Scale factors: convert editor coords (1240×877) → PDF page points
-    const scaleX = width  / EDITOR_W;
-    const scaleY = height / EDITOR_H;
+    // Coordinates are already in PDF points — scale is 1:1
+    const scaleX = 1;
+    const scaleY = 1;
 
     // 2. Embed all font variants upfront
     const fonts: Record<string, PDFFont> = {
@@ -153,7 +145,7 @@ export async function POST(req: NextRequest) {
 
       const font      = selectFont(fonts, pos.fontFamily, pos.fontWeight);
       const fontSize  = (pos.fontSize ?? 14) * scaleY;
-      const fieldW    = (pos.width ?? EDITOR_W) * scaleX;
+      const fieldW    = (pos.width ?? width) * scaleX;
       const { r, g, b } = hexToRgb(pos.color ?? '#000000');
 
       // Scale anchor x from editor space, then adjust for text alignment
