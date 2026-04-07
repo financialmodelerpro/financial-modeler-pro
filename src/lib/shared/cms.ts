@@ -339,3 +339,86 @@ export function getSectionStyles(
   if (!raw) return {};
   try { return JSON.parse(raw) as SectionStyles; } catch { return {}; }
 }
+
+// ── Dynamic CMS Pages ────────────────────────────────────────────────────────
+
+export interface PageSection {
+  id: string;
+  page_slug: string;
+  section_type: string;
+  content: Record<string, unknown>;
+  display_order: number;
+  visible: boolean;
+  styles: Record<string, unknown>;
+}
+
+export interface CmsPage {
+  id: string;
+  slug: string;
+  title: string;
+  seo_title: string;
+  seo_description: string;
+  status: string;
+  is_system: boolean;
+}
+
+/** Fetch all visible sections for a page slug, ordered by display_order */
+export async function getPageSections(slug: string): Promise<PageSection[]> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('page_sections')
+      .select('*')
+      .eq('page_slug', slug)
+      .eq('visible', true)
+      .order('display_order');
+    return (data as PageSection[]) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+/** Fetch page metadata by slug */
+export async function getCmsPage(slug: string): Promise<CmsPage | null> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('cms_pages')
+      .select('*')
+      .eq('slug', slug)
+      .eq('status', 'published')
+      .maybeSingle();
+    return (data as CmsPage) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Fetch all published CMS page slugs (for generateStaticParams / sitemap) */
+export async function getAllCmsPageSlugs(): Promise<string[]> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('cms_pages')
+      .select('slug')
+      .eq('status', 'published');
+    return (data ?? []).map((r: { slug: string }) => r.slug);
+  } catch {
+    return [];
+  }
+}
+
+/** Fetch public plan names for pricing display */
+export async function getPublicPlanNames(): Promise<string[]> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('pricing_plans')
+      .select('name')
+      .eq('is_active', true)
+      .order('display_order');
+    return (data ?? []).map((r: { name: string }) => r.name);
+  } catch {
+    return [];
+  }
+}
