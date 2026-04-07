@@ -99,6 +99,9 @@ const CSS_FONT: Record<string, string> = {
   'Courier':     '"Courier New", Courier, monospace',
 };
 
+// All possible field keys in display order
+const ALL_FIELD_KEYS: PdfFieldKey[] = ['studentName', 'issueDate', 'certificateId', 'qrCode'];
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function alignOffset(textAlign: string | undefined, width: number): number {
@@ -338,6 +341,28 @@ export default function CertificateEditorPage() {
     });
   }
 
+  // ── Remove a field from the layout ──
+  function handleRemoveField(key: PdfFieldKey) {
+    setPdfLayout(prev => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    if (activeKey === key) setActiveKey(null);
+  }
+
+  // ── Add a field back with its default values ──
+  function handleAddField(key: PdfFieldKey) {
+    setPdfLayout(prev => ({ ...prev, [key]: DEFAULT_PDF_LAYOUT[key] }));
+  }
+
+  // ── Reset entire layout to defaults ──
+  function handleResetDefaults() {
+    if (!confirm('Reset all fields to default positions?')) return;
+    setPdfLayout(DEFAULT_PDF_LAYOUT);
+    setActiveKey(null);
+  }
+
   // ── Snap a text field's visual position to canvas left / center / right ──
   function snapFieldH(key: PdfFieldKey, target: 'left' | 'center' | 'right') {
     const tf    = pdfLayout[key] as PdfField;
@@ -399,6 +424,13 @@ export default function CertificateEditorPage() {
                 {saveMsg}
               </span>
             )}
+            <button
+              onClick={handleResetDefaults}
+              title="Reset all fields to default positions"
+              style={{ padding: '8px 14px', borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: '#fff', border: '1px solid #D1D5DB', color: '#6B7280' }}
+            >
+              ↺ Reset
+            </button>
             <button
               onClick={() => setShowGuides(v => !v)}
               style={{ padding: '8px 14px', borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: showGuides ? '#EEF2FF' : '#fff', border: `1px solid ${showGuides ? '#6366F1' : '#D1D5DB'}`, color: showGuides ? '#4F46E5' : '#6B7280' }}
@@ -463,17 +495,19 @@ export default function CertificateEditorPage() {
                 cursor:          isResizing ? 'ew-resize' : (activeKey ? 'grabbing' : 'default'),
               }}
             >
-              {/* PDF background — rendered at natural PDF-point size then scaled */}
+              {/* PDF background — rendered at natural PDF-point size then scaled.
+                  Extra 120px height pushes the browser PDF plugin toolbar
+                  below the canvas boundary so overflow:hidden clips it. */}
               {templateBg ? (
                 <object
-                  data={`${templateBg}#toolbar=0&navpanes=0`}
+                  data={`${templateBg}#toolbar=0&navpanes=0&scrollbar=0`}
                   type="application/pdf"
                   style={{
                     position:        'absolute',
                     top:             0,
                     left:            0,
                     width:           `${canvasSize.pdfWidth}px`,
-                    height:          `${canvasSize.pdfHeight}px`,
+                    height:          `${canvasSize.pdfHeight + 120}px`,
                     transform:       `scale(${scale})`,
                     transformOrigin: 'top left',
                     border:          'none',
@@ -681,7 +715,7 @@ export default function CertificateEditorPage() {
                 Drag to move · Right-edge grip ↔ to resize · Coords in PDF points ({Math.round(canvasSize.pdfWidth)}×{Math.round(canvasSize.pdfHeight)}).
               </div>
 
-              {(Object.keys(pdfLayout) as PdfFieldKey[]).map(key => {
+              {(ALL_FIELD_KEYS.filter(k => pdfLayout[k])) .map(key => {
                 const field    = pdfLayout[key];
                 if (!field) return null;
                 const isQr     = key === 'qrCode';
@@ -698,8 +732,17 @@ export default function CertificateEditorPage() {
                     outline:       isActive ? '2px solid #3B82F6' : 'none',
                     outlineOffset: 3,
                   }}>
-                    <div style={{ fontSize: 10, fontWeight: 800, color: isActive ? '#3B82F6' : '#374151', marginBottom: 6 }}>
-                      {PDF_FIELD_LABELS[key]}
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <div style={{ fontSize: 10, fontWeight: 800, color: isActive ? '#3B82F6' : '#374151' }}>
+                        {PDF_FIELD_LABELS[key]}
+                      </div>
+                      <button
+                        onClick={() => handleRemoveField(key)}
+                        title={`Remove ${PDF_FIELD_LABELS[key]} from layout`}
+                        style={{ width: 18, height: 18, padding: 0, border: '1px solid #FECACA', borderRadius: 3, background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11, fontWeight: 800, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+                      >
+                        ✕
+                      </button>
                     </div>
 
                     {isQr ? (
@@ -831,6 +874,26 @@ export default function CertificateEditorPage() {
                   </div>
                 );
               })}
+              {/* ── Removed fields — add back ── */}
+              {ALL_FIELD_KEYS.filter(k => !pdfLayout[k]).map(key => (
+                <div key={key} style={{
+                  marginBottom: 8, padding: '8px 10px',
+                  borderRadius: 6, border: '1px dashed #D1D5DB',
+                  background: '#FAFAFA',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8,
+                }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF' }}>
+                    {PDF_FIELD_LABELS[key]}
+                  </span>
+                  <button
+                    onClick={() => handleAddField(key)}
+                    title={`Add ${PDF_FIELD_LABELS[key]} back to layout`}
+                    style={{ padding: '3px 10px', borderRadius: 4, fontSize: 11, fontWeight: 700, border: '1px solid #BBF7D0', background: '#F0FFF4', color: '#2EAA4A', cursor: 'pointer', flexShrink: 0 }}
+                  >
+                    + Add
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
 
