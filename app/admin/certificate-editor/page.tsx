@@ -611,7 +611,7 @@ export default function CertificateEditorPage() {
                         boxSizing:     'border-box',
                         overflow:      'visible',
                         display:       'flex',
-                        alignItems:    'center',
+                        alignItems:    'flex-start',
                       }}
                     >
                       {isQr ? (
@@ -620,12 +620,12 @@ export default function CertificateEditorPage() {
                         <img
                           src={SAMPLE_QR_URL}
                           alt="QR Code preview"
-                          style={{ width: '100%', height: '100%', objectFit: 'contain', pointerEvents: 'none' }}
+                          style={{ width: '100%', height: '100%', objectFit: 'fill', pointerEvents: 'none' }}
                         />
                       ) : (
-                        /* Sample text */
+                        /* Sample text — top-left aligned to match pdf-lib drawText origin */
                         <div style={{
-                          padding:      '0 4px',
+                          padding:      '0',
                           width:        '100%',
                           fontSize:     tf.fontSize,
                           fontWeight:   tf.fontWeight === 'bold' ? 700 : 400,
