@@ -138,11 +138,20 @@ export default function CertificateEditorPage() {
   useEffect(() => { canvasSizeRef.current = canvasSize; }, [canvasSize]);
 
   // ── Load pdfLayout from API ──
+  // Strip any unknown keys (e.g. old courseName/courseSubheading from DB)
+  // so they never appear as canvas markers.
   useEffect(() => {
     fetch('/api/admin/certificate-layout')
       .then(r => r.json())
       .then((d: Record<string, unknown>) => {
-        if (d.pdfLayout) setPdfLayout(d.pdfLayout as PdfLayout);
+        if (d.pdfLayout) {
+          const raw = d.pdfLayout as Record<string, unknown>;
+          const clean: PdfLayout = {};
+          for (const k of ALL_FIELD_KEYS) {
+            if (raw[k]) (clean as Record<string, unknown>)[k] = raw[k];
+          }
+          setPdfLayout(clean);
+        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -570,7 +579,7 @@ export default function CertificateEditorPage() {
                 transform: `scale(${scale})`, transformOrigin: 'top left',
                 zIndex: 2, pointerEvents: 'none',
               }}>
-                {(Object.keys(pdfLayout) as PdfFieldKey[]).map(key => {
+                {ALL_FIELD_KEYS.filter(k => pdfLayout[k]).map(key => {
                   const field       = pdfLayout[key];
                   if (!field) return null;
                   const isQr        = key === 'qrCode';
