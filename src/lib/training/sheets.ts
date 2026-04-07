@@ -10,7 +10,10 @@
 import { getServerClient } from '@/src/lib/shared/supabase';
 
 export async function getAppsScriptUrl(): Promise<string> {
-  if (process.env.APPS_SCRIPT_URL) return process.env.APPS_SCRIPT_URL;
+  if (process.env.APPS_SCRIPT_URL) {
+    console.log('[sheets] APPS_SCRIPT_URL from env:', process.env.APPS_SCRIPT_URL.slice(0, 80) + '…');
+    return process.env.APPS_SCRIPT_URL;
+  }
   try {
     const sb = getServerClient();
     const { data } = await sb
@@ -18,8 +21,11 @@ export async function getAppsScriptUrl(): Promise<string> {
       .select('value')
       .eq('key', 'apps_script_url')
       .single();
-    return data?.value ?? '';
+    const url = data?.value ?? '';
+    console.log('[sheets] APPS_SCRIPT_URL from DB:', url ? url.slice(0, 80) + '…' : '(not set)');
+    return url;
   } catch {
+    console.log('[sheets] APPS_SCRIPT_URL: DB lookup failed');
     return '';
   }
 }
@@ -424,16 +430,31 @@ export interface CourseSession {
   videoDuration?: number;
 }
 
-/** Fetch session details (form URLs + YouTube URLs) from the Apps Script Form Registry. */
+/** Fetch session details (YouTube URLs etc.) from the Apps Script Form Registry. */
 export async function getCourseDetails(course?: string): Promise<CourseSession[]> {
   const params: Record<string, string> = { action: 'getCourseDetails' };
   if (course) params.course = course;
   try {
     // Apps Script returns { success: true, sessions: [...] } at root level
     const raw = await callScript<unknown>(params);
-    const res = raw as unknown as { success: boolean; sessions?: CourseSession[] };
+    const res = raw as unknown as { success: boolean; sessions?: Partial<CourseSession>[] };
     if (!res.success) return [];
-    return Array.isArray(res.sessions) ? res.sessions : [];
+    const sessions = Array.isArray(res.sessions) ? res.sessions : [];
+    // V8 Apps Script no longer exposes form columns — normalize absent fields to safe defaults
+    // so that callers don't need to guard against undefined
+    return sessions.map(s => ({
+      tabKey:        s.tabKey        ?? '',
+      course:        s.course        ?? '',
+      num:           s.num           ?? 0,
+      sessionName:   s.sessionName   ?? '',
+      isFinal:       s.isFinal       ?? false,
+      formId:        s.formId        ?? '',
+      formUrl:       s.formUrl       ?? '',
+      youtubeUrl:    s.youtubeUrl    ?? '',
+      hasForm:       s.hasForm       ?? false,
+      hasVideo:      s.hasVideo      ?? false,
+      videoDuration: s.videoDuration,
+    }));
   } catch {
     return [];
   }
@@ -672,10 +693,11 @@ export async function getAllCertificates(): Promise<{ success: boolean; data?: C
 // ── Assessment Engine ─────────────────────────────────────────────────────────
 
 export interface AssessmentQuestion {
-  questionId: string;
-  q: string;
-  options: string[];
-  points?: number;
+  questionId:    string;
+  q:             string;
+  options:       string[];
+  correctIndex?: number;   // 0-based index of correct answer — used for local scoring (V8 architecture)
+  points?:       number;
 }
 
 export interface AssessmentQuestionsData {
@@ -759,20 +781,99 @@ export async function submitAssessment(
   });
 }
 
+export interface SubmitAssessmentScoredParams {
+  tabKey:    string;
+  regId:     string;
+  email:     string;
+  score:     number;   // percentage 0–100
+  passed:    boolean;
+  isFinal:   boolean;
+  attemptNo: number;
+}
+
+/**
+ * V8 architecture: website scores answers locally, then sends the scored summary
+ * to Apps Script for storage. Apps Script no longer performs its own scoring.
+ */
+export async function submitAssessmentToAppsScript(
+  params: SubmitAssessmentScoredParams,
+): Promise<ScriptResponse<{ recorded: boolean }>> {
+  return callScriptPostJson<{ recorded: boolean }>({
+    action: 'submitAssessment',
+    ...params,
+  });
+}
+
 // ── Internal Certificate System ───────────────────────────────────────────────
 
+/**
+ * Raw shape returned by Apps Script V8 `getPendingCertificates` action.
+ * Field names differ from our internal `PendingCertificate` type — see mapRawPendingCert().
+ */
+interface AppsScriptRawPendingCert {
+  registrationId:    string;
+  email:             string;
+  // Student name — V8 uses `fullName`, legacy may use `studentName`
+  fullName?:         string;
+  studentName?:      string;
+  // Course identifier — V8 uses `course`, legacy uses `courseCode`
+  course?:           string;
+  courseCode?:       string;
+  courseName?:       string;
+  courseSubheading?: string;
+  courseDescription?: string;
+  // Scores — V8 uses `finalExamScore` / `avgSessionScore`, legacy uses `finalScore` / `avgScore`
+  finalExamScore?:   number;
+  finalScore?:       number;
+  avgSessionScore?:  number;
+  avgScore?:         number;
+  grade?:            string;
+  completionDate?:   string;
+  // Optional fields present if certificate was partially issued
+  certificateId?:    string;
+  issueDate?:        string;
+  verificationUrl?:  string;
+  qrCodeUrl?:        string;
+}
+
 export interface PendingCertificate {
-  registrationId: string;
-  email: string;
-  studentName: string;
-  courseName: string;
-  courseCode: string;        // '3SFM' | 'BVM'
-  courseSubheading: string;
+  registrationId:    string;
+  email:             string;
+  studentName:       string;
+  courseName:        string;
+  courseCode:        string;        // '3SFM' | 'BVM'
+  courseSubheading:  string;
   courseDescription: string;
-  finalScore: number;
-  avgScore: number;
-  grade: string;             // 'Distinction' | 'Merit' | 'Pass'
-  completionDate: string;
+  finalScore:        number;
+  avgScore:          number;
+  grade:             string;        // 'Distinction' | 'Merit' | 'Pass'
+  completionDate:    string;
+  // Optional — populated after partial issuance
+  certificateId?:    string;
+  issueDate?:        string;
+  verificationUrl?:  string;
+  qrCodeUrl?:        string;
+}
+
+function mapRawPendingCert(raw: AppsScriptRawPendingCert): PendingCertificate {
+  const courseRaw = raw.courseCode ?? raw.course ?? '';
+  return {
+    registrationId:    raw.registrationId   ?? '',
+    email:             raw.email            ?? '',
+    studentName:       raw.fullName         ?? raw.studentName      ?? '',
+    courseName:        raw.courseName       ?? raw.course           ?? courseRaw,
+    courseCode:        courseRaw.toUpperCase(),
+    courseSubheading:  raw.courseSubheading  ?? '',
+    courseDescription: raw.courseDescription ?? '',
+    finalScore:        raw.finalExamScore   ?? raw.finalScore       ?? 0,
+    avgScore:          raw.avgSessionScore  ?? raw.avgScore         ?? 0,
+    grade:             raw.grade            ?? '',
+    completionDate:    raw.completionDate   ?? '',
+    certificateId:     raw.certificateId,
+    issueDate:         raw.issueDate,
+    verificationUrl:   raw.verificationUrl,
+    qrCodeUrl:         raw.qrCodeUrl,
+  };
 }
 
 /** Fetch pending certificates from Apps Script Certificate Queue sheet. */
@@ -792,13 +893,13 @@ export async function getPendingCertificates(): Promise<PendingCertificate[]> {
   }
   // ───────────────────────────────────────────────────────────────────────────
 
-  const raw = await callScript<PendingCertificate[]>({ action: 'getPendingCertificates' });
+  const raw = await callScript<AppsScriptRawPendingCert[]>({ action: 'getPendingCertificates' });
   console.log('[getPendingCertificates] Apps Script response:', JSON.stringify(raw, null, 2));
   if (!raw.success) return [];
-  if (Array.isArray(raw.data)) return raw.data;
-  const root = raw as unknown as { certificates?: PendingCertificate[]; pending?: PendingCertificate[] };
-  if (Array.isArray(root.certificates)) return root.certificates;
-  if (Array.isArray(root.pending)) return root.pending;
+  if (Array.isArray(raw.data)) return raw.data.map(mapRawPendingCert);
+  const root = raw as unknown as { certificates?: AppsScriptRawPendingCert[]; pending?: AppsScriptRawPendingCert[] };
+  if (Array.isArray(root.certificates)) return root.certificates.map(mapRawPendingCert);
+  if (Array.isArray(root.pending)) return root.pending.map(mapRawPendingCert);
   return [];
 }
 
