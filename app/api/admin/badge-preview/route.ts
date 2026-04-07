@@ -15,8 +15,6 @@ import {
   loadBadgeLayout,
   DEFAULT_BADGE_LAYOUT,
   type BadgeLayout,
-  type BadgeTextField,
-  type BadgeOverlay,
 } from '@/src/lib/training/certificateEngine';
 
 const SAMPLE_CERT_ID = 'FMP-3SFM-2026-0001';
@@ -76,21 +74,15 @@ export async function POST(req: NextRequest) {
       layout = {
         certificateId: { ...DEFAULT_BADGE_LAYOUT.certificateId, ...body.layout.certificateId },
         issueDate:     { ...DEFAULT_BADGE_LAYOUT.issueDate,     ...body.layout.issueDate },
-        overlay:       { ...DEFAULT_BADGE_LAYOUT.overlay,       ...body.layout.overlay },
       };
     } else {
       layout = await loadBadgeLayout();
     }
 
-    const { certificateId: cidField, issueDate: dateField, overlay } = layout;
+    const { certificateId: cidField, issueDate: dateField } = layout;
 
     // Build SVG text overlay
-    const overlayY = bh - overlay.bgY;
     const svgParts: string[] = [];
-
-    svgParts.push(
-      `<rect x="0" y="${overlayY}" width="${bw}" height="${overlay.bgHeight}" fill="${overlay.bgColor}" fill-opacity="${overlay.bgOpacity}" />`
-    );
 
     if (cidField.visible) {
       const cidY = bh - cidField.y;

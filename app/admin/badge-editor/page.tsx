@@ -18,17 +18,9 @@ interface BadgeTextField {
   visible: boolean;
 }
 
-interface BadgeOverlay {
-  bgColor: string;
-  bgOpacity: number;
-  bgY: number;
-  bgHeight: number;
-}
-
 interface BadgeLayout {
   certificateId: BadgeTextField;
   issueDate:     BadgeTextField;
-  overlay:       BadgeOverlay;
 }
 
 type BadgeFieldKey = 'certificateId' | 'issueDate';
@@ -36,7 +28,6 @@ type BadgeFieldKey = 'certificateId' | 'issueDate';
 const DEFAULT_BADGE_LAYOUT: BadgeLayout = {
   certificateId: { x: 0, y: 44, fontSize: 12, color: '#ffffff', fontFamily: 'Arial', textAlign: 'center', visible: true },
   issueDate:     { x: 0, y: 22, fontSize: 11, color: 'rgba(255,255,255,0.8)', fontFamily: 'Arial', textAlign: 'center', visible: true },
-  overlay:       { bgColor: '#000000', bgOpacity: 0.55, bgY: 50, bgHeight: 56 },
 };
 
 const FIELD_LABELS: Record<BadgeFieldKey, string> = {
@@ -91,7 +82,6 @@ export default function BadgeEditorPage() {
           setLayout({
             certificateId: { ...DEFAULT_BADGE_LAYOUT.certificateId, ...d.layout.certificateId },
             issueDate:     { ...DEFAULT_BADGE_LAYOUT.issueDate,     ...d.layout.issueDate },
-            overlay:       { ...DEFAULT_BADGE_LAYOUT.overlay,       ...d.layout.overlay },
           });
         }
       })
@@ -240,13 +230,6 @@ export default function BadgeEditorPage() {
     setLayout(prev => ({
       ...prev,
       [key]: { ...prev[key], [field]: value },
-    }));
-  }
-
-  function handleOverlayChange(field: string, value: string | number) {
-    setLayout(prev => ({
-      ...prev,
-      overlay: { ...prev.overlay, [field]: value },
     }));
   }
 
@@ -435,61 +418,6 @@ export default function BadgeEditorPage() {
               )}
             </div>
 
-            {/* ── Overlay Settings ── */}
-            <div style={{ ...cardStyle, border: '1px solid #10B981' }}>
-              <div style={{ fontSize: 11, fontWeight: 800, color: '#10B981', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
-                Overlay Band
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-                {/* Y from bottom */}
-                <div>
-                  <div style={fieldLabel}>Y (from bottom)</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <button onClick={() => handleOverlayChange('bgY', Math.max(0, layout.overlay.bgY - 1))} style={stepBtnStyle}>-</button>
-                    <input type="number" value={layout.overlay.bgY}
-                      onChange={e => handleOverlayChange('bgY', parseInt(e.target.value, 10) || 0)}
-                      style={{ ...inputStyle, textAlign: 'center', minWidth: 0 }} />
-                    <button onClick={() => handleOverlayChange('bgY', layout.overlay.bgY + 1)} style={stepBtnStyle}>+</button>
-                  </div>
-                </div>
-                {/* Height */}
-                <div>
-                  <div style={fieldLabel}>HEIGHT</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <button onClick={() => handleOverlayChange('bgHeight', Math.max(10, layout.overlay.bgHeight - 2))} style={stepBtnStyle}>-</button>
-                    <input type="number" value={layout.overlay.bgHeight}
-                      onChange={e => handleOverlayChange('bgHeight', parseInt(e.target.value, 10) || 56)}
-                      style={{ ...inputStyle, textAlign: 'center', minWidth: 0 }} />
-                    <button onClick={() => handleOverlayChange('bgHeight', layout.overlay.bgHeight + 2)} style={stepBtnStyle}>+</button>
-                  </div>
-                </div>
-              </div>
-              {/* Color + Opacity */}
-              <div style={{ marginTop: 8, display: 'flex', gap: 8, alignItems: 'center' }}>
-                <div style={{ flex: 1 }}>
-                  <div style={fieldLabel}>COLOR</div>
-                  <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                    <input type="color" value={layout.overlay.bgColor}
-                      onChange={e => handleOverlayChange('bgColor', e.target.value)}
-                      style={{ width: 28, height: 22, padding: 0, border: '1px solid #D1D5DB', borderRadius: 3, cursor: 'pointer' }} />
-                    <input type="text" value={layout.overlay.bgColor}
-                      onChange={e => handleOverlayChange('bgColor', e.target.value)}
-                      style={{ flex: 1, ...inputStyle, fontFamily: 'monospace' }} />
-                  </div>
-                </div>
-                <div style={{ width: 80 }}>
-                  <div style={fieldLabel}>OPACITY</div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                    <button onClick={() => handleOverlayChange('bgOpacity', Math.max(0, +(layout.overlay.bgOpacity - 0.05).toFixed(2)))} style={stepBtnStyle}>-</button>
-                    <input type="number" value={layout.overlay.bgOpacity} step={0.05} min={0} max={1}
-                      onChange={e => handleOverlayChange('bgOpacity', parseFloat(e.target.value) || 0)}
-                      style={{ ...inputStyle, textAlign: 'center', minWidth: 0 }} />
-                    <button onClick={() => handleOverlayChange('bgOpacity', Math.min(1, +(layout.overlay.bgOpacity + 0.05).toFixed(2)))} style={stepBtnStyle}>+</button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
             {/* ── Text Field Editors ── */}
             {ALL_FIELD_KEYS.map(key => {
               const field = layout[key];
@@ -622,16 +550,6 @@ export default function BadgeEditorPage() {
                       alt={`${course} badge template`}
                       style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                     />
-                    {/* Overlay band — bgY = distance from bottom to TOP of band (matches SVG y = bh - bgY) */}
-                    <div style={{
-                      position: 'absolute',
-                      left: 0,
-                      top: canvasH - layout.overlay.bgY * canvasScale,
-                      width: '100%',
-                      height: layout.overlay.bgHeight * canvasScale,
-                      background: layout.overlay.bgColor,
-                      opacity: layout.overlay.bgOpacity,
-                    }} />
                     {/* Certificate ID text */}
                     {layout.certificateId.visible && (() => {
                       const f = layout.certificateId;

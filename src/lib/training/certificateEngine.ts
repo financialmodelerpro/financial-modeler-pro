@@ -232,24 +232,15 @@ export interface BadgeTextField {
   visible: boolean;
 }
 
-export interface BadgeOverlay {
-  bgColor: string;
-  bgOpacity: number;
-  bgY: number;       // offset from bottom (px)
-  bgHeight: number;
-}
-
 export interface BadgeLayout {
   certificateId: BadgeTextField;
   issueDate:     BadgeTextField;
-  overlay:       BadgeOverlay;
 }
 
 /** Default badge layout — matches the previous hardcoded values */
 export const DEFAULT_BADGE_LAYOUT: BadgeLayout = {
   certificateId: { x: 0, y: 44, fontSize: 12, color: '#ffffff', fontFamily: 'Arial', textAlign: 'center', visible: true },
   issueDate:     { x: 0, y: 22, fontSize: 11, color: 'rgba(255,255,255,0.8)', fontFamily: 'Arial', textAlign: 'center', visible: true },
-  overlay:       { bgColor: '#000000', bgOpacity: 0.55, bgY: 50, bgHeight: 56 },
 };
 
 /** Load badge layout from cms_content, falling back to defaults */
@@ -267,7 +258,6 @@ export async function loadBadgeLayout(): Promise<BadgeLayout> {
       return {
         certificateId: { ...DEFAULT_BADGE_LAYOUT.certificateId, ...parsed.certificateId },
         issueDate:     { ...DEFAULT_BADGE_LAYOUT.issueDate,     ...parsed.issueDate },
-        overlay:       { ...DEFAULT_BADGE_LAYOUT.overlay,       ...parsed.overlay },
       };
     }
   } catch { /* use defaults */ }
@@ -313,16 +303,10 @@ export async function generateBadgePng(data: {
 
   // 2. Load badge layout from DB (or use override for previews)
   const layout = layoutOverride ?? await loadBadgeLayout();
-  const { certificateId: cidField, issueDate: dateField, overlay } = layout;
+  const { certificateId: cidField, issueDate: dateField } = layout;
 
   // 3. Build SVG text overlay
-  const overlayY = bh - overlay.bgY;
   const svgParts: string[] = [];
-
-  // Background band
-  svgParts.push(
-    `<rect x="0" y="${overlayY}" width="${bw}" height="${overlay.bgHeight}" fill="${overlay.bgColor}" fill-opacity="${overlay.bgOpacity}" />`
-  );
 
   // Certificate ID text
   if (cidField.visible) {
