@@ -1406,13 +1406,19 @@ export default function LiveSessionsPage() {
 
         return (
           <div onClick={e => { if (e.target === e.currentTarget) setPreviewSession(null); }}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-            <div style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 600, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 16px 48px rgba(0,0,0,0.2)' }}>
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', flexDirection: 'column' }}>
+            <div style={{ background: '#fff', flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
 
-              {/* Header */}
-              <div style={{ padding: '14px 20px', borderBottom: '1px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 14, fontWeight: 700, color: NAVY }}>Session Preview</span>
-                <button onClick={() => setPreviewSession(null)} style={{ width: 28, height: 28, borderRadius: 6, background: '#F3F4F6', border: 'none', cursor: 'pointer', fontSize: 14, color: '#6B7280', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>x</button>
+              {/* Branded header */}
+              <div style={{ background: NAVY, padding: '0 24px', display: 'flex', alignItems: 'center', height: 52, gap: 14, flexShrink: 0 }}>
+                <div style={{ width: 24, height: 24, borderRadius: 4, background: GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#fff', fontWeight: 800 }}>F</div>
+                <span style={{ fontSize: 13, fontWeight: 800, color: '#fff' }}>Financial Modeler Pro</span>
+                <span style={{ color: '#475569' }}>|</span>
+                <span style={{ fontSize: 12, color: '#94A3B8' }}>Live Sessions</span>
+                <span style={{ color: '#475569' }}>|</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: '#fff', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ps.title}</span>
+                <span style={{ fontSize: 10, color: '#6B7280', background: 'rgba(255,255,255,0.1)', padding: '3px 10px', borderRadius: 10, flexShrink: 0 }}>Preview</span>
+                <button onClick={() => setPreviewSession(null)} style={{ width: 28, height: 28, borderRadius: 6, background: 'rgba(255,255,255,0.1)', border: 'none', cursor: 'pointer', fontSize: 14, color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>x</button>
               </div>
 
               {/* Scrollable content */}
@@ -1421,14 +1427,14 @@ export default function LiveSessionsPage() {
                 {/* Banner or gradient placeholder */}
                 {ps.banner_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={ps.banner_url} alt={ps.title} style={{ width: '100%', height: 200, objectFit: 'cover' }} />
+                  <img src={ps.banner_url} alt={ps.title} style={{ width: '100%', maxHeight: 340, objectFit: 'cover' }} />
                 ) : (
-                  <div style={{ width: '100%', height: 160, background: 'linear-gradient(135deg, #0D2E5A 0%, #1B4F8A 50%, #2E75B6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-                    <span style={{ fontSize: 20, fontWeight: 800, color: '#fff', textAlign: 'center' }}>{ps.title}</span>
+                  <div style={{ width: '100%', height: 220, background: 'linear-gradient(135deg, #0D2E5A 0%, #1B4F8A 50%, #2E75B6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
+                    <span style={{ fontSize: 28, fontWeight: 800, color: '#fff', textAlign: 'center', lineHeight: 1.3 }}>{ps.title}</span>
                   </div>
                 )}
 
-                <div style={{ padding: '20px 24px' }}>
+                <div style={{ maxWidth: 900, margin: '0 auto', padding: '28px 40px' }}>
                   {/* Badges */}
                   <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
                     <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: badgeBg, color: badgeColor }}>{badgeLabel}</span>
@@ -1495,8 +1501,9 @@ export default function LiveSessionsPage() {
               </div>
 
               {/* Footer */}
-              <div style={{ padding: '10px 20px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB' }}>
+              <div style={{ padding: '10px 24px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB', flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: 11, color: '#9CA3AF' }}>Preview only - students see this after logging in</span>
+                <button onClick={() => setPreviewSession(null)} style={{ padding: '5px 16px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: NAVY, color: '#fff', border: 'none', cursor: 'pointer' }}>Close Preview</button>
               </div>
             </div>
           </div>
