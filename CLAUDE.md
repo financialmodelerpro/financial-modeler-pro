@@ -79,6 +79,7 @@
 | Image Processing | sharp | ^0.33.5 |
 | Rich Text | @tiptap/react + starter-kit + image + text-align + link | 2.27.2 |
 | Drag & Drop | @hello-pangea/dnd | ^18.0.1 |
+| SVG Text Rendering | satori | latest |
 | Passwords | bcryptjs (Training Hub) / scrypt via Node (Modeling Hub) | ^3.0.3 |
 | Toast | react-hot-toast | ^2.6.0 |
 | Sanitization | isomorphic-dompurify | ^3.3.0 |
@@ -95,6 +96,15 @@
 | **hCaptcha** | Spam protection on signup forms (both hubs) | `HCAPTCHA_SECRET_KEY`, `NEXT_PUBLIC_HCAPTCHA_SITE_KEY` |
 | **Anthropic Claude API** | AI market research + contextual help agents | `ANTHROPIC_API_KEY` |
 | **Vercel** | Hosting + edge middleware | Auto-deploy on `main` push |
+
+### Supabase Storage Buckets
+| Bucket | Purpose | Access |
+|--------|---------|--------|
+| `certificates` | Certificate PDF templates + issued PDFs | Public |
+| `badges` | Badge PNG templates + issued badges | Public |
+| `course-materials` | Lesson/course file attachments (PDF, Word, PPT, Excel, images) | Public |
+| `live-session-banners` | Live session banner images | Public |
+| `cms-assets` | CMS uploaded media (images, logos) | Public |
 
 ---
 
@@ -187,6 +197,13 @@
 | `certificate_layouts` | Admin-configurable certificate templates |
 | `transcript_tokens` | Shareable transcript access tokens |
 
+### Live Sessions
+| Table | Purpose |
+|-------|---------|
+| `live_playlists` | Session grouping: name, description, thumbnail, display_order, is_published |
+| `live_sessions` | Sessions: title, description, youtube_url, live_url, session_type, scheduled_datetime, timezone, category, playlist_id, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, tags[], is_featured, live_password, registration_url, notification/reminder tracking |
+| `course_attachments` | Reused for session files with tab_key='LIVE_'+session_id |
+
 ### Dynamic CMS
 | Table | Purpose |
 |-------|---------|
@@ -244,6 +261,8 @@
 | **AI Agents** | 🔄 In Progress | Market rates + research agents wired; contextual help stub |
 | **Pricing / Subscriptions** | 🔄 In Progress | Plans + features in DB; enforcement partial |
 | **White-label / Branding** | 🔄 In Progress | DB-driven config; BrandingThemeApplier wired |
+| **Training Hub — Live Sessions** | ✅ Complete | Playlists + sessions (upcoming/live/recorded); admin at `/admin/training-hub/live-sessions` with full CRUD, banner upload, 34 timezones, inline playlist creation, duplicate, filters, notification targeting (all/3SFM/BVM), preview email; student pages at `/training/live-sessions` with tabs, countdown timer, YouTube embed, Google Calendar + .ics download, in-dashboard file preview; email notifications via Resend (announcement + reminder); registration URL for external audience; satori badge text rendering |
+| **Training Hub — Course Attachments** | ✅ Complete | Per-lesson + per-course file attachments; upload to Supabase `course-materials` bucket; in-dashboard file preview modal (PDF iframe, image preview, blob download); admin toggle visibility + delete |
 | **BVM / FPA / other modeling platforms** | ❌ Not Started | Config defined, no platform content yet |
 
 ---
@@ -309,7 +328,7 @@ app/admin/
 ├── settings/page.tsx
 ├── testimonials/page.tsx + modeling/ + training/
 ├── training/page.tsx + [courseId]/
-├── training-hub/page.tsx + analytics/ + assessments/ + certificates/
+├── training-hub/page.tsx + analytics/ + assessments/ + certificates/ + live-sessions/
 │   + cohorts/ + communications/ + course-details/ + students/
 ├── training-settings/page.tsx
 ├── transcript-editor/page.tsx
@@ -329,6 +348,8 @@ app/training/
 ├── confirm-email/page.tsx       # Forwards token to /api/training/confirm-email
 ├── dashboard/page.tsx
 ├── forgot/page.tsx
+├── live-sessions/page.tsx        # Student live sessions listing (upcoming/live + recordings tabs)
+├── live-sessions/[id]/page.tsx   # Session detail (countdown, YouTube embed, calendar links, file preview)
 ├── login/page.tsx
 ├── register/page.tsx            # hCaptcha + city/country + PhoneInput component
 ├── set-password/page.tsx
@@ -415,7 +436,12 @@ app/api/admin/
 ├── training-hub/ + analytics/ + assessments/ + certificates/
 │   + cohorts/ + cohorts/[id]/ + communications/ + student-journey/
 │   + student-progress/ + students/
+├── live-playlists/              # GET/POST/PATCH/DELETE: CRUD for live session playlists
+├── live-sessions/               # GET/POST: list all + create session; PUT: upload banner
+├── live-sessions/[id]/          # PATCH/DELETE: update + delete session
+├── live-sessions/[id]/notify/   # POST: send announcement/reminder emails to students via Resend
 ├── page-sections/               # GET/POST/PATCH/DELETE: CRUD for page_sections + cms_pages (page builder)
+├── reset-attempts/              # POST: reset student assessment attempts via Apps Script
 ├── training-settings/ users/ whitelabel/
 ```
 
@@ -431,6 +457,9 @@ app/api/
 ├── t/[token]/pdf/
 ├── testimonials/ + student/
 ├── training/assessment-settings/  # GET: shuffle questions/options settings per course
+├── training/attachments/          # GET: visible file attachments per session/course
+├── training/live-sessions/        # GET: published live sessions with attachments
+├── training/live-sessions/[id]/   # GET: single session detail
 └── user/account/ + password/ + profile/
 ```
 
@@ -475,6 +504,7 @@ src/components/
 │       ├── AboutThisCourse.tsx  BvmLockedContent.tsx  CertificateImageCard.tsx
 │       ├── CourseContent.tsx  FeedbackModal.tsx  ProfileModal.tsx
 │       ├── SessionCard.tsx  ShareModal.tsx  Skeleton.tsx  StatusBadge.tsx
+│       ├── FilePreviewModal.tsx          # In-dashboard file preview (PDF iframe, image, download via blob)
 │       ├── TestimonialModal.tsx  index.ts  types.ts
 └── ui/
     └── ColorPicker.tsx  OfficeColorPicker.tsx  Toaster.tsx
@@ -492,6 +522,7 @@ src/lib/
 │       ├── confirmEmail.ts      # Confirmation link email (both hubs)
 │       ├── deviceVerification.ts # OTP email (both hubs)
 │       ├── lockedOut.ts  otpVerification.ts  passwordReset.ts
+│       ├── liveSessionNotification.ts  # Announcement/reminder email for live sessions (via Resend, no Apps Script)
 │       ├── quizResult.ts  registrationConfirmation.ts  resendRegistrationId.ts
 ├── modeling/real-estate/
 │   ├── export/ — export-excel-formula  export-excel-static  export-pdf
@@ -666,6 +697,10 @@ npm run verify       # type-check + lint + build
 | `030_page_sections.sql` | Dynamic CMS: `page_sections` + `cms_pages` tables; seeds 7 system pages ✅ Run |
 | `031_seed_page_sections.sql` | Seeds page_sections for about/contact/training/modeling with hardcoded content ✅ Run |
 | `032_shuffle_settings.sql` | Assessment shuffle settings: shuffle_questions + shuffle_options per course in training_settings ✅ Run |
+| `033_course_attachments.sql` | Course attachments table (tab_key, course, file_name, file_url, file_type, file_size, is_visible) ✅ Run |
+| `034_live_sessions.sql` | Live playlists + live sessions tables ✅ Run |
+| `035_live_sessions_enhancements.sql` | banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, tags[], is_featured, live_password ✅ Run |
+| `036_live_session_registration.sql` | registration_url field on live_sessions ✅ Run |
 
 ---
 
