@@ -31,6 +31,8 @@ export async function GET(req: NextRequest) {
     q: (q.q as string) || (q.question as string) || (q.questionText as string) || '',
     // Normalise correct answer index: Apps Script may return as `correctAnswer`, `answer`, or `correctIndex`
     correctIndex: q.correctIndex ?? q.correctAnswer ?? q.answer ?? undefined,
+    // Normalise explanation: Apps Script may use `explanation`, `hint`, or `rationale`
+    explanation: (q.explanation as string) || (q.hint as string) || (q.rationale as string) || '',
   }));
 
   const data = {
@@ -48,7 +50,7 @@ export async function GET(req: NextRequest) {
     console.error('[questions] No questions in response:', { tabKey, hasNested: !!nested, rawKeys: Object.keys(raw) });
   }
 
-  console.log('[questions] Returning', normalizedQs.length, 'questions, first correctIndex:', normalizedQs[0]?.correctIndex);
+  console.log('[questions] Returning', normalizedQs.length, 'questions, first correctIndex:', normalizedQs[0]?.correctIndex, 'first explanation:', (normalizedQs[0]?.explanation as string)?.substring(0, 50) || '(empty)');
 
   return NextResponse.json({ success: true, data });
 }
