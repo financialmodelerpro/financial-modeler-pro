@@ -6,6 +6,7 @@ import { startTimer, getTimerStatus, type TimerStatus } from '@/src/lib/training
 import { CountdownTimer } from '@/src/components/training/CountdownTimer';
 import type { SessionProgress } from './types';
 import { StatusBadge } from './StatusBadge';
+import { FilePreviewModal } from './FilePreviewModal';
 
 export interface SessionCardProps {
   sessionTitle: string;
@@ -47,6 +48,7 @@ export function SessionCard({
   const [noteText, setNoteText] = useState(noteContent);
   const [sessionAttachments, setSessionAttachments] = useState<{ id: string; file_name: string; file_url: string; file_type: string; file_size: number }[]>([]);
   const [attachLoaded, setAttachLoaded] = useState(false);
+  const [previewFile, setPreviewFile] = useState<{ file_name: string; file_url: string; file_type: string; file_size: number } | null>(null);
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync incoming noteContent (loaded async)
@@ -229,37 +231,28 @@ export function SessionCard({
           {sessionAttachments.map(att => {
             const icon = att.file_type === 'pdf' ? '📄' : att.file_type === 'docx' ? '📝' : att.file_type === 'pptx' ? '📊' : att.file_type === 'xlsx' ? '📗' : '🖼️';
             const size = att.file_size ? `${(att.file_size / 1024).toFixed(0)} KB` : '';
-            const canPreview = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp'].includes(att.file_type);
             return (
-              <span key={att.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 0, borderRadius: 6, border: '1px solid #E5E7EB', background: '#F9FAFB', overflow: 'hidden', fontSize: 11 }}>
-                {/* Preview / open in new tab */}
-                <a href={att.file_url} target="_blank" rel="noopener noreferrer"
-                  title={canPreview ? 'Preview in new tab' : 'Open in new tab'}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', textDecoration: 'none', color: '#374151' }}>
-                  <span>{icon}</span>
-                  <span style={{ fontWeight: 600, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.file_name}</span>
-                  {size && <span style={{ color: '#9CA3AF', fontSize: 10 }}>{size}</span>}
-                </a>
-                {/* Download button */}
-                <a href={att.file_url} download={att.file_name}
-                  title="Download file"
-                  onClick={e => {
-                    e.preventDefault();
-                    const a = document.createElement('a');
-                    a.href = att.file_url;
-                    a.download = att.file_name;
-                    a.target = '_blank';
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                  }}
-                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '5px 8px', borderLeft: '1px solid #E5E7EB', color: '#1B4F8A', textDecoration: 'none', cursor: 'pointer' }}>
-                  ↓
-                </a>
-              </span>
+              <button key={att.id} onClick={() => setPreviewFile(att)}
+                title="View file"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 6, border: '1px solid #E5E7EB', background: '#F9FAFB', fontSize: 11, color: '#374151', cursor: 'pointer' }}>
+                <span>{icon}</span>
+                <span style={{ fontWeight: 600, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.file_name}</span>
+                {size && <span style={{ color: '#9CA3AF', fontSize: 10 }}>{size}</span>}
+              </button>
             );
           })}
         </div>
+      )}
+
+      {/* File preview modal */}
+      {previewFile && (
+        <FilePreviewModal
+          fileName={previewFile.file_name}
+          fileUrl={previewFile.file_url}
+          fileType={previewFile.file_type}
+          fileSize={previewFile.file_size}
+          onClose={() => setPreviewFile(null)}
+        />
       )}
 
       {/* Notes toggle */}
