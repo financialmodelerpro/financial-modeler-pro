@@ -283,7 +283,7 @@ export default function StudentsPage() {
           onClick={e => { if (e.target === e.currentTarget) { setProgressStudent(null); setProgress(null); } }}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
         >
-          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 700, maxHeight: '85vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
+          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 700, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
             {/* Modal header */}
             <div style={{ padding: '20px 24px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
               <div>
@@ -313,32 +313,46 @@ export default function StudentsPage() {
                 const bvmSessions = progress.sessions.filter(s => /^L/i.test(s.sessionId));
                 const hasBoth = sfmSessions.length > 0 && bvmSessions.length > 0;
 
-                const SessionTable = ({ sessions, label }: { sessions: SessionProgress[]; label?: string }) => (
-                  <div style={{ marginBottom: hasBoth ? 16 : 0 }}>
-                    {label && (
-                      <div style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: '#2563EB', padding: '5px 14px', borderRadius: '8px 8px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <span>{label}</span>
-                        <span style={{ fontWeight: 400 }}>{sessions.filter(s => s.passed).length} / {sessions.length} passed</span>
-                      </div>
-                    )}
-                    <div style={{ borderRadius: label ? '0 0 8px 8px' : 8, overflow: 'hidden', border: '1px solid #E5E7EB' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px 80px 1fr', background: '#1B4F8A', padding: '8px 14px', gap: 0 }}>
-                        {['Session', 'Score', 'Attempts', 'Status', 'Completed'].map(h => (
-                          <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
-                        ))}
-                      </div>
-                      {sessions.map(sess => (
-                        <div key={sess.sessionId} style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px 80px 1fr', padding: '9px 14px', borderBottom: '1px solid #F3F4F6', fontSize: 12, alignItems: 'center', background: sess.passed ? '#F0FDF4' : '#fff' }}>
-                          <div style={{ fontWeight: 700, color: '#1B3A6B' }}>{sess.sessionId}</div>
-                          <div style={{ color: '#374151' }}>{sess.score ?? '—'}</div>
-                          <div style={{ color: '#6B7280' }}>{sess.attempts ?? '—'}</div>
-                          <div>{sess.passed ? badge('Pass', '#166534', '#DCFCE7') : badge('Fail', '#DC2626', '#FEF2F2')}</div>
-                          <div style={{ color: '#9CA3AF', fontSize: 11 }}>{sess.completedAt ? new Date(sess.completedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</div>
+                const SessionTable = ({ sessions, label }: { sessions: SessionProgress[]; label?: string }) => {
+                  // Determine status for each session
+                  const getStatus = (s: SessionProgress) => {
+                    if (s.passed) return { text: 'Passed', color: '#166534', bg: '#DCFCE7' };
+                    if (s.score > 0 && s.attempts > 0) return { text: 'Failed', color: '#DC2626', bg: '#FEF2F2' };
+                    if (s.attempts > 0) return { text: 'Attempted', color: '#B45309', bg: '#FEF3C7' };
+                    return { text: 'Not Started', color: '#6B7280', bg: '#F3F4F6' };
+                  };
+                  const passedCount = sessions.filter(s => s.passed).length;
+                  return (
+                    <div style={{ marginBottom: hasBoth ? 16 : 0 }}>
+                      {label && (
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: '#2563EB', padding: '5px 14px', borderRadius: '8px 8px 0 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <span>{label}</span>
+                          <span style={{ fontWeight: 400 }}>{passedCount} / {sessions.length} passed</span>
                         </div>
-                      ))}
+                      )}
+                      <div style={{ borderRadius: label ? '0 0 8px 8px' : 8, overflow: 'hidden', border: '1px solid #E5E7EB' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px 80px 1fr', background: '#1B4F8A', padding: '8px 14px', gap: 0 }}>
+                          {['Session', 'Score', 'Attempts', 'Status', 'Completed'].map(h => (
+                            <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
+                          ))}
+                        </div>
+                        {sessions.map(sess => {
+                          const st = getStatus(sess);
+                          const scoreDisplay = sess.score != null && sess.score > 0 ? `${sess.score}%` : '—';
+                          return (
+                            <div key={sess.sessionId} style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px 80px 1fr', padding: '9px 14px', borderBottom: '1px solid #F3F4F6', fontSize: 12, alignItems: 'center', background: sess.passed ? '#F0FDF4' : '#fff' }}>
+                              <div style={{ fontWeight: 700, color: '#1B3A6B' }}>{sess.sessionId}</div>
+                              <div style={{ color: '#374151' }}>{scoreDisplay}</div>
+                              <div style={{ color: '#6B7280' }}>{sess.attempts ?? 0}</div>
+                              <div>{badge(st.text, st.color, st.bg)}</div>
+                              <div style={{ color: '#9CA3AF', fontSize: 11 }}>{sess.completedAt ? new Date(sess.completedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                );
+                  );
+                };
 
                 return (
                   <>
