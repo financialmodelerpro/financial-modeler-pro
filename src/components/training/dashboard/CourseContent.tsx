@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { COURSES } from '@/src/config/courses';
 import type { SessionProgress, Certificate, LiveLinksMap, CourseDescsMap } from './types';
@@ -47,6 +47,16 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
     try { return new Set(JSON.parse(sessionStorage.getItem('fmp_banners') || '[]')); } catch { return new Set(); }
   });
   const [copiedCert, setCopiedCert] = useState(false);
+
+  // Course-level attachments
+  const [courseAttachments, setCourseAttachments] = useState<{ id: string; file_name: string; file_url: string; file_type: string; file_size: number }[]>([]);
+  useEffect(() => {
+    const courseTk = `${(courseId === 'bvm' ? 'BVM' : '3SFM')}_COURSE`;
+    fetch(`/api/training/attachments?tabKey=${encodeURIComponent(courseTk)}`)
+      .then(r => r.json())
+      .then((d: { attachments?: typeof courseAttachments }) => setCourseAttachments(d.attachments ?? []))
+      .catch(() => {});
+  }, [courseId]);
 
   function dismissBanner(key: string) {
     setDismissedBanners(prev => {
@@ -212,6 +222,28 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
 
       {/* About This Course */}
       {desc && <AboutThisCourse desc={desc} course={course} />}
+
+      {/* Course-level materials */}
+      {courseAttachments.length > 0 && (
+        <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: '#1B4F8A', marginBottom: 8 }}>Course Materials</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+            {courseAttachments.map(att => {
+              const icon = att.file_type === 'pdf' ? '📄' : att.file_type === 'docx' ? '📝' : att.file_type === 'pptx' ? '📊' : att.file_type === 'xlsx' ? '📗' : '🖼️';
+              const size = att.file_size ? `${(att.file_size / 1024).toFixed(0)} KB` : '';
+              return (
+                <a key={att.id} href={att.file_url} target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 6, border: '1px solid #BFDBFE', background: '#fff', textDecoration: 'none', fontSize: 11, color: '#374151' }}>
+                  <span>{icon}</span>
+                  <span style={{ fontWeight: 600, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.file_name}</span>
+                  {size && <span style={{ color: '#9CA3AF', fontSize: 10 }}>{size}</span>}
+                  <span style={{ color: '#1B4F8A', fontWeight: 700 }}>↓</span>
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Session Cards */}
       <div style={{ marginBottom: 24 }}>

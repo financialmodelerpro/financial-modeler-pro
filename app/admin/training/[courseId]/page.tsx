@@ -764,6 +764,62 @@ export default function AdminCourseLessonsPage() {
         {/* ── LESSONS TAB ───────────────────────────────────────────────────── */}
         {activeTab === 'lessons' && (
           <>
+            {/* Course-level attachments */}
+            {(() => {
+              const courseCode = courseId?.toLowerCase() === 'bvm' ? 'bvm' : '3sfm';
+              const courseTk = `${courseCode.toUpperCase()}_COURSE`;
+              const courseAtts = attachments[courseTk] ?? [];
+              return (
+                <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 10, padding: '16px 20px', marginBottom: 16 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: '#1B3A6B' }}>Course Materials</div>
+                      <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>Files available to all students in this course</div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                      <button onClick={() => { if (!attachments[courseTk]) loadAttachments(courseTk); setAttachOpen(attachOpen === courseTk ? null : courseTk); }}
+                        style={{ fontSize: 12, color: '#6B7280', background: 'none', border: '1px solid #D1D5DB', borderRadius: 5, cursor: 'pointer', padding: '5px 12px', fontWeight: 600 }}>
+                        📎 {courseAtts.length ? `${courseAtts.length} files` : 'Manage'}
+                      </button>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: '#1B4F8A', cursor: 'pointer', padding: '5px 12px', border: '1px solid #C7D9F2', borderRadius: 5, background: '#EFF6FF' }}>
+                        {uploadingFor === courseTk ? 'Uploading...' : '+ Upload'}
+                        <input type="file" accept=".pdf,.docx,.pptx,.xlsx,.jpg,.jpeg,.png" style={{ display: 'none' }} disabled={uploadingFor === courseTk}
+                          onChange={e => { if (e.target.files?.[0]) uploadAttachment(courseTk, e.target.files[0]); e.target.value = ''; }} />
+                      </label>
+                    </div>
+                  </div>
+                  {attachOpen === courseTk && courseAtts.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                      {courseAtts.map(att => (
+                        <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', background: '#F9FAFB', borderRadius: 6, border: '1px solid #E5E7EB', opacity: att.is_visible ? 1 : 0.5 }}>
+                          <span style={{ fontSize: 16, flexShrink: 0 }}>
+                            {att.file_type === 'pdf' ? '📄' : att.file_type === 'docx' ? '📝' : att.file_type === 'pptx' ? '📊' : att.file_type === 'xlsx' ? '📗' : '🖼️'}
+                          </span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <a href={att.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, fontWeight: 600, color: '#1B4F8A', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {att.file_name}
+                            </a>
+                            <span style={{ fontSize: 10, color: '#9CA3AF' }}>{att.file_type.toUpperCase()} - {att.file_size ? `${(att.file_size / 1024).toFixed(0)} KB` : ''}</span>
+                          </div>
+                          <button onClick={() => toggleAttachmentVisibility(courseTk, att.id, !att.is_visible)}
+                            style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, border: '1px solid #D1D5DB', background: att.is_visible ? '#F0FFF4' : '#F9FAFB', color: att.is_visible ? '#15803D' : '#9CA3AF', cursor: 'pointer' }}>
+                            {att.is_visible ? 'Visible' : 'Hidden'}
+                          </button>
+                          <button onClick={() => deleteAttachment(courseTk, att.id)}
+                            style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer' }}>
+                            Delete
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {attachOpen === courseTk && courseAtts.length === 0 && (
+                    <div style={{ fontSize: 12, color: '#9CA3AF', padding: '8px 0' }}>No course-level materials yet. Click Upload to add files.</div>
+                  )}
+                </div>
+              );
+            })()}
+
             {loading ? (
               <div style={{ textAlign: 'center', padding: 60, color: '#6B7280' }}>Loading…</div>
             ) : (
