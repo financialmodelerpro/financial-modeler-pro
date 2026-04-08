@@ -14,27 +14,12 @@ import sharp from 'sharp';
 import {
   loadBadgeLayout,
   DEFAULT_BADGE_LAYOUT,
+  buildBadgeSvgOverlay,
   type BadgeLayout,
 } from '@/src/lib/training/certificateEngine';
 
 const SAMPLE_CERT_ID = 'FMP-3SFM-2026-0001';
 const SAMPLE_DATE    = '15 January 2026';
-
-function escapeXml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
-function svgAnchor(align?: string): string {
-  if (align === 'left')  return 'start';
-  if (align === 'right') return 'end';
-  return 'middle';
-}
-
-function svgTextX(align: string | undefined, x: number, bw: number): number {
-  if (align === 'left')  return x;
-  if (align === 'right') return bw - x;
-  return bw / 2 + x;
-}
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -79,34 +64,8 @@ export async function POST(req: NextRequest) {
       layout = await loadBadgeLayout();
     }
 
-    const { certificateId: cidField, issueDate: dateField } = layout;
-
-    // Build SVG text overlay
-    const svgParts: string[] = [];
-
-    if (cidField.visible) {
-      const cidY = bh - cidField.y;
-      svgParts.push(
-        `<text x="${svgTextX(cidField.textAlign, cidField.x, bw)}" y="${cidY}" text-anchor="${svgAnchor(cidField.textAlign)}"
-          font-family="${cidField.fontFamily ?? 'Arial'},Helvetica,sans-serif" font-size="${cidField.fontSize}" fill="${cidField.color}">
-          ${escapeXml(SAMPLE_CERT_ID)}
-        </text>`
-      );
-    }
-
-    if (dateField.visible) {
-      const dateY = bh - dateField.y;
-      svgParts.push(
-        `<text x="${svgTextX(dateField.textAlign, dateField.x, bw)}" y="${dateY}" text-anchor="${svgAnchor(dateField.textAlign)}"
-          font-family="${dateField.fontFamily ?? 'Arial'},Helvetica,sans-serif" font-size="${dateField.fontSize}" fill="${dateField.color}">
-          ${escapeXml(SAMPLE_DATE)}
-        </text>`
-      );
-    }
-
-    const svgOverlay = Buffer.from(
-      `<svg width="${bw}" height="${bh}" xmlns="http://www.w3.org/2000/svg">${svgParts.join('')}</svg>`
-    );
+    // Build SVG text overlay with embedded font (Vercel has no system fonts)
+    const svgOverlay = await buildBadgeSvgOverlay(bw, bh, layout, SAMPLE_CERT_ID, SAMPLE_DATE);
 
     // Composite overlay onto badge (SVG is full-size with absolute coords — use top-left gravity)
     const outBuffer = await sharp(badgeBytes)

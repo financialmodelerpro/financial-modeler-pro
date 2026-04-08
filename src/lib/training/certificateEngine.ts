@@ -264,6 +264,79 @@ export async function loadBadgeLayout(): Promise<BadgeLayout> {
   return DEFAULT_BADGE_LAYOUT;
 }
 
+// ── Font embedding for SVG (Vercel has no system fonts) ──────────────────────
+
+const GOOGLE_FONT_URL = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap';
+let _fontCache: string | null = null;
+
+/**
+ * Fetch Inter font from Google Fonts, convert to base64, return SVG <defs><style>
+ * block that embeds the font inline. Cached in memory after first call.
+ */
+export async function getSvgFontDefs(): Promise<string> {
+  if (_fontCache) return _fontCache;
+  try {
+    // Step 1: get CSS with actual font file URL (must send user-agent for woff/ttf)
+    const cssRes = await fetch(GOOGLE_FONT_URL, {
+      headers: { 'User-Agent': 'Mozilla/5.0' }, // Google Fonts returns woff2 for modern UA
+    });
+    const css = await cssRes.text();
+
+    // Step 2: extract font file URLs from the CSS
+    const urlMatches = css.match(/url\(([^)]+)\)/g);
+    if (!urlMatches?.length) {
+      _fontCache = '';
+      return '';
+    }
+
+    // Step 3: download first font file and convert to base64
+    const fontUrl = urlMatches[0].replace(/url\((['"]?)(.+?)\1\)/, '$2');
+    const fontRes = await fetch(fontUrl);
+    const fontBuf = Buffer.from(await fontRes.arrayBuffer());
+    const b64     = fontBuf.toString('base64');
+    const mime    = fontRes.headers.get('content-type') ?? 'font/woff2';
+
+    _fontCache = `<defs><style>@font-face { font-family: 'Inter'; src: url('data:${mime};base64,${b64}') format('woff2'); font-weight: 400; } @font-face { font-family: 'Inter'; src: url('data:${mime};base64,${b64}') format('woff2'); font-weight: 700; }</style></defs>`;
+    return _fontCache;
+  } catch {
+    _fontCache = '';
+    return '';
+  }
+}
+
+/**
+ * Build SVG text overlay for badge with embedded font.
+ * Returns complete SVG string ready for sharp composite.
+ */
+export async function buildBadgeSvgOverlay(
+  bw: number, bh: number,
+  layout: BadgeLayout,
+  certId: string, issueDate: string,
+): Promise<Buffer> {
+  const { certificateId: cidField, issueDate: dateField } = layout;
+  const fontDefs = await getSvgFontDefs();
+  const fontFamily = fontDefs ? "'Inter', sans-serif" : 'sans-serif';
+  const parts: string[] = [];
+
+  if (cidField.visible) {
+    const cidY = bh - cidField.y;
+    parts.push(
+      `<text x="${svgTextX(cidField.textAlign, cidField.x, bw)}" y="${cidY}" text-anchor="${svgAnchor(cidField.textAlign)}" font-family="${fontFamily}" font-size="${cidField.fontSize}" fill="${cidField.color}">${escapeXml(certId)}</text>`
+    );
+  }
+
+  if (dateField.visible) {
+    const dateY = bh - dateField.y;
+    parts.push(
+      `<text x="${svgTextX(dateField.textAlign, dateField.x, bw)}" y="${dateY}" text-anchor="${svgAnchor(dateField.textAlign)}" font-family="${fontFamily}" font-size="${dateField.fontSize}" fill="${dateField.color}">${escapeXml(issueDate)}</text>`
+    );
+  }
+
+  return Buffer.from(
+    `<svg width="${bw}" height="${bh}" xmlns="http://www.w3.org/2000/svg">${fontDefs}${parts.join('')}</svg>`
+  );
+}
+
 function svgAnchor(align?: string): string {
   if (align === 'left')  return 'start';
   if (align === 'right') return 'end';
@@ -303,36 +376,9 @@ export async function generateBadgePng(data: {
 
   // 2. Load badge layout from DB (or use override for previews)
   const layout = layoutOverride ?? await loadBadgeLayout();
-  const { certificateId: cidField, issueDate: dateField } = layout;
 
-  // 3. Build SVG text overlay
-  const svgParts: string[] = [];
-
-  // Certificate ID text
-  if (cidField.visible) {
-    const cidY = bh - cidField.y;
-    svgParts.push(
-      `<text x="${svgTextX(cidField.textAlign, cidField.x, bw)}" y="${cidY}" text-anchor="${svgAnchor(cidField.textAlign)}"
-        font-family="${cidField.fontFamily ?? 'Arial'},Helvetica,sans-serif" font-size="${cidField.fontSize}" fill="${cidField.color}">
-        ${escapeXml(data.certificateId)}
-      </text>`
-    );
-  }
-
-  // Issue Date text
-  if (dateField.visible) {
-    const dateY = bh - dateField.y;
-    svgParts.push(
-      `<text x="${svgTextX(dateField.textAlign, dateField.x, bw)}" y="${dateY}" text-anchor="${svgAnchor(dateField.textAlign)}"
-        font-family="${dateField.fontFamily ?? 'Arial'},Helvetica,sans-serif" font-size="${dateField.fontSize}" fill="${dateField.color}">
-        ${escapeXml(formatDate(data.issueDate))}
-      </text>`
-    );
-  }
-
-  const svgOverlay = Buffer.from(
-    `<svg width="${bw}" height="${bh}" xmlns="http://www.w3.org/2000/svg">${svgParts.join('')}</svg>`
-  );
+  // 3. Build SVG text overlay with embedded font
+  const svgOverlay = await buildBadgeSvgOverlay(bw, bh, layout, data.certificateId, formatDate(data.issueDate));
 
   // 4. Composite overlay onto badge (SVG is full-size with absolute coords — use top-left gravity)
   const outBuffer = await sharp(badgeBytes)
