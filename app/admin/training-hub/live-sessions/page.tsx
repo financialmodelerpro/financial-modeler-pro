@@ -335,7 +335,24 @@ export default function LiveSessionsPage() {
   const fetchSessions = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/live-sessions');
-      if (res.ok) { const j = await res.json(); setSessions(j.sessions ?? []); }
+      if (res.ok) {
+        const j = await res.json();
+        // Map DB fields → component fields
+        const mapped = (j.sessions ?? []).map((s: Record<string, unknown>) => ({
+          ...s,
+          type: ((s.session_type as string) ?? 'recorded').toUpperCase(),
+          published: s.is_published ?? false,
+          date: s.scheduled_datetime ? new Date(s.scheduled_datetime as string).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : undefined,
+          time: s.scheduled_datetime ? new Date(s.scheduled_datetime as string).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : undefined,
+          playlist_name: (s.live_playlists as Record<string, unknown> | null)?.name ?? undefined,
+          announcement_sent: s.notification_sent,
+          announcement_count: s.notification_sent_count,
+          announcement_date: s.notification_sent_at,
+          reminder_count: s.reminder_sent_count,
+          reminder_date: s.reminder_sent_at,
+        })) as LiveSession[];
+        setSessions(mapped);
+      }
     } catch { /* ignore */ }
   }, []);
 
@@ -806,25 +823,22 @@ export default function LiveSessionsPage() {
                     {pl.name} ({count})
                   </button>
                   <button
-                    title={pl.is_published ? 'Hide from students' : 'Show to students'}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, padding: '2px 4px', color: pl.is_published ? '#15803D' : '#9CA3AF' }}
                     onClick={async () => {
                       const next = !pl.is_published;
                       await fetch('/api/admin/live-playlists', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: pl.id, is_published: next }) });
                       setPlaylists(prev => prev.map(p => p.id === pl.id ? { ...p, is_published: next } : p));
                       toast(next ? 'Playlist visible' : 'Playlist hidden');
                     }}
-                  >{pl.is_published ? '👁' : '👁‍🗨'}</button>
+                    style={{ background: 'none', border: '1px solid #D1D5DB', borderRadius: 4, cursor: 'pointer', fontSize: 10, padding: '2px 8px', color: pl.is_published ? '#15803D' : '#9CA3AF' }}
+                  >{pl.is_published ? 'Hide' : 'Show'}</button>
                   <button
-                    title="Edit playlist"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, padding: 2 }}
                     onClick={() => { setEditingPlaylist(pl); setEditPlaylistName(pl.name); }}
-                  >&#9998;</button>
+                    style={{ background: 'none', border: '1px solid #D1D5DB', borderRadius: 4, cursor: 'pointer', fontSize: 10, padding: '2px 8px', color: '#374151' }}
+                  >Edit</button>
                   <button
-                    title="Delete playlist"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, padding: 2 }}
                     onClick={() => deletePlaylist(pl)}
-                  >&#128465;</button>
+                    style={{ background: 'none', border: '1px solid #FECACA', borderRadius: 4, cursor: 'pointer', fontSize: 10, padding: '2px 8px', color: '#DC2626' }}
+                  >Delete</button>
                 </div>
               );
             })}
@@ -921,9 +935,16 @@ export default function LiveSessionsPage() {
                       </td>
                       <td style={{ padding: '10px 10px' }}>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          <a href={`/training/live-sessions/${s.id}`} target="_blank" rel="noopener noreferrer"
+                            style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11, textDecoration: 'none', display: 'inline-block' }}>Preview</a>
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => openEditSession(s)}>Edit</button>
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => duplicateSession(s)}>Duplicate</button>
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => sendNotify(s, 'announcement')}>Notify</button>
+                          <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => {
+                            const next = !s.published;
+                            fetch(`/api/admin/live-sessions/${s.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_published: next }) })
+                              .then(() => { toast(next ? 'Published' : 'Hidden'); fetchSessions(); });
+                          }}>{s.published ? 'Hide' : 'Show'}</button>
                           <button style={{ ...btnDanger, padding: '4px 10px', fontSize: 11 }} onClick={() => deleteSession(s)}>Delete</button>
                         </div>
                       </td>
