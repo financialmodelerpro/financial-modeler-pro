@@ -263,32 +263,38 @@ export async function loadBadgeLayout(): Promise<BadgeLayout> {
   return DEFAULT_BADGE_LAYOUT;
 }
 
-// ── Badge text rendering (sharp create + composite) ──────────────────────────
-// Instead of SVG text (which requires system fonts that Vercel may lack),
-// we render each text line as a standalone SVG-to-PNG via sharp, then
-// composite those small PNGs onto the badge. Each SVG is tiny (<1KB)
-// and uses a minimal inline font declaration.
+// ── Badge text rendering ─────────────────────────────────────────────────────
+// Uses sharp's built-in Pango text rendering (sharp v0.33+).
+// Creates each text line as a separate RGBA PNG via sharp({ text: ... }),
+// then composites them onto the badge at pixel coordinates.
+// This works on all environments including Vercel — no system fonts needed,
+// sharp bundles its own fontconfig + liberation fonts.
 
-function renderTextToPng(
+function escPango(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+async function renderTextLine(
   text: string,
   fontSize: number,
   color: string,
-  maxWidth: number,
-): Promise<Buffer> {
-  // Estimate text width: ~0.6 * fontSize per character
-  const estWidth  = Math.max(maxWidth, Math.ceil(text.length * fontSize * 0.65));
-  const estHeight = Math.ceil(fontSize * 1.5);
-  const svg = `<svg width="${estWidth}" height="${estHeight}" xmlns="http://www.w3.org/2000/svg">
-    <text x="50%" y="${fontSize}" text-anchor="middle" dominant-baseline="auto"
-      font-size="${fontSize}" fill="${color}"
-      font-family="sans-serif">${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</text>
-  </svg>`;
-  return sharp(Buffer.from(svg)).png().toBuffer();
+): Promise<{ buf: Buffer; w: number; h: number }> {
+  // Pango size is in 1/1024ths of a point. fontSize 14 → 14 * 1024 = 14336
+  const pangoSize = Math.round(fontSize * 1024);
+  const buf = await sharp({
+    text: {
+      text: `<span foreground="${color}" size="${pangoSize}">${escPango(text)}</span>`,
+      rgba: true,
+      dpi: 150,
+    },
+  }).png().toBuffer();
+  const info = await sharp(buf).metadata();
+  return { buf, w: info.width ?? 100, h: info.height ?? 20 };
 }
 
 /**
- * Render badge with text overlays. Works on any environment (no system fonts needed).
- * Each text field is rendered as a separate tiny SVG→PNG, then composited onto the badge.
+ * Render badge with text overlays using sharp Pango text.
+ * Each text field is rendered as a separate RGBA PNG then composited at pixel coords.
  */
 export async function renderBadgeWithText(
   badgeBytes: Buffer,
@@ -302,41 +308,24 @@ export async function renderBadgeWithText(
 
   const composites: sharp.OverlayOptions[] = [];
 
-  // Certificate ID
   if (layout.certificateId.visible && certId) {
-    const f    = layout.certificateId;
-    const png  = await renderTextToPng(certId, f.fontSize, f.color, bw);
-    const info = await sharp(png).metadata();
-    const tw   = info.width ?? bw;
-    // Calculate left position based on alignment
+    const f = layout.certificateId;
+    const { buf, w, h } = await renderTextLine(certId, f.fontSize, f.color);
     let left: number;
     if (f.textAlign === 'left')       left = f.x;
-    else if (f.textAlign === 'right') left = bw - tw - f.x;
-    else                              left = Math.round((bw - tw) / 2) + f.x;
-
-    composites.push({
-      input: png,
-      left:  Math.max(0, left),
-      top:   Math.max(0, bh - f.y - (info.height ?? f.fontSize)),
-    });
+    else if (f.textAlign === 'right') left = bw - w - f.x;
+    else                              left = Math.round((bw - w) / 2) + f.x;
+    composites.push({ input: buf, left: Math.max(0, left), top: Math.max(0, bh - f.y - h) });
   }
 
-  // Issue Date
   if (layout.issueDate.visible && issueDate) {
-    const f    = layout.issueDate;
-    const png  = await renderTextToPng(issueDate, f.fontSize, f.color, bw);
-    const info = await sharp(png).metadata();
-    const tw   = info.width ?? bw;
+    const f = layout.issueDate;
+    const { buf, w, h } = await renderTextLine(issueDate, f.fontSize, f.color);
     let left: number;
     if (f.textAlign === 'left')       left = f.x;
-    else if (f.textAlign === 'right') left = bw - tw - f.x;
-    else                              left = Math.round((bw - tw) / 2) + f.x;
-
-    composites.push({
-      input: png,
-      left:  Math.max(0, left),
-      top:   Math.max(0, bh - f.y - (info.height ?? f.fontSize)),
-    });
+    else if (f.textAlign === 'right') left = bw - w - f.x;
+    else                              left = Math.round((bw - w) / 2) + f.x;
+    composites.push({ input: buf, left: Math.max(0, left), top: Math.max(0, bh - f.y - h) });
   }
 
   if (composites.length === 0) return badgeBytes;
