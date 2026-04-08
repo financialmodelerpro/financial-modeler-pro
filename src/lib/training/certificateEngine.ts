@@ -279,16 +279,19 @@ async function renderTextLine(
   fontSize: number,
   color: string,
 ): Promise<{ buf: Buffer; w: number; h: number }> {
-  // Pango size is in 1/1024ths of a point. fontSize 14 → 14 * 1024 = 14336
-  const pangoSize = Math.round(fontSize * 1024);
+  // Scale fontSize to match badge pixel space.
+  // At dpi:72, 1pt ≈ 1px. Badge editor fontSize 14 means 14px on the badge.
+  // Use 2.5x multiplier so editor fontSize 14 → renders ~35px high (visible on 578px badge).
+  const renderSize = Math.round(fontSize * 2.5);
+  const pangoSize  = renderSize * 1024;
   const markup = `<span foreground="${color}" size="${pangoSize}">${escPango(text)}</span>`;
-  console.log('[badge] renderTextLine:', { text, fontSize, color, pangoSize, markupLen: markup.length });
+  console.log('[badge] renderTextLine:', { text, fontSize, renderSize, pangoSize });
   try {
     const buf = await sharp({
       text: {
         text: markup,
         rgba: true,
-        dpi: 150,
+        dpi: 72,
       },
     }).png().toBuffer();
     const info = await sharp(buf).metadata();
