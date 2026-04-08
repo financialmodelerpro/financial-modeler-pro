@@ -9,6 +9,7 @@ import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 interface Playlist {
   id: string;
   name: string;
+  is_published: boolean;
   session_count?: number;
 }
 
@@ -804,6 +805,16 @@ export default function LiveSessionsPage() {
                   >
                     {pl.name} ({count})
                   </button>
+                  <button
+                    title={pl.is_published ? 'Hide from students' : 'Show to students'}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, padding: '2px 4px', color: pl.is_published ? '#15803D' : '#9CA3AF' }}
+                    onClick={async () => {
+                      const next = !pl.is_published;
+                      await fetch('/api/admin/live-playlists', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: pl.id, is_published: next }) });
+                      setPlaylists(prev => prev.map(p => p.id === pl.id ? { ...p, is_published: next } : p));
+                      toast(next ? 'Playlist visible' : 'Playlist hidden');
+                    }}
+                  >{pl.is_published ? '👁' : '👁‍🗨'}</button>
                   <button
                     title="Edit playlist"
                     style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, padding: 2 }}
