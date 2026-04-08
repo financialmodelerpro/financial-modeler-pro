@@ -18,8 +18,9 @@ export async function POST(
   }
 
   const { id } = await params;
-  const body = await req.json() as { type?: 'announcement' | 'reminder' };
+  const body = await req.json() as { type?: 'announcement' | 'reminder'; target?: 'all' | '3sfm' | 'bvm'; preview?: boolean };
   const type = body.type ?? 'announcement';
+  const target = body.target ?? 'all';
 
   const sb = getServerClient();
 
@@ -36,9 +37,16 @@ export async function POST(
     return NextResponse.json({ error: 'Could not fetch student list', sent: 0, failed: 0 }, { status: 500 });
   }
 
-  const students = studentsResult.data
-    .filter(s => s.email)
-    .map(s => ({ name: s.name || s.registrationId, email: s.email }));
+  let filteredStudents = studentsResult.data.filter(s => s.email);
+  if (target === '3sfm') filteredStudents = filteredStudents.filter(s => (s.course ?? '').toUpperCase().includes('3SFM'));
+  if (target === 'bvm') filteredStudents = filteredStudents.filter(s => (s.course ?? '').toUpperCase().includes('BVM'));
+
+  // Preview mode — send only to admin
+  if (body.preview) {
+    filteredStudents = [{ name: 'Admin Preview', email: 'meetahmadch@gmail.com', registrationId: 'PREVIEW', course: '', registeredAt: '' }];
+  }
+
+  const students = filteredStudents.map(s => ({ name: s.name || s.registrationId, email: s.email }));
 
   // Format date/time
   const dt = liveSession.scheduled_datetime ? new Date(liveSession.scheduled_datetime) : null;

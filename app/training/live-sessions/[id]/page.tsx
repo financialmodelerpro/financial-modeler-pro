@@ -11,6 +11,9 @@ interface Session {
   id: string; title: string; description: string; youtube_url: string; live_url: string;
   session_type: string; scheduled_datetime: string; timezone: string; category: string;
   playlist: { id: string; name: string } | null; attachments: Attachment[];
+  banner_url: string | null; duration_minutes: number | null; max_attendees: number | null;
+  difficulty_level: string; prerequisites: string; instructor_name: string; tags: string[];
+  is_featured: boolean; live_password: string;
 }
 
 function extractYouTubeId(url: string): string | null {
@@ -37,6 +40,7 @@ export default function LiveSessionDetailPage() {
   const [copied, setCopied] = useState(false);
   const [previewFile, setPreviewFile] = useState<Attachment | null>(null);
   const [countdown, setCountdown] = useState('');
+  const localTz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
 
   useEffect(() => {
     const sess = getTrainingSession();
@@ -104,8 +108,15 @@ export default function LiveSessionDetailPage() {
         <span style={{ fontSize: 13, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{session.title}</span>
       </nav>
 
+      {/* Banner hero */}
+      {session.banner_url && (
+        <div style={{ maxWidth: 900, margin: '0 auto' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={session.banner_url} alt={session.title} style={{ width: '100%', height: 300, objectFit: 'cover', borderRadius: '0 0 12px 12px' }} />
+        </div>
+      )}
+
       <div style={{ maxWidth: 900, margin: '0 auto', padding: '32px 24px 64px' }}>
-        {/* Breadcrumb */}
         <Link href="/training/live-sessions" style={{ fontSize: 13, color: '#6B7280', textDecoration: 'none', marginBottom: 16, display: 'inline-block' }}>
           &larr; Back to Live Sessions
         </Link>
@@ -117,15 +128,38 @@ export default function LiveSessionDetailPage() {
             color: session.session_type === 'live' ? '#DC2626' : isUpcoming ? '#1D4ED8' : '#6B7280' }}>
             {session.session_type === 'live' ? 'LIVE NOW' : isUpcoming ? 'UPCOMING' : 'RECORDED'}
           </span>
+          {session.difficulty_level && session.difficulty_level !== 'All Levels' && (
+            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: '#F3F4F6', color: '#6B7280' }}>{session.difficulty_level}</span>
+          )}
           {session.category && <span style={{ fontSize: 11, fontWeight: 600, color: '#6B7280' }}>{session.category}</span>}
           {session.playlist && <span style={{ fontSize: 11, color: '#9CA3AF' }}>{session.playlist.name}</span>}
+          {session.is_featured && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 12, background: '#FEF3C7', color: '#B45309' }}>FEATURED</span>}
         </div>
 
         <h1 style={{ fontSize: 28, fontWeight: 800, color: NAVY, marginBottom: 8, lineHeight: 1.3 }}>{session.title}</h1>
+        {session.instructor_name && <div style={{ fontSize: 14, color: '#6B7280', marginBottom: 8 }}>{session.instructor_name}</div>}
 
         {session.scheduled_datetime && (
-          <div style={{ fontSize: 14, color: '#374151', marginBottom: 16 }}>
-            {fmtDate(session.scheduled_datetime)} at {fmtTime(session.scheduled_datetime)} ({session.timezone})
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 14, color: '#374151' }}>
+              {fmtDate(session.scheduled_datetime)} at {fmtTime(session.scheduled_datetime)} ({session.timezone})
+            </div>
+            {localTz && localTz !== session.timezone && (
+              <div style={{ fontSize: 13, color: '#1B4F8A', marginTop: 2 }}>
+                Your local time: {new Date(session.scheduled_datetime).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: localTz })} ({localTz})
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Meta info */}
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
+          {session.duration_minutes && <span style={{ fontSize: 13, color: '#6B7280' }}>{session.duration_minutes} min</span>}
+          {session.max_attendees && <span style={{ fontSize: 13, color: '#6B7280' }}>Limited to {session.max_attendees} seats</span>}
+        </div>
+        {session.tags?.length > 0 && (
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 16 }}>
+            {session.tags.map(t => <span key={t} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: '#EFF6FF', color: '#1B4F8A', fontWeight: 600 }}>{t}</span>)}
           </div>
         )}
 
@@ -171,6 +205,22 @@ export default function LiveSessionDetailPage() {
             {copied ? 'Copied!' : 'Copy Link'}
           </button>
         </div>
+
+        {/* Session password for logged-in students */}
+        {session.live_password && isUpcoming && (
+          <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#92400E' }}>Session Password: </span>
+            <span style={{ fontSize: 13, fontFamily: 'monospace', color: '#B45309' }}>{session.live_password}</span>
+          </div>
+        )}
+
+        {/* Prerequisites */}
+        {session.prerequisites && (
+          <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: '#92400E' }}>Prerequisites: </span>
+            <span style={{ fontSize: 13, color: '#374151' }}>{session.prerequisites}</span>
+          </div>
+        )}
 
         {/* Description */}
         {session.description && (

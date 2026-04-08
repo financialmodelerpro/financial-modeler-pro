@@ -10,6 +10,8 @@ interface Session {
   id: string; title: string; description: string; youtube_url: string; live_url: string;
   session_type: string; scheduled_datetime: string; timezone: string; category: string;
   playlist: { id: string; name: string } | null; attachments: Attachment[];
+  banner_url: string | null; duration_minutes: number | null; max_attendees: number | null;
+  difficulty_level: string; instructor_name: string; tags: string[]; is_featured: boolean;
 }
 
 function extractYouTubeId(url: string): string | null {
@@ -69,6 +71,11 @@ export default function LiveSessionsPage() {
 
   const upcoming = sessions.filter(s => s.session_type === 'upcoming' || s.session_type === 'live');
   const recorded = sessions.filter(s => s.session_type === 'recorded');
+  const localTz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
+
+  function localTime(iso: string): string {
+    try { return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: localTz || undefined }); } catch { return ''; }
+  }
 
   // Group recordings by playlist
   const groupedRecordings: Record<string, Session[]> = {};
@@ -119,17 +126,42 @@ export default function LiveSessionsPage() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
               {upcoming.map(s => (
-                <div key={s.id} style={{ background: '#fff', borderRadius: 12, border: `1.5px solid ${s.session_type === 'live' ? '#DC2626' : '#3B82F6'}`, padding: 24, boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                <div key={s.id} style={{ background: '#fff', borderRadius: 12, border: `1.5px solid ${s.session_type === 'live' ? '#DC2626' : '#3B82F6'}`, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+                  {/* Banner */}
+                  {s.banner_url && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={s.banner_url} alt={s.title} style={{ width: '100%', height: 200, objectFit: 'cover' }} />
+                  )}
+                  <div style={{ padding: 24 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: s.session_type === 'live' ? '#FEF2F2' : '#EFF6FF', color: s.session_type === 'live' ? '#DC2626' : '#1D4ED8' }}>
                       {s.session_type === 'live' ? 'LIVE NOW' : 'UPCOMING'}
                     </span>
+                    {s.difficulty_level && s.difficulty_level !== 'All Levels' && (
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: '#F3F4F6', color: '#6B7280' }}>{s.difficulty_level}</span>
+                    )}
                     {s.category && <span style={{ fontSize: 11, fontWeight: 600, color: '#6B7280' }}>{s.category}</span>}
+                    {s.is_featured && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 12, background: '#FEF3C7', color: '#B45309' }}>FEATURED</span>}
                   </div>
                   <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 8px' }}>{s.title}</h2>
+                  {s.instructor_name && <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 6 }}>{s.instructor_name}</div>}
                   {s.scheduled_datetime && (
-                    <div style={{ fontSize: 13, color: '#374151', marginBottom: 8 }}>
-                      {fmtDate(s.scheduled_datetime)} at {fmtTime(s.scheduled_datetime)} ({s.timezone})
+                    <div style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 13, color: '#374151' }}>
+                        {fmtDate(s.scheduled_datetime)} at {fmtTime(s.scheduled_datetime)} ({s.timezone})
+                      </div>
+                      {localTz && localTz !== s.timezone && (
+                        <div style={{ fontSize: 12, color: '#1B4F8A', marginTop: 2 }}>Your local time: {localTime(s.scheduled_datetime)} ({localTz})</div>
+                      )}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                    {s.duration_minutes && <span style={{ fontSize: 11, color: '#6B7280' }}>{s.duration_minutes} min</span>}
+                    {s.max_attendees && <span style={{ fontSize: 11, color: '#6B7280' }}>Limited to {s.max_attendees} seats</span>}
+                  </div>
+                  {s.tags?.length > 0 && (
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12 }}>
+                      {s.tags.map(t => <span key={t} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: '#EFF6FF', color: '#1B4F8A', fontWeight: 600 }}>{t}</span>)}
                     </div>
                   )}
                   {s.description && <p style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.6, marginBottom: 16 }}>{s.description}</p>}
@@ -163,6 +195,7 @@ export default function LiveSessionsPage() {
                       </>
                     )}
                   </div>
+                  </div>
                 </div>
               ))}
             </div>
@@ -187,16 +220,26 @@ export default function LiveSessionsPage() {
                       return (
                         <Link key={s.id} href={`/training/live-sessions/${s.id}`} style={{ textDecoration: 'none' }}>
                           <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.04)', cursor: 'pointer' }}>
-                            {ytId && (
+                            {/* Banner or YouTube thumbnail */}
+                            {(s.banner_url || ytId) && (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img src={`https://img.youtube.com/vi/${ytId}/mqdefault.jpg`} alt={s.title}
+                              <img src={s.banner_url || `https://img.youtube.com/vi/${ytId}/mqdefault.jpg`} alt={s.title}
                                 style={{ width: '100%', height: 160, objectFit: 'cover' }} />
                             )}
                             <div style={{ padding: '14px 16px' }}>
-                              {s.category && <div style={{ fontSize: 10, fontWeight: 700, color: '#1B4F8A', marginBottom: 4 }}>{s.category}</div>}
+                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>
+                                {s.category && <span style={{ fontSize: 10, fontWeight: 700, color: '#1B4F8A' }}>{s.category}</span>}
+                                {s.difficulty_level && s.difficulty_level !== 'All Levels' && (
+                                  <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 8, background: '#F3F4F6', color: '#6B7280' }}>{s.difficulty_level}</span>
+                                )}
+                              </div>
                               <div style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 4, lineHeight: 1.3 }}>{s.title}</div>
+                              {s.instructor_name && <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 2 }}>{s.instructor_name}</div>}
                               {s.scheduled_datetime && <div style={{ fontSize: 11, color: '#9CA3AF' }}>{fmtDate(s.scheduled_datetime)}</div>}
-                              {s.attachments.length > 0 && <div style={{ fontSize: 10, color: '#6B7280', marginTop: 6 }}>📎 {s.attachments.length} file{s.attachments.length > 1 ? 's' : ''}</div>}
+                              <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                                {s.duration_minutes && <span style={{ fontSize: 10, color: '#6B7280' }}>{s.duration_minutes} min</span>}
+                                {s.attachments.length > 0 && <span style={{ fontSize: 10, color: '#6B7280' }}>📎 {s.attachments.length}</span>}
+                              </div>
                             </div>
                           </div>
                         </Link>

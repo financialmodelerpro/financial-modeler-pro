@@ -16,6 +16,25 @@ export async function GET() {
   return NextResponse.json({ sessions: data ?? [] });
 }
 
+/** PUT — upload banner image */
+export async function PUT(req: NextRequest) {
+  if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  try {
+    const form = await req.formData();
+    const file = form.get('file') as File | null;
+    const sessionId = (form.get('sessionId') as string ?? '').trim();
+    if (!file || !sessionId) return NextResponse.json({ error: 'file and sessionId required' }, { status: 400 });
+    const sb = getServerClient();
+    const ext = file.name.split('.').pop()?.toLowerCase() ?? 'jpg';
+    const path = `banners/${sessionId}.${ext}`;
+    const bytes = Buffer.from(await file.arrayBuffer());
+    await sb.storage.from('live-session-banners').upload(path, bytes, { contentType: file.type, upsert: true });
+    const { data: { publicUrl } } = sb.storage.from('live-session-banners').getPublicUrl(path);
+    await sb.from('live_sessions').update({ banner_url: publicUrl, updated_at: new Date().toISOString() }).eq('id', sessionId);
+    return NextResponse.json({ success: true, url: publicUrl });
+  } catch (e) { return NextResponse.json({ error: String(e) }, { status: 500 }); }
+}
+
 /** POST — create session */
 export async function POST(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -33,6 +52,15 @@ export async function POST(req: NextRequest) {
     playlist_id:        body.playlist_id || null,
     is_published:       body.is_published ?? false,
     display_order:      body.display_order ?? 0,
+    banner_url:         body.banner_url ?? null,
+    duration_minutes:   body.duration_minutes ?? null,
+    max_attendees:      body.max_attendees ?? null,
+    difficulty_level:   body.difficulty_level ?? 'All Levels',
+    prerequisites:      body.prerequisites ?? '',
+    instructor_name:    body.instructor_name ?? 'Ahmad Din',
+    tags:               body.tags ?? [],
+    is_featured:        body.is_featured ?? false,
+    live_password:      body.live_password ?? '',
   }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ session: data });

@@ -33,6 +33,15 @@ interface LiveSession {
   reminder_count?: number;
   reminder_date?: string;
   created_at?: string;
+  banner_url?: string;
+  duration_minutes?: number;
+  max_attendees?: number;
+  difficulty_level?: string;
+  prerequisites?: string;
+  instructor_name?: string;
+  tags?: string[];
+  is_featured?: boolean;
+  live_password?: string;
 }
 
 interface Attachment {
@@ -51,11 +60,42 @@ const BORDER = '#E5E7EB';
 const LIGHT_BG = '#F5F7FA';
 
 const TIMEZONES = [
-  { value: 'Asia/Riyadh', label: 'Asia/Riyadh (AST)' },
-  { value: 'UTC', label: 'UTC' },
-  { value: 'America/New_York', label: 'America/New_York (ET)' },
-  { value: 'Europe/London', label: 'Europe/London (GMT/BST)' },
+  { value: 'Pacific/Baker', label: 'UTC-12:00 - Baker Island' },
+  { value: 'Pacific/Pago_Pago', label: 'UTC-11:00 - Samoa' },
+  { value: 'Pacific/Honolulu', label: 'UTC-10:00 - Hawaii' },
+  { value: 'America/Anchorage', label: 'UTC-09:00 - Alaska' },
+  { value: 'America/Los_Angeles', label: 'UTC-08:00 - Pacific Time (US)' },
+  { value: 'America/Denver', label: 'UTC-07:00 - Mountain Time (US)' },
+  { value: 'America/Chicago', label: 'UTC-06:00 - Central Time (US)' },
+  { value: 'America/New_York', label: 'UTC-05:00 - Eastern Time (US)' },
+  { value: 'America/Halifax', label: 'UTC-04:00 - Atlantic' },
+  { value: 'America/Sao_Paulo', label: 'UTC-03:00 - Brazil' },
+  { value: 'Atlantic/South_Georgia', label: 'UTC-02:00 - South Georgia' },
+  { value: 'Atlantic/Azores', label: 'UTC-01:00 - Azores' },
+  { value: 'Europe/London', label: 'UTC+00:00 - London (GMT)' },
+  { value: 'Europe/Paris', label: 'UTC+01:00 - Central European' },
+  { value: 'Africa/Cairo', label: 'UTC+02:00 - Eastern European' },
+  { value: 'Asia/Riyadh', label: 'UTC+03:00 - Arabian Standard' },
+  { value: 'Asia/Tehran', label: 'UTC+03:30 - Iran' },
+  { value: 'Asia/Dubai', label: 'UTC+04:00 - Gulf' },
+  { value: 'Asia/Kabul', label: 'UTC+04:30 - Afghanistan' },
+  { value: 'Asia/Karachi', label: 'UTC+05:00 - Pakistan' },
+  { value: 'Asia/Kolkata', label: 'UTC+05:30 - India' },
+  { value: 'Asia/Kathmandu', label: 'UTC+05:45 - Nepal' },
+  { value: 'Asia/Dhaka', label: 'UTC+06:00 - Bangladesh' },
+  { value: 'Asia/Yangon', label: 'UTC+06:30 - Myanmar' },
+  { value: 'Asia/Bangkok', label: 'UTC+07:00 - Indochina' },
+  { value: 'Asia/Singapore', label: 'UTC+08:00 - Singapore' },
+  { value: 'Asia/Tokyo', label: 'UTC+09:00 - Japan' },
+  { value: 'Australia/Darwin', label: 'UTC+09:30 - Central Australia' },
+  { value: 'Australia/Sydney', label: 'UTC+10:00 - Eastern Australia' },
+  { value: 'Pacific/Guadalcanal', label: 'UTC+11:00 - Solomon Islands' },
+  { value: 'Pacific/Auckland', label: 'UTC+12:00 - New Zealand' },
+  { value: 'Pacific/Apia', label: 'UTC+13:00 - Samoa' },
+  { value: 'Pacific/Kiritimati', label: 'UTC+14:00 - Line Islands' },
 ];
+
+const DIFFICULTY_LEVELS = ['All Levels', 'Beginner', 'Intermediate', 'Advanced'];
 
 const TYPE_BADGE: Record<string, { bg: string; color: string; label: string }> = {
   LIVE:      { bg: '#FEE2E2', color: '#DC2626', label: 'Live' },
@@ -119,6 +159,115 @@ function useToast() {
   return { show, el };
 }
 
+/* ── Toggle Switch ────────────────────────────────────────────── */
+
+function ToggleSwitch({ value, onChange, label }: { value: boolean; onChange: (v: boolean) => void; label?: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      {label && <label style={{ ...labelStyle, marginBottom: 0 }}>{label}</label>}
+      <button
+        type="button"
+        onClick={() => onChange(!value)}
+        style={{
+          width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
+          background: value ? GREEN : '#D1D5DB',
+          position: 'relative', transition: 'background 0.2s',
+        }}
+      >
+        <span style={{
+          position: 'absolute', top: 3, left: value ? 23 : 3,
+          width: 18, height: 18, borderRadius: '50%', background: '#fff',
+          transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+        }} />
+      </button>
+    </div>
+  );
+}
+
+/* ── Tag Input ────────────────────────────────────────────────── */
+
+function TagInput({ tags, onChange }: { tags: string[]; onChange: (t: string[]) => void }) {
+  const [input, setInput] = useState('');
+
+  const addTag = () => {
+    const trimmed = input.trim();
+    if (trimmed && !tags.includes(trimmed)) {
+      onChange([...tags, trimmed]);
+    }
+    setInput('');
+  };
+
+  const removeTag = (tag: string) => {
+    onChange(tags.filter(t => t !== tag));
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: tags.length > 0 ? 8 : 0 }}>
+        {tags.map(tag => (
+          <span key={tag} style={{
+            display: 'inline-flex', alignItems: 'center', gap: 4,
+            background: '#EFF6FF', color: BLUE, fontSize: 11, fontWeight: 600,
+            padding: '3px 10px', borderRadius: 20, border: '1px solid #BFDBFE',
+          }}>
+            {tag}
+            <button
+              type="button"
+              onClick={() => removeTag(tag)}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: '#6B7280', fontSize: 13, padding: 0, lineHeight: 1,
+              }}
+            >x</button>
+          </span>
+        ))}
+      </div>
+      <input
+        style={inputStyle}
+        value={input}
+        onChange={e => setInput(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter') { e.preventDefault(); addTag(); }
+        }}
+        placeholder="Type a tag and press Enter"
+      />
+    </div>
+  );
+}
+
+/* ── Form state type ──────────────────────────────────────────── */
+
+interface FormState {
+  title: string;
+  description: string;
+  category: string;
+  playlist_id: string;
+  type: 'UPCOMING' | 'LIVE' | 'RECORDED';
+  date: string;
+  time: string;
+  timezone: string;
+  live_url: string;
+  youtube_url: string;
+  published: boolean;
+  duration_minutes: string;
+  max_attendees: string;
+  difficulty_level: string;
+  prerequisites: string;
+  instructor_name: string;
+  tags: string[];
+  is_featured: boolean;
+  live_password: string;
+}
+
+const defaultForm: FormState = {
+  title: '', description: '', category: '', playlist_id: '',
+  type: 'UPCOMING', date: '', time: '', timezone: 'Asia/Riyadh',
+  live_url: '', youtube_url: '', published: false,
+  duration_minutes: '', max_attendees: '', difficulty_level: 'All Levels',
+  prerequisites: '', instructor_name: 'Ahmad Din', tags: [],
+  is_featured: false, live_password: '',
+};
+
 /* ── Component ─────────────────────────────────────────────────── */
 
 export default function LiveSessionsPage() {
@@ -126,6 +275,7 @@ export default function LiveSessionsPage() {
   const router = useRouter();
   const { show: toast, el: toastEl } = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
+  const bannerRef = useRef<HTMLInputElement>(null);
 
   /* ── Data state ── */
   const [sessions, setSessions] = useState<LiveSession[]>([]);
@@ -140,16 +290,32 @@ export default function LiveSessionsPage() {
   const [editPlaylistName, setEditPlaylistName] = useState('');
   const [creatingPlaylist, setCreatingPlaylist] = useState(false);
 
+  /* ── Filter state ── */
+  const [filterType, setFilterType] = useState<'ALL' | 'UPCOMING' | 'LIVE' | 'RECORDED'>('ALL');
+  const [filterPlaylist, setFilterPlaylist] = useState<string>('');
+  const [filterStatus, setFilterStatus] = useState<'ALL' | 'PUBLISHED' | 'DRAFT'>('ALL');
+
   /* ── Editor state ── */
   const [editorOpen, setEditorOpen] = useState(false);
   const [editSession, setEditSession] = useState<LiveSession | null>(null);
-  const [form, setForm] = useState({
-    title: '', description: '', category: '', playlist_id: '',
-    type: 'UPCOMING' as 'UPCOMING' | 'LIVE' | 'RECORDED',
-    date: '', time: '', timezone: 'Asia/Riyadh',
-    live_url: '', youtube_url: '', published: false,
-  });
+  const [form, setForm] = useState<FormState>({ ...defaultForm });
   const [saving, setSaving] = useState(false);
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
+  const [uploadingBanner, setUploadingBanner] = useState(false);
+
+  /* ── Inline playlist creation in editor ── */
+  const [inlinePlaylistOpen, setInlinePlaylistOpen] = useState(false);
+  const [inlinePlaylistName, setInlinePlaylistName] = useState('');
+  const [creatingInlinePlaylist, setCreatingInlinePlaylist] = useState(false);
+
+  /* ── Notification targeting ── */
+  const [notifyTarget, setNotifyTarget] = useState<'all' | '3sfm' | 'bvm'>('all');
+  const [previewSent, setPreviewSent] = useState(false);
+
+  /* ── Mark as Recorded ── */
+  const [markRecordedOpen, setMarkRecordedOpen] = useState(false);
+  const [markRecordedUrl, setMarkRecordedUrl] = useState('');
+  const [markingRecorded, setMarkingRecorded] = useState(false);
 
   /* ── Attachments ── */
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -212,6 +378,26 @@ export default function LiveSessionsPage() {
     setCreatingPlaylist(false);
   };
 
+  const createInlinePlaylist = async () => {
+    if (!inlinePlaylistName.trim()) return;
+    setCreatingInlinePlaylist(true);
+    try {
+      const res = await fetch('/api/admin/live-playlists', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: inlinePlaylistName.trim() }),
+      });
+      if (res.ok) {
+        const j = await res.json();
+        toast('Playlist created');
+        await fetchPlaylists();
+        const newId = j.playlist?.id ?? j.id ?? '';
+        if (newId) setForm(f => ({ ...f, playlist_id: newId }));
+        setInlinePlaylistName(''); setInlinePlaylistOpen(false);
+      } else toast('Failed to create playlist', 'err');
+    } catch { toast('Error creating playlist', 'err'); }
+    setCreatingInlinePlaylist(false);
+  };
+
   const updatePlaylist = async (pl: Playlist, name: string) => {
     try {
       const res = await fetch('/api/admin/live-playlists', {
@@ -244,28 +430,68 @@ export default function LiveSessionsPage() {
   };
 
   /* ── Session CRUD ── */
+  const sessionToForm = (s: LiveSession): FormState => ({
+    title: s.title,
+    description: s.description ?? '',
+    category: s.category ?? '',
+    playlist_id: s.playlist_id ?? '',
+    type: s.type,
+    date: s.date ?? '',
+    time: s.time ?? '',
+    timezone: s.timezone ?? 'Asia/Riyadh',
+    live_url: s.live_url ?? '',
+    youtube_url: s.youtube_url ?? '',
+    published: s.published,
+    duration_minutes: s.duration_minutes != null ? String(s.duration_minutes) : '',
+    max_attendees: s.max_attendees != null ? String(s.max_attendees) : '',
+    difficulty_level: s.difficulty_level ?? 'All Levels',
+    prerequisites: s.prerequisites ?? '',
+    instructor_name: s.instructor_name ?? 'Ahmad Din',
+    tags: s.tags ?? [],
+    is_featured: s.is_featured ?? false,
+    live_password: s.live_password ?? '',
+  });
+
   const openNewSession = () => {
     setEditSession(null);
-    setForm({
-      title: '', description: '', category: '', playlist_id: selectedPlaylist ?? '',
-      type: 'UPCOMING', date: '', time: '', timezone: 'Asia/Riyadh',
-      live_url: '', youtube_url: '', published: false,
-    });
+    setForm({ ...defaultForm, playlist_id: selectedPlaylist ?? '' });
     setAttachments([]);
+    setBannerPreview(null);
+    setPreviewSent(false);
+    setNotifyTarget('all');
+    setMarkRecordedOpen(false);
+    setInlinePlaylistOpen(false);
     setEditorOpen(true);
   };
 
   const openEditSession = async (s: LiveSession) => {
     setEditSession(s);
-    setForm({
-      title: s.title, description: s.description ?? '', category: s.category ?? '',
-      playlist_id: s.playlist_id ?? '', type: s.type,
-      date: s.date ?? '', time: s.time ?? '', timezone: s.timezone ?? 'Asia/Riyadh',
-      live_url: s.live_url ?? '', youtube_url: s.youtube_url ?? '',
-      published: s.published,
-    });
+    setForm(sessionToForm(s));
+    setBannerPreview(s.banner_url ?? null);
+    setPreviewSent(false);
+    setNotifyTarget('all');
+    setMarkRecordedOpen(false);
+    setInlinePlaylistOpen(false);
     setEditorOpen(true);
     await fetchAttachments(s.id);
+  };
+
+  const duplicateSession = (s: LiveSession) => {
+    setEditSession(null);
+    const dup = sessionToForm(s);
+    dup.title = `${s.title} (Copy)`;
+    dup.published = false;
+    dup.date = '';
+    dup.time = '';
+    setForm(dup);
+    setAttachments([]);
+    setBannerPreview(null);
+    setPreviewSent(false);
+    setNotifyTarget('all');
+    setMarkRecordedOpen(false);
+    setInlinePlaylistOpen(false);
+    setEditorOpen(true);
+    toast('Session duplicated as draft - save to create');
   };
 
   const saveSession = async () => {
@@ -273,8 +499,15 @@ export default function LiveSessionsPage() {
     setSaving(true);
     try {
       const payload: Record<string, unknown> = { ...form };
-      if (form.type === 'RECORDED') { delete payload.date; delete payload.time; delete payload.timezone; delete payload.live_url; }
-      else { delete payload.youtube_url; }
+      // Convert numeric fields
+      payload.duration_minutes = form.duration_minutes ? parseInt(form.duration_minutes, 10) : null;
+      payload.max_attendees = form.max_attendees ? parseInt(form.max_attendees, 10) : null;
+      payload.tags = form.tags;
+      payload.is_featured = form.is_featured;
+
+      if (form.type === 'RECORDED') {
+        delete payload.date; delete payload.time; delete payload.live_url;
+      }
 
       let res: Response;
       if (editSession) {
@@ -320,23 +553,85 @@ export default function LiveSessionsPage() {
     });
   };
 
+  /* ── Banner Upload ── */
+  const uploadBanner = async (file: File) => {
+    if (!editSession) { toast('Save the session first before uploading a banner', 'err'); return; }
+    setUploadingBanner(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('sessionId', editSession.id);
+      const res = await fetch('/api/admin/live-sessions', { method: 'PUT', body: fd });
+      if (res.ok) {
+        const j = await res.json();
+        toast('Banner uploaded');
+        setBannerPreview(j.banner_url ?? j.url ?? null);
+        await fetchSessions();
+      } else toast('Banner upload failed', 'err');
+    } catch { toast('Banner upload error', 'err'); }
+    setUploadingBanner(false);
+  };
+
+  /* ── Mark as Recorded ── */
+  const handleMarkRecorded = async () => {
+    if (!editSession) return;
+    setMarkingRecorded(true);
+    try {
+      const res = await fetch(`/api/admin/live-sessions/${editSession.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'RECORDED', youtube_url: markRecordedUrl || undefined }),
+      });
+      if (res.ok) {
+        toast('Session marked as recorded');
+        setForm(f => ({ ...f, type: 'RECORDED', youtube_url: markRecordedUrl }));
+        setMarkRecordedOpen(false);
+        setMarkRecordedUrl('');
+        await fetchSessions();
+        // Update editSession reference
+        const updated = await fetch('/api/admin/live-sessions');
+        if (updated.ok) {
+          const j = await updated.json();
+          const found = (j.sessions ?? []).find((s: LiveSession) => s.id === editSession.id);
+          if (found) setEditSession(found);
+        }
+      } else toast('Failed to update session type', 'err');
+    } catch { toast('Error updating session', 'err'); }
+    setMarkingRecorded(false);
+  };
+
   /* ── Notifications ── */
-  const sendNotify = (s: LiveSession, type: 'announcement' | 'reminder') => {
+  const sendNotify = (s: LiveSession, type: 'announcement' | 'reminder', target?: string, preview?: boolean) => {
     const label = type === 'announcement' ? 'Announcement' : 'Reminder';
-    setConfirm({
-      msg: `Send ${label} for "${s.title}" to all enrolled students?`,
-      onOk: async () => {
-        setConfirm(null);
-        try {
-          const res = await fetch(`/api/admin/live-sessions/${s.id}/notify`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type }),
-          });
-          if (res.ok) { toast(`${label} sent`); await fetchSessions(); }
-          else { const j = await res.json().catch(() => ({})); toast(j.error ?? `Failed to send ${label}`, 'err'); }
-        } catch { toast(`Error sending ${label}`, 'err'); }
-      },
-    });
+    const doSend = async () => {
+      try {
+        const res = await fetch(`/api/admin/live-sessions/${s.id}/notify`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type, target: target ?? 'all', preview: preview ?? false }),
+        });
+        if (res.ok) {
+          if (preview) {
+            toast('Preview sent to meetahmadch@gmail.com');
+            setPreviewSent(true);
+          } else {
+            toast(`${label} sent`);
+          }
+          await fetchSessions();
+        } else {
+          const j = await res.json().catch(() => ({}));
+          toast(j.error ?? `Failed to send ${label}`, 'err');
+        }
+      } catch { toast(`Error sending ${label}`, 'err'); }
+    };
+
+    if (preview) {
+      doSend();
+    } else {
+      const targetLabel = target === '3sfm' ? '3SFM students' : target === 'bvm' ? 'BVM students' : 'all enrolled students';
+      setConfirm({
+        msg: `Send ${label} for "${s.title}" to ${targetLabel}?`,
+        onOk: async () => { setConfirm(null); await doSend(); },
+      });
+    }
   };
 
   /* ── Attachments ── */
@@ -373,9 +668,14 @@ export default function LiveSessionsPage() {
   };
 
   /* ── Filtered sessions ── */
-  const filtered = selectedPlaylist
-    ? sessions.filter(s => s.playlist_id === selectedPlaylist)
-    : sessions;
+  const filtered = sessions.filter(s => {
+    if (filterType !== 'ALL' && s.type !== filterType) return false;
+    if (filterPlaylist && s.playlist_id !== filterPlaylist) return false;
+    if (filterStatus === 'PUBLISHED' && !s.published) return false;
+    if (filterStatus === 'DRAFT' && s.published) return false;
+    if (selectedPlaylist && s.playlist_id !== selectedPlaylist) return false;
+    return true;
+  });
 
   /* ── Render guards ── */
   if (status === 'loading' || loading) {
@@ -388,6 +688,20 @@ export default function LiveSessionsPage() {
       </div>
     );
   }
+
+  /* ── Filter button helper ── */
+  const filterBtn = (label: string, active: boolean, onClick: () => void): React.ReactNode => (
+    <button
+      key={label}
+      onClick={onClick}
+      style={{
+        ...btnSecondary,
+        padding: '5px 14px', fontSize: 11,
+        background: active ? NAVY : '#fff',
+        color: active ? '#fff' : NAVY,
+      }}
+    >{label}</button>
+  );
 
   /* ── Render ── */
   return (
@@ -494,15 +808,48 @@ export default function LiveSessionsPage() {
                     title="Edit playlist"
                     style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, padding: 2 }}
                     onClick={() => { setEditingPlaylist(pl); setEditPlaylistName(pl.name); }}
-                  >✏️</button>
+                  >&#9998;</button>
                   <button
                     title="Delete playlist"
                     style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, padding: 2 }}
                     onClick={() => deletePlaylist(pl)}
-                  >🗑️</button>
+                  >&#128465;</button>
                 </div>
               );
             })}
+          </div>
+        </div>
+
+        {/* ── FILTER ROW ── */}
+        <div style={{ ...cardStyle, padding: 12, display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
+          {/* Type filter */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#374151' }}>Type:</span>
+            {filterBtn('All', filterType === 'ALL', () => setFilterType('ALL'))}
+            {filterBtn('Upcoming', filterType === 'UPCOMING', () => setFilterType('UPCOMING'))}
+            {filterBtn('Live', filterType === 'LIVE', () => setFilterType('LIVE'))}
+            {filterBtn('Recorded', filterType === 'RECORDED', () => setFilterType('RECORDED'))}
+          </div>
+
+          {/* Playlist filter */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#374151' }}>Playlist:</span>
+            <select
+              style={{ ...inputStyle, width: 'auto', minWidth: 140, fontSize: 11, padding: '5px 8px' }}
+              value={filterPlaylist}
+              onChange={e => setFilterPlaylist(e.target.value)}
+            >
+              <option value="">All Playlists</option>
+              {playlists.map(pl => <option key={pl.id} value={pl.id}>{pl.name}</option>)}
+            </select>
+          </div>
+
+          {/* Status filter */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#374151' }}>Status:</span>
+            {filterBtn('All', filterStatus === 'ALL', () => setFilterStatus('ALL'))}
+            {filterBtn('Published', filterStatus === 'PUBLISHED', () => setFilterStatus('PUBLISHED'))}
+            {filterBtn('Draft', filterStatus === 'DRAFT', () => setFilterStatus('DRAFT'))}
           </div>
         </div>
 
@@ -510,7 +857,7 @@ export default function LiveSessionsPage() {
         <div style={cardStyle}>
           {filtered.length === 0 ? (
             <p style={{ color: '#9CA3AF', fontSize: 13, textAlign: 'center', padding: 24 }}>
-              No sessions found. Click "+ New Session" to create one.
+              No sessions found. Click &quot;+ New Session&quot; to create one.
             </p>
           ) : (
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -526,7 +873,17 @@ export default function LiveSessionsPage() {
                   const badge = TYPE_BADGE[s.type] || TYPE_BADGE.RECORDED;
                   return (
                     <tr key={s.id} style={{ borderBottom: `1px solid ${BORDER}` }}>
-                      <td style={{ padding: '10px 10px', fontWeight: 600, color: '#1F2937' }}>{s.title}</td>
+                      <td style={{ padding: '10px 10px', fontWeight: 600, color: '#1F2937' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          {s.title}
+                          {s.is_featured && (
+                            <span style={{
+                              fontSize: 9, fontWeight: 700, padding: '2px 6px',
+                              borderRadius: 10, background: '#FEF3C7', color: '#92400E',
+                            }}>FEATURED</span>
+                          )}
+                        </div>
+                      </td>
                       <td style={{ padding: '10px 10px' }}>
                         <span style={{
                           display: 'inline-block', fontSize: 11, fontWeight: 700, padding: '3px 10px',
@@ -548,12 +905,13 @@ export default function LiveSessionsPage() {
                         }}>{s.published ? 'Yes' : 'No'}</span>
                       </td>
                       <td style={{ padding: '10px 10px', fontSize: 11, color: '#6B7280' }}>
-                        {s.announcement_sent ? `📢 ${s.announcement_count ?? 0} sent` : '—'}
-                        {s.reminder_sent ? ` · ⏰ ${s.reminder_count ?? 0} sent` : ''}
+                        {s.announcement_sent ? `Announced: ${s.announcement_count ?? 0}` : '--'}
+                        {s.reminder_sent ? ` | Reminded: ${s.reminder_count ?? 0}` : ''}
                       </td>
                       <td style={{ padding: '10px 10px' }}>
-                        <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => openEditSession(s)}>Edit</button>
+                          <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => duplicateSession(s)}>Duplicate</button>
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => sendNotify(s, 'announcement')}>Notify</button>
                           <button style={{ ...btnDanger, padding: '4px 10px', fontSize: 11 }} onClick={() => deleteSession(s)}>Delete</button>
                         </div>
@@ -597,29 +955,110 @@ export default function LiveSessionsPage() {
                     placeholder="Brief description..."
                   />
                 </div>
+
+                {/* Playlist with inline creation */}
                 <div>
                   <label style={labelStyle}>Playlist</label>
-                  <select style={inputStyle} value={form.playlist_id} onChange={e => setForm(f => ({ ...f, playlist_id: e.target.value }))}>
-                    <option value="">None</option>
-                    {playlists.map(pl => <option key={pl.id} value={pl.id}>{pl.name}</option>)}
-                  </select>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingTop: 18 }}>
-                  <label style={{ ...labelStyle, marginBottom: 0 }}>Published</label>
-                  <button
-                    onClick={() => setForm(f => ({ ...f, published: !f.published }))}
-                    style={{
-                      width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
-                      background: form.published ? GREEN : '#D1D5DB',
-                      position: 'relative', transition: 'background 0.2s',
+                  <select
+                    style={inputStyle}
+                    value={form.playlist_id}
+                    onChange={e => {
+                      if (e.target.value === '__create__') {
+                        setInlinePlaylistOpen(true);
+                      } else {
+                        setForm(f => ({ ...f, playlist_id: e.target.value }));
+                      }
                     }}
                   >
-                    <span style={{
-                      position: 'absolute', top: 3, left: form.published ? 23 : 3,
-                      width: 18, height: 18, borderRadius: '50%', background: '#fff',
-                      transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
-                    }} />
-                  </button>
+                    <option value="">None</option>
+                    {playlists.map(pl => <option key={pl.id} value={pl.id}>{pl.name}</option>)}
+                    <option value="__create__">[+ Create New Playlist]</option>
+                  </select>
+                  {inlinePlaylistOpen && (
+                    <div style={{ display: 'flex', gap: 6, marginTop: 8, alignItems: 'center' }}>
+                      <input
+                        style={{ ...inputStyle, flex: 1 }}
+                        value={inlinePlaylistName}
+                        onChange={e => setInlinePlaylistName(e.target.value)}
+                        placeholder="New playlist name"
+                        onKeyDown={e => e.key === 'Enter' && createInlinePlaylist()}
+                        autoFocus
+                      />
+                      <button style={{ ...btnPrimary, padding: '6px 12px', fontSize: 11 }} onClick={createInlinePlaylist} disabled={creatingInlinePlaylist}>
+                        {creatingInlinePlaylist ? '...' : 'Create'}
+                      </button>
+                      <button style={{ ...btnSecondary, padding: '6px 12px', fontSize: 11 }} onClick={() => { setInlinePlaylistOpen(false); setInlinePlaylistName(''); setForm(f => ({ ...f, playlist_id: '' })); }}>
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Instructor Name */}
+                <div>
+                  <label style={labelStyle}>Instructor Name</label>
+                  <input style={inputStyle} value={form.instructor_name} onChange={e => setForm(f => ({ ...f, instructor_name: e.target.value }))} placeholder="Ahmad Din" />
+                </div>
+
+                {/* Duration + Max Attendees */}
+                <div>
+                  <label style={labelStyle}>Duration (min)</label>
+                  <input
+                    type="number"
+                    style={inputStyle}
+                    value={form.duration_minutes}
+                    onChange={e => setForm(f => ({ ...f, duration_minutes: e.target.value }))}
+                    placeholder="e.g. 60"
+                    min={0}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Max Attendees</label>
+                  <input
+                    type="number"
+                    style={inputStyle}
+                    value={form.max_attendees}
+                    onChange={e => setForm(f => ({ ...f, max_attendees: e.target.value }))}
+                    placeholder="Optional"
+                    min={0}
+                  />
+                </div>
+
+                {/* Difficulty Level */}
+                <div>
+                  <label style={labelStyle}>Difficulty Level</label>
+                  <select style={inputStyle} value={form.difficulty_level} onChange={e => setForm(f => ({ ...f, difficulty_level: e.target.value }))}>
+                    {DIFFICULTY_LEVELS.map(d => <option key={d} value={d}>{d}</option>)}
+                  </select>
+                </div>
+
+                {/* Session Password */}
+                <div>
+                  <label style={labelStyle}>Session Password</label>
+                  <input style={inputStyle} value={form.live_password} onChange={e => setForm(f => ({ ...f, live_password: e.target.value }))} placeholder="Optional" />
+                </div>
+
+                {/* Prerequisites */}
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={labelStyle}>Prerequisites</label>
+                  <textarea
+                    style={{ ...inputStyle, minHeight: 50, resize: 'vertical' }}
+                    value={form.prerequisites}
+                    onChange={e => setForm(f => ({ ...f, prerequisites: e.target.value }))}
+                    placeholder="Any prerequisites for this session..."
+                  />
+                </div>
+
+                {/* Tags */}
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <label style={labelStyle}>Tags</label>
+                  <TagInput tags={form.tags} onChange={tags => setForm(f => ({ ...f, tags }))} />
+                </div>
+
+                {/* Published + Featured toggles */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 20, paddingTop: 8 }}>
+                  <ToggleSwitch label="Published" value={form.published} onChange={v => setForm(f => ({ ...f, published: v }))} />
+                  <ToggleSwitch label="Featured" value={form.is_featured} onChange={v => setForm(f => ({ ...f, is_featured: v }))} />
                 </div>
               </div>
             </div>
@@ -670,10 +1109,78 @@ export default function LiveSessionsPage() {
                 </div>
               )}
 
-              {form.type === 'RECORDED' && (
-                <div style={{ maxWidth: 500 }}>
-                  <label style={labelStyle}>YouTube URL</label>
-                  <input style={inputStyle} value={form.youtube_url} onChange={e => setForm(f => ({ ...f, youtube_url: e.target.value }))} placeholder="https://youtube.com/watch?v=..." />
+              {/* YouTube URL - always visible */}
+              <div style={{ maxWidth: 500, marginTop: 14 }}>
+                <label style={labelStyle}>YouTube URL</label>
+                <input
+                  style={{
+                    ...inputStyle,
+                    ...(form.type !== 'RECORDED' ? { color: '#9CA3AF' } : {}),
+                  }}
+                  value={form.youtube_url}
+                  onChange={e => setForm(f => ({ ...f, youtube_url: e.target.value }))}
+                  placeholder={form.type !== 'RECORDED' ? 'Paste YouTube URL after session is recorded' : 'https://youtube.com/watch?v=...'}
+                />
+              </div>
+
+              {/* Mark as Recorded button for upcoming/live */}
+              {editSession && (form.type === 'UPCOMING' || form.type === 'LIVE') && (
+                <div style={{ marginTop: 14 }}>
+                  {!markRecordedOpen ? (
+                    <button
+                      style={{ ...btnSecondary, background: '#FEF3C7', color: '#92400E', border: '1px solid #FCD34D' }}
+                      onClick={() => setMarkRecordedOpen(true)}
+                    >
+                      Mark as Recorded
+                    </button>
+                  ) : (
+                    <div style={{ background: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: 8, padding: 14, maxWidth: 500 }}>
+                      <p style={{ fontSize: 12, color: '#92400E', marginBottom: 10, fontWeight: 600 }}>
+                        This will change the session type to Recorded.
+                      </p>
+                      <label style={labelStyle}>YouTube URL (optional)</label>
+                      <input
+                        style={{ ...inputStyle, marginBottom: 10 }}
+                        value={markRecordedUrl}
+                        onChange={e => setMarkRecordedUrl(e.target.value)}
+                        placeholder="https://youtube.com/watch?v=..."
+                      />
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button style={{ ...btnPrimary, background: '#D97706' }} onClick={handleMarkRecorded} disabled={markingRecorded}>
+                          {markingRecorded ? 'Updating...' : 'Confirm'}
+                        </button>
+                        <button style={btnSecondary} onClick={() => { setMarkRecordedOpen(false); setMarkRecordedUrl(''); }}>Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* ── B2. Banner Image ── */}
+            <div style={{ marginBottom: 20 }}>
+              <h3 style={{ fontSize: 13, fontWeight: 700, color: NAVY, marginBottom: 12 }}>Banner Image</h3>
+              <input
+                ref={bannerRef}
+                type="file"
+                accept="image/*"
+                style={{ display: 'none' }}
+                onChange={e => { if (e.target.files?.[0]) uploadBanner(e.target.files[0]); e.target.value = ''; }}
+              />
+              {editSession ? (
+                <button style={btnSecondary} onClick={() => bannerRef.current?.click()} disabled={uploadingBanner}>
+                  {uploadingBanner ? 'Uploading...' : bannerPreview ? 'Change Banner' : 'Upload Banner'}
+                </button>
+              ) : (
+                <p style={{ fontSize: 12, color: '#9CA3AF' }}>Save the session first to upload a banner image.</p>
+              )}
+              {bannerPreview && (
+                <div style={{ marginTop: 10 }}>
+                  <img
+                    src={bannerPreview}
+                    alt="Session banner"
+                    style={{ maxWidth: 400, maxHeight: 200, borderRadius: 8, border: `1px solid ${BORDER}`, objectFit: 'cover' }}
+                  />
                 </div>
               )}
             </div>
@@ -689,7 +1196,7 @@ export default function LiveSessionsPage() {
                   onChange={e => { if (e.target.files?.[0]) uploadAttachment(e.target.files[0]); e.target.value = ''; }}
                 />
                 <button style={btnSecondary} onClick={() => fileRef.current?.click()} disabled={uploading}>
-                  {uploading ? 'Uploading...' : '📎 Upload File'}
+                  {uploading ? 'Uploading...' : 'Upload File'}
                 </button>
                 {attachments.length > 0 && (
                   <div style={{ marginTop: 10 }}>
@@ -716,30 +1223,94 @@ export default function LiveSessionsPage() {
             {editSession && (
               <div style={{ marginBottom: 20 }}>
                 <h3 style={{ fontSize: 13, fontWeight: 700, color: NAVY, marginBottom: 12 }}>Notifications</h3>
+
+                {/* Target selector */}
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>Target Audience</label>
+                  <div style={{ display: 'flex', gap: 12 }}>
+                    {([
+                      { value: 'all' as const, label: 'All Students' },
+                      { value: '3sfm' as const, label: '3SFM Only' },
+                      { value: 'bvm' as const, label: 'BVM Only' },
+                    ]).map(opt => (
+                      <label key={opt.value} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: '#374151', cursor: 'pointer' }}>
+                        <input
+                          type="radio"
+                          name="notifyTarget"
+                          checked={notifyTarget === opt.value}
+                          onChange={() => { setNotifyTarget(opt.value); setPreviewSent(false); }}
+                          style={{ accentColor: BLUE }}
+                        />
+                        {opt.label}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                   {/* Announcement */}
-                  <div style={{ background: LIGHT_BG, borderRadius: 8, padding: '12px 16px', minWidth: 220 }}>
+                  <div style={{ background: LIGHT_BG, borderRadius: 8, padding: '12px 16px', minWidth: 260 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Announcement</div>
                     <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 10 }}>
                       {editSession.announcement_sent
                         ? `Sent to ${editSession.announcement_count ?? 0} students${editSession.announcement_date ? ` on ${editSession.announcement_date}` : ''}`
                         : 'Not sent yet'}
                     </div>
-                    <button style={btnPrimary} onClick={() => sendNotify(editSession, 'announcement')}>
-                      📢 Send Announcement
-                    </button>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        style={{ ...btnSecondary, padding: '5px 12px', fontSize: 11 }}
+                        onClick={() => sendNotify(editSession, 'announcement', notifyTarget, true)}
+                      >
+                        Preview Email
+                      </button>
+                      <button
+                        style={{
+                          ...btnPrimary, padding: '5px 12px', fontSize: 11,
+                          opacity: previewSent ? 1 : 0.5,
+                          cursor: previewSent ? 'pointer' : 'not-allowed',
+                        }}
+                        onClick={() => previewSent && sendNotify(editSession, 'announcement', notifyTarget)}
+                        disabled={!previewSent}
+                        title={!previewSent ? 'Send a Preview Email first' : ''}
+                      >
+                        Send Announcement
+                      </button>
+                    </div>
+                    {!previewSent && (
+                      <p style={{ fontSize: 10, color: '#9CA3AF', marginTop: 6 }}>Send a preview first to enable Send All.</p>
+                    )}
                   </div>
                   {/* Reminder */}
-                  <div style={{ background: LIGHT_BG, borderRadius: 8, padding: '12px 16px', minWidth: 220 }}>
+                  <div style={{ background: LIGHT_BG, borderRadius: 8, padding: '12px 16px', minWidth: 260 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Reminder</div>
                     <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 10 }}>
                       {editSession.reminder_sent
                         ? `Sent to ${editSession.reminder_count ?? 0} students${editSession.reminder_date ? ` on ${editSession.reminder_date}` : ''}`
                         : 'Not sent yet'}
                     </div>
-                    <button style={{ ...btnPrimary, background: BLUE }} onClick={() => sendNotify(editSession, 'reminder')}>
-                      ⏰ Send Reminder
-                    </button>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        style={{ ...btnSecondary, padding: '5px 12px', fontSize: 11 }}
+                        onClick={() => sendNotify(editSession, 'reminder', notifyTarget, true)}
+                      >
+                        Preview Email
+                      </button>
+                      <button
+                        style={{
+                          ...btnPrimary, background: BLUE, padding: '5px 12px', fontSize: 11,
+                          opacity: previewSent ? 1 : 0.5,
+                          cursor: previewSent ? 'pointer' : 'not-allowed',
+                        }}
+                        onClick={() => previewSent && sendNotify(editSession, 'reminder', notifyTarget)}
+                        disabled={!previewSent}
+                        title={!previewSent ? 'Send a Preview Email first' : ''}
+                      >
+                        Send Reminder
+                      </button>
+                    </div>
+                    {!previewSent && (
+                      <p style={{ fontSize: 10, color: '#9CA3AF', marginTop: 6 }}>Send a preview first to enable Send All.</p>
+                    )}
                   </div>
                 </div>
               </div>
