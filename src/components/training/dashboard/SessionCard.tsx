@@ -229,14 +229,34 @@ export function SessionCard({
           {sessionAttachments.map(att => {
             const icon = att.file_type === 'pdf' ? '📄' : att.file_type === 'docx' ? '📝' : att.file_type === 'pptx' ? '📊' : att.file_type === 'xlsx' ? '📗' : '🖼️';
             const size = att.file_size ? `${(att.file_size / 1024).toFixed(0)} KB` : '';
+            const canPreview = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'webp'].includes(att.file_type);
             return (
-              <a key={att.id} href={att.file_url} target="_blank" rel="noopener noreferrer"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 6, border: '1px solid #E5E7EB', background: '#F9FAFB', textDecoration: 'none', fontSize: 11, color: '#374151' }}>
-                <span>{icon}</span>
-                <span style={{ fontWeight: 600, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.file_name}</span>
-                {size && <span style={{ color: '#9CA3AF', fontSize: 10 }}>{size}</span>}
-                <span style={{ color: '#1B4F8A', fontWeight: 700 }}>↓</span>
-              </a>
+              <span key={att.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 0, borderRadius: 6, border: '1px solid #E5E7EB', background: '#F9FAFB', overflow: 'hidden', fontSize: 11 }}>
+                {/* Preview / open in new tab */}
+                <a href={att.file_url} target="_blank" rel="noopener noreferrer"
+                  title={canPreview ? 'Preview in new tab' : 'Open in new tab'}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', textDecoration: 'none', color: '#374151' }}>
+                  <span>{icon}</span>
+                  <span style={{ fontWeight: 600, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.file_name}</span>
+                  {size && <span style={{ color: '#9CA3AF', fontSize: 10 }}>{size}</span>}
+                </a>
+                {/* Download button */}
+                <a href={att.file_url} download={att.file_name}
+                  title="Download file"
+                  onClick={e => {
+                    e.preventDefault();
+                    const a = document.createElement('a');
+                    a.href = att.file_url;
+                    a.download = att.file_name;
+                    a.target = '_blank';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                  }}
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '5px 8px', borderLeft: '1px solid #E5E7EB', color: '#1B4F8A', textDecoration: 'none', cursor: 'pointer' }}>
+                  ↓
+                </a>
+              </span>
             );
           })}
         </div>
