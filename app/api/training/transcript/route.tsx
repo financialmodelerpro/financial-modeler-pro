@@ -181,9 +181,9 @@ const DEFAULTS: TranscriptSettings = {
   passedBg: '#D1FAE5', passedColor: '#065F46',
   failedBg: '#FEE2E2', failedColor: '#991B1B',
   colNum: '#', colSession: 'Session Name', colScore: 'Score', colStatus: 'Status', colAttempts: 'Attempts',
-  bannerCompleteTitle: '✓ OFFICIAL TRANSCRIPT — Course Complete',
+  bannerCompleteTitle: 'OFFICIAL TRANSCRIPT - Course Complete',
   bannerCompleteSub:   'All requirements fulfilled. Certificate issued as of [date].',
-  bannerProgressTitle: 'PROGRESS TRANSCRIPT — Course in Progress',
+  bannerProgressTitle: 'PROGRESS TRANSCRIPT - Course in Progress',
   bannerProgressSub:   'This transcript reflects current progress as of [date]. A final transcript will be issued upon course completion.',
   footerBgColor: '#0D2E5A',
   footerLeftText: 'Issue Date: [date]', footerLeftVisible: true,
@@ -256,7 +256,7 @@ async function loadLogoBase64(url: string): Promise<string | null> {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtDate(d?: string | null): string {
-  if (!d) return '—';
+  if (!d) return '-';
   try { return new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }); }
   catch { return d; }
 }
@@ -318,7 +318,7 @@ function CourseTable({ courseId, progressMap, settings }: { courseId: string; pr
             <View style={s.colName}><Text style={s.tdText}>{session.title}</Text></View>
             <View style={s.colScore}>
               <Text style={prog?.score ? s.tdBold : s.tdMuted}>
-                {prog && prog.attempts > 0 ? `${prog.score}%` : '—'}
+                {prog && prog.attempts > 0 ? `${prog.score}%` : '-'}
               </Text>
             </View>
             <View style={s.colStatus}>
@@ -345,7 +345,7 @@ function CourseTable({ courseId, progressMap, settings }: { courseId: string; pr
             {(() => {
               const fp = progressMap.get(finalSession.id);
               return <Text style={fp?.score ? s.tdBold : s.tdMuted}>
-                {fp && fp.attempts > 0 ? `${fp.score}%` : '—'}
+                {fp && fp.attempts > 0 ? `${fp.score}%` : '-'}
               </Text>;
             })()}
           </View>
@@ -392,7 +392,7 @@ function CourseSummaryBoxes({
     <View style={s.summaryWrap}>
       {/* Academic summary */}
       <View style={[s.summaryBox, s.summaryBoxNavy]}>
-        <Text style={s.summaryTitle}>Academic Summary — {course.shortTitle}</Text>
+        <Text style={s.summaryTitle}>Academic Summary -{course.shortTitle}</Text>
         <View style={s.sumRow}>
           <Text style={s.sumLabel}>Sessions Completed</Text>
           <Text style={s.sumVal}>{passedCount} of {regularSessions.length}</Text>
@@ -403,11 +403,11 @@ function CourseSummaryBoxes({
         </View>
         <View style={s.sumRow}>
           <Text style={s.sumLabel}>Average Score</Text>
-          <Text style={s.sumVal}>{avgScore !== null ? `${avgScore}%` : '—'}</Text>
+          <Text style={s.sumVal}>{avgScore !== null ? `${avgScore}%` : '-'}</Text>
         </View>
         <View style={s.sumRow}>
           <Text style={s.sumLabel}>Final Exam Score</Text>
-          <Text style={s.sumVal}>{finalProg?.passed ? `${finalProg.score}%` : finalProg?.attempts ? `${finalProg.score}% (failed)` : '—'}</Text>
+          <Text style={s.sumVal}>{finalProg?.passed ? `${finalProg.score}%` : finalProg?.attempts ? `${finalProg.score}% (failed)` : '-'}</Text>
         </View>
         <View style={[s.sumRow, { marginBottom: 0, marginTop: 4, paddingTop: 6, borderTopWidth: 1, borderTopColor: C.border }]}>
           <Text style={s.sumLabel}>Overall Result</Text>
@@ -434,7 +434,7 @@ function CourseSummaryBoxes({
         </View>
         <View style={[s.sumRow, { marginBottom: 0 }]}>
           <Text style={s.sumLabel}>Completion Date</Text>
-          <Text style={s.sumVal}>{cert ? fmtDate(cert.issuedAt) : '—'}</Text>
+          <Text style={s.sumVal}>{cert ? fmtDate(cert.issuedAt) : '-'}</Text>
         </View>
         {!cert && allComplete && (
           <Text style={[s.sumLabel, { marginTop: 6, color: '#B45309' }]}>Certificate is being processed. Check back shortly.</Text>
@@ -471,7 +471,7 @@ function TranscriptDocument({
   const courseLabel = course?.title ?? courseId.toUpperCase();
 
   return (
-    <Document title={`FMP Transcript — ${registrationId}`} author="Financial Modeler Pro">
+    <Document title={`FMP Transcript -${registrationId}`} author="Financial Modeler Pro">
       <Page size="A4" style={s.page}>
 
         {/* ── Header — absolute canvas ──────────────────────────────── */}
@@ -781,8 +781,13 @@ export async function GET(req: NextRequest) {
       />
     );
 
-    const shortTitle = COURSES[courseId]?.shortTitle ?? courseId.toUpperCase();
-    const filename   = `FMP-Transcript-${regId}-${shortTitle}.pdf`;
+    // Build cert-style ID: FMP-3SFM-2026-0001 from regId (FMP-2026-0001) + course code
+    const courseCode = (COURSES[courseId]?.shortTitle ?? courseId).toUpperCase();
+    const regParts  = regId.split('-'); // ["FMP", "2026", "0001"]
+    const certStyleId = regParts.length >= 3
+      ? `FMP-${courseCode}-${regParts[1]}-${regParts[2]}`
+      : `FMP-${courseCode}-${regId}`;
+    const filename = `FMP-Transcript-${certStyleId}.pdf`;
 
     return new NextResponse(buffer as unknown as BodyInit, {
       status: 200,

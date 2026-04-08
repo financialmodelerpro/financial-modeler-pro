@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 const QR_API = 'https://api.qrserver.com/v1/create-qr-code';
 
 function fmtDate(d?: string | null): string {
-  if (!d) return '—';
+  if (!d) return '-';
   try { return new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }); }
   catch { return d; }
 }
@@ -89,7 +89,7 @@ export async function GET(
       <tr>
         <td style="padding:6px 10px;font-size:11px;color:#6B7280;">${sess.id}</td>
         <td style="padding:6px 10px;font-size:12px;">${sess.title}</td>
-        <td style="padding:6px 10px;font-size:12px;text-align:center;font-weight:700;">${prog && prog.attempts > 0 ? `${prog.score}%` : '—'}</td>
+        <td style="padding:6px 10px;font-size:12px;text-align:center;font-weight:700;">${prog && prog.attempts > 0 ? `${prog.score}%` : '-'}</td>
         <td style="padding:6px 10px;text-align:center;">
           <span style="font-size:10px;font-weight:700;background:${statusBg};color:${statusColor};border-radius:4px;padding:2px 8px;">${statusLabel}</span>
         </td>
@@ -106,7 +106,7 @@ export async function GET(
       <tr style="background:#FDF3DC;">
         <td style="padding:8px 10px;font-size:10px;font-weight:800;color:#C9A84C;">FINAL</td>
         <td style="padding:8px 10px;font-size:12px;font-weight:700;">${finalSession.title}</td>
-        <td style="padding:8px 10px;font-size:12px;text-align:center;font-weight:700;">${fp && fp.attempts > 0 ? `${fp.score}%` : '—'}</td>
+        <td style="padding:8px 10px;font-size:12px;text-align:center;font-weight:700;">${fp && fp.attempts > 0 ? `${fp.score}%` : '-'}</td>
         <td style="padding:8px 10px;text-align:center;">
           <span style="font-size:10px;font-weight:700;background:${sb2};color:${sc};border-radius:4px;padding:2px 8px;">${st}</span>
         </td>
@@ -137,7 +137,7 @@ export async function GET(
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Transcript — ${student.name} — ${course.title}</title>
+<title>Transcript -${student.name} — ${course.title}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #fff; color: #111827; font-size: 13px; }
@@ -170,7 +170,7 @@ export async function GET(
       <div style="background:rgba(255,255,255,0.12);border-radius:6px;padding:6px 14px;display:inline-block;">
         <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.8);">FMP Training Hub</div>
       </div>
-      ${hasCert ? `<div style="margin-top:8px;font-size:10px;color:#A7F3D0;font-weight:600;">✓ Certificate Verified</div>` : ''}
+      ${hasCert ? `<div style="margin-top:8px;font-size:10px;color:#A7F3D0;font-weight:600;">Certificate Verified</div>` : ''}
     </div>
   </div>
 
@@ -191,11 +191,11 @@ export async function GET(
   <!-- Status banner -->
   ${allComplete
     ? `<div style="background:#F0FFF4;padding:10px 36px;border-top:2px solid #BBF7D0;border-bottom:2px solid #BBF7D0;">
-        <div style="font-size:12px;font-weight:800;color:#166534;">✓ OFFICIAL TRANSCRIPT — Course Complete</div>
+        <div style="font-size:12px;font-weight:800;color:#166534;">OFFICIAL TRANSCRIPT - Course Complete</div>
         <div style="font-size:11px;color:#166534;margin-top:2px;">All requirements fulfilled. Certificate issued as of ${hasCert ? fmtDate(issuedAt) : today()}.</div>
        </div>`
     : `<div style="background:#FFFBEB;padding:10px 36px;border-top:2px solid #FDE68A;border-bottom:2px solid #FDE68A;">
-        <div style="font-size:12px;font-weight:800;color:#92400E;">PROGRESS TRANSCRIPT — Course in Progress</div>
+        <div style="font-size:12px;font-weight:800;color:#92400E;">PROGRESS TRANSCRIPT - Course in Progress</div>
         <div style="font-size:11px;color:#92400E;margin-top:2px;">This transcript reflects current progress as of ${today()}.</div>
        </div>`
   }
@@ -222,11 +222,11 @@ export async function GET(
   <!-- Summary + Cert status -->
   <div style="display:flex;gap:16px;padding:20px 36px;flex-wrap:wrap;">
     <div style="flex:1;min-width:240px;border:1.5px solid #1B4F8A;border-radius:8px;padding:14px 16px;">
-      <div style="font-size:11px;font-weight:800;color:#0D2E5A;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:12px;">Academic Summary — ${course.shortTitle}</div>
+      <div style="font-size:11px;font-weight:800;color:#0D2E5A;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:12px;">Academic Summary -${course.shortTitle}</div>
       ${[
         ['Sessions Passed', `${passedCount} of ${regularSessions.length}`],
-        ['Average Score', avgScore !== null ? `${avgScore}%` : '—'],
-        ['Final Exam Score', finalProg?.passed ? `${finalProg.score}%` : finalProg?.attempts ? `${finalProg.score}% (failed)` : '—'],
+        ['Average Score', avgScore !== null ? `${avgScore}%` : '-'],
+        ['Final Exam Score', finalProg?.passed ? `${finalProg.score}%` : finalProg?.attempts ? `${finalProg.score}% (failed)` : '-'],
         ['Overall Result', allComplete ? 'PASSED' : 'IN PROGRESS'],
       ].map(([l, v]) => `
         <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
@@ -239,7 +239,7 @@ export async function GET(
       ${[
         ['Status',           hasCert ? 'CERTIFIED' : allComplete ? 'PROCESSING' : 'NOT EARNED'],
         ['Certificate ID',   certId || '—'],
-        ['Completion Date',  hasCert ? fmtDate(issuedAt) : '—'],
+        ['Completion Date',  hasCert ? fmtDate(issuedAt) : '-'],
       ].map(([l, v]) => `
         <div style="display:flex;justify-content:space-between;margin-bottom:6px;">
           <span style="font-size:11px;color:#6B7280;">${l}</span>

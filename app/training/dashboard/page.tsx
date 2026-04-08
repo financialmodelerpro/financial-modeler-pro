@@ -266,7 +266,9 @@ export default function TrainingDashboardPage() {
     setGenerating(true);
     setTranscriptToast('');
     try {
-      const shortTitle = COURSES[courseId]?.shortTitle ?? courseId.toUpperCase();
+      const courseCode = (COURSES[courseId]?.shortTitle ?? courseId).toUpperCase();
+      const regParts  = localSession.registrationId.split('-');
+      const certStyleId = regParts.length >= 3 ? `FMP-${courseCode}-${regParts[1]}-${regParts[2]}` : `FMP-${courseCode}-${localSession.registrationId}`;
       const params = new URLSearchParams({ regId: localSession.registrationId, email: localSession.email, course: courseId });
       const res = await fetch(`/api/training/transcript?${params}`);
       if (!res.ok) throw new Error('Failed');
@@ -274,7 +276,7 @@ export default function TrainingDashboardPage() {
       const url  = window.URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href     = url;
-      a.download = `FMP-Transcript-${localSession.registrationId}-${shortTitle}.pdf`;
+      a.download = `FMP-Transcript-${certStyleId}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
     } catch {
