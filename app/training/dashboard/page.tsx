@@ -220,8 +220,37 @@ export default function TrainingDashboardPage() {
     const params = new URLSearchParams(window.location.search);
     const needsRefresh = params.get('refresh') === '1';
     if (needsRefresh) {
-      // Clean URL without triggering a navigation
       window.history.replaceState({}, '', '/training/dashboard');
+
+      // Optimistically patch progress with the score the student just submitted
+      // so the dashboard updates immediately even if Apps Script hasn't propagated yet
+      try {
+        const raw = sessionStorage.getItem('fmp_last_submit');
+        if (raw) {
+          sessionStorage.removeItem('fmp_last_submit');
+          const submitted = JSON.parse(raw) as { tabKey: string; score: number; passed: boolean; attempts: number };
+          // Derive session ID from tabKey (e.g. "3SFM_S1" → "S1", "BVM_L2" → "L2")
+          const sep = submitted.tabKey.indexOf('_');
+          const sessionId = sep >= 0 ? submitted.tabKey.slice(sep + 1) : submitted.tabKey;
+          // Patch cached progress if it exists
+          const cacheKey = `fmp_progress_${sess.registrationId}`;
+          const cached = localStorage.getItem(cacheKey);
+          if (cached) {
+            const parsed = JSON.parse(cached) as { data: ProgressData; at: number };
+            const existing = parsed.data.sessions.find(s => s.sessionId === sessionId);
+            if (existing) {
+              existing.score = submitted.score;
+              existing.passed = submitted.passed;
+              existing.attempts = submitted.attempts;
+            } else {
+              parsed.data.sessions.push({ sessionId, score: submitted.score, passed: submitted.passed, attempts: submitted.attempts, completedAt: null });
+            }
+            parsed.at = Date.now();
+            localStorage.setItem(cacheKey, JSON.stringify(parsed));
+            setProgress(parsed.data);
+          }
+        }
+      } catch { /* ignore — server fetch will follow */ }
     }
     loadData(sess, needsRefresh);
     // Restore testimonial submitted state from localStorage

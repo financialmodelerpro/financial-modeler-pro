@@ -879,19 +879,31 @@ export default function AssessmentPage() {
                   Try Again →
                 </button>
               )}
-              <Link href="/training/dashboard?refresh=1" style={{
-                display: 'block', background: NAVY, color: WHITE,
+              <button onClick={() => {
+                // Store submitted score so dashboard can optimistically update
+                try {
+                  sessionStorage.setItem('fmp_last_submit', JSON.stringify({
+                    tabKey,
+                    score: result.score,
+                    passed: result.passed,
+                    attempts: result.attempts,
+                  }));
+                } catch { /* ignore */ }
+                router.push('/training/dashboard?refresh=1');
+              }} style={{
+                display: 'block', width: '100%', background: NAVY, color: WHITE,
                 padding: '14px', borderRadius: 8, fontWeight: 700,
-                textDecoration: 'none', fontSize: 15,
+                cursor: 'pointer', border: 'none', fontSize: 15,
+                textAlign: 'center',
               }}>
                 ← Back to Dashboard
-              </Link>
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Per-question review — shown for both pass and fail */}
-        {Array.isArray(result.results) && result.results.length > 0 && (
+        {/* Per-question review — only shown when student PASSES */}
+        {passed && Array.isArray(result.results) && result.results.length > 0 && (
           <div style={{ maxWidth: 700, margin: '0 auto 60px', padding: '0 24px' }}>
             <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, marginBottom: 16 }}>
               Question Review
