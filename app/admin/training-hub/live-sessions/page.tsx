@@ -315,6 +315,7 @@ export default function LiveSessionsPage() {
 
   /* ── Mark as Recorded ── */
   const [markRecordedOpen, setMarkRecordedOpen] = useState(false);
+  const [previewSession, setPreviewSession] = useState<LiveSession | null>(null);
   const [markRecordedUrl, setMarkRecordedUrl] = useState('');
   const [markingRecorded, setMarkingRecorded] = useState(false);
 
@@ -448,14 +449,24 @@ export default function LiveSessionsPage() {
   };
 
   /* ── Session CRUD ── */
-  const sessionToForm = (s: LiveSession): FormState => ({
+  const sessionToForm = (s: LiveSession): FormState => {
+    // Extract date/time from scheduled_datetime for form inputs
+    const raw = (s as unknown as Record<string, unknown>).scheduled_datetime as string | null;
+    let dateVal = '';
+    let timeVal = '';
+    if (raw) {
+      const dt = new Date(raw);
+      dateVal = dt.toISOString().split('T')[0]; // YYYY-MM-DD for input[type=date]
+      timeVal = dt.toTimeString().slice(0, 5);   // HH:MM for input[type=time]
+    }
+    return {
     title: s.title,
     description: s.description ?? '',
     category: s.category ?? '',
     playlist_id: s.playlist_id ?? '',
     type: s.type,
-    date: s.date ?? '',
-    time: s.time ?? '',
+    date: dateVal,
+    time: timeVal,
     timezone: s.timezone ?? 'Asia/Riyadh',
     live_url: s.live_url ?? '',
     youtube_url: s.youtube_url ?? '',
@@ -468,7 +479,7 @@ export default function LiveSessionsPage() {
     tags: s.tags ?? [],
     is_featured: s.is_featured ?? false,
     live_password: s.live_password ?? '',
-  });
+  };};
 
   const openNewSession = () => {
     setEditSession(null);
@@ -516,15 +527,35 @@ export default function LiveSessionsPage() {
     if (!form.title.trim()) { toast('Title is required', 'err'); return; }
     setSaving(true);
     try {
-      const payload: Record<string, unknown> = { ...form };
-      // Convert numeric fields
-      payload.duration_minutes = form.duration_minutes ? parseInt(form.duration_minutes, 10) : null;
-      payload.max_attendees = form.max_attendees ? parseInt(form.max_attendees, 10) : null;
-      payload.tags = form.tags;
-      payload.is_featured = form.is_featured;
+      // Map form fields → API fields
+      const scheduled = form.date && form.time
+        ? new Date(`${form.date}T${form.time}`).toISOString()
+        : form.date ? new Date(form.date).toISOString() : null;
+
+      const payload: Record<string, unknown> = {
+        title:              form.title,
+        description:        form.description,
+        category:           form.category,
+        playlist_id:        form.playlist_id || null,
+        session_type:       form.type.toLowerCase(),  // UPCOMING → upcoming
+        scheduled_datetime: scheduled,
+        timezone:           form.timezone,
+        live_url:           form.live_url,
+        youtube_url:        form.youtube_url,
+        is_published:       form.published,
+        duration_minutes:   form.duration_minutes ? parseInt(form.duration_minutes, 10) : null,
+        max_attendees:      form.max_attendees ? parseInt(form.max_attendees, 10) : null,
+        difficulty_level:   form.difficulty_level,
+        prerequisites:      form.prerequisites,
+        instructor_name:    form.instructor_name,
+        tags:               form.tags,
+        is_featured:        form.is_featured,
+        live_password:      form.live_password,
+      };
 
       if (form.type === 'RECORDED') {
-        delete payload.date; delete payload.time; delete payload.live_url;
+        payload.scheduled_datetime = null;
+        payload.live_url = '';
       }
 
       let res: Response;
@@ -916,7 +947,7 @@ export default function LiveSessionsPage() {
                         }}>{badge.label}</span>
                       </td>
                       <td style={{ padding: '10px 10px', color: '#6B7280', fontSize: 12 }}>
-                        {s.type !== 'RECORDED' && s.date ? `${s.date} ${s.time ?? ''} ${s.timezone ?? ''}` : '-'}
+                        {s.date ? `${s.date} ${s.time ?? ''}` : <span style={{ color: '#D1D5DB' }}>No date set</span>}
                       </td>
                       <td style={{ padding: '10px 10px', color: '#6B7280', fontSize: 12 }}>
                         {s.playlist_name ?? '-'}
@@ -935,8 +966,7 @@ export default function LiveSessionsPage() {
                       </td>
                       <td style={{ padding: '10px 10px' }}>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                          <a href={`/training/live-sessions/${s.id}`} target="_blank" rel="noopener noreferrer"
-                            style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11, textDecoration: 'none', display: 'inline-block' }}>Preview</a>
+                          <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => setPreviewSession(s)}>Preview</button>
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => openEditSession(s)}>Edit</button>
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => duplicateSession(s)}>Duplicate</button>
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => sendNotify(s, 'announcement')}>Notify</button>
@@ -1358,6 +1388,74 @@ export default function LiveSessionsPage() {
           </div>
         )}
       </main>
+
+      {/* ── Preview Modal ── */}
+      {previewSession && (
+        <div onClick={e => { if (e.target === e.currentTarget) setPreviewSession(null); }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 700, maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+            {/* Modal header */}
+            <div style={{ padding: '16px 24px', borderBottom: '1px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F9FAFB' }}>
+              <div style={{ fontSize: 13, color: '#6B7280' }}>This is how students will see this session</div>
+              <button onClick={() => setPreviewSession(null)} style={{ fontSize: 18, background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}>x</button>
+            </div>
+            {/* Banner */}
+            {previewSession.banner_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={previewSession.banner_url} alt={previewSession.title} style={{ width: '100%', height: 200, objectFit: 'cover' }} />
+            )}
+            {/* Content */}
+            <div style={{ padding: 24 }}>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20,
+                  background: previewSession.type === 'LIVE' ? '#FEF2F2' : previewSession.type === 'UPCOMING' ? '#EFF6FF' : '#F3F4F6',
+                  color: previewSession.type === 'LIVE' ? '#DC2626' : previewSession.type === 'UPCOMING' ? '#1D4ED8' : '#6B7280',
+                }}>{previewSession.type === 'LIVE' ? 'LIVE NOW' : previewSession.type}</span>
+                {previewSession.difficulty_level && previewSession.difficulty_level !== 'All Levels' && (
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: '#F3F4F6', color: '#6B7280' }}>{previewSession.difficulty_level}</span>
+                )}
+                {previewSession.category && <span style={{ fontSize: 11, color: '#6B7280' }}>{previewSession.category}</span>}
+                {previewSession.is_featured && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 12, background: '#FEF3C7', color: '#B45309' }}>FEATURED</span>}
+              </div>
+              <h2 style={{ fontSize: 22, fontWeight: 800, color: NAVY, margin: '0 0 6px' }}>{previewSession.title}</h2>
+              {previewSession.instructor_name && <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 8 }}>{previewSession.instructor_name}</div>}
+              {previewSession.date && (
+                <div style={{ fontSize: 14, color: '#374151', marginBottom: 12 }}>
+                  {previewSession.date} {previewSession.time ?? ''} ({previewSession.timezone ?? ''})
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+                {previewSession.duration_minutes && <span style={{ fontSize: 12, color: '#6B7280' }}>{previewSession.duration_minutes} min</span>}
+                {previewSession.max_attendees && <span style={{ fontSize: 12, color: '#6B7280' }}>Limited to {previewSession.max_attendees} seats</span>}
+              </div>
+              {previewSession.tags && previewSession.tags.length > 0 && (
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12 }}>
+                  {previewSession.tags.map(t => <span key={t} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: '#EFF6FF', color: '#1B4F8A', fontWeight: 600 }}>{t}</span>)}
+                </div>
+              )}
+              {previewSession.description && <p style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{previewSession.description}</p>}
+              {previewSession.prerequisites && (
+                <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '10px 14px', marginTop: 12, fontSize: 13 }}>
+                  <strong style={{ color: '#92400E' }}>Prerequisites:</strong> {previewSession.prerequisites}
+                </div>
+              )}
+              {previewSession.live_url && previewSession.type !== 'RECORDED' && (
+                <div style={{ marginTop: 16 }}>
+                  <span style={{ display: 'inline-block', padding: '10px 24px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 14 }}>Join Session</span>
+                </div>
+              )}
+              {previewSession.youtube_url && previewSession.type === 'RECORDED' && (() => {
+                const ytId = previewSession.youtube_url?.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/)?.[1];
+                return ytId ? (
+                  <div style={{ marginTop: 16, borderRadius: 10, overflow: 'hidden', background: '#000', aspectRatio: '16/9' }}>
+                    <iframe src={`https://www.youtube.com/embed/${ytId}`} width="100%" height="100%" style={{ border: 'none' }} allowFullScreen />
+                  </div>
+                ) : null;
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
