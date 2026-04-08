@@ -263,51 +263,28 @@ export async function loadBadgeLayout(): Promise<BadgeLayout> {
   return DEFAULT_BADGE_LAYOUT;
 }
 
-// ── Badge text rendering ─────────────────────────────────────────────────────
-// Uses sharp's built-in Pango text rendering (sharp v0.33+).
-// Creates each text line as a separate RGBA PNG via sharp({ text: ... }),
-// then composites them onto the badge at pixel coordinates.
-// This works on all environments including Vercel — no system fonts needed,
-// sharp bundles its own fontconfig + liberation fonts.
+// ── Badge text rendering (satori + resvg) ────────────────────────────────────
+// Uses satori (same engine as @vercel/og) to render text as SVG,
+// then resvg to convert SVG to PNG, then sharp to composite onto badge.
+// This approach works perfectly on Vercel — satori handles its own fonts.
 
-function escPango(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-}
+import satori from 'satori';
+import { Resvg } from '@resvg/resvg-js';
 
-async function renderTextLine(
-  text: string,
-  fontSize: number,
-  color: string,
-): Promise<{ buf: Buffer; w: number; h: number }> {
-  // Scale fontSize to match badge pixel space.
-  // At dpi:72, 1pt ≈ 1px. Badge editor fontSize 14 means 14px on the badge.
-  // Use 2.5x multiplier so editor fontSize 14 → renders ~35px high (visible on 578px badge).
-  const renderSize = Math.round(fontSize * 2.5);
-  const pangoSize  = renderSize * 1024;
-  const markup = `<span foreground="${color}" size="${pangoSize}">${escPango(text)}</span>`;
-  console.log('[badge] renderTextLine:', { text, fontSize, renderSize, pangoSize });
-  try {
-    const buf = await sharp({
-      text: {
-        text: markup,
-        rgba: true,
-        dpi: 72,
-      },
-    }).png().toBuffer();
-    const info = await sharp(buf).metadata();
-    console.log('[badge] Text rendered:', { w: info.width, h: info.height, bufSize: buf.length });
-    return { buf, w: info.width ?? 100, h: info.height ?? 20 };
-  } catch (err) {
-    console.error('[badge] renderTextLine FAILED:', err);
-    // Return a 1x1 transparent pixel as fallback
-    const fallback = await sharp({ create: { width: 1, height: 1, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
-    return { buf: fallback, w: 1, h: 1 };
-  }
+// Cache font data in memory after first fetch
+let _fontData: ArrayBuffer | null = null;
+const FONT_URL = 'https://fonts.gstatic.com/s/inter/v20/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuLyfMZg.ttf';
+
+async function getFontData(): Promise<ArrayBuffer> {
+  if (_fontData) return _fontData;
+  const res = await fetch(FONT_URL);
+  _fontData = await res.arrayBuffer();
+  return _fontData;
 }
 
 /**
- * Render badge with text overlays using sharp Pango text.
- * Each text field is rendered as a separate RGBA PNG then composited at pixel coords.
+ * Render badge with text overlays using satori + resvg + sharp composite.
+ * Renders a full-size transparent text layer, then composites onto the badge.
  */
 export async function renderBadgeWithText(
   badgeBytes: Buffer,
@@ -319,36 +296,85 @@ export async function renderBadgeWithText(
   const bw   = meta.width  ?? 600;
   const bh   = meta.height ?? 600;
 
-  const composites: sharp.OverlayOptions[] = [];
-
-  console.log('[badge] renderBadgeWithText:', { bw, bh, certId, issueDate, sharpVersion: sharp.versions?.sharp });
+  const children: Record<string, unknown>[] = [];
 
   if (layout.certificateId.visible && certId) {
     const f = layout.certificateId;
-    const { buf, w, h } = await renderTextLine(certId, f.fontSize, f.color);
-    let left: number;
-    if (f.textAlign === 'left')       left = f.x;
-    else if (f.textAlign === 'right') left = bw - w - f.x;
-    else                              left = Math.round((bw - w) / 2) + f.x;
-    console.log('[badge] CertID position:', { left: Math.max(0, left), top: Math.max(0, bh - f.y - h), textW: w, textH: h });
-    composites.push({ input: buf, left: Math.max(0, left), top: Math.max(0, bh - f.y - h) });
+    children.push({
+      type: 'div',
+      props: {
+        style: {
+          position: 'absolute',
+          bottom: f.y,
+          left: 0,
+          width: bw,
+          textAlign: f.textAlign ?? 'center',
+          fontSize: f.fontSize * 2,
+          color: f.color,
+          fontFamily: 'Inter',
+          paddingLeft: f.textAlign === 'left' ? f.x : 0,
+          paddingRight: f.textAlign === 'right' ? f.x : 0,
+          transform: f.textAlign === 'center' && f.x ? `translateX(${f.x}px)` : undefined,
+        },
+        children: certId,
+      },
+    });
   }
 
   if (layout.issueDate.visible && issueDate) {
     const f = layout.issueDate;
-    const { buf, w, h } = await renderTextLine(issueDate, f.fontSize, f.color);
-    let left: number;
-    if (f.textAlign === 'left')       left = f.x;
-    else if (f.textAlign === 'right') left = bw - w - f.x;
-    else                              left = Math.round((bw - w) / 2) + f.x;
-    console.log('[badge] Date position:', { left: Math.max(0, left), top: Math.max(0, bh - f.y - h), textW: w, textH: h });
-    composites.push({ input: buf, left: Math.max(0, left), top: Math.max(0, bh - f.y - h) });
+    children.push({
+      type: 'div',
+      props: {
+        style: {
+          position: 'absolute',
+          bottom: f.y,
+          left: 0,
+          width: bw,
+          textAlign: f.textAlign ?? 'center',
+          fontSize: f.fontSize * 2,
+          color: f.color,
+          fontFamily: 'Inter',
+          paddingLeft: f.textAlign === 'left' ? f.x : 0,
+          paddingRight: f.textAlign === 'right' ? f.x : 0,
+          transform: f.textAlign === 'center' && f.x ? `translateX(${f.x}px)` : undefined,
+        },
+        children: issueDate,
+      },
+    });
   }
 
-  if (composites.length === 0) return badgeBytes;
+  if (children.length === 0) return badgeBytes;
+
+  const fontData = await getFontData();
+
+  const element = {
+    type: 'div',
+    props: {
+      style: {
+        position: 'relative',
+        width: bw,
+        height: bh,
+        display: 'flex',
+      },
+      children,
+    },
+  };
+
+  const svg = await satori(
+    element as unknown as React.ReactNode,
+    {
+      width: bw,
+      height: bh,
+      fonts: [{ name: 'Inter', data: fontData, weight: 400, style: 'normal' as const }],
+    },
+  );
+
+  const resvg = new Resvg(svg, { fitTo: { mode: 'width' as const, value: bw } });
+  const textLayer = resvg.render().asPng();
 
   return sharp(badgeBytes)
-    .composite(composites)
+    .composite([{ input: Buffer.from(textLayer), top: 0, left: 0 }])
     .png()
     .toBuffer();
 }
