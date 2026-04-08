@@ -266,39 +266,26 @@ export async function loadBadgeLayout(): Promise<BadgeLayout> {
 
 // ── Font embedding for SVG (Vercel has no system fonts) ──────────────────────
 
-const GOOGLE_FONT_URL = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
 let _fontCache: string | null = null;
 
 /**
- * Fetch Inter font from Google Fonts, convert to base64, return SVG <defs><style>
+ * Load NotoSans TTF from bundled file, convert to base64, return SVG <defs><style>
  * block that embeds the font inline. Cached in memory after first call.
+ * Uses TTF format (not woff2) because sharp's librsvg requires it.
  */
-export async function getSvgFontDefs(): Promise<string> {
-  if (_fontCache) return _fontCache;
+export function getSvgFontDefs(): string {
+  if (_fontCache !== null) return _fontCache;
   try {
-    // Step 1: get CSS with actual font file URL (must send user-agent for woff/ttf)
-    const cssRes = await fetch(GOOGLE_FONT_URL, {
-      headers: { 'User-Agent': 'Mozilla/5.0' }, // Google Fonts returns woff2 for modern UA
-    });
-    const css = await cssRes.text();
-
-    // Step 2: extract font file URLs from the CSS
-    const urlMatches = css.match(/url\(([^)]+)\)/g);
-    if (!urlMatches?.length) {
-      _fontCache = '';
-      return '';
-    }
-
-    // Step 3: download first font file and convert to base64
-    const fontUrl = urlMatches[0].replace(/url\((['"]?)(.+?)\1\)/, '$2');
-    const fontRes = await fetch(fontUrl);
-    const fontBuf = Buffer.from(await fontRes.arrayBuffer());
-    const b64     = fontBuf.toString('base64');
-    const mime    = fontRes.headers.get('content-type') ?? 'font/woff2';
-
-    _fontCache = `<defs><style>@font-face { font-family: 'Inter'; src: url('data:${mime};base64,${b64}') format('woff2'); font-weight: 400; } @font-face { font-family: 'Inter'; src: url('data:${mime};base64,${b64}') format('woff2'); font-weight: 700; }</style></defs>`;
+    const fontPath = join(process.cwd(), 'public', 'fonts', 'NotoSans-Regular.ttf');
+    const fontBuf  = readFileSync(fontPath);
+    const b64      = fontBuf.toString('base64');
+    _fontCache = `<defs><style>@font-face { font-family: 'NotoSans'; src: url('data:font/truetype;base64,${b64}') format('truetype'); font-weight: normal; font-style: normal; }</style></defs>`;
     return _fontCache;
-  } catch {
+  } catch (err) {
+    console.error('[certificateEngine] Failed to load font:', err);
     _fontCache = '';
     return '';
   }
@@ -314,8 +301,8 @@ export async function buildBadgeSvgOverlay(
   certId: string, issueDate: string,
 ): Promise<Buffer> {
   const { certificateId: cidField, issueDate: dateField } = layout;
-  const fontDefs = await getSvgFontDefs();
-  const fontFamily = fontDefs ? "'Inter', sans-serif" : 'sans-serif';
+  const fontDefs = getSvgFontDefs();
+  const fontFamily = fontDefs ? "'NotoSans', sans-serif" : 'sans-serif';
   const parts: string[] = [];
 
   if (cidField.visible) {
