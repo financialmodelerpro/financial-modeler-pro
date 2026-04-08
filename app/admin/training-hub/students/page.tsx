@@ -44,6 +44,10 @@ export default function StudentsPage() {
   const [progressLoading, setProgressLoading] = useState(false);
   const [progressError, setProgressError] = useState<string | null>(null);
   const [toast, setToast]               = useState('');
+  // Reset attempts
+  const [resetCourse, setResetCourse]   = useState<'3sfm' | 'bvm'>('3sfm');
+  const [resetSession, setResetSession] = useState('');
+  const [resetting, setResetting]       = useState(false);
 
   useEffect(() => {
     if (status === 'unauthenticated') { router.replace('/login'); return; }
@@ -390,6 +394,128 @@ export default function StudentsPage() {
                     ) : (
                       <div style={{ textAlign: 'center', color: '#9CA3AF', fontSize: 13, padding: 24 }}>No session data available.</div>
                     )}
+
+                    {/* ── Reset Attempts ── */}
+                    <div style={{ marginTop: 24, padding: 16, background: '#FEF2F2', borderRadius: 10, border: '1px solid #FECACA' }}>
+                      <div style={{ fontSize: 13, fontWeight: 800, color: '#DC2626', marginBottom: 12 }}>Reset Attempts</div>
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end', marginBottom: 12 }}>
+                        {/* Course selector */}
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 3 }}>Course</label>
+                          <select value={resetCourse} onChange={e => { setResetCourse(e.target.value as '3sfm' | 'bvm'); setResetSession(''); }}
+                            style={{ padding: '7px 10px', fontSize: 13, borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer' }}>
+                            <option value="3sfm">3SFM</option>
+                            <option value="bvm">BVM</option>
+                          </select>
+                        </div>
+                        {/* Session selector */}
+                        <div>
+                          <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 3 }}>Session</label>
+                          <select value={resetSession} onChange={e => setResetSession(e.target.value)}
+                            style={{ padding: '7px 10px', fontSize: 13, borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', minWidth: 160 }}>
+                            <option value="">Select session...</option>
+                            {resetCourse === '3sfm' ? (
+                              <>
+                                {Array.from({ length: 17 }, (_, i) => (
+                                  <option key={i} value={`3SFM_S${i + 1}`}>Session {i + 1}</option>
+                                ))}
+                                <option value="3SFM_S18">Final Exam</option>
+                              </>
+                            ) : (
+                              <>
+                                {Array.from({ length: 6 }, (_, i) => (
+                                  <option key={i} value={`BVM_L${i + 1}`}>Lesson {i + 1}</option>
+                                ))}
+                                <option value="BVM_L7">Final Exam</option>
+                              </>
+                            )}
+                          </select>
+                        </div>
+                        {/* Reset single session */}
+                        <button
+                          disabled={!resetSession || resetting}
+                          onClick={async () => {
+                            const studentName = progressStudent?.name || progressStudent?.registrationId || '';
+                            const sessionLabel = resetSession.includes('S18') || resetSession.includes('L7') ? 'Final Exam' : resetSession;
+                            if (!confirm(`Reset attempts for ${studentName} — ${sessionLabel}?\n\nThis will clear their score and allow them to retake from attempt 1. This cannot be undone.`)) return;
+                            setResetting(true);
+                            try {
+                              const res = await fetch('/api/admin/reset-attempts', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ regId: progressStudent?.registrationId, tabKey: resetSession, course: resetCourse }),
+                              });
+                              const d = await res.json() as { success: boolean; error?: string };
+                              if (d.success) {
+                                setToast(`Attempts reset for ${studentName} — ${sessionLabel}`);
+                                setTimeout(() => setToast(''), 3000);
+                                // Refresh progress
+                                if (progressStudent) {
+                                  setProgressLoading(true);
+                                  const r = await fetch(`/api/admin/training-hub/student-progress?email=${encodeURIComponent(progressStudent.email)}&regId=${encodeURIComponent(progressStudent.registrationId)}`);
+                                  const j = await r.json();
+                                  if (j.success) setProgress(j.data);
+                                  setProgressLoading(false);
+                                }
+                              } else {
+                                setToast(d.error ?? 'Reset failed');
+                                setTimeout(() => setToast(''), 3000);
+                              }
+                            } catch { setToast('Reset failed'); setTimeout(() => setToast(''), 3000); }
+                            setResetting(false);
+                          }}
+                          style={{
+                            padding: '7px 16px', borderRadius: 6, fontSize: 13, fontWeight: 700,
+                            background: (!resetSession || resetting) ? '#F3F4F6' : '#DC2626',
+                            color: (!resetSession || resetting) ? '#9CA3AF' : '#fff',
+                            border: 'none', cursor: (!resetSession || resetting) ? 'not-allowed' : 'pointer',
+                          }}
+                        >
+                          {resetting ? 'Resetting...' : 'Reset Session'}
+                        </button>
+                      </div>
+                      {/* Reset ALL */}
+                      <button
+                        disabled={resetting}
+                        onClick={async () => {
+                          const studentName = progressStudent?.name || progressStudent?.registrationId || '';
+                          const courseLabel = resetCourse.toUpperCase();
+                          if (!confirm(`⚠️ RESET ALL ${courseLabel} SESSIONS for ${studentName}?\n\nThis will clear ALL scores, attempts, and progress for the entire ${courseLabel} course. This CANNOT be undone.`)) return;
+                          setResetting(true);
+                          try {
+                            const res = await fetch('/api/admin/reset-attempts', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ regId: progressStudent?.registrationId, tabKey: 'ALL', course: resetCourse }),
+                            });
+                            const d = await res.json() as { success: boolean; error?: string };
+                            if (d.success) {
+                              setToast(`All ${courseLabel} attempts reset for ${studentName}`);
+                              setTimeout(() => setToast(''), 3000);
+                              if (progressStudent) {
+                                setProgressLoading(true);
+                                const r = await fetch(`/api/admin/training-hub/student-progress?email=${encodeURIComponent(progressStudent.email)}&regId=${encodeURIComponent(progressStudent.registrationId)}`);
+                                const j = await r.json();
+                                if (j.success) setProgress(j.data);
+                                setProgressLoading(false);
+                              }
+                            } else {
+                              setToast(d.error ?? 'Reset failed');
+                              setTimeout(() => setToast(''), 3000);
+                            }
+                          } catch { setToast('Reset failed'); setTimeout(() => setToast(''), 3000); }
+                          setResetting(false);
+                        }}
+                        style={{
+                          padding: '7px 16px', borderRadius: 6, fontSize: 12, fontWeight: 700,
+                          background: resetting ? '#F3F4F6' : '#fff',
+                          color: resetting ? '#9CA3AF' : '#DC2626',
+                          border: '1px solid #FECACA', cursor: resetting ? 'not-allowed' : 'pointer',
+                        }}
+                      >
+                        {resetting ? 'Resetting...' : `Reset All ${resetCourse.toUpperCase()} Sessions`}
+                      </button>
+                    </div>
                   </>
                 );
               })()}
