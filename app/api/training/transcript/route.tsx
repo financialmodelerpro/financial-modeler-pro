@@ -67,9 +67,9 @@ const s = StyleSheet.create({
 
   /* Status banner */
   bannerProgress: {
-    backgroundColor: '#FFFBEB', paddingHorizontal: 36, paddingVertical: 4,
-    borderTopWidth: 1, borderTopColor: '#FDE68A',
-    borderBottomWidth: 1, borderBottomColor: '#FDE68A',
+    backgroundColor: '#EFF6FF', paddingHorizontal: 36, paddingVertical: 4,
+    borderTopWidth: 2, borderTopColor: '#93C5FD',
+    borderBottomWidth: 2, borderBottomColor: '#93C5FD',
   },
   bannerComplete: {
     backgroundColor: '#F0FFF4', paddingHorizontal: 36, paddingVertical: 4,
@@ -183,7 +183,7 @@ const DEFAULTS: TranscriptSettings = {
   colNum: '#', colSession: 'Session Name', colScore: 'Score', colStatus: 'Status', colAttempts: 'Attempts',
   bannerCompleteTitle: '✓ OFFICIAL TRANSCRIPT — Course Complete',
   bannerCompleteSub:   'All requirements fulfilled. Certificate issued as of [date].',
-  bannerProgressTitle: '⏳ PROGRESS TRANSCRIPT — Course in Progress',
+  bannerProgressTitle: 'PROGRESS TRANSCRIPT — Course in Progress',
   bannerProgressSub:   'This transcript reflects current progress as of [date]. A final transcript will be issued upon course completion.',
   footerBgColor: '#0D2E5A',
   footerLeftText: 'Issue Date: [date]', footerLeftVisible: true,
@@ -540,8 +540,8 @@ function TranscriptDocument({
           </View>
         ) : (
           <View style={s.bannerProgress}>
-            <Text style={[s.bannerTitle, { color: '#92400E' }]}>{settings.bannerProgressTitle}</Text>
-            <Text style={[s.bannerSub, { color: '#92400E' }]}>
+            <Text style={[s.bannerTitle, { color: '#1E3A5F' }]}>{settings.bannerProgressTitle}</Text>
+            <Text style={[s.bannerSub, { color: '#1E3A5F' }]}>
               {settings.bannerProgressSub.replace('[date]', todayStr())}
             </Text>
           </View>

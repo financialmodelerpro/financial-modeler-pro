@@ -195,7 +195,7 @@ export async function GET(
         <div style="font-size:11px;color:#166534;margin-top:2px;">All requirements fulfilled. Certificate issued as of ${hasCert ? fmtDate(issuedAt) : today()}.</div>
        </div>`
     : `<div style="background:#FFFBEB;padding:10px 36px;border-top:2px solid #FDE68A;border-bottom:2px solid #FDE68A;">
-        <div style="font-size:12px;font-weight:800;color:#92400E;">⏳ PROGRESS TRANSCRIPT — Course in Progress</div>
+        <div style="font-size:12px;font-weight:800;color:#92400E;">PROGRESS TRANSCRIPT — Course in Progress</div>
         <div style="font-size:11px;color:#92400E;margin-top:2px;">This transcript reflects current progress as of ${today()}.</div>
        </div>`
   }

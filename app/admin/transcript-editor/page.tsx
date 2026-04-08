@@ -76,7 +76,7 @@ const D: Settings = {
   colNum: '#', colSession: 'Session Name', colScore: 'Score', colStatus: 'Status', colAttempts: 'Attempts',
   bannerCompleteTitle: '✓ OFFICIAL TRANSCRIPT — Course Complete',
   bannerCompleteSub:   'All requirements fulfilled. Certificate issued as of [date].',
-  bannerProgressTitle: '⏳ PROGRESS TRANSCRIPT — Course in Progress',
+  bannerProgressTitle: 'PROGRESS TRANSCRIPT — Course in Progress',
   bannerProgressSub:   'This transcript reflects current progress as of [date]. A final transcript will be issued upon course completion.',
   footerBgColor: '#0D2E5A',
   footerLeftText: 'Issue Date: [date]', footerLeftVisible: true,

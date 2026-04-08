@@ -39,7 +39,7 @@ const TX_DEFAULTS: TxSettings = {
   failedBg: '#FEE2E2', failedColor: '#991B1B',
   bannerCompleteTitle: '✓ OFFICIAL TRANSCRIPT — Course Complete',
   bannerCompleteSub:   'All requirements fulfilled. Certificate issued as of [date].',
-  bannerProgressTitle: '⏳ PROGRESS TRANSCRIPT — Course in Progress',
+  bannerProgressTitle: 'PROGRESS TRANSCRIPT — Course in Progress',
   bannerProgressSub:   'This transcript reflects current progress as of [date].',
   footerBgColor: '#0D2E5A',
   footerLeftText: 'Issue Date: [date]', footerLeftVisible: true,
