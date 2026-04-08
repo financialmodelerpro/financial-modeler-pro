@@ -521,7 +521,7 @@ export default function AssessmentPage() {
     return (
       <div style={{ minHeight: '100vh', background: LIGHT_BG }}>
         <NavBar isFinal={isFinal} sessionName={sessionName} />
-        <div style={{ maxWidth: 640, margin: '60px auto', padding: '0 24px' }}>
+        <div style={{ maxWidth: 820, margin: '60px auto', padding: '0 24px' }}>
 
           {/* Error banner (non-fatal — questions loaded but submission failed) */}
           {errorMsg && (
@@ -650,7 +650,7 @@ export default function AssessmentPage() {
         </div>
 
         {/* Scrollable content — wider container, bottom padding clears sticky nav bar */}
-        <div style={{ maxWidth: 900, margin: '40px auto', padding: '0 24px 96px' }}>
+        <div style={{ maxWidth: 1120, margin: '40px auto', padding: '0 24px 96px' }}>
           {/* Question navigator */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 28 }}>
             {questions.questions.map((_, i) => (
@@ -794,7 +794,7 @@ export default function AssessmentPage() {
       >
         <NavBar isFinal={isFinal} sessionName={sessionName} />
 
-        <div style={{ maxWidth: 600, margin: '60px auto 32px', padding: '0 24px', textAlign: 'center' }}>
+        <div style={{ maxWidth: 780, margin: '60px auto 32px', padding: '0 24px', textAlign: 'center' }}>
           {/* Emoji */}
           <div style={{ fontSize: 72, marginBottom: 16 }}>
             {passed ? (isFinal ? '🏆' : '🎉') : '📚'}
@@ -904,7 +904,7 @@ export default function AssessmentPage() {
 
         {/* Per-question review — only shown when student PASSES */}
         {passed && Array.isArray(result.results) && result.results.length > 0 && (
-          <div style={{ maxWidth: 700, margin: '0 auto 60px', padding: '0 24px' }}>
+          <div style={{ maxWidth: 900, margin: '0 auto 60px', padding: '0 24px' }}>
             <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, marginBottom: 16 }}>
               Question Review
             </h2>
