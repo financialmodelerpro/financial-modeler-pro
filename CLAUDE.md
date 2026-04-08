@@ -202,6 +202,7 @@
 |-------|---------|
 | `live_playlists` | Session grouping: name, description, thumbnail, display_order, is_published |
 | `live_sessions` | Sessions: title, description, youtube_url, live_url, session_type, scheduled_datetime, timezone, category, playlist_id, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, tags[], is_featured, live_password, registration_url, notification/reminder tracking |
+| `session_registrations` | Student RSVP: session_id, student_reg_id, student_name, student_email, registered_at, attended |
 | `course_attachments` | Reused for session files with tab_key='LIVE_'+session_id |
 
 ### Dynamic CMS
@@ -261,7 +262,7 @@
 | **AI Agents** | 🔄 In Progress | Market rates + research agents wired; contextual help stub |
 | **Pricing / Subscriptions** | 🔄 In Progress | Plans + features in DB; enforcement partial |
 | **White-label / Branding** | 🔄 In Progress | DB-driven config; BrandingThemeApplier wired |
-| **Training Hub — Live Sessions** | ✅ Complete | Playlists + sessions (upcoming/live/recorded); admin at `/admin/training-hub/live-sessions` with full CRUD, banner upload, 34 timezones, inline playlist creation, duplicate, filters, notification targeting (all/3SFM/BVM), preview email; student pages at `/training/live-sessions` with tabs, countdown timer, YouTube embed, Google Calendar + .ics download, in-dashboard file preview; email notifications via Resend (announcement + reminder); registration URL for external audience; satori badge text rendering |
+| **Training Hub — Live Sessions** | ✅ Complete | Playlists + sessions (upcoming/live/recorded); admin at `/admin/training-hub/live-sessions` with full CRUD, banner upload, 34 timezones, inline playlist creation, duplicate, filters, notification targeting (all/3SFM/BVM), preview email, full-screen branded preview modal; student pages at `/training/live-sessions` with tabs, countdown timer, YouTube embed, multi-calendar dropdown (Google/Outlook/Yahoo/Apple .ics), in-dashboard file preview; **registration/RSVP system**: `session_registrations` table, student register/cancel, join link shown only 30 min before session, registration count, admin registrations modal with attendance tracking + CSV export; email notifications via Resend (announcement links to session page not direct join, registration confirmation with join button); registration URL for external audience |
 | **Training Hub — Course Attachments** | ✅ Complete | Per-lesson + per-course file attachments; upload to Supabase `course-materials` bucket; in-dashboard file preview modal (PDF iframe, image preview, blob download); admin toggle visibility + delete |
 | **BVM / FPA / other modeling platforms** | ❌ Not Started | Config defined, no platform content yet |
 
@@ -440,6 +441,7 @@ app/api/admin/
 ├── live-sessions/               # GET/POST: list all + create session; PUT: upload banner
 ├── live-sessions/[id]/          # PATCH/DELETE: update + delete session
 ├── live-sessions/[id]/notify/   # POST: send announcement/reminder emails to students via Resend
+├── live-sessions/[id]/registrations/ # GET: list registrations; PATCH: mark attended
 ├── page-sections/               # GET/POST/PATCH/DELETE: CRUD for page_sections + cms_pages (page builder)
 ├── reset-attempts/              # POST: reset student assessment attempts via Apps Script
 ├── training-settings/ users/ whitelabel/
@@ -460,6 +462,7 @@ app/api/
 ├── training/attachments/          # GET: visible file attachments per session/course
 ├── training/live-sessions/        # GET: published live sessions with attachments
 ├── training/live-sessions/[id]/   # GET: single session detail
+├── training/live-sessions/[id]/register/ # POST: register; DELETE: cancel; GET: status
 └── user/account/ + password/ + profile/
 ```
 
@@ -701,6 +704,7 @@ npm run verify       # type-check + lint + build
 | `034_live_sessions.sql` | Live playlists + live sessions tables ✅ Run |
 | `035_live_sessions_enhancements.sql` | banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, tags[], is_featured, live_password ✅ Run |
 | `036_live_session_registration.sql` | registration_url field on live_sessions ✅ Run |
+| `037_session_registrations.sql` | session_registrations table + registration_required + show_join_link_minutes_before columns ✅ Run |
 
 ---
 
@@ -825,3 +829,46 @@ The email used to STORE the OTP must be the EXACT SAME email used to VERIFY it.
 - `app/training/signin/page.tsx` — client OTP flow
 - `app/api/training/validate/route.ts` — `isDeviceTrusted(cookie, email, 'training')` (not regId)
 - `app/api/training/device-verify/route.ts` — `trustDevice(email.toLowerCase(), 'training')` (not regId)
+
+---
+
+## Live Session Registration Flow (Session 2026-04-08)
+
+### Student flow
+```
+Email notification → [View & Register →] → Session detail page
+→ [Register for This Session] → Confirmation email sent
+→ "You're registered!" + countdown → Join link appears 30 min before
+→ [Join Session Now] → Teams/Zoom
+```
+
+### Key rules
+- Join link NEVER shown on list page — only on detail page after registration + 30 min before
+- List page shows `[View & Register →]` linking to detail page
+- Announcement email links to session page (not direct join URL)
+- Registration confirmation email includes both `[View Session]` and `[Join Session]` buttons
+- `session_registrations` table tracks who registered + attendance
+- Registration count shown publicly ("47 people registered")
+
+### Calendar dropdown (replaces separate buttons)
+Single `[Add to Calendar ▾]` dropdown with: Google Calendar, Outlook, Yahoo, Apple (.ics)
+Applied on both list page cards and detail page.
+
+### Admin features
+- Registrations column in session table → "View" button → modal
+- Modal: student list (name, regId, email, date, attended checkbox)
+- "Mark All Present" + "Export CSV" buttons
+- `registration_required` and `show_join_link_minutes_before` settings on live_sessions
+
+### API routes
+- `POST /api/training/live-sessions/[id]/register` — student registers (sends confirmation email)
+- `DELETE /api/training/live-sessions/[id]/register` — cancel registration
+- `GET /api/training/live-sessions/[id]/register?email=...` — check status + joinLinkAvailable
+- `GET /api/admin/live-sessions/[id]/registrations` — list all registrations
+- `PATCH /api/admin/live-sessions/[id]/registrations` — mark attended (individual or all)
+
+### Files
+- `app/api/training/live-sessions/[id]/register/route.ts`
+- `app/api/admin/live-sessions/[id]/registrations/route.ts`
+- `src/lib/email/templates/liveSessionNotification.ts` — announcement + confirmation emails
+- `supabase/migrations/037_session_registrations.sql`
