@@ -185,26 +185,24 @@ export default function LiveSessionDetailPage() {
   return (
     <div style={{ fontFamily: "'Inter',sans-serif", background: '#F5F7FA', minHeight: '100vh' }}>
       {/* Nav */}
-      <nav style={{ background: NAVY, padding: '0 20px', display: 'flex', alignItems: 'center', gap: 14, height: 56, position: 'sticky', top: 0, zIndex: 100 }}>
-        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 7, textDecoration: 'none' }}>
-          <div style={{ width: 26, height: 26, borderRadius: 5, background: GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>F</div>
-          <span style={{ fontSize: 13, fontWeight: 800, color: '#fff' }}>Financial Modeler Pro</span>
+      <nav style={{ background: NAVY, padding: '0 16px', display: 'flex', alignItems: 'center', gap: 10, height: 52, position: 'sticky', top: 0, zIndex: 100, overflow: 'hidden' }}>
+        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none', flexShrink: 0 }}>
+          <div style={{ width: 24, height: 24, borderRadius: 4, background: GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>F</div>
         </Link>
-        <span style={{ color: '#475569' }}>|</span>
-        <Link href="/training/live-sessions" style={{ color: '#94A3B8', fontSize: 13, textDecoration: 'none' }}>Live Sessions</Link>
-        <span style={{ color: '#475569' }}>|</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{session.title}</span>
+        <Link href="/training/live-sessions" style={{ color: '#94A3B8', fontSize: 12, textDecoration: 'none', flexShrink: 0 }}>Sessions</Link>
+        <span style={{ color: '#475569', flexShrink: 0 }}>|</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{session.title}</span>
       </nav>
 
       {/* Banner hero */}
       {session.banner_url && (
         <div style={{ maxWidth: 900, margin: '0 auto' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={session.banner_url} alt={session.title} style={{ width: '100%', height: 300, objectFit: 'cover', borderRadius: '0 0 12px 12px' }} />
+          <img src={session.banner_url} alt={session.title} style={{ width: '100%', height: 'auto', maxHeight: 300, objectFit: 'cover' }} />
         </div>
       )}
 
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '32px 24px 64px' }}>
+      <div style={{ maxWidth: 900, margin: '0 auto', padding: 'clamp(16px,4vw,32px) clamp(12px,3vw,24px) 64px' }}>
         <Link href="/training/live-sessions" style={{ fontSize: 13, color: '#6B7280', textDecoration: 'none', marginBottom: 16, display: 'inline-block' }}>
           &larr; Back to Live Sessions
         </Link>
@@ -224,7 +222,7 @@ export default function LiveSessionDetailPage() {
           {session.is_featured && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 12, background: '#FEF3C7', color: '#B45309' }}>FEATURED</span>}
         </div>
 
-        <h1 style={{ fontSize: 28, fontWeight: 800, color: NAVY, marginBottom: 8, lineHeight: 1.3 }}>{session.title}</h1>
+        <h1 style={{ fontSize: 'clamp(20px,5vw,28px)', fontWeight: 800, color: NAVY, marginBottom: 8, lineHeight: 1.3 }}>{session.title}</h1>
         {session.instructor_name && <div style={{ fontSize: 14, color: '#6B7280', marginBottom: 8 }}>{session.instructor_name}</div>}
 
         {session.scheduled_datetime && (
@@ -255,7 +253,7 @@ export default function LiveSessionDetailPage() {
         {isUpcoming && countdown && (
           <div style={{ background: '#EFF6FF', border: '2px solid #3B82F6', borderRadius: 12, padding: '20px 24px', marginBottom: 24, textAlign: 'center' }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#1D4ED8', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>Starts in</div>
-            <div style={{ fontSize: 36, fontWeight: 800, color: NAVY, fontFamily: 'monospace' }}>{countdown}</div>
+            <div style={{ fontSize: 'clamp(24px,6vw,36px)', fontWeight: 800, color: NAVY, fontFamily: 'monospace' }}>{countdown}</div>
           </div>
         )}
 
@@ -280,7 +278,7 @@ export default function LiveSessionDetailPage() {
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#1B4F8A', marginBottom: 8 }}>Register to join this session</div>
                 <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>The join link will be available 30 minutes before the session starts.</div>
                 <button onClick={handleRegister} disabled={registering}
-                  style={{ padding: '12px 32px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 15, border: 'none', cursor: registering ? 'not-allowed' : 'pointer', opacity: registering ? 0.6 : 1 }}>
+                  style={{ padding: '12px 32px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 'clamp(13px,3.5vw,15px)', border: 'none', cursor: registering ? 'not-allowed' : 'pointer', opacity: registering ? 0.6 : 1, width: '100%', maxWidth: 320 }}>
                   {registering ? 'Registering...' : 'Register for This Session'}
                 </button>
                 {regCount > 0 && <div style={{ marginTop: 10, fontSize: 12, color: '#6B7280' }}>{regCount} {regCount === 1 ? 'person' : 'people'} registered</div>}
@@ -318,12 +316,12 @@ export default function LiveSessionDetailPage() {
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 24 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 24 }}>
           {session.scheduled_datetime && isUpcoming && (
             <DetailCalendarDropdown title={session.title} desc={session.description || ''} liveUrl={session.live_url || ''} dt={session.scheduled_datetime} />
           )}
           <button onClick={copyLink}
-            style={{ padding: '12px 20px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+            style={{ padding: '10px 16px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
             {copied ? 'Copied!' : 'Copy Link'}
           </button>
         </div>

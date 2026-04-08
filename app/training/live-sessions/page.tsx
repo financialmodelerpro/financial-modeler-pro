@@ -129,20 +129,20 @@ export default function LiveSessionsPage() {
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#F5F7FA', minHeight: '100vh' }}>
       {/* Nav */}
-      <nav style={{ background: NAVY, padding: '0 20px', display: 'flex', alignItems: 'center', gap: 14, height: 56, position: 'sticky', top: 0, zIndex: 100 }}>
-        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 7, textDecoration: 'none' }}>
-          <div style={{ width: 26, height: 26, borderRadius: 5, background: GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>F</div>
-          <span style={{ fontSize: 13, fontWeight: 800, color: '#fff' }}>Financial Modeler Pro</span>
+      <nav style={{ background: NAVY, padding: '0 16px', display: 'flex', alignItems: 'center', gap: 10, height: 52, position: 'sticky', top: 0, zIndex: 100, overflow: 'hidden' }}>
+        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none', flexShrink: 0 }}>
+          <div style={{ width: 24, height: 24, borderRadius: 4, background: GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>F</div>
+          <span style={{ fontSize: 12, fontWeight: 800, color: '#fff', display: 'none' }} className="fmp-nav-brand">Financial Modeler Pro</span>
         </Link>
-        <span style={{ color: '#475569' }}>|</span>
-        <Link href="/training/dashboard" style={{ color: '#94A3B8', fontSize: 13, textDecoration: 'none' }}>Dashboard</Link>
-        <span style={{ color: '#475569' }}>|</span>
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>Live Sessions</span>
+        <Link href="/training/dashboard" style={{ color: '#94A3B8', fontSize: 12, textDecoration: 'none', flexShrink: 0 }}>Dashboard</Link>
+        <span style={{ color: '#475569', flexShrink: 0 }}>|</span>
+        <span style={{ fontSize: 12, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Live Sessions</span>
       </nav>
+      <style>{`@media(min-width:640px){.fmp-nav-brand{display:inline!important}}`}</style>
 
-      <div style={{ maxWidth: 1000, margin: '0 auto', padding: '32px 24px 64px' }}>
-        <h1 style={{ fontSize: 24, fontWeight: 800, color: NAVY, marginBottom: 4 }}>Live Sessions</h1>
-        <p style={{ fontSize: 14, color: '#6B7280', marginBottom: 24 }}>Join live training sessions or watch recordings at your own pace.</p>
+      <div style={{ maxWidth: 1000, margin: '0 auto', padding: 'clamp(16px,4vw,32px) clamp(12px,3vw,24px) 64px' }}>
+        <h1 style={{ fontSize: 'clamp(20px,5vw,24px)', fontWeight: 800, color: NAVY, marginBottom: 4 }}>Live Sessions</h1>
+        <p style={{ fontSize: 14, color: '#6B7280', marginBottom: 20 }}>Join live training sessions or watch recordings at your own pace.</p>
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid #E5E7EB', marginBottom: 28 }}>
@@ -242,7 +242,7 @@ export default function LiveSessionsPage() {
               {Object.entries(groupedRecordings).map(([playlistName, items]) => (
                 <div key={playlistName}>
                   <h3 style={{ fontSize: 16, fontWeight: 800, color: NAVY, marginBottom: 12 }}>{playlistName} ({items.length})</h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 12 }}>
                     {items.map(s => {
                       const ytId = extractYouTubeId(s.youtube_url);
                       return (
