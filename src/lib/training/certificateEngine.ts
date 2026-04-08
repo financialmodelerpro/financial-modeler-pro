@@ -263,13 +263,11 @@ export async function loadBadgeLayout(): Promise<BadgeLayout> {
   return DEFAULT_BADGE_LAYOUT;
 }
 
-// ── Badge text rendering (satori + resvg) ────────────────────────────────────
-// Uses satori (same engine as @vercel/og) to render text as SVG,
-// then resvg to convert SVG to PNG, then sharp to composite onto badge.
-// This approach works perfectly on Vercel — satori handles its own fonts.
+// ── Badge text rendering (satori + sharp SVG-to-PNG) ─────────────────────────
+// Uses satori to render text as SVG with embedded font,
+// then sharp to convert SVG to PNG and composite onto badge.
 
 import satori from 'satori';
-import { Resvg } from '@resvg/resvg-js';
 
 // Cache font data in memory after first fetch
 let _fontData: ArrayBuffer | null = null;
@@ -370,11 +368,14 @@ export async function renderBadgeWithText(
     },
   );
 
-  const resvg = new Resvg(svg, { fitTo: { mode: 'width' as const, value: bw } });
-  const textLayer = resvg.render().asPng();
+  // Convert satori SVG to PNG using sharp (no resvg native dependency needed)
+  const textLayer = await sharp(Buffer.from(svg))
+    .resize(bw, bh)
+    .png()
+    .toBuffer();
 
   return sharp(badgeBytes)
-    .composite([{ input: Buffer.from(textLayer), top: 0, left: 0 }])
+    .composite([{ input: textLayer, top: 0, left: 0 }])
     .png()
     .toBuffer();
 }

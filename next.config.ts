@@ -17,7 +17,7 @@ const nextConfig: NextConfig = {
   outputFileTracingRoot: path.join(__dirname),
 
   // Native packages that webpack should not bundle — loaded at runtime instead
-  serverExternalPackages: ['@resvg/resvg-js', 'satori'],
+  serverExternalPackages: ['satori'],
 
   async headers() {
     return [
