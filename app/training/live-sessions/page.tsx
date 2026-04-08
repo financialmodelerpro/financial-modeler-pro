@@ -53,6 +53,46 @@ function downloadIcs(s: Session) {
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
 
+function CalendarDropdown({ s }: { s: Session }) {
+  const [open, setOpen] = useState(false);
+  if (!s.scheduled_datetime) return null;
+  const start = new Date(s.scheduled_datetime);
+  const end = new Date(start.getTime() + 90 * 60 * 1000);
+  const fmtCal = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const title = encodeURIComponent(s.title);
+  const desc = encodeURIComponent((s.description || '') + (s.live_url ? '\n\nJoin: ' + s.live_url : ''));
+  const gcal = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${fmtCal(start)}/${fmtCal(end)}&details=${desc}`;
+  const outlook = `https://outlook.live.com/calendar/0/deeplink/compose?subject=${title}&startdt=${start.toISOString()}&enddt=${end.toISOString()}&body=${desc}`;
+  const yahoo = `https://calendar.yahoo.com/?v=60&title=${title}&st=${fmtCal(start)}&dur=0130&desc=${desc}`;
+
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <button onClick={() => setOpen(!open)}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
+        Add to Calendar ▾
+      </button>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: '#fff', borderRadius: 8, border: '1px solid #E5E7EB', boxShadow: '0 4px 16px rgba(0,0,0,0.1)', zIndex: 50, minWidth: 200, overflow: 'hidden' }}>
+          {[
+            { label: 'Google Calendar', url: gcal },
+            { label: 'Outlook Calendar', url: outlook },
+            { label: 'Yahoo Calendar', url: yahoo },
+          ].map(opt => (
+            <a key={opt.label} href={opt.url} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}
+              style={{ display: 'block', padding: '10px 16px', fontSize: 13, color: '#374151', textDecoration: 'none', borderBottom: '1px solid #F3F4F6' }}>
+              {opt.label}
+            </a>
+          ))}
+          <button onClick={() => { downloadIcs(s); setOpen(false); }}
+            style={{ display: 'block', width: '100%', padding: '10px 16px', fontSize: 13, color: '#374151', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+            Apple Calendar (.ics)
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LiveSessionsPage() {
   const router = useRouter();
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -176,31 +216,12 @@ export default function LiveSessionsPage() {
                       ))}
                     </div>
                   )}
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                    {s.registration_url && (
-                      <a href={s.registration_url} target="_blank" rel="noopener noreferrer"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 24px', borderRadius: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>
-                        Register
-                      </a>
-                    )}
-                    {s.live_url && (
-                      <a href={s.live_url} target="_blank" rel="noopener noreferrer"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 24px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>
-                        Join Session
-                      </a>
-                    )}
-                    {s.scheduled_datetime && (
-                      <>
-                        <a href={buildGcalUrl(s)} target="_blank" rel="noopener noreferrer"
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 13, textDecoration: 'none' }}>
-                          Google Calendar
-                        </a>
-                        <button onClick={() => downloadIcs(s)}
-                          style={{ padding: '10px 16px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-                          Download .ics
-                        </button>
-                      </>
-                    )}
+                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <Link href={`/training/live-sessions/${s.id}`}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 24px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>
+                      View & Register
+                    </Link>
+                    <CalendarDropdown s={s} />
                   </div>
                   </div>
                 </div>

@@ -32,6 +32,39 @@ function fmtTime(iso: string): string {
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
 
+function downloadIcs(title: string, desc: string, liveUrl: string, dt: string) {
+  const start = new Date(dt);
+  const end = new Date(start.getTime() + 90 * 60000);
+  const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const ics = ['BEGIN:VCALENDAR','VERSION:2.0','BEGIN:VEVENT',`DTSTART:${fmt(start)}`,`DTEND:${fmt(end)}`,`SUMMARY:${title}`,`DESCRIPTION:${(desc||'').replace(/\n/g,'\\n')}${liveUrl?'\\nJoin: '+liveUrl:''}`,liveUrl?`URL:${liveUrl}`:'','END:VEVENT','END:VCALENDAR'].filter(Boolean).join('\r\n');
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([ics],{type:'text/calendar'})); a.download = `${title.replace(/[^a-zA-Z0-9]/g,'_')}.ics`; a.click(); URL.revokeObjectURL(a.href);
+}
+
+function DetailCalendarDropdown({ title, desc, liveUrl, dt }: { title: string; desc: string; liveUrl: string; dt: string }) {
+  const [open, setOpen] = useState(false);
+  const start = new Date(dt);
+  const end = new Date(start.getTime() + 90 * 60000);
+  const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  const t = encodeURIComponent(title);
+  const d2 = encodeURIComponent((desc||'') + (liveUrl?'\n\nJoin: '+liveUrl:''));
+  const gcal = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${t}&dates=${fmt(start)}/${fmt(end)}&details=${d2}`;
+  const outlook = `https://outlook.live.com/calendar/0/deeplink/compose?subject=${t}&startdt=${start.toISOString()}&enddt=${end.toISOString()}&body=${d2}`;
+  const yahoo = `https://calendar.yahoo.com/?v=60&title=${t}&st=${fmt(start)}&dur=0130&desc=${d2}`;
+  return (
+    <div style={{ position: 'relative', display: 'inline-block' }}>
+      <button onClick={() => setOpen(!open)} style={{ padding: '12px 20px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Add to Calendar ▾</button>
+      {open && (
+        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: '#fff', borderRadius: 8, border: '1px solid #E5E7EB', boxShadow: '0 4px 16px rgba(0,0,0,0.1)', zIndex: 50, minWidth: 200, overflow: 'hidden' }}>
+          {[{label:'Google Calendar',url:gcal},{label:'Outlook Calendar',url:outlook},{label:'Yahoo Calendar',url:yahoo}].map(o=>(
+            <a key={o.label} href={o.url} target="_blank" rel="noopener noreferrer" onClick={()=>setOpen(false)} style={{display:'block',padding:'10px 16px',fontSize:13,color:'#374151',textDecoration:'none',borderBottom:'1px solid #F3F4F6'}}>{o.label}</a>
+          ))}
+          <button onClick={()=>{downloadIcs(title,desc,liveUrl,dt);setOpen(false);}} style={{display:'block',width:'100%',padding:'10px 16px',fontSize:13,color:'#374151',background:'none',border:'none',cursor:'pointer',textAlign:'left'}}>Apple Calendar (.ics)</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LiveSessionDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -287,13 +320,7 @@ export default function LiveSessionDetailPage() {
 
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 24 }}>
           {session.scheduled_datetime && isUpcoming && (
-            <>
-              <a href={`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(session.title)}&dates=${new Date(session.scheduled_datetime).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}/${new Date(new Date(session.scheduled_datetime).getTime() + 5400000).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}&details=${encodeURIComponent(session.description || '')}`}
-                target="_blank" rel="noopener noreferrer"
-                style={{ padding: '12px 20px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 13, textDecoration: 'none' }}>
-                Google Calendar
-              </a>
-            </>
+            <DetailCalendarDropdown title={session.title} desc={session.description || ''} liveUrl={session.live_url || ''} dt={session.scheduled_datetime} />
           )}
           <button onClick={copyLink}
             style={{ padding: '12px 20px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>

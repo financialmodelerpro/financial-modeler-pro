@@ -23,6 +23,7 @@ interface ConfirmationParams {
   sessionTime: string;
   timezone: string;
   sessionUrl: string;
+  liveUrl?: string;
 }
 
 function emailShell(bannerText: string, body: string): string {
@@ -108,8 +109,14 @@ export function registrationConfirmationTemplate(p: ConfirmationParams): { subje
           View Session in Dashboard
         </a>
       </div>
+      ${p.liveUrl ? `<div style="margin-top:10px;">
+        <a href="${p.liveUrl}" style="background:#1B4F8A;color:#fff;padding:12px 28px;border-radius:6px;text-decoration:none;font-weight:bold;display:inline-block;">
+          Join Session
+        </a>
+      </div>` : ''}
     </div>
 
+    <p style="font-size:13px;color:#6B7280;">The join link will also be available in your dashboard 30 minutes before the session starts.</p>
     <p style="font-size:13px;color:#6B7280;">Can't make it? You can cancel your registration from your dashboard.</p>`;
 
   return { subject, html: emailShell('Registration Confirmed', body) };

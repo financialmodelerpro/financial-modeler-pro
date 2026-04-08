@@ -1532,7 +1532,7 @@ export default function LiveSessionsPage() {
                 {/* Banner or gradient placeholder */}
                 {ps.banner_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={ps.banner_url} alt={ps.title} style={{ width: '100%', maxHeight: 400, objectFit: 'contain', display: 'block', backgroundColor: '#000' }} />
+                  <img src={ps.banner_url} alt={ps.title} style={{ width: '100%', height: 'auto', display: 'block' }} />
                 ) : (
                   <div style={{ width: '100%', height: 220, background: 'linear-gradient(135deg, #0D2E5A 0%, #1B4F8A 50%, #2E75B6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
                     <span style={{ fontSize: 28, fontWeight: 800, color: '#fff', textAlign: 'center', lineHeight: 1.3 }}>{ps.title}</span>
@@ -1597,14 +1597,12 @@ export default function LiveSessionsPage() {
 
                   {/* Action buttons */}
                   {!isRecorded && (
-                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-                      {ps.registration_url && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 24px', borderRadius: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 13 }}>Register for Session</span>
-                      )}
-                      {ps.live_url && (
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 24px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 13 }}>Join Session</span>
-                      )}
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 12 }}>Add to Calendar</span>
+                    <div style={{ marginBottom: 14 }}>
+                      <div style={{ background: '#F0F7FF', border: '1.5px solid #93C5FD', borderRadius: 10, padding: 16, marginBottom: 10 }}>
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 24px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 13 }}>Register for This Session</span>
+                        <div style={{ fontSize: 12, color: '#6B7280', marginTop: 8 }}>Join link will be available 30 minutes before the session starts</div>
+                      </div>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 12 }}>Add to Calendar ▾</span>
                     </div>
                   )}
                 </div>
