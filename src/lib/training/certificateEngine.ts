@@ -294,52 +294,44 @@ export async function renderBadgeWithText(
   const bw   = meta.width  ?? 600;
   const bh   = meta.height ?? 600;
 
+  // Font size multiplier: editor fontSize 14 → render at 35px to match Live Preview
+  const SCALE = 2.5;
+
   const children: Record<string, unknown>[] = [];
 
-  if (layout.certificateId.visible && certId) {
-    const f = layout.certificateId;
-    children.push({
+  function makeTextDiv(f: BadgeTextField, text: string) {
+    const renderSize = Math.round(f.fontSize * SCALE);
+    const top = bh - f.y - renderSize;
+    // Satori uses flexbox for alignment — justifyContent for horizontal
+    const justify = f.textAlign === 'left' ? 'flex-start' : f.textAlign === 'right' ? 'flex-end' : 'center';
+    return {
       type: 'div',
       props: {
         style: {
           position: 'absolute',
-          bottom: f.y,
+          top,
           left: 0,
           width: bw,
-          textAlign: f.textAlign ?? 'center',
-          fontSize: f.fontSize * 2,
+          display: 'flex',
+          justifyContent: justify,
+          fontSize: renderSize,
           color: f.color,
           fontFamily: 'Inter',
+          fontWeight: 600,
           paddingLeft: f.textAlign === 'left' ? f.x : 0,
           paddingRight: f.textAlign === 'right' ? f.x : 0,
-          ...(f.textAlign === 'center' && f.x ? { transform: `translateX(${f.x}px)` } : {}),
         },
-        children: certId,
+        children: text,
       },
-    });
+    };
+  }
+
+  if (layout.certificateId.visible && certId) {
+    children.push(makeTextDiv(layout.certificateId, certId));
   }
 
   if (layout.issueDate.visible && issueDate) {
-    const f = layout.issueDate;
-    children.push({
-      type: 'div',
-      props: {
-        style: {
-          position: 'absolute',
-          bottom: f.y,
-          left: 0,
-          width: bw,
-          textAlign: f.textAlign ?? 'center',
-          fontSize: f.fontSize * 2,
-          color: f.color,
-          fontFamily: 'Inter',
-          paddingLeft: f.textAlign === 'left' ? f.x : 0,
-          paddingRight: f.textAlign === 'right' ? f.x : 0,
-          ...(f.textAlign === 'center' && f.x ? { transform: `translateX(${f.x}px)` } : {}),
-        },
-        children: issueDate,
-      },
-    });
+    children.push(makeTextDiv(layout.issueDate, issueDate));
   }
 
   if (children.length === 0) return badgeBytes;
