@@ -264,64 +264,42 @@ export async function loadBadgeLayout(): Promise<BadgeLayout> {
   return DEFAULT_BADGE_LAYOUT;
 }
 
-// ── Font embedding for SVG (Vercel has no system fonts) ──────────────────────
+// ── Badge SVG overlay builder ────────────────────────────────────────────────
 
-import { readFileSync } from 'fs';
-import { join } from 'path';
-
-let _fontCache: string | null = null;
-
-/**
- * Load NotoSans TTF from bundled file, convert to base64, return SVG <defs><style>
- * block that embeds the font inline. Cached in memory after first call.
- * Uses TTF format (not woff2) because sharp's librsvg requires it.
- */
-export function getSvgFontDefs(): string {
-  if (_fontCache !== null) return _fontCache;
-  try {
-    const fontPath = join(process.cwd(), 'public', 'fonts', 'NotoSans-Regular.ttf');
-    const fontBuf  = readFileSync(fontPath);
-    const b64      = fontBuf.toString('base64');
-    _fontCache = `<defs><style>@font-face { font-family: 'NotoSans'; src: url('data:font/truetype;base64,${b64}') format('truetype'); font-weight: normal; font-style: normal; }</style></defs>`;
-    return _fontCache;
-  } catch (err) {
-    console.error('[certificateEngine] Failed to load font:', err);
-    _fontCache = '';
-    return '';
-  }
-}
+// Font stack: DejaVu Sans is available on Vercel (Amazon Linux).
+// Arial/Helvetica are NOT available on Vercel — never use them.
+const SVG_FONT = "'DejaVu Sans', 'Noto Sans', 'Liberation Sans', sans-serif";
 
 /**
- * Build SVG text overlay for badge with embedded font.
- * Returns complete SVG string ready for sharp composite.
+ * Build SVG text overlay for badge.
+ * Uses system fonts available on Vercel's Amazon Linux (DejaVu Sans).
+ * Returns complete SVG buffer ready for sharp composite.
  */
-export async function buildBadgeSvgOverlay(
+export function buildBadgeSvgOverlay(
   bw: number, bh: number,
   layout: BadgeLayout,
   certId: string, issueDate: string,
-): Promise<Buffer> {
+): Buffer {
   const { certificateId: cidField, issueDate: dateField } = layout;
-  const fontDefs = getSvgFontDefs();
-  const fontFamily = fontDefs ? "'NotoSans', sans-serif" : 'sans-serif';
   const parts: string[] = [];
 
   if (cidField.visible) {
     const cidY = bh - cidField.y;
     parts.push(
-      `<text x="${svgTextX(cidField.textAlign, cidField.x, bw)}" y="${cidY}" text-anchor="${svgAnchor(cidField.textAlign)}" font-family="${fontFamily}" font-size="${cidField.fontSize}" fill="${cidField.color}">${escapeXml(certId)}</text>`
+      `<text x="${svgTextX(cidField.textAlign, cidField.x, bw)}" y="${cidY}" text-anchor="${svgAnchor(cidField.textAlign)}" font-family="${SVG_FONT}" font-size="${cidField.fontSize}" fill="${cidField.color}">${escapeXml(certId)}</text>`
     );
   }
 
   if (dateField.visible) {
     const dateY = bh - dateField.y;
     parts.push(
-      `<text x="${svgTextX(dateField.textAlign, dateField.x, bw)}" y="${dateY}" text-anchor="${svgAnchor(dateField.textAlign)}" font-family="${fontFamily}" font-size="${dateField.fontSize}" fill="${dateField.color}">${escapeXml(issueDate)}</text>`
+      `<text x="${svgTextX(dateField.textAlign, dateField.x, bw)}" y="${dateY}" text-anchor="${svgAnchor(dateField.textAlign)}" font-family="${SVG_FONT}" font-size="${dateField.fontSize}" fill="${dateField.color}">${escapeXml(issueDate)}</text>`
     );
   }
 
-  return Buffer.from(
-    `<svg width="${bw}" height="${bh}" xmlns="http://www.w3.org/2000/svg">${fontDefs}${parts.join('')}</svg>`
-  );
+  const svg = `<svg width="${bw}" height="${bh}" xmlns="http://www.w3.org/2000/svg">${parts.join('')}</svg>`;
+  console.log('[badge] SVG overlay length:', svg.length, 'chars');
+  return Buffer.from(svg);
 }
 
 function svgAnchor(align?: string): string {
