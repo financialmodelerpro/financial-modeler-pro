@@ -45,6 +45,8 @@ export function SessionCard({
   const [timerStatus, setTimerStatus] = useState<TimerStatus>({ locked: false, secondsRemaining: 0, started: false });
   const [notesOpen, setNotesOpen] = useState(false);
   const [noteText, setNoteText] = useState(noteContent);
+  const [sessionAttachments, setSessionAttachments] = useState<{ id: string; file_name: string; file_url: string; file_type: string; file_size: number }[]>([]);
+  const [attachLoaded, setAttachLoaded] = useState(false);
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync incoming noteContent (loaded async)
@@ -54,6 +56,18 @@ export function SessionCard({
     if (typeof window === 'undefined' || !regId) return;
     setTimerStatus(getTimerStatus(regId, tabKey, videoDuration, timerBypassed));
   }, [regId, tabKey, videoDuration, timerBypassed]);
+
+  // Load attachments for this session
+  useEffect(() => {
+    if (locked || attachLoaded) return;
+    fetch(`/api/training/attachments?tabKey=${encodeURIComponent(tabKey)}`)
+      .then(r => r.json())
+      .then((d: { attachments?: typeof sessionAttachments }) => {
+        setSessionAttachments(d.attachments ?? []);
+        setAttachLoaded(true);
+      })
+      .catch(() => setAttachLoaded(true));
+  }, [tabKey, locked, attachLoaded]);
 
   let borderColor = '#E5E7EB';
   let bgColor = '#ffffff';
@@ -208,6 +222,25 @@ export function SessionCard({
           </Link>
         )}
       </div>
+
+      {/* Attachments */}
+      {!locked && sessionAttachments.length > 0 && (
+        <div style={{ marginTop: 8, paddingLeft: 38, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {sessionAttachments.map(att => {
+            const icon = att.file_type === 'pdf' ? '📄' : att.file_type === 'docx' ? '📝' : att.file_type === 'pptx' ? '📊' : att.file_type === 'xlsx' ? '📗' : '🖼️';
+            const size = att.file_size ? `${(att.file_size / 1024).toFixed(0)} KB` : '';
+            return (
+              <a key={att.id} href={att.file_url} target="_blank" rel="noopener noreferrer"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', borderRadius: 6, border: '1px solid #E5E7EB', background: '#F9FAFB', textDecoration: 'none', fontSize: 11, color: '#374151' }}>
+                <span>{icon}</span>
+                <span style={{ fontWeight: 600, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{att.file_name}</span>
+                {size && <span style={{ color: '#9CA3AF', fontSize: 10 }}>{size}</span>}
+                <span style={{ color: '#1B4F8A', fontWeight: 700 }}>↓</span>
+              </a>
+            );
+          })}
+        </div>
+      )}
 
       {/* Notes toggle */}
       {!locked && !isFinal && (

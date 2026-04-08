@@ -161,6 +161,54 @@ export default function AdminCourseLessonsPage() {
   const [ytError, setYtError] = useState('');
   const [savingLesson, setSavingLesson] = useState(false);
 
+  // ── Attachments state ───────────────────────────────────────────────────────
+  interface Attachment { id: string; tab_key: string; course: string; file_name: string; file_url: string; file_type: string; file_size: number; is_visible: boolean; uploaded_at: string }
+  const [attachments, setAttachments] = useState<Record<string, Attachment[]>>({});
+  const [uploadingFor, setUploadingFor] = useState<string | null>(null);
+  const [attachOpen, setAttachOpen] = useState<string | null>(null);
+
+  async function loadAttachments(tabKey: string) {
+    try {
+      const res = await fetch(`/api/admin/attachments?tabKey=${encodeURIComponent(tabKey)}`);
+      const d = await res.json() as { attachments?: Attachment[] };
+      setAttachments(prev => ({ ...prev, [tabKey]: d.attachments ?? [] }));
+    } catch { /* ignore */ }
+  }
+
+  async function uploadAttachment(tabKey: string, file: File) {
+    const code = courseId?.toLowerCase() === 'bvm' ? 'bvm' : '3sfm';
+    setUploadingFor(tabKey);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('tabKey', tabKey);
+      fd.append('course', code);
+      const res = await fetch('/api/admin/attachments', { method: 'POST', body: fd });
+      const d = await res.json() as { success?: boolean; attachment?: Attachment; error?: string };
+      if (d.success && d.attachment) {
+        setAttachments(prev => ({ ...prev, [tabKey]: [...(prev[tabKey] ?? []), d.attachment!] }));
+        setToast({ msg: 'File uploaded', type: 'success' });
+        setTimeout(() => setToast(null), 2000);
+      } else {
+        setToast({ msg: d.error ?? 'Upload failed', type: 'error' });
+        setTimeout(() => setToast(null), 3000);
+      }
+    } catch { setToast({ msg: 'Upload failed', type: 'error' }); setTimeout(() => setToast(null), 3000); }
+    setUploadingFor(null);
+  }
+
+  async function toggleAttachmentVisibility(tabKey: string, id: string, visible: boolean) {
+    await fetch('/api/admin/attachments', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, is_visible: visible }) });
+    setAttachments(prev => ({ ...prev, [tabKey]: (prev[tabKey] ?? []).map(a => a.id === id ? { ...a, is_visible: visible } : a) }));
+  }
+
+  async function deleteAttachment(tabKey: string, id: string) {
+    if (!confirm('Delete this attachment?')) return;
+    await fetch('/api/admin/attachments', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) });
+    setAttachments(prev => ({ ...prev, [tabKey]: (prev[tabKey] ?? []).filter(a => a.id !== id) }));
+    setToast({ msg: 'Deleted', type: 'success' }); setTimeout(() => setToast(null), 2000);
+  }
+
   // ── Assessment state ────────────────────────────────────────────────────────
   const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [assessmentLoading, setAssessmentLoading] = useState(false);
@@ -726,6 +774,9 @@ export default function AdminCourseLessonsPage() {
                   </div>
                 )}
                 {lessons.map(l => {
+                  const isBvm = courseId?.toLowerCase() === 'bvm';
+                  const tk = isBvm ? `BVM_L${l.display_order}` : `3SFM_S${l.display_order}`;
+                  const lessonAttachments = attachments[tk] ?? [];
                   const link = sessionLinks.find(s => s.num === l.display_order);
                   const displayYtUrl  = l.youtube_url || link?.youtubeUrl || '';
                   const displayDuration = l.duration_minutes > 0 ? l.duration_minutes : (link?.videoDuration ?? 0);
@@ -762,6 +813,10 @@ export default function AdminCourseLessonsPage() {
                               {isExpanded ? '▲ Hide' : '▶ Preview'}
                             </button>
                           )}
+                          <button onClick={() => { setAttachOpen(attachOpen === tk ? null : tk); if (!attachments[tk]) loadAttachments(tk); }}
+                            style={{ fontSize: 12, color: '#6B7280', background: 'none', border: '1px solid #D1D5DB', borderRadius: 5, cursor: 'pointer', padding: '4px 10px', fontWeight: 600 }}>
+                            📎 {lessonAttachments.length || ''}
+                          </button>
                           <button onClick={() => openEditLesson(l)} style={{ fontSize: 12, color: '#1B4F8A', background: 'none', border: '1px solid #C7D9F2', borderRadius: 5, cursor: 'pointer', padding: '4px 10px', fontWeight: 600 }}>Edit</button>
                           <button onClick={() => deleteLesson(l.id)} style={{ fontSize: 12, color: '#DC2626', background: 'none', border: '1px solid rgba(220,38,38,0.3)', borderRadius: 5, cursor: 'pointer', padding: '4px 10px' }}>Delete</button>
                         </div>
@@ -774,6 +829,46 @@ export default function AdminCourseLessonsPage() {
                             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                             allowFullScreen
                           />
+                        </div>
+                      )}
+                      {/* Attachments panel */}
+                      {attachOpen === tk && (
+                        <div style={{ borderTop: '1px solid #E8F0FB', padding: '14px 20px', background: '#FAFBFC' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                            <span style={{ fontSize: 12, fontWeight: 700, color: '#374151' }}>Attachments</span>
+                            <label style={{ fontSize: 12, fontWeight: 600, color: '#1B4F8A', cursor: 'pointer', padding: '4px 10px', border: '1px solid #C7D9F2', borderRadius: 5, background: '#EFF6FF' }}>
+                              {uploadingFor === tk ? 'Uploading...' : '+ Upload'}
+                              <input type="file" accept=".pdf,.docx,.pptx,.xlsx,.jpg,.jpeg,.png" style={{ display: 'none' }} disabled={uploadingFor === tk}
+                                onChange={e => { if (e.target.files?.[0]) uploadAttachment(tk, e.target.files[0]); e.target.value = ''; }} />
+                            </label>
+                          </div>
+                          {lessonAttachments.length === 0 ? (
+                            <div style={{ fontSize: 12, color: '#9CA3AF', padding: '8px 0' }}>No attachments yet.</div>
+                          ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                              {lessonAttachments.map(att => (
+                                <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 10px', background: '#fff', borderRadius: 6, border: '1px solid #E5E7EB', opacity: att.is_visible ? 1 : 0.5 }}>
+                                  <span style={{ fontSize: 16, flexShrink: 0 }}>
+                                    {att.file_type === 'pdf' ? '📄' : att.file_type === 'docx' ? '📝' : att.file_type === 'pptx' ? '📊' : att.file_type === 'xlsx' ? '📗' : '🖼️'}
+                                  </span>
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <a href={att.file_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, fontWeight: 600, color: '#1B4F8A', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {att.file_name}
+                                    </a>
+                                    <span style={{ fontSize: 10, color: '#9CA3AF' }}>{att.file_type.toUpperCase()} - {att.file_size ? `${(att.file_size / 1024).toFixed(0)} KB` : ''}</span>
+                                  </div>
+                                  <button onClick={() => toggleAttachmentVisibility(tk, att.id, !att.is_visible)}
+                                    style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, border: '1px solid #D1D5DB', background: att.is_visible ? '#F0FFF4' : '#F9FAFB', color: att.is_visible ? '#15803D' : '#9CA3AF', cursor: 'pointer' }}>
+                                    {att.is_visible ? 'Visible' : 'Hidden'}
+                                  </button>
+                                  <button onClick={() => deleteAttachment(tk, att.id)}
+                                    style={{ fontSize: 10, padding: '2px 6px', borderRadius: 3, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer' }}>
+                                    Delete
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
