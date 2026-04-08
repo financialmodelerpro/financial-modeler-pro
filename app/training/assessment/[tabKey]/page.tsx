@@ -335,7 +335,7 @@ export default function AssessmentPage() {
         correct,
         correctText: correct >= 0 ? (q.options[correct] ?? '') : '',
         isCorrect,
-        explanation: '',
+        explanation: q.explanation ?? '',
       };
     });
 
@@ -879,7 +879,7 @@ export default function AssessmentPage() {
                   Try Again →
                 </button>
               )}
-              <Link href="/training/dashboard" style={{
+              <Link href="/training/dashboard?refresh=1" style={{
                 display: 'block', background: NAVY, color: WHITE,
                 padding: '14px', borderRadius: 8, fontWeight: 700,
                 textDecoration: 'none', fontSize: 15,

@@ -216,7 +216,14 @@ export default function TrainingDashboardPage() {
     const sess = getTrainingSession();
     if (!sess) { router.replace('/signin'); return; }
     setLocalSession(sess);
-    loadData(sess);
+    // If arriving from assessment submission (?refresh=1), force a fresh fetch
+    const params = new URLSearchParams(window.location.search);
+    const needsRefresh = params.get('refresh') === '1';
+    if (needsRefresh) {
+      // Clean URL without triggering a navigation
+      window.history.replaceState({}, '', '/training/dashboard');
+    }
+    loadData(sess, needsRefresh);
     // Restore testimonial submitted state from localStorage
     try {
       if (localStorage.getItem(`fmp_test_${sess.registrationId}`) === 'true') {
