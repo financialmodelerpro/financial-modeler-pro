@@ -1390,72 +1390,118 @@ export default function LiveSessionsPage() {
       </main>
 
       {/* ── Preview Modal ── */}
-      {previewSession && (
-        <div onClick={e => { if (e.target === e.currentTarget) setPreviewSession(null); }}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 700, maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
-            {/* Modal header */}
-            <div style={{ padding: '16px 24px', borderBottom: '1px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#F9FAFB' }}>
-              <div style={{ fontSize: 13, color: '#6B7280' }}>This is how students will see this session</div>
-              <button onClick={() => setPreviewSession(null)} style={{ fontSize: 18, background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}>x</button>
-            </div>
-            {/* Banner */}
-            {previewSession.banner_url && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={previewSession.banner_url} alt={previewSession.title} style={{ width: '100%', height: 200, objectFit: 'cover' }} />
-            )}
-            {/* Content */}
-            <div style={{ padding: 24 }}>
-              <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20,
-                  background: previewSession.type === 'LIVE' ? '#FEF2F2' : previewSession.type === 'UPCOMING' ? '#EFF6FF' : '#F3F4F6',
-                  color: previewSession.type === 'LIVE' ? '#DC2626' : previewSession.type === 'UPCOMING' ? '#1D4ED8' : '#6B7280',
-                }}>{previewSession.type === 'LIVE' ? 'LIVE NOW' : previewSession.type}</span>
-                {previewSession.difficulty_level && previewSession.difficulty_level !== 'All Levels' && (
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: '#F3F4F6', color: '#6B7280' }}>{previewSession.difficulty_level}</span>
-                )}
-                {previewSession.category && <span style={{ fontSize: 11, color: '#6B7280' }}>{previewSession.category}</span>}
-                {previewSession.is_featured && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 12, background: '#FEF3C7', color: '#B45309' }}>FEATURED</span>}
+      {/* ── Preview Modal ── */}
+      {previewSession && (() => {
+        const ps = previewSession;
+        const rawDt = (ps as unknown as Record<string, unknown>).scheduled_datetime as string | null;
+        const sessionTime = rawDt ? new Date(rawDt) : null;
+        const now = new Date();
+        const isLiveNow = ps.type === 'LIVE' && sessionTime && sessionTime <= now && now.getTime() <= sessionTime.getTime() + 3 * 3600000;
+        const isUpcoming = ps.type === 'UPCOMING' || (sessionTime && sessionTime > now && ps.type !== 'RECORDED');
+        const isRecorded = ps.type === 'RECORDED';
+        const badgeLabel = isLiveNow ? 'LIVE NOW' : isUpcoming ? 'UPCOMING' : 'RECORDED';
+        const badgeBg = isLiveNow ? '#FEF2F2' : isUpcoming ? '#EFF6FF' : '#F3F4F6';
+        const badgeColor = isLiveNow ? '#DC2626' : isUpcoming ? '#1D4ED8' : '#6B7280';
+        const ytId = ps.youtube_url?.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/)?.[1];
+
+        return (
+          <div onClick={e => { if (e.target === e.currentTarget) setPreviewSession(null); }}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+            <div style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 600, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 16px 48px rgba(0,0,0,0.2)' }}>
+
+              {/* Header */}
+              <div style={{ padding: '14px 20px', borderBottom: '1px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: 14, fontWeight: 700, color: NAVY }}>Session Preview</span>
+                <button onClick={() => setPreviewSession(null)} style={{ width: 28, height: 28, borderRadius: 6, background: '#F3F4F6', border: 'none', cursor: 'pointer', fontSize: 14, color: '#6B7280', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>x</button>
               </div>
-              <h2 style={{ fontSize: 22, fontWeight: 800, color: NAVY, margin: '0 0 6px' }}>{previewSession.title}</h2>
-              {previewSession.instructor_name && <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 8 }}>{previewSession.instructor_name}</div>}
-              {previewSession.date && (
-                <div style={{ fontSize: 14, color: '#374151', marginBottom: 12 }}>
-                  {previewSession.date} {previewSession.time ?? ''} ({previewSession.timezone ?? ''})
-                </div>
-              )}
-              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-                {previewSession.duration_minutes && <span style={{ fontSize: 12, color: '#6B7280' }}>{previewSession.duration_minutes} min</span>}
-                {previewSession.max_attendees && <span style={{ fontSize: 12, color: '#6B7280' }}>Limited to {previewSession.max_attendees} seats</span>}
-              </div>
-              {previewSession.tags && previewSession.tags.length > 0 && (
-                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12 }}>
-                  {previewSession.tags.map(t => <span key={t} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: '#EFF6FF', color: '#1B4F8A', fontWeight: 600 }}>{t}</span>)}
-                </div>
-              )}
-              {previewSession.description && <p style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{previewSession.description}</p>}
-              {previewSession.prerequisites && (
-                <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '10px 14px', marginTop: 12, fontSize: 13 }}>
-                  <strong style={{ color: '#92400E' }}>Prerequisites:</strong> {previewSession.prerequisites}
-                </div>
-              )}
-              {previewSession.live_url && previewSession.type !== 'RECORDED' && (
-                <div style={{ marginTop: 16 }}>
-                  <span style={{ display: 'inline-block', padding: '10px 24px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 14 }}>Join Session</span>
-                </div>
-              )}
-              {previewSession.youtube_url && previewSession.type === 'RECORDED' && (() => {
-                const ytId = previewSession.youtube_url?.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/)?.[1];
-                return ytId ? (
-                  <div style={{ marginTop: 16, borderRadius: 10, overflow: 'hidden', background: '#000', aspectRatio: '16/9' }}>
-                    <iframe src={`https://www.youtube.com/embed/${ytId}`} width="100%" height="100%" style={{ border: 'none' }} allowFullScreen />
+
+              {/* Scrollable content */}
+              <div style={{ overflowY: 'auto', flex: 1 }}>
+
+                {/* Banner or gradient placeholder */}
+                {ps.banner_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={ps.banner_url} alt={ps.title} style={{ width: '100%', height: 200, objectFit: 'cover' }} />
+                ) : (
+                  <div style={{ width: '100%', height: 160, background: 'linear-gradient(135deg, #0D2E5A 0%, #1B4F8A 50%, #2E75B6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+                    <span style={{ fontSize: 20, fontWeight: 800, color: '#fff', textAlign: 'center' }}>{ps.title}</span>
                   </div>
-                ) : null;
-              })()}
+                )}
+
+                <div style={{ padding: '20px 24px' }}>
+                  {/* Badges */}
+                  <div style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: badgeBg, color: badgeColor }}>{badgeLabel}</span>
+                    {ps.difficulty_level && ps.difficulty_level !== 'All Levels' && (
+                      <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 10, background: '#F3F4F6', color: '#6B7280' }}>{ps.difficulty_level}</span>
+                    )}
+                    {ps.category && <span style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 10, background: '#F3F4F6', color: '#6B7280' }}>{ps.category}</span>}
+                    {ps.is_featured && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 10, background: '#FEF3C7', color: '#B45309' }}>FEATURED</span>}
+                  </div>
+
+                  {/* Title + instructor */}
+                  <h2 style={{ fontSize: 20, fontWeight: 800, color: NAVY, margin: '0 0 4px', lineHeight: 1.3 }}>{ps.title}</h2>
+                  {ps.instructor_name && <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 10 }}>{ps.instructor_name}</div>}
+
+                  {/* Date/time */}
+                  {ps.date && (
+                    <div style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>
+                      {ps.date} {ps.time ?? ''} ({ps.timezone ?? ''})
+                    </div>
+                  )}
+
+                  {/* Duration + capacity */}
+                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 14, fontSize: 12, color: '#6B7280' }}>
+                    {ps.duration_minutes ? <span>{ps.duration_minutes} minutes</span> : null}
+                    {ps.max_attendees ? <span>Limited to {ps.max_attendees} seats</span> : null}
+                  </div>
+
+                  {/* Tags */}
+                  {ps.tags && ps.tags.length > 0 && (
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 14 }}>
+                      {ps.tags.map(t => <span key={t} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: '#EFF6FF', color: '#1B4F8A', fontWeight: 600 }}>{t}</span>)}
+                    </div>
+                  )}
+
+                  {/* Description */}
+                  {ps.description && (
+                    <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.7, whiteSpace: 'pre-wrap', marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid #F3F4F6' }}>
+                      {ps.description}
+                    </div>
+                  )}
+
+                  {/* Prerequisites */}
+                  {ps.prerequisites && (
+                    <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12 }}>
+                      <strong style={{ color: '#92400E' }}>Prerequisites: </strong><span style={{ color: '#374151' }}>{ps.prerequisites}</span>
+                    </div>
+                  )}
+
+                  {/* YouTube embed for recorded */}
+                  {isRecorded && ytId && (
+                    <div style={{ marginBottom: 14, borderRadius: 10, overflow: 'hidden', background: '#000', aspectRatio: '16/9' }}>
+                      <iframe src={`https://www.youtube.com/embed/${ytId}`} width="100%" height="100%" style={{ border: 'none' }} allowFullScreen />
+                    </div>
+                  )}
+
+                  {/* Action buttons */}
+                  {(ps.live_url && !isRecorded) && (
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 24px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 13 }}>Join Session</span>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 12 }}>Add to Calendar</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div style={{ padding: '10px 20px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB' }}>
+                <span style={{ fontSize: 11, color: '#9CA3AF' }}>Preview only - students see this after logging in</span>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
