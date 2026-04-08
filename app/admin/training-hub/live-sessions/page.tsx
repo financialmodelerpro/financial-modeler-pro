@@ -1427,7 +1427,7 @@ export default function LiveSessionsPage() {
                 {/* Banner or gradient placeholder */}
                 {ps.banner_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={ps.banner_url} alt={ps.title} style={{ width: '100%', maxHeight: 340, objectFit: 'cover' }} />
+                  <img src={ps.banner_url} alt={ps.title} style={{ width: '100%', maxHeight: 400, objectFit: 'contain', display: 'block', backgroundColor: '#000' }} />
                 ) : (
                   <div style={{ width: '100%', height: 220, background: 'linear-gradient(135deg, #0D2E5A 0%, #1B4F8A 50%, #2E75B6 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
                     <span style={{ fontSize: 28, fontWeight: 800, color: '#fff', textAlign: 'center', lineHeight: 1.3 }}>{ps.title}</span>
