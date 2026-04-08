@@ -318,6 +318,49 @@ export default function LiveSessionsPage() {
   /* ── Mark as Recorded ── */
   const [markRecordedOpen, setMarkRecordedOpen] = useState(false);
   const [previewSession, setPreviewSession] = useState<LiveSession | null>(null);
+  const [regModal, setRegModal] = useState<{ sessionId: string; title: string } | null>(null);
+  const [regList, setRegList] = useState<{ student_reg_id: string; student_name: string; student_email: string; registered_at: string; attended: boolean }[]>([]);
+  const [regLoading, setRegLoading] = useState(false);
+
+  async function openRegModal(s: LiveSession) {
+    setRegModal({ sessionId: s.id, title: s.title });
+    setRegLoading(true);
+    try {
+      const r = await fetch(`/api/admin/live-sessions/${s.id}/registrations`);
+      const d = await r.json();
+      setRegList(d.registrations ?? []);
+    } catch { setRegList([]); }
+    setRegLoading(false);
+  }
+
+  async function toggleAttended(regId: string, attended: boolean) {
+    if (!regModal) return;
+    await fetch(`/api/admin/live-sessions/${regModal.sessionId}/registrations`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ regId, attended }),
+    });
+    setRegList(prev => prev.map(r => r.student_reg_id === regId ? { ...r, attended } : r));
+  }
+
+  async function markAllAttended() {
+    if (!regModal) return;
+    await fetch(`/api/admin/live-sessions/${regModal.sessionId}/registrations`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markAll: true }),
+    });
+    setRegList(prev => prev.map(r => ({ ...r, attended: true })));
+  }
+
+  function exportRegCsv() {
+    const rows = [['Reg ID', 'Name', 'Email', 'Registered At', 'Attended'].join(',')];
+    for (const r of regList) rows.push([r.student_reg_id, r.student_name, r.student_email, r.registered_at, r.attended ? 'Yes' : 'No'].join(','));
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `registrations-${regModal?.sessionId}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
   const [markRecordedUrl, setMarkRecordedUrl] = useState('');
   const [markingRecorded, setMarkingRecorded] = useState(false);
 
@@ -923,7 +966,7 @@ export default function LiveSessionsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: `2px solid ${BORDER}` }}>
-                  {['Title', 'Type', 'Date / Time', 'Playlist', 'Published', 'Notifications', 'Actions'].map(h => (
+                  {['Title', 'Type', 'Date / Time', 'Playlist', 'Registered', 'Published', 'Actions'].map(h => (
                     <th key={h} style={{ textAlign: 'left', padding: '8px 10px', color: NAVY, fontWeight: 700, fontSize: 11, textTransform: 'uppercase' as const }}>{h}</th>
                   ))}
                 </tr>
@@ -964,9 +1007,10 @@ export default function LiveSessionsPage() {
                           color: s.published ? '#065F46' : '#9CA3AF',
                         }}>{s.published ? 'Yes' : 'No'}</span>
                       </td>
-                      <td style={{ padding: '10px 10px', fontSize: 11, color: '#6B7280' }}>
-                        {s.announcement_sent ? `Announced: ${s.announcement_count ?? 0}` : '--'}
-                        {s.reminder_sent ? ` | Reminded: ${s.reminder_count ?? 0}` : ''}
+                      <td style={{ padding: '10px 10px' }}>
+                        <button onClick={() => openRegModal(s)} style={{ fontSize: 11, color: '#1B4F8A', background: 'none', border: '1px solid #C7D9F2', borderRadius: 4, padding: '3px 8px', cursor: 'pointer', fontWeight: 600 }}>
+                          View
+                        </button>
                       </td>
                       <td style={{ padding: '10px 10px' }}>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -1400,6 +1444,57 @@ export default function LiveSessionsPage() {
       </main>
 
       {/* ── Preview Modal ── */}
+      {/* ── Registrations Modal ── */}
+      {regModal && (
+        <div onClick={e => { if (e.target === e.currentTarget) setRegModal(null); }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 750, maxHeight: '85vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 16px 48px rgba(0,0,0,0.2)' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #E5E7EB', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: NAVY }}>Registrations - {regModal.title}</div>
+                <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>{regList.length} registered / {regList.filter(r => r.attended).length} attended</div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={markAllAttended} style={{ fontSize: 11, padding: '5px 12px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#F9FAFB', cursor: 'pointer', color: '#374151', fontWeight: 600 }}>Mark All Present</button>
+                <button onClick={exportRegCsv} style={{ fontSize: 11, padding: '5px 12px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#F9FAFB', cursor: 'pointer', color: '#374151', fontWeight: 600 }}>Export CSV</button>
+                <button onClick={() => setRegModal(null)} style={{ width: 28, height: 28, borderRadius: 6, background: '#F3F4F6', border: 'none', cursor: 'pointer', fontSize: 14, color: '#6B7280' }}>x</button>
+              </div>
+            </div>
+            <div style={{ overflowY: 'auto', flex: 1 }}>
+              {regLoading ? (
+                <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>Loading...</div>
+              ) : regList.length === 0 ? (
+                <div style={{ padding: 40, textAlign: 'center', color: '#9CA3AF' }}>No registrations yet.</div>
+              ) : (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ borderBottom: '2px solid #E5E7EB' }}>
+                      {['Name', 'Reg ID', 'Email', 'Registered', 'Attended'].map(h => (
+                        <th key={h} style={{ textAlign: 'left', padding: '8px 12px', fontSize: 10, fontWeight: 700, color: NAVY, textTransform: 'uppercase' as const }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {regList.map(r => (
+                      <tr key={r.student_reg_id} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                        <td style={{ padding: '8px 12px', fontWeight: 600, color: '#1F2937' }}>{r.student_name}</td>
+                        <td style={{ padding: '8px 12px', color: '#6B7280', fontFamily: 'monospace', fontSize: 11 }}>{r.student_reg_id}</td>
+                        <td style={{ padding: '8px 12px', color: '#6B7280' }}>{r.student_email}</td>
+                        <td style={{ padding: '8px 12px', color: '#9CA3AF', fontSize: 11 }}>{new Date(r.registered_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })}</td>
+                        <td style={{ padding: '8px 12px' }}>
+                          <input type="checkbox" checked={r.attended} onChange={e => toggleAttended(r.student_reg_id, e.target.checked)}
+                            style={{ width: 16, height: 16, cursor: 'pointer' }} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Preview Modal ── */}
       {previewSession && (() => {
         const ps = previewSession;

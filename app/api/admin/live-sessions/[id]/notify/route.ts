@@ -48,10 +48,14 @@ export async function POST(
 
   const students = filteredStudents.map(s => ({ name: s.name || s.registrationId, email: s.email }));
 
+  // Get registration count
+  const { count: regCount } = await sb.from('session_registrations').select('*', { count: 'exact', head: true }).eq('session_id', id);
+
   // Format date/time
   const dt = liveSession.scheduled_datetime ? new Date(liveSession.scheduled_datetime) : null;
   const sessionDate = dt ? dt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '';
   const sessionTime = dt ? dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+  const sessionUrl = `https://learn.financialmodelerpro.com/training/live-sessions/${id}`;
 
   // Send emails in batches of 10
   let sent = 0;
@@ -68,10 +72,11 @@ export async function POST(
           sessionDate,
           sessionTime,
           timezone: liveSession.timezone ?? 'Asia/Riyadh',
-          liveUrl: liveSession.live_url ?? undefined,
+          sessionUrl,
           description: liveSession.description ?? undefined,
           attachments: (atts ?? []).map(a => ({ name: a.file_name, url: a.file_url })),
           isReminder: type === 'reminder',
+          registrationCount: regCount ?? 0,
         });
         return sendEmail({ to: student.email, subject, html, from: FROM.training });
       })

@@ -42,15 +42,70 @@ export default function LiveSessionDetailPage() {
   const [countdown, setCountdown] = useState('');
   const localTz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
 
+  // Registration state
+  const [studentSession, setStudentSession] = useState<{ email: string; registrationId: string } | null>(null);
+  const [registered, setRegistered] = useState(false);
+  const [joinLinkAvailable, setJoinLinkAvailable] = useState(false);
+  const [regCount, setRegCount] = useState(0);
+  const [registering, setRegistering] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+
   useEffect(() => {
     const sess = getTrainingSession();
     if (!sess) { router.replace('/training/signin'); return; }
-    fetch(`/api/training/live-sessions/${params.id}`)
-      .then(r => r.json())
-      .then(d => setSession(d.session ?? null))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    setStudentSession(sess);
+
+    // Fetch session + registration status in parallel
+    Promise.all([
+      fetch(`/api/training/live-sessions/${params.id}`).then(r => r.json()),
+      fetch(`/api/training/live-sessions/${params.id}/register?email=${encodeURIComponent(sess.email)}`).then(r => r.json()),
+    ]).then(([sessionData, regData]) => {
+      setSession(sessionData.session ?? null);
+      setRegistered(regData.registered ?? false);
+      setJoinLinkAvailable(regData.joinLinkAvailable ?? false);
+      setRegCount(regData.registrationCount ?? 0);
+    }).catch(() => {}).finally(() => setLoading(false));
   }, [params.id, router]);
+
+  // Refresh join link availability every 30 seconds
+  useEffect(() => {
+    if (!studentSession || !session || session.session_type === 'recorded' || !registered) return;
+    const id = setInterval(async () => {
+      try {
+        const r = await fetch(`/api/training/live-sessions/${params.id}/register?email=${encodeURIComponent(studentSession.email)}`);
+        const d = await r.json();
+        setJoinLinkAvailable(d.joinLinkAvailable ?? false);
+      } catch {}
+    }, 30000);
+    return () => clearInterval(id);
+  }, [params.id, studentSession, session, registered]);
+
+  async function handleRegister() {
+    if (!studentSession) return;
+    setRegistering(true);
+    try {
+      const r = await fetch(`/api/training/live-sessions/${params.id}/register`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ regId: studentSession.registrationId, name: studentSession.registrationId, email: studentSession.email }),
+      });
+      const d = await r.json();
+      if (d.success) { setRegistered(true); setRegCount(prev => prev + 1); }
+    } catch {}
+    setRegistering(false);
+  }
+
+  async function handleCancelRegistration() {
+    if (!studentSession || !confirm('Cancel your registration for this session?')) return;
+    setCancelling(true);
+    try {
+      await fetch(`/api/training/live-sessions/${params.id}/register`, {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: studentSession.email }),
+      });
+      setRegistered(false); setJoinLinkAvailable(false); setRegCount(prev => Math.max(0, prev - 1));
+    } catch {}
+    setCancelling(false);
+  }
 
   // Countdown timer for upcoming sessions
   useEffect(() => {
@@ -183,20 +238,54 @@ export default function LiveSessionDetailPage() {
           </div>
         )}
 
-        {/* Action buttons */}
+        {/* Registration status + action buttons */}
+        {isUpcoming && (
+          <div style={{ marginBottom: 24 }}>
+            {!registered ? (
+              /* Not registered */
+              <div style={{ background: '#F0F7FF', border: '1.5px solid #93C5FD', borderRadius: 12, padding: 20, marginBottom: 12 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#1B4F8A', marginBottom: 8 }}>Register to join this session</div>
+                <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>The join link will be available 30 minutes before the session starts.</div>
+                <button onClick={handleRegister} disabled={registering}
+                  style={{ padding: '12px 32px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 15, border: 'none', cursor: registering ? 'not-allowed' : 'pointer', opacity: registering ? 0.6 : 1 }}>
+                  {registering ? 'Registering...' : 'Register for This Session'}
+                </button>
+                {regCount > 0 && <div style={{ marginTop: 10, fontSize: 12, color: '#6B7280' }}>{regCount} {regCount === 1 ? 'person' : 'people'} registered</div>}
+              </div>
+            ) : joinLinkAvailable ? (
+              /* Registered + join link available */
+              <div style={{ background: '#F0FFF4', border: '1.5px solid #86EFAC', borderRadius: 12, padding: 20, marginBottom: 12 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#166534', marginBottom: 12 }}>Session Starting Soon!</div>
+                {session.live_url && (
+                  <a href={session.live_url} target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '14px 32px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 16, textDecoration: 'none', marginBottom: 10 }}>
+                    Join Session Now
+                  </a>
+                )}
+                <div style={{ marginTop: 8 }}>
+                  <button onClick={handleCancelRegistration} disabled={cancelling}
+                    style={{ fontSize: 12, color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                    Cancel Registration
+                  </button>
+                </div>
+              </div>
+            ) : (
+              /* Registered but join link not yet available */
+              <div style={{ background: '#F0FFF4', border: '1.5px solid #86EFAC', borderRadius: 12, padding: 20, marginBottom: 12 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#166534', marginBottom: 8 }}>You're registered!</div>
+                <div style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>Join link will be available 30 minutes before the session.</div>
+                {countdown && <div style={{ fontSize: 13, color: '#1B4F8A', fontWeight: 600, marginBottom: 12 }}>Starts in: {countdown}</div>}
+                {regCount > 0 && <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 12 }}>{regCount} {regCount === 1 ? 'person' : 'people'} registered</div>}
+                <button onClick={handleCancelRegistration} disabled={cancelling}
+                  style={{ fontSize: 12, color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+                  Cancel Registration
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 24 }}>
-          {session.registration_url && isUpcoming && (
-            <a href={session.registration_url} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '12px 28px', borderRadius: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 15, textDecoration: 'none' }}>
-              Register for Session
-            </a>
-          )}
-          {session.live_url && isUpcoming && (
-            <a href={session.live_url} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '12px 28px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 15, textDecoration: 'none' }}>
-              Join Session
-            </a>
-          )}
           {session.scheduled_datetime && isUpcoming && (
             <>
               <a href={`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(session.title)}&dates=${new Date(session.scheduled_datetime).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}/${new Date(new Date(session.scheduled_datetime).getTime() + 5400000).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')}&details=${encodeURIComponent(session.description || '')}`}
