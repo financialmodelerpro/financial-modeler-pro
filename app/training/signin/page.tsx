@@ -55,13 +55,16 @@ function TrainingSignInInner() {
 
   // Device verification
   const [deviceStep,    setDeviceStep]    = useState<'credentials' | 'otp'>('credentials');
-  const [deviceEmail,   setDeviceEmail]   = useState('');
+  const [deviceEmail,   setDeviceEmail]   = useState('');  // ALWAYS the resolved email from validate API
   const [deviceRegId,   setDeviceRegId]   = useState('');
   const [deviceOtp,     setDeviceOtp]     = useState('');
   const [trustChecked,  setTrustChecked]  = useState(false);
   const [sendingDevOtp, setSendingDevOtp] = useState(false);
   const [verifyingDev,  setVerifyingDev]  = useState(false);
   const [deviceError,   setDeviceError]   = useState('');
+
+  // Helper: detect if input is a Registration ID (FMP-YYYY-XXXX format)
+  const isRegId = (val: string) => /^FMP-\d{4}-\d{4}$/i.test(val.trim());
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -106,9 +109,13 @@ function TrainingSignInInner() {
       }
 
       if (json.requiresDeviceVerification && json.email && json.registrationId) {
-        setDeviceEmail(json.email);
+        // ALWAYS use the resolved email from the server — never the raw identifier input.
+        // This ensures OTP send and verify use the exact same email key.
+        const resolvedEmail = json.email.toLowerCase();
+        console.log('[signin] Device verification required. Resolved email:', resolvedEmail, 'RegID:', json.registrationId);
+        setDeviceEmail(resolvedEmail);
         setDeviceRegId(json.registrationId);
-        await sendDeviceOtp(json.email);
+        await sendDeviceOtp(resolvedEmail);
         setDeviceStep('otp');
         setLoading(false);
         return;
@@ -152,14 +159,16 @@ function TrainingSignInInner() {
     }
   }
 
-  async function sendDeviceOtp(email: string) {
+  async function sendDeviceOtp(emailAddr: string) {
     setSendingDevOtp(true);
     setDeviceError('');
+    const normalizedEmail = emailAddr.trim().toLowerCase();
+    console.log('[signin] Sending OTP to:', normalizedEmail);
     try {
       await fetch('/api/training/device-verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'send', email }),
+        body: JSON.stringify({ action: 'send', email: normalizedEmail }),
       });
     } catch { /* non-fatal */ }
     setSendingDevOtp(false);
@@ -170,13 +179,16 @@ function TrainingSignInInner() {
     if (!deviceOtp.trim()) return;
     setVerifyingDev(true);
     setDeviceError('');
+    // ALWAYS use the same normalized email that was used to SEND the OTP
+    const verifyEmail = deviceEmail.trim().toLowerCase();
+    console.log('[signin] Verifying OTP for:', verifyEmail, 'RegID:', deviceRegId);
     try {
       const res = await fetch('/api/training/device-verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'check',
-          email: deviceEmail,
+          email: verifyEmail,
           registrationId: deviceRegId,
           code: deviceOtp.trim(),
           trustDevice: trustChecked,
@@ -189,10 +201,7 @@ function TrainingSignInInner() {
         return;
       }
       // Device verified — set session and redirect
-      setTrainingSession(deviceEmail, deviceRegId);
-
-      // Also set the httpOnly session cookie via validate (with device now trusted)
-      // Re-call validate so server sets its cookie — device is now trusted
+      setTrainingSession(verifyEmail, deviceRegId);
       router.push('/training/dashboard');
     } catch {
       setDeviceError('Verification failed. Please try again.');

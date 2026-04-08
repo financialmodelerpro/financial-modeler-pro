@@ -179,9 +179,9 @@ export async function POST(req: NextRequest) {
       }, { status: 200 });
     }
 
-    // Device trust check
+    // Device trust check — use email as identifier (matches how trustDevice stores it)
     const deviceCookie = req.cookies.get('fmp-trusted-device')?.value;
-    const trusted = await isDeviceTrusted(deviceCookie, regId, 'training');
+    const trusted = await isDeviceTrusted(deviceCookie, email, 'training');
 
     if (!trusted) {
       return NextResponse.json({
