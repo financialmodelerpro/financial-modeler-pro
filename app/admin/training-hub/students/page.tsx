@@ -48,6 +48,7 @@ export default function StudentsPage() {
   const [resetCourse, setResetCourse]   = useState<'3sfm' | 'bvm'>('3sfm');
   const [resetSession, setResetSession] = useState('');
   const [resetting, setResetting]       = useState(false);
+  const [modalTab, setModalTab]         = useState<'progress' | 'reset'>('progress');
 
   useEffect(() => {
     if (status === 'unauthenticated') { router.replace('/login'); return; }
@@ -114,6 +115,7 @@ export default function StudentsPage() {
     setProgress(null);
     setProgressError(null);
     setProgressLoading(true);
+    setModalTab('progress');
     try {
       const res = await fetch(`/api/admin/training-hub/student-progress?email=${encodeURIComponent(s.email)}&regId=${encodeURIComponent(s.registrationId)}`);
       if (res.ok) {
@@ -285,29 +287,50 @@ export default function StudentsPage() {
         >
           <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 700, maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}>
             {/* Modal header */}
-            <div style={{ padding: '20px 24px', borderBottom: '1px solid #F3F4F6', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: 16, color: '#1B3A6B' }}>{progressStudent.name || progressStudent.email}</div>
-                <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
-                  {progressStudent.email} &bull; {progressStudent.registrationId} &bull;{' '}
-                  <span style={{ fontWeight: 700, color: progressStudent.course === '3SFM' ? '#1D4ED8' : '#166534' }}>{progressStudent.course}</span>
+            <div style={{ padding: '16px 24px 0', borderBottom: '1px solid #E5E7EB' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontWeight: 800, fontSize: 16, color: '#1B3A6B' }}>{progressStudent.name || progressStudent.email}</div>
+                  <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
+                    {progressStudent.email} &bull; {progressStudent.registrationId} &bull;{' '}
+                    <span style={{ fontWeight: 700, color: progressStudent.course === '3SFM' ? '#1D4ED8' : '#166534' }}>{progressStudent.course}</span>
+                  </div>
                 </div>
+                <button onClick={() => { setProgressStudent(null); setProgress(null); }} style={{ fontSize: 20, background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', lineHeight: 1 }}>✕</button>
               </div>
-              <button onClick={() => { setProgressStudent(null); setProgress(null); }} style={{ fontSize: 20, background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', lineHeight: 1 }}>✕</button>
+              {/* Tabs */}
+              <div style={{ display: 'flex', gap: 0 }}>
+                {([['progress', 'Progress'], ['reset', 'Reset Attempts']] as const).map(([key, label]) => (
+                  <button key={key} onClick={() => setModalTab(key)}
+                    style={{
+                      padding: '8px 20px', fontSize: 13, fontWeight: modalTab === key ? 700 : 400,
+                      color: modalTab === key ? (key === 'reset' ? '#DC2626' : '#1B3A6B') : '#6B7280',
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      borderBottom: modalTab === key ? `2px solid ${key === 'reset' ? '#DC2626' : '#1B4F8A'}` : '2px solid transparent',
+                      marginBottom: -1,
+                    }}>
+                    {key === 'reset' ? '⟳ ' : ''}{label}
+                  </button>
+                ))}
+              </div>
             </div>
             {/* Modal body */}
             <div style={{ overflowY: 'auto', padding: '20px 24px', flex: 1 }}>
-              {progressLoading && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {[1,2,3,4,5].map(i => <Skeleton key={i} h={36} />)}
-                </div>
-              )}
-              {progressError && (
-                <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '14px 18px', color: '#DC2626', fontSize: 13 }}>
-                  ❌ {progressError}
-                </div>
-              )}
-              {progress && !progressLoading && (() => {
+
+              {/* ── Progress Tab ── */}
+              {modalTab === 'progress' && (
+              <>
+                {progressLoading && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {[1,2,3,4,5].map(i => <Skeleton key={i} h={36} />)}
+                  </div>
+                )}
+                {progressError && (
+                  <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '14px 18px', color: '#DC2626', fontSize: 13 }}>
+                    ❌ {progressError}
+                  </div>
+                )}
+                {progress && !progressLoading && (() => {
                 // Group sessions by course: S* = 3SFM, L* = BVM
                 const sfmSessions = progress.sessions.filter(s => /^S/i.test(s.sessionId));
                 const bvmSessions = progress.sessions.filter(s => /^L/i.test(s.sessionId));
@@ -409,10 +432,21 @@ export default function StudentsPage() {
                       <div style={{ textAlign: 'center', color: '#9CA3AF', fontSize: 13, padding: 24 }}>No session data available.</div>
                     )}
 
-                    {/* ── Reset Attempts ── */}
-                    <div style={{ marginTop: 24, padding: 16, background: '#FEF2F2', borderRadius: 10, border: '1px solid #FECACA' }}>
-                      <div style={{ fontSize: 13, fontWeight: 800, color: '#DC2626', marginBottom: 12 }}>Reset Attempts</div>
-                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end', marginBottom: 12 }}>
+                    </>
+                  );
+                })()}
+              </>
+              )}
+
+              {/* ── Reset Attempts Tab ── */}
+              {modalTab === 'reset' && (
+                <div>
+                  <div style={{ padding: 16, background: '#FEF2F2', borderRadius: 10, border: '1px solid #FECACA' }}>
+                    <div style={{ fontSize: 15, fontWeight: 800, color: '#DC2626', marginBottom: 4 }}>Reset Assessment Attempts</div>
+                    <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 16, lineHeight: 1.5 }}>
+                      Clear a student&apos;s score and attempts for a specific session or all sessions. This allows them to retake the assessment from attempt 1.
+                    </p>
+                    <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'end', marginBottom: 12 }}>
                         {/* Course selector */}
                         <div>
                           <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 3 }}>Course</label>
@@ -529,10 +563,10 @@ export default function StudentsPage() {
                       >
                         {resetting ? 'Resetting...' : `Reset All ${resetCourse.toUpperCase()} Sessions`}
                       </button>
-                    </div>
-                  </>
-                );
-              })()}
+                  </div>
+                </div>
+              )}
+
             </div>
           </div>
         </div>
