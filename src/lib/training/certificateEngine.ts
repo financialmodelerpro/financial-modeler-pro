@@ -281,15 +281,25 @@ async function renderTextLine(
 ): Promise<{ buf: Buffer; w: number; h: number }> {
   // Pango size is in 1/1024ths of a point. fontSize 14 → 14 * 1024 = 14336
   const pangoSize = Math.round(fontSize * 1024);
-  const buf = await sharp({
-    text: {
-      text: `<span foreground="${color}" size="${pangoSize}">${escPango(text)}</span>`,
-      rgba: true,
-      dpi: 150,
-    },
-  }).png().toBuffer();
-  const info = await sharp(buf).metadata();
-  return { buf, w: info.width ?? 100, h: info.height ?? 20 };
+  const markup = `<span foreground="${color}" size="${pangoSize}">${escPango(text)}</span>`;
+  console.log('[badge] renderTextLine:', { text, fontSize, color, pangoSize, markupLen: markup.length });
+  try {
+    const buf = await sharp({
+      text: {
+        text: markup,
+        rgba: true,
+        dpi: 150,
+      },
+    }).png().toBuffer();
+    const info = await sharp(buf).metadata();
+    console.log('[badge] Text rendered:', { w: info.width, h: info.height, bufSize: buf.length });
+    return { buf, w: info.width ?? 100, h: info.height ?? 20 };
+  } catch (err) {
+    console.error('[badge] renderTextLine FAILED:', err);
+    // Return a 1x1 transparent pixel as fallback
+    const fallback = await sharp({ create: { width: 1, height: 1, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer();
+    return { buf: fallback, w: 1, h: 1 };
+  }
 }
 
 /**
@@ -308,6 +318,8 @@ export async function renderBadgeWithText(
 
   const composites: sharp.OverlayOptions[] = [];
 
+  console.log('[badge] renderBadgeWithText:', { bw, bh, certId, issueDate, sharpVersion: sharp.versions?.sharp });
+
   if (layout.certificateId.visible && certId) {
     const f = layout.certificateId;
     const { buf, w, h } = await renderTextLine(certId, f.fontSize, f.color);
@@ -315,6 +327,7 @@ export async function renderBadgeWithText(
     if (f.textAlign === 'left')       left = f.x;
     else if (f.textAlign === 'right') left = bw - w - f.x;
     else                              left = Math.round((bw - w) / 2) + f.x;
+    console.log('[badge] CertID position:', { left: Math.max(0, left), top: Math.max(0, bh - f.y - h), textW: w, textH: h });
     composites.push({ input: buf, left: Math.max(0, left), top: Math.max(0, bh - f.y - h) });
   }
 
@@ -325,6 +338,7 @@ export async function renderBadgeWithText(
     if (f.textAlign === 'left')       left = f.x;
     else if (f.textAlign === 'right') left = bw - w - f.x;
     else                              left = Math.round((bw - w) / 2) + f.x;
+    console.log('[badge] Date position:', { left: Math.max(0, left), top: Math.max(0, bh - f.y - h), textW: w, textH: h });
     composites.push({ input: buf, left: Math.max(0, left), top: Math.max(0, bh - f.y - h) });
   }
 
