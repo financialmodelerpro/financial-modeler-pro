@@ -43,6 +43,7 @@ interface LiveSession {
   tags?: string[];
   is_featured?: boolean;
   live_password?: string;
+  registration_url?: string;
 }
 
 interface Attachment {
@@ -258,6 +259,7 @@ interface FormState {
   tags: string[];
   is_featured: boolean;
   live_password: string;
+  registration_url: string;
 }
 
 const defaultForm: FormState = {
@@ -266,7 +268,7 @@ const defaultForm: FormState = {
   live_url: '', youtube_url: '', published: false,
   duration_minutes: '', max_attendees: '', difficulty_level: 'All Levels',
   prerequisites: '', instructor_name: 'Ahmad Din', tags: [],
-  is_featured: false, live_password: '',
+  is_featured: false, live_password: '', registration_url: '',
 };
 
 /* ── Component ─────────────────────────────────────────────────── */
@@ -479,6 +481,7 @@ export default function LiveSessionsPage() {
     tags: s.tags ?? [],
     is_featured: s.is_featured ?? false,
     live_password: s.live_password ?? '',
+    registration_url: s.registration_url ?? '',
   };};
 
   const openNewSession = () => {
@@ -551,6 +554,7 @@ export default function LiveSessionsPage() {
         tags:               form.tags,
         is_featured:        form.is_featured,
         live_password:      form.live_password,
+        registration_url:   form.registration_url,
       };
 
       if (form.type === 'RECORDED') {
@@ -1100,6 +1104,12 @@ export default function LiveSessionsPage() {
                   <input style={inputStyle} value={form.live_password} onChange={e => setForm(f => ({ ...f, live_password: e.target.value }))} placeholder="Optional" />
                 </div>
 
+                {/* Registration URL */}
+                <div>
+                  <label style={labelStyle}>Registration URL</label>
+                  <input style={inputStyle} value={form.registration_url} onChange={e => setForm(f => ({ ...f, registration_url: e.target.value }))} placeholder="https://forms.google.com/... or Zoom registration link" />
+                </div>
+
                 {/* Prerequisites */}
                 <div style={{ gridColumn: '1 / -1' }}>
                   <label style={labelStyle}>Prerequisites</label>
@@ -1491,9 +1501,14 @@ export default function LiveSessionsPage() {
                   )}
 
                   {/* Action buttons */}
-                  {(ps.live_url && !isRecorded) && (
+                  {!isRecorded && (
                     <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 14 }}>
-                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 24px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 13 }}>Join Session</span>
+                      {ps.registration_url && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 24px', borderRadius: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 13 }}>Register for Session</span>
+                      )}
+                      {ps.live_url && (
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 24px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 13 }}>Join Session</span>
+                      )}
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 12 }}>Add to Calendar</span>
                     </div>
                   )}

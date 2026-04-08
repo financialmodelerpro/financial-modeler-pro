@@ -12,6 +12,7 @@ interface Session {
   playlist: { id: string; name: string } | null; attachments: Attachment[];
   banner_url: string | null; duration_minutes: number | null; max_attendees: number | null;
   difficulty_level: string; instructor_name: string; tags: string[]; is_featured: boolean;
+  registration_url: string | null;
 }
 
 function extractYouTubeId(url: string): string | null {
@@ -176,6 +177,12 @@ export default function LiveSessionsPage() {
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                    {s.registration_url && (
+                      <a href={s.registration_url} target="_blank" rel="noopener noreferrer"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 24px', borderRadius: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>
+                        Register
+                      </a>
+                    )}
                     {s.live_url && (
                       <a href={s.live_url} target="_blank" rel="noopener noreferrer"
                         style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 24px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>

@@ -19,7 +19,7 @@ export async function PATCH(
   const sb = getServerClient();
 
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  const allowed = ['title', 'description', 'youtube_url', 'live_url', 'session_type', 'scheduled_datetime', 'timezone', 'category', 'playlist_id', 'is_published', 'display_order', 'banner_url', 'duration_minutes', 'max_attendees', 'difficulty_level', 'prerequisites', 'instructor_name', 'tags', 'is_featured', 'live_password'];
+  const allowed = ['title', 'description', 'youtube_url', 'live_url', 'session_type', 'scheduled_datetime', 'timezone', 'category', 'playlist_id', 'is_published', 'display_order', 'banner_url', 'duration_minutes', 'max_attendees', 'difficulty_level', 'prerequisites', 'instructor_name', 'tags', 'is_featured', 'live_password', 'registration_url'];
   for (const k of allowed) {
     if (body[k] !== undefined) updates[k] = body[k] === '' && k === 'playlist_id' ? null : body[k];
   }

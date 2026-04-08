@@ -61,6 +61,7 @@ export async function POST(req: NextRequest) {
     tags:               body.tags ?? [],
     is_featured:        body.is_featured ?? false,
     live_password:      body.live_password ?? '',
+    registration_url:   body.registration_url ?? '',
   }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ session: data });
