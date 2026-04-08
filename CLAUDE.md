@@ -208,15 +208,15 @@
 
 | Feature | Status | Notes |
 |---------|--------|-------|
-| **Training Hub — Auth (login/logout/session)** | ✅ Complete | Custom session, 1hr TTL, httpOnly cookie |
+| **Training Hub — Auth (login/logout/session)** | ✅ Complete | Custom session, 1hr TTL, httpOnly cookie; RegID sign-in resolves email via Apps Script then uses resolved email for OTP send+verify (consistent key); `isDeviceTrusted` and `trustDevice` both use email as identifier |
 | **Training Hub — Registration + Email Confirm** | ✅ Complete | hCaptcha + pending table + Apps Script post-confirm |
 | **Training Hub — Device Trust + OTP** | ✅ Complete | `training_email_otps`, 30-day trust cookie |
 | **Training Hub — Resend Confirmation Email** | ✅ Complete | `POST /api/training/resend-confirmation`, shown on signin on EmailNotConfirmed |
 | **Training Hub — Inactivity Logout** | ✅ Complete | `useInactivityLogout` on dashboard |
-| **Training Hub — Dashboard** | ✅ Complete | Video player, progress, notes, feedback; timer bypass reads `timer_bypass_enabled` from training_settings DB (admin toggle in course manager saves to DB, not localStorage) |
+| **Training Hub — Dashboard** | ✅ Complete | Video player, progress, notes, feedback; timer bypass from DB; optimistic progress update after quiz submission (sessionStorage + ?refresh=1 cache bust) |
 | **Training Hub — Assessments / Quiz** | ✅ Complete | Question bank, attempts; **client-side scoring** (correctIndex stored on load, scored locally, server only writes to Apps Script — never re-fetches questions during submission); shuffle questions + shuffle options toggles per course (training_settings DB); toggles at top of course page alongside Timer Bypass; `/api/training/submit-assessment` accepts pre-scored `{ tabKey, email, regId, score, passed, isFinal, attemptNo }` |
 | **Training Hub — Certificate System** | ✅ Complete | Internal pdf-lib PDF gen, sharp badge overlay, Supabase storage, daily cron (midnight) + manual Generate Now button in admin, no Certifier.io; all Certifier.io marketing text removed from training page + CurriculumCard |
-| **Training Hub — Transcript** | ✅ Complete | Shareable token-gated HTML transcript + PDF with QR code, Certificate ID, verification URL from student_certificates (single source of truth); compact single-page A4 PDF layout; CMS-driven settings; no Certifier.io references |
+| **Training Hub — Transcript** | ✅ Complete | Shareable token-gated HTML transcript + PDF with QR code, Certificate ID, verification URL from student_certificates; compact single-page A4; CMS-driven; no Certifier.io; all non-ASCII chars removed (no emojis in PDF); progress banner blue (#EFF6FF), complete banner green; filename: `FMP-Transcript-FMP-3SFM-2026-0001.pdf` |
 | **Training Hub — Profile** | ✅ Complete | Avatar upload, name/city/country |
 | **Modeling Hub — Auth (login/logout/session)** | ✅ Complete | NextAuth JWT, 1hr session |
 | **Modeling Hub — Registration + Email Confirm** | ✅ Complete | hCaptcha + email_confirmed flag + confirmation email |
@@ -225,9 +225,9 @@
 | **Modeling Hub — Inactivity Logout** | ✅ Complete | `useInactivityLogout` on portal + dashboard |
 | **Subdomain Routing** | ✅ Complete | next.config.ts rewrites/redirects, no middleware auth |
 | **Admin Panel** | ✅ Complete | Users, training, certificates, CMS, branding, pricing, audit; login at `/admin/login`; public landing at `/admin`; two-step login UI (welcome→form) with navy/gold branding; `/admin/dashboard` is protected entry point |
-| **Admin — Training Hub section** | ✅ Complete | Students, cohorts, assessments, analytics, comms |
+| **Admin — Training Hub section** | ✅ Complete | Students (progress modal with tabs: Progress + Reset Attempts), cohorts, assessments, analytics, comms; reset attempts per session or all sessions via Apps Script |
 | **Admin — Certificate Editor** | ✅ Complete | Dual layout: HTML block editor + PDF field editor (x/y/fontSize/color/width per field), course selector, template upload; ±stepper buttons on all numeric fields (X/Y/SIZE/WIDTH for text, X/Y/WIDTH/HEIGHT for QR); toggle-able center guidelines overlay (dashed purple crosshair); snap-to-left/center/right buttons per field; PDF preview coordinate scaling fixed (scaleX/scaleY from editor 1240×877 → PDF points); text baseline ascent correction applied (Helvetica 0.718, Times 0.683, Courier 0.627) |
-| **Admin — Badge Editor** | ✅ Complete | Field editor for Certificate ID + Issue Date overlay (x/y/fontSize/color/font/alignment/visibility); layout stored in cms_content (section: badge_layout); live CSS preview + server-rendered preview; no overlay band |
+| **Admin — Badge Editor** | ✅ Complete | Field editor for Certificate ID + Issue Date overlay (x/y/fontSize/color/alignment/visibility); layout in cms_content; live CSS preview + server preview; server rendering uses **satori** (text SVG) + **sharp** (SVG-to-PNG composite); font: Inter TTF from Google Fonts (cached); fontSize * 2.5 multiplier; centering via flexbox justifyContent |
 | **Admin — Transcript Editor** | ✅ Complete | Header drag-to-position, CMS-driven colors/text, QR code + Certificate ID + verification section in preview; PDF Preview button generates real-time PDF with sample cert data |
 | **CMS / Dynamic Nav** | ✅ Complete | `site_pages` table, admin editable |
 | **CMS — Dynamic Page Builder** | ✅ Complete | `page_sections` + `cms_pages` tables; 11 section types (hero, text, rich_text, image, text_image, columns, cards, cta, faq, stats, list); admin page builder at `/admin/page-builder` with drag-and-drop reorder, type-specific editors, style overrides, SEO; dynamic catch-all route `/(cms)/[slug]` renders any published page; RichTextEditor enhanced with headings, alignment, images, links |
@@ -675,3 +675,118 @@ npm run verify       # type-check + lint + build
 - AppRoot: lines 1–70 | State: 72–200 | Calculations: 200–900
 - Excel export: 900–1,900 | Project Manager UI: 1,900–3,800
 - Main render: 3,800–5,700 | Module 1 UI: 5,700–7,520 | Stubs: 7,520–7,598
+
+---
+
+## Quiz / Assessment Architecture (Session 2026-04-08)
+
+### Flow
+```
+LOAD  -> GET Apps Script getQuestions -> questions + correctAnswer stored in state
+TAKE  -> student picks answers -> stored in state
+SCORE -> client compares answers[i] vs questions[i].correctAnswer -> score calculated
+SAVE  -> POST /api/training/submit-assessment -> { tabKey, email, regId, score, passed, isFinal, attemptNo }
+DONE  -> show results (pass: question review + explanations; fail: retry screen only)
+```
+
+### Key rules
+- **Never re-fetch questions during submission** — scoring is 100% client-side
+- `/api/training/submit-assessment` accepts pre-scored data only, forwards to Apps Script
+- `/api/training/questions` normalizes field names: `correctAnswer`, `answer`, `correctIndex` all mapped to `correctIndex`; `explanation` field passed through
+- `/api/branding` GET is public (no auth) — PATCH requires admin
+- Question Review shown **only on pass** (score >= 70%); fail screen shows "Keep Practicing!" + "Try Again"
+- After submission, dashboard receives optimistic update via sessionStorage + `?refresh=1` cache bust
+
+### Shuffle settings (training_settings DB)
+| Key | Default | Purpose |
+|-----|---------|---------|
+| `shuffle_questions_3sfm` | true | Randomize question order |
+| `shuffle_questions_bvm` | true | Randomize question order |
+| `shuffle_options_3sfm` | false | Randomize A/B/C/D option order |
+| `shuffle_options_bvm` | false | Randomize A/B/C/D option order |
+
+- API: `GET /api/training/assessment-settings?course=3sfm`
+- Toggles in admin Course Manager header (alongside Timer Bypass)
+- Option shuffling is client-side with correctIndex remapping before display
+- `?shuffle=false` passed to Apps Script `getQuestions` when shuffleQuestions is OFF
+
+### Admin Reset Attempts
+- Admin -> Students -> click student -> Progress modal -> **Reset Attempts** tab
+- Course selector (3SFM/BVM) + Session selector dropdown
+- "Reset Session" button (single session) + "Reset All Sessions" (nuclear)
+- API: `POST /api/admin/reset-attempts` -> Apps Script `apiResetAttempts`
+- Clears score column in progress sheet, recalculates summary
+
+---
+
+## Badge Editor — Server Rendering (Session 2026-04-08)
+
+### What doesn't work on Vercel (DO NOT USE)
+| Approach | Why it fails |
+|----------|-------------|
+| SVG `<text>` composite via sharp | sharp silently drops `<text>` elements — renders transparent |
+| Sharp Pango `sharp({ text: ... })` | Font size parameter ignored on Vercel (always 12px) |
+| Embedded woff2 base64 in SVG | librsvg can't render woff2 format |
+| Embedded TTF base64 in SVG | 2.7MB SVG string chokes librsvg |
+| `@resvg/resvg-js` | Native binary — webpack can't bundle .node files |
+
+### What works (current implementation)
+**Satori + Sharp:**
+1. `satori` renders text as SVG with Inter font (fetched from Google Fonts, cached in memory)
+2. `sharp(Buffer.from(satoriSvg)).resize(w, h).png().toBuffer()` converts SVG to PNG
+3. `sharp(badge).composite([{ input: textPng }])` composites text onto badge
+
+### Key parameters
+- Font: Inter TTF from `https://fonts.gstatic.com/s/inter/v20/...` (324KB, cached)
+- Font size: `badgeSettings.fontSize * 2.5` (editor 14 -> render 35px)
+- Centering: `display: 'flex', justifyContent: 'center'` (satori uses flexbox, not textAlign)
+- Y position: `top = badgeHeight - yFromBottom - renderSize`
+- No `transform: undefined` — use conditional spread: `...(condition ? { transform: value } : {})`
+- `serverExternalPackages: ['satori']` in next.config.ts
+
+### Packages
+- `satori` — text-to-SVG rendering with embedded fonts (pure JS, Vercel-compatible)
+- `sharp` — SVG-to-PNG conversion + image compositing (already in project)
+
+---
+
+## Transcript PDF — ASCII-only rule (Session 2026-04-08)
+
+PDF fonts (Helvetica) cannot render emojis or extended Unicode. All transcript text must be pure ASCII (chars 32-126).
+
+### Characters removed/replaced
+| Character | Replaced with | Reason |
+|-----------|---------------|--------|
+| `✓` (U+2713) | removed | Garbled in PDF |
+| `⏳` (U+231B) | removed | Garbled in PDF |
+| `—` (U+2014 em dash) | `-` (hyphen) | Not in Helvetica |
+
+### Banner colors
+| Status | Background | Border | Text |
+|--------|-----------|--------|------|
+| Complete | `#F0FFF4` (green) | `#BBF7D0` | `#166534` |
+| In Progress | `#EFF6FF` (blue) | `#93C5FD` | `#1E3A5F` |
+
+### Filename convention
+Format: `FMP-Transcript-FMP-{COURSE}-{YEAR}-{SERIAL}.pdf`
+Example: `FMP-Transcript-FMP-3SFM-2026-0001.pdf`
+Construction: `regId.split('-')` -> `["FMP","2026","0001"]` -> `FMP-${courseCode}-${year}-${serial}`
+
+---
+
+## Training Hub Sign-in — OTP Consistency (Session 2026-04-08)
+
+### Key rule
+The email used to STORE the OTP must be the EXACT SAME email used to VERIFY it.
+
+### Flow
+- **Email input**: validate resolves regId -> OTP sent to email -> verified with same email
+- **RegID input**: validate resolves email from DB -> OTP sent to resolved email -> verified with resolved email
+- `deviceEmail` state always set from `json.email.toLowerCase()` from validate API response
+- `isDeviceTrusted()` checks by email (not regId)
+- `trustDevice()` stores by email.toLowerCase() (not regId)
+
+### Files
+- `app/training/signin/page.tsx` — client OTP flow
+- `app/api/training/validate/route.ts` — `isDeviceTrusted(cookie, email, 'training')` (not regId)
+- `app/api/training/device-verify/route.ts` — `trustDevice(email.toLowerCase(), 'training')` (not regId)
