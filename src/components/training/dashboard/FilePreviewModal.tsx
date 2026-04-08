@@ -17,14 +17,26 @@ export function FilePreviewModal({ fileName, fileUrl, fileType, fileSize, onClos
   const isImage = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(fileType);
   const sizeLabel = fileSize ? fileSize > 1024 * 1024 ? `${(fileSize / (1024 * 1024)).toFixed(1)} MB` : `${(fileSize / 1024).toFixed(0)} KB` : '';
 
-  function handleDownload() {
-    const a = document.createElement('a');
-    a.href = fileUrl;
-    a.download = fileName;
-    a.target = '_blank';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      const res = await fetch(fileUrl);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      // Fallback: open in new tab if fetch fails
+      window.open(fileUrl, '_blank');
+    }
+    setDownloading(false);
   }
 
   return (
@@ -51,14 +63,16 @@ export function FilePreviewModal({ fileName, fileUrl, fileType, fileSize, onClos
         </div>
         <button
           onClick={handleDownload}
+          disabled={downloading}
           style={{
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '7px 16px', borderRadius: 6, fontSize: 12, fontWeight: 700,
-            background: '#2EAA4A', color: '#fff', border: 'none', cursor: 'pointer',
+            background: downloading ? '#6B7280' : '#2EAA4A', color: '#fff', border: 'none',
+            cursor: downloading ? 'not-allowed' : 'pointer',
             flexShrink: 0,
           }}
         >
-          Download
+          {downloading ? 'Downloading...' : 'Download'}
         </button>
         <button
           onClick={onClose}
