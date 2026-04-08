@@ -6,516 +6,205 @@ import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 
 type Course = '3sfm' | 'bvm';
 
-// ── Badge Layout Types ───────────────────────────────────────────────────────
-
 interface BadgeTextField {
-  x: number;
-  y: number;
-  fontSize: number;
-  color: string;
-  fontFamily?: string;
-  textAlign?: 'left' | 'center' | 'right';
-  visible: boolean;
+  x: number; y: number; fontSize: number; color: string;
+  textAlign?: 'left' | 'center' | 'right'; visible: boolean;
 }
-
 interface BadgeLayout {
   certificateId: BadgeTextField;
-  issueDate:     BadgeTextField;
+  issueDate: BadgeTextField;
 }
+type FieldKey = 'certificateId' | 'issueDate';
 
-type BadgeFieldKey = 'certificateId' | 'issueDate';
-
-const DEFAULT_BADGE_LAYOUT: BadgeLayout = {
-  certificateId: { x: 0, y: 44, fontSize: 12, color: '#ffffff', fontFamily: 'Arial', textAlign: 'center', visible: true },
-  issueDate:     { x: 0, y: 22, fontSize: 11, color: 'rgba(255,255,255,0.8)', fontFamily: 'Arial', textAlign: 'center', visible: true },
+const DEFAULTS: BadgeLayout = {
+  certificateId: { x: 0, y: 44, fontSize: 14, color: '#ffffff', textAlign: 'center', visible: true },
+  issueDate:     { x: 0, y: 22, fontSize: 12, color: '#ffffff', textAlign: 'center', visible: true },
 };
 
-const FIELD_LABELS: Record<BadgeFieldKey, string> = {
-  certificateId: 'Certificate ID',
-  issueDate:     'Issue Date',
-};
-
-const SAMPLE_TEXT: Record<BadgeFieldKey, string> = {
-  certificateId: 'FMP-3SFM-2026-0001',
-  issueDate:     '15 January 2026',
-};
-
-const FONT_OPTIONS = [
-  { value: 'Arial',         label: 'Arial' },
-  { value: 'Helvetica',     label: 'Helvetica' },
-  { value: 'Times New Roman', label: 'Times New Roman' },
-  { value: 'Courier New',   label: 'Courier New' },
-  { value: 'Georgia',       label: 'Georgia' },
-];
-
-const ALL_FIELD_KEYS: BadgeFieldKey[] = ['certificateId', 'issueDate'];
-
-// ── Page ─────────────────────────────────────────────────────────────────────
+const FIELD_LABELS: Record<FieldKey, string> = { certificateId: 'Certificate ID', issueDate: 'Issue Date' };
+const SAMPLE: Record<FieldKey, string> = { certificateId: 'FMP-3SFM-2026-0001', issueDate: '15 January 2026' };
 
 export default function BadgeEditorPage() {
-  const [course,      setCourse]      = useState<Course>('3sfm');
+  const [course, setCourse]           = useState<Course>('3sfm');
   const [templateUrl, setTemplateUrl] = useState<string | null>(null);
-  const [previewUrl,  setPreviewUrl]  = useState<string | null>(null);
-  const [uploading,   setUploading]   = useState(false);
-  const [generating,  setGenerating]  = useState(false);
-  const [deleting,    setDeleting]    = useState(false);
-  const [saving,      setSaving]      = useState(false);
-  const [loading,     setLoading]     = useState(true);
-  const [toast,       setToast]       = useState('');
-  const [isError,     setIsError]     = useState(false);
-  const [layout,      setLayout]      = useState<BadgeLayout>(DEFAULT_BADGE_LAYOUT);
-  const [badgeSize,   setBadgeSize]   = useState<{ w: number; h: number }>({ w: 600, h: 600 });
+  const [previewUrl, setPreviewUrl]   = useState<string | null>(null);
+  const [uploading, setUploading]     = useState(false);
+  const [generating, setGenerating]   = useState(false);
+  const [saving, setSaving]           = useState(false);
+  const [loading, setLoading]         = useState(true);
+  const [toast, setToast]             = useState('');
+  const [layout, setLayout]           = useState<BadgeLayout>(DEFAULTS);
+  const [imgSize, setImgSize]         = useState({ w: 600, h: 600 });
   const fileRef = useRef<HTMLInputElement>(null);
 
-  function showToast(msg: string, error = false) {
-    setToast(msg);
-    setIsError(error);
-    setTimeout(() => setToast(''), 4000);
-  }
+  const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
-  // Load badge layout from API
+  // Load layout from DB
   useEffect(() => {
-    fetch('/api/admin/badge-layout')
-      .then(r => r.json())
+    fetch('/api/admin/badge-layout').then(r => r.json())
       .then((d: { layout?: BadgeLayout }) => {
-        if (d.layout) {
-          setLayout({
-            certificateId: { ...DEFAULT_BADGE_LAYOUT.certificateId, ...d.layout.certificateId },
-            issueDate:     { ...DEFAULT_BADGE_LAYOUT.issueDate,     ...d.layout.issueDate },
-          });
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+        if (d.layout) setLayout({
+          certificateId: { ...DEFAULTS.certificateId, ...d.layout.certificateId },
+          issueDate:     { ...DEFAULTS.issueDate,     ...d.layout.issueDate },
+        });
+      }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
-  // Load badge template from Supabase storage on course change
+  // Load template on course change
   useEffect(() => {
-    setTemplateUrl(null);
-    setPreviewUrl(null);
-
-    const sb = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    );
-
-    const { data: { publicUrl } } = sb.storage
-      .from('badges')
-      .getPublicUrl(`templates/${course}-badge.png`);
-
+    setTemplateUrl(null); setPreviewUrl(null);
+    const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+    const { data: { publicUrl } } = sb.storage.from('badges').getPublicUrl(`templates/${course}-badge.png`);
     const bust = `${publicUrl}?t=${Date.now()}`;
-
-    fetch(bust, { method: 'HEAD' })
-      .then(res => {
-        if (res.ok) {
-          setTemplateUrl(bust);
-          // Load image to detect dimensions
-          const img = new Image();
-          img.onload = () => setBadgeSize({ w: img.naturalWidth, h: img.naturalHeight });
-          img.src = bust;
-        }
-      })
-      .catch(() => {});
+    fetch(bust, { method: 'HEAD' }).then(res => {
+      if (res.ok) {
+        setTemplateUrl(bust);
+        const img = new Image(); img.onload = () => setImgSize({ w: img.naturalWidth, h: img.naturalHeight }); img.src = bust;
+      }
+    }).catch(() => {});
   }, [course]);
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.name.toLowerCase().endsWith('.png')) {
-      showToast('Only PNG files are accepted for badge templates.', true);
-      return;
-    }
-
+    const file = e.target.files?.[0]; if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.png')) { flash('Only PNG files accepted.'); return; }
     setUploading(true);
     try {
-      const form = new FormData();
-      form.append('file', file);
-      form.append('type', `${course}-badge`);
-
-      const res  = await fetch('/api/admin/certificates/upload-template', { method: 'POST', body: form });
-      const json = await res.json() as { success?: boolean; url?: string; error?: string };
-
-      if (json.success) {
-        const url = `${json.url}?t=${Date.now()}`;
-        setTemplateUrl(url);
-        setPreviewUrl(null);
-        showToast('Badge template uploaded successfully.');
-        // Detect dimensions
-        const img = new Image();
-        img.onload = () => setBadgeSize({ w: img.naturalWidth, h: img.naturalHeight });
-        img.src = url;
-      } else {
-        showToast(`Upload failed: ${json.error ?? 'Unknown error'}`, true);
-      }
-    } catch {
-      showToast('Upload failed: network error.', true);
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
-    }
+      const fd = new FormData(); fd.append('file', file); fd.append('type', `${course}-badge`);
+      const res = await fetch('/api/admin/certificates/upload-template', { method: 'POST', body: fd });
+      const j = await res.json() as { success?: boolean; url?: string; error?: string };
+      if (j.success) { setTemplateUrl(`${j.url}?t=${Date.now()}`); setPreviewUrl(null); flash('Uploaded.'); }
+      else flash(j.error ?? 'Upload failed.');
+    } catch { flash('Upload failed.'); }
+    setUploading(false); if (fileRef.current) fileRef.current.value = '';
   }
 
-  async function handleDelete() {
-    if (!confirm(`Delete the ${course.toUpperCase()} badge template? This cannot be undone.`)) return;
-    setDeleting(true);
-    try {
-      const res  = await fetch('/api/admin/certificates/upload-template', {
-        method:  'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ type: `${course}-badge` }),
-      });
-      const json = await res.json() as { success?: boolean; error?: string };
-      if (json.success) {
-        setTemplateUrl(null);
-        setPreviewUrl(null);
-        showToast('Badge template deleted.');
-      } else {
-        showToast(`Delete failed: ${json.error ?? 'Unknown error'}`, true);
-      }
-    } catch {
-      showToast('Delete failed: network error.', true);
-    } finally {
-      setDeleting(false);
-    }
-  }
-
-  async function handleGeneratePreview() {
-    setGenerating(true);
-    setPreviewUrl(null);
+  async function handlePreview() {
+    setGenerating(true); setPreviewUrl(null);
     try {
       const res = await fetch('/api/admin/badge-preview', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ course, layout }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ course, layout }),
       });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({})) as { error?: string };
-        showToast(`Preview failed: ${err.error ?? res.statusText}`, true);
-        return;
-      }
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      setPreviewUrl(url);
-    } catch (e) {
-      showToast(`Preview failed: ${String(e)}`, true);
-    } finally {
-      setGenerating(false);
-    }
+      if (!res.ok) { flash('Preview failed.'); setGenerating(false); return; }
+      setPreviewUrl(URL.createObjectURL(await res.blob()));
+    } catch { flash('Preview failed.'); }
+    setGenerating(false);
   }
 
   async function handleSave() {
     setSaving(true);
     try {
       const r = await fetch('/api/admin/badge-layout', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ layout }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ layout }),
       });
-      const d = await r.json() as { ok?: boolean; error?: string };
-      if (d.ok) {
-        showToast('Layout saved!');
-        // Auto-generate preview after saving
-        void handleGeneratePreview();
-      } else {
-        showToast(d.error ?? 'Error saving', true);
-      }
-    } catch (e) {
-      showToast(String(e), true);
-    } finally {
-      setSaving(false);
-    }
+      const d = await r.json() as { ok?: boolean };
+      if (d.ok) { flash('Saved!'); handlePreview(); } else flash('Save failed.');
+    } catch { flash('Save failed.'); }
+    setSaving(false);
   }
 
-  function handleFieldChange(key: BadgeFieldKey, field: string, value: string | number | boolean) {
-    setLayout(prev => ({
-      ...prev,
-      [key]: { ...prev[key], [field]: value },
-    }));
+  function setField(key: FieldKey, prop: string, val: string | number | boolean) {
+    setLayout(p => ({ ...p, [key]: { ...p[key], [prop]: val } }));
   }
 
-  function handleResetDefaults() {
-    if (!confirm('Reset all fields to default positions?')) return;
-    setLayout(DEFAULT_BADGE_LAYOUT);
-  }
+  // Preview dimensions
+  const PW = 360;
+  const scale = PW / imgSize.w;
+  const PH = Math.round(imgSize.h * scale);
 
-  // ── Canvas preview dimensions ──
-  const CANVAS_W = 400;
-  const canvasScale = CANVAS_W / badgeSize.w;
-  const canvasH = Math.round(badgeSize.h * canvasScale);
+  const IS: React.CSSProperties = { width: '100%', padding: '5px 8px', fontSize: 12, borderRadius: 5, border: '1px solid #D1D5DB', background: '#F9FAFB', outline: 'none', boxSizing: 'border-box' };
+  const LB: React.CSSProperties = { fontSize: 10, fontWeight: 700, color: '#6B7280', marginBottom: 2, display: 'block' };
 
-  // ── Styles ─────────────────────────────────────────────────────────────────
-
-  const cardStyle: React.CSSProperties = {
-    background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 16,
-  };
-
-  const sectionLabel: React.CSSProperties = {
-    fontSize: 10, fontWeight: 800, color: '#9CA3AF',
-    letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: 6,
-  };
-
-  const fieldLabel: React.CSSProperties = {
-    fontSize: 9, color: '#9CA3AF', marginBottom: 2,
-  };
-
-  const inputStyle: React.CSSProperties = {
-    width: '100%', boxSizing: 'border-box',
-    padding: '4px 6px', borderRadius: 4,
-    border: '1px solid #D1D5DB', fontSize: 11,
-    background: '#F0FFF4', outline: 'none',
-  };
-
-  const stepBtnStyle: React.CSSProperties = {
-    width: 20, height: 22, padding: 0, flexShrink: 0,
-    borderRadius: 3, border: '1px solid #D1D5DB',
-    background: '#F3F4F6', cursor: 'pointer',
-    fontSize: 14, fontWeight: 700, color: '#374151',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    lineHeight: 1,
-  };
-
-  const btnPrimary: React.CSSProperties = {
-    padding: '10px 20px', borderRadius: 7, fontSize: 13, fontWeight: 700,
-    border: 'none', cursor: 'pointer', background: '#2EAA4A', color: '#fff',
-  };
-
-  const btnSecondary: React.CSSProperties = {
-    width: '100%', padding: '9px 0', borderRadius: 7, fontSize: 13, fontWeight: 700,
-    border: '1px solid #1B4F8A', cursor: 'pointer', background: '#EFF6FF', color: '#1B4F8A',
-  };
-
-  const btnDanger: React.CSSProperties = {
-    width: '100%', marginTop: 8, padding: '7px 0', borderRadius: 7, fontSize: 12,
-    fontWeight: 600, border: '1px solid #FECACA', cursor: 'pointer',
-    background: '#FEF2F2', color: '#DC2626',
-  };
-
-  const imgBox: React.CSSProperties = {
-    background: '#F9FAFB', borderRadius: 10, border: '1px solid #E5E7EB',
-    minHeight: 280, display: 'flex', alignItems: 'center', justifyContent: 'center',
-    overflow: 'hidden',
-  };
-
-  const placeholder: React.CSSProperties = {
-    textAlign: 'center', color: '#9CA3AF', padding: 24,
-  };
-
-  if (loading) {
-    return (
-      <div style={{ display: 'flex', minHeight: '100vh', background: '#F5F7FA' }}>
-        <CmsAdminNav />
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6B7280' }}>
-          Loading layout…
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <div style={{ display: 'flex', minHeight: '100vh', background: '#F5F7FA' }}><CmsAdminNav /><div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF' }}>Loading...</div></div>;
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: '#F5F7FA', fontFamily: "'Inter', sans-serif" }}>
+    <div style={{ display: 'flex', minHeight: '100vh', background: '#F5F7FA', fontFamily: "'Inter',sans-serif" }}>
       <CmsAdminNav />
-
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-
-        {/* ── Header ── */}
-        <div style={{
-          padding: '16px 24px', background: '#fff',
-          borderBottom: '1px solid #E5E7EB',
-          display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
-        }}>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <h1 style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#0D2E5A' }}>
-              Badge Editor
-            </h1>
-            <p style={{ margin: '2px 0 0', fontSize: 12, color: '#9CA3AF' }}>
-              Upload badge templates · Configure Certificate ID and Issue Date overlay positions
-            </p>
+        {/* Header */}
+        <div style={{ padding: '14px 24px', background: '#fff', borderBottom: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+          <div style={{ flex: 1 }}>
+            <h1 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: '#0D2E5A' }}>Badge Editor</h1>
+            <p style={{ margin: '2px 0 0', fontSize: 11, color: '#9CA3AF' }}>Configure Certificate ID and Issue Date text overlay</p>
           </div>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            {toast && (
-              <span style={{
-                fontSize: 12, fontWeight: 600,
-                color:      isError ? '#DC2626' : '#065F46',
-                padding:    '6px 12px', borderRadius: 6,
-                background: isError ? '#FEF2F2' : '#F0FFF4',
-                border:     `1px solid ${isError ? '#FECACA' : '#BBF7D0'}`,
-              }}>
-                {toast}
-              </span>
-            )}
-            <button
-              onClick={handleResetDefaults}
-              title="Reset all fields to default positions"
-              style={{ padding: '8px 14px', borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: 'pointer', background: '#fff', border: '1px solid #D1D5DB', color: '#6B7280' }}
-            >
-              Reset
-            </button>
-            <button
-              onClick={handleGeneratePreview}
-              disabled={!templateUrl || generating}
-              style={{ padding: '8px 16px', borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: (!templateUrl || generating) ? 'not-allowed' : 'pointer', background: (!templateUrl || generating) ? '#E5E7EB' : '#fff', border: '1px solid #D1D5DB', color: '#374151', opacity: (!templateUrl || generating) ? 0.5 : 1 }}
-            >
-              {generating ? 'Generating...' : 'Preview'}
-            </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              style={{ ...btnPrimary, opacity: saving ? 0.5 : 1, cursor: saving ? 'not-allowed' : 'pointer' }}
-            >
-              {saving ? 'Saving...' : 'Save Layout'}
-            </button>
-          </div>
+          {toast && <span style={{ fontSize: 12, fontWeight: 600, color: '#2EAA4A', padding: '4px 10px', background: '#F0FFF4', borderRadius: 6, border: '1px solid #BBF7D0' }}>{toast}</span>}
+          <button onClick={() => setLayout(DEFAULTS)} style={{ padding: '6px 12px', borderRadius: 6, fontSize: 12, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', color: '#6B7280' }}>Reset</button>
+          <button onClick={handlePreview} disabled={!templateUrl || generating}
+            style={{ padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', color: '#374151', opacity: (!templateUrl || generating) ? 0.5 : 1 }}>
+            {generating ? 'Generating...' : 'Preview'}
+          </button>
+          <button onClick={handleSave} disabled={saving}
+            style={{ padding: '6px 16px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: '#2EAA4A', color: '#fff', border: 'none', cursor: 'pointer', opacity: saving ? 0.5 : 1 }}>
+            {saving ? 'Saving...' : 'Save Layout'}
+          </button>
         </div>
 
-        {/* ── Body ── */}
-        <div style={{ padding: 24, display: 'flex', gap: 24, flexWrap: 'wrap', alignItems: 'flex-start' }}>
-
-          {/* ── Left panel — controls ── */}
-          <div style={{ width: 280, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 16 }}>
-
-            {/* Course selector */}
-            <div style={cardStyle}>
-              <div style={sectionLabel}>Course</div>
-              <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ padding: 20, display: 'flex', gap: 20, flexWrap: 'wrap', alignItems: 'flex-start' }}>
+          {/* ── Controls ── */}
+          <div style={{ width: 260, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            {/* Course */}
+            <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #E5E7EB', padding: 12 }}>
+              <div style={LB}>Course</div>
+              <div style={{ display: 'flex', gap: 6 }}>
                 {(['3sfm', 'bvm'] as const).map(c => (
                   <button key={c} onClick={() => setCourse(c)} style={{
-                    flex: 1, padding: '8px 0', borderRadius: 7, fontSize: 13, fontWeight: 700,
-                    border: 'none', cursor: 'pointer',
-                    background: course === c ? '#1B4F8A' : '#E5E7EB',
-                    color:      course === c ? '#fff'    : '#374151',
-                  }}>
-                    {c.toUpperCase()}
-                  </button>
+                    flex: 1, padding: '6px 0', borderRadius: 6, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer',
+                    background: course === c ? '#1B4F8A' : '#E5E7EB', color: course === c ? '#fff' : '#374151',
+                  }}>{c.toUpperCase()}</button>
                 ))}
               </div>
             </div>
 
             {/* Upload */}
-            <div style={cardStyle}>
-              <div style={sectionLabel}>Badge Template PNG</div>
-              <p style={{ margin: '0 0 12px', fontSize: 12, color: '#6B7280', lineHeight: 1.6 }}>
-                Upload a square PNG (recommended 600x600 or 800x800 px).
-              </p>
-              <input ref={fileRef} type="file" accept=".png" onChange={handleUpload}
-                style={{ display: 'none' }} />
-              <button
-                onClick={() => fileRef.current?.click()}
-                disabled={uploading}
-                style={{ ...btnSecondary, opacity: uploading ? 0.6 : 1, cursor: uploading ? 'not-allowed' : 'pointer' }}
-              >
+            <div style={{ background: '#fff', borderRadius: 8, border: '1px solid #E5E7EB', padding: 12 }}>
+              <div style={LB}>Badge Template</div>
+              <input ref={fileRef} type="file" accept=".png" onChange={handleUpload} style={{ display: 'none' }} />
+              <button onClick={() => fileRef.current?.click()} disabled={uploading}
+                style={{ width: '100%', padding: '7px 0', borderRadius: 6, fontSize: 12, fontWeight: 600, border: '1px solid #1B4F8A', background: '#EFF6FF', color: '#1B4F8A', cursor: 'pointer' }}>
                 {uploading ? 'Uploading...' : 'Upload PNG'}
               </button>
-              {templateUrl && (
-                <button onClick={handleDelete} disabled={deleting}
-                  style={{ ...btnDanger, opacity: deleting ? 0.6 : 1, cursor: deleting ? 'not-allowed' : 'pointer' }}>
-                  {deleting ? 'Deleting...' : 'Delete Template'}
-                </button>
-              )}
-              {templateUrl && (
-                <div style={{ marginTop: 8, fontSize: 10, color: '#9CA3AF', fontFamily: 'monospace' }}>
-                  Image: {badgeSize.w} x {badgeSize.h} px
-                </div>
-              )}
             </div>
 
-            {/* ── Text Field Editors ── */}
-            {ALL_FIELD_KEYS.map(key => {
-              const field = layout[key];
+            {/* Field editors */}
+            {(['certificateId', 'issueDate'] as FieldKey[]).map(key => {
+              const f = layout[key];
               return (
-                <div key={key} style={{ ...cardStyle, border: `1px solid ${field.visible ? '#1B4F8A' : '#D1D5DB'}` }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                    <div style={{ fontSize: 11, fontWeight: 800, color: field.visible ? '#1B4F8A' : '#9CA3AF', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
-                      {FIELD_LABELS[key]}
-                    </div>
-                    {/* Visible toggle */}
-                    <button
-                      onClick={() => handleFieldChange(key, 'visible', !field.visible)}
-                      title={field.visible ? 'Hide this field' : 'Show this field'}
-                      style={{
-                        padding: '2px 10px', borderRadius: 4, fontSize: 11, fontWeight: 700,
-                        border: '1px solid', cursor: 'pointer',
-                        background:  field.visible ? '#EFF6FF' : '#F9FAFB',
-                        borderColor: field.visible ? '#1B4F8A' : '#D1D5DB',
-                        color:       field.visible ? '#1B4F8A' : '#9CA3AF',
-                      }}
-                    >
-                      {field.visible ? 'Visible' : 'Hidden'}
+                <div key={key} style={{ background: '#fff', borderRadius: 8, border: `1px solid ${f.visible ? '#1B4F8A' : '#D1D5DB'}`, padding: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: f.visible ? '#0D2E5A' : '#9CA3AF' }}>{FIELD_LABELS[key]}</span>
+                    <button onClick={() => setField(key, 'visible', !f.visible)}
+                      style={{ fontSize: 11, padding: '2px 8px', borderRadius: 4, border: '1px solid', cursor: 'pointer',
+                        background: f.visible ? '#EFF6FF' : '#F9FAFB', borderColor: f.visible ? '#1B4F8A' : '#D1D5DB', color: f.visible ? '#1B4F8A' : '#9CA3AF' }}>
+                      {f.visible ? 'Visible' : 'Hidden'}
                     </button>
                   </div>
-
-                  {field.visible && (
+                  {f.visible && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {/* X / Y / SIZE grid */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 4 }}>
-                        {([
-                          { f: 'x',        label: 'X',    step: 1 },
-                          { f: 'y',        label: 'Y (from bottom)', step: 1 },
-                          { f: 'fontSize', label: 'SIZE', step: 1 },
-                        ] as const).map(({ f, label, step }) => {
-                          const val = field[f as keyof BadgeTextField] as number;
-                          const min = f === 'fontSize' ? 6 : f === 'y' ? 0 : -999;
-                          return (
-                            <div key={f}>
-                              <div style={fieldLabel}>{label}</div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                                <button onClick={() => handleFieldChange(key, f, Math.max(min, val - step))} style={stepBtnStyle}>-</button>
-                                <input type="number" value={val}
-                                  onChange={e => handleFieldChange(key, f, parseInt(e.target.value, 10) || 0)}
-                                  style={{ ...inputStyle, textAlign: 'center', minWidth: 0 }}
-                                />
-                                <button onClick={() => handleFieldChange(key, f, val + step)} style={stepBtnStyle}>+</button>
-                              </div>
-                            </div>
-                          );
-                        })}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                        <div><label style={LB}>X</label><input type="number" style={IS} value={f.x} onChange={e => setField(key, 'x', +e.target.value)} /></div>
+                        <div><label style={LB}>Y (from bottom)</label><input type="number" style={IS} value={f.y} onChange={e => setField(key, 'y', +e.target.value)} /></div>
+                        <div><label style={LB}>Size</label><input type="number" style={IS} value={f.fontSize} onChange={e => setField(key, 'fontSize', +e.target.value)} /></div>
                       </div>
-
-                      {/* Text Align */}
-                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                        <div style={{ fontSize: 9, color: '#9CA3AF', marginRight: 2 }}>ALIGN</div>
-                        {(['left', 'center', 'right'] as const).map(a => (
-                          <button key={a} onClick={() => handleFieldChange(key, 'textAlign', a)}
-                            style={{
-                              flex: 1, padding: '4px 0', borderRadius: 4, fontSize: 11,
-                              fontWeight: 700, border: '1px solid', cursor: 'pointer',
-                              background:  (field.textAlign ?? 'center') === a ? '#1B4F8A' : '#F3F4F6',
-                              borderColor: (field.textAlign ?? 'center') === a ? '#1B4F8A' : '#D1D5DB',
-                              color:       (field.textAlign ?? 'center') === a ? '#fff' : '#6B7280',
-                            }}>
-                            {a.charAt(0).toUpperCase() + a.slice(1)}
-                          </button>
-                        ))}
-                      </div>
-
-                      {/* Font */}
-                      <div>
-                        <div style={fieldLabel}>FONT</div>
-                        <select value={field.fontFamily ?? 'Arial'}
-                          onChange={e => handleFieldChange(key, 'fontFamily', e.target.value)}
-                          style={{
-                            width: '100%', boxSizing: 'border-box', padding: '4px 6px',
-                            borderRadius: 4, border: '1px solid #D1D5DB', fontSize: 11,
-                            background: '#F0FFF4', outline: 'none', cursor: 'pointer',
-                            fontFamily: field.fontFamily ?? 'Arial',
-                          }}>
-                          {FONT_OPTIONS.map(o => (
-                            <option key={o.value} value={o.value} style={{ fontFamily: o.value }}>
-                              {o.label}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Color */}
-                      <div>
-                        <div style={fieldLabel}>COLOR</div>
-                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                          <input type="color" value={field.color.startsWith('rgba') ? '#ffffff' : field.color}
-                            onChange={e => handleFieldChange(key, 'color', e.target.value)}
-                            style={{ width: 28, height: 22, padding: 0, border: '1px solid #D1D5DB', borderRadius: 3, cursor: 'pointer' }} />
-                          <input type="text" value={field.color}
-                            onChange={e => handleFieldChange(key, 'color', e.target.value)}
-                            style={{ flex: 1, ...inputStyle, fontFamily: 'monospace' }} />
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ flex: 1 }}>
+                          <label style={LB}>Color</label>
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <input type="color" value={f.color} onChange={e => setField(key, 'color', e.target.value)} style={{ width: 26, height: 26, border: '1px solid #D1D5DB', borderRadius: 4, cursor: 'pointer', padding: 1 }} />
+                            <input style={IS} value={f.color} onChange={e => setField(key, 'color', e.target.value)} />
+                          </div>
+                        </div>
+                        <div>
+                          <label style={LB}>Align</label>
+                          <div style={{ display: 'flex', gap: 2 }}>
+                            {(['left', 'center', 'right'] as const).map(a => (
+                              <button key={a} onClick={() => setField(key, 'textAlign', a)} style={{
+                                padding: '4px 8px', borderRadius: 4, fontSize: 10, fontWeight: 700, cursor: 'pointer',
+                                border: '1px solid', background: f.textAlign === a ? '#1B4F8A' : '#F3F4F6',
+                                borderColor: f.textAlign === a ? '#1B4F8A' : '#D1D5DB', color: f.textAlign === a ? '#fff' : '#6B7280',
+                              }}>{a[0].toUpperCase()}</button>
+                            ))}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -525,155 +214,70 @@ export default function BadgeEditorPage() {
             })}
           </div>
 
-          {/* ── Preview panels ── */}
-          <div style={{ flex: 1, minWidth: 300, display: 'flex', flexDirection: 'column', gap: 20 }}>
-
-            {/* Live canvas preview (CSS simulated) */}
+          {/* ── Preview ── */}
+          <div style={{ flex: 1, minWidth: 300, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* Live preview */}
             <div>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8 }}>
-                Live Preview — {course.toUpperCase()}
-              </div>
-              <div style={{
-                position: 'relative',
-                width: CANVAS_W,
-                height: canvasH,
-                background: '#F9FAFB',
-                borderRadius: 10,
-                border: '1px solid #E5E7EB',
-                overflow: 'hidden',
-              }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Live Preview</div>
+              <div style={{ position: 'relative', width: PW, height: PH, background: '#1a1a1a', borderRadius: 8, overflow: 'hidden', border: '1px solid #E5E7EB' }}>
                 {templateUrl ? (
                   <>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={templateUrl}
-                      alt={`${course} badge template`}
-                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                    />
-                    {/* Certificate ID text */}
-                    {layout.certificateId.visible && (() => {
-                      const f = layout.certificateId;
-                      const fs = f.fontSize * canvasScale;
-                      const align = f.textAlign ?? 'center';
-                      // SVG: text baseline at y = bh - f.y → CSS top = canvasH - f.y*scale
-                      // Offset up by ~80% of fontSize to approximate baseline alignment
-                      const top = canvasH - f.y * canvasScale - fs * 0.8;
-                      // SVG x: center = bw/2 + x, left = x, right = bw - x
-                      const left = align === 'center' ? (CANVAS_W / 2 + f.x * canvasScale)
-                                 : align === 'right'  ? (CANVAS_W - f.x * canvasScale)
-                                 : (f.x * canvasScale);
-                      return (
-                        <div style={{
-                          position: 'absolute',
-                          top,
-                          left,
-                          transform: align === 'center' ? 'translateX(-50%)' : align === 'right' ? 'translateX(-100%)' : 'none',
-                          fontSize: fs,
-                          color: f.color,
-                          fontFamily: `${f.fontFamily ?? 'Arial'}, sans-serif`,
-                          lineHeight: 1,
-                          whiteSpace: 'nowrap',
-                          pointerEvents: 'none',
-                        }}>
-                          {SAMPLE_TEXT.certificateId}
-                        </div>
-                      );
-                    })()}
-                    {/* Issue Date text */}
-                    {layout.issueDate.visible && (() => {
-                      const f = layout.issueDate;
-                      const fs = f.fontSize * canvasScale;
-                      const align = f.textAlign ?? 'center';
-                      const top = canvasH - f.y * canvasScale - fs * 0.8;
-                      const left = align === 'center' ? (CANVAS_W / 2 + f.x * canvasScale)
-                                 : align === 'right'  ? (CANVAS_W - f.x * canvasScale)
-                                 : (f.x * canvasScale);
-                      return (
-                        <div style={{
-                          position: 'absolute',
-                          top,
-                          left,
-                          transform: align === 'center' ? 'translateX(-50%)' : align === 'right' ? 'translateX(-100%)' : 'none',
-                          fontSize: fs,
-                          color: f.color,
-                          fontFamily: `${f.fontFamily ?? 'Arial'}, sans-serif`,
-                          lineHeight: 1,
-                          whiteSpace: 'nowrap',
-                          pointerEvents: 'none',
-                        }}>
-                          {SAMPLE_TEXT.issueDate}
-                        </div>
-                      );
-                    })()}
+                    <img src={templateUrl} alt="Badge" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                    {layout.certificateId.visible && (
+                      <div style={{
+                        position: 'absolute', left: 0, right: 0,
+                        bottom: layout.certificateId.y * scale,
+                        fontSize: layout.certificateId.fontSize * scale,
+                        color: layout.certificateId.color,
+                        textAlign: (layout.certificateId.textAlign ?? 'center') as React.CSSProperties['textAlign'],
+                        paddingLeft: layout.certificateId.textAlign === 'left' ? layout.certificateId.x * scale : 0,
+                        paddingRight: layout.certificateId.textAlign === 'right' ? layout.certificateId.x * scale : 0,
+                        transform: layout.certificateId.textAlign === 'center' ? `translateX(${layout.certificateId.x * scale}px)` : 'none',
+                        lineHeight: 1, pointerEvents: 'none', fontFamily: 'sans-serif',
+                      }}>{SAMPLE.certificateId}</div>
+                    )}
+                    {layout.issueDate.visible && (
+                      <div style={{
+                        position: 'absolute', left: 0, right: 0,
+                        bottom: layout.issueDate.y * scale,
+                        fontSize: layout.issueDate.fontSize * scale,
+                        color: layout.issueDate.color,
+                        textAlign: (layout.issueDate.textAlign ?? 'center') as React.CSSProperties['textAlign'],
+                        paddingLeft: layout.issueDate.textAlign === 'left' ? layout.issueDate.x * scale : 0,
+                        paddingRight: layout.issueDate.textAlign === 'right' ? layout.issueDate.x * scale : 0,
+                        transform: layout.issueDate.textAlign === 'center' ? `translateX(${layout.issueDate.x * scale}px)` : 'none',
+                        lineHeight: 1, pointerEvents: 'none', fontFamily: 'sans-serif',
+                      }}>{SAMPLE.issueDate}</div>
+                    )}
                   </>
                 ) : (
-                  <div style={placeholder}>
-                    <div style={{ fontSize: 40, marginBottom: 10 }}>🎖</div>
-                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>No template uploaded</div>
-                    <div style={{ fontSize: 11 }}>Upload a PNG badge template to see preview</div>
-                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#6B7280', fontSize: 13 }}>Upload a PNG template</div>
                 )}
               </div>
             </div>
 
-            {/* Server-rendered preview */}
-            <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-              {/* Raw template */}
-              <div style={{ flex: 1, minWidth: 200 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8 }}>
-                  Uploaded Template
-                </div>
-                <div style={imgBox}>
-                  {templateUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={templateUrl}
-                      alt={`${course} badge template`}
-                      style={{ maxWidth: '100%', maxHeight: 320, objectFit: 'contain', borderRadius: 8 }}
-                    />
-                  ) : (
-                    <div style={placeholder}>
-                      <div style={{ fontSize: 30, marginBottom: 10 }}>📁</div>
-                      <div style={{ fontSize: 12 }}>No template</div>
-                    </div>
-                  )}
+            {/* Server preview */}
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Uploaded Template</div>
+                <div style={{ background: '#1a1a1a', borderRadius: 8, border: '1px solid #E5E7EB', minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                  {templateUrl
+                    ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={templateUrl} alt="Template" style={{ maxWidth: '100%', maxHeight: 280, objectFit: 'contain' }} />
+                    : <span style={{ color: '#6B7280', fontSize: 12 }}>No template</span>}
                 </div>
               </div>
-
-              {/* Server preview */}
-              <div style={{ flex: 1, minWidth: 200 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8 }}>
-                  Server Preview (actual output)
-                </div>
-                <div style={{ ...imgBox, borderColor: previewUrl ? '#BBF7D0' : '#E5E7EB' }}>
-                  {previewUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={previewUrl}
-                      alt="Badge preview with overlay"
-                      style={{ maxWidth: '100%', maxHeight: 320, objectFit: 'contain', borderRadius: 8 }}
-                    />
-                  ) : (
-                    <div style={placeholder}>
-                      <div style={{ fontSize: 30, marginBottom: 10 }}>🔍</div>
-                      <div style={{ fontSize: 12, fontWeight: 600 }}>
-                        {templateUrl ? 'Click Preview or Save Layout' : 'Upload a template first'}
-                      </div>
-                    </div>
-                  )}
+              <div style={{ flex: 1, minWidth: 180 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Server Preview (actual output)</div>
+                <div style={{ background: '#1a1a1a', borderRadius: 8, border: `1px solid ${previewUrl ? '#BBF7D0' : '#E5E7EB'}`, minHeight: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}>
+                  {previewUrl
+                    ? /* eslint-disable-next-line @next/next/no-img-element */ <img src={previewUrl} alt="Preview" style={{ maxWidth: '100%', maxHeight: 280, objectFit: 'contain' }} />
+                    : <span style={{ color: '#6B7280', fontSize: 12 }}>{templateUrl ? 'Click Preview or Save' : 'Upload template first'}</span>}
                 </div>
                 {previewUrl && (
-                  <a
-                    href={previewUrl}
-                    download={`${course}-badge-preview.png`}
-                    style={{
-                      display: 'block', marginTop: 10, padding: '9px 16px',
-                      borderRadius: 7, fontSize: 13, fontWeight: 600,
-                      textAlign: 'center', textDecoration: 'none',
-                      background: '#1B4F8A', color: '#fff',
-                    }}
-                  >
-                    Download Preview PNG
+                  <a href={previewUrl} download={`${course}-badge-preview.png`}
+                    style={{ display: 'block', marginTop: 8, padding: '7px 0', borderRadius: 6, fontSize: 12, fontWeight: 600, textAlign: 'center', textDecoration: 'none', background: '#1B4F8A', color: '#fff' }}>
+                    Download Preview
                   </a>
                 )}
               </div>

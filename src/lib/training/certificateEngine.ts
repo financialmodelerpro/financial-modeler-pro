@@ -237,10 +237,9 @@ export interface BadgeLayout {
   issueDate:     BadgeTextField;
 }
 
-/** Default badge layout — matches the previous hardcoded values */
 export const DEFAULT_BADGE_LAYOUT: BadgeLayout = {
-  certificateId: { x: 0, y: 44, fontSize: 12, color: '#ffffff', fontFamily: 'Arial', textAlign: 'center', visible: true },
-  issueDate:     { x: 0, y: 22, fontSize: 11, color: 'rgba(255,255,255,0.8)', fontFamily: 'Arial', textAlign: 'center', visible: true },
+  certificateId: { x: 0, y: 44, fontSize: 14, color: '#ffffff', textAlign: 'center', visible: true },
+  issueDate:     { x: 0, y: 22, fontSize: 12, color: '#ffffff', textAlign: 'center', visible: true },
 };
 
 /** Load badge layout from cms_content, falling back to defaults */
@@ -264,57 +263,91 @@ export async function loadBadgeLayout(): Promise<BadgeLayout> {
   return DEFAULT_BADGE_LAYOUT;
 }
 
-// ── Badge SVG overlay builder ────────────────────────────────────────────────
+// ── Badge text rendering (sharp create + composite) ──────────────────────────
+// Instead of SVG text (which requires system fonts that Vercel may lack),
+// we render each text line as a standalone SVG-to-PNG via sharp, then
+// composite those small PNGs onto the badge. Each SVG is tiny (<1KB)
+// and uses a minimal inline font declaration.
 
-// Font stack: DejaVu Sans is available on Vercel (Amazon Linux).
-// Arial/Helvetica are NOT available on Vercel — never use them.
-const SVG_FONT = "'DejaVu Sans', 'Noto Sans', 'Liberation Sans', sans-serif";
+function renderTextToPng(
+  text: string,
+  fontSize: number,
+  color: string,
+  maxWidth: number,
+): Promise<Buffer> {
+  // Estimate text width: ~0.6 * fontSize per character
+  const estWidth  = Math.max(maxWidth, Math.ceil(text.length * fontSize * 0.65));
+  const estHeight = Math.ceil(fontSize * 1.5);
+  const svg = `<svg width="${estWidth}" height="${estHeight}" xmlns="http://www.w3.org/2000/svg">
+    <text x="50%" y="${fontSize}" text-anchor="middle" dominant-baseline="auto"
+      font-size="${fontSize}" fill="${color}"
+      font-family="sans-serif">${text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</text>
+  </svg>`;
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
 
 /**
- * Build SVG text overlay for badge.
- * Uses system fonts available on Vercel's Amazon Linux (DejaVu Sans).
- * Returns complete SVG buffer ready for sharp composite.
+ * Render badge with text overlays. Works on any environment (no system fonts needed).
+ * Each text field is rendered as a separate tiny SVG→PNG, then composited onto the badge.
  */
-export function buildBadgeSvgOverlay(
-  bw: number, bh: number,
+export async function renderBadgeWithText(
+  badgeBytes: Buffer,
   layout: BadgeLayout,
-  certId: string, issueDate: string,
-): Buffer {
-  const { certificateId: cidField, issueDate: dateField } = layout;
-  const parts: string[] = [];
+  certId: string,
+  issueDate: string,
+): Promise<Buffer> {
+  const meta = await sharp(badgeBytes).metadata();
+  const bw   = meta.width  ?? 600;
+  const bh   = meta.height ?? 600;
 
-  if (cidField.visible) {
-    const cidY = bh - cidField.y;
-    parts.push(
-      `<text x="${svgTextX(cidField.textAlign, cidField.x, bw)}" y="${cidY}" text-anchor="${svgAnchor(cidField.textAlign)}" font-family="${SVG_FONT}" font-size="${cidField.fontSize}" fill="${cidField.color}">${escapeXml(certId)}</text>`
-    );
+  const composites: sharp.OverlayOptions[] = [];
+
+  // Certificate ID
+  if (layout.certificateId.visible && certId) {
+    const f    = layout.certificateId;
+    const png  = await renderTextToPng(certId, f.fontSize, f.color, bw);
+    const info = await sharp(png).metadata();
+    const tw   = info.width ?? bw;
+    // Calculate left position based on alignment
+    let left: number;
+    if (f.textAlign === 'left')       left = f.x;
+    else if (f.textAlign === 'right') left = bw - tw - f.x;
+    else                              left = Math.round((bw - tw) / 2) + f.x;
+
+    composites.push({
+      input: png,
+      left:  Math.max(0, left),
+      top:   Math.max(0, bh - f.y - (info.height ?? f.fontSize)),
+    });
   }
 
-  if (dateField.visible) {
-    const dateY = bh - dateField.y;
-    parts.push(
-      `<text x="${svgTextX(dateField.textAlign, dateField.x, bw)}" y="${dateY}" text-anchor="${svgAnchor(dateField.textAlign)}" font-family="${SVG_FONT}" font-size="${dateField.fontSize}" fill="${dateField.color}">${escapeXml(issueDate)}</text>`
-    );
+  // Issue Date
+  if (layout.issueDate.visible && issueDate) {
+    const f    = layout.issueDate;
+    const png  = await renderTextToPng(issueDate, f.fontSize, f.color, bw);
+    const info = await sharp(png).metadata();
+    const tw   = info.width ?? bw;
+    let left: number;
+    if (f.textAlign === 'left')       left = f.x;
+    else if (f.textAlign === 'right') left = bw - tw - f.x;
+    else                              left = Math.round((bw - tw) / 2) + f.x;
+
+    composites.push({
+      input: png,
+      left:  Math.max(0, left),
+      top:   Math.max(0, bh - f.y - (info.height ?? f.fontSize)),
+    });
   }
 
-  const svg = `<svg width="${bw}" height="${bh}" xmlns="http://www.w3.org/2000/svg">${parts.join('')}</svg>`;
-  console.log('[badge] SVG overlay length:', svg.length, 'chars');
-  return Buffer.from(svg);
+  if (composites.length === 0) return badgeBytes;
+
+  return sharp(badgeBytes)
+    .composite(composites)
+    .png()
+    .toBuffer();
 }
 
-function svgAnchor(align?: string): string {
-  if (align === 'left')  return 'start';
-  if (align === 'right') return 'end';
-  return 'middle';
-}
-
-function svgTextX(align: string | undefined, x: number, bw: number): number {
-  if (align === 'left')  return x;
-  if (align === 'right') return bw - x;
-  return bw / 2 + x;
-}
-
-// ── Badge Generation ──────────────────────────────────────────────────────────
+// ── Badge Generation (for certificate issuance) ──────────────────────────────
 
 export async function generateBadgePng(data: {
   certificateId: string;
@@ -323,35 +356,17 @@ export async function generateBadgePng(data: {
 }, layoutOverride?: BadgeLayout): Promise<string> {
   const sb = getServerClient();
 
-  // 1. Load base badge PNG
   const templatePath = `templates/${data.courseCode.toLowerCase()}-badge.png`;
   const { data: badgeFile, error: badgeError } = await sb.storage
     .from('badges')
     .download(templatePath);
 
-  if (badgeError || !badgeFile) {
-    // No badge template — return empty string (badge generation skipped)
-    return '';
-  }
+  if (badgeError || !badgeFile) return '';
 
-  const badgeBytes  = Buffer.from(await badgeFile.arrayBuffer());
-  const meta        = await sharp(badgeBytes).metadata();
-  const bw          = meta.width  ?? 600;
-  const bh          = meta.height ?? 600;
+  const badgeBytes = Buffer.from(await badgeFile.arrayBuffer());
+  const layout     = layoutOverride ?? await loadBadgeLayout();
+  const outBuffer  = await renderBadgeWithText(badgeBytes, layout, data.certificateId, formatDate(data.issueDate));
 
-  // 2. Load badge layout from DB (or use override for previews)
-  const layout = layoutOverride ?? await loadBadgeLayout();
-
-  // 3. Build SVG text overlay with embedded font
-  const svgOverlay = await buildBadgeSvgOverlay(bw, bh, layout, data.certificateId, formatDate(data.issueDate));
-
-  // 4. Composite overlay onto badge (SVG is full-size with absolute coords — use top-left gravity)
-  const outBuffer = await sharp(badgeBytes)
-    .composite([{ input: svgOverlay, gravity: 'northwest' }])
-    .png()
-    .toBuffer();
-
-  // 5. Upload
   const filePath = `issued/${data.certificateId}-badge.png`;
   await sb.storage.from('badges').upload(filePath, outBuffer, {
     contentType: 'image/png',
@@ -360,10 +375,6 @@ export async function generateBadgePng(data: {
 
   const { data: { publicUrl } } = sb.storage.from('badges').getPublicUrl(filePath);
   return publicUrl;
-}
-
-function escapeXml(str: string): string {
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
 // ── Main Orchestrator ─────────────────────────────────────────────────────────

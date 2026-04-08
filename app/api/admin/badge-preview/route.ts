@@ -1,8 +1,8 @@
 /**
  * POST /api/admin/badge-preview
  *
- * Generates a badge PNG preview with Certificate ID and Issue Date overlay.
- * Uses badge layout from cms_content (or accepts layout override from editor).
+ * Generates a badge PNG preview with Certificate ID and Issue Date text.
+ * Uses sharp to composite text rendered as separate PNG layers.
  * Returns the PNG bytes directly (no storage upload).
  */
 
@@ -14,7 +14,7 @@ import sharp from 'sharp';
 import {
   loadBadgeLayout,
   DEFAULT_BADGE_LAYOUT,
-  buildBadgeSvgOverlay,
+  renderBadgeWithText,
   type BadgeLayout,
 } from '@/src/lib/training/certificateEngine';
 
@@ -49,9 +49,6 @@ export async function POST(req: NextRequest) {
     }
 
     const badgeBytes = Buffer.from(await badgeFile.arrayBuffer());
-    const meta       = await sharp(badgeBytes).metadata();
-    const bw         = meta.width  ?? 600;
-    const bh         = meta.height ?? 600;
 
     // Use layout override from editor, or load from DB, or use defaults
     let layout: BadgeLayout;
@@ -64,14 +61,7 @@ export async function POST(req: NextRequest) {
       layout = await loadBadgeLayout();
     }
 
-    // Build SVG text overlay with embedded font (Vercel has no system fonts)
-    const svgOverlay = await buildBadgeSvgOverlay(bw, bh, layout, SAMPLE_CERT_ID, SAMPLE_DATE);
-
-    // Composite overlay onto badge (SVG is full-size with absolute coords — use top-left gravity)
-    const outBuffer = await sharp(badgeBytes)
-      .composite([{ input: svgOverlay, gravity: 'northwest' }])
-      .png()
-      .toBuffer();
+    const outBuffer = await renderBadgeWithText(badgeBytes, layout, SAMPLE_CERT_ID, SAMPLE_DATE);
 
     return new NextResponse(outBuffer as unknown as BodyInit, {
       status: 200,
