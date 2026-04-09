@@ -285,24 +285,12 @@ export default function LiveSessionsPage() {
                     )}
 
                     {/* Registration status inline */}
-                    {(() => {
-                      const reg = regStatus[s.id];
-                      if (reg?.registered && reg.joinLinkAvailable) {
-                        return (
-                          <div style={{ background: '#F0FFF4', border: '1px solid #86EFAC', borderRadius: 8, padding: '8px 12px', marginBottom: 10, fontSize: 12, fontWeight: 700, color: '#166534' }}>
-                            Session Starting Soon!
-                          </div>
-                        );
-                      }
-                      if (reg?.registered) {
-                        return (
-                          <div style={{ fontSize: 11, color: '#166534', fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <span style={{ color: '#16A34A' }}>{'\u2705'}</span> Registered &middot; Join link available 30 min before
-                          </div>
-                        );
-                      }
-                      return null;
-                    })()}
+                    {regStatus[s.id]?.registered && (
+                      <div style={{ fontSize: 11, color: '#166534', fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{ color: '#16A34A' }}>{'\u2705'}</span> Registered
+                        {regStatus[s.id]?.joinLinkAvailable && <span style={{ color: '#DC2626', fontWeight: 700 }}> &middot; Join link active!</span>}
+                      </div>
+                    )}
 
                     {/* Description */}
                     {s.description && (
@@ -312,41 +300,26 @@ export default function LiveSessionsPage() {
                     )}
                     {!s.description && <div style={{ flex: 1 }} />}
 
-                    {/* Action buttons — state-aware */}
-                    {(() => {
-                      const reg = regStatus[s.id];
-                      if (reg?.registered && reg.joinLinkAvailable) {
-                        return (
-                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 'auto', paddingTop: 4 }}>
-                            <Link href={`/training/live-sessions/${s.id}`}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '8px 16px', borderRadius: 7, background: '#DC2626', color: '#fff', fontWeight: 700, fontSize: 12, textDecoration: 'none', flex: 1, justifyContent: 'center' }}>
-                              Join Session Now &#8594;
-                            </Link>
-                            <CalendarDropdown s={s} />
-                          </div>
-                        );
-                      }
-                      if (reg?.registered) {
-                        return (
-                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 'auto', paddingTop: 4 }}>
-                            <Link href={`/training/live-sessions/${s.id}`}
-                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '8px 16px', borderRadius: 7, background: NAVY, color: '#fff', fontWeight: 700, fontSize: 12, textDecoration: 'none', flex: 1, justifyContent: 'center' }}>
-                              View Session &#8594;
-                            </Link>
-                            <CalendarDropdown s={s} />
-                          </div>
-                        );
-                      }
-                      return (
-                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 'auto', paddingTop: 4 }}>
-                          <Link href={`/training/live-sessions/${s.id}`}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '8px 16px', borderRadius: 7, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 12, textDecoration: 'none', flex: 1, justifyContent: 'center' }}>
-                            View & Register &#8594;
-                          </Link>
-                          <CalendarDropdown s={s} />
-                        </div>
-                      );
-                    })()}
+                    {/* Action buttons */}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 'auto', paddingTop: 4 }}>
+                      {regStatus[s.id]?.joinLinkAvailable ? (
+                        <Link href={`/training/live-sessions/${s.id}`}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '8px 16px', borderRadius: 7, background: '#DC2626', color: '#fff', fontWeight: 700, fontSize: 12, textDecoration: 'none', flex: 1, justifyContent: 'center' }}>
+                          Join Session Now &#8594;
+                        </Link>
+                      ) : regStatus[s.id]?.registered ? (
+                        <Link href={`/training/live-sessions/${s.id}`}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '8px 16px', borderRadius: 7, background: NAVY, color: '#fff', fontWeight: 700, fontSize: 12, textDecoration: 'none', flex: 1, justifyContent: 'center' }}>
+                          View Session &#8594;
+                        </Link>
+                      ) : (
+                        <Link href={`/training/live-sessions/${s.id}`}
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '8px 16px', borderRadius: 7, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 12, textDecoration: 'none', flex: 1, justifyContent: 'center' }}>
+                          View & Register &#8594;
+                        </Link>
+                      )}
+                      <CalendarDropdown s={s} />
+                    </div>
                   </div>
                 </div>
               );

@@ -119,22 +119,10 @@ export function UpcomingSessionsPreview() {
                   )}
                   {s.duration_minutes && <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 8 }}>{s.duration_minutes} min</div>}
                   <div style={{ marginTop: 'auto' }}>
-                    {isRec && s.youtube_url ? (
-                      <a href={s.youtube_url} target="_blank" rel="noopener noreferrer"
-                        style={{ display: 'block', textAlign: 'center', padding: '7px 12px', borderRadius: 7, background: '#DC2626', color: '#fff', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
-                        Watch on YouTube &#8594;
-                      </a>
-                    ) : isRec ? (
-                      <Link href={`/training-sessions/${s.id}`}
-                        style={{ display: 'block', textAlign: 'center', padding: '7px 12px', borderRadius: 7, background: NAVY, color: '#fff', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
-                        View Session &#8594;
-                      </Link>
-                    ) : (
-                      <Link href={`/register?redirect=/training-sessions/${s.id}`}
-                        style={{ display: 'block', textAlign: 'center', padding: '7px 12px', borderRadius: 7, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
-                        Register to Join &#8594;
-                      </Link>
-                    )}
+                    <Link href={`/training-sessions/${s.id}`}
+                      style={{ display: 'block', textAlign: 'center', padding: '7px 12px', borderRadius: 7, background: isRec ? NAVY : GREEN, color: '#fff', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
+                      {isRec ? 'View Recording \u2192' : 'View Session \u2192'}
+                    </Link>
                   </div>
                 </div>
               </div>

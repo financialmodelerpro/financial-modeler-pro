@@ -301,28 +301,22 @@ export default function LiveSessionDetailPage() {
                 </button>
                 {regCount > 0 && <div style={{ marginTop: 10, fontSize: 12, color: '#6B7280' }}>{regCount} {regCount === 1 ? 'person' : 'people'} registered</div>}
               </div>
-            ) : joinLinkAvailable ? (
-              <div style={{ background: '#F0FFF4', border: '1.5px solid #86EFAC', borderRadius: 12, padding: 20, marginBottom: 12 }}>
-                <div style={{ fontSize: 16, fontWeight: 800, color: '#166534', marginBottom: 12 }}>Session Starting Soon!</div>
-                {session.live_url && (
-                  <a href={session.live_url} target="_blank" rel="noopener noreferrer"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '14px 32px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 16, textDecoration: 'none', marginBottom: 10 }}>
-                    Join Session Now
-                  </a>
-                )}
-                <div style={{ marginTop: 8 }}>
-                  <button onClick={handleCancelRegistration} disabled={cancelling}
-                    style={{ fontSize: 12, color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
-                    Cancel Registration
-                  </button>
-                </div>
-              </div>
             ) : (
               <div style={{ background: '#F0FFF4', border: '1.5px solid #86EFAC', borderRadius: 12, padding: 20, marginBottom: 12 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#166534', marginBottom: 8 }}>You're registered!</div>
-                <div style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>Join link will be available 30 minutes before the session.</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#166534', marginBottom: 8 }}>
+                  {joinLinkAvailable ? 'Session Starting Soon!' : "You're registered!"}
+                </div>
                 {countdown && <div style={{ fontSize: 13, color: '#1B4F8A', fontWeight: 600, marginBottom: 12 }}>Starts in: {countdown}</div>}
-                {regCount > 0 && <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 12 }}>{regCount} {regCount === 1 ? 'person' : 'people'} registered</div>}
+                {session.live_url && (
+                  <a href={session.live_url} target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 28px', borderRadius: 8, background: joinLinkAvailable ? '#DC2626' : GREEN, color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none', marginBottom: 8 }}>
+                    Join Session
+                  </a>
+                )}
+                {!joinLinkAvailable && (
+                  <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>Join link fully active 30 min before session</div>
+                )}
+                {regCount > 0 && <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>{regCount} {regCount === 1 ? 'person' : 'people'} registered</div>}
                 <button onClick={handleCancelRegistration} disabled={cancelling}
                   style={{ fontSize: 12, color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
                   Cancel Registration

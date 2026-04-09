@@ -207,7 +207,6 @@ export function SessionsClient({ sessions }: { sessions: PublicSession[] }) {
                   {nextSession.session_type === 'live' ? 'LIVE NOW' : 'NEXT SESSION'}
                 </div>
                 <h2 style={{ fontSize: 20, fontWeight: 800, color: NAVY, margin: '0 0 8px', lineHeight: 1.3 }}>{nextSession.title}</h2>
-                {nextSession.instructor_name && <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 10 }}>{nextSession.instructor_name}</div>}
                 <div style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>
                   {fmtDate(nextSession.scheduled_datetime)} &middot; {fmtTime(nextSession.scheduled_datetime)} ({nextSession.timezone})
                 </div>
