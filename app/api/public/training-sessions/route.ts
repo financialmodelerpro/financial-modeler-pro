@@ -30,19 +30,25 @@ export async function GET(req: NextRequest) {
     if (category) query = query.eq('category', category);
     query = query.limit(limit);
 
-    const { data } = await query;
+    const { data, error: queryErr } = await query;
+    if (queryErr) {
+      console.error('[public/training-sessions] Query error:', queryErr.message);
+      return NextResponse.json({ sessions: [], error: queryErr.message });
+    }
 
-    // Get registration counts
+    // Get registration counts (non-blocking — if table doesn't exist, skip)
     const sessionIds = (data ?? []).map(s => s.id);
     let regCounts: Record<string, number> = {};
     if (sessionIds.length > 0) {
-      const { data: regs } = await sb
-        .from('session_registrations')
-        .select('session_id')
-        .in('session_id', sessionIds);
-      for (const r of regs ?? []) {
-        regCounts[r.session_id] = (regCounts[r.session_id] ?? 0) + 1;
-      }
+      try {
+        const { data: regs } = await sb
+          .from('session_registrations')
+          .select('session_id')
+          .in('session_id', sessionIds);
+        for (const r of regs ?? []) {
+          regCounts[r.session_id] = (regCounts[r.session_id] ?? 0) + 1;
+        }
+      } catch { /* registration counts are optional */ }
     }
 
     const sessions = (data ?? []).map(s => ({
@@ -60,14 +66,14 @@ export async function GET(req: NextRequest) {
       instructor_name: s.instructor_name,
       tags: s.tags,
       is_featured: s.is_featured,
-      youtube_url: s.session_type === 'recorded' ? s.youtube_url : null, // Only expose for recordings
+      youtube_url: s.session_type === 'recorded' ? s.youtube_url : null,
       playlist: s.live_playlists,
       registration_count: regCounts[s.id] ?? 0,
-      // NEVER expose: live_url, live_password
     }));
 
     return NextResponse.json({ sessions });
-  } catch {
+  } catch (err) {
+    console.error('[public/training-sessions] Error:', err);
     return NextResponse.json({ sessions: [] });
   }
 }

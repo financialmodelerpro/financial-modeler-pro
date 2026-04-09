@@ -164,10 +164,6 @@ export default async function TrainingPage() {
             <Link href="/signin" style={{ color: '#6EE589', textDecoration: 'none', fontWeight: 600 }}>
               Login →
             </Link>
-            {' \u00B7 '}
-            <Link href="/training-sessions" style={{ color: '#6EE589', textDecoration: 'none', fontWeight: 600 }}>
-              View Training Sessions →
-            </Link>
           </p>
         </div>
       </section>
@@ -206,9 +202,6 @@ export default async function TrainingPage() {
           </div>
         </div>
       </section>
-
-      {/* ── Upcoming Training Sessions (client component, auto-hides if none) ─ */}
-      <UpcomingSessionsPreview />
 
       {/* ── Section 3 — How It Works ──────────────────────────────────────── */}
       <section style={{ background: '#F5F7FA', padding: 'clamp(48px,7vw,80px) 40px' }}>
@@ -335,6 +328,9 @@ export default async function TrainingPage() {
           </Link>
         </div>
       </section>
+
+      {/* ── Upcoming Training Sessions (after certificates, before testimonials) ─ */}
+      <UpcomingSessionsPreview />
 
       {/* ── Section 6 — Testimonials carousel ───────────────────────────── */}
       <TestimonialsCarousel
