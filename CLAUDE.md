@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-08**
+**Last updated: 2026-04-09**
 
 ---
 
@@ -83,6 +83,7 @@
 | Passwords | bcryptjs (Training Hub) / scrypt via Node (Modeling Hub) | ^3.0.3 |
 | Toast | react-hot-toast | ^2.6.0 |
 | Sanitization | isomorphic-dompurify | ^3.3.0 |
+| Image Crop | react-easy-crop | latest |
 
 ---
 
@@ -201,8 +202,9 @@
 | Table | Purpose |
 |-------|---------|
 | `live_playlists` | Session grouping: name, description, thumbnail, display_order, is_published |
-| `live_sessions` | Sessions: title, description, youtube_url, live_url, session_type, scheduled_datetime, timezone, category, playlist_id, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, tags[], is_featured, live_password, registration_url, notification/reminder tracking |
+| `live_sessions` | Sessions: title, description, youtube_url, youtube_embed, live_url, session_type, scheduled_datetime, timezone, category, playlist_id, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, instructor_title, tags[], is_featured, live_password, registration_url, notification/reminder tracking |
 | `session_registrations` | Student RSVP: session_id, student_reg_id, student_name, student_email, registered_at, attended |
+| `session_watch_history` | Recording watch tracking: session_id, student_email, student_reg_id, watched_at, points_awarded (50); UNIQUE(session_id, student_email) |
 | `course_attachments` | Reused for session files with tab_key='LIVE_'+session_id |
 
 ### Dynamic CMS
@@ -262,8 +264,10 @@
 | **AI Agents** | 🔄 In Progress | Market rates + research agents wired; contextual help stub |
 | **Pricing / Subscriptions** | 🔄 In Progress | Plans + features in DB; enforcement partial |
 | **White-label / Branding** | 🔄 In Progress | DB-driven config; BrandingThemeApplier wired |
-| **Training Hub — Live Sessions** | ✅ Complete | Playlists + sessions (upcoming/live/recorded); admin at `/admin/training-hub/live-sessions` with full CRUD, banner upload, 34 timezones, inline playlist creation, duplicate, filters, notification targeting (all/3SFM/BVM), preview email, full-screen branded preview modal; student pages at `/training/live-sessions` with tabs, countdown timer, YouTube embed, multi-calendar dropdown (Google/Outlook/Yahoo/Apple .ics), in-dashboard file preview; **registration/RSVP system**: `session_registrations` table, student register/cancel, join link shown only 30 min before session, registration count, admin registrations modal with attendance tracking + CSV export; email notifications via Resend (announcement links to session page not direct join, registration confirmation with join button); registration URL for external audience; **mobile responsive** (clamp padding/fonts, single-column grid, compact nav, full-width buttons) |
-| **Training Hub — Course Attachments** | ✅ Complete | Per-lesson + per-course file attachments; upload to Supabase `course-materials` bucket; in-dashboard file preview modal (PDF iframe, image preview, blob download); admin toggle visibility + delete |
+| **Training Hub — Live Sessions** | ✅ Complete | Playlists + sessions (upcoming/live/recorded); admin at `/admin/training-hub/live-sessions` with full CRUD, banner upload, 34 timezones, inline playlist creation, duplicate, filters, notification targeting (all/3SFM/BVM), preview email, full-screen branded preview modal; student pages at `/training/live-sessions` (no tabs, sequential sections: upcoming then recordings); dashboard 3-column preview cards with registration status; countdown timer, YouTube embed/external toggle (`youtube_embed` flag), multi-calendar dropdown, in-dashboard file preview; **registration/RSVP**: `session_registrations` table, batch status API, join link 30 min before session, registration count, admin registrations modal + CSV export; **public pages**: `/training-sessions` (server-rendered, no auth) + `/training-sessions/[id]` detail; recordings free to watch (no registration); **auto-transition**: past upcoming → recorded (client-side display only); email notifications via Resend; **instructor title** field; **watch tracking**: `session_watch_history` table, 50 points per first watch; admin YouTube embed quick toggle in table; **mobile responsive** |
+| **Training Hub — Course Attachments** | ✅ Complete | Per-lesson + per-course file attachments; upload to Supabase `course-materials` bucket; in-dashboard file preview modal (PDF iframe, image preview, blob download); admin toggle visibility + delete; attachment count indicator on session cards |
+| **Training Hub — Share Experience** | ✅ Complete | ShareExperienceModal (3 tabs: Written Review, Video Testimonial, Social Share); LinkedIn URL validation; dismissable share banner on dashboard; sidebar "Share Experience" item; works for both Training + Modeling hubs via `hub` prop |
+| **Public Training Sessions** | ✅ Complete | `/training-sessions` (server component, SSR from Supabase); `/training-sessions/[id]` detail (server+client split); public API at `/api/public/training-sessions`; recordings free to watch; upcoming CTAs redirect to register; "Training Sessions" in main nav (site_pages DB + Navbar.tsx fallback); learn homepage preview section with priority logic (upcoming first, fill with recordings) |
 | **BVM / FPA / other modeling platforms** | ❌ Not Started | Config defined, no platform content yet |
 
 ---
@@ -340,14 +344,17 @@ app/admin/
 #### Public Training Sessions (`learn.financialmodelerpro.com/training-sessions`)
 ```
 app/training-sessions/
-├── page.tsx                     # Public sessions list (no auth, hero, filter, grid cards)
-└── [id]/page.tsx                # Public session detail (countdown, CTA, instructor, related)
+├── page.tsx                     # Server component: fetches sessions from Supabase SSR, renders NavbarServer + SessionsClient
+├── SessionsClient.tsx           # Client component: hero, upcoming/recorded grid cards, countdown, login-aware CTAs
+├── [id]/page.tsx                # Server component: fetches session detail SSR, renders NavbarServer + DetailClient
+└── [id]/DetailClient.tsx        # Client component: session detail with countdown, registration CTAs, video, instructor
 ```
 
 #### Training Hub (`learn.financialmodelerpro.com` → `/training/`)
 ```
 app/training/
-├── page.tsx                     # + UpcomingSessionsPreview component added
+├── page.tsx                     # + UpcomingSessionsPreview (3-col cards, priority: upcoming then recordings)
+├── UpcomingSessionsPreview.tsx  # Client component: 3-column session preview cards for marketing page
 ├── [courseId]/page.tsx
 ├── [courseId]/assessment/page.tsx
 ├── assessment/[tabKey]/page.tsx
@@ -471,8 +478,10 @@ app/api/
 ├── training/live-sessions/        # GET: published live sessions with attachments
 ├── training/live-sessions/[id]/   # GET: single session detail
 ├── training/live-sessions/[id]/register/ # POST: register; DELETE: cancel; GET: status
+├── training/live-sessions/[id]/watched/ # POST: record watch, award 50 points (first watch only)
+├── training/live-sessions/registration-status-batch/ # POST: batch registration status for multiple sessions
 ├── training/badges/download/      # GET: redirect to badge image by certId
-├── public/training-sessions/      # GET: public session list (no auth, no live_url/password)
+├── public/training-sessions/      # GET: public session list (no auth, no live_url/password, includes youtube_embed + instructor_title)
 ├── public/training-sessions/[id]/ # GET: public session detail + related (no auth, no live_url/password)
 └── user/account/ + password/ + profile/
 ```
@@ -499,7 +508,7 @@ src/components/
 │   ├── AdminEditBar.tsx  ArticleCard.tsx  CategoryFilter.tsx
 │   ├── CourseCard.tsx  InlineEdit.tsx  SharedFooter.tsx  VideoPlayer.tsx
 ├── layout/
-│   ├── Navbar.tsx               # All links are absolute <a> tags (cross-domain safe)
+│   ├── Navbar.tsx               # All links are absolute <a> tags (cross-domain safe); DEFAULT_PAGES includes "Training Sessions" (id:8)
 │   └── NavbarServer.tsx         # absolutizeHref() converts DB hrefs to absolute
 ├── pricing/
 │   └── PricingAccordion.tsx
@@ -512,8 +521,10 @@ src/components/
 │   ├── BrandingSettingsPanel.tsx  BrandingThemeApplier.tsx
 │   ├── PhoneInput.tsx               # Searchable country-code dropdown (57 countries, keyboard nav)
 │   ├── SessionProviderWrapper.tsx  UpgradePrompt.tsx
+│   └── ShareExperienceModal.tsx     # 3-tab testimonial modal (written, video, social share) for both hubs
 ├── training/
 │   ├── CountdownTimer.tsx
+│   ├── TrainingShell.tsx            # Shared layout for live-sessions pages (header + sidebar + footer + mobile nav)
 │   └── dashboard/
 │       ├── AboutThisCourse.tsx  BvmLockedContent.tsx  CertificateImageCard.tsx
 │       ├── CourseContent.tsx  FeedbackModal.tsx  ProfileModal.tsx
@@ -716,7 +727,10 @@ npm run verify       # type-check + lint + build
 | `035_live_sessions_enhancements.sql` | banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, tags[], is_featured, live_password ✅ Run |
 | `036_live_session_registration.sql` | registration_url field on live_sessions ✅ Run |
 | `037_session_registrations.sql` | session_registrations table + registration_required + show_join_link_minutes_before columns ✅ Run |
-| `038_testimonials_linkedin.sql` | Add linkedin_url, profile_photo_url, hub, video_url to testimonials (manual) table |
+| `038_testimonials_linkedin.sql` | Add linkedin_url, profile_photo_url, hub, video_url to testimonials (manual) table ✅ Run |
+| `039_nav_training_sessions.sql` | Add "Training Sessions" link to site_pages nav (display_order 3.5) ✅ Run |
+| `040_youtube_embed_toggle.sql` | youtube_embed BOOLEAN DEFAULT false on live_sessions ✅ Run |
+| `041_watch_history_instructor_title.sql` | session_watch_history table + instructor_title TEXT on live_sessions ✅ Run |
 
 ---
 
