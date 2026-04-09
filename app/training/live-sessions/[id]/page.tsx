@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getTrainingSession } from '@/src/lib/training/training-session';
 import { FilePreviewModal } from '@/src/components/training/dashboard/FilePreviewModal';
+import { TrainingShell } from '@/src/components/training/TrainingShell';
 
 interface Attachment { id: string; file_name: string; file_url: string; file_type: string; file_size: number }
 interface Session {
@@ -52,7 +53,7 @@ function DetailCalendarDropdown({ title, desc, liveUrl, dt }: { title: string; d
   const yahoo = `https://calendar.yahoo.com/?v=60&title=${t}&st=${fmt(start)}&dur=0130&desc=${d2}`;
   return (
     <div style={{ position: 'relative', display: 'inline-block' }}>
-      <button onClick={() => setOpen(!open)} style={{ padding: '12px 20px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>Add to Calendar ▾</button>
+      <button onClick={() => setOpen(!open)} style={{ padding: '10px 16px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>Add to Calendar &#9662;</button>
       {open && (
         <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: '#fff', borderRadius: 8, border: '1px solid #E5E7EB', boxShadow: '0 4px 16px rgba(0,0,0,0.1)', zIndex: 50, minWidth: 200, overflow: 'hidden' }}>
           {[{label:'Google Calendar',url:gcal},{label:'Outlook Calendar',url:outlook},{label:'Yahoo Calendar',url:yahoo}].map(o=>(
@@ -88,7 +89,6 @@ export default function LiveSessionDetailPage() {
     if (!sess) { router.replace('/training/signin'); return; }
     setStudentSession(sess);
 
-    // Fetch session + registration status in parallel
     Promise.all([
       fetch(`/api/training/live-sessions/${params.id}`).then(r => r.json()),
       fetch(`/api/training/live-sessions/${params.id}/register?email=${encodeURIComponent(sess.email)}`).then(r => r.json()),
@@ -140,7 +140,7 @@ export default function LiveSessionDetailPage() {
     setCancelling(false);
   }
 
-  // Countdown timer for upcoming sessions
+  // Countdown timer
   useEffect(() => {
     if (!session?.scheduled_datetime || session.session_type === 'recorded') return;
     const update = () => {
@@ -161,48 +161,35 @@ export default function LiveSessionDetailPage() {
     navigator.clipboard.writeText(window.location.href).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); });
   }
 
-  if (loading) return (
-    <div style={{ fontFamily: "'Inter',sans-serif", background: '#F5F7FA', minHeight: '100vh' }}>
-      <nav style={{ background: NAVY, height: 56 }} />
-      <div style={{ textAlign: 'center', padding: 80, color: '#9CA3AF' }}>Loading...</div>
-    </div>
-  );
+  // Content to render inside the shell
+  const content = (() => {
+    if (loading) {
+      return <div style={{ textAlign: 'center', padding: 80, color: '#9CA3AF' }}>Loading...</div>;
+    }
 
-  if (!session) return (
-    <div style={{ fontFamily: "'Inter',sans-serif", background: '#F5F7FA', minHeight: '100vh' }}>
-      <nav style={{ background: NAVY, height: 56 }} />
-      <div style={{ textAlign: 'center', padding: 80 }}>
-        <div style={{ fontSize: 48, marginBottom: 12 }}>404</div>
-        <div style={{ color: '#6B7280' }}>Session not found</div>
-        <Link href="/training/live-sessions" style={{ color: '#1B4F8A', marginTop: 12, display: 'inline-block' }}>Back to Live Sessions</Link>
-      </div>
-    </div>
-  );
-
-  const isUpcoming = session.session_type === 'upcoming' || session.session_type === 'live';
-  const ytId = extractYouTubeId(session.youtube_url);
-
-  return (
-    <div style={{ fontFamily: "'Inter',sans-serif", background: '#F5F7FA', minHeight: '100vh' }}>
-      {/* Nav */}
-      <nav style={{ background: NAVY, padding: '0 16px', display: 'flex', alignItems: 'center', gap: 10, height: 52, position: 'sticky', top: 0, zIndex: 100, overflow: 'hidden' }}>
-        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none', flexShrink: 0 }}>
-          <div style={{ width: 24, height: 24, borderRadius: 4, background: GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>F</div>
-        </Link>
-        <Link href="/training/live-sessions" style={{ color: '#94A3B8', fontSize: 12, textDecoration: 'none', flexShrink: 0 }}>Sessions</Link>
-        <span style={{ color: '#475569', flexShrink: 0 }}>|</span>
-        <span style={{ fontSize: 12, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{session.title}</span>
-      </nav>
-
-      {/* Banner hero */}
-      {session.banner_url && (
-        <div style={{ maxWidth: 900, margin: '0 auto' }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={session.banner_url} alt={session.title} style={{ width: '100%', height: 'auto', maxHeight: 300, objectFit: 'cover' }} />
+    if (!session) {
+      return (
+        <div style={{ textAlign: 'center', padding: 80 }}>
+          <div style={{ fontSize: 48, marginBottom: 12 }}>404</div>
+          <div style={{ color: '#6B7280' }}>Session not found</div>
+          <Link href="/training/live-sessions" style={{ color: '#1B4F8A', marginTop: 12, display: 'inline-block' }}>Back to Live Sessions</Link>
         </div>
-      )}
+      );
+    }
 
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: 'clamp(16px,4vw,32px) clamp(12px,3vw,24px) 64px' }}>
+    const isUpcoming = session.session_type === 'upcoming' || session.session_type === 'live';
+    const ytId = extractYouTubeId(session.youtube_url);
+
+    return (
+      <div style={{ maxWidth: 800, margin: '0 auto' }}>
+        {/* Banner hero */}
+        {session.banner_url && (
+          <div style={{ marginBottom: 20, borderRadius: 14, overflow: 'hidden' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={session.banner_url} alt={session.title} style={{ width: '100%', height: 'auto', maxHeight: 300, objectFit: 'cover', display: 'block' }} />
+          </div>
+        )}
+
         <Link href="/training/live-sessions" style={{ fontSize: 13, color: '#6B7280', textDecoration: 'none', marginBottom: 16, display: 'inline-block' }}>
           &larr; Back to Live Sessions
         </Link>
@@ -249,7 +236,7 @@ export default function LiveSessionDetailPage() {
           </div>
         )}
 
-        {/* Countdown for upcoming */}
+        {/* Countdown */}
         {isUpcoming && countdown && (
           <div style={{ background: '#EFF6FF', border: '2px solid #3B82F6', borderRadius: 12, padding: '20px 24px', marginBottom: 24, textAlign: 'center' }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#1D4ED8', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>Starts in</div>
@@ -257,7 +244,7 @@ export default function LiveSessionDetailPage() {
           </div>
         )}
 
-        {/* Video embed for recorded */}
+        {/* Video embed */}
         {!isUpcoming && ytId && (
           <div style={{ marginBottom: 24, borderRadius: 12, overflow: 'hidden', background: '#000', aspectRatio: '16/9' }}>
             <iframe
@@ -269,11 +256,10 @@ export default function LiveSessionDetailPage() {
           </div>
         )}
 
-        {/* Registration status + action buttons */}
+        {/* Registration */}
         {isUpcoming && (
           <div style={{ marginBottom: 24 }}>
             {!registered ? (
-              /* Not registered */
               <div style={{ background: '#F0F7FF', border: '1.5px solid #93C5FD', borderRadius: 12, padding: 20, marginBottom: 12 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#1B4F8A', marginBottom: 8 }}>Register to join this session</div>
                 <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>The join link will be available 30 minutes before the session starts.</div>
@@ -284,7 +270,6 @@ export default function LiveSessionDetailPage() {
                 {regCount > 0 && <div style={{ marginTop: 10, fontSize: 12, color: '#6B7280' }}>{regCount} {regCount === 1 ? 'person' : 'people'} registered</div>}
               </div>
             ) : joinLinkAvailable ? (
-              /* Registered + join link available */
               <div style={{ background: '#F0FFF4', border: '1.5px solid #86EFAC', borderRadius: 12, padding: 20, marginBottom: 12 }}>
                 <div style={{ fontSize: 16, fontWeight: 800, color: '#166534', marginBottom: 12 }}>Session Starting Soon!</div>
                 {session.live_url && (
@@ -301,7 +286,6 @@ export default function LiveSessionDetailPage() {
                 </div>
               </div>
             ) : (
-              /* Registered but join link not yet available */
               <div style={{ background: '#F0FFF4', border: '1.5px solid #86EFAC', borderRadius: 12, padding: 20, marginBottom: 12 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#166534', marginBottom: 8 }}>You're registered!</div>
                 <div style={{ fontSize: 13, color: '#374151', marginBottom: 4 }}>Join link will be available 30 minutes before the session.</div>
@@ -316,6 +300,7 @@ export default function LiveSessionDetailPage() {
           </div>
         )}
 
+        {/* Share + Calendar buttons */}
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 24 }}>
           {session.scheduled_datetime && isUpcoming && (
             <DetailCalendarDropdown title={session.title} desc={session.description || ''} liveUrl={session.live_url || ''} dt={session.scheduled_datetime} />
@@ -336,7 +321,7 @@ export default function LiveSessionDetailPage() {
           </a>
         </div>
 
-        {/* Session password for logged-in students */}
+        {/* Password */}
         {session.live_password && isUpcoming && (
           <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: '#92400E' }}>Session Password: </span>
@@ -366,12 +351,12 @@ export default function LiveSessionDetailPage() {
             <h3 style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 12 }}>Session Materials</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {session.attachments.map(att => {
-                const icon = att.file_type === 'pdf' ? '📄' : att.file_type === 'docx' ? '📝' : att.file_type === 'pptx' ? '📊' : att.file_type === 'xlsx' ? '📗' : '🖼️';
+                const icon = att.file_type === 'pdf' ? '&#128196;' : att.file_type === 'docx' ? '&#128221;' : att.file_type === 'pptx' ? '&#128202;' : att.file_type === 'xlsx' ? '&#128215;' : '&#128444;';
                 const size = att.file_size ? att.file_size > 1048576 ? `${(att.file_size / 1048576).toFixed(1)} MB` : `${(att.file_size / 1024).toFixed(0)} KB` : '';
                 return (
                   <button key={att.id} onClick={() => setPreviewFile(att)}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#F9FAFB', cursor: 'pointer', textAlign: 'left', width: '100%' }}>
-                    <span style={{ fontSize: 20 }}>{icon}</span>
+                    <span style={{ fontSize: 20 }} dangerouslySetInnerHTML={{ __html: icon }} />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, color: '#0D2E5A' }}>{att.file_name}</div>
                       <div style={{ fontSize: 11, color: '#9CA3AF' }}>{att.file_type.toUpperCase()}{size ? ` - ${size}` : ''}</div>
@@ -383,17 +368,23 @@ export default function LiveSessionDetailPage() {
             </div>
           </div>
         )}
-      </div>
 
-      {previewFile && (
-        <FilePreviewModal
-          fileName={previewFile.file_name}
-          fileUrl={previewFile.file_url}
-          fileType={previewFile.file_type}
-          fileSize={previewFile.file_size}
-          onClose={() => setPreviewFile(null)}
-        />
-      )}
-    </div>
+        {previewFile && (
+          <FilePreviewModal
+            fileName={previewFile.file_name}
+            fileUrl={previewFile.file_url}
+            fileType={previewFile.file_type}
+            fileSize={previewFile.file_size}
+            onClose={() => setPreviewFile(null)}
+          />
+        )}
+      </div>
+    );
+  })();
+
+  return (
+    <TrainingShell activeNav="live-sessions">
+      {content}
+    </TrainingShell>
   );
 }

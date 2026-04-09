@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { getTrainingSession } from '@/src/lib/training/training-session';
+import { TrainingShell } from '@/src/components/training/TrainingShell';
 
 interface Attachment { id: string; file_name: string; file_url: string; file_type: string; file_size: number }
 interface Session {
@@ -22,18 +23,10 @@ function extractYouTubeId(url: string): string | null {
 }
 
 function fmtDate(iso: string): string {
-  try { return new Date(iso).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); } catch { return ''; }
+  try { return new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }); } catch { return ''; }
 }
 function fmtTime(iso: string): string {
   try { return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }); } catch { return ''; }
-}
-
-function buildGcalUrl(s: Session): string {
-  if (!s.scheduled_datetime) return '';
-  const start = new Date(s.scheduled_datetime);
-  const end = new Date(start.getTime() + 90 * 60 * 1000); // 90 min default
-  const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(s.title)}&dates=${fmt(start)}/${fmt(end)}&details=${encodeURIComponent((s.description || '') + (s.live_url ? '\n\nJoin: ' + s.live_url : ''))}&location=${encodeURIComponent(s.live_url || '')}`;
 }
 
 function downloadIcs(s: Session) {
@@ -68,8 +61,8 @@ function CalendarDropdown({ s }: { s: Session }) {
   return (
     <div style={{ position: 'relative', display: 'inline-block' }}>
       <button onClick={() => setOpen(!open)}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 16px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}>
-        Add to Calendar ▾
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
+        Add to Calendar &#9662;
       </button>
       {open && (
         <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: '#fff', borderRadius: 8, border: '1px solid #E5E7EB', boxShadow: '0 4px 16px rgba(0,0,0,0.1)', zIndex: 50, minWidth: 200, overflow: 'hidden' }}>
@@ -99,12 +92,14 @@ export default function LiveSessionsPage() {
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'upcoming' | 'recorded'>('upcoming');
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [toast, setToast] = useState('');
 
   function copySessionLink(sessionId: string) {
     const url = `${window.location.origin}/training/live-sessions/${sessionId}`;
     navigator.clipboard.writeText(url).then(() => {
       setCopiedId(sessionId);
-      setTimeout(() => setCopiedId(null), 2000);
+      setToast('Link copied!');
+      setTimeout(() => { setCopiedId(null); setToast(''); }, 2000);
     });
   }
 
@@ -136,164 +131,231 @@ export default function LiveSessionsPage() {
   }
 
   return (
-    <div style={{ fontFamily: "'Inter', sans-serif", background: '#F5F7FA', minHeight: '100vh' }}>
-      {/* Nav */}
-      <nav style={{ background: NAVY, padding: '0 16px', display: 'flex', alignItems: 'center', gap: 10, height: 52, position: 'sticky', top: 0, zIndex: 100, overflow: 'hidden' }}>
-        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 6, textDecoration: 'none', flexShrink: 0 }}>
-          <div style={{ width: 24, height: 24, borderRadius: 4, background: GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11 }}>F</div>
-          <span style={{ fontSize: 12, fontWeight: 800, color: '#fff', display: 'none' }} className="fmp-nav-brand">Financial Modeler Pro</span>
-        </Link>
-        <Link href="/training/dashboard" style={{ color: '#94A3B8', fontSize: 12, textDecoration: 'none', flexShrink: 0 }}>Dashboard</Link>
-        <span style={{ color: '#475569', flexShrink: 0 }}>|</span>
-        <span style={{ fontSize: 12, fontWeight: 600, color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Live Sessions</span>
-      </nav>
-      <style>{`@media(min-width:640px){.fmp-nav-brand{display:inline!important}}`}</style>
-
-      <div style={{ maxWidth: 1000, margin: '0 auto', padding: 'clamp(16px,4vw,32px) clamp(12px,3vw,24px) 64px' }}>
-        <h1 style={{ fontSize: 'clamp(20px,5vw,24px)', fontWeight: 800, color: NAVY, marginBottom: 4 }}>Live Sessions</h1>
-        <p style={{ fontSize: 14, color: '#6B7280', marginBottom: 20 }}>Join live training sessions or watch recordings at your own pace.</p>
-
-        {/* Tabs */}
-        <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid #E5E7EB', marginBottom: 28 }}>
-          {([['upcoming', `Upcoming & Live (${upcoming.length})`], ['recorded', `Recordings (${recorded.length})`]] as const).map(([key, label]) => (
-            <button key={key} onClick={() => setTab(key)}
-              style={{ padding: '10px 24px', fontSize: 14, fontWeight: tab === key ? 700 : 400, color: tab === key ? NAVY : '#6B7280', background: 'none', border: 'none', borderBottom: tab === key ? `2px solid ${NAVY}` : '2px solid transparent', cursor: 'pointer', marginBottom: -2 }}>
-              {label}
-            </button>
-          ))}
+    <TrainingShell activeNav="live-sessions">
+      {/* ── HERO BANNER ──────────────────────────────────────────────────── */}
+      <div style={{
+        background: `linear-gradient(135deg, ${NAVY} 0%, #1B4F8A 100%)`,
+        borderRadius: 16, padding: 'clamp(24px,5vw,36px) clamp(20px,4vw,36px)',
+        marginBottom: 24, color: '#fff', position: 'relative', overflow: 'hidden',
+      }}>
+        <div style={{ position: 'absolute', top: -30, right: -30, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
+        <div style={{ position: 'relative', zIndex: 1 }}>
+          <h1 style={{ fontSize: 'clamp(20px,5vw,26px)', fontWeight: 800, margin: '0 0 6px' }}>
+            Training Sessions
+          </h1>
+          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', margin: 0, marginBottom: 12 }}>
+            Join live sessions or watch recordings at your own pace.
+          </p>
+          <div style={{ display: 'flex', gap: 16, fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>
+            <span>{upcoming.length} Upcoming</span>
+            <span>{recorded.length} Recording{recorded.length !== 1 ? 's' : ''}</span>
+          </div>
         </div>
+      </div>
 
-        {loading && <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>Loading sessions...</div>}
+      {/* ── TABS ──────────────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid #E5E7EB', marginBottom: 24 }}>
+        {([['upcoming', `Upcoming & Live (${upcoming.length})`], ['recorded', `Recordings (${recorded.length})`]] as const).map(([key, label]) => (
+          <button key={key} onClick={() => setTab(key)}
+            style={{ padding: '10px 24px', fontSize: 13, fontWeight: tab === key ? 700 : 400, color: tab === key ? NAVY : '#6B7280', background: 'none', border: 'none', borderBottom: tab === key ? `2px solid ${NAVY}` : '2px solid transparent', cursor: 'pointer', marginBottom: -2 }}>
+            {label}
+          </button>
+        ))}
+      </div>
 
-        {/* Upcoming & Live */}
-        {!loading && tab === 'upcoming' && (
-          upcoming.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>📅</div>
-              <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>No upcoming sessions scheduled</div>
-              <div style={{ fontSize: 13 }}>Check back soon or browse recordings.</div>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {upcoming.map(s => (
-                <div key={s.id} style={{ background: '#fff', borderRadius: 12, border: `1.5px solid ${s.session_type === 'live' ? '#DC2626' : '#3B82F6'}`, overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-                  {/* Banner */}
-                  {s.banner_url && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={s.banner_url} alt={s.title} style={{ width: '100%', height: 200, objectFit: 'cover' }} />
-                  )}
-                  <div style={{ padding: 24 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: s.session_type === 'live' ? '#FEF2F2' : '#EFF6FF', color: s.session_type === 'live' ? '#DC2626' : '#1D4ED8' }}>
+      {loading && <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>Loading sessions...</div>}
+
+      {/* ── UPCOMING & LIVE ────────────────────────────────────────────────── */}
+      {!loading && tab === 'upcoming' && (
+        upcoming.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>&#128197;</div>
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>No upcoming sessions scheduled</div>
+            <div style={{ fontSize: 13 }}>Check back soon or browse recordings.</div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+            {upcoming.map(s => (
+              <div key={s.id} style={{
+                background: '#fff', borderRadius: 14, overflow: 'hidden',
+                border: `1.5px solid ${s.session_type === 'live' ? '#DC2626' : '#E5E7EB'}`,
+                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+                transition: 'box-shadow 0.2s',
+                position: 'relative',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.1)')}
+              onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.04)')}
+              >
+                {/* Banner */}
+                {s.banner_url ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={s.banner_url} alt={s.title} style={{ width: '100%', height: 200, objectFit: 'cover' }} />
+                ) : (
+                  <div style={{
+                    width: '100%', height: 200,
+                    background: `linear-gradient(135deg, ${NAVY} 0%, #1B4F8A 60%, #2563EB 100%)`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
+                  }}>
+                    <span style={{ fontSize: 18, fontWeight: 700, color: 'rgba(255,255,255,0.7)', textAlign: 'center', maxWidth: 400 }}>{s.title}</span>
+                  </div>
+                )}
+
+                {/* Share button top-right */}
+                <button onClick={(e) => { e.preventDefault(); copySessionLink(s.id); }}
+                  title="Copy session link"
+                  style={{
+                    position: 'absolute', top: 12, right: 12, width: 34, height: 34,
+                    borderRadius: '50%', background: 'rgba(255,255,255,0.9)', border: 'none',
+                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 2,
+                  }}>
+                  {copiedId === s.id ? '\u2705' : '\u{1F517}'}
+                </button>
+
+                <div style={{ padding: '20px 24px' }}>
+                  {/* Badges */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
+                    <span style={{
+                      fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20,
+                      background: s.session_type === 'live' ? '#FEF2F2' : '#EFF6FF',
+                      color: s.session_type === 'live' ? '#DC2626' : '#1D4ED8',
+                    }}>
                       {s.session_type === 'live' ? 'LIVE NOW' : 'UPCOMING'}
                     </span>
                     {s.difficulty_level && s.difficulty_level !== 'All Levels' && (
-                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: '#F3F4F6', color: '#6B7280' }}>{s.difficulty_level}</span>
+                      <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: '#F3F4F6', color: '#6B7280' }}>{s.difficulty_level}</span>
                     )}
-                    {s.category && <span style={{ fontSize: 11, fontWeight: 600, color: '#6B7280' }}>{s.category}</span>}
-                    {s.is_featured && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 12, background: '#FEF3C7', color: '#B45309' }}>FEATURED</span>}
+                    {s.category && <span style={{ fontSize: 10, fontWeight: 600, color: '#9CA3AF' }}>{s.category}</span>}
+                    {s.is_featured && <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 8px', borderRadius: 12, background: '#FEF3C7', color: '#B45309' }}>FEATURED</span>}
                   </div>
-                  <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 8px' }}>{s.title}</h2>
-                  {s.instructor_name && <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 6 }}>{s.instructor_name}</div>}
+
+                  {/* Title + instructor */}
+                  <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 6px', lineHeight: 1.3 }}>{s.title}</h2>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
+                    {s.instructor_name && <span style={{ fontSize: 12, color: '#6B7280' }}>{s.instructor_name}</span>}
+                    {s.duration_minutes && <span style={{ fontSize: 11, color: '#9CA3AF' }}>{s.duration_minutes} min</span>}
+                  </div>
+
+                  {/* Date + time */}
                   {s.scheduled_datetime && (
-                    <div style={{ marginBottom: 8 }}>
-                      <div style={{ fontSize: 13, color: '#374151' }}>
-                        {fmtDate(s.scheduled_datetime)} at {fmtTime(s.scheduled_datetime)} ({s.timezone})
+                    <div style={{ marginBottom: 10 }}>
+                      <div style={{ fontSize: 13, color: '#374151', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        &#128197; {fmtDate(s.scheduled_datetime)} at {fmtTime(s.scheduled_datetime)} ({s.timezone})
                       </div>
                       {localTz && localTz !== s.timezone && (
-                        <div style={{ fontSize: 12, color: '#1B4F8A', marginTop: 2 }}>Your local time: {localTime(s.scheduled_datetime)} ({localTz})</div>
+                        <div style={{ fontSize: 12, color: '#1B4F8A', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
+                          &#128336; Your time: {localTime(s.scheduled_datetime)} ({localTz})
+                        </div>
                       )}
                     </div>
                   )}
-                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-                    {s.duration_minutes && <span style={{ fontSize: 11, color: '#6B7280' }}>{s.duration_minutes} min</span>}
-                    {s.max_attendees && <span style={{ fontSize: 11, color: '#6B7280' }}>Limited to {s.max_attendees} seats</span>}
-                  </div>
+
+                  {/* Tags */}
                   {s.tags?.length > 0 && (
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 12 }}>
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
                       {s.tags.map(t => <span key={t} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: '#EFF6FF', color: '#1B4F8A', fontWeight: 600 }}>{t}</span>)}
                     </div>
                   )}
-                  {s.description && <p style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.6, marginBottom: 16 }}>{s.description}</p>}
+
+                  {/* Description (truncated to 2 lines) */}
+                  {s.description && (
+                    <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 14, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                      {s.description}
+                    </p>
+                  )}
+
+                  {/* Attachments */}
                   {s.attachments.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 16 }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
                       {s.attachments.map(a => (
                         <a key={a.id} href={a.file_url} target="_blank" rel="noopener noreferrer"
                           style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: '1px solid #E5E7EB', background: '#F9FAFB', fontSize: 11, color: '#374151', textDecoration: 'none' }}>
-                          {a.file_type === 'pdf' ? '📄' : '📎'} {a.file_name}
+                          {a.file_type === 'pdf' ? '&#128196;' : '&#128206;'} {a.file_name}
                         </a>
                       ))}
                     </div>
                   )}
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+
+                  {/* Action buttons */}
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
                     <Link href={`/training/live-sessions/${s.id}`}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 24px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>
-                      View & Register
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 22px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>
+                      View & Register &#8594;
                     </Link>
                     <CalendarDropdown s={s} />
-                    <button onClick={() => copySessionLink(s.id)}
-                      title="Copy session link"
-                      style={{ padding: '10px 14px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 12, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      {copiedId === s.id ? '\u2705 Copied!' : '\u{1F517} Share'}
-                    </button>
-                  </div>
                   </div>
                 </div>
-              ))}
-            </div>
-          )
-        )}
+              </div>
+            ))}
+          </div>
+        )
+      )}
 
-        {/* Recordings */}
-        {!loading && tab === 'recorded' && (
-          recorded.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>🎬</div>
-              <div style={{ fontSize: 16, fontWeight: 600 }}>No recordings available yet</div>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
-              {Object.entries(groupedRecordings).map(([playlistName, items]) => (
-                <div key={playlistName}>
-                  <h3 style={{ fontSize: 16, fontWeight: 800, color: NAVY, marginBottom: 12 }}>{playlistName} ({items.length})</h3>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 12 }}>
-                    {items.map(s => {
-                      const ytId = extractYouTubeId(s.youtube_url);
-                      return (
-                        <Link key={s.id} href={`/training/live-sessions/${s.id}`} style={{ textDecoration: 'none' }}>
-                          <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.04)', cursor: 'pointer' }}>
-                            {/* Banner or YouTube thumbnail */}
-                            {(s.banner_url || ytId) && (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={s.banner_url || `https://img.youtube.com/vi/${ytId}/mqdefault.jpg`} alt={s.title}
-                                style={{ width: '100%', height: 160, objectFit: 'cover' }} />
-                            )}
-                            <div style={{ padding: '14px 16px' }}>
-                              <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>
-                                {s.category && <span style={{ fontSize: 10, fontWeight: 700, color: '#1B4F8A' }}>{s.category}</span>}
-                                {s.difficulty_level && s.difficulty_level !== 'All Levels' && (
-                                  <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 8, background: '#F3F4F6', color: '#6B7280' }}>{s.difficulty_level}</span>
-                                )}
-                              </div>
-                              <div style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 4, lineHeight: 1.3 }}>{s.title}</div>
-                              {s.instructor_name && <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 2 }}>{s.instructor_name}</div>}
-                              {s.scheduled_datetime && <div style={{ fontSize: 11, color: '#9CA3AF' }}>{fmtDate(s.scheduled_datetime)}</div>}
-                              <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-                                {s.duration_minutes && <span style={{ fontSize: 10, color: '#6B7280' }}>{s.duration_minutes} min</span>}
-                                {s.attachments.length > 0 && <span style={{ fontSize: 10, color: '#6B7280' }}>📎 {s.attachments.length}</span>}
-                              </div>
+      {/* ── RECORDINGS ─────────────────────────────────────────────────────── */}
+      {!loading && tab === 'recorded' && (
+        recorded.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>
+            <div style={{ fontSize: 48, marginBottom: 12 }}>&#127916;</div>
+            <div style={{ fontSize: 16, fontWeight: 600 }}>No recordings available yet</div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
+            {Object.entries(groupedRecordings).map(([playlistName, items]) => (
+              <div key={playlistName}>
+                <h3 style={{ fontSize: 16, fontWeight: 800, color: NAVY, marginBottom: 12 }}>{playlistName} ({items.length})</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 14 }}>
+                  {items.map(s => {
+                    const ytId = extractYouTubeId(s.youtube_url);
+                    return (
+                      <Link key={s.id} href={`/training/live-sessions/${s.id}`} style={{ textDecoration: 'none' }}>
+                        <div style={{
+                          background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden',
+                          boxShadow: '0 1px 4px rgba(0,0,0,0.04)', cursor: 'pointer', transition: 'box-shadow 0.2s',
+                        }}
+                        onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)')}
+                        onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.04)')}
+                        >
+                          {(s.banner_url || ytId) ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={s.banner_url || `https://img.youtube.com/vi/${ytId}/mqdefault.jpg`} alt={s.title}
+                              style={{ width: '100%', height: 160, objectFit: 'cover' }} />
+                          ) : (
+                            <div style={{ width: '100%', height: 160, background: `linear-gradient(135deg, ${NAVY}, #1B4F8A)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <span style={{ fontSize: 14, fontWeight: 700, color: 'rgba(255,255,255,0.6)', textAlign: 'center', padding: '0 16px' }}>{s.title}</span>
+                            </div>
+                          )}
+                          <div style={{ padding: '14px 16px' }}>
+                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>
+                              {s.category && <span style={{ fontSize: 10, fontWeight: 700, color: '#1B4F8A' }}>{s.category}</span>}
+                              {s.difficulty_level && s.difficulty_level !== 'All Levels' && (
+                                <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 8, background: '#F3F4F6', color: '#6B7280' }}>{s.difficulty_level}</span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 4, lineHeight: 1.3 }}>{s.title}</div>
+                            {s.instructor_name && <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 2 }}>{s.instructor_name}</div>}
+                            {s.scheduled_datetime && <div style={{ fontSize: 11, color: '#9CA3AF' }}>{fmtDate(s.scheduled_datetime)}</div>}
+                            <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                              {s.duration_minutes && <span style={{ fontSize: 10, color: '#6B7280' }}>{s.duration_minutes} min</span>}
+                              {s.attachments.length > 0 && <span style={{ fontSize: 10, color: '#6B7280' }}>&#128206; {s.attachments.length}</span>}
                             </div>
                           </div>
-                        </Link>
-                      );
-                    })}
-                  </div>
+                        </div>
+                      </Link>
+                    );
+                  })}
                 </div>
-              ))}
-            </div>
-          )
-        )}
-      </div>
-    </div>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, background: '#1B3A6B', color: '#fff', padding: '11px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 700, boxShadow: '0 4px 20px rgba(0,0,0,0.25)' }}>
+          {toast}
+        </div>
+      )}
+    </TrainingShell>
   );
 }
