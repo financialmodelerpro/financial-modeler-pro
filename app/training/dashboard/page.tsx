@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training/training-session';
 import { useInactivityLogout } from '@/src/hooks/useInactivityLogout';
@@ -57,8 +57,6 @@ interface LiveSession {
 
 export default function TrainingDashboardPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-
   // Auto sign-out after 1 hour of inactivity
   useInactivityLogout({
     logoutUrl:   '/api/training/logout',
@@ -116,15 +114,6 @@ export default function TrainingDashboardPage() {
   useEffect(() => {
     if (localStorage.getItem('fmp_sidebar_collapsed') === 'true') setSidebarCollapsed(true);
   }, []);
-
-  // Handle ?course= query param to navigate directly to course view
-  useEffect(() => {
-    const courseParam = searchParams.get('course');
-    if (courseParam && ['3sfm', 'bvm'].includes(courseParam)) {
-      setActiveCourse(courseParam);
-      setActiveView('course');
-    }
-  }, [searchParams]);
 
   // Fetch share CMS text once on mount
   useEffect(() => {
