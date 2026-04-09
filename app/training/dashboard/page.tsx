@@ -382,7 +382,8 @@ export default function TrainingDashboardPage() {
   function getCroppedBlob(imageSrc: string, pixelCrop: Area): Promise<Blob> {
     return new Promise((resolve, reject) => {
       const img = new Image();
-      img.crossOrigin = 'anonymous';
+      // Do NOT set crossOrigin on blob: URLs — causes CORS failure in some browsers
+      if (!imageSrc.startsWith('blob:')) img.crossOrigin = 'anonymous';
       img.onload = () => {
         const canvas = document.createElement('canvas');
         canvas.width = 200;
@@ -404,10 +405,11 @@ export default function TrainingDashboardPage() {
     if (!cropImageSrc || !croppedAreaPixels || !localSession) return;
     setAvatarUploading(true);
     const src = cropImageSrc;
+    const cropArea = croppedAreaPixels;
     setCropImageSrc(null);
     if (sidebarFileInputRef.current) sidebarFileInputRef.current.value = '';
     try {
-      const blob = await getCroppedBlob(src, croppedAreaPixels);
+      const blob = await getCroppedBlob(src, cropArea);
       URL.revokeObjectURL(src);
       const fd = new FormData();
       fd.append('file', new File([blob], 'avatar.jpg', { type: 'image/jpeg' }));
@@ -689,8 +691,8 @@ export default function TrainingDashboardPage() {
               onClick={() => setProfileDropdown(v => !v)}
               style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '4px 10px 4px 4px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 20, cursor: 'pointer', color: '#fff' }}
             >
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', overflow: 'hidden', flexShrink: 0 }}>
-                {avatarUrl ? <img src={avatarUrl} alt={studentName} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : initials}
+              <div style={{ width: 28, height: 28, borderRadius: '50%', background: avatarUrl ? `url(${avatarUrl}) center/cover, #2EAA4A` : '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 800, color: '#fff', overflow: 'hidden', flexShrink: 0 }}>
+                {!avatarUrl && initials}
               </div>
               <span style={{ fontSize: 12, fontWeight: 700, maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {studentName || localSession?.registrationId || 'Student'}
@@ -755,12 +757,10 @@ export default function TrainingDashboardPage() {
                     onClick={() => sidebarFileInputRef.current?.click()}
                     style={{ position: 'relative', width: 40, height: 40, borderRadius: '50%', background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: '#fff', flexShrink: 0, overflow: 'visible', cursor: 'pointer' }}
                   >
-                    <div style={{ width: 40, height: 40, borderRadius: '50%', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#2EAA4A', fontSize: 14, fontWeight: 800, color: '#fff', position: 'relative' }}>
+                    <div style={{ width: 40, height: 40, borderRadius: '50%', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: avatarUrl && !avatarUploading ? `url(${avatarUrl}) center/cover, #2EAA4A` : '#2EAA4A', fontSize: 14, fontWeight: 800, color: '#fff', position: 'relative' }}>
                       {avatarUploading ? (
                         <div style={{ width: 18, height: 18, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-                      ) : avatarUrl ? (
-                        <img src={avatarUrl} alt={studentName} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }} />
-                      ) : initials}
+                      ) : !avatarUrl ? initials : null}
                       {!avatarUploading && (
                         <div className="avatar-hover-overlay" style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.2s' }}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
