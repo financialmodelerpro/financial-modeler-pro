@@ -105,7 +105,6 @@ export default function LiveSessionsPage() {
   const router = useRouter();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'upcoming' | 'recorded'>('upcoming');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [toast, setToast] = useState('');
 
@@ -174,29 +173,14 @@ export default function LiveSessionsPage() {
         </div>
       </div>
 
-      {/* ── TABS ──────────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', gap: 0, borderBottom: '2px solid #E5E7EB', marginBottom: 24 }}>
-        {([['upcoming', `Upcoming & Live (${upcoming.length})`], ['recorded', `Recordings (${recorded.length})`]] as const).map(([key, label]) => (
-          <button key={key} onClick={() => setTab(key)}
-            style={{ padding: '10px 24px', fontSize: 13, fontWeight: tab === key ? 700 : 400, color: tab === key ? NAVY : '#6B7280', background: 'none', border: 'none', borderBottom: tab === key ? `2px solid ${NAVY}` : '2px solid transparent', cursor: 'pointer', marginBottom: -2 }}>
-            {label}
-          </button>
-        ))}
-      </div>
-
       {loading && <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>Loading sessions...</div>}
 
       {/* ══════════════════════════════════════════════════════════════════════ */}
-      {/* UPCOMING & LIVE — GRID CARDS                                         */}
+      {/* UPCOMING SESSIONS                                                    */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
-      {!loading && tab === 'upcoming' && (
-        upcoming.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>&#128197;</div>
-            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>No upcoming sessions</div>
-            <div style={{ fontSize: 13 }}>Check back soon &mdash; new sessions are added regularly.</div>
-          </div>
-        ) : (
+      {!loading && upcoming.length > 0 && (
+        <div style={{ marginBottom: 40 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 16px' }}>Upcoming Sessions</h2>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
             {upcoming.map(s => {
               const isLive = getEffectiveType(s) === 'live';
@@ -306,20 +290,15 @@ export default function LiveSessionsPage() {
               );
             })}
           </div>
-        )
+        </div>
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════ */}
-      {/* RECORDINGS — GRID CARDS                                              */}
+      {/* RECORDINGS                                                           */}
       {/* ══════════════════════════════════════════════════════════════════════ */}
-      {!loading && tab === 'recorded' && (
-        recorded.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>&#127916;</div>
-            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>No recordings yet</div>
-            <div style={{ fontSize: 13 }}>Past sessions will appear here once recorded.</div>
-          </div>
-        ) : (
+      {!loading && recorded.length > 0 && (
+        <div style={{ marginBottom: 40 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 16px' }}>Recordings</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
             {Object.entries(groupedRecordings).map(([playlistName, items]) => (
               <div key={playlistName}>
@@ -399,7 +378,21 @@ export default function LiveSessionsPage() {
               </div>
             ))}
           </div>
-        )
+        </div>
+      )}
+
+      {!loading && recorded.length === 0 && upcoming.length > 0 && (
+        <div style={{ textAlign: 'center', padding: '40px 0', color: '#9CA3AF' }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No recordings yet</div>
+          <div style={{ fontSize: 13 }}>Past sessions will appear here once recorded.</div>
+        </div>
+      )}
+
+      {!loading && sessions.length === 0 && (
+        <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>
+          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>No sessions scheduled yet</div>
+          <div style={{ fontSize: 13 }}>Check back soon.</div>
+        </div>
       )}
 
       {/* Toast */}

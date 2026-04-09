@@ -48,7 +48,6 @@ function getEffectiveType(s: { session_type: string; scheduled_datetime?: string
 export default function PublicTrainingSessionsPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'upcoming' | 'recorded'>('all');
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [countdown, setCountdown] = useState('');
 
@@ -56,15 +55,21 @@ export default function PublicTrainingSessionsPage() {
     const sess = getTrainingSession();
     if (sess) setIsLoggedIn(true);
     fetch('/api/public/training-sessions')
-      .then(r => r.json())
-      .then((j: { sessions?: Session[] }) => setSessions(j.sessions ?? []))
-      .catch(() => {})
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((j: { sessions?: Session[] }) => {
+        setSessions(j.sessions ?? []);
+      })
+      .catch((err) => {
+        console.error('[training-sessions] Fetch error:', err);
+      })
       .finally(() => setLoading(false));
   }, []);
 
   const upcoming = sessions.filter(s => { const t = getEffectiveType(s); return t === 'upcoming' || t === 'live'; });
   const recorded = sessions.filter(s => getEffectiveType(s) === 'recorded');
-  const filtered = filter === 'upcoming' ? upcoming : filter === 'recorded' ? recorded : sessions;
   const nextSession = upcoming[0] ?? null;
   const localTz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
 
@@ -123,7 +128,7 @@ export default function PublicTrainingSessionsPage() {
               </Link>
             )}
             {recorded.length > 0 && (
-              <button onClick={() => setFilter('recorded')} style={{ padding: '12px 28px', borderRadius: 8, background: 'rgba(255,255,255,0.1)', color: '#fff', fontWeight: 600, fontSize: 14, border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer' }}>
+              <button onClick={() => document.getElementById('recordings-section')?.scrollIntoView({ behavior: 'smooth' })} style={{ padding: '12px 28px', borderRadius: 8, background: 'rgba(255,255,255,0.1)', color: '#fff', fontWeight: 600, fontSize: 14, border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer' }}>
                 Browse Recordings
               </button>
             )}
@@ -169,42 +174,25 @@ export default function PublicTrainingSessionsPage() {
         </section>
       )}
 
-      {/* ── FILTER BAR ────────────────────────────────────────────────────── */}
-      <section style={{ background: '#F5F7FA', padding: '20px 24px 0' }}>
-        <div style={{ maxWidth: 1000, margin: '0 auto', display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          {(['all', 'upcoming', 'recorded'] as const).map(key => (
-            <button key={key} onClick={() => setFilter(key)}
-              style={{
-                padding: '8px 18px', borderRadius: 20, fontSize: 13, fontWeight: filter === key ? 700 : 500,
-                background: filter === key ? NAVY : '#fff', color: filter === key ? '#fff' : '#6B7280',
-                border: filter === key ? 'none' : '1px solid #D1D5DB', cursor: 'pointer',
-              }}>
-              {key === 'all' ? `All (${sessions.length})` : key === 'upcoming' ? `Upcoming (${upcoming.length})` : `Recordings (${recorded.length})`}
-            </button>
-          ))}
-        </div>
-      </section>
-
-      {/* ── SESSION CARDS GRID ─────────────────────────────────────────────── */}
+      {/* ── SESSIONS ─────────────────────────────────────────────────────── */}
       <section style={{ background: '#F5F7FA', padding: 'clamp(24px,4vw,48px) 24px clamp(48px,6vw,80px)' }}>
         <div style={{ maxWidth: 1000, margin: '0 auto' }}>
           {loading && <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>Loading sessions...</div>}
 
-          {!loading && filtered.length === 0 && (
+          {!loading && sessions.length === 0 && (
             <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>
-              <div style={{ fontSize: 48, marginBottom: 12 }}>{filter === 'recorded' ? '\u{1F3AC}' : '\u{1F4C5}'}</div>
-              <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>
-                {filter === 'recorded' ? 'No recordings yet' : 'No upcoming sessions'}
-              </div>
-              <div style={{ fontSize: 13 }}>
-                {filter === 'recorded' ? 'Past sessions will appear here once recorded.' : 'Check back soon \u2014 new sessions are added regularly.'}
-              </div>
+              <div style={{ fontSize: 48, marginBottom: 12 }}>{'\u{1F4C5}'}</div>
+              <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>No sessions scheduled yet</div>
+              <div style={{ fontSize: 13 }}>Check back soon &mdash; new sessions are added regularly.</div>
             </div>
           )}
 
-          {!loading && filtered.length > 0 && (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
-              {filtered.map(s => {
+          {/* ── UPCOMING SESSIONS ──────────────────────────────────────────── */}
+          {!loading && upcoming.length > 0 && (
+            <div style={{ marginBottom: 40 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 16px' }}>Upcoming Sessions</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
+                {upcoming.map(s => {
                 const effType = getEffectiveType(s);
                 const isLive = effType === 'live';
                 const isRecorded = effType === 'recorded';
@@ -292,6 +280,65 @@ export default function PublicTrainingSessionsPage() {
                   </div>
                 );
               })}
+              </div>
+            </div>
+          )}
+
+          {/* ── RECORDINGS ─────────────────────────────────────────────────── */}
+          {!loading && recorded.length > 0 && (
+            <div id="recordings-section">
+              <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 16px' }}>Recordings</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
+                {recorded.map(s => {
+                  const ytId = extractYouTubeId(s.youtube_url);
+                  const thumbUrl = s.banner_url || (ytId ? `https://img.youtube.com/vi/${ytId}/mqdefault.jpg` : null);
+                  return (
+                    <div key={s.id} className="pts-card" style={{
+                      background: '#fff', borderRadius: 12, overflow: 'hidden',
+                      border: '1px solid #E5E7EB', boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                      display: 'flex', flexDirection: 'column', position: 'relative',
+                    }}>
+                      <Link href={sessionUrl(s)} style={{ display: 'block', position: 'relative' }}>
+                        {thumbUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={thumbUrl} alt={s.title} style={{ width: '100%', height: 200, objectFit: 'cover', objectPosition: 'top', display: 'block' }} />
+                        ) : (
+                          <div style={{ width: '100%', height: 160, background: `linear-gradient(135deg, ${NAVY} 0%, #1B4F8A 60%, #2563EB 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+                            <span style={{ fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.7)', textAlign: 'center' }}>{s.title}</span>
+                          </div>
+                        )}
+                        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.15)' }}>
+                          <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+                          </div>
+                        </div>
+                        <span style={{ position: 'absolute', top: 10, left: 10, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 10, background: 'rgba(0,0,0,0.6)', color: '#fff' }}>RECORDED</span>
+                      </Link>
+                      <div style={{ padding: '16px 18px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                        <h3 style={{ fontSize: 16, fontWeight: 800, color: NAVY, margin: '0 0 4px', lineHeight: 1.3 }}>{s.title}</h3>
+                        {s.instructor_name && <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 6 }}>{s.instructor_name}</div>}
+                        {s.scheduled_datetime && <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 4 }}>{fmtDate(s.scheduled_datetime)}</div>}
+                        {s.duration_minutes && <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 6 }}>{s.duration_minutes} min</div>}
+                        {s.description && (
+                          <p style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5, marginBottom: 12, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', flex: 1 }}>{s.description}</p>
+                        )}
+                        {!s.description && <div style={{ flex: 1 }} />}
+                        <Link href={sessionUrl(s)}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '9px 16px', borderRadius: 7, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 12, textDecoration: 'none', width: '100%', marginTop: 'auto' }}>
+                          {'\u25B6'} Watch Recording {'\u2192'}
+                        </Link>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {!loading && recorded.length === 0 && upcoming.length > 0 && (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: '#9CA3AF' }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No recordings yet</div>
+              <div style={{ fontSize: 13 }}>Past sessions will appear here once recorded.</div>
             </div>
           )}
         </div>
