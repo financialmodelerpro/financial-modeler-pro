@@ -1135,7 +1135,7 @@ export default function TrainingDashboardPage() {
                       <Link key={s.id} href={`/training/live-sessions/${s.id}`}
                         style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden', textDecoration: 'none', color: '#374151', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', transition: 'box-shadow 0.15s' }}>
                         {s.banner_url && (
-                          <div style={{ height: 100, background: `url(${s.banner_url}) center/cover`, position: 'relative' }}>
+                          <div style={{ height: 100, background: `url(${s.banner_url}) top/cover`, position: 'relative' }}>
                             <span style={{ position: 'absolute', top: 8, left: 8, fontSize: 9, fontWeight: 800, padding: '2px 8px', borderRadius: 10, background: s.session_type === 'live' ? '#EF4444' : '#3B82F6', color: '#fff', textTransform: 'uppercase' }}>
                               {s.session_type === 'live' ? 'LIVE' : 'UPCOMING'}
                             </span>

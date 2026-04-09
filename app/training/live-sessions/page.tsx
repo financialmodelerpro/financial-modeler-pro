@@ -61,24 +61,24 @@ function CalendarDropdown({ s }: { s: Session }) {
   return (
     <div style={{ position: 'relative', display: 'inline-block' }}>
       <button onClick={() => setOpen(!open)}
-        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
-        Add to Calendar &#9662;
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '7px 12px', borderRadius: 7, border: '1px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 11, cursor: 'pointer' }}>
+        Calendar &#9662;
       </button>
       {open && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, marginTop: 4, background: '#fff', borderRadius: 8, border: '1px solid #E5E7EB', boxShadow: '0 4px 16px rgba(0,0,0,0.1)', zIndex: 50, minWidth: 200, overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: '#fff', borderRadius: 8, border: '1px solid #E5E7EB', boxShadow: '0 4px 16px rgba(0,0,0,0.1)', zIndex: 50, minWidth: 180, overflow: 'hidden' }}>
           {[
             { label: 'Google Calendar', url: gcal },
-            { label: 'Outlook Calendar', url: outlook },
-            { label: 'Yahoo Calendar', url: yahoo },
+            { label: 'Outlook', url: outlook },
+            { label: 'Yahoo', url: yahoo },
           ].map(opt => (
             <a key={opt.label} href={opt.url} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}
-              style={{ display: 'block', padding: '10px 16px', fontSize: 13, color: '#374151', textDecoration: 'none', borderBottom: '1px solid #F3F4F6' }}>
+              style={{ display: 'block', padding: '9px 14px', fontSize: 12, color: '#374151', textDecoration: 'none', borderBottom: '1px solid #F3F4F6' }}>
               {opt.label}
             </a>
           ))}
           <button onClick={() => { downloadIcs(s); setOpen(false); }}
-            style={{ display: 'block', width: '100%', padding: '10px 16px', fontSize: 13, color: '#374151', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
-            Apple Calendar (.ics)
+            style={{ display: 'block', width: '100%', padding: '9px 14px', fontSize: 12, color: '#374151', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
+            Apple (.ics)
           </button>
         </div>
       )}
@@ -132,6 +132,12 @@ export default function LiveSessionsPage() {
 
   return (
     <TrainingShell activeNav="live-sessions">
+      <style>{`
+        .ls-card { transition: box-shadow 0.2s, transform 0.2s; }
+        .ls-card:hover { box-shadow: 0 8px 28px rgba(0,0,0,0.12) !important; transform: translateY(-2px); }
+        @keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+      `}</style>
+
       {/* ── HERO BANNER ──────────────────────────────────────────────────── */}
       <div style={{
         background: `linear-gradient(135deg, ${NAVY} 0%, #1B4F8A 100%)`,
@@ -165,182 +171,213 @@ export default function LiveSessionsPage() {
 
       {loading && <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>Loading sessions...</div>}
 
-      {/* ── UPCOMING & LIVE ────────────────────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════════════ */}
+      {/* UPCOMING & LIVE — GRID CARDS                                         */}
+      {/* ══════════════════════════════════════════════════════════════════════ */}
       {!loading && tab === 'upcoming' && (
         upcoming.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>&#128197;</div>
-            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>No upcoming sessions scheduled</div>
-            <div style={{ fontSize: 13 }}>Check back soon or browse recordings.</div>
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>No upcoming sessions</div>
+            <div style={{ fontSize: 13 }}>Check back soon &mdash; new sessions are added regularly.</div>
           </div>
         ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-            {upcoming.map(s => (
-              <div key={s.id} style={{
-                background: '#fff', borderRadius: 14, overflow: 'hidden',
-                border: `1.5px solid ${s.session_type === 'live' ? '#DC2626' : '#E5E7EB'}`,
-                boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
-                transition: 'box-shadow 0.2s',
-                position: 'relative',
-              }}
-              onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 20px rgba(0,0,0,0.1)')}
-              onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,0.04)')}
-              >
-                {/* Banner */}
-                {s.banner_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={s.banner_url} alt={s.title} style={{ width: '100%', height: 200, objectFit: 'cover' }} />
-                ) : (
-                  <div style={{
-                    width: '100%', height: 200,
-                    background: `linear-gradient(135deg, ${NAVY} 0%, #1B4F8A 60%, #2563EB 100%)`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24,
-                  }}>
-                    <span style={{ fontSize: 18, fontWeight: 700, color: 'rgba(255,255,255,0.7)', textAlign: 'center', maxWidth: 400 }}>{s.title}</span>
-                  </div>
-                )}
-
-                {/* Share button top-right */}
-                <button onClick={(e) => { e.preventDefault(); copySessionLink(s.id); }}
-                  title="Copy session link"
-                  style={{
-                    position: 'absolute', top: 12, right: 12, width: 34, height: 34,
-                    borderRadius: '50%', background: 'rgba(255,255,255,0.9)', border: 'none',
-                    cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontSize: 14, boxShadow: '0 2px 8px rgba(0,0,0,0.15)', zIndex: 2,
-                  }}>
-                  {copiedId === s.id ? '\u2705' : '\u{1F517}'}
-                </button>
-
-                <div style={{ padding: '20px 24px' }}>
-                  {/* Badges */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10, flexWrap: 'wrap' }}>
-                    <span style={{
-                      fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20,
-                      background: s.session_type === 'live' ? '#FEF2F2' : '#EFF6FF',
-                      color: s.session_type === 'live' ? '#DC2626' : '#1D4ED8',
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
+            {upcoming.map(s => {
+              const isLive = s.session_type === 'live';
+              return (
+                <div key={s.id} className="ls-card" style={{
+                  background: '#fff', borderRadius: 12, overflow: 'hidden',
+                  border: '1px solid #E5E7EB',
+                  borderTop: `3px solid ${isLive ? '#DC2626' : '#2E75B6'}`,
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                  position: 'relative',
+                  display: 'flex', flexDirection: 'column',
+                }}>
+                  {/* Banner */}
+                  {s.banner_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={s.banner_url} alt={s.title} style={{ width: '100%', height: 220, objectFit: 'cover', objectPosition: 'top', display: 'block' }} />
+                  ) : (
+                    <div style={{
+                      width: '100%', height: 160,
+                      background: `linear-gradient(135deg, ${NAVY} 0%, #1B4F8A 60%, #2563EB 100%)`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
                     }}>
-                      {s.session_type === 'live' ? 'LIVE NOW' : 'UPCOMING'}
-                    </span>
-                    {s.difficulty_level && s.difficulty_level !== 'All Levels' && (
-                      <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: '#F3F4F6', color: '#6B7280' }}>{s.difficulty_level}</span>
-                    )}
-                    {s.category && <span style={{ fontSize: 10, fontWeight: 600, color: '#9CA3AF' }}>{s.category}</span>}
-                    {s.is_featured && <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 8px', borderRadius: 12, background: '#FEF3C7', color: '#B45309' }}>FEATURED</span>}
-                  </div>
+                      <span style={{ fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.7)', textAlign: 'center' }}>{s.title}</span>
+                    </div>
+                  )}
 
-                  {/* Title + instructor */}
-                  <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 6px', lineHeight: 1.3 }}>{s.title}</h2>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
-                    {s.instructor_name && <span style={{ fontSize: 12, color: '#6B7280' }}>{s.instructor_name}</span>}
-                    {s.duration_minutes && <span style={{ fontSize: 11, color: '#9CA3AF' }}>{s.duration_minutes} min</span>}
-                  </div>
+                  {/* Share button top-right */}
+                  <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); copySessionLink(s.id); }}
+                    title="Copy session link"
+                    style={{
+                      position: 'absolute', top: 10, right: 10, width: 32, height: 32,
+                      borderRadius: '50%', background: 'rgba(255,255,255,0.9)', border: 'none',
+                      cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 13, boxShadow: '0 2px 6px rgba(0,0,0,0.15)', zIndex: 2,
+                    }}>
+                    {copiedId === s.id ? '\u2705' : '\u{1F517}'}
+                  </button>
 
-                  {/* Date + time */}
-                  {s.scheduled_datetime && (
-                    <div style={{ marginBottom: 10 }}>
-                      <div style={{ fontSize: 13, color: '#374151', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        &#128197; {fmtDate(s.scheduled_datetime)} at {fmtTime(s.scheduled_datetime)} ({s.timezone})
-                      </div>
-                      {localTz && localTz !== s.timezone && (
-                        <div style={{ fontSize: 12, color: '#1B4F8A', marginTop: 3, display: 'flex', alignItems: 'center', gap: 6 }}>
-                          &#128336; Your time: {localTime(s.scheduled_datetime)} ({localTz})
-                        </div>
+                  {/* LIVE pulsing indicator */}
+                  {isLive && (
+                    <div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(220,38,38,0.95)', padding: '4px 10px', borderRadius: 20, zIndex: 2 }}>
+                      <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#fff', animation: 'live-pulse 1.5s ease infinite' }} />
+                      <span style={{ fontSize: 10, fontWeight: 800, color: '#fff', letterSpacing: '0.05em' }}>LIVE</span>
+                    </div>
+                  )}
+
+                  {/* Card body */}
+                  <div style={{ padding: '16px 18px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                    {/* Badges row */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                      {!isLive && (
+                        <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 8px', borderRadius: 12, background: '#EFF6FF', color: '#1D4ED8' }}>UPCOMING</span>
                       )}
+                      {s.difficulty_level && s.difficulty_level !== 'All Levels' && (
+                        <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: '#F3F4F6', color: '#6B7280' }}>{s.difficulty_level}</span>
+                      )}
+                      {s.category && <span style={{ fontSize: 9, fontWeight: 600, color: '#9CA3AF' }}>{s.category}</span>}
+                      {s.is_featured && <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 10, background: '#FEF3C7', color: '#B45309' }}>FEATURED</span>}
                     </div>
-                  )}
 
-                  {/* Tags */}
-                  {s.tags?.length > 0 && (
-                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
-                      {s.tags.map(t => <span key={t} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: '#EFF6FF', color: '#1B4F8A', fontWeight: 600 }}>{t}</span>)}
+                    {/* Title */}
+                    <h2 style={{ fontSize: 16, fontWeight: 800, color: NAVY, margin: '0 0 4px', lineHeight: 1.3 }}>{s.title}</h2>
+                    {s.instructor_name && <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 8 }}>{s.instructor_name}</div>}
+
+                    {/* Date + time */}
+                    {s.scheduled_datetime && (
+                      <div style={{ marginBottom: 6 }}>
+                        <div style={{ fontSize: 12, color: '#374151' }}>
+                          &#128197; {fmtDate(s.scheduled_datetime)} &middot; {fmtTime(s.scheduled_datetime)} ({s.timezone})
+                        </div>
+                        {localTz && localTz !== s.timezone && (
+                          <div style={{ fontSize: 11, color: '#1B4F8A', marginTop: 2 }}>
+                            &#128336; Your time: {localTime(s.scheduled_datetime)}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Duration */}
+                    {s.duration_minutes && (
+                      <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 6 }}>&#9201; {s.duration_minutes} min</div>
+                    )}
+
+                    {/* Registration count — placeholder (fetched per-card would be expensive) */}
+                    {s.max_attendees && (
+                      <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 8 }}>Limited to {s.max_attendees} seats</div>
+                    )}
+
+                    {/* Description */}
+                    {s.description && (
+                      <p style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5, marginBottom: 12, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', flex: 1 }}>
+                        {s.description}
+                      </p>
+                    )}
+                    {!s.description && <div style={{ flex: 1 }} />}
+
+                    {/* Action buttons */}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 'auto', paddingTop: 4 }}>
+                      <Link href={`/training/live-sessions/${s.id}`}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '8px 16px', borderRadius: 7, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 12, textDecoration: 'none', flex: 1, justifyContent: 'center' }}>
+                        View & Register &#8594;
+                      </Link>
+                      <CalendarDropdown s={s} />
                     </div>
-                  )}
-
-                  {/* Description (truncated to 2 lines) */}
-                  {s.description && (
-                    <p style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.5, marginBottom: 14, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                      {s.description}
-                    </p>
-                  )}
-
-                  {/* Attachments */}
-                  {s.attachments.length > 0 && (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
-                      {s.attachments.map(a => (
-                        <a key={a.id} href={a.file_url} target="_blank" rel="noopener noreferrer"
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px', borderRadius: 6, border: '1px solid #E5E7EB', background: '#F9FAFB', fontSize: 11, color: '#374151', textDecoration: 'none' }}>
-                          {a.file_type === 'pdf' ? '&#128196;' : '&#128206;'} {a.file_name}
-                        </a>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Action buttons */}
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <Link href={`/training/live-sessions/${s.id}`}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 22px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>
-                      View & Register &#8594;
-                    </Link>
-                    <CalendarDropdown s={s} />
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )
       )}
 
-      {/* ── RECORDINGS ─────────────────────────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════════════════════════════ */}
+      {/* RECORDINGS — GRID CARDS                                              */}
+      {/* ══════════════════════════════════════════════════════════════════════ */}
       {!loading && tab === 'recorded' && (
         recorded.length === 0 ? (
           <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>&#127916;</div>
-            <div style={{ fontSize: 16, fontWeight: 600 }}>No recordings available yet</div>
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>No recordings yet</div>
+            <div style={{ fontSize: 13 }}>Past sessions will appear here once recorded.</div>
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 32 }}>
             {Object.entries(groupedRecordings).map(([playlistName, items]) => (
               <div key={playlistName}>
-                <h3 style={{ fontSize: 16, fontWeight: 800, color: NAVY, marginBottom: 12 }}>{playlistName} ({items.length})</h3>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(280px, 100%), 1fr))', gap: 14 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 800, color: NAVY, marginBottom: 14 }}>{playlistName} ({items.length})</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
                   {items.map(s => {
                     const ytId = extractYouTubeId(s.youtube_url);
+                    const thumbUrl = s.banner_url || (ytId ? `https://img.youtube.com/vi/${ytId}/mqdefault.jpg` : '');
                     return (
-                      <Link key={s.id} href={`/training/live-sessions/${s.id}`} style={{ textDecoration: 'none' }}>
-                        <div style={{
-                          background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden',
-                          boxShadow: '0 1px 4px rgba(0,0,0,0.04)', cursor: 'pointer', transition: 'box-shadow 0.2s',
-                        }}
-                        onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)')}
-                        onMouseLeave={e => (e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.04)')}
-                        >
-                          {(s.banner_url || ytId) ? (
+                      <div key={s.id} className="ls-card" style={{
+                        background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                        display: 'flex', flexDirection: 'column', position: 'relative',
+                      }}>
+                        {/* Thumbnail with play overlay */}
+                        <Link href={`/training/live-sessions/${s.id}`} style={{ display: 'block', position: 'relative' }}>
+                          {thumbUrl ? (
                             // eslint-disable-next-line @next/next/no-img-element
-                            <img src={s.banner_url || `https://img.youtube.com/vi/${ytId}/mqdefault.jpg`} alt={s.title}
-                              style={{ width: '100%', height: 160, objectFit: 'cover' }} />
+                            <img src={thumbUrl} alt={s.title}
+                              style={{ width: '100%', height: 200, objectFit: 'cover', objectPosition: 'top', display: 'block' }} />
                           ) : (
                             <div style={{ width: '100%', height: 160, background: `linear-gradient(135deg, ${NAVY}, #1B4F8A)`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                               <span style={{ fontSize: 14, fontWeight: 700, color: 'rgba(255,255,255,0.6)', textAlign: 'center', padding: '0 16px' }}>{s.title}</span>
                             </div>
                           )}
-                          <div style={{ padding: '14px 16px' }}>
-                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 4 }}>
-                              {s.category && <span style={{ fontSize: 10, fontWeight: 700, color: '#1B4F8A' }}>{s.category}</span>}
-                              {s.difficulty_level && s.difficulty_level !== 'All Levels' && (
-                                <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 8, background: '#F3F4F6', color: '#6B7280' }}>{s.difficulty_level}</span>
-                              )}
-                            </div>
-                            <div style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 4, lineHeight: 1.3 }}>{s.title}</div>
-                            {s.instructor_name && <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 2 }}>{s.instructor_name}</div>}
-                            {s.scheduled_datetime && <div style={{ fontSize: 11, color: '#9CA3AF' }}>{fmtDate(s.scheduled_datetime)}</div>}
-                            <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
-                              {s.duration_minutes && <span style={{ fontSize: 10, color: '#6B7280' }}>{s.duration_minutes} min</span>}
-                              {s.attachments.length > 0 && <span style={{ fontSize: 10, color: '#6B7280' }}>&#128206; {s.attachments.length}</span>}
+                          {/* Play button overlay */}
+                          <div style={{
+                            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            background: 'rgba(0,0,0,0.15)', transition: 'background 0.2s',
+                          }}>
+                            <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                              <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
                             </div>
                           </div>
+                          {/* RECORDED badge */}
+                          <span style={{ position: 'absolute', top: 10, left: 10, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 10, background: 'rgba(0,0,0,0.6)', color: '#fff' }}>RECORDED</span>
+                        </Link>
+
+                        {/* Share button */}
+                        <button onClick={(e) => { e.preventDefault(); e.stopPropagation(); copySessionLink(s.id); }}
+                          title="Copy session link"
+                          style={{
+                            position: 'absolute', top: 10, right: 10, width: 30, height: 30,
+                            borderRadius: '50%', background: 'rgba(255,255,255,0.9)', border: 'none',
+                            cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 12, boxShadow: '0 2px 6px rgba(0,0,0,0.15)', zIndex: 2,
+                          }}>
+                          {copiedId === s.id ? '\u2705' : '\u{1F517}'}
+                        </button>
+
+                        {/* Card body */}
+                        <div style={{ padding: '14px 18px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 6 }}>
+                            {s.category && <span style={{ fontSize: 9, fontWeight: 700, color: '#1B4F8A' }}>{s.category}</span>}
+                            {s.difficulty_level && s.difficulty_level !== 'All Levels' && (
+                              <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 8, background: '#F3F4F6', color: '#6B7280' }}>{s.difficulty_level}</span>
+                            )}
+                          </div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: NAVY, marginBottom: 4, lineHeight: 1.3 }}>{s.title}</div>
+                          {s.instructor_name && <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 4 }}>{s.instructor_name}</div>}
+                          {s.scheduled_datetime && <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 6 }}>{fmtDate(s.scheduled_datetime)}</div>}
+                          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
+                            {s.duration_minutes && <span style={{ fontSize: 10, color: '#6B7280' }}>&#9201; {s.duration_minutes} min</span>}
+                            {s.attachments.length > 0 && <span style={{ fontSize: 10, color: '#6B7280' }}>&#128206; {s.attachments.length} file{s.attachments.length > 1 ? 's' : ''}</span>}
+                          </div>
+                          <div style={{ marginTop: 'auto' }}>
+                            <Link href={`/training/live-sessions/${s.id}`}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '8px 16px', borderRadius: 7, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 12, textDecoration: 'none', width: '100%', justifyContent: 'center' }}>
+                              &#9654; Watch Recording &#8594;
+                            </Link>
+                          </div>
                         </div>
-                      </Link>
+                      </div>
                     );
                   })}
                 </div>

@@ -186,7 +186,7 @@ export default function LiveSessionDetailPage() {
         {session.banner_url && (
           <div style={{ marginBottom: 20, borderRadius: 14, overflow: 'hidden' }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={session.banner_url} alt={session.title} style={{ width: '100%', height: 'auto', maxHeight: 300, objectFit: 'cover', display: 'block' }} />
+            <img src={session.banner_url} alt={session.title} style={{ width: '100%', height: 'auto', maxHeight: 300, objectFit: 'cover', objectPosition: 'top', display: 'block' }} />
           </div>
         )}
 
