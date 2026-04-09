@@ -16,7 +16,7 @@ async function getSessions(): Promise<PublicSession[]> {
     const sb = getServerClient();
     const { data, error } = await sb
       .from('live_sessions')
-      .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, instructor_name, tags, is_featured, youtube_url, playlist_id, live_playlists(id, name)')
+      .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, instructor_name, instructor_title, tags, is_featured, youtube_url, youtube_embed, playlist_id, live_playlists(id, name)')
       .eq('is_published', true)
       .order('scheduled_datetime', { ascending: true });
 
@@ -55,7 +55,9 @@ async function getSessions(): Promise<PublicSession[]> {
       instructor_name: s.instructor_name,
       tags: s.tags,
       is_featured: s.is_featured,
-      youtube_url: s.session_type === 'recorded' ? s.youtube_url : null,
+      youtube_url: s.youtube_url ?? null,
+      youtube_embed: s.youtube_embed ?? false,
+      instructor_title: s.instructor_title ?? null,
       playlist: (Array.isArray(s.live_playlists) ? s.live_playlists[0] : s.live_playlists) as PublicSession['playlist'],
       registration_count: regCounts[s.id] ?? 0,
     }));

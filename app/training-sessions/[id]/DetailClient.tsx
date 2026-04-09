@@ -176,51 +176,39 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
               </div>
             )}
 
-            {/* ── RECORDED CTA ──────────────────────────────────────────────── */}
-            {isRecorded && (
-              <div style={{ background: isLoggedIn ? '#fff' : '#F0F7FF', border: `2px solid ${isLoggedIn ? '#E5E7EB' : '#93C5FD'}`, borderRadius: 14, padding: 24, marginBottom: 24 }}>
-                {isLoggedIn && session.youtube_url ? (
-                  session.youtube_embed && ytId ? (
-                    <div style={{ borderRadius: 12, overflow: 'hidden', background: '#000', aspectRatio: '16/9' }}>
-                      <iframe
-                        src={`https://www.youtube.com/embed/${ytId}`}
-                        width="100%" height="100%" style={{ border: 'none', display: 'block' }}
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                      />
-                    </div>
-                  ) : (
-                    <div style={{ textAlign: 'center', padding: 20 }}>
-                      <a href={session.youtube_url} target="_blank" rel="noopener noreferrer"
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '14px 32px', borderRadius: 10, background: '#DC2626', color: '#fff', fontWeight: 700, fontSize: 15, textDecoration: 'none', boxShadow: '0 4px 12px rgba(220,38,38,0.3)' }}>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
-                        Watch on YouTube
-                      </a>
-                    </div>
-                  )
+            {/* ── RECORDED — video available to everyone, no registration ── */}
+            {isRecorded && session.youtube_url && (
+              <div style={{ background: '#fff', border: '2px solid #E5E7EB', borderRadius: 14, padding: 24, marginBottom: 24 }}>
+                {session.youtube_embed && ytId ? (
+                  <div style={{ borderRadius: 12, overflow: 'hidden', background: '#000', aspectRatio: '16/9' }}>
+                    <iframe
+                      src={`https://www.youtube.com/embed/${ytId}`}
+                      width="100%" height="100%" style={{ border: 'none', display: 'block' }}
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                  </div>
                 ) : (
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 40, marginBottom: 12 }}>&#127916;</div>
-                    <div style={{ fontSize: 16, fontWeight: 700, color: NAVY, marginBottom: 8 }}>Recording Available</div>
-                    {!isLoggedIn ? (
-                      <>
-                        <Link href={`/register?redirect=/training/live-sessions/${session.id}`}
-                          style={{ display: 'inline-flex', padding: '14px 32px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 15, textDecoration: 'none', marginBottom: 12 }}>
-                          Register for Free to Watch &#8594;
-                        </Link>
-                        <div style={{ fontSize: 13, color: '#6B7280' }}>
-                          Already registered?{' '}
-                          <Link href={`/signin?redirect=/training/live-sessions/${session.id}`} style={{ color: '#1B4F8A', fontWeight: 600 }}>Sign In to Watch &#8594;</Link>
-                        </div>
-                      </>
-                    ) : (
-                      <Link href={`/training/live-sessions/${session.id}`}
-                        style={{ display: 'inline-flex', padding: '14px 32px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 15, textDecoration: 'none' }}>
-                        Watch in Dashboard &#8594;
-                      </Link>
-                    )}
+                  <div style={{ textAlign: 'center', padding: 20 }}>
+                    <a href={session.youtube_url} target="_blank" rel="noopener noreferrer"
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '14px 32px', borderRadius: 10, background: '#DC2626', color: '#fff', fontWeight: 700, fontSize: 15, textDecoration: 'none', boxShadow: '0 4px 12px rgba(220,38,38,0.3)' }}>
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+                      Watch on YouTube
+                    </a>
                   </div>
                 )}
+                {!isLoggedIn && (
+                  <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 8, background: '#EFF6FF', border: '1px solid #93C5FD', textAlign: 'center', fontSize: 12, color: '#1D4ED8' }}>
+                    <Link href={`/register?redirect=/training/live-sessions/${session.id}`} style={{ fontWeight: 700, color: '#1D4ED8', textDecoration: 'none' }}>
+                      Sign in to earn points and badges for watching!
+                    </Link>
+                  </div>
+                )}
+              </div>
+            )}
+            {isRecorded && !session.youtube_url && (
+              <div style={{ background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 14, padding: 24, marginBottom: 24, textAlign: 'center' }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#6B7280' }}>Recording not yet available. Check back soon.</div>
               </div>
             )}
 

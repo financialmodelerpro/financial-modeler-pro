@@ -40,6 +40,7 @@ interface LiveSession {
   difficulty_level?: string;
   prerequisites?: string;
   instructor_name?: string;
+  instructor_title?: string;
   tags?: string[];
   is_featured?: boolean;
   live_password?: string;
@@ -257,6 +258,7 @@ interface FormState {
   difficulty_level: string;
   prerequisites: string;
   instructor_name: string;
+  instructor_title: string;
   tags: string[];
   is_featured: boolean;
   live_password: string;
@@ -269,7 +271,7 @@ const defaultForm: FormState = {
   type: 'UPCOMING', date: '', time: '', timezone: 'Asia/Riyadh',
   live_url: '', youtube_url: '', published: false,
   duration_minutes: '', max_attendees: '', difficulty_level: 'All Levels',
-  prerequisites: '', instructor_name: 'Ahmad Din', tags: [],
+  prerequisites: '', instructor_name: 'Ahmad Din', instructor_title: '', tags: [],
   is_featured: false, live_password: '', registration_url: '',
   youtube_embed: false,
 };
@@ -524,6 +526,7 @@ export default function LiveSessionsPage() {
     difficulty_level: s.difficulty_level ?? 'All Levels',
     prerequisites: s.prerequisites ?? '',
     instructor_name: s.instructor_name ?? 'Ahmad Din',
+    instructor_title: s.instructor_title ?? '',
     tags: s.tags ?? [],
     is_featured: s.is_featured ?? false,
     live_password: s.live_password ?? '',
@@ -598,6 +601,7 @@ export default function LiveSessionsPage() {
         difficulty_level:   form.difficulty_level,
         prerequisites:      form.prerequisites,
         instructor_name:    form.instructor_name,
+        instructor_title:   form.instructor_title || null,
         tags:               form.tags,
         is_featured:        form.is_featured,
         live_password:      form.live_password,
@@ -1109,10 +1113,16 @@ export default function LiveSessionsPage() {
                   )}
                 </div>
 
-                {/* Instructor Name */}
-                <div>
-                  <label style={labelStyle}>Instructor Name</label>
-                  <input style={inputStyle} value={form.instructor_name} onChange={e => setForm(f => ({ ...f, instructor_name: e.target.value }))} placeholder="Ahmad Din" />
+                {/* Instructor Name + Title */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                  <div>
+                    <label style={labelStyle}>Instructor Name</label>
+                    <input style={inputStyle} value={form.instructor_name} onChange={e => setForm(f => ({ ...f, instructor_name: e.target.value }))} placeholder="Ahmad Din" />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>Instructor Title</label>
+                    <input style={inputStyle} value={form.instructor_title} onChange={e => setForm(f => ({ ...f, instructor_title: e.target.value }))} placeholder="e.g. Corporate Finance Specialist" />
+                  </div>
                 </div>
 
                 {/* Duration + Max Attendees */}
