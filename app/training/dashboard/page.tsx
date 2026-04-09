@@ -25,10 +25,10 @@ import {
   CourseContent,
   CertificateImageCard,
   ShareModal,
-  TestimonialModal,
   FeedbackModal,
   ProfileModal,
 } from '@/src/components/training/dashboard';
+import { ShareExperienceModal } from '@/src/components/shared/ShareExperienceModal';
 
 // ── Badge metadata ─────────────────────────────────────────────────────────────
 const BADGE_META: Record<string, { icon: string; label: string; desc: string }> = {
@@ -87,7 +87,7 @@ export default function TrainingDashboardPage() {
   const [activeView, setActiveView]               = useState<'overview' | 'course'>('overview');
   // share + testimonials
   const [shareModal, setShareModal]               = useState<{ label: string; certUrl?: string } | null>(null);
-  const [testimonialModal, setTestimonialModal]   = useState<'written' | 'video' | null>(null);
+  const [testimonialModal, setTestimonialModal]   = useState<'written' | 'video' | 'social' | null>(null);
   const [testimonialSubmitted, setTestimonialSubmitted] = useState(false);
   const [dashToast, setDashToast]                 = useState('');
   // streak / gamification
@@ -116,10 +116,12 @@ export default function TrainingDashboardPage() {
   const [hasLiveNow, setHasLiveNow]               = useState(false);
   const [upcomingCount, setUpcomingCount]          = useState(0);
   const [scrolledDown, setScrolledDown]           = useState(false);
+  const [shareBannerDismissed, setShareBannerDismissed] = useState(true); // default true until checked
 
-  // Restore sidebar state from localStorage (client-only)
+  // Restore sidebar state + share banner from localStorage (client-only)
   useEffect(() => {
     if (localStorage.getItem('fmp_sidebar_collapsed') === 'true') setSidebarCollapsed(true);
+    setShareBannerDismissed(localStorage.getItem('fmp_share_banner_dismissed') === 'true');
   }, []);
 
   // Fetch share CMS text once on mount
@@ -887,6 +889,25 @@ export default function TrainingDashboardPage() {
         {/* ── MAIN CONTENT ───────────────────────────────────────────────────── */}
         <main className="dash-main" style={{ flex: 1, minWidth: 0, padding: '28px 28px 64px', overflowY: 'auto' }}>
 
+          {/* Share banner (dismissable) */}
+          {!loading && totalPassed >= 1 && !testimonialSubmitted && !shareBannerDismissed && (
+            <div style={{ background: 'linear-gradient(90deg, #FFFBF0, #FEF3C7)', border: '1px solid #FDE68A', borderRadius: 10, padding: '10px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 13, color: '#92400E', fontWeight: 600 }}>
+                Enjoying your progress? Share with your network!
+              </span>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <button onClick={() => setTestimonialModal('social')}
+                  style={{ padding: '5px 12px', borderRadius: 6, background: '#0A66C2', color: '#fff', fontWeight: 700, fontSize: 11, border: 'none', cursor: 'pointer' }}>LinkedIn</button>
+                <button onClick={() => setTestimonialModal('social')}
+                  style={{ padding: '5px 12px', borderRadius: 6, background: '#1DA1F2', color: '#fff', fontWeight: 700, fontSize: 11, border: 'none', cursor: 'pointer' }}>Twitter</button>
+                <button onClick={() => setTestimonialModal('social')}
+                  style={{ padding: '5px 12px', borderRadius: 6, background: '#25D366', color: '#fff', fontWeight: 700, fontSize: 11, border: 'none', cursor: 'pointer' }}>WhatsApp</button>
+                <button onClick={() => { setShareBannerDismissed(true); localStorage.setItem('fmp_share_banner_dismissed', 'true'); }}
+                  style={{ background: 'none', border: 'none', color: '#92400E', fontSize: 16, cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}>&times;</button>
+              </div>
+            </div>
+          )}
+
           {/* Fallback banner */}
           {!loading && isFallback && progress && (
             <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '10px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
@@ -1405,15 +1426,10 @@ export default function TrainingDashboardPage() {
         />
       )}
 
-      {/* ── Testimonial Modal ───────────────────────────────────────────────── */}
+      {/* ── Share Experience Modal ─────────────────────────────────────────── */}
       {testimonialModal && localSession && progress && (
-        <TestimonialModal
-          mode={testimonialModal}
-          studentName={progress.student.name}
-          studentEmail={progress.student.email}
-          regId={localSession.registrationId}
-          courseCode={activeCourse}
-          courseName={COURSES[activeCourse]?.title ?? activeCourse.toUpperCase()}
+        <ShareExperienceModal
+          isOpen={true}
           onClose={() => setTestimonialModal(null)}
           onSuccess={() => {
             setTestimonialSubmitted(true);
@@ -1421,6 +1437,19 @@ export default function TrainingDashboardPage() {
             setDashToast('Thank you! Your testimonial has been submitted for review.');
             setTimeout(() => setDashToast(''), 4000);
           }}
+          studentName={progress.student.name}
+          studentEmail={progress.student.email}
+          regId={localSession.registrationId}
+          jobTitle={studentProfile?.job_title}
+          company={studentProfile?.company}
+          linkedinUrl={studentProfile?.linkedin_url}
+          hub="training"
+          sessionsCompleted={totalPassed}
+          courseCode={activeCourse}
+          courseName={COURSES[activeCourse]?.title ?? activeCourse.toUpperCase()}
+          certificationEarned={certificates.length > 0}
+          verificationUrl={certificates[0]?.verificationUrl ?? (certificates[0]?.certificateId ? `${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/verify/${certificates[0].certificateId}` : '')}
+          defaultTab={testimonialModal}
         />
       )}
 

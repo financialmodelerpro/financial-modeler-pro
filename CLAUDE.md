@@ -716,6 +716,7 @@ npm run verify       # type-check + lint + build
 | `035_live_sessions_enhancements.sql` | banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, tags[], is_featured, live_password ✅ Run |
 | `036_live_session_registration.sql` | registration_url field on live_sessions ✅ Run |
 | `037_session_registrations.sql` | session_registrations table + registration_required + show_join_link_minutes_before columns ✅ Run |
+| `038_testimonials_linkedin.sql` | Add linkedin_url, profile_photo_url, hub, video_url to testimonials (manual) table |
 
 ---
 
@@ -969,3 +970,35 @@ SessionCard shows paperclip icon with count next to session title when attachmen
 - `app/api/public/training-sessions/route.ts` — public list API
 - `app/api/public/training-sessions/[id]/route.ts` — public detail API
 - `app/training/UpcomingSessionsPreview.tsx` — learn homepage preview section
+
+---
+
+## Share Experience & Testimonial System (Session 2026-04-09)
+
+### ShareExperienceModal
+Shared component at `src/components/shared/ShareExperienceModal.tsx` used by both Training and Modeling hubs.
+
+**3 Tabs:**
+1. **Written Review**: Star rating (1-5), name, job title, company, review text (50-500 chars), LinkedIn URL with validation
+2. **Video Testimonial**: Loom/YouTube link (validated), name, job title, brief description, LinkedIn URL
+3. **Social Share**: Editable share message, LinkedIn/Twitter/WhatsApp/Copy buttons; certificate share section if certified
+
+**Props:** `hub` ('training' | 'modeling'), `defaultTab`, student info, course context, certification status
+
+### Integration
+- Dashboard sidebar: "Share Experience" item (Star icon) between Profile and Sign Out
+- Dashboard achievements section: "Share Your Experience" button
+- Dismissable share banner below header when `totalPassed >= 1` (localStorage: `fmp_share_banner_dismissed`)
+- TrainingShell sidebar: "Share Experience" link to `/training/submit-testimonial`
+
+### Database
+- `student_testimonials`: already has `linkedin_url`, `video_url`, `hub`, `testimonial_type`
+- `testimonials` (manual): migration 038 adds `linkedin_url`, `profile_photo_url`, `hub`, `video_url`
+- LinkedIn URL validated: must match `linkedin.com/in/` pattern
+- Video URL validated: must match `loom.com` or `youtube.com` or `youtu.be`
+
+### Key Files
+- `src/components/shared/ShareExperienceModal.tsx` — 3-tab modal component
+- `supabase/migrations/038_testimonials_linkedin.sql` — manual testimonials table columns
+- `app/api/testimonials/student/route.ts` — Training Hub submission endpoint
+- `app/api/modeling/submit-testimonial/route.ts` — Modeling Hub submission endpoint
