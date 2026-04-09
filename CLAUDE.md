@@ -231,7 +231,7 @@
 | **Training Hub — Device Trust + OTP** | ✅ Complete | `training_email_otps`, 30-day trust cookie |
 | **Training Hub — Resend Confirmation Email** | ✅ Complete | `POST /api/training/resend-confirmation`, shown on signin on EmailNotConfirmed |
 | **Training Hub — Inactivity Logout** | ✅ Complete | `useInactivityLogout` on dashboard |
-| **Training Hub — Dashboard** | ✅ Complete | Video player, progress, notes, feedback; timer bypass from DB; optimistic progress update after quiz submission (sessionStorage + ?refresh=1 cache bust) |
+| **Training Hub — Dashboard** | ✅ Complete | **Redesigned**: overview landing page (hero, stats, course cards, live sessions preview, achievements, quick actions) + course detail view; collapsible sidebar (56px/240px) with full nav (Dashboard, courses, Live Sessions with live dot + upcoming badge, Certificates, Badges, Transcripts, Profile, Sign Out); mobile bottom nav bar; badge download + LinkedIn share via CertificateImageCard; attachment count indicator on session cards; `?course=3sfm` query param navigates directly to course view; localStorage `fmp_sidebar_collapsed` preference; video player, progress, notes, feedback; timer bypass from DB; optimistic progress update after quiz submission (sessionStorage + ?refresh=1 cache bust) |
 | **Training Hub — Assessments / Quiz** | ✅ Complete | Question bank, attempts; **client-side scoring** (correctIndex stored on load, scored locally, server only writes to Apps Script — never re-fetches questions during submission); shuffle questions + shuffle options toggles per course (training_settings DB); toggles at top of course page alongside Timer Bypass; `/api/training/submit-assessment` accepts pre-scored `{ tabKey, email, regId, score, passed, isFinal, attemptNo }` |
 | **Training Hub — Certificate System** | ✅ Complete | Internal pdf-lib PDF gen, sharp badge overlay, Supabase storage, daily cron (midnight) + manual Generate Now button in admin, no Certifier.io; all Certifier.io marketing text removed from training page + CurriculumCard |
 | **Training Hub — Transcript** | ✅ Complete | Shareable token-gated HTML transcript + PDF with QR code, Certificate ID, verification URL from student_certificates; compact single-page A4; CMS-driven; no Certifier.io; all non-ASCII chars removed (no emojis in PDF); progress banner blue (#EFF6FF), complete banner green; filename: `FMP-Transcript-FMP-3SFM-2026-0001.pdf` |
@@ -347,7 +347,7 @@ app/training/
 ├── certificate/page.tsx
 ├── certificates/page.tsx
 ├── confirm-email/page.tsx       # Forwards token to /api/training/confirm-email
-├── dashboard/page.tsx
+├── dashboard/page.tsx            # Redesigned: overview landing page (hero, stats, courses, live preview, achievements) + course detail view; collapsible sidebar; mobile bottom nav; ?course= query param
 ├── forgot/page.tsx
 ├── live-sessions/page.tsx        # Student live sessions listing (upcoming/live + recordings tabs)
 ├── live-sessions/[id]/page.tsx   # Session detail (countdown, YouTube embed, calendar links, file preview)
@@ -417,7 +417,8 @@ app/api/training/
 ├── transcript-link/route.ts
 ├── upload-avatar/route.ts
 ├── validate/route.ts              # POST: password + pending check + email_confirmed + device trust
-└── verify-email/route.ts
+├── verify-email/route.ts
+└── badges/download/route.ts       # GET: redirect to badge PNG by certId from student_certificates
 ```
 
 #### Admin
@@ -463,6 +464,7 @@ app/api/
 ├── training/live-sessions/        # GET: published live sessions with attachments
 ├── training/live-sessions/[id]/   # GET: single session detail
 ├── training/live-sessions/[id]/register/ # POST: register; DELETE: cancel; GET: status
+├── training/badges/download/      # GET: redirect to badge image by certId
 └── user/account/ + password/ + profile/
 ```
 
@@ -872,3 +874,56 @@ Applied on both list page cards and detail page.
 - `app/api/admin/live-sessions/[id]/registrations/route.ts`
 - `src/lib/email/templates/liveSessionNotification.ts` — announcement + confirmation emails
 - `supabase/migrations/037_session_registrations.sql`
+
+---
+
+## Student Dashboard Redesign (Session 2026-04-09)
+
+### Architecture
+The dashboard page (`app/training/dashboard/page.tsx`) now has two view modes controlled by `activeView` state:
+- **'overview'**: Landing page with hero, stats, quick actions, upcoming session banner, course cards, live sessions preview, achievements
+- **'course'**: Existing CourseContent component (sessions, assessments, notes, video player)
+
+### URL Routing
+- `/training/dashboard` — overview landing page (default)
+- `/training/dashboard?course=3sfm` — directly opens 3SFM course view
+- `/training/dashboard?course=bvm` — directly opens BVM course view
+- View switches update URL via `window.history.replaceState()` (no full navigation)
+
+### Collapsible Sidebar
+- **Expanded**: 240px with icons + labels + section headers
+- **Collapsed**: 56px with icons only + tooltips on hover
+- Toggle button at bottom of sidebar
+- Preference persisted in `localStorage` key: `fmp_sidebar_collapsed`
+- Mobile: off-canvas overlay with hamburger menu + backdrop
+
+### Sidebar Navigation (complete list)
+| Item | Icon | Target | Badge/Indicator |
+|------|------|--------|----------------|
+| Dashboard | house | overview view | — |
+| 3SFM | chart | course view | passed/total pill |
+| BVM | building | course view | LOCKED badge if locked |
+| Live Sessions | TV | /training/live-sessions | red pulsing dot if live now, blue count badge for upcoming |
+| Certificates | trophy | scroll to achievements | count badge |
+| Badges | medal | scroll to badges | count badge |
+| Transcripts | doc | triggers download | per-course |
+| Profile | person | opens ProfileModal | — |
+| Sign Out | door | logout | — |
+
+### Mobile Bottom Navigation Bar
+Fixed bottom bar (56px) on mobile with 5 items: Home, Courses, Live, Achieve, Profile
+
+### Quick Actions Row
+4 contextual buttons below hero: Next Assessment (links to first incomplete session), Live Session (if upcoming), Transcript (download), View Badges (scroll)
+
+### Badge Download API
+`GET /api/training/badges/download?certId={certId}` — fetches `badge_url` from `student_certificates` table and redirects
+
+### Attachment Count Indicator
+SessionCard shows paperclip icon with count next to session title when attachments exist: `&#128206; (2)`
+
+### Key Files
+- `app/training/dashboard/page.tsx` — main dashboard (overview + course views)
+- `app/api/training/badges/download/route.ts` — badge image redirect
+- `src/components/training/dashboard/SessionCard.tsx` — attachment count indicator
+- `src/components/training/dashboard/CertificateImageCard.tsx` — cert PDF + badge download + LinkedIn share (pre-existing)

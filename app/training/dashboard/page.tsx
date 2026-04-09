@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training/training-session';
 import { useInactivityLogout } from '@/src/hooks/useInactivityLogout';
@@ -24,10 +24,40 @@ import {
   ProfileModal,
 } from '@/src/components/training/dashboard';
 
+// ── Badge metadata ─────────────────────────────────────────────────────────────
+const BADGE_META: Record<string, { icon: string; label: string; desc: string }> = {
+  first_step:    { icon: '\u{1F463}', label: 'First Step',    desc: 'Passed your first session' },
+  on_fire:       { icon: '\u{1F525}', label: 'On Fire',       desc: 'Passed 3 sessions' },
+  unstoppable:   { icon: '\u{26A1}',  label: 'Unstoppable',   desc: '5-day streak' },
+  halfway:       { icon: '\u{1F3AF}', label: 'Halfway',       desc: 'Passed 9 sessions' },
+  almost_there:  { icon: '\u{1F680}', label: 'Almost There',  desc: 'Passed 15 sessions' },
+  certified:     { icon: '\u{1F3C6}', label: 'Certified',     desc: 'All sessions completed' },
+  perfect_score: { icon: '\u{1F4AF}', label: 'Perfect Score', desc: 'Scored 100% on a session' },
+  speed_runner:  { icon: '\u{26A1}',  label: 'Speed Runner',  desc: 'Completed quickly' },
+};
+
+// ── Live session type ──────────────────────────────────────────────────────────
+interface LiveSession {
+  id: string;
+  title: string;
+  description?: string;
+  session_type: 'upcoming' | 'live' | 'recorded';
+  scheduled_datetime?: string;
+  timezone?: string;
+  banner_url?: string;
+  youtube_url?: string;
+  live_url?: string;
+  category?: string;
+  instructor_name?: string;
+  duration_minutes?: number;
+  playlist?: { id: string; name: string } | null;
+}
+
 // ── Main Dashboard Page ───────────────────────────────────────────────────────
 
 export default function TrainingDashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   // Auto sign-out after 1 hour of inactivity
   useInactivityLogout({
@@ -49,6 +79,8 @@ export default function TrainingDashboardPage() {
   const [lastUpdated, setLastUpdated]             = useState<Date | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed]   = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  // View mode: 'overview' (landing page) or 'course' (course detail)
+  const [activeView, setActiveView]               = useState<'overview' | 'course'>('overview');
   // share + testimonials
   const [shareModal, setShareModal]               = useState<{ label: string; certUrl?: string } | null>(null);
   const [testimonialModal, setTestimonialModal]   = useState<'written' | 'video' | null>(null);
@@ -75,11 +107,24 @@ export default function TrainingDashboardPage() {
   const sidebarFileInputRef                       = useRef<HTMLInputElement>(null);
   // share CMS text (fetched once, cached 10 min)
   const [shareCms, setShareCms]                   = useState<{ title: string; messageTemplate: string }>({ title: '', messageTemplate: '' });
+  // Live sessions data
+  const [upcomingSessions, setUpcomingSessions]   = useState<LiveSession[]>([]);
+  const [hasLiveNow, setHasLiveNow]               = useState(false);
+  const [upcomingCount, setUpcomingCount]          = useState(0);
 
   // Restore sidebar state from localStorage (client-only)
   useEffect(() => {
-    if (localStorage.getItem('dashboardSidebarCollapsed') === 'true') setSidebarCollapsed(true);
+    if (localStorage.getItem('fmp_sidebar_collapsed') === 'true') setSidebarCollapsed(true);
   }, []);
+
+  // Handle ?course= query param to navigate directly to course view
+  useEffect(() => {
+    const courseParam = searchParams.get('course');
+    if (courseParam && ['3sfm', 'bvm'].includes(courseParam)) {
+      setActiveCourse(courseParam);
+      setActiveView('course');
+    }
+  }, [searchParams]);
 
   // Fetch share CMS text once on mount
   useEffect(() => {
@@ -93,17 +138,39 @@ export default function TrainingDashboardPage() {
       .catch(() => {});
   }, []);
 
+  // Fetch live sessions data
+  useEffect(() => {
+    fetch('/api/training/live-sessions?type=upcoming')
+      .then(r => r.json())
+      .then((j: { sessions?: LiveSession[] }) => {
+        const sessions = j.sessions ?? [];
+        setUpcomingSessions(sessions.slice(0, 3));
+        setUpcomingCount(sessions.length);
+        setHasLiveNow(sessions.some(s => s.session_type === 'live'));
+      })
+      .catch(() => {});
+  }, []);
+
   function toggleSidebar() {
     const next = !sidebarCollapsed;
     setSidebarCollapsed(next);
-    localStorage.setItem('dashboardSidebarCollapsed', String(next));
+    localStorage.setItem('fmp_sidebar_collapsed', String(next));
+  }
+
+  function navigateTo(view: 'overview' | 'course', courseId?: string) {
+    setActiveView(view);
+    if (courseId) setActiveCourse(courseId);
+    setMobileSidebarOpen(false);
+    // Update URL without full navigation
+    const url = view === 'overview' ? '/training/dashboard' : `/training/dashboard?course=${courseId ?? activeCourse}`;
+    window.history.replaceState({}, '', url);
   }
 
   const loadData = useCallback(async (
     sess: { email: string; registrationId: string },
     forceRefresh = false,
   ) => {
-    // ── Issue 4: Show cached progress immediately, then refresh in background ─
+    // ── Show cached progress immediately, then refresh in background ─
     const CACHE_KEY = `fmp_progress_${sess.registrationId}`;
     const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
     if (!forceRefresh) {
@@ -113,13 +180,12 @@ export default function TrainingDashboardPage() {
           const cached = JSON.parse(raw) as { data: ProgressData; at: number };
           if (Date.now() - cached.at < CACHE_TTL) {
             setProgress(cached.data);
-            setLoading(false); // show cached data instantly; fetch continues in background
+            setLoading(false);
           }
         }
-      } catch { /* ignore — stale or corrupt cache */ }
+      } catch { /* ignore */ }
     }
 
-    // Bust localStorage cache on force-refresh so stale empty-sessions data is evicted
     if (forceRefresh) {
       try { localStorage.removeItem(CACHE_KEY); } catch { /* ignore */ }
     }
@@ -129,7 +195,6 @@ export default function TrainingDashboardPage() {
       const progressParams = new URLSearchParams({ email: sess.email, registrationId: sess.registrationId });
       if (forceRefresh) progressParams.set('refresh', '1');
 
-      // ── Fetch progress + course-details + notes + profile + timer-bypass in PARALLEL ───
       const [progressRes, detailsRes, notesRes, profileRes] = await Promise.all([
         fetch(`/api/training/progress?${progressParams}`),
         fetch('/api/training/course-details'),
@@ -161,10 +226,6 @@ export default function TrainingDashboardPage() {
       for (const raw of detailsJson.sessions ?? []) {
         map[raw.tabKey] = { ...raw, videoDuration: raw.videoDuration ?? 0 };
       }
-      // Debug: verify final session data and video durations from Apps Script
-      console.log('[CourseDetails] 3SFM_Final:', map['3SFM_Final'] ?? 'NOT FOUND — check Apps Script tabKey');
-      console.log('[CourseDetails] BVM_Final:', map['BVM_Final'] ?? 'NOT FOUND — check Apps Script tabKey');
-      console.log('[CourseDetails] 3SFM_S1 duration:', map['3SFM_S1']?.videoDuration ?? 'undefined — check Apps Script col J');
       setLiveLinks(map);
       if (detailsJson.courses) setCourseDescs(detailsJson.courses);
       setTimerBypassed(detailsJson.timerBypassed === true);
@@ -173,7 +234,6 @@ export default function TrainingDashboardPage() {
       if (json.success && json.data) {
         setProgress(json.data);
         setLastUpdated(new Date());
-        // Persist to localStorage so next load shows data instantly
         try { localStorage.setItem(CACHE_KEY, JSON.stringify({ data: json.data, at: Date.now() })); } catch { /* ignore */ }
         // Fire activity (streak/badges) — fire-and-forget
         const sessionsPassed = json.data.sessions.filter(s => s.passed).length;
@@ -188,7 +248,7 @@ export default function TrainingDashboardPage() {
             setPoints(act.points ?? 0);
             setBadges(act.badges ?? []);
             if (act.newBadges && act.newBadges.length > 0) {
-              setNewBadgeToast(`🏅 New badge earned: ${act.newBadges[0].replace(/_/g, ' ')}`);
+              setNewBadgeToast(`New badge earned: ${act.newBadges[0].replace(/_/g, ' ')}`);
               setTimeout(() => setNewBadgeToast(''), 4000);
             }
           }
@@ -216,23 +276,17 @@ export default function TrainingDashboardPage() {
     const sess = getTrainingSession();
     if (!sess) { router.replace('/signin'); return; }
     setLocalSession(sess);
-    // If arriving from assessment submission (?refresh=1), force a fresh fetch
     const params = new URLSearchParams(window.location.search);
     const needsRefresh = params.get('refresh') === '1';
     if (needsRefresh) {
       window.history.replaceState({}, '', '/training/dashboard');
-
-      // Optimistically patch progress with the score the student just submitted
-      // so the dashboard updates immediately even if Apps Script hasn't propagated yet
       try {
         const raw = sessionStorage.getItem('fmp_last_submit');
         if (raw) {
           sessionStorage.removeItem('fmp_last_submit');
           const submitted = JSON.parse(raw) as { tabKey: string; score: number; passed: boolean; attempts: number };
-          // Derive session ID from tabKey (e.g. "3SFM_S1" → "S1", "BVM_L2" → "L2")
           const sep = submitted.tabKey.indexOf('_');
           const sessionId = sep >= 0 ? submitted.tabKey.slice(sep + 1) : submitted.tabKey;
-          // Patch cached progress if it exists
           const cacheKey = `fmp_progress_${sess.registrationId}`;
           const cached = localStorage.getItem(cacheKey);
           if (cached) {
@@ -250,10 +304,15 @@ export default function TrainingDashboardPage() {
             setProgress(parsed.data);
           }
         }
-      } catch { /* ignore — server fetch will follow */ }
+      } catch { /* ignore */ }
+    }
+    // If ?course= is set, go directly to course view
+    const courseParam = params.get('course');
+    if (courseParam && ['3sfm', 'bvm'].includes(courseParam)) {
+      setActiveCourse(courseParam);
+      setActiveView('course');
     }
     loadData(sess, needsRefresh);
-    // Restore testimonial submitted state from localStorage
     try {
       if (localStorage.getItem(`fmp_test_${sess.registrationId}`) === 'true') {
         setTestimonialSubmitted(true);
@@ -314,7 +373,7 @@ export default function TrainingDashboardPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) {
-      setDashToast('File too large — maximum size is 2 MB.');
+      setDashToast('File too large - maximum size is 2 MB.');
       setTimeout(() => setDashToast(''), 4000);
       if (sidebarFileInputRef.current) sidebarFileInputRef.current.value = '';
       return;
@@ -324,7 +383,7 @@ export default function TrainingDashboardPage() {
       const src = URL.createObjectURL(blob);
       setAvatarPreview({ src, blob });
     } catch {
-      setDashToast('Could not load image — try a different file.');
+      setDashToast('Could not load image - try a different file.');
       setTimeout(() => setDashToast(''), 4000);
       if (sidebarFileInputRef.current) sidebarFileInputRef.current.value = '';
     }
@@ -355,7 +414,7 @@ export default function TrainingDashboardPage() {
       setTimeout(() => setDashToast(''), 3000);
     } catch {
       URL.revokeObjectURL(previewSrc);
-      setDashToast('Upload failed — please try again.');
+      setDashToast('Upload failed - please try again.');
       setTimeout(() => setDashToast(''), 4000);
     } finally {
       setAvatarUploading(false);
@@ -408,7 +467,7 @@ export default function TrainingDashboardPage() {
   const sfmRegular    = COURSES['3sfm']?.sessions ?? [];
   const sfmPassedCount = sfmRegular.filter(s => progressMap.get(s.id)?.passed).length;
 
-  // Student avatar initials — prefer profile display_name over registration name
+  // Student avatar initials
   const studentName = studentProfile?.display_name || progress?.student.name || '';
   const initials = studentName.split(' ').map((w: string) => w[0] ?? '').filter(Boolean).join('').toUpperCase().slice(0, 2) || 'ST';
   const avatarUrl = studentProfile?.avatar_url || '';
@@ -424,10 +483,101 @@ export default function TrainingDashboardPage() {
 
   // What to show in main area
   const showLockedBvm = activeCourse === 'bvm' && !bvmUnlocked;
-  // Effective course to render (fall back to first enrolled if activeCourse not enrolled)
   const displayCourse = enrolledCourses.includes(activeCourse) ? activeCourse : (enrolledCourses[0] ?? '3sfm');
 
-  const sidebarW = sidebarCollapsed ? 60 : 260;
+  const sidebarW = sidebarCollapsed ? 56 : 240;
+
+  // Find next incomplete assessment for quick action
+  const nextAssessment = (() => {
+    for (const cId of enrolledCourses) {
+      if (cId === 'bvm' && !bvmUnlocked) continue;
+      const c = COURSES[cId];
+      if (!c) continue;
+      for (const s of c.sessions) {
+        const prog = progressMap.get(s.id);
+        if (!prog?.passed && (!prog || prog.attempts < s.maxAttempts)) {
+          return { courseId: cId, session: s, tabKey: `${c.shortTitle}_${s.id}` };
+        }
+      }
+    }
+    return null;
+  })();
+
+  // Format date for live session banner
+  function formatSessionDate(dt?: string, tz?: string) {
+    if (!dt) return '';
+    try {
+      const d = new Date(dt);
+      const formatted = d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+      const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+      return `${formatted} at ${time}${tz ? ` (${tz})` : ''}`;
+    } catch { return dt; }
+  }
+
+  function formatLocalTime(dt?: string) {
+    if (!dt) return '';
+    try {
+      const d = new Date(dt);
+      return `Your local time: ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+    } catch { return ''; }
+  }
+
+  // Per-course stats helper
+  function getCourseStats(courseId: string) {
+    const c = COURSES[courseId];
+    if (!c) return { total: 0, passed: 0, pct: 0, avgScore: 0, bestScore: 0, bestSession: '' };
+    const regular = c.sessions.filter(s => !s.isFinal);
+    const passed = regular.filter(s => progressMap.get(s.id)?.passed).length;
+    const scores = regular.map(s => progressMap.get(s.id)?.score ?? 0).filter(sc => sc > 0);
+    const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
+    let bestScore = 0;
+    let bestSession = '';
+    for (const s of regular) {
+      const sc = progressMap.get(s.id)?.score ?? 0;
+      if (sc > bestScore) { bestScore = sc; bestSession = s.id; }
+    }
+    return { total: regular.length, passed, pct: regular.length > 0 ? Math.round((passed / regular.length) * 100) : 0, avgScore, bestScore, bestSession };
+  }
+
+  // ── Sidebar nav item helper ────────────────────────────────────────────────
+  function SidebarItem({ icon, label, active, onClick, badge, badgeColor, dot, dotColor, tooltip }: {
+    icon: string; label: string; active?: boolean; onClick: () => void;
+    badge?: string | number; badgeColor?: string; dot?: boolean; dotColor?: string; tooltip?: string;
+  }) {
+    if (sidebarCollapsed) {
+      return (
+        <button onClick={onClick} title={tooltip ?? label}
+          style={{ width: '100%', background: active ? '#1B4F8A' : 'transparent', border: 'none', borderLeft: `3px solid ${active ? '#2EAA4A' : 'transparent'}`, borderRadius: 6, padding: '10px 0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 2, fontSize: 16, position: 'relative', color: '#fff' }}>
+          <span>{icon}</span>
+          {dot && <span style={{ position: 'absolute', top: 6, right: 10, width: 7, height: 7, borderRadius: '50%', background: dotColor ?? '#EF4444', animation: 'pulse-dot 1.5s ease infinite' }} />}
+          {badge != null && Number(badge) > 0 && (
+            <span style={{ position: 'absolute', top: 4, right: 6, fontSize: 8, fontWeight: 800, background: badgeColor ?? '#3B82F6', color: '#fff', padding: '1px 4px', borderRadius: 6, minWidth: 14, textAlign: 'center' }}>{badge}</span>
+          )}
+        </button>
+      );
+    }
+    return (
+      <button onClick={onClick}
+        style={{ width: '100%', textAlign: 'left', background: active ? '#1B4F8A' : 'transparent', border: 'none', borderLeft: `3px solid ${active ? '#2EAA4A' : 'transparent'}`, borderRadius: 6, padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2, transition: 'background 0.15s', color: active ? '#fff' : 'rgba(255,255,255,0.7)', position: 'relative' }}>
+        <span style={{ fontSize: 15, flexShrink: 0 }}>{icon}</span>
+        <span style={{ fontSize: 12, fontWeight: active ? 700 : 600, flex: 1 }}>{label}</span>
+        {dot && <span style={{ width: 7, height: 7, borderRadius: '50%', background: dotColor ?? '#EF4444', flexShrink: 0, animation: 'pulse-dot 1.5s ease infinite' }} />}
+        {badge != null && Number(badge) > 0 && (
+          <span style={{ fontSize: 9, fontWeight: 800, background: badgeColor ?? '#3B82F6', color: '#fff', padding: '1px 6px', borderRadius: 8, flexShrink: 0 }}>{badge}</span>
+        )}
+      </button>
+    );
+  }
+
+  // ── Sidebar section label ──────────────────────────────────────────────────
+  function SidebarLabel({ text }: { text: string }) {
+    if (sidebarCollapsed) return <div style={{ height: 1, background: 'rgba(255,255,255,0.08)', margin: '6px 10px' }} />;
+    return (
+      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)', padding: '10px 12px 4px' }}>
+        {text}
+      </div>
+    );
+  }
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#F5F7FA', minHeight: '100vh', color: '#374151' }}>
@@ -436,16 +586,20 @@ export default function TrainingDashboardPage() {
       <style>{`
         @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
         @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         .dash-hamburger { display: none !important; }
         .dash-mob-backdrop { display: none !important; }
+        .dash-bottom-nav { display: none !important; }
+        .sidebar-avatar-btn .avatar-hover-overlay { opacity: 0; }
+        .sidebar-avatar-btn:hover .avatar-hover-overlay { opacity: 1; }
         @media (max-width: 767px) {
           .dash-hamburger { display: flex !important; }
           .dash-sidebar {
             position: fixed !important;
-            left: ${mobileSidebarOpen ? '0' : '-270px'} !important;
+            left: ${mobileSidebarOpen ? '0' : '-260px'} !important;
             top: 0 !important; bottom: 0 !important;
             z-index: 200 !important;
-            width: 260px !important;
+            width: 240px !important;
             transition: left 0.3s ease !important;
             overflow-y: auto !important;
           }
@@ -455,8 +609,20 @@ export default function TrainingDashboardPage() {
             background: rgba(0,0,0,0.5); z-index: 199;
           }
           .dash-sidebar-toggle { display: none !important; }
-          .dash-main { padding: 16px 16px 48px !important; }
+          .dash-main { padding: 16px 16px 80px !important; }
           .dash-stats-grid { grid-template-columns: 1fr 1fr !important; }
+          .dash-courses-grid { grid-template-columns: 1fr !important; }
+          .dash-quick-actions { grid-template-columns: 1fr 1fr !important; }
+          .dash-live-preview { grid-template-columns: 1fr !important; }
+          .dash-badges-grid { grid-template-columns: repeat(3, 1fr) !important; }
+          .dash-bottom-nav {
+            display: flex !important;
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background: #0D2E5A; z-index: 180;
+            border-top: 1px solid rgba(255,255,255,0.1);
+            height: 56px; align-items: center; justify-content: space-around;
+            box-shadow: 0 -2px 12px rgba(0,0,0,0.2);
+          }
         }
       `}</style>
 
@@ -466,16 +632,15 @@ export default function TrainingDashboardPage() {
       {/* ── TOP NAV ──────────────────────────────────────────────────────────── */}
       <div style={{ background: '#0D2E5A', padding: '0 20px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 150, boxShadow: '0 2px 12px rgba(0,0,0,0.2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {/* Mobile hamburger */}
           <button
             className="dash-hamburger"
             onClick={() => setMobileSidebarOpen(true)}
             style={{ width: 36, height: 36, borderRadius: 6, background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
           >
-            ☰
+            &#9776;
           </button>
           <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', flexShrink: 0 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 6, background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>📐</div>
+            <div style={{ width: 28, height: 28, borderRadius: 6, background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>&#128208;</div>
             <div>
               <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', lineHeight: 1 }}>Financial Modeler Pro</div>
               <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Training Hub</div>
@@ -493,14 +658,8 @@ export default function TrainingDashboardPage() {
             disabled={loading || refreshing}
             title="Refresh progress"
             style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, background: 'rgba(255,255,255,0.08)', color: refreshing ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 5, cursor: loading || refreshing ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-            <span style={{ display: 'inline-block', animation: refreshing ? 'spin 0.7s linear infinite' : 'none' }}>↻</span>
-            {refreshing ? 'Refreshing…' : 'Refresh'}
-          </button>
-          <button
-            onClick={() => setShareModal({ label: 'am learning Financial Modeling' })}
-            title="Share your progress"
-            style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.15)', borderRadius: 5, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-            🔗 Share
+            <span style={{ display: 'inline-block', animation: refreshing ? 'spin 0.7s linear infinite' : 'none' }}>&#8635;</span>
+            {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
           {/* Profile avatar dropdown */}
           <div style={{ position: 'relative' }}>
@@ -514,7 +673,7 @@ export default function TrainingDashboardPage() {
               <span style={{ fontSize: 12, fontWeight: 700, maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {studentName || localSession?.registrationId || 'Student'}
               </span>
-              <span style={{ fontSize: 10, opacity: 0.6 }}>▾</span>
+              <span style={{ fontSize: 10, opacity: 0.6 }}>&#9662;</span>
             </button>
             {profileDropdown && (
               <div
@@ -523,19 +682,14 @@ export default function TrainingDashboardPage() {
               >
                 <div style={{ padding: '10px 14px 6px', borderBottom: '1px solid #F3F4F6' }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#0D2E5A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{studentName || 'Student'}</div>
-                  {studentProfile?.linkedin_url && (
-                    <a href={studentProfile.linkedin_url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: '#0A66C2', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 3, marginTop: 3 }}>
-                      in LinkedIn Profile ↗
-                    </a>
-                  )}
                 </div>
                 {[
-                  { icon: '👤', label: 'Edit Profile', action: () => { setProfileModal(true); setProfileDropdown(false); } },
-                  { icon: '🚪', label: 'Logout', action: () => { setProfileDropdown(false); handleLogout(); }, color: '#DC2626' },
+                  { icon: '&#128100;', label: 'Edit Profile', action: () => { setProfileModal(true); setProfileDropdown(false); } },
+                  { icon: '&#128682;', label: 'Logout', action: () => { setProfileDropdown(false); handleLogout(); }, color: '#DC2626' },
                 ].map(item => (
                   <button key={item.label} onClick={item.action}
                     style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: 'none', border: 'none', fontSize: 13, color: item.color ?? '#374151', cursor: 'pointer', fontWeight: 600, textAlign: 'left' }}>
-                    <span>{item.icon}</span> {item.label}
+                    <span dangerouslySetInnerHTML={{ __html: item.icon }} /> {item.label}
                   </button>
                 ))}
               </div>
@@ -559,12 +713,12 @@ export default function TrainingDashboardPage() {
           borderRight: '1px solid rgba(255,255,255,0.08)',
         }}>
 
-          {/* ─ Mobile close button ─ */}
+          {/* Mobile close button */}
           <div className="dash-hamburger" style={{ padding: '12px 16px 0', justifyContent: 'flex-end' }}>
-            <button onClick={() => setMobileSidebarOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: 18, cursor: 'pointer', padding: 4 }}>✕</button>
+            <button onClick={() => setMobileSidebarOpen(false)} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.6)', fontSize: 18, cursor: 'pointer', padding: 4 }}>&#10005;</button>
           </div>
 
-          {/* ─ Student Info ─ */}
+          {/* Student Info */}
           <div style={{ padding: sidebarCollapsed ? '16px 8px' : '16px 16px 14px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
             {loading ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, alignItems: sidebarCollapsed ? 'center' : 'flex-start' }}>
@@ -574,41 +728,30 @@ export default function TrainingDashboardPage() {
             ) : (
               <>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: sidebarCollapsed ? 0 : 10 }}>
-                  {/* Clickable avatar with upload overlay */}
                   <div
                     title="Change profile photo"
                     className="sidebar-avatar-btn"
                     onClick={() => sidebarFileInputRef.current?.click()}
                     style={{ position: 'relative', width: 40, height: 40, borderRadius: '50%', background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: '#fff', flexShrink: 0, overflow: 'visible', cursor: 'pointer' }}
                   >
-                    {/* Avatar circle */}
                     <div style={{ width: 40, height: 40, borderRadius: '50%', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#2EAA4A', fontSize: 14, fontWeight: 800, color: '#fff', position: 'relative' }}>
                       {avatarUploading ? (
                         <div style={{ width: 18, height: 18, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
                       ) : avatarUrl ? (
                         <img src={avatarUrl} alt={studentName} style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }} />
                       ) : initials}
-                      {/* Hover overlay */}
                       {!avatarUploading && (
                         <div className="avatar-hover-overlay" style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: 0, transition: 'opacity 0.2s' }}>
                           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
                         </div>
                       )}
                     </div>
-                    {/* Camera badge — always visible bottom-right */}
                     {!avatarUploading && (
                       <div style={{ position: 'absolute', bottom: -1, right: -1, width: 14, height: 14, borderRadius: '50%', background: '#1d4ed8', border: '1.5px solid #0f172a', display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
                         <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
                       </div>
                     )}
-                    {/* Hidden file input */}
-                    <input
-                      ref={sidebarFileInputRef}
-                      type="file"
-                      accept="image/*"
-                      style={{ display: 'none' }}
-                      onChange={handleSidebarPhotoSelect}
-                    />
+                    <input ref={sidebarFileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleSidebarPhotoSelect} />
                   </div>
                   {!sidebarCollapsed && (
                     <div style={{ minWidth: 0 }}>
@@ -628,7 +771,7 @@ export default function TrainingDashboardPage() {
                       <span style={{ fontSize: 10, color: '#2EAA4A', fontWeight: 700 }}>{totalPassed}/{totalSessions}</span>
                     </div>
                     <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', borderRadius: 2, background: '#2EAA4A', width: `${totalSessions > 0 ? (totalPassed / totalSessions) * 100 : 0}%` }} />
+                      <div style={{ height: '100%', borderRadius: 2, background: '#2EAA4A', width: `${totalSessions > 0 ? (totalPassed / totalSessions) * 100 : 0}%`, transition: 'width 0.5s ease' }} />
                     </div>
                   </div>
                 )}
@@ -636,246 +779,86 @@ export default function TrainingDashboardPage() {
             )}
           </div>
 
-          {/* ─ Courses + Achievements ─ */}
-          <div style={{ padding: sidebarCollapsed ? '10px 6px' : '10px 10px', flex: 1 }}>
+          {/* Navigation */}
+          <div style={{ padding: sidebarCollapsed ? '8px 4px' : '8px 8px', flex: 1 }}>
 
-            {/* Section label */}
-            {!sidebarCollapsed && (
-              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)', padding: '6px 4px 6px', marginBottom: 2 }}>
-                My Courses
-              </div>
-            )}
+            {/* Dashboard */}
+            <SidebarItem icon="&#127968;" label="Dashboard" active={activeView === 'overview'} onClick={() => navigateTo('overview')} />
 
-            {/* Enrolled course buttons */}
+            {/* MY COURSES */}
+            <SidebarLabel text="My Courses" />
             {enrolledCourses.map(cId => {
               const c = COURSES[cId];
               if (!c) return null;
-              const cReg    = c.sessions.filter(s => !s.isFinal);
-              const cPassed = cReg.filter(s => progressMap.get(s.id)?.passed).length;
-              const cPct    = cReg.length > 0 ? Math.round((cPassed / cReg.length) * 100) : 0;
-              const isActive = activeCourse === cId;
+              const cStats = getCourseStats(cId);
+              const isActive = activeView === 'course' && activeCourse === cId;
               const isLocked = cId === 'bvm' && !bvmUnlocked;
-              const icon = c.shortTitle === '3SFM' ? '📈' : '📊';
-
-              if (sidebarCollapsed) {
-                return (
-                  <button key={cId} onClick={() => setActiveCourse(cId)}
-                    title={isLocked ? `${c.shortTitle} — Locked` : `${c.shortTitle}: ${cPassed}/${cReg.length}`}
-                    style={{ width: '100%', background: isActive ? '#1B4F8A' : 'transparent', border: 'none', borderLeft: `3px solid ${isActive ? '#2EAA4A' : 'transparent'}`, borderRadius: 6, padding: '10px 0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 4, fontSize: 18 }}>
-                    {isLocked ? '🔒' : icon}
-                  </button>
-                );
-              }
+              const icon = c.shortTitle === '3SFM' ? '&#128200;' : '&#127970;';
 
               return (
-                <button key={cId} onClick={() => setActiveCourse(cId)}
-                  style={{ width: '100%', textAlign: 'left', background: isActive ? '#1B4F8A' : 'rgba(255,255,255,0.04)', border: `1px solid ${isActive ? 'rgba(255,255,255,0.1)' : 'transparent'}`, borderLeft: `3px solid ${isActive ? '#2EAA4A' : 'transparent'}`, borderRadius: 8, padding: '10px 12px', cursor: 'pointer', marginBottom: 6, transition: 'background 0.15s' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isLocked ? 0 : 6 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <span style={{ fontSize: 14 }}>{isLocked ? '🔒' : icon}</span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: isLocked ? 'rgba(255,255,255,0.35)' : '#fff' }}>{c.shortTitle}</span>
-                    </div>
-                    <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: isLocked ? 'rgba(255,255,255,0.06)' : cPct === 100 ? '#C9A84C' : cPassed > 0 ? '#2EAA4A' : 'rgba(255,255,255,0.08)', color: isLocked ? 'rgba(255,255,255,0.25)' : '#fff' }}>
-                      {isLocked ? 'LOCKED' : cPct === 100 ? 'DONE' : cPassed > 0 ? 'IN PROGRESS' : 'START'}
-                    </span>
-                  </div>
-                  {!isLocked && (
-                    <>
-                      <div style={{ height: 3, borderRadius: 2, background: 'rgba(255,255,255,0.1)', overflow: 'hidden', marginBottom: 4 }}>
-                        <div style={{ height: '100%', borderRadius: 2, background: cPct === 100 ? '#C9A84C' : '#2EAA4A', width: `${cPct}%` }} />
-                      </div>
-                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>{cPassed} / {cReg.length} sessions</div>
-                    </>
-                  )}
-                  {isLocked && <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)', marginTop: 3 }}>Complete 3SFM to unlock</div>}
-                </button>
+                <SidebarItem
+                  key={cId}
+                  icon={isLocked ? '&#128274;' : icon}
+                  label={c.shortTitle}
+                  active={isActive}
+                  onClick={() => navigateTo('course', cId)}
+                  badge={isLocked ? 'LOCKED' : `${cStats.passed}/${cStats.total}`}
+                  badgeColor={isLocked ? 'rgba(255,255,255,0.15)' : cStats.pct === 100 ? '#C9A84C' : '#2EAA4A'}
+                  tooltip={isLocked ? `${c.shortTitle} - Complete 3SFM first` : `${c.shortTitle}: ${cStats.passed}/${cStats.total} sessions`}
+                />
+              );
+            })}
+            {!isEnrolledInBvm && !sidebarCollapsed && bvmUnlocked && (
+              <a href="/register?course=bvm"
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 6, background: 'rgba(46,170,74,0.1)', border: '1px dashed rgba(46,170,74,0.35)', color: '#2EAA4A', textDecoration: 'none', fontSize: 11, fontWeight: 700, marginBottom: 2 }}>
+                + Enrol in BVM
+              </a>
+            )}
+
+            {/* TRAINING SESSIONS */}
+            <SidebarLabel text="Training Sessions" />
+            <SidebarItem
+              icon="&#128250;"
+              label="Live Sessions"
+              active={false}
+              onClick={() => { setMobileSidebarOpen(false); router.push('/training/live-sessions'); }}
+              dot={hasLiveNow}
+              dotColor="#EF4444"
+              badge={upcomingCount > 0 ? upcomingCount : undefined}
+              badgeColor="#3B82F6"
+              tooltip={hasLiveNow ? 'LIVE NOW' : upcomingCount > 0 ? `${upcomingCount} upcoming` : 'Live Sessions'}
+            />
+
+            {/* MY ACHIEVEMENTS */}
+            <SidebarLabel text="My Achievements" />
+            <SidebarItem icon="&#127942;" label="Certificates" active={false}
+              onClick={() => { if (activeView !== 'overview') navigateTo('overview'); setTimeout(() => document.getElementById('dash-achievements')?.scrollIntoView({ behavior: 'smooth' }), 100); }}
+              badge={certificates.length > 0 ? certificates.length : undefined} badgeColor="#C9A84C" />
+            <SidebarItem icon="&#127941;" label="Badges" active={false}
+              onClick={() => { if (activeView !== 'overview') navigateTo('overview'); setTimeout(() => document.getElementById('dash-badges')?.scrollIntoView({ behavior: 'smooth' }), 100); }}
+              badge={badges.length > 0 ? badges.length : undefined} badgeColor="#F59E0B" />
+            {enrolledCourses.map(cId => {
+              const cConfig = COURSES[cId];
+              if (!cConfig) return null;
+              const cPassed = cConfig.sessions.filter(s => progressMap.get(s.id)?.passed).length;
+              return (
+                <SidebarItem key={`tr-${cId}`} icon="&#128196;" label={`${cConfig.shortTitle} Transcript`}
+                  onClick={() => downloadTranscript(cId)}
+                  tooltip={cPassed === 0 ? 'Complete sessions first' : undefined} />
               );
             })}
 
-            {/* BVM hint / Start Another Course */}
-            {!isEnrolledInBvm && (
-              sidebarCollapsed ? (
-                bvmUnlocked ? (
-                  <a href="/register?course=bvm" title="Enrol in BVM"
-                    style={{ width: '100%', background: 'transparent', border: 'none', padding: '10px 0', cursor: 'pointer', color: '#2EAA4A', fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
-                    ➕
-                  </a>
-                ) : (
-                  <div title="BVM — Complete 3SFM first" style={{ width: '100%', padding: '10px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, color: 'rgba(255,255,255,0.2)' }}>🔒</div>
-                )
-              ) : bvmUnlocked ? (
-                <a href="/register?course=bvm"
-                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 12px', borderRadius: 8, background: 'rgba(46,170,74,0.1)', border: '1px dashed rgba(46,170,74,0.35)', color: '#2EAA4A', textDecoration: 'none', fontSize: 12, fontWeight: 700, marginTop: 4 }}>
-                  ➕ Enrol in BVM →
-                </a>
-              ) : (
-                <button onClick={() => setActiveCourse('bvm')}
-                  style={{ width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 6, padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.03)', border: '1px dashed rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.25)', fontSize: 11, fontWeight: 600, cursor: 'pointer', marginTop: 4 }}>
-                  🔒 BVM — Complete 3SFM first
-                </button>
-              )
-            )}
-
-            {/* ─ Streak & Points ─ */}
-            {!sidebarCollapsed && (streak > 0 || points > 0) && (
-              <div style={{ padding: '8px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)', marginTop: 8, marginBottom: 4, display: 'flex', gap: 12 }}>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 16 }}>🔥</div>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: streak >= 5 ? '#F59E0B' : '#fff' }}>{streak}</div>
-                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>day streak</div>
-                </div>
-                <div style={{ textAlign: 'center' }}>
-                  <div style={{ fontSize: 16 }}>⭐</div>
-                  <div style={{ fontSize: 13, fontWeight: 800, color: '#C9A84C' }}>{points}</div>
-                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>points</div>
-                </div>
-                {badges.length > 0 && (
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 16 }}>🏅</div>
-                    <div style={{ fontSize: 13, fontWeight: 800, color: '#fff' }}>{badges.length}</div>
-                    <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>badges</div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ─ Badges grid ─ */}
-            {!sidebarCollapsed && badges.length > 0 && (() => {
-              const BADGE_META: Record<string, { icon: string; label: string }> = {
-                first_step:   { icon: '👣', label: 'First Step' },
-                on_fire:      { icon: '🔥', label: 'On Fire' },
-                unstoppable:  { icon: '⚡', label: 'Unstoppable' },
-                halfway:      { icon: '🎯', label: 'Halfway' },
-                almost_there: { icon: '🚀', label: 'Almost There' },
-                certified:    { icon: '🏆', label: 'Certified' },
-                perfect_score:{ icon: '💯', label: 'Perfect Score' },
-                speed_runner: { icon: '⚡', label: 'Speed Runner' },
-              };
-              return (
-                <div style={{ padding: '6px 4px 2px' }}>
-                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)', marginBottom: 6 }}>Badges</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                    {badges.map(b => {
-                      const meta = BADGE_META[b.badge_key];
-                      if (!meta) return null;
-                      return (
-                        <span key={b.badge_key} title={meta.label} style={{ fontSize: 16, cursor: 'default' }}>{meta.icon}</span>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* ─ Achievements ─ */}
-            {!sidebarCollapsed && (
-              <>
-                <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)', padding: '14px 4px 6px', marginTop: 4 }}>
-                  My Achievements
-                </div>
-
-                {/* Certificates */}
-                <div style={{ padding: '10px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.05)', marginBottom: 6 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: certificates.length > 0 ? '#C9A84C' : 'rgba(255,255,255,0.45)', marginBottom: 4 }}>
-                    🏆 Certificates ({certificates.length})
-                  </div>
-                  {certificates.length === 0 ? (
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.2)' }}>Complete a course to earn your certificate</div>
-                  ) : (
-                    certificates.map(cert => (
-                      <a key={cert.certificateId} href={cert.certifierUrl} target="_blank" rel="noopener noreferrer"
-                        style={{ display: 'block', fontSize: 11, color: '#C9A84C', textDecoration: 'none', marginTop: 4 }}>
-                        {cert.course.toUpperCase()} — View →
-                      </a>
-                    ))
-                  )}
-                </div>
-
-                {/* Transcript — one button per enrolled course */}
-                {enrolledCourses.map(cId => {
-                  const cConfig = COURSES[cId];
-                  if (!cConfig) return null;
-                  const cPassed = cConfig.sessions.filter(s => progressMap.get(s.id)?.passed).length;
-                  const disabled = cPassed === 0 || generating;
-                  return (
-                    <button key={cId} onClick={() => downloadTranscript(cId)} disabled={disabled}
-                      title={cPassed === 0 ? 'Complete at least one session first' : undefined}
-                      style={{ width: '100%', textAlign: 'left', padding: '9px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.05)', color: disabled ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.65)', fontSize: 11, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                      <span>📄</span> {generating ? 'Generating…' : `Download ${cConfig.shortTitle} Transcript`}
-                    </button>
-                  );
-                })}
-                {transcriptToast && (
-                  <div style={{ fontSize: 10, color: '#FCA5A5', padding: '4px 4px', marginTop: 4 }}>⚠️ {transcriptToast}</div>
-                )}
-
-                {/* Testimonial shortcut */}
-                {totalPassed >= 1 && !testimonialSubmitted && (
-                  <button onClick={() => setTestimonialModal('written')}
-                    style={{ width: '100%', textAlign: 'left', padding: '9px 12px', borderRadius: 8, background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.2)', color: '#C9A84C', fontSize: 11, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                    <span>⭐</span> Share Your Experience
-                  </button>
-                )}
-              </>
-            )}
-
-            {/* Collapsed achievements icons */}
-            {sidebarCollapsed && (
-              <div style={{ marginTop: 8 }}>
-                {enrolledCourses.map(cId => {
-                  const cConfig = COURSES[cId];
-                  if (!cConfig) return null;
-                  const cPassed = cConfig.sessions.filter(s => progressMap.get(s.id)?.passed).length;
-                  const disabled = cPassed === 0 || generating;
-                  return (
-                    <button key={cId} title={disabled ? 'Complete sessions first' : `Download ${cConfig.shortTitle} Transcript`} onClick={() => downloadTranscript(cId)} disabled={disabled}
-                      style={{ width: '100%', background: 'transparent', border: 'none', padding: '6px 0', cursor: disabled ? 'default' : 'pointer', color: disabled ? 'rgba(255,255,255,0.18)' : 'rgba(255,255,255,0.45)', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      📄
-                    </button>
-                  );
-                })}
-                {certificates.length > 0 && (
-                  <div title={`${certificates.length} Certificate${certificates.length > 1 ? 's' : ''}`} style={{ width: '100%', padding: '10px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>
-                    🏆
-                  </div>
-                )}
-              </div>
-            )}
+            {/* ACCOUNT */}
+            <SidebarLabel text="Account" />
+            <SidebarItem icon="&#128100;" label="Profile" onClick={() => { setProfileModal(true); setMobileSidebarOpen(false); }} />
+            <SidebarItem icon="&#128682;" label="Sign Out" onClick={handleLogout} />
           </div>
 
-          {/* ─ Account ─ */}
-          {!sidebarCollapsed && (
-            <div style={{ padding: '10px 10px 14px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-              <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)', padding: '4px 4px 8px' }}>
-                Account
-              </div>
-              {progress?.student.email && (
-                <div style={{ padding: '4px 4px 8px' }}>
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>Email</div>
-                  <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.55)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 2 }}>
-                    {progress.student.email}
-                  </div>
-                  {studentProfile?.job_title && (
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginTop: 2 }}>{studentProfile.job_title}{studentProfile.company ? ` · ${studentProfile.company}` : ''}</div>
-                  )}
-                </div>
-              )}
-              <button onClick={() => setProfileModal(true)}
-                style={{ width: '100%', padding: '8px 12px', borderRadius: 7, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                👤 Edit Profile
-              </button>
-              <button onClick={handleLogout}
-                style={{ width: '100%', padding: '8px 12px', borderRadius: 7, background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.2)', color: '#FCA5A5', fontSize: 11, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                🚪 Logout
-              </button>
-            </div>
-          )}
-
-          {/* ─ Collapse toggle ─ */}
+          {/* Collapse toggle */}
           <button className="dash-sidebar-toggle" onClick={toggleSidebar}
             title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
             style={{ margin: '8px auto 12px', width: 28, height: 28, borderRadius: '50%', background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.5)', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            {sidebarCollapsed ? '›' : '‹'}
+            {sidebarCollapsed ? '\u203A' : '\u2039'}
           </button>
         </aside>
 
@@ -886,7 +869,7 @@ export default function TrainingDashboardPage() {
           {!loading && isFallback && progress && (
             <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8, padding: '10px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
               <span style={{ fontSize: 12.5, color: '#92400E' }}>
-                ⚡ Could not load latest progress — showing your course structure. Your data will appear after the next sync.
+                Could not load latest progress - showing your course structure. Your data will appear after the next sync.
               </span>
               <button onClick={() => localSession && loadData(localSession)}
                 style={{ fontSize: 11, fontWeight: 700, padding: '4px 12px', background: '#F59E0B', color: '#fff', border: 'none', borderRadius: 5, cursor: 'pointer' }}>
@@ -919,52 +902,409 @@ export default function TrainingDashboardPage() {
                     <Skeleton w={80} h={22} radius={20} />
                   </div>
                   <Skeleton w="30%" h={12} />
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <Skeleton w={90} h={28} radius={6} />
-                    <Skeleton w={120} h={28} radius={6} />
-                  </div>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Course content */}
-          {!loading && progress && (
-            <CourseContent
-              courseId={activeCourse === 'bvm' ? 'bvm' : displayCourse}
-              progressMap={progressMap}
-              certificates={certificates}
-              liveLinks={liveLinks}
-              courseDescs={courseDescs}
-              regId={localSession?.registrationId ?? ''}
-              onDownloadTranscript={(cId) => downloadTranscript(cId)}
-              generating={generating}
-              studentName={progress?.student.name ?? ''}
-              studentEmail={progress?.student.email ?? ''}
-              onShare={(label, certUrl) => setShareModal({ label, certUrl })}
-              testimonialSubmitted={testimonialSubmitted}
-              onOpenTestimonial={type => setTestimonialModal(type)}
-              notes={notes}
-              onNoteSave={saveNote}
-              feedbackGiven={feedbackGiven}
-              onFeedbackRequest={(sessionKey, sessionTitle) => setFeedbackModal({ sessionKey, sessionTitle })}
-              bvmLocked={showLockedBvm}
-              sfmProgress={sfmPassedCount}
-              sfmTotal={sfmRegular.length}
-              onSwitchTo3sfm={() => setActiveCourse('3sfm')}
-              timerBypassed={timerBypassed}
-            />
-          )}
-
-          {/* Enhanced certificate cards (Certifier image + branded QR) */}
-          {!loading && certificates.length > 0 && (
+          {/* ════════════════════════════════════════════════════════════════════ */}
+          {/* OVERVIEW LANDING PAGE                                               */}
+          {/* ════════════════════════════════════════════════════════════════════ */}
+          {!loading && progress && activeView === 'overview' && (
             <div>
-              {certificates.map(cert => (
-                <CertificateImageCard key={cert.certificateId} cert={cert} />
-              ))}
+              {/* ── HERO SECTION ───────────────────────────────────────────────── */}
+              <div style={{ background: 'linear-gradient(135deg, #0D2E5A 0%, #1B4F8A 100%)', borderRadius: 16, padding: '28px 32px', marginBottom: 20, color: '#fff', position: 'relative', overflow: 'hidden' }}>
+                {/* Decorative circle */}
+                <div style={{ position: 'absolute', top: -40, right: -40, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
+                <div style={{ position: 'absolute', bottom: -20, right: 60, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.03)' }} />
+
+                <div style={{ position: 'relative', zIndex: 1 }}>
+                  <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, marginBottom: 4 }}>
+                    Welcome back, {studentName || 'Student'}!
+                  </h1>
+                  <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', margin: 0, marginBottom: 16 }}>
+                    {totalPassed === 0 ? 'Start your financial modeling journey today.' :
+                     totalPassed === totalSessions ? 'Congratulations! You\'ve completed all sessions.' :
+                     `You've completed ${totalPassed} of ${totalSessions} sessions. Keep going!`}
+                  </p>
+
+                  {/* Overall progress bar */}
+                  <div style={{ marginBottom: 4 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>Overall Progress</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#2EAA4A' }}>{totalSessions > 0 ? Math.round((totalPassed / totalSessions) * 100) : 0}%</span>
+                    </div>
+                    <div style={{ height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', borderRadius: 4, background: 'linear-gradient(90deg, #2EAA4A, #34D058)', width: `${totalSessions > 0 ? (totalPassed / totalSessions) * 100 : 0}%`, transition: 'width 0.8s ease' }} />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── STATS ROW ──────────────────────────────────────────────────── */}
+              <div className="dash-stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+                {[
+                  { icon: '\u{1F525}', value: streak, label: 'Day Streak', color: '#F59E0B', bg: '#FFFBEB' },
+                  { icon: '\u{2B50}', value: points.toLocaleString(), label: 'Points', color: '#C9A84C', bg: '#FFFBF0' },
+                  { icon: '\u{1F3C6}', value: badges.length, label: 'Badges', color: '#8B5CF6', bg: '#F5F3FF' },
+                  { icon: '\u{1F4DC}', value: certificates.length, label: 'Certificates', color: '#0D2E5A', bg: '#EFF6FF' },
+                ].map((stat, i) => (
+                  <div key={i} style={{ background: stat.bg, borderRadius: 12, padding: '16px 18px', border: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', gap: 14 }}>
+                    <div style={{ width: 44, height: 44, borderRadius: 10, background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0, boxShadow: '0 1px 3px rgba(0,0,0,0.06)' }}>
+                      {stat.icon}
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: stat.color, lineHeight: 1.1 }}>{stat.value}</div>
+                      <div style={{ fontSize: 11, color: '#6B7280', fontWeight: 600, marginTop: 2 }}>{stat.label}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* ── QUICK ACTIONS ──────────────────────────────────────────────── */}
+              <div className="dash-quick-actions" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 24 }}>
+                {nextAssessment && (
+                  <button onClick={() => navigateTo('course', nextAssessment.courseId)}
+                    style={{ padding: '12px 14px', borderRadius: 10, background: '#fff', border: '1px solid #E5E7EB', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: '#0D2E5A', transition: 'box-shadow 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                    <span style={{ fontSize: 16 }}>&#128221;</span> Next Assessment
+                  </button>
+                )}
+                {upcomingSessions.length > 0 && (
+                  <Link href="/training/live-sessions"
+                    style={{ padding: '12px 14px', borderRadius: 10, background: '#fff', border: '1px solid #E5E7EB', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: '#0D2E5A', textDecoration: 'none', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                    <span style={{ fontSize: 16 }}>&#128250;</span> Live Session
+                  </Link>
+                )}
+                {enrolledCourses.length > 0 && (
+                  <button onClick={() => downloadTranscript(enrolledCourses[0])} disabled={generating || totalPassed === 0}
+                    style={{ padding: '12px 14px', borderRadius: 10, background: '#fff', border: '1px solid #E5E7EB', cursor: totalPassed === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: totalPassed === 0 ? '#9CA3AF' : '#0D2E5A', opacity: totalPassed === 0 ? 0.6 : 1, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                    <span style={{ fontSize: 16 }}>&#128196;</span> {generating ? 'Generating...' : 'Transcript'}
+                  </button>
+                )}
+                <button onClick={() => document.getElementById('dash-badges')?.scrollIntoView({ behavior: 'smooth' })}
+                  style={{ padding: '12px 14px', borderRadius: 10, background: '#fff', border: '1px solid #E5E7EB', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: '#0D2E5A', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
+                  <span style={{ fontSize: 16 }}>&#127941;</span> View Badges
+                </button>
+              </div>
+
+              {/* ── UPCOMING SESSION BANNER ──────────────────────────────────── */}
+              {upcomingSessions.length > 0 && (() => {
+                const next = upcomingSessions[0];
+                const isLive = next.session_type === 'live';
+                return (
+                  <div style={{ background: isLive ? 'linear-gradient(135deg, #7F1D1D 0%, #991B1B 100%)' : 'linear-gradient(135deg, #1E3A5F 0%, #1B4F8A 100%)', borderRadius: 14, padding: '20px 24px', marginBottom: 24, color: '#fff', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 200 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: isLive ? '#EF4444' : '#3B82F6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                          {isLive ? '&#128308; LIVE NOW' : '&#128197; UPCOMING'}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>{next.title}</div>
+                      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', marginBottom: 4 }}>
+                        {formatSessionDate(next.scheduled_datetime, next.timezone)}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>
+                        {formatLocalTime(next.scheduled_datetime)}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <Link href={`/training/live-sessions/${next.id}`}
+                        style={{ padding: '10px 20px', borderRadius: 8, background: 'rgba(255,255,255,0.2)', color: '#fff', textDecoration: 'none', fontSize: 12, fontWeight: 700, border: '1px solid rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>
+                        View & Register &#8594;
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* ── MY COURSES ─────────────────────────────────────────────────── */}
+              <div style={{ marginBottom: 28 }}>
+                <h2 style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A', margin: '0 0 14px' }}>My Certification Courses</h2>
+                <div className="dash-courses-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
+                  {/* Enrolled course cards */}
+                  {enrolledCourses.map(cId => {
+                    const c = COURSES[cId];
+                    if (!c) return null;
+                    const stats = getCourseStats(cId);
+                    const isLocked = cId === 'bvm' && !bvmUnlocked;
+                    const icon = c.shortTitle === '3SFM' ? '\u{1F4CA}' : '\u{1F3E2}';
+
+                    if (isLocked) {
+                      return (
+                        <div key={cId} style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', minHeight: 200, opacity: 0.7 }}>
+                          <div style={{ fontSize: 36, marginBottom: 12 }}>&#128274;</div>
+                          <div style={{ fontSize: 15, fontWeight: 700, color: '#374151', marginBottom: 6 }}>{c.title}</div>
+                          <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 14 }}>Complete 3SFM to unlock</div>
+                          <button onClick={() => navigateTo('course', '3sfm')}
+                            style={{ padding: '8px 20px', borderRadius: 8, background: '#F3F4F6', border: '1px solid #E5E7EB', color: '#6B7280', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                            Go to 3SFM
+                          </button>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div key={cId} style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', padding: '24px', position: 'relative', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                        {/* Top color band */}
+                        <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, background: stats.pct === 100 ? '#C9A84C' : '#2EAA4A' }} />
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+                          <span style={{ fontSize: 24 }}>{icon}</span>
+                          <div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: '#0D2E5A' }}>{c.title}</div>
+                            <div style={{ fontSize: 11, color: '#9CA3AF' }}>{c.shortTitle}</div>
+                          </div>
+                        </div>
+
+                        {/* Progress bar */}
+                        <div style={{ marginBottom: 14 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                            <span style={{ fontSize: 11, color: '#6B7280' }}>{stats.passed}/{stats.total} Sessions</span>
+                            <span style={{ fontSize: 11, fontWeight: 700, color: stats.pct === 100 ? '#C9A84C' : '#2EAA4A' }}>{stats.pct}%</span>
+                          </div>
+                          <div style={{ height: 6, borderRadius: 3, background: '#F3F4F6', overflow: 'hidden' }}>
+                            <div style={{ height: '100%', borderRadius: 3, background: stats.pct === 100 ? 'linear-gradient(90deg, #C9A84C, #D4AF37)' : 'linear-gradient(90deg, #2EAA4A, #34D058)', width: `${stats.pct}%`, transition: 'width 0.5s ease' }} />
+                          </div>
+                        </div>
+
+                        {/* Stats */}
+                        <div style={{ display: 'flex', gap: 16, marginBottom: 16 }}>
+                          <div>
+                            <div style={{ fontSize: 10, color: '#9CA3AF' }}>Avg Score</div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>{stats.avgScore > 0 ? `${stats.avgScore}%` : '--'}</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 10, color: '#9CA3AF' }}>Best Score</div>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: '#374151' }}>
+                              {stats.bestScore > 0 ? `${stats.bestScore}%` : '--'}
+                              {stats.bestSession && <span style={{ fontSize: 10, color: '#9CA3AF', marginLeft: 3 }}>({stats.bestSession})</span>}
+                            </div>
+                          </div>
+                        </div>
+
+                        <button onClick={() => navigateTo('course', cId)}
+                          style={{ width: '100%', padding: '10px', borderRadius: 8, background: '#0D2E5A', color: '#fff', border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                          {stats.passed === 0 ? 'Start Learning' : stats.pct === 100 ? 'Review Course' : 'Continue Learning'} &#8594;
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  {/* BVM card if not enrolled */}
+                  {!isEnrolledInBvm && (
+                    <div style={{ background: '#fff', borderRadius: 14, border: '1px dashed #D1D5DB', padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', minHeight: 200, opacity: bvmUnlocked ? 1 : 0.6 }}>
+                      <div style={{ fontSize: 36, marginBottom: 12 }}>{bvmUnlocked ? '\u{1F3E2}' : '\u{1F512}'}</div>
+                      <div style={{ fontSize: 15, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Business Valuation Modeling</div>
+                      <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 14 }}>
+                        {bvmUnlocked ? 'Ready to enrol!' : 'Complete 3SFM to unlock'}
+                      </div>
+                      {bvmUnlocked ? (
+                        <a href="/register?course=bvm"
+                          style={{ padding: '8px 20px', borderRadius: 8, background: '#2EAA4A', color: '#fff', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
+                          Enrol Now &#8594;
+                        </a>
+                      ) : (
+                        <div style={{ fontSize: 11, color: '#9CA3AF' }}>
+                          {sfmPassedCount}/{sfmRegular.length} 3SFM sessions completed
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* ── LIVE SESSIONS PREVIEW ──────────────────────────────────────── */}
+              {upcomingSessions.length > 0 && (
+                <div style={{ marginBottom: 28 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                    <h2 style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A', margin: 0 }}>Training Sessions</h2>
+                    <Link href="/training/live-sessions" style={{ fontSize: 12, fontWeight: 700, color: '#1B4F8A', textDecoration: 'none' }}>
+                      View All &#8594;
+                    </Link>
+                  </div>
+                  <div className="dash-live-preview" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+                    {upcomingSessions.map(s => (
+                      <Link key={s.id} href={`/training/live-sessions/${s.id}`}
+                        style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden', textDecoration: 'none', color: '#374151', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', transition: 'box-shadow 0.15s' }}>
+                        {s.banner_url && (
+                          <div style={{ height: 100, background: `url(${s.banner_url}) center/cover`, position: 'relative' }}>
+                            <span style={{ position: 'absolute', top: 8, left: 8, fontSize: 9, fontWeight: 800, padding: '2px 8px', borderRadius: 10, background: s.session_type === 'live' ? '#EF4444' : '#3B82F6', color: '#fff', textTransform: 'uppercase' }}>
+                              {s.session_type === 'live' ? 'LIVE' : 'UPCOMING'}
+                            </span>
+                          </div>
+                        )}
+                        <div style={{ padding: '12px 14px' }}>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.title}</div>
+                          <div style={{ fontSize: 11, color: '#9CA3AF' }}>
+                            {s.scheduled_datetime ? new Date(s.scheduled_datetime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}
+                          </div>
+                          {s.instructor_name && (
+                            <div style={{ fontSize: 10, color: '#6B7280', marginTop: 3 }}>{s.instructor_name}</div>
+                          )}
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── ACHIEVEMENTS SECTION ───────────────────────────────────────── */}
+              <div id="dash-achievements" style={{ marginBottom: 28 }}>
+                <h2 style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A', margin: '0 0 14px' }}>My Achievements</h2>
+
+                {/* Certificates */}
+                {certificates.length > 0 ? (
+                  <div style={{ marginBottom: 16 }}>
+                    {certificates.map(cert => (
+                      <CertificateImageCard key={cert.certificateId} cert={cert} />
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: '20px 24px', marginBottom: 16, textAlign: 'center' }}>
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>&#127942;</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', marginBottom: 4 }}>No Certificates Yet</div>
+                    <div style={{ fontSize: 12, color: '#9CA3AF' }}>Complete all sessions and the final exam to earn your certificate.</div>
+                  </div>
+                )}
+
+                {/* Badges */}
+                <div id="dash-badges" style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: '20px 24px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                    <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0D2E5A', margin: 0 }}>Badges Earned ({badges.length})</h3>
+                  </div>
+                  {badges.length > 0 ? (
+                    <div className="dash-badges-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+                      {badges.map(b => {
+                        const meta = BADGE_META[b.badge_key];
+                        if (!meta) return null;
+                        return (
+                          <div key={b.badge_key} style={{ textAlign: 'center', padding: '14px 8px', borderRadius: 10, background: '#F9FAFB', border: '1px solid #F3F4F6' }}>
+                            <div style={{ fontSize: 32, marginBottom: 6 }}>{meta.icon}</div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 2 }}>{meta.label}</div>
+                            <div style={{ fontSize: 10, color: '#9CA3AF' }}>{meta.desc}</div>
+                            <div style={{ fontSize: 9, color: '#D1D5DB', marginTop: 4 }}>
+                              {new Date(b.earned_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: '16px 0', color: '#9CA3AF', fontSize: 12 }}>
+                      Complete sessions to start earning badges!
+                    </div>
+                  )}
+
+                  {/* Available badges preview */}
+                  {badges.length < Object.keys(BADGE_META).length && (
+                    <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 8, background: '#F9FAFB', border: '1px solid #F3F4F6' }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Locked Badges</div>
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                        {Object.entries(BADGE_META).filter(([key]) => !badges.some(b => b.badge_key === key)).map(([key, meta]) => (
+                          <span key={key} title={`${meta.label}: ${meta.desc}`}
+                            style={{ fontSize: 22, opacity: 0.3, cursor: 'default', filter: 'grayscale(1)' }}>
+                            {meta.icon}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Transcript download buttons */}
+                <div style={{ marginTop: 14, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {enrolledCourses.map(cId => {
+                    const cConfig = COURSES[cId];
+                    if (!cConfig) return null;
+                    const cPassed = cConfig.sessions.filter(s => progressMap.get(s.id)?.passed).length;
+                    const disabled = cPassed === 0 || generating;
+                    return (
+                      <button key={cId} onClick={() => downloadTranscript(cId)} disabled={disabled}
+                        style={{ padding: '10px 18px', borderRadius: 8, background: disabled ? '#F3F4F6' : '#0D2E5A', color: disabled ? '#9CA3AF' : '#fff', border: '1px solid #E5E7EB', fontSize: 12, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                        &#128196; {generating ? 'Generating...' : `Download ${cConfig.shortTitle} Transcript`}
+                      </button>
+                    );
+                  })}
+                </div>
+                {transcriptToast && (
+                  <div style={{ fontSize: 11, color: '#DC2626', marginTop: 6 }}>{transcriptToast}</div>
+                )}
+
+                {/* Testimonial shortcut */}
+                {totalPassed >= 1 && !testimonialSubmitted && (
+                  <button onClick={() => setTestimonialModal('written')}
+                    style={{ marginTop: 12, padding: '10px 18px', borderRadius: 8, background: '#FFFBF0', border: '1px solid #FDE68A', color: '#92400E', fontSize: 12, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    &#11088; Share Your Experience
+                  </button>
+                )}
+              </div>
             </div>
           )}
+
+          {/* ════════════════════════════════════════════════════════════════════ */}
+          {/* COURSE VIEW (existing behavior)                                     */}
+          {/* ════════════════════════════════════════════════════════════════════ */}
+          {!loading && progress && activeView === 'course' && (
+            <>
+              {/* Back to overview */}
+              <button onClick={() => navigateTo('overview')}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 6, background: 'none', border: '1px solid #D1D5DB', color: '#6B7280', fontSize: 12, fontWeight: 600, cursor: 'pointer', marginBottom: 16 }}>
+                &#8592; Back to Dashboard
+              </button>
+
+              <CourseContent
+                courseId={activeCourse === 'bvm' ? 'bvm' : displayCourse}
+                progressMap={progressMap}
+                certificates={certificates}
+                liveLinks={liveLinks}
+                courseDescs={courseDescs}
+                regId={localSession?.registrationId ?? ''}
+                onDownloadTranscript={(cId) => downloadTranscript(cId)}
+                generating={generating}
+                studentName={progress?.student.name ?? ''}
+                studentEmail={progress?.student.email ?? ''}
+                onShare={(label, certUrl) => setShareModal({ label, certUrl })}
+                testimonialSubmitted={testimonialSubmitted}
+                onOpenTestimonial={type => setTestimonialModal(type)}
+                notes={notes}
+                onNoteSave={saveNote}
+                feedbackGiven={feedbackGiven}
+                onFeedbackRequest={(sessionKey, sessionTitle) => setFeedbackModal({ sessionKey, sessionTitle })}
+                bvmLocked={showLockedBvm}
+                sfmProgress={sfmPassedCount}
+                sfmTotal={sfmRegular.length}
+                onSwitchTo3sfm={() => navigateTo('course', '3sfm')}
+                timerBypassed={timerBypassed}
+              />
+
+              {/* Certificate cards in course view */}
+              {certificates.length > 0 && (
+                <div>
+                  {certificates.map(cert => (
+                    <CertificateImageCard key={cert.certificateId} cert={cert} />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </main>
+      </div>
+
+      {/* ── Mobile Bottom Navigation ──────────────────────────────────────── */}
+      <div className="dash-bottom-nav">
+        {[
+          { icon: '\u{1F3E0}', label: 'Home', action: () => navigateTo('overview'), active: activeView === 'overview' },
+          { icon: '\u{1F4CA}', label: 'Courses', action: () => navigateTo('course', enrolledCourses[0] ?? '3sfm'), active: activeView === 'course' },
+          { icon: '\u{1F4FA}', label: 'Live', action: () => router.push('/training/live-sessions'), active: false },
+          { icon: '\u{1F3C6}', label: 'Achieve', action: () => { navigateTo('overview'); setTimeout(() => document.getElementById('dash-achievements')?.scrollIntoView({ behavior: 'smooth' }), 100); }, active: false },
+          { icon: '\u{1F464}', label: 'Profile', action: () => { setProfileModal(true); }, active: false },
+        ].map(item => (
+          <button key={item.label} onClick={item.action}
+            style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2, background: 'none', border: 'none', color: item.active ? '#2EAA4A' : 'rgba(255,255,255,0.5)', cursor: 'pointer', padding: '6px 0', fontSize: 16 }}>
+            <span>{item.icon}</span>
+            <span style={{ fontSize: 9, fontWeight: 700 }}>{item.label}</span>
+          </button>
+        ))}
       </div>
 
       {/* ── Share Modal ─────────────────────────────────────────────────────── */}

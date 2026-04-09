@@ -112,6 +112,11 @@ export function SessionCard({
                   {`⏱ ${videoDuration >= 60 ? `${Math.floor(videoDuration / 60)} hr${Math.floor(videoDuration / 60) > 1 ? 's' : ''}${videoDuration % 60 > 0 ? ` ${videoDuration % 60} min` : ''}` : `${videoDuration} min`}`}
                 </span>
               )}
+              {attachLoaded && sessionAttachments.length > 0 && (
+                <span style={{ fontSize: 11, color: '#6B7280', whiteSpace: 'nowrap' }} title={`${sessionAttachments.length} attachment${sessionAttachments.length > 1 ? 's' : ''}`}>
+                  &#128206; ({sessionAttachments.length})
+                </span>
+              )}
             </div>
             {isFinal && locked && (
               <div style={{ fontSize: 11, color: '#DC2626', marginTop: 3, fontWeight: 600 }}>
