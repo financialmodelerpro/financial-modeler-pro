@@ -1030,36 +1030,6 @@ export default function TrainingDashboardPage() {
                 </button>
               </div>
 
-              {/* ── UPCOMING SESSION BANNER ──────────────────────────────────── */}
-              {upcomingSessions.length > 0 && (() => {
-                const next = upcomingSessions[0];
-                const isLive = next.session_type === 'live';
-                return (
-                  <div style={{ background: isLive ? 'linear-gradient(135deg, #7F1D1D 0%, #991B1B 100%)' : 'linear-gradient(135deg, #1E3A5F 0%, #1B4F8A 100%)', borderRadius: 14, padding: '20px 24px', marginBottom: 24, color: '#fff', display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-                    <div style={{ flex: 1, minWidth: 200 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                        <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: isLive ? '#EF4444' : '#3B82F6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                          {isLive ? 'LIVE NOW' : 'UPCOMING'}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>{next.title}</div>
-                      <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.7)', marginBottom: 4 }}>
-                        {formatSessionDate(next.scheduled_datetime, next.timezone)}
-                      </div>
-                      <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)' }}>
-                        {formatLocalTime(next.scheduled_datetime)}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      <Link href={`/training/live-sessions/${next.id}`}
-                        style={{ padding: '10px 20px', borderRadius: 8, background: 'rgba(255,255,255,0.2)', color: '#fff', textDecoration: 'none', fontSize: 12, fontWeight: 700, border: '1px solid rgba(255,255,255,0.3)', whiteSpace: 'nowrap' }}>
-                        View & Register &#8594;
-                      </Link>
-                    </div>
-                  </div>
-                );
-              })()}
-
               {/* ── MY COURSES ─────────────────────────────────────────────────── */}
               <div style={{ marginBottom: 28 }}>
                 <h2 style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A', margin: '0 0 14px' }}>My Certification Courses</h2>
