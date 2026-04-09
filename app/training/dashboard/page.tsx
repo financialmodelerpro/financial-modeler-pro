@@ -548,9 +548,11 @@ export default function TrainingDashboardPage() {
   }
 
   // ── Sidebar nav item helper ────────────────────────────────────────────────
-  function SidebarItem({ icon, label, active, onClick, badge, badgeColor, dot, dotColor, tooltip }: {
+  function SidebarItem({ icon, label, active, onClick, badge, badgeColor, dot, dotColor, tooltip, wrapLabel }: {
     icon: React.ReactNode; label: string; active?: boolean; onClick: () => void;
     badge?: string | number; badgeColor?: string; dot?: boolean; dotColor?: string; tooltip?: string;
+    /** Allow label text to wrap to next line (for course names) */
+    wrapLabel?: boolean;
   }) {
     const showBadge = badge != null && (typeof badge === 'string' || Number(badge) > 0);
     if (sidebarCollapsed) {
@@ -567,9 +569,15 @@ export default function TrainingDashboardPage() {
     }
     return (
       <button onClick={onClick}
-        style={{ width: '100%', textAlign: 'left', background: active ? '#1B4F8A' : 'transparent', border: 'none', borderLeft: `3px solid ${active ? '#2EAA4A' : 'transparent'}`, borderRadius: 6, padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2, transition: 'background 0.15s', color: active ? '#fff' : 'rgba(255,255,255,0.7)', position: 'relative' }}>
+        style={{ width: '100%', textAlign: 'left', background: active ? '#1B4F8A' : 'transparent', border: 'none', borderLeft: `3px solid ${active ? '#2EAA4A' : 'transparent'}`, borderRadius: 6, padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: wrapLabel ? 'flex-start' : 'center', gap: 8, marginBottom: 2, transition: 'background 0.15s', color: active ? '#fff' : 'rgba(255,255,255,0.7)', position: 'relative' }}>
         <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>{icon}</span>
-        <span style={{ fontSize: 12, fontWeight: active ? 700 : 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+        <span style={{
+          fontSize: 12, fontWeight: active ? 700 : 600, flex: 1,
+          ...(wrapLabel
+            ? { whiteSpace: 'normal' as const, wordBreak: 'break-word' as const, lineHeight: 1.3 }
+            : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }
+          ),
+        }}>{label}</span>
         {dot && <span style={{ width: 7, height: 7, borderRadius: '50%', background: dotColor ?? '#EF4444', flexShrink: 0, animation: 'pulse-dot 1.5s ease infinite' }} />}
         {showBadge && (
           <span style={{ fontSize: 9, fontWeight: 800, background: badgeColor ?? '#3B82F6', color: '#fff', padding: '1px 6px', borderRadius: 8, flexShrink: 0 }}>{badge}</span>
@@ -813,6 +821,7 @@ export default function TrainingDashboardPage() {
                   badge={isLocked ? 'LOCKED' : `${cStats.passed}/${cStats.total}`}
                   badgeColor={isLocked ? 'rgba(255,255,255,0.15)' : cStats.pct === 100 ? '#C9A84C' : '#2EAA4A'}
                   tooltip={isLocked ? `${c.title} - Complete 3SFM first` : `${c.title}: ${cStats.passed}/${cStats.total} sessions`}
+                  wrapLabel
                 />
               );
             })}

@@ -4,7 +4,8 @@ import { useState, useEffect, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, BookOpen, Video, Award, User, LogOut, ChevronLeft, ChevronRight,
+  LayoutDashboard, BookOpen, Lock, Video, Award, Medal,
+  FileText, User, LogOut, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training/training-session';
 import { useInactivityLogout } from '@/src/hooks/useInactivityLogout';
@@ -24,6 +25,9 @@ export function TrainingShell({ children, activeNav }: TrainingShellProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [session, setSession] = useState<{ email: string; registrationId: string } | null>(null);
+  // Live session indicators
+  const [hasLiveNow, setHasLiveNow] = useState(false);
+  const [upcomingCount, setUpcomingCount] = useState(0);
 
   useInactivityLogout({
     logoutUrl: '/api/training/logout',
@@ -38,6 +42,18 @@ export function TrainingShell({ children, activeNav }: TrainingShellProps) {
 
   useEffect(() => {
     if (localStorage.getItem('fmp_sidebar_collapsed') === 'true') setSidebarCollapsed(true);
+  }, []);
+
+  // Fetch live session indicators
+  useEffect(() => {
+    fetch('/api/training/live-sessions?type=upcoming')
+      .then(r => r.json())
+      .then((j: { sessions?: { id: string; session_type: string }[] }) => {
+        const sessions = j.sessions ?? [];
+        setUpcomingCount(sessions.length);
+        setHasLiveNow(sessions.some(s => s.session_type === 'live'));
+      })
+      .catch(() => {});
   }, []);
 
   function toggleSidebar() {
@@ -60,14 +76,28 @@ export function TrainingShell({ children, activeNav }: TrainingShellProps) {
 
   const sidebarW = sidebarCollapsed ? 56 : 240;
 
-  function NavItem({ icon, label, active, href, onClick }: {
+  function NavItem({ icon, label, active, href, onClick, badge, badgeColor, dot, dotColor, wrapLabel }: {
     icon: ReactNode; label: string; active?: boolean; href?: string; onClick?: () => void;
+    badge?: string | number; badgeColor?: string; dot?: boolean; dotColor?: string;
+    /** Allow label text to wrap to next line (for course names) */
+    wrapLabel?: boolean;
   }) {
+    const showBadge = badge != null && (typeof badge === 'string' || Number(badge) > 0);
     const content = (
       <>
         <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>{icon}</span>
         {!sidebarCollapsed && (
-          <span style={{ fontSize: 12, fontWeight: active ? 700 : 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+          <span style={{
+            fontSize: 12, fontWeight: active ? 700 : 600, flex: 1,
+            ...(wrapLabel
+              ? { whiteSpace: 'normal' as const, wordBreak: 'break-word' as const, lineHeight: 1.3 }
+              : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const }
+            ),
+          }}>{label}</span>
+        )}
+        {dot && !sidebarCollapsed && <span style={{ width: 7, height: 7, borderRadius: '50%', background: dotColor ?? '#EF4444', flexShrink: 0, animation: 'pulse-dot 1.5s ease infinite' }} />}
+        {showBadge && !sidebarCollapsed && (
+          <span style={{ fontSize: 9, fontWeight: 800, background: badgeColor ?? '#3B82F6', color: '#fff', padding: '1px 6px', borderRadius: 8, flexShrink: 0 }}>{badge}</span>
         )}
       </>
     );
@@ -77,23 +107,31 @@ export function TrainingShell({ children, activeNav }: TrainingShellProps) {
       border: 'none',
       borderLeft: `3px solid ${active ? GREEN : 'transparent'}`,
       borderRadius: 6, padding: sidebarCollapsed ? '10px 0' : '8px 12px',
-      cursor: 'pointer', display: 'flex', alignItems: 'center',
+      cursor: 'pointer', display: 'flex', alignItems: wrapLabel && !sidebarCollapsed ? 'flex-start' : 'center',
       gap: 8, marginBottom: 2, transition: 'background 0.15s',
       color: active ? '#fff' : 'rgba(255,255,255,0.7)',
       justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
-      textDecoration: 'none',
+      textDecoration: 'none', position: 'relative',
     };
+
+    // Collapsed mode: badges/dots as absolute overlays
+    const collapsedOverlays = sidebarCollapsed && (
+      <>
+        {dot && <span style={{ position: 'absolute', top: 6, right: 10, width: 7, height: 7, borderRadius: '50%', background: dotColor ?? '#EF4444', animation: 'pulse-dot 1.5s ease infinite' }} />}
+        {showBadge && <span style={{ position: 'absolute', top: 4, right: 6, fontSize: 8, fontWeight: 800, background: badgeColor ?? '#3B82F6', color: '#fff', padding: '1px 4px', borderRadius: 6, minWidth: 14, textAlign: 'center' }}>{badge}</span>}
+      </>
+    );
 
     if (href) {
       return (
         <Link href={href} onClick={() => setMobileSidebarOpen(false)} style={style} title={sidebarCollapsed ? label : undefined}>
-          {content}
+          {content}{collapsedOverlays}
         </Link>
       );
     }
     return (
       <button onClick={() => { onClick?.(); setMobileSidebarOpen(false); }} style={style} title={sidebarCollapsed ? label : undefined}>
-        {content}
+        {content}{collapsedOverlays}
       </button>
     );
   }
@@ -119,6 +157,7 @@ export function TrainingShell({ children, activeNav }: TrainingShellProps) {
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#F5F7FA', minHeight: '100vh', color: '#374151' }}>
       <style>{`
+        @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         .ts-hamburger { display: none !important; }
         .ts-mob-backdrop { display: none !important; }
         .ts-bottom-nav { display: none !important; }
@@ -201,18 +240,28 @@ export function TrainingShell({ children, activeNav }: TrainingShellProps) {
 
           {/* Navigation */}
           <div style={{ padding: sidebarCollapsed ? '12px 4px' : '12px 8px', flex: 1 }}>
+            {/* Dashboard */}
             <NavItem icon={<LayoutDashboard size={16} />} label="Dashboard" active={currentNav === 'dashboard'} href="/training/dashboard" />
 
+            {/* MY COURSES */}
             <NavLabel text="My Courses" />
-            <NavItem icon={<BookOpen size={16} />} label="3-Statement Financial Modeling" href="/training/dashboard?course=3sfm" />
-            <NavItem icon={<BookOpen size={16} />} label="Business Valuation Modeling" href="/training/dashboard?course=bvm" />
+            <NavItem icon={<BookOpen size={16} />} label="3-Statement Financial Modeling" href="/training/dashboard?course=3sfm" wrapLabel />
+            <NavItem icon={<Lock size={16} />} label="Business Valuation Modeling" href="/training/dashboard?course=bvm" wrapLabel
+              badge="LOCKED" badgeColor="rgba(255,255,255,0.15)" />
 
+            {/* TRAINING SESSIONS */}
             <NavLabel text="Training Sessions" />
-            <NavItem icon={<Video size={16} />} label="Live Sessions" active={currentNav === 'live-sessions'} href="/training/live-sessions" />
+            <NavItem icon={<Video size={16} />} label="Live Sessions" active={currentNav === 'live-sessions'} href="/training/live-sessions"
+              dot={hasLiveNow} dotColor="#EF4444"
+              badge={upcomingCount > 0 ? upcomingCount : undefined} badgeColor="#3B82F6" />
 
+            {/* MY ACHIEVEMENTS */}
             <NavLabel text="My Achievements" />
-            <NavItem icon={<Award size={16} />} label="Certificates" active={currentNav === 'certificates'} href="/training/dashboard" />
+            <NavItem icon={<Award size={16} />} label="Certificates" href="/training/dashboard" />
+            <NavItem icon={<Medal size={16} />} label="Badges" href="/training/dashboard" />
+            <NavItem icon={<FileText size={16} />} label="Transcripts" href="/training/dashboard" />
 
+            {/* ACCOUNT */}
             <NavLabel text="Account" />
             <NavItem icon={<User size={16} />} label="Profile" href="/training/dashboard" />
             <NavItem icon={<LogOut size={16} />} label="Sign Out" onClick={handleLogout} />
@@ -255,7 +304,7 @@ export function TrainingShell({ children, activeNav }: TrainingShellProps) {
           { icon: <LayoutDashboard size={18} />, label: 'Home', href: '/training/dashboard', active: currentNav === 'dashboard' },
           { icon: <BookOpen size={18} />, label: 'Courses', href: '/training/dashboard?course=3sfm', active: false },
           { icon: <Video size={18} />, label: 'Live', href: '/training/live-sessions', active: currentNav === 'live-sessions' },
-          { icon: <Award size={18} />, label: 'Achieve', href: '/training/dashboard', active: currentNav === 'certificates' },
+          { icon: <Award size={18} />, label: 'Achieve', href: '/training/dashboard', active: false },
           { icon: <User size={18} />, label: 'Profile', href: '/training/dashboard', active: false },
         ].map(item => (
           <Link key={item.label} href={item.href}
