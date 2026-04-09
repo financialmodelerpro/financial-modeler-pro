@@ -605,8 +605,8 @@ export default function LiveSessionsPage() {
         youtube_embed:      form.youtube_embed,
       };
 
+      // For recorded sessions: keep scheduled_datetime (original live date) but clear live_url
       if (form.type === 'RECORDED') {
-        payload.scheduled_datetime = null;
         payload.live_url = '';
       }
 
@@ -1207,28 +1207,28 @@ export default function LiveSessionsPage() {
                 })}
               </div>
 
-              {(form.type === 'UPCOMING' || form.type === 'LIVE') && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 14 }}>
-                  <div>
-                    <label style={labelStyle}>Date</label>
-                    <input type="date" style={inputStyle} value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Time</label>
-                    <input type="time" style={inputStyle} value={form.time} onChange={e => setForm(f => ({ ...f, time: e.target.value }))} />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Timezone</label>
-                    <select style={inputStyle} value={form.timezone} onChange={e => setForm(f => ({ ...f, timezone: e.target.value }))}>
-                      {TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
-                    </select>
-                  </div>
+              <div style={{ display: 'grid', gridTemplateColumns: form.type === 'RECORDED' ? '1fr 1fr 1fr' : '1fr 1fr 1fr 1fr', gap: 14 }}>
+                <div>
+                  <label style={labelStyle}>{form.type === 'RECORDED' ? 'Session Date' : 'Date'}</label>
+                  <input type="date" style={inputStyle} value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Time</label>
+                  <input type="time" style={inputStyle} value={form.time} onChange={e => setForm(f => ({ ...f, time: e.target.value }))} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Timezone</label>
+                  <select style={inputStyle} value={form.timezone} onChange={e => setForm(f => ({ ...f, timezone: e.target.value }))}>
+                    {TIMEZONES.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                  </select>
+                </div>
+                {form.type !== 'RECORDED' && (
                   <div>
                     <label style={labelStyle}>Live URL</label>
                     <input style={inputStyle} value={form.live_url} onChange={e => setForm(f => ({ ...f, live_url: e.target.value }))} placeholder="https://zoom.us/..." />
                   </div>
-                </div>
-              )}
+                )}
+              </div>
 
               {/* YouTube URL - always visible */}
               <div style={{ maxWidth: 500, marginTop: 14 }}>

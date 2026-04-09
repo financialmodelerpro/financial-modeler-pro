@@ -107,6 +107,8 @@ export default function LiveSessionsPage() {
   const [loading, setLoading] = useState(true);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [toast, setToast] = useState('');
+  const [regStatus, setRegStatus] = useState<Record<string, { registered: boolean; joinLinkAvailable: boolean }>>({});
+  const [studentEmail, setStudentEmail] = useState('');
 
   function copySessionLink(sessionId: string) {
     const url = `${window.location.origin}/training/live-sessions/${sessionId}`;
@@ -120,11 +122,25 @@ export default function LiveSessionsPage() {
   useEffect(() => {
     const sess = getTrainingSession();
     if (!sess) { router.replace('/training/signin'); return; }
+    setStudentEmail(sess.email);
     Promise.all([
       fetch('/api/training/live-sessions?type=upcoming').then(r => r.json()),
       fetch('/api/training/live-sessions?type=recorded').then(r => r.json()),
-    ]).then(([upRes, recRes]) => {
-      setSessions([...(upRes.sessions ?? []), ...(recRes.sessions ?? [])]);
+    ]).then(async ([upRes, recRes]) => {
+      const all = [...(upRes.sessions ?? []), ...(recRes.sessions ?? [])];
+      setSessions(all);
+      // Fetch registration status for all upcoming sessions
+      const upcomingIds = all.filter(s => s.session_type === 'upcoming' || s.session_type === 'live').map(s => s.id);
+      if (upcomingIds.length > 0) {
+        try {
+          const r = await fetch('/api/training/live-sessions/registration-status-batch', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sessionIds: upcomingIds, email: sess.email }),
+          });
+          const d = await r.json();
+          setRegStatus(d.registrations ?? {});
+        } catch { /* ignore */ }
+      }
     }).catch(() => {}).finally(() => setLoading(false));
   }, [router]);
 
@@ -264,10 +280,30 @@ export default function LiveSessionsPage() {
                       <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 6 }}>{s.duration_minutes} min</div>
                     )}
 
-                    {/* Registration count — placeholder (fetched per-card would be expensive) */}
+                    {/* Duration + seats */}
                     {s.max_attendees && (
-                      <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 8 }}>Limited to {s.max_attendees} seats</div>
+                      <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 6 }}>Limited to {s.max_attendees} seats</div>
                     )}
+
+                    {/* Registration status inline */}
+                    {(() => {
+                      const reg = regStatus[s.id];
+                      if (reg?.registered && reg.joinLinkAvailable) {
+                        return (
+                          <div style={{ background: '#F0FFF4', border: '1px solid #86EFAC', borderRadius: 8, padding: '8px 12px', marginBottom: 10, fontSize: 12, fontWeight: 700, color: '#166534' }}>
+                            Session Starting Soon!
+                          </div>
+                        );
+                      }
+                      if (reg?.registered) {
+                        return (
+                          <div style={{ fontSize: 11, color: '#166534', fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span style={{ color: '#16A34A' }}>{'\u2705'}</span> Registered &middot; Join link available 30 min before
+                          </div>
+                        );
+                      }
+                      return null;
+                    })()}
 
                     {/* Description */}
                     {s.description && (
@@ -277,14 +313,41 @@ export default function LiveSessionsPage() {
                     )}
                     {!s.description && <div style={{ flex: 1 }} />}
 
-                    {/* Action buttons */}
-                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 'auto', paddingTop: 4 }}>
-                      <Link href={`/training/live-sessions/${s.id}`}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '8px 16px', borderRadius: 7, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 12, textDecoration: 'none', flex: 1, justifyContent: 'center' }}>
-                        View & Register &#8594;
-                      </Link>
-                      <CalendarDropdown s={s} />
-                    </div>
+                    {/* Action buttons — state-aware */}
+                    {(() => {
+                      const reg = regStatus[s.id];
+                      if (reg?.registered && reg.joinLinkAvailable) {
+                        return (
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 'auto', paddingTop: 4 }}>
+                            <Link href={`/training/live-sessions/${s.id}`}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '8px 16px', borderRadius: 7, background: '#DC2626', color: '#fff', fontWeight: 700, fontSize: 12, textDecoration: 'none', flex: 1, justifyContent: 'center' }}>
+                              Join Session Now &#8594;
+                            </Link>
+                            <CalendarDropdown s={s} />
+                          </div>
+                        );
+                      }
+                      if (reg?.registered) {
+                        return (
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 'auto', paddingTop: 4 }}>
+                            <Link href={`/training/live-sessions/${s.id}`}
+                              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '8px 16px', borderRadius: 7, background: NAVY, color: '#fff', fontWeight: 700, fontSize: 12, textDecoration: 'none', flex: 1, justifyContent: 'center' }}>
+                              View Session &#8594;
+                            </Link>
+                            <CalendarDropdown s={s} />
+                          </div>
+                        );
+                      }
+                      return (
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginTop: 'auto', paddingTop: 4 }}>
+                          <Link href={`/training/live-sessions/${s.id}`}
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '8px 16px', borderRadius: 7, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 12, textDecoration: 'none', flex: 1, justifyContent: 'center' }}>
+                            View & Register &#8594;
+                          </Link>
+                          <CalendarDropdown s={s} />
+                        </div>
+                      );
+                    })()}
                   </div>
                 </div>
               );
