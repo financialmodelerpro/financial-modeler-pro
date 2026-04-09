@@ -113,6 +113,7 @@ export default function TrainingDashboardPage() {
   const [shareCms, setShareCms]                   = useState<{ title: string; messageTemplate: string }>({ title: '', messageTemplate: '' });
   // Live sessions data
   const [upcomingSessions, setUpcomingSessions]   = useState<LiveSession[]>([]);
+  const [sessionRegStatus, setSessionRegStatus]  = useState<Record<string, { registered: boolean; joinLinkAvailable: boolean }>>({});
   const [hasLiveNow, setHasLiveNow]               = useState(false);
   const [upcomingCount, setUpcomingCount]          = useState(0);
   const [scrolledDown, setScrolledDown]           = useState(false);
@@ -136,15 +137,27 @@ export default function TrainingDashboardPage() {
       .catch(() => {});
   }, []);
 
-  // Fetch live sessions data
+  // Fetch live sessions data + registration status
   useEffect(() => {
+    const sess = getTrainingSession();
     fetch('/api/training/live-sessions?type=upcoming')
       .then(r => r.json())
-      .then((j: { sessions?: LiveSession[] }) => {
+      .then(async (j: { sessions?: LiveSession[] }) => {
         const sessions = j.sessions ?? [];
         setUpcomingSessions(sessions.slice(0, 3));
         setUpcomingCount(sessions.length);
         setHasLiveNow(sessions.some(s => s.session_type === 'live'));
+        // Batch fetch registration status
+        if (sess && sessions.length > 0) {
+          try {
+            const r = await fetch('/api/training/live-sessions/registration-status-batch', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sessionIds: sessions.map(s => s.id), email: sess.email }),
+            });
+            const d = await r.json();
+            setSessionRegStatus(d.registrations ?? {});
+          } catch { /* ignore */ }
+        }
       })
       .catch(() => {});
   }, []);
@@ -636,7 +649,8 @@ export default function TrainingDashboardPage() {
           .dash-stats-grid { grid-template-columns: 1fr 1fr !important; }
           .dash-courses-grid { grid-template-columns: 1fr !important; }
           .dash-quick-actions { grid-template-columns: 1fr 1fr !important; }
-          .dash-live-preview { grid-template-columns: 1fr !important; }
+          .dash-sessions-preview { display: flex !important; overflow-x: auto !important; gap: 12px !important; scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; padding-bottom: 4px; }
+          .dash-sessions-preview > * { min-width: 260px !important; max-width: 300px !important; flex-shrink: 0 !important; scroll-snap-align: start; }
           .dash-badges-grid { grid-template-columns: repeat(3, 1fr) !important; }
           .dash-sticky-breadcrumb { left: 0 !important; }
           .dash-bottom-nav {
@@ -1030,6 +1044,80 @@ export default function TrainingDashboardPage() {
                 </button>
               </div>
 
+              {/* ── TRAINING SESSIONS PREVIEW ──────────────────────────────────── */}
+              {upcomingSessions.length > 0 && (
+                <div style={{ marginBottom: 28 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                    <h2 style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A', margin: 0 }}>Upcoming Training Sessions</h2>
+                    <Link href="/training/live-sessions" style={{ fontSize: 12, fontWeight: 700, color: '#1B4F8A', textDecoration: 'none' }}>
+                      View All &#8594;
+                    </Link>
+                  </div>
+                  <div className="dash-sessions-preview" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
+                    {upcomingSessions.map(s => {
+                      const reg = sessionRegStatus[s.id];
+                      const isLive = s.session_type === 'live';
+                      return (
+                        <div key={s.id} style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                          {/* Banner */}
+                          {s.banner_url ? (
+                            <div style={{ height: 120, background: `url(${s.banner_url}) top/cover`, position: 'relative' }}>
+                              <span style={{ position: 'absolute', top: 6, left: 6, fontSize: 9, fontWeight: 800, padding: '2px 8px', borderRadius: 8, background: isLive ? '#EF4444' : '#3B82F6', color: '#fff' }}>
+                                {isLive ? 'LIVE' : 'UPCOMING'}
+                              </span>
+                            </div>
+                          ) : (
+                            <div style={{ height: 80, background: `linear-gradient(135deg, #0D2E5A, #1B4F8A)`, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                              <span style={{ position: 'absolute', top: 6, left: 6, fontSize: 9, fontWeight: 800, padding: '2px 8px', borderRadius: 8, background: isLive ? '#EF4444' : '#3B82F6', color: '#fff' }}>
+                                {isLive ? 'LIVE' : 'UPCOMING'}
+                              </span>
+                              <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.6)', textAlign: 'center', padding: '0 8px' }}>{s.title}</span>
+                            </div>
+                          )}
+                          {/* Body */}
+                          <div style={{ padding: '10px 12px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                            <div style={{ fontSize: 14, fontWeight: 700, color: '#0D2E5A', marginBottom: 3, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden' }}>{s.title}</div>
+                            {s.instructor_name && <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 4 }}>{s.instructor_name}</div>}
+                            <div style={{ fontSize: 12, color: '#374151', marginBottom: 2 }}>
+                              {s.scheduled_datetime ? new Date(s.scheduled_datetime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
+                              {s.scheduled_datetime ? ` \u00B7 ${new Date(s.scheduled_datetime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}
+                            </div>
+                            {s.duration_minutes && <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 8 }}>{s.duration_minutes} min</div>}
+                            {/* Registration status */}
+                            {reg?.registered && (
+                              <div style={{ fontSize: 11, color: '#166534', fontWeight: 600, marginBottom: 6 }}>{'\u2705'} Registered</div>
+                            )}
+                            <div style={{ marginTop: 'auto' }}>
+                              {reg?.joinLinkAvailable ? (
+                                <Link href={`/training/live-sessions/${s.id}`}
+                                  style={{ display: 'block', textAlign: 'center', padding: '7px 12px', borderRadius: 7, background: '#DC2626', color: '#fff', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
+                                  Join Now &#8594;
+                                </Link>
+                              ) : reg?.registered ? (
+                                <Link href={`/training/live-sessions/${s.id}`}
+                                  style={{ display: 'block', textAlign: 'center', padding: '7px 12px', borderRadius: 7, background: '#0D2E5A', color: '#fff', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
+                                  View Session &#8594;
+                                </Link>
+                              ) : (
+                                <Link href={`/training/live-sessions/${s.id}`}
+                                  style={{ display: 'block', textAlign: 'center', padding: '7px 12px', borderRadius: 7, background: '#2EAA4A', color: '#fff', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
+                                  View & Register &#8594;
+                                </Link>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ textAlign: 'center', marginTop: 12 }}>
+                    <Link href="/training/live-sessions" style={{ fontSize: 12, fontWeight: 700, color: '#1B4F8A', textDecoration: 'none' }}>
+                      View All Training Sessions &#8594;
+                    </Link>
+                  </div>
+                </div>
+              )}
+
               {/* ── MY COURSES ─────────────────────────────────────────────────── */}
               <div style={{ marginBottom: 28 }}>
                 <h2 style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A', margin: '0 0 14px' }}>My Certification Courses</h2>
@@ -1125,41 +1213,6 @@ export default function TrainingDashboardPage() {
                   )}
                 </div>
               </div>
-
-              {/* ── LIVE SESSIONS PREVIEW ──────────────────────────────────────── */}
-              {upcomingSessions.length > 0 && (
-                <div style={{ marginBottom: 28 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                    <h2 style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A', margin: 0 }}>Training Sessions</h2>
-                    <Link href="/training/live-sessions" style={{ fontSize: 12, fontWeight: 700, color: '#1B4F8A', textDecoration: 'none' }}>
-                      View All &#8594;
-                    </Link>
-                  </div>
-                  <div className="dash-live-preview" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-                    {upcomingSessions.map(s => (
-                      <Link key={s.id} href={`/training/live-sessions/${s.id}`}
-                        style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', overflow: 'hidden', textDecoration: 'none', color: '#374151', boxShadow: '0 1px 3px rgba(0,0,0,0.04)', transition: 'box-shadow 0.15s' }}>
-                        {s.banner_url && (
-                          <div style={{ height: 100, background: `url(${s.banner_url}) top/cover`, position: 'relative' }}>
-                            <span style={{ position: 'absolute', top: 8, left: 8, fontSize: 9, fontWeight: 800, padding: '2px 8px', borderRadius: 10, background: s.session_type === 'live' ? '#EF4444' : '#3B82F6', color: '#fff', textTransform: 'uppercase' }}>
-                              {s.session_type === 'live' ? 'LIVE' : 'UPCOMING'}
-                            </span>
-                          </div>
-                        )}
-                        <div style={{ padding: '12px 14px' }}>
-                          <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.title}</div>
-                          <div style={{ fontSize: 11, color: '#9CA3AF' }}>
-                            {s.scheduled_datetime ? new Date(s.scheduled_datetime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : ''}
-                          </div>
-                          {s.instructor_name && (
-                            <div style={{ fontSize: 10, color: '#6B7280', marginTop: 3 }}>{s.instructor_name}</div>
-                          )}
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
-              )}
 
               {/* ── ACHIEVEMENTS SECTION ───────────────────────────────────────── */}
               <div id="dash-achievements" style={{ marginBottom: 28 }}>
