@@ -321,9 +321,19 @@ export default function LiveSessionDetailPage() {
             <DetailCalendarDropdown title={session.title} desc={session.description || ''} liveUrl={session.live_url || ''} dt={session.scheduled_datetime} />
           )}
           <button onClick={copyLink}
-            style={{ padding: '10px 16px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 12, cursor: 'pointer' }}>
-            {copied ? 'Copied!' : 'Copy Link'}
+            style={{ padding: '10px 16px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 12, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            {copied ? '\u2705 Copied!' : '\u{1F517} Copy Link'}
           </button>
+          <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(typeof window !== 'undefined' ? window.location.href : '')}`}
+            target="_blank" rel="noopener noreferrer"
+            style={{ padding: '10px 16px', borderRadius: 8, background: '#0A66C2', color: '#fff', fontWeight: 600, fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            LinkedIn
+          </a>
+          <a href={`https://wa.me/?text=${encodeURIComponent(session.title + ' - ' + (typeof window !== 'undefined' ? window.location.href : ''))}`}
+            target="_blank" rel="noopener noreferrer"
+            style={{ padding: '10px 16px', borderRadius: 8, background: '#25D366', color: '#fff', fontWeight: 600, fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            WhatsApp
+          </a>
         </div>
 
         {/* Session password for logged-in students */}

@@ -98,6 +98,15 @@ export default function LiveSessionsPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<'upcoming' | 'recorded'>('upcoming');
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  function copySessionLink(sessionId: string) {
+    const url = `${window.location.origin}/training/live-sessions/${sessionId}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedId(sessionId);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  }
 
   useEffect(() => {
     const sess = getTrainingSession();
@@ -222,6 +231,11 @@ export default function LiveSessionsPage() {
                       View & Register
                     </Link>
                     <CalendarDropdown s={s} />
+                    <button onClick={() => copySessionLink(s.id)}
+                      title="Copy session link"
+                      style={{ padding: '10px 14px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 12, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      {copiedId === s.id ? '\u2705 Copied!' : '\u{1F517} Share'}
+                    </button>
                   </div>
                   </div>
                 </div>

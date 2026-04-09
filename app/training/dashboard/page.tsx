@@ -3,6 +3,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
+import Cropper from 'react-easy-crop';
+import type { Area } from 'react-easy-crop';
+import {
+  LayoutDashboard, BookOpen, Lock, Video, Award, Medal,
+  FileText, User, LogOut, ChevronLeft, ChevronRight, ArrowLeft,
+} from 'lucide-react';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training/training-session';
 import { useInactivityLogout } from '@/src/hooks/useInactivityLogout';
 import { COURSES } from '@/src/config/courses';
@@ -101,7 +107,7 @@ export default function TrainingDashboardPage() {
   const [timerBypassed, setTimerBypassed]         = useState(false);
   const [studentProfile, setStudentProfile]       = useState<{ job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; display_name?: string; avatar_url?: string } | null>(null);
   const [avatarUploading, setAvatarUploading]     = useState(false);
-  const [avatarPreview, setAvatarPreview]         = useState<{ src: string; blob: Blob } | null>(null);
+  // avatarPreview replaced by cropImageSrc + react-easy-crop
   const sidebarFileInputRef                       = useRef<HTMLInputElement>(null);
   // share CMS text (fetched once, cached 10 min)
   const [shareCms, setShareCms]                   = useState<{ title: string; messageTemplate: string }>({ title: '', messageTemplate: '' });
@@ -109,6 +115,7 @@ export default function TrainingDashboardPage() {
   const [upcomingSessions, setUpcomingSessions]   = useState<LiveSession[]>([]);
   const [hasLiveNow, setHasLiveNow]               = useState(false);
   const [upcomingCount, setUpcomingCount]          = useState(0);
+  const [scrolledDown, setScrolledDown]           = useState(false);
 
   // Restore sidebar state from localStorage (client-only)
   useEffect(() => {
@@ -138,6 +145,13 @@ export default function TrainingDashboardPage() {
         setHasLiveNow(sessions.some(s => s.session_type === 'live'));
       })
       .catch(() => {});
+  }, []);
+
+  // Detect scroll for sticky breadcrumb
+  useEffect(() => {
+    const onScroll = () => setScrolledDown(window.scrollY > 100);
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
   function toggleSidebar() {
@@ -335,30 +349,13 @@ export default function TrainingDashboardPage() {
     }
   }
 
-  function cropImageToSquare(file: File): Promise<Blob> {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const objectUrl = URL.createObjectURL(file);
-      img.onload = () => {
-        URL.revokeObjectURL(objectUrl);
-        const size = Math.min(img.width, img.height);
-        const canvas = document.createElement('canvas');
-        canvas.width = size;
-        canvas.height = size;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) { reject(new Error('Canvas unavailable')); return; }
-        ctx.drawImage(img, (img.width - size) / 2, (img.height - size) / 2, size, size, 0, 0, size, size);
-        canvas.toBlob(blob => {
-          if (blob) resolve(blob);
-          else reject(new Error('Crop failed'));
-        }, 'image/jpeg', 0.92);
-      };
-      img.onerror = () => { URL.revokeObjectURL(objectUrl); reject(new Error('Image load failed')); };
-      img.src = objectUrl;
-    });
-  }
+  // ── Avatar crop state ─────────────────────────────────────────────────────
+  const [cropImageSrc, setCropImageSrc]   = useState<string | null>(null);
+  const [crop, setCrop]                   = useState({ x: 0, y: 0 });
+  const [zoom, setZoom]                   = useState(1);
+  const [croppedAreaPixels, setCroppedAreaPixels] = useState<Area | null>(null);
 
-  async function handleSidebarPhotoSelect(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleSidebarPhotoSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) {
@@ -367,32 +364,54 @@ export default function TrainingDashboardPage() {
       if (sidebarFileInputRef.current) sidebarFileInputRef.current.value = '';
       return;
     }
-    try {
-      const blob = await cropImageToSquare(file);
-      const src = URL.createObjectURL(blob);
-      setAvatarPreview({ src, blob });
-    } catch {
-      setDashToast('Could not load image - try a different file.');
-      setTimeout(() => setDashToast(''), 4000);
-      if (sidebarFileInputRef.current) sidebarFileInputRef.current.value = '';
-    }
+    const src = URL.createObjectURL(file);
+    setCropImageSrc(src);
+    setCrop({ x: 0, y: 0 });
+    setZoom(1);
+    setCroppedAreaPixels(null);
+  }
+
+  function onCropComplete(_: Area, croppedPx: Area) {
+    setCroppedAreaPixels(croppedPx);
+  }
+
+  function getCroppedBlob(imageSrc: string, pixelCrop: Area): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 200;
+        canvas.height = 200;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { reject(new Error('Canvas unavailable')); return; }
+        ctx.drawImage(img, pixelCrop.x, pixelCrop.y, pixelCrop.width, pixelCrop.height, 0, 0, 200, 200);
+        canvas.toBlob(blob => {
+          if (blob) resolve(blob);
+          else reject(new Error('Crop failed'));
+        }, 'image/jpeg', 0.92);
+      };
+      img.onerror = () => reject(new Error('Image load failed'));
+      img.src = imageSrc;
+    });
   }
 
   async function confirmAvatarUpload() {
-    if (!avatarPreview || !localSession) return;
+    if (!cropImageSrc || !croppedAreaPixels || !localSession) return;
     setAvatarUploading(true);
-    const previewSrc = avatarPreview.src;
-    setAvatarPreview(null);
+    const src = cropImageSrc;
+    setCropImageSrc(null);
     if (sidebarFileInputRef.current) sidebarFileInputRef.current.value = '';
     try {
+      const blob = await getCroppedBlob(src, croppedAreaPixels);
+      URL.revokeObjectURL(src);
       const fd = new FormData();
-      fd.append('file', new File([avatarPreview.blob], 'avatar.jpg', { type: 'image/jpeg' }));
+      fd.append('file', new File([blob], 'avatar.jpg', { type: 'image/jpeg' }));
       fd.append('regId', localSession.registrationId);
       const res = await fetch('/api/training/upload-avatar', { method: 'POST', body: fd });
       const data = await res.json() as { url?: string; error?: string };
       if (!res.ok || !data.url) throw new Error(data.error ?? 'Upload failed');
       const busted = `${data.url}?v=${Date.now()}`;
-      URL.revokeObjectURL(previewSrc);
       await fetch('/api/training/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -402,7 +421,7 @@ export default function TrainingDashboardPage() {
       setDashToast('Profile photo updated');
       setTimeout(() => setDashToast(''), 3000);
     } catch {
-      URL.revokeObjectURL(previewSrc);
+      URL.revokeObjectURL(src);
       setDashToast('Upload failed - please try again.');
       setTimeout(() => setDashToast(''), 4000);
     } finally {
@@ -411,8 +430,8 @@ export default function TrainingDashboardPage() {
   }
 
   function cancelAvatarPreview() {
-    if (avatarPreview) URL.revokeObjectURL(avatarPreview.src);
-    setAvatarPreview(null);
+    if (cropImageSrc) URL.revokeObjectURL(cropImageSrc);
+    setCropImageSrc(null);
     if (sidebarFileInputRef.current) sidebarFileInputRef.current.value = '';
   }
 
@@ -530,16 +549,17 @@ export default function TrainingDashboardPage() {
 
   // ── Sidebar nav item helper ────────────────────────────────────────────────
   function SidebarItem({ icon, label, active, onClick, badge, badgeColor, dot, dotColor, tooltip }: {
-    icon: string; label: string; active?: boolean; onClick: () => void;
+    icon: React.ReactNode; label: string; active?: boolean; onClick: () => void;
     badge?: string | number; badgeColor?: string; dot?: boolean; dotColor?: string; tooltip?: string;
   }) {
+    const showBadge = badge != null && (typeof badge === 'string' || Number(badge) > 0);
     if (sidebarCollapsed) {
       return (
         <button onClick={onClick} title={tooltip ?? label}
-          style={{ width: '100%', background: active ? '#1B4F8A' : 'transparent', border: 'none', borderLeft: `3px solid ${active ? '#2EAA4A' : 'transparent'}`, borderRadius: 6, padding: '10px 0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 2, fontSize: 16, position: 'relative', color: '#fff' }}>
-          <span>{icon}</span>
+          style={{ width: '100%', background: active ? '#1B4F8A' : 'transparent', border: 'none', borderLeft: `3px solid ${active ? '#2EAA4A' : 'transparent'}`, borderRadius: 6, padding: '10px 0', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 2, position: 'relative', color: active ? '#fff' : 'rgba(255,255,255,0.6)' }}>
+          {icon}
           {dot && <span style={{ position: 'absolute', top: 6, right: 10, width: 7, height: 7, borderRadius: '50%', background: dotColor ?? '#EF4444', animation: 'pulse-dot 1.5s ease infinite' }} />}
-          {badge != null && Number(badge) > 0 && (
+          {showBadge && (
             <span style={{ position: 'absolute', top: 4, right: 6, fontSize: 8, fontWeight: 800, background: badgeColor ?? '#3B82F6', color: '#fff', padding: '1px 4px', borderRadius: 6, minWidth: 14, textAlign: 'center' }}>{badge}</span>
           )}
         </button>
@@ -548,10 +568,10 @@ export default function TrainingDashboardPage() {
     return (
       <button onClick={onClick}
         style={{ width: '100%', textAlign: 'left', background: active ? '#1B4F8A' : 'transparent', border: 'none', borderLeft: `3px solid ${active ? '#2EAA4A' : 'transparent'}`, borderRadius: 6, padding: '8px 12px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2, transition: 'background 0.15s', color: active ? '#fff' : 'rgba(255,255,255,0.7)', position: 'relative' }}>
-        <span style={{ fontSize: 15, flexShrink: 0 }}>{icon}</span>
-        <span style={{ fontSize: 12, fontWeight: active ? 700 : 600, flex: 1 }}>{label}</span>
+        <span style={{ flexShrink: 0, display: 'flex', alignItems: 'center' }}>{icon}</span>
+        <span style={{ fontSize: 12, fontWeight: active ? 700 : 600, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
         {dot && <span style={{ width: 7, height: 7, borderRadius: '50%', background: dotColor ?? '#EF4444', flexShrink: 0, animation: 'pulse-dot 1.5s ease infinite' }} />}
-        {badge != null && Number(badge) > 0 && (
+        {showBadge && (
           <span style={{ fontSize: 9, fontWeight: 800, background: badgeColor ?? '#3B82F6', color: '#fff', padding: '1px 6px', borderRadius: 8, flexShrink: 0 }}>{badge}</span>
         )}
       </button>
@@ -604,6 +624,7 @@ export default function TrainingDashboardPage() {
           .dash-quick-actions { grid-template-columns: 1fr 1fr !important; }
           .dash-live-preview { grid-template-columns: 1fr !important; }
           .dash-badges-grid { grid-template-columns: repeat(3, 1fr) !important; }
+          .dash-sticky-breadcrumb { left: 0 !important; }
           .dash-bottom-nav {
             display: flex !important;
             position: fixed; bottom: 0; left: 0; right: 0;
@@ -672,15 +693,14 @@ export default function TrainingDashboardPage() {
                 <div style={{ padding: '10px 14px 6px', borderBottom: '1px solid #F3F4F6' }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: '#0D2E5A', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{studentName || 'Student'}</div>
                 </div>
-                {[
-                  { icon: '&#128100;', label: 'Edit Profile', action: () => { setProfileModal(true); setProfileDropdown(false); } },
-                  { icon: '&#128682;', label: 'Logout', action: () => { setProfileDropdown(false); handleLogout(); }, color: '#DC2626' },
-                ].map(item => (
-                  <button key={item.label} onClick={item.action}
-                    style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: 'none', border: 'none', fontSize: 13, color: item.color ?? '#374151', cursor: 'pointer', fontWeight: 600, textAlign: 'left' }}>
-                    <span dangerouslySetInnerHTML={{ __html: item.icon }} /> {item.label}
-                  </button>
-                ))}
+                <button onClick={() => { setProfileModal(true); setProfileDropdown(false); }}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: 'none', border: 'none', fontSize: 13, color: '#374151', cursor: 'pointer', fontWeight: 600, textAlign: 'left' }}>
+                  <User size={14} /> Edit Profile
+                </button>
+                <button onClick={() => { setProfileDropdown(false); handleLogout(); }}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: 'none', border: 'none', fontSize: 13, color: '#DC2626', cursor: 'pointer', fontWeight: 600, textAlign: 'left' }}>
+                  <LogOut size={14} /> Logout
+                </button>
               </div>
             )}
           </div>
@@ -772,7 +792,7 @@ export default function TrainingDashboardPage() {
           <div style={{ padding: sidebarCollapsed ? '8px 4px' : '8px 8px', flex: 1 }}>
 
             {/* Dashboard */}
-            <SidebarItem icon="&#127968;" label="Dashboard" active={activeView === 'overview'} onClick={() => navigateTo('overview')} />
+            <SidebarItem icon={<LayoutDashboard size={16} />} label="Dashboard" active={activeView === 'overview'} onClick={() => navigateTo('overview')} />
 
             {/* MY COURSES */}
             <SidebarLabel text="My Courses" />
@@ -782,18 +802,17 @@ export default function TrainingDashboardPage() {
               const cStats = getCourseStats(cId);
               const isActive = activeView === 'course' && activeCourse === cId;
               const isLocked = cId === 'bvm' && !bvmUnlocked;
-              const icon = c.shortTitle === '3SFM' ? '&#128200;' : '&#127970;';
 
               return (
                 <SidebarItem
                   key={cId}
-                  icon={isLocked ? '&#128274;' : icon}
-                  label={c.shortTitle}
+                  icon={isLocked ? <Lock size={16} /> : <BookOpen size={16} />}
+                  label={c.title}
                   active={isActive}
                   onClick={() => navigateTo('course', cId)}
                   badge={isLocked ? 'LOCKED' : `${cStats.passed}/${cStats.total}`}
                   badgeColor={isLocked ? 'rgba(255,255,255,0.15)' : cStats.pct === 100 ? '#C9A84C' : '#2EAA4A'}
-                  tooltip={isLocked ? `${c.shortTitle} - Complete 3SFM first` : `${c.shortTitle}: ${cStats.passed}/${cStats.total} sessions`}
+                  tooltip={isLocked ? `${c.title} - Complete 3SFM first` : `${c.title}: ${cStats.passed}/${cStats.total} sessions`}
                 />
               );
             })}
@@ -807,7 +826,7 @@ export default function TrainingDashboardPage() {
             {/* TRAINING SESSIONS */}
             <SidebarLabel text="Training Sessions" />
             <SidebarItem
-              icon="&#128250;"
+              icon={<Video size={16} />}
               label="Live Sessions"
               active={false}
               onClick={() => { setMobileSidebarOpen(false); router.push('/training/live-sessions'); }}
@@ -820,10 +839,10 @@ export default function TrainingDashboardPage() {
 
             {/* MY ACHIEVEMENTS */}
             <SidebarLabel text="My Achievements" />
-            <SidebarItem icon="&#127942;" label="Certificates" active={false}
+            <SidebarItem icon={<Award size={16} />} label="Certificates" active={false}
               onClick={() => { if (activeView !== 'overview') navigateTo('overview'); setTimeout(() => document.getElementById('dash-achievements')?.scrollIntoView({ behavior: 'smooth' }), 100); }}
               badge={certificates.length > 0 ? certificates.length : undefined} badgeColor="#C9A84C" />
-            <SidebarItem icon="&#127941;" label="Badges" active={false}
+            <SidebarItem icon={<Medal size={16} />} label="Badges" active={false}
               onClick={() => { if (activeView !== 'overview') navigateTo('overview'); setTimeout(() => document.getElementById('dash-badges')?.scrollIntoView({ behavior: 'smooth' }), 100); }}
               badge={badges.length > 0 ? badges.length : undefined} badgeColor="#F59E0B" />
             {enrolledCourses.map(cId => {
@@ -831,7 +850,7 @@ export default function TrainingDashboardPage() {
               if (!cConfig) return null;
               const cPassed = cConfig.sessions.filter(s => progressMap.get(s.id)?.passed).length;
               return (
-                <SidebarItem key={`tr-${cId}`} icon="&#128196;" label={`${cConfig.shortTitle} Transcript`}
+                <SidebarItem key={`tr-${cId}`} icon={<FileText size={16} />} label={`${cConfig.shortTitle} Transcript`}
                   onClick={() => downloadTranscript(cId)}
                   tooltip={cPassed === 0 ? 'Complete sessions first' : undefined} />
               );
@@ -839,8 +858,8 @@ export default function TrainingDashboardPage() {
 
             {/* ACCOUNT */}
             <SidebarLabel text="Account" />
-            <SidebarItem icon="&#128100;" label="Profile" onClick={() => { setProfileModal(true); setMobileSidebarOpen(false); }} />
-            <SidebarItem icon="&#128682;" label="Sign Out" onClick={handleLogout} />
+            <SidebarItem icon={<User size={16} />} label="Profile" onClick={() => { setProfileModal(true); setMobileSidebarOpen(false); }} />
+            <SidebarItem icon={<LogOut size={16} />} label="Sign Out" onClick={handleLogout} />
           </div>
 
           {/* Collapse toggle */}
@@ -1156,10 +1175,53 @@ export default function TrainingDashboardPage() {
                   </div>
                 )}
 
-                {/* Badges */}
-                <div id="dash-badges" style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: '20px 24px' }}>
+                {/* Certificate Badges (actual badge PNGs) */}
+                {certificates.length > 0 && (
+                  <div id="dash-badges" style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: '20px 24px', marginBottom: 16 }}>
+                    <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0D2E5A', margin: '0 0 14px' }}>Certificate Badges</h3>
+                    <div className="dash-badges-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
+                      {certificates.map(cert => {
+                        const badgeImgUrl = cert.badgeUrl || '';
+                        const learnUrl = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com') : '';
+                        const verifyUrl = cert.certificateId ? `${learnUrl}/verify/${cert.certificateId}` : (cert.verificationUrl ?? '');
+                        const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(verifyUrl)}`;
+                        return (
+                          <div key={cert.certificateId} style={{ textAlign: 'center', padding: '16px 12px', borderRadius: 12, background: '#FFFBF0', border: '1px solid #FDE68A' }}>
+                            <div style={{ width: 80, height: 80, borderRadius: '50%', margin: '0 auto 10px', overflow: 'hidden', background: '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #C9A84C' }}>
+                              {badgeImgUrl ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={badgeImgUrl} alt={`${cert.course} Badge`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              ) : (
+                                <span style={{ fontSize: 28, fontWeight: 800, color: '#C9A84C' }}>{cert.course.slice(0, 2).toUpperCase()}</span>
+                              )}
+                            </div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#0D2E5A', marginBottom: 2 }}>{cert.course.toUpperCase()} Badge</div>
+                            <div style={{ fontSize: 10, color: '#9CA3AF', marginBottom: 10 }}>
+                              Earned {cert.issuedAt ? new Date(cert.issuedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
+                            </div>
+                            <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
+                              {badgeImgUrl && (
+                                <a href={`/api/training/badges/download?certId=${encodeURIComponent(cert.certificateId)}`} target="_blank" rel="noopener noreferrer"
+                                  style={{ padding: '5px 10px', borderRadius: 6, background: '#0D2E5A', color: '#fff', fontSize: 10, fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                  <Award size={11} /> Download
+                                </a>
+                              )}
+                              <a href={linkedInUrl} target="_blank" rel="noopener noreferrer"
+                                style={{ padding: '5px 10px', borderRadius: 6, background: '#0A66C2', color: '#fff', fontSize: 10, fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                LinkedIn
+                              </a>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Progress Badges (gamification) */}
+                <div id={certificates.length === 0 ? 'dash-badges' : undefined} style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: '20px 24px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-                    <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0D2E5A', margin: 0 }}>Badges Earned ({badges.length})</h3>
+                    <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0D2E5A', margin: 0 }}>Progress Badges ({badges.length})</h3>
                   </div>
                   {badges.length > 0 ? (
                     <div className="dash-badges-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
@@ -1235,11 +1297,32 @@ export default function TrainingDashboardPage() {
           {/* ════════════════════════════════════════════════════════════════════ */}
           {!loading && progress && activeView === 'course' && (
             <>
-              {/* Back to overview */}
+              {/* Back to overview — inline */}
               <button onClick={() => navigateTo('overview')}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 6, background: 'none', border: '1px solid #D1D5DB', color: '#6B7280', fontSize: 12, fontWeight: 600, cursor: 'pointer', marginBottom: 16 }}>
-                &#8592; Back to Dashboard
+                <ArrowLeft size={14} /> Back to Dashboard
               </button>
+
+              {/* Sticky breadcrumb bar — appears on scroll */}
+              {scrolledDown && (
+                <div style={{
+                  position: 'fixed', top: 56, left: sidebarW, right: 0, zIndex: 140,
+                  background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(8px)',
+                  borderBottom: '1px solid #E5E7EB', padding: '8px 24px',
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
+                  transition: 'left 0.3s ease',
+                }} className="dash-sticky-breadcrumb">
+                  <button onClick={() => navigateTo('overview')}
+                    style={{ display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none', color: '#1B4F8A', fontSize: 12, fontWeight: 700, cursor: 'pointer', padding: 0 }}>
+                    <ArrowLeft size={14} /> Dashboard
+                  </button>
+                  <span style={{ color: '#D1D5DB', fontSize: 12 }}>/</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#0D2E5A' }}>
+                    {COURSES[displayCourse]?.title ?? displayCourse.toUpperCase()}
+                  </span>
+                </div>
+              )}
 
               <CourseContent
                 courseId={activeCourse === 'bvm' ? 'bvm' : displayCourse}
@@ -1327,26 +1410,52 @@ export default function TrainingDashboardPage() {
         />
       )}
 
-      {/* ── Avatar preview modal ─────────────────────────────────────────────── */}
-      {avatarPreview && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      {/* ── Avatar crop modal (react-easy-crop) ─────────────────────────────── */}
+      {cropImageSrc && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 900, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={cancelAvatarPreview}>
-          <div style={{ background: '#fff', borderRadius: 16, padding: '32px 36px', maxWidth: 340, width: '90%', textAlign: 'center', boxShadow: '0 8px 40px rgba(0,0,0,0.35)' }}
+          <div style={{ background: '#fff', borderRadius: 16, maxWidth: 420, width: '92%', boxShadow: '0 8px 40px rgba(0,0,0,0.35)', overflow: 'hidden' }}
             onClick={e => e.stopPropagation()}>
-            <div style={{ fontSize: 15, fontWeight: 800, color: '#1B3A6B', marginBottom: 6 }}>Preview Profile Photo</div>
-            <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 20 }}>Your photo will be cropped to a circle.</div>
-            <div style={{ width: 120, height: 120, borderRadius: '50%', overflow: 'hidden', margin: '0 auto 24px', border: '3px solid #E8F0FB' }}>
-              <img src={avatarPreview.src} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }} />
+            <div style={{ padding: '20px 24px 12px' }}>
+              <div style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A', marginBottom: 4 }}>Crop Profile Photo</div>
+              <div style={{ fontSize: 12, color: '#6B7280' }}>Drag to reposition. Use the slider to zoom.</div>
             </div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={cancelAvatarPreview}
-                style={{ flex: 1, padding: '10px', background: '#F3F4F6', color: '#374151', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-                Cancel
-              </button>
-              <button onClick={confirmAvatarUpload}
-                style={{ flex: 1, padding: '10px', background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-                Upload
-              </button>
+            <div style={{ position: 'relative', width: '100%', height: 300, background: '#1a1a2e' }}>
+              <Cropper
+                image={cropImageSrc}
+                crop={crop}
+                zoom={zoom}
+                aspect={1}
+                cropShape="round"
+                showGrid={false}
+                onCropChange={setCrop}
+                onZoomChange={setZoom}
+                onCropComplete={onCropComplete}
+              />
+            </div>
+            <div style={{ padding: '16px 24px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
+                <span style={{ fontSize: 11, color: '#9CA3AF', flexShrink: 0, fontWeight: 600 }}>Zoom</span>
+                <input
+                  type="range"
+                  min={1}
+                  max={3}
+                  step={0.05}
+                  value={zoom}
+                  onChange={e => setZoom(Number(e.target.value))}
+                  style={{ flex: 1, accentColor: '#1B4F8A' }}
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={cancelAvatarPreview}
+                  style={{ flex: 1, padding: '11px', background: '#F3F4F6', color: '#374151', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                  Cancel
+                </button>
+                <button onClick={confirmAvatarUpload} disabled={avatarUploading}
+                  style={{ flex: 1, padding: '11px', background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: avatarUploading ? 'not-allowed' : 'pointer', opacity: avatarUploading ? 0.7 : 1 }}>
+                  {avatarUploading ? 'Uploading...' : 'Save Photo'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
