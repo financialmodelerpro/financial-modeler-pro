@@ -7,7 +7,7 @@ import Cropper from 'react-easy-crop';
 import type { Area } from 'react-easy-crop';
 import {
   LayoutDashboard, BookOpen, Lock, Video, Award, Medal,
-  FileText, User, LogOut, ChevronLeft, ChevronRight, ArrowLeft,
+  FileText, User, LogOut, ChevronLeft, ChevronRight, ArrowLeft, Star,
 } from 'lucide-react';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training/training-session';
 import { useInactivityLogout } from '@/src/hooks/useInactivityLogout';
@@ -176,6 +176,7 @@ export default function TrainingDashboardPage() {
     // ── Show cached progress immediately, then refresh in background ─
     const CACHE_KEY = `fmp_progress_${sess.registrationId}`;
     const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+    let cacheHit = false;
     if (!forceRefresh) {
       try {
         const raw = localStorage.getItem(CACHE_KEY);
@@ -184,6 +185,7 @@ export default function TrainingDashboardPage() {
           if (Date.now() - cached.at < CACHE_TTL) {
             setProgress(cached.data);
             setLoading(false);
+            cacheHit = true; // Don't re-set loading=true — show cached data while fetching
           }
         }
       } catch { /* ignore */ }
@@ -192,24 +194,24 @@ export default function TrainingDashboardPage() {
     if (forceRefresh) {
       try { localStorage.removeItem(CACHE_KEY); } catch { /* ignore */ }
     }
-    if (forceRefresh) setRefreshing(true); else setLoading(true);
+    // Only show loading spinner if we don't have cached data to display
+    if (forceRefresh) setRefreshing(true);
+    else if (!cacheHit) setLoading(true);
     setIsFallback(false);
     try {
       const progressParams = new URLSearchParams({ email: sess.email, registrationId: sess.registrationId });
       if (forceRefresh) progressParams.set('refresh', '1');
 
-      const [progressRes, detailsRes, notesRes, profileRes] = await Promise.all([
-        fetch(`/api/training/progress?${progressParams}`),
-        fetch('/api/training/course-details'),
-        fetch(`/api/training/notes?registrationId=${encodeURIComponent(sess.registrationId)}`),
-        fetch(`/api/training/profile?registrationId=${encodeURIComponent(sess.registrationId)}`),
-      ]);
+      // Fetch all data in parallel — each with individual error handling so one failure doesn't block others
+      const safeJson = async <T,>(p: Promise<Response>, fallback: T): Promise<T> => {
+        try { const r = await p; return await r.json() as T; } catch { return fallback; }
+      };
 
       const [json, detailsJson, notesJson, profileJson] = await Promise.all([
-        progressRes.json() as Promise<{ success: boolean; fallback?: boolean; data?: ProgressData }>,
-        detailsRes.json() as Promise<{ sessions?: { tabKey: string; sessionName: string; youtubeUrl: string; formUrl: string; videoDuration: number; isFinal: boolean; hasVideo: boolean }[]; courses?: CourseDescsMap; timerBypassed?: boolean }>,
-        notesRes.json() as Promise<{ notes?: { session_key: string; content: string }[] }>,
-        profileRes.json() as Promise<{ profile?: { job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; streak_days?: number; total_points?: number; display_name?: string; avatar_url?: string } | null }>,
+        safeJson(fetch(`/api/training/progress?${progressParams}`), { success: false } as { success: boolean; fallback?: boolean; data?: ProgressData }),
+        safeJson(fetch('/api/training/course-details'), {} as { sessions?: { tabKey: string; sessionName: string; youtubeUrl: string; formUrl: string; videoDuration: number; isFinal: boolean; hasVideo: boolean }[]; courses?: CourseDescsMap; timerBypassed?: boolean }),
+        safeJson(fetch(`/api/training/notes?registrationId=${encodeURIComponent(sess.registrationId)}`), {} as { notes?: { session_key: string; content: string }[] }),
+        safeJson(fetch(`/api/training/profile?registrationId=${encodeURIComponent(sess.registrationId)}`), {} as { profile?: { job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; streak_days?: number; total_points?: number; display_name?: string; avatar_url?: string } | null }),
       ]);
 
       // Apply notes
@@ -868,6 +870,9 @@ export default function TrainingDashboardPage() {
             {/* ACCOUNT */}
             <SidebarLabel text="Account" />
             <SidebarItem icon={<User size={16} />} label="Profile" onClick={() => { setProfileModal(true); setMobileSidebarOpen(false); }} />
+            {totalPassed >= 1 && !testimonialSubmitted && (
+              <SidebarItem icon={<Star size={16} />} label="Share Experience" onClick={() => { setTestimonialModal('written'); setMobileSidebarOpen(false); }} />
+            )}
             <SidebarItem icon={<LogOut size={16} />} label="Sign Out" onClick={handleLogout} />
           </div>
 

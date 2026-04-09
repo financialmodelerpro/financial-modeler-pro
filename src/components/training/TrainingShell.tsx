@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter, usePathname } from 'next/navigation';
 import {
   LayoutDashboard, BookOpen, Lock, Video, Award, Medal,
-  FileText, User, LogOut, ChevronLeft, ChevronRight,
+  FileText, User, LogOut, ChevronLeft, ChevronRight, Star,
 } from 'lucide-react';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training/training-session';
 import { useInactivityLogout } from '@/src/hooks/useInactivityLogout';
@@ -264,6 +264,7 @@ export function TrainingShell({ children, activeNav }: TrainingShellProps) {
             {/* ACCOUNT */}
             <NavLabel text="Account" />
             <NavItem icon={<User size={16} />} label="Profile" href="/training/dashboard" />
+            <NavItem icon={<Star size={16} />} label="Share Experience" href="/training/submit-testimonial" />
             <NavItem icon={<LogOut size={16} />} label="Sign Out" onClick={handleLogout} />
           </div>
 
