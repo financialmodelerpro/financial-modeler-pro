@@ -164,6 +164,10 @@ export default async function TrainingPage() {
             <Link href="/signin" style={{ color: '#6EE589', textDecoration: 'none', fontWeight: 600 }}>
               Login →
             </Link>
+            {' \u00B7 '}
+            <Link href="/training-sessions" style={{ color: '#6EE589', textDecoration: 'none', fontWeight: 600 }}>
+              View Training Sessions →
+            </Link>
           </p>
         </div>
       </section>
