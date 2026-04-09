@@ -337,10 +337,17 @@ app/admin/
 └── whitelabel/page.tsx
 ```
 
+#### Public Training Sessions (`learn.financialmodelerpro.com/training-sessions`)
+```
+app/training-sessions/
+├── page.tsx                     # Public sessions list (no auth, hero, filter, grid cards)
+└── [id]/page.tsx                # Public session detail (countdown, CTA, instructor, related)
+```
+
 #### Training Hub (`learn.financialmodelerpro.com` → `/training/`)
 ```
 app/training/
-├── page.tsx
+├── page.tsx                     # + UpcomingSessionsPreview component added
 ├── [courseId]/page.tsx
 ├── [courseId]/assessment/page.tsx
 ├── assessment/[tabKey]/page.tsx
@@ -465,6 +472,8 @@ app/api/
 ├── training/live-sessions/[id]/   # GET: single session detail
 ├── training/live-sessions/[id]/register/ # POST: register; DELETE: cancel; GET: status
 ├── training/badges/download/      # GET: redirect to badge image by certId
+├── public/training-sessions/      # GET: public session list (no auth, no live_url/password)
+├── public/training-sessions/[id]/ # GET: public session detail + related (no auth, no live_url/password)
 └── user/account/ + password/ + profile/
 ```
 
@@ -927,3 +936,36 @@ SessionCard shows paperclip icon with count next to session title when attachmen
 - `app/api/training/badges/download/route.ts` — badge image redirect
 - `src/components/training/dashboard/SessionCard.tsx` — attachment count indicator
 - `src/components/training/dashboard/CertificateImageCard.tsx` — cert PDF + badge download + LinkedIn share (pre-existing)
+- `src/components/training/TrainingShell.tsx` — shared layout for training pages (header + sidebar + footer + mobile nav)
+
+---
+
+## Public Training Sessions Pages (Session 2026-04-09)
+
+### Routes
+| Route | Purpose | Auth |
+|-------|---------|------|
+| `/training-sessions` | Public sessions list (hero, filter, grid cards) | No |
+| `/training-sessions/[id]` | Public session detail (countdown, CTA, instructor, related) | No |
+| `/api/public/training-sessions` | Public API: list sessions with reg counts | No |
+| `/api/public/training-sessions/[id]` | Public API: single session detail + related | No |
+
+### Key Rules
+- **NEVER expose** `live_url` or `live_password` on public API routes
+- `youtube_url` only exposed for recorded sessions (not upcoming)
+- Attachments: show file names/types publicly, download requires login
+- Non-logged-in CTAs redirect to `/register?redirect=/training/live-sessions/[id]`
+- Logged-in students redirect to `/training/live-sessions/[id]` (authenticated detail page)
+
+### Learn Homepage Integration
+- `UpcomingSessionsPreview` client component on `app/training/page.tsx`
+- Shows up to 3 upcoming sessions as horizontal cards
+- Auto-hides if no upcoming sessions exist
+- Positioned after Courses section, before How It Works
+
+### Key Files
+- `app/training-sessions/page.tsx` — public list page
+- `app/training-sessions/[id]/page.tsx` — public detail page
+- `app/api/public/training-sessions/route.ts` — public list API
+- `app/api/public/training-sessions/[id]/route.ts` — public detail API
+- `app/training/UpcomingSessionsPreview.tsx` — learn homepage preview section

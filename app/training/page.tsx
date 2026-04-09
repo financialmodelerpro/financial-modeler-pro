@@ -7,6 +7,7 @@ import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { CurriculumCard, type CourseDescription } from './CurriculumCard';
 import { TestimonialsCarousel } from './TestimonialsCarousel';
+import { UpcomingSessionsPreview } from './UpcomingSessionsPreview';
 
 export const revalidate = 300; // 5-minute ISR cache — training page content changes rarely
 
@@ -201,6 +202,9 @@ export default async function TrainingPage() {
           </div>
         </div>
       </section>
+
+      {/* ── Upcoming Training Sessions (client component, auto-hides if none) ─ */}
+      <UpcomingSessionsPreview />
 
       {/* ── Section 3 — How It Works ──────────────────────────────────────── */}
       <section style={{ background: '#F5F7FA', padding: 'clamp(48px,7vw,80px) 40px' }}>
