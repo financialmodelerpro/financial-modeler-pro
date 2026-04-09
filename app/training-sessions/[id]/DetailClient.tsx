@@ -8,7 +8,7 @@ export interface DetailSession {
   id: string; title: string; description: string; youtube_url: string | null;
   session_type: string; scheduled_datetime: string; timezone: string; category: string;
   banner_url: string | null; duration_minutes: number | null; max_attendees: number | null;
-  difficulty_level: string; prerequisites: string; instructor_name: string; tags: string[];
+  difficulty_level: string; prerequisites: string; instructor_name: string; instructor_title?: string; tags: string[];
   is_featured: boolean; playlist: { id: string; name: string } | null;
   registration_count: number; youtube_embed?: boolean;
   attachments: { file_name: string; file_type: string; file_size: number }[];
@@ -103,7 +103,12 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
             </div>
 
             <h1 style={{ fontSize: 'clamp(22px,5vw,30px)', fontWeight: 800, color: NAVY, marginBottom: 8, lineHeight: 1.3 }}>{session.title}</h1>
-            {session.instructor_name && <div style={{ fontSize: 15, color: '#6B7280', marginBottom: 10 }}>{session.instructor_name}</div>}
+            {session.instructor_name && (
+              <div style={{ marginBottom: 10 }}>
+                <div style={{ fontSize: 14, color: '#374151' }}><span style={{ color: '#9CA3AF' }}>Trainer:</span> <strong>{session.instructor_name}</strong></div>
+                {session.instructor_title && <div style={{ fontSize: 13, color: '#6B7280' }}><span style={{ color: '#9CA3AF' }}>Title:</span> {session.instructor_title}</div>}
+              </div>
+            )}
 
             {/* Date/time */}
             {session.scheduled_datetime && (
@@ -260,7 +265,7 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
                   </div>
                   <div>
                     <div style={{ fontSize: 15, fontWeight: 700, color: NAVY }}>{session.instructor_name}</div>
-                    <div style={{ fontSize: 12, color: '#6B7280' }}>Financial Modeling Expert</div>
+                    <div style={{ fontSize: 12, color: '#6B7280' }}>{session.instructor_title || 'Financial Modeling Expert'}</div>
                     <Link href="/about/ahmad-din" style={{ fontSize: 12, color: '#1B4F8A', textDecoration: 'none', marginTop: 4, display: 'inline-block' }}>View Profile &#8594;</Link>
                   </div>
                 </div>

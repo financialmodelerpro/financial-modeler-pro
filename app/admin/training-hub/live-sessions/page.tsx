@@ -975,7 +975,7 @@ export default function LiveSessionsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: `2px solid ${BORDER}` }}>
-                  {['Title', 'Type', 'Date / Time', 'Playlist', 'Registered', 'Published', 'Actions'].map(h => (
+                  {['Title', 'Type', 'Date / Time', 'Playlist', 'Registered', 'YouTube', 'Published', 'Actions'].map(h => (
                     <th key={h} style={{ textAlign: 'left', padding: '8px 10px', color: NAVY, fontWeight: 700, fontSize: 11, textTransform: 'uppercase' as const }}>{h}</th>
                   ))}
                 </tr>
@@ -1009,17 +1009,38 @@ export default function LiveSessionsPage() {
                         {s.playlist_name ?? '-'}
                       </td>
                       <td style={{ padding: '10px 10px' }}>
+                        <button onClick={() => openRegModal(s)} style={{ fontSize: 11, color: '#1B4F8A', background: 'none', border: '1px solid #C7D9F2', borderRadius: 4, padding: '3px 8px', cursor: 'pointer', fontWeight: 600 }}>
+                          View
+                        </button>
+                      </td>
+                      <td style={{ padding: '10px 10px' }}>
+                        {s.youtube_url ? (
+                          <button
+                            title={s.youtube_embed ? 'Embedded: plays within platform. Click to switch to external.' : 'External: opens YouTube in new tab. Click to switch to embedded.'}
+                            onClick={async () => {
+                              const next = !s.youtube_embed;
+                              await fetch(`/api/admin/live-sessions/${s.id}`, {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ youtube_embed: next }),
+                              });
+                              setSessions(prev => prev.map(x => x.id === s.id ? { ...x, youtube_embed: next } : x));
+                              toast(next ? 'Switched to embedded' : 'Switched to external YouTube');
+                            }}
+                            style={{ fontSize: 11, background: 'none', border: '1px solid #D1D5DB', borderRadius: 4, padding: '3px 8px', cursor: 'pointer', color: '#374151', fontWeight: 600 }}>
+                            {s.youtube_embed ? '\u{1F4FA} Embed' : '\u{1F517} External'}
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 10, color: '#D1D5DB' }}>-</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '10px 10px' }}>
                         <span style={{
                           display: 'inline-block', fontSize: 11, fontWeight: 600, padding: '3px 10px',
                           borderRadius: 20,
                           background: s.published ? '#D1FAE5' : '#F3F4F6',
                           color: s.published ? '#065F46' : '#9CA3AF',
                         }}>{s.published ? 'Yes' : 'No'}</span>
-                      </td>
-                      <td style={{ padding: '10px 10px' }}>
-                        <button onClick={() => openRegModal(s)} style={{ fontSize: 11, color: '#1B4F8A', background: 'none', border: '1px solid #C7D9F2', borderRadius: 4, padding: '3px 8px', cursor: 'pointer', fontWeight: 600 }}>
-                          View
-                        </button>
                       </td>
                       <td style={{ padding: '10px 10px' }}>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>

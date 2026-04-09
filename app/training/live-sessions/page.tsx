@@ -259,7 +259,6 @@ export default function LiveSessionsPage() {
 
                     {/* Title */}
                     <h2 style={{ fontSize: 16, fontWeight: 800, color: NAVY, margin: '0 0 4px', lineHeight: 1.3 }}>{s.title}</h2>
-                    {s.instructor_name && <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 8 }}>{s.instructor_name}</div>}
 
                     {/* Date + time */}
                     {s.scheduled_datetime && (
@@ -421,7 +420,6 @@ export default function LiveSessionsPage() {
                             )}
                           </div>
                           <div style={{ fontSize: 15, fontWeight: 700, color: NAVY, marginBottom: 4, lineHeight: 1.3 }}>{s.title}</div>
-                          {s.instructor_name && <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 4 }}>{s.instructor_name}</div>}
                           {s.scheduled_datetime && <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 6 }}>{fmtDate(s.scheduled_datetime)}</div>}
                           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
                             {s.duration_minutes && <span style={{ fontSize: 10, color: '#6B7280' }}>{s.duration_minutes} min</span>}

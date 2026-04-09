@@ -99,7 +99,7 @@ export function SessionsClient({ sessions }: { sessions: PublicSession[] }) {
         <Link href={sessionUrl(s)} style={{ display: 'block', position: 'relative' }}>
           {thumbUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={thumbUrl} alt={s.title} style={{ width: '100%', height: 200, objectFit: 'cover', objectPosition: 'top', display: 'block' }} />
+            <img src={thumbUrl} alt={s.title} style={{ width: '100%', height: 220, objectFit: 'cover', objectPosition: 'top', display: 'block' }} />
           ) : (
             <div style={{ width: '100%', height: 160, background: `linear-gradient(135deg, ${NAVY} 0%, #1B4F8A 60%, #2563EB 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
               <span style={{ fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.7)', textAlign: 'center' }}>{s.title}</span>
@@ -133,7 +133,6 @@ export function SessionsClient({ sessions }: { sessions: PublicSession[] }) {
           )}
 
           <h3 style={{ fontSize: 16, fontWeight: 800, color: NAVY, margin: '0 0 4px', lineHeight: 1.3 }}>{s.title}</h3>
-          {s.instructor_name && <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 6 }}>{s.instructor_name}</div>}
 
           {s.scheduled_datetime && (
             <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>
@@ -247,7 +246,7 @@ export function SessionsClient({ sessions }: { sessions: PublicSession[] }) {
           {upcoming.length > 0 && (
             <div style={{ marginBottom: 40 }}>
               <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 16px' }}>Upcoming Sessions</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
                 {upcoming.map(s => <SessionCard key={s.id} s={s} type="upcoming" />)}
               </div>
             </div>
@@ -256,7 +255,7 @@ export function SessionsClient({ sessions }: { sessions: PublicSession[] }) {
           {recorded.length > 0 && (
             <div id="recordings-section">
               <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 16px' }}>Recordings</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
                 {recorded.map(s => <SessionCard key={s.id} s={s} type="recorded" />)}
               </div>
             </div>

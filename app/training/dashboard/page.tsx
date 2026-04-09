@@ -1077,7 +1077,6 @@ export default function TrainingDashboardPage() {
                           {/* Body */}
                           <div style={{ padding: '10px 12px', flex: 1, display: 'flex', flexDirection: 'column' }}>
                             <div style={{ fontSize: 14, fontWeight: 700, color: '#0D2E5A', marginBottom: 3, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden' }}>{s.title}</div>
-                            {s.instructor_name && <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 4 }}>{s.instructor_name}</div>}
                             <div style={{ fontSize: 12, color: '#374151', marginBottom: 2 }}>
                               {s.scheduled_datetime ? new Date(s.scheduled_datetime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}
                               {s.scheduled_datetime ? ` \u00B7 ${new Date(s.scheduled_datetime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}` : ''}

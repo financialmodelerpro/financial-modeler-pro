@@ -39,11 +39,14 @@ export async function POST(req: NextRequest) {
       let joinLinkAvailable = false;
       if (registered) {
         const session = sessionMap.get(id);
-        if (session?.scheduled_datetime && session?.live_url) {
+        if (session?.scheduled_datetime) {
+          const now = new Date();
+          const sessionTime = new Date(session.scheduled_datetime);
           const minsBefore = session.show_join_link_minutes_before ?? 30;
-          const showAt = new Date(session.scheduled_datetime);
-          showAt.setMinutes(showAt.getMinutes() - minsBefore);
-          joinLinkAvailable = new Date() >= showAt;
+          const showAt = new Date(sessionTime.getTime() - minsBefore * 60000);
+          const endAt = new Date(sessionTime.getTime() + 180 * 60000); // 3 hours after start
+          // Available from X min before until 3 hours after start, AND live_url must exist
+          joinLinkAvailable = session.live_url ? (now >= showAt && now <= endAt) : false;
         }
       }
       registrations[id] = { registered, joinLinkAvailable };

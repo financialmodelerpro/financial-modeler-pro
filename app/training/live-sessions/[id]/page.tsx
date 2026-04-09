@@ -15,7 +15,7 @@ interface Session {
   banner_url: string | null; duration_minutes: number | null; max_attendees: number | null;
   difficulty_level: string; prerequisites: string; instructor_name: string; tags: string[];
   is_featured: boolean; live_password: string; registration_url: string | null;
-  youtube_embed?: boolean;
+  youtube_embed?: boolean; instructor_title?: string;
 }
 
 function extractYouTubeId(url: string): string | null {
@@ -227,7 +227,12 @@ export default function LiveSessionDetailPage() {
         </div>
 
         <h1 style={{ fontSize: 'clamp(20px,5vw,28px)', fontWeight: 800, color: NAVY, marginBottom: 8, lineHeight: 1.3 }}>{session.title}</h1>
-        {session.instructor_name && <div style={{ fontSize: 14, color: '#6B7280', marginBottom: 8 }}>{session.instructor_name}</div>}
+        {session.instructor_name && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontSize: 14, color: '#374151' }}><span style={{ color: '#9CA3AF' }}>Trainer:</span> <strong>{session.instructor_name}</strong></div>
+            {session.instructor_title && <div style={{ fontSize: 13, color: '#6B7280' }}><span style={{ color: '#9CA3AF' }}>Title:</span> {session.instructor_title}</div>}
+          </div>
+        )}
 
         {session.scheduled_datetime && (
           <div style={{ marginBottom: 16 }}>

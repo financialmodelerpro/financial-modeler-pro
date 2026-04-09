@@ -11,7 +11,7 @@ async function getSession(id: string): Promise<DetailSession | null> {
     const sb = getServerClient();
     const { data, error } = await sb
       .from('live_sessions')
-      .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, tags, is_featured, youtube_url, youtube_embed, playlist_id, live_playlists(id, name)')
+      .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, instructor_title, tags, is_featured, youtube_url, youtube_embed, playlist_id, live_playlists(id, name)')
       .eq('id', id)
       .eq('is_published', true)
       .single();
@@ -63,6 +63,7 @@ async function getSession(id: string): Promise<DetailSession | null> {
       difficulty_level: data.difficulty_level,
       prerequisites: data.prerequisites,
       instructor_name: data.instructor_name,
+      instructor_title: data.instructor_title ?? null,
       tags: data.tags,
       is_featured: data.is_featured,
       youtube_url: data.session_type === 'recorded' ? data.youtube_url : null,
