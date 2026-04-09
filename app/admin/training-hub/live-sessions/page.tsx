@@ -44,6 +44,7 @@ interface LiveSession {
   is_featured?: boolean;
   live_password?: string;
   registration_url?: string;
+  youtube_embed?: boolean;
 }
 
 interface Attachment {
@@ -260,6 +261,7 @@ interface FormState {
   is_featured: boolean;
   live_password: string;
   registration_url: string;
+  youtube_embed: boolean;
 }
 
 const defaultForm: FormState = {
@@ -269,6 +271,7 @@ const defaultForm: FormState = {
   duration_minutes: '', max_attendees: '', difficulty_level: 'All Levels',
   prerequisites: '', instructor_name: 'Ahmad Din', tags: [],
   is_featured: false, live_password: '', registration_url: '',
+  youtube_embed: false,
 };
 
 /* ── Component ─────────────────────────────────────────────────── */
@@ -525,6 +528,7 @@ export default function LiveSessionsPage() {
     is_featured: s.is_featured ?? false,
     live_password: s.live_password ?? '',
     registration_url: s.registration_url ?? '',
+    youtube_embed: s.youtube_embed ?? false,
   };};
 
   const openNewSession = () => {
@@ -598,6 +602,7 @@ export default function LiveSessionsPage() {
         is_featured:        form.is_featured,
         live_password:      form.live_password,
         registration_url:   form.registration_url,
+        youtube_embed:      form.youtube_embed,
       };
 
       if (form.type === 'RECORDED') {
@@ -1238,6 +1243,27 @@ export default function LiveSessionsPage() {
                   placeholder={form.type !== 'RECORDED' ? 'Paste YouTube URL after session is recorded' : 'https://youtube.com/watch?v=...'}
                 />
               </div>
+
+              {/* YouTube Playback Mode */}
+              {form.youtube_url && (
+                <div style={{ maxWidth: 500, marginTop: 14, padding: '14px 16px', borderRadius: 10, background: '#F9FAFB', border: '1px solid #E5E7EB' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8 }}>YouTube Playback Mode</div>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer', marginBottom: 6 }}>
+                    <input type="radio" name="yt_embed" checked={!form.youtube_embed} onChange={() => setForm(f => ({ ...f, youtube_embed: false }))} style={{ marginTop: 2 }} />
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Open on YouTube (recommended)</div>
+                      <div style={{ fontSize: 11, color: '#9CA3AF' }}>Students watch on YouTube — helps with channel views and monetization</div>
+                    </div>
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>
+                    <input type="radio" name="yt_embed" checked={form.youtube_embed} onChange={() => setForm(f => ({ ...f, youtube_embed: true }))} style={{ marginTop: 2 }} />
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Embed in Platform</div>
+                      <div style={{ fontSize: 11, color: '#9CA3AF' }}>Video plays within the dashboard</div>
+                    </div>
+                  </label>
+                </div>
+              )}
 
               {/* Mark as Recorded button for upcoming/live */}
               {editSession && (form.type === 'UPCOMING' || form.type === 'LIVE') && (

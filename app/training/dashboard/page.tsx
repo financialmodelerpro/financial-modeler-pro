@@ -1009,24 +1009,24 @@ export default function TrainingDashboardPage() {
                 {nextAssessment && (
                   <button onClick={() => navigateTo('course', nextAssessment.courseId)}
                     style={{ padding: '12px 14px', borderRadius: 10, background: '#fff', border: '1px solid #E5E7EB', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: '#0D2E5A', transition: 'box-shadow 0.15s', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-                    <span style={{ fontSize: 16 }}>&#128221;</span> Next Assessment
+                    <FileText size={16} /> Next Assessment
                   </button>
                 )}
                 {upcomingSessions.length > 0 && (
                   <Link href="/training/live-sessions"
                     style={{ padding: '12px 14px', borderRadius: 10, background: '#fff', border: '1px solid #E5E7EB', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: '#0D2E5A', textDecoration: 'none', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-                    <span style={{ fontSize: 16 }}>&#128250;</span> Live Session
+                    <Video size={16} /> Live Session
                   </Link>
                 )}
                 {enrolledCourses.length > 0 && (
                   <button onClick={() => downloadTranscript(enrolledCourses[0])} disabled={generating || totalPassed === 0}
                     style={{ padding: '12px 14px', borderRadius: 10, background: '#fff', border: '1px solid #E5E7EB', cursor: totalPassed === 0 ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: totalPassed === 0 ? '#9CA3AF' : '#0D2E5A', opacity: totalPassed === 0 ? 0.6 : 1, boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-                    <span style={{ fontSize: 16 }}>&#128196;</span> {generating ? 'Generating...' : 'Transcript'}
+                    <FileText size={16} /> {generating ? 'Generating...' : 'Transcript'}
                   </button>
                 )}
                 <button onClick={() => document.getElementById('dash-badges')?.scrollIntoView({ behavior: 'smooth' })}
                   style={{ padding: '12px 14px', borderRadius: 10, background: '#fff', border: '1px solid #E5E7EB', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 700, color: '#0D2E5A', boxShadow: '0 1px 3px rgba(0,0,0,0.04)' }}>
-                  <span style={{ fontSize: 16 }}>&#127941;</span> View Badges
+                  <Medal size={16} /> View Badges
                 </button>
               </div>
 
@@ -1039,7 +1039,7 @@ export default function TrainingDashboardPage() {
                     <div style={{ flex: 1, minWidth: 200 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                         <span style={{ fontSize: 10, fontWeight: 800, padding: '3px 10px', borderRadius: 20, background: isLive ? '#EF4444' : '#3B82F6', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                          {isLive ? '&#128308; LIVE NOW' : '&#128197; UPCOMING'}
+                          {isLive ? 'LIVE NOW' : 'UPCOMING'}
                         </span>
                       </div>
                       <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 6 }}>{next.title}</div>
@@ -1075,7 +1075,7 @@ export default function TrainingDashboardPage() {
                     if (isLocked) {
                       return (
                         <div key={cId} style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', minHeight: 200, opacity: 0.7 }}>
-                          <div style={{ fontSize: 36, marginBottom: 12 }}>&#128274;</div>
+                          <div style={{ marginBottom: 12 }}><Lock size={36} color="#9CA3AF" /></div>
                           <div style={{ fontSize: 15, fontWeight: 700, color: '#374151', marginBottom: 6 }}>{c.title}</div>
                           <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 14 }}>Complete 3SFM to unlock</div>
                           <button onClick={() => navigateTo('course', '3sfm')}

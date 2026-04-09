@@ -31,6 +31,20 @@ function fmtTime(iso: string): string {
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
 
+function getEffectiveType(s: { session_type: string; scheduled_datetime?: string }): string {
+  if (s.session_type === 'recorded') return 'recorded';
+  if (s.session_type === 'live') {
+    if (!s.scheduled_datetime) return 'live';
+    const endTime = new Date(s.scheduled_datetime);
+    endTime.setHours(endTime.getHours() + 3);
+    return new Date() > endTime ? 'recorded' : 'live';
+  }
+  if (s.session_type === 'upcoming' && s.scheduled_datetime) {
+    return new Date() > new Date(s.scheduled_datetime) ? 'recorded' : 'upcoming';
+  }
+  return s.session_type;
+}
+
 export default function PublicTrainingSessionsPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
@@ -48,8 +62,8 @@ export default function PublicTrainingSessionsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const upcoming = sessions.filter(s => s.session_type === 'upcoming' || s.session_type === 'live');
-  const recorded = sessions.filter(s => s.session_type === 'recorded');
+  const upcoming = sessions.filter(s => { const t = getEffectiveType(s); return t === 'upcoming' || t === 'live'; });
+  const recorded = sessions.filter(s => getEffectiveType(s) === 'recorded');
   const filtered = filter === 'upcoming' ? upcoming : filter === 'recorded' ? recorded : sessions;
   const nextSession = upcoming[0] ?? null;
   const localTz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
@@ -191,8 +205,9 @@ export default function PublicTrainingSessionsPage() {
           {!loading && filtered.length > 0 && (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 20 }}>
               {filtered.map(s => {
-                const isLive = s.session_type === 'live';
-                const isRecorded = s.session_type === 'recorded';
+                const effType = getEffectiveType(s);
+                const isLive = effType === 'live';
+                const isRecorded = effType === 'recorded';
                 const ytId = extractYouTubeId(s.youtube_url);
                 const thumbUrl = s.banner_url || (isRecorded && ytId ? `https://img.youtube.com/vi/${ytId}/mqdefault.jpg` : null);
 

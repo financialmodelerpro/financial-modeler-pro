@@ -15,6 +15,7 @@ interface Session {
   banner_url: string | null; duration_minutes: number | null; max_attendees: number | null;
   difficulty_level: string; prerequisites: string; instructor_name: string; tags: string[];
   is_featured: boolean; live_password: string; registration_url: string | null;
+  youtube_embed?: boolean;
 }
 
 function extractYouTubeId(url: string): string | null {
@@ -32,6 +33,20 @@ function fmtTime(iso: string): string {
 
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
+
+function getEffectiveType(s: { session_type: string; scheduled_datetime?: string }): string {
+  if (s.session_type === 'recorded') return 'recorded';
+  if (s.session_type === 'live') {
+    if (!s.scheduled_datetime) return 'live';
+    const endTime = new Date(s.scheduled_datetime);
+    endTime.setHours(endTime.getHours() + 3);
+    return new Date() > endTime ? 'recorded' : 'live';
+  }
+  if (s.session_type === 'upcoming' && s.scheduled_datetime) {
+    return new Date() > new Date(s.scheduled_datetime) ? 'recorded' : 'upcoming';
+  }
+  return s.session_type;
+}
 
 function downloadIcs(title: string, desc: string, liveUrl: string, dt: string) {
   const start = new Date(dt);
@@ -177,7 +192,9 @@ export default function LiveSessionDetailPage() {
       );
     }
 
-    const isUpcoming = session.session_type === 'upcoming' || session.session_type === 'live';
+    const effType = getEffectiveType(session);
+    const isUpcoming = effType === 'upcoming' || effType === 'live';
+    const isRecorded = effType === 'recorded';
     const ytId = extractYouTubeId(session.youtube_url);
 
     return (
@@ -197,9 +214,9 @@ export default function LiveSessionDetailPage() {
         {/* Badges */}
         <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
           <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20,
-            background: session.session_type === 'live' ? '#FEF2F2' : isUpcoming ? '#EFF6FF' : '#F3F4F6',
-            color: session.session_type === 'live' ? '#DC2626' : isUpcoming ? '#1D4ED8' : '#6B7280' }}>
-            {session.session_type === 'live' ? 'LIVE NOW' : isUpcoming ? 'UPCOMING' : 'RECORDED'}
+            background: effType === 'live' ? '#FEF2F2' : isUpcoming ? '#EFF6FF' : '#F3F4F6',
+            color: effType === 'live' ? '#DC2626' : isUpcoming ? '#1D4ED8' : '#6B7280' }}>
+            {effType === 'live' ? 'LIVE NOW' : isUpcoming ? 'UPCOMING' : 'RECORDED'}
           </span>
           {session.difficulty_level && session.difficulty_level !== 'All Levels' && (
             <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: '#F3F4F6', color: '#6B7280' }}>{session.difficulty_level}</span>
@@ -244,16 +261,26 @@ export default function LiveSessionDetailPage() {
           </div>
         )}
 
-        {/* Video embed */}
-        {!isUpcoming && ytId && (
-          <div style={{ marginBottom: 24, borderRadius: 12, overflow: 'hidden', background: '#000', aspectRatio: '16/9' }}>
-            <iframe
-              src={`https://www.youtube.com/embed/${ytId}`}
-              width="100%" height="100%" style={{ border: 'none', display: 'block' }}
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-            />
-          </div>
+        {/* Video — embed or external link based on youtube_embed flag */}
+        {isRecorded && session.youtube_url && (
+          session.youtube_embed && ytId ? (
+            <div style={{ marginBottom: 24, borderRadius: 12, overflow: 'hidden', background: '#000', aspectRatio: '16/9' }}>
+              <iframe
+                src={`https://www.youtube.com/embed/${ytId}`}
+                width="100%" height="100%" style={{ border: 'none', display: 'block' }}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            </div>
+          ) : (
+            <div style={{ marginBottom: 24, textAlign: 'center' }}>
+              <a href={session.youtube_url} target="_blank" rel="noopener noreferrer"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '14px 32px', borderRadius: 10, background: '#DC2626', color: '#fff', fontWeight: 700, fontSize: 15, textDecoration: 'none', boxShadow: '0 4px 12px rgba(220,38,38,0.3)' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+                Watch on YouTube
+              </a>
+            </div>
+          )
         )}
 
         {/* Registration */}

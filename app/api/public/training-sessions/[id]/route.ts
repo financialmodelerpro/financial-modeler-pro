@@ -18,7 +18,7 @@ export async function GET(
     const sb = getServerClient();
     const { data } = await sb
       .from('live_sessions')
-      .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, tags, is_featured, youtube_url, playlist_id, live_playlists(id, name)')
+      .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, tags, is_featured, youtube_url, youtube_embed, playlist_id, live_playlists(id, name)')
       .eq('id', id)
       .eq('is_published', true)
       .single();
@@ -73,6 +73,7 @@ export async function GET(
         tags: data.tags,
         is_featured: data.is_featured,
         youtube_url: data.session_type === 'recorded' ? data.youtube_url : null,
+        youtube_embed: data.youtube_embed ?? false,
         playlist: data.live_playlists,
         registration_count: count ?? 0,
         attachments: (atts ?? []).map(a => ({ file_name: a.file_name, file_type: a.file_type, file_size: a.file_size })),

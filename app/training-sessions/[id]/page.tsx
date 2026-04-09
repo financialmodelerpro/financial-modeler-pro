@@ -13,7 +13,7 @@ interface Session {
   banner_url: string | null; duration_minutes: number | null; max_attendees: number | null;
   difficulty_level: string; prerequisites: string; instructor_name: string; tags: string[];
   is_featured: boolean; playlist: { id: string; name: string } | null;
-  registration_count: number;
+  registration_count: number; youtube_embed?: boolean;
   attachments: { file_name: string; file_type: string; file_size: number }[];
   related: { id: string; title: string; banner_url: string | null; session_type: string; scheduled_datetime: string; duration_minutes: number | null; instructor_name: string; difficulty_level: string; youtube_url: string | null }[];
 }
@@ -195,15 +195,25 @@ export default function PublicSessionDetailPage() {
             {/* ── RECORDED CTA ──────────────────────────────────────────────── */}
             {isRecorded && (
               <div style={{ background: isLoggedIn ? '#fff' : '#F0F7FF', border: `2px solid ${isLoggedIn ? '#E5E7EB' : '#93C5FD'}`, borderRadius: 14, padding: 24, marginBottom: 24 }}>
-                {isLoggedIn && ytId ? (
-                  <div style={{ borderRadius: 12, overflow: 'hidden', background: '#000', aspectRatio: '16/9' }}>
-                    <iframe
-                      src={`https://www.youtube.com/embed/${ytId}`}
-                      width="100%" height="100%" style={{ border: 'none', display: 'block' }}
-                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                      allowFullScreen
-                    />
-                  </div>
+                {isLoggedIn && session.youtube_url ? (
+                  session.youtube_embed && ytId ? (
+                    <div style={{ borderRadius: 12, overflow: 'hidden', background: '#000', aspectRatio: '16/9' }}>
+                      <iframe
+                        src={`https://www.youtube.com/embed/${ytId}`}
+                        width="100%" height="100%" style={{ border: 'none', display: 'block' }}
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      />
+                    </div>
+                  ) : (
+                    <div style={{ textAlign: 'center', padding: 20 }}>
+                      <a href={session.youtube_url} target="_blank" rel="noopener noreferrer"
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '14px 32px', borderRadius: 10, background: '#DC2626', color: '#fff', fontWeight: 700, fontSize: 15, textDecoration: 'none', boxShadow: '0 4px 12px rgba(220,38,38,0.3)' }}>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+                        Watch on YouTube
+                      </a>
+                    </div>
+                  )
                 ) : (
                   <div style={{ textAlign: 'center' }}>
                     <div style={{ fontSize: 40, marginBottom: 12 }}>&#127916;</div>

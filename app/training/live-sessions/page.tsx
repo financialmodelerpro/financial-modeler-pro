@@ -46,6 +46,21 @@ function downloadIcs(s: Session) {
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
 
+/** Display-only: treat past upcoming sessions as recorded (does NOT change DB) */
+function getEffectiveType(s: { session_type: string; scheduled_datetime?: string }): string {
+  if (s.session_type === 'recorded') return 'recorded';
+  if (s.session_type === 'live') {
+    if (!s.scheduled_datetime) return 'live';
+    const endTime = new Date(s.scheduled_datetime);
+    endTime.setHours(endTime.getHours() + 3);
+    return new Date() > endTime ? 'recorded' : 'live';
+  }
+  if (s.session_type === 'upcoming' && s.scheduled_datetime) {
+    return new Date() > new Date(s.scheduled_datetime) ? 'recorded' : 'upcoming';
+  }
+  return s.session_type;
+}
+
 function CalendarDropdown({ s }: { s: Session }) {
   const [open, setOpen] = useState(false);
   if (!s.scheduled_datetime) return null;
@@ -114,8 +129,8 @@ export default function LiveSessionsPage() {
     }).catch(() => {}).finally(() => setLoading(false));
   }, [router]);
 
-  const upcoming = sessions.filter(s => s.session_type === 'upcoming' || s.session_type === 'live');
-  const recorded = sessions.filter(s => s.session_type === 'recorded');
+  const upcoming = sessions.filter(s => { const t = getEffectiveType(s); return t === 'upcoming' || t === 'live'; });
+  const recorded = sessions.filter(s => getEffectiveType(s) === 'recorded');
   const localTz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
 
   function localTime(iso: string): string {
@@ -184,7 +199,7 @@ export default function LiveSessionsPage() {
         ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
             {upcoming.map(s => {
-              const isLive = s.session_type === 'live';
+              const isLive = getEffectiveType(s) === 'live';
               return (
                 <div key={s.id} className="ls-card" style={{
                   background: '#fff', borderRadius: 12, overflow: 'hidden',
@@ -250,11 +265,11 @@ export default function LiveSessionsPage() {
                     {s.scheduled_datetime && (
                       <div style={{ marginBottom: 6 }}>
                         <div style={{ fontSize: 12, color: '#374151' }}>
-                          &#128197; {fmtDate(s.scheduled_datetime)} &middot; {fmtTime(s.scheduled_datetime)} ({s.timezone})
+                          {fmtDate(s.scheduled_datetime)} &middot; {fmtTime(s.scheduled_datetime)} ({s.timezone})
                         </div>
                         {localTz && localTz !== s.timezone && (
                           <div style={{ fontSize: 11, color: '#1B4F8A', marginTop: 2 }}>
-                            &#128336; Your time: {localTime(s.scheduled_datetime)}
+                            Your time: {localTime(s.scheduled_datetime)}
                           </div>
                         )}
                       </div>
@@ -262,7 +277,7 @@ export default function LiveSessionsPage() {
 
                     {/* Duration */}
                     {s.duration_minutes && (
-                      <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 6 }}>&#9201; {s.duration_minutes} min</div>
+                      <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 6 }}>{s.duration_minutes} min</div>
                     )}
 
                     {/* Registration count — placeholder (fetched per-card would be expensive) */}
@@ -367,8 +382,8 @@ export default function LiveSessionsPage() {
                           {s.instructor_name && <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 4 }}>{s.instructor_name}</div>}
                           {s.scheduled_datetime && <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 6 }}>{fmtDate(s.scheduled_datetime)}</div>}
                           <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 10 }}>
-                            {s.duration_minutes && <span style={{ fontSize: 10, color: '#6B7280' }}>&#9201; {s.duration_minutes} min</span>}
-                            {s.attachments.length > 0 && <span style={{ fontSize: 10, color: '#6B7280' }}>&#128206; {s.attachments.length} file{s.attachments.length > 1 ? 's' : ''}</span>}
+                            {s.duration_minutes && <span style={{ fontSize: 10, color: '#6B7280' }}>{s.duration_minutes} min</span>}
+                            {s.attachments.length > 0 && <span style={{ fontSize: 10, color: '#6B7280' }}>{s.attachments.length} file{s.attachments.length > 1 ? 's' : ''}</span>}
                           </div>
                           <div style={{ marginTop: 'auto' }}>
                             <Link href={`/training/live-sessions/${s.id}`}
