@@ -1,3 +1,4 @@
+// v2.2-force-deploy
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
