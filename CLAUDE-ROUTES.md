@@ -1,0 +1,306 @@
+# Routes & Folder Structure
+
+> Referenced from CLAUDE.md — all page routes, API routes, components, and lib structure.
+
+---
+
+## `app/` — Routes by subdomain
+
+### Main Site (`financialmodelerpro.com`)
+```
+app/
+├── (cms)/[slug]/page.tsx        # Dynamic CMS catch-all
+├── (portal)/page.tsx            # Legacy portal group
+├── layout.tsx                   # Root layout, SessionProvider, Inter font
+├── globals.css                  # SINGLE SOURCE OF TRUTH for all CSS tokens
+├── about/page.tsx
+├── about/ahmad-din/page.tsx
+├── articles/page.tsx
+├── articles/[slug]/page.tsx
+├── confidentiality/page.tsx
+├── contact/page.tsx
+├── forgot-password/page.tsx
+├── login/page.tsx               # Full admin login UI (200 response, no redirect)
+├── portal/page.tsx              # Authenticated app hub (all platforms grid)
+├── pricing/page.tsx
+├── privacy-policy/page.tsx
+├── reset-password/page.tsx
+├── settings/page.tsx
+├── t/[token]/page.tsx
+├── testimonials/submit/page.tsx
+└── verify/[uuid]/page.tsx       # Certificate public verification
+```
+
+### Admin (`financialmodelerpro.com/admin`)
+```
+app/admin/
+├── layout.tsx                   # AdminGuard with AdminProtected child
+├── login/page.tsx               # Two-step login UI, navy bg, gold branding, OTP step
+├── page.tsx                     # PUBLIC landing page (no auth)
+├── dashboard/page.tsx           # Protected entry point -> redirects to /admin/cms
+├── announcements/page.tsx
+├── articles/page.tsx + [id]/ + new/
+├── audit/page.tsx
+├── badge-editor/page.tsx
+├── branding/page.tsx
+├── certificate-editor/page.tsx
+├── certificates/page.tsx
+├── cms/page.tsx
+├── contact/page.tsx
+├── content/page.tsx
+├── founder/page.tsx
+├── health/page.tsx
+├── media/page.tsx
+├── modules/page.tsx
+├── overrides/page.tsx
+├── page-builder/page.tsx         # CMS page list
+├── page-builder/[slug]/page.tsx  # Section editor with drag-and-drop
+├── pages/page.tsx
+├── permissions/page.tsx
+├── plans/page.tsx
+├── pricing/page.tsx
+├── projects/page.tsx
+├── settings/page.tsx
+├── testimonials/page.tsx + modeling/ + training/
+├── training/page.tsx + [courseId]/
+├── training-hub/page.tsx + analytics/ + assessments/ + certificates/ + live-sessions/
+│   + cohorts/ + communications/ + course-details/ + students/
+├── training-settings/page.tsx
+├── transcript-editor/page.tsx
+├── users/page.tsx
+└── whitelabel/page.tsx
+```
+
+### Public Training Sessions
+```
+app/training-sessions/
+├── page.tsx                     # Server component: SSR sessions list
+├── SessionsClient.tsx           # Client: hero, grid cards, countdown, CTAs
+├── [id]/page.tsx                # Server component: SSR session detail
+└── [id]/DetailClient.tsx        # Client: detail with countdown, video, instructor
+```
+
+### Training Hub (`learn.financialmodelerpro.com`)
+```
+app/training/
+├── page.tsx                     # + UpcomingSessionsPreview
+├── UpcomingSessionsPreview.tsx  # 3-column session preview cards
+├── [courseId]/page.tsx
+├── [courseId]/assessment/page.tsx
+├── assessment/[tabKey]/page.tsx
+├── certificate/page.tsx
+├── certificates/page.tsx
+├── confirm-email/page.tsx
+├── dashboard/page.tsx            # Overview + course views, collapsible sidebar
+├── forgot/page.tsx
+├── live-sessions/page.tsx
+├── live-sessions/[id]/page.tsx
+├── login/page.tsx
+├── register/page.tsx
+├── set-password/page.tsx
+├── signin/page.tsx
+├── submit-testimonial/page.tsx
+└── transcript/[token]/page.tsx
+```
+
+### Modeling Hub (`app.financialmodelerpro.com`)
+```
+app/modeling/
+├── page.tsx                     # CTA links use APP_URL constant with fallback
+├── [slug]/page.tsx
+├── confirm-email/page.tsx
+├── dashboard/page.tsx
+├── register/page.tsx            # Standalone signup form
+├── signin/page.tsx              # Sign-in + signup + device OTP
+└── submit-testimonial/page.tsx
+# NOTE: app/modeling/login/page.tsx was DELETED
+
+app/refm/page.tsx                # REFM platform
+app/portal/page.tsx              # Authenticated hub
+```
+
+---
+
+## `app/api/` — API Routes
+
+### Auth (Modeling Hub)
+```
+app/api/auth/
+├── [...nextauth]/route.ts
+├── confirm-email/route.ts         # GET: verify token -> email_confirmed=true
+├── device-verify/route.ts         # POST action:send|check
+├── forgot-password/route.ts
+├── register/route.ts              # POST: hCaptcha + create user + confirm email
+├── resend-confirmation/route.ts   # POST: resend if email_confirmed=false
+└── reset-password/route.ts
+```
+
+### Training (Training Hub)
+```
+app/api/training/
+├── [courseId]/assessment/route.ts + submit/
+├── activity/route.ts
+├── attempt-status/route.ts
+├── certificate/route.ts + certificate-image/
+├── certificates/route.ts
+├── confirm-email/route.ts
+├── course-details/route.ts
+├── device-verify/route.ts
+├── feedback/route.ts
+├── logout/route.ts
+├── notes/route.ts
+├── profile/route.ts
+├── progress/route.ts
+├── proxy-ping/route.ts
+├── questions/route.ts
+├── register/route.ts
+├── resend-confirmation/route.ts
+├── resend-id/route.ts
+├── send-verification/route.ts
+├── set-password/route.ts
+├── submit-assessment/route.ts
+├── submit-testimonial/route.ts
+├── transcript-link/route.ts
+├── upload-avatar/route.ts
+├── validate/route.ts
+├── verify-email/route.ts
+├── badges/download/route.ts
+├── assessment-settings/           # GET: shuffle settings per course
+├── attachments/                   # GET: visible file attachments
+├── live-sessions/                 # GET: published sessions with attachments
+├── live-sessions/[id]/            # GET: single session detail
+├── live-sessions/[id]/register/   # POST/DELETE/GET: register/cancel/status
+├── live-sessions/[id]/watched/    # POST: record watch, 50 points
+└── live-sessions/registration-status-batch/ # POST: batch status
+```
+
+### Admin
+```
+app/api/admin/
+├── announcements/ articles/ asset-types/ audit-log/
+├── assessments/ + attempts/ + questions/
+├── badge-layout/                # GET/POST badge field positions
+├── badge-preview/               # POST: generate badge PNG preview
+├── certificate-layout/ certificates/sync/ certificates/upload-template/
+├── certificates/settings/       # GET/POST auto_generation_enabled
+├── certificates/generate/       # POST: trigger processPendingCertificates()
+├── contact-submissions/ content/ env-check/ founder/ media/ modules/ pages/ permissions/
+├── pricing/features/ + modules/ + plans/
+├── projects/ testimonials/ training/ + [courseId]/lessons/
+├── training-actions/ + [id]/
+├── training-hub/ + analytics/ + assessments/ + certificates/
+│   + cohorts/ + cohorts/[id]/ + communications/ + student-journey/
+│   + student-progress/ + students/
+├── live-playlists/              # CRUD for playlists
+├── live-sessions/               # GET/POST + PUT banner upload
+├── live-sessions/[id]/          # PATCH/DELETE
+├── live-sessions/[id]/notify/   # POST: send emails via Resend
+├── live-sessions/[id]/registrations/ # GET/PATCH
+├── page-sections/               # CRUD for page_sections + cms_pages
+├── reset-attempts/              # POST: reset via Apps Script
+├── training-settings/ users/ whitelabel/
+```
+
+### Other API Routes
+```
+app/api/
+├── agents/market-rates/ + research/
+├── branding/                      # GET: public, PATCH: admin only
+├── cms/ contact/ cron/certificates/ email/send/
+├── export/excel/ + pdf/
+├── health/ modeling/submit-testimonial/
+├── permissions/ projects/ qr/
+├── t/[token]/pdf/
+├── testimonials/ + student/
+├── public/training-sessions/      # GET: public list (no auth, no live_url/password)
+├── public/training-sessions/[id]/ # GET: public detail (no auth, no live_url/password)
+└── user/account/ + password/ + profile/
+```
+
+---
+
+## `src/components/`
+```
+src/components/
+├── admin/
+│   ├── AnnouncementsManager.tsx  AuditLogViewer.tsx  CmsAdminNav.tsx
+│   ├── PermissionsManager.tsx  ProjectsBrowser.tsx
+│   ├── RichTextEditor.tsx       # Tiptap: headings, alignment, images, links
+│   └── SystemHealth.tsx
+├── cms/
+│   ├── SectionRenderer.tsx      # Maps section_type -> component
+│   ├── index.ts
+│   └── sections/ (Hero, Text, RichText, Image, TextImage, Columns, Cards, Cta, Faq, Stats, List,
+│       Testimonials, PricingTable, Video, Banner, Spacer, Embed, Team, Timeline, LogoGrid, Countdown)
+├── sessions/
+│   └── SessionCard.tsx              # Universal live session card (variant: student|public, compact mode)
+├── landing/
+│   ├── AdminEditBar.tsx  ArticleCard.tsx  CategoryFilter.tsx
+│   ├── CourseCard.tsx  InlineEdit.tsx  SharedFooter.tsx  VideoPlayer.tsx
+├── layout/
+│   ├── Navbar.tsx               # Absolute <a> tags; DEFAULT_PAGES includes "Training Sessions"
+│   └── NavbarServer.tsx         # absolutizeHref() for DB hrefs
+├── pricing/PricingAccordion.tsx
+├── refm/
+│   ├── Dashboard.tsx  OverviewScreen.tsx  PlanBadge.tsx
+│   ├── ProjectsScreen.tsx  RealEstatePlatform.tsx  Sidebar.tsx  Topbar.tsx
+│   ├── modals/ (Export, Project, Rbac, Version)
+│   └── modules/ (Module1Area, Module1Costs, Module1Financing, Module1Timeline)
+├── shared/
+│   ├── BrandingSettingsPanel.tsx  BrandingThemeApplier.tsx
+│   ├── PhoneInput.tsx  SessionProviderWrapper.tsx  UpgradePrompt.tsx
+│   └── ShareExperienceModal.tsx     # 3-tab testimonial modal for both hubs
+├── training/
+│   ├── CountdownTimer.tsx
+│   ├── TrainingShell.tsx            # Shared layout (header + sidebar + footer + mobile nav)
+│   └── dashboard/
+│       ├── AboutThisCourse.tsx  BvmLockedContent.tsx  CertificateImageCard.tsx
+│       ├── CourseContent.tsx  FeedbackModal.tsx  ProfileModal.tsx
+│       ├── SessionCard.tsx  ShareModal.tsx  Skeleton.tsx  StatusBadge.tsx
+│       ├── FilePreviewModal.tsx  TestimonialModal.tsx  index.ts  types.ts
+└── ui/
+    └── ColorPicker.tsx  OfficeColorPicker.tsx  Toaster.tsx
+```
+
+## `src/lib/`
+```
+src/lib/
+├── email/
+│   ├── sendEmail.ts             # Resend wrapper
+│   └── templates/ (_base, accountConfirmation, certificateIssued, confirmEmail,
+│       deviceVerification, lockedOut, otpVerification, passwordReset,
+│       liveSessionNotification, quizResult, registrationConfirmation, resendRegistrationId)
+├── modeling/real-estate/
+│   ├── export/ (excel-formula, excel-static, pdf)
+│   └── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))
+├── shared/
+│   ├── audit.ts  auth.ts  captcha.ts  cms.ts  deviceTrust.ts
+│   ├── emailConfirmation.ts  password.ts  permissions.ts
+│   ├── storage.ts  supabase.ts  urls.ts
+└── training/
+    ├── appsScript.ts  certificateEngine.ts  certificateLayout.ts  certifier.ts(deprecated)
+    ├── sheets.ts  training-session.ts  videoTimer.ts
+```
+
+## `src/hooks/`
+```
+useInactivityLogout.ts   useProject.ts   useRequireAdmin.ts
+useRequireAuth.ts        useSubscription.ts   useWhiteLabel.ts
+```
+
+## `src/types/`
+```
+branding.types.ts  deck.types.ts  next-auth.d.ts  project.types.ts
+revenue.types.ts  scenario.types.ts  settings.types.ts  subscription.types.ts
+```
+
+## `src/config/`
+```
+courses.ts    # Course + session definitions (3SFM, BVM)
+platforms.ts  # 10 platform definitions — 1 live (REFM), 9 coming soon
+```
+
+## `src/core/`
+```
+branding.ts  core-calculations.ts  core-formatters.ts  core-state.ts  core-validators.ts
+```
