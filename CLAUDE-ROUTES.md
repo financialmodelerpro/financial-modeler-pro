@@ -63,7 +63,7 @@ app/admin/
 ├── settings/page.tsx
 ├── testimonials/page.tsx + modeling/ + training/
 ├── training/page.tsx + [courseId]/
-├── training-hub/page.tsx + analytics/ + assessments/ + certificates/ + live-sessions/
+├── training-hub/page.tsx + analytics/ + assessments/ + certificates/ + live-sessions/ + live-sessions/email-settings/
 │   + cohorts/ + communications/ + course-details/ + students/
 ├── training-settings/page.tsx
 ├── transcript-editor/page.tsx
@@ -199,6 +199,12 @@ app/api/admin/
 ├── page-sections/               # CRUD for page_sections + cms_pages
 ├── reset-attempts/              # POST: reset via Apps Script
 ├── training-settings/ users/ whitelabel/
+├── site-settings/               # GET/PATCH/POST: global site settings + file upload
+├── email-templates/             # GET: all templates + branding
+├── email-templates/branding/    # GET/PATCH: universal email branding
+├── email-templates/[key]/       # GET/PATCH: single template by key
+├── email-templates/[key]/test/  # POST: send test email to admin
+├── live-sessions/[id]/announce/ # POST: manual announcement send
 ```
 
 ### Other API Routes
@@ -206,7 +212,7 @@ app/api/admin/
 app/api/
 ├── agents/market-rates/ + research/
 ├── branding/                      # GET: public, PATCH: admin only
-├── cms/ contact/ cron/certificates/ email/send/
+├── cms/ contact/ cron/certificates/ cron/session-reminders/ email/send/
 ├── export/excel/ + pdf/
 ├── health/ modeling/submit-testimonial/
 ├── permissions/ projects/ qr/
@@ -267,6 +273,7 @@ src/components/
 src/lib/
 ├── email/
 │   ├── sendEmail.ts             # Resend wrapper
+│   ├── sendTemplatedEmail.ts    # CMS-template email sender (placeholder replacement, batching, branded base)
 │   └── templates/ (_base, accountConfirmation, certificateIssued, confirmEmail,
 │       deviceVerification, lockedOut, otpVerification, passwordReset,
 │       liveSessionNotification, quizResult, registrationConfirmation, resendRegistrationId)

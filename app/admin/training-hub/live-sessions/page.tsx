@@ -46,6 +46,7 @@ interface LiveSession {
   live_password?: string;
   registration_url?: string;
   youtube_embed?: boolean;
+  announcement_send_mode?: string;
 }
 
 interface Attachment {
@@ -264,6 +265,7 @@ interface FormState {
   live_password: string;
   registration_url: string;
   youtube_embed: boolean;
+  announcement_send_mode: 'auto' | 'manual';
 }
 
 const defaultForm: FormState = {
@@ -273,7 +275,7 @@ const defaultForm: FormState = {
   duration_minutes: '', max_attendees: '', difficulty_level: 'All Levels',
   prerequisites: '', instructor_name: 'Ahmad Din', instructor_title: '', tags: [],
   is_featured: false, live_password: '', registration_url: '',
-  youtube_embed: false,
+  youtube_embed: false, announcement_send_mode: 'auto',
 };
 
 /* ── Component ─────────────────────────────────────────────────── */
@@ -532,6 +534,7 @@ export default function LiveSessionsPage() {
     live_password: s.live_password ?? '',
     registration_url: s.registration_url ?? '',
     youtube_embed: s.youtube_embed ?? false,
+    announcement_send_mode: (s.announcement_send_mode === 'manual' ? 'manual' : 'auto') as 'auto' | 'manual',
   };};
 
   const openNewSession = () => {
@@ -607,6 +610,7 @@ export default function LiveSessionsPage() {
         live_password:      form.live_password,
         registration_url:   form.registration_url,
         youtube_embed:      form.youtube_embed,
+        announcement_send_mode: form.announcement_send_mode,
       };
 
       // For recorded sessions: keep scheduled_datetime (original live date) but clear live_url
@@ -834,7 +838,11 @@ export default function LiveSessionsPage() {
         {/* ── HEADER ── */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: NAVY, margin: 0 }}>Live Sessions</h1>
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+            <a href="/admin/training-hub/live-sessions/email-settings"
+              style={{ fontSize: 12, fontWeight: 600, color: '#2E75B6', textDecoration: 'none', padding: '6px 12px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff' }}>
+              Email Settings
+            </a>
             <button style={btnSecondary} onClick={() => { setShowNewPlaylist(v => !v); setEditingPlaylist(null); }}>
               + New Playlist
             </button>
@@ -1208,9 +1216,18 @@ export default function LiveSessionsPage() {
                 </div>
 
                 {/* Published + Featured toggles */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 20, paddingTop: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 20, paddingTop: 8, flexWrap: 'wrap' }}>
                   <ToggleSwitch label="Published" value={form.published} onChange={v => setForm(f => ({ ...f, published: v }))} />
                   <ToggleSwitch label="Featured" value={form.is_featured} onChange={v => setForm(f => ({ ...f, is_featured: v }))} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>Announce on publish:</label>
+                    <select style={{ padding: '3px 8px', fontSize: 11, borderRadius: 4, border: '1px solid #D1D5DB' }}
+                      value={form.announcement_send_mode}
+                      onChange={e => setForm(f => ({ ...f, announcement_send_mode: e.target.value as 'auto' | 'manual' }))}>
+                      <option value="auto">Auto</option>
+                      <option value="manual">Manual</option>
+                    </select>
+                  </div>
                 </div>
               </div>
             </div>

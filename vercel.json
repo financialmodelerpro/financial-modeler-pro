@@ -10,6 +10,10 @@
     {
       "path": "/api/cron/certificates",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/session-reminders",
+      "schedule": "*/30 * * * *"
     }
   ],
   "headers": [

@@ -94,6 +94,13 @@
 | `pricing_features` | Feature flags per plan |
 | `pricing_modules` | Module access per plan |
 
+### Email System
+| Table | Purpose |
+|-------|---------|
+| `email_branding` | Universal email logo, signature, footer, primary color (single row) |
+| `email_templates` | Editable templates per email type (announcement, 24h reminder, 1h reminder, recording available) |
+| `site_settings` | Global site settings (header, footer, colors, SEO) — JSONB per key |
+
 ---
 
 ## Database Migrations Log
@@ -140,3 +147,5 @@
 | `039_nav_training_sessions.sql` | "Training Sessions" link in site_pages nav |
 | `040_youtube_embed_toggle.sql` | youtube_embed BOOLEAN on live_sessions |
 | `041_watch_history_instructor_title.sql` | session_watch_history table + instructor_title on live_sessions |
+| `042_site_settings.sql` | site_settings table (header, footer, colors, SEO JSONB) |
+| `043_email_system.sql` | email_branding + email_templates tables, 5 new columns on live_sessions (announcement_sent, announcement_send_mode, reminder_24h_sent, reminder_1h_sent, recording_email_sent) |

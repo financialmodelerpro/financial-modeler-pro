@@ -35,7 +35,8 @@
 | **Admin — Transcript Editor** | ✅ Complete | Header drag-to-position, CMS-driven, PDF Preview |
 | **CMS / Dynamic Nav** | ✅ Complete | `site_pages` table, admin editable |
 | **CMS — Dynamic Page Builder** | ✅ Complete | 11 section types, drag-and-drop, SEO |
-| **Email System** | ✅ Complete | Resend, 11 templates |
+| **Email System** | ✅ Complete | Resend, 11 templates + CMS-controlled branding (logo, signature, footer, primary color via email_branding table) |
+| **Live Session Email Automation** | ✅ Complete | Auto-announcement on publish (or manual), 24h + 1h reminders (cron every 30min), recording-available email, 4 CMS-editable templates with placeholders, test send, admin Email Settings page |
 | **Apps Script Integration** | ✅ Complete | Register student, fetch registration ID, attendance |
 | **REFM Module 1 — Project Setup** | ✅ Complete | Timeline, Land & Area, Dev Costs, Financing |
 | **Excel / PDF Export (REFM)** | ✅ Complete | exceljs static + formula, @react-pdf/renderer |
