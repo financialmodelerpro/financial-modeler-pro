@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { getTrainingSession } from '@/src/lib/training/training-session';
+import { SessionCard, getEffectiveType, type LiveSessionData } from '@/src/components/sessions/SessionCard';
 
 export interface PublicSession {
   id: string; title: string; description: string; youtube_url: string | null;
@@ -11,12 +12,6 @@ export interface PublicSession {
   difficulty_level: string; instructor_name: string; tags: string[]; is_featured: boolean;
   playlist: { id: string; name: string } | null;
   registration_count: number;
-}
-
-function extractYouTubeId(url: string | null): string | null {
-  if (!url) return null;
-  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
-  return m ? m[1] : null;
 }
 
 function fmtDate(iso: string): string {
@@ -28,20 +23,6 @@ function fmtTime(iso: string): string {
 
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
-
-function getEffectiveType(s: { session_type: string; scheduled_datetime?: string }): string {
-  if (s.session_type === 'recorded') return 'recorded';
-  if (s.session_type === 'live') {
-    if (!s.scheduled_datetime) return 'live';
-    const endTime = new Date(s.scheduled_datetime);
-    endTime.setHours(endTime.getHours() + 3);
-    return new Date() > endTime ? 'recorded' : 'live';
-  }
-  if (s.session_type === 'upcoming' && s.scheduled_datetime) {
-    return new Date() > new Date(s.scheduled_datetime) ? 'recorded' : 'upcoming';
-  }
-  return s.session_type;
-}
 
 export function SessionsClient({ sessions }: { sessions: PublicSession[] }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -71,9 +52,6 @@ export function SessionsClient({ sessions }: { sessions: PublicSession[] }) {
     return () => clearInterval(id);
   }, [nextSession]);
 
-  function sessionUrl(s: PublicSession) {
-    return isLoggedIn ? `/training/live-sessions/${s.id}` : `/training-sessions/${s.id}`;
-  }
   function registerUrl(sessionId: string) {
     return isLoggedIn ? `/training/live-sessions/${sessionId}` : `/register?redirect=/training/live-sessions/${sessionId}`;
   }
@@ -81,89 +59,11 @@ export function SessionsClient({ sessions }: { sessions: PublicSession[] }) {
     try { return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: localTz || undefined }); } catch { return ''; }
   }
 
-  // Shared card renderer
-  function SessionCard({ s, type }: { s: PublicSession; type: 'upcoming' | 'recorded' }) {
-    const isLive = getEffectiveType(s) === 'live';
-    const isRec = type === 'recorded';
-    const ytId = extractYouTubeId(s.youtube_url);
-    const thumbUrl = s.banner_url || (isRec && ytId ? `https://img.youtube.com/vi/${ytId}/mqdefault.jpg` : null);
-
-    return (
-      <div className="pts-card" style={{
-        background: '#fff', borderRadius: 12, overflow: 'hidden',
-        border: '1px solid #E5E7EB',
-        borderTop: isLive ? '3px solid #DC2626' : !isRec ? '3px solid #2E75B6' : undefined,
-        boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-        display: 'flex', flexDirection: 'column', position: 'relative',
-      }}>
-        <Link href={sessionUrl(s)} style={{ display: 'block', position: 'relative' }}>
-          {thumbUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={thumbUrl} alt={s.title} style={{ width: '100%', height: 220, objectFit: 'cover', objectPosition: 'top', display: 'block' }} />
-          ) : (
-            <div style={{ width: '100%', height: 160, background: `linear-gradient(135deg, ${NAVY} 0%, #1B4F8A 60%, #2563EB 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
-              <span style={{ fontSize: 15, fontWeight: 700, color: 'rgba(255,255,255,0.7)', textAlign: 'center' }}>{s.title}</span>
-            </div>
-          )}
-          {isRec && (
-            <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.15)' }}>
-              <div style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
-              </div>
-            </div>
-          )}
-          {isLive && (
-            <div style={{ position: 'absolute', top: 10, left: 10, display: 'flex', alignItems: 'center', gap: 5, background: 'rgba(220,38,38,0.95)', padding: '4px 10px', borderRadius: 20, zIndex: 2 }}>
-              <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#fff', animation: 'live-pulse 1.5s ease infinite' }} />
-              <span style={{ fontSize: 10, fontWeight: 800, color: '#fff' }}>LIVE</span>
-            </div>
-          )}
-          {isRec && <span style={{ position: 'absolute', top: 10, left: 10, fontSize: 9, fontWeight: 800, padding: '3px 8px', borderRadius: 10, background: 'rgba(0,0,0,0.6)', color: '#fff' }}>RECORDED</span>}
-        </Link>
-
-        <div style={{ padding: '16px 18px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-          {!isLive && !isRec && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 8px', borderRadius: 12, background: '#EFF6FF', color: '#1D4ED8' }}>UPCOMING</span>
-              {s.difficulty_level && s.difficulty_level !== 'All Levels' && (
-                <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 7px', borderRadius: 10, background: '#F3F4F6', color: '#6B7280' }}>{s.difficulty_level}</span>
-              )}
-              {s.is_featured && <span style={{ fontSize: 9, fontWeight: 800, padding: '2px 7px', borderRadius: 10, background: '#FEF3C7', color: '#B45309' }}>FEATURED</span>}
-            </div>
-          )}
-
-          <h3 style={{ fontSize: 16, fontWeight: 800, color: NAVY, margin: '0 0 4px', lineHeight: 1.3 }}>{s.title}</h3>
-
-          {s.scheduled_datetime && (
-            <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>
-              {fmtDate(s.scheduled_datetime)} &middot; {fmtTime(s.scheduled_datetime)}
-            </div>
-          )}
-          {s.duration_minutes && <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 6 }}>{s.duration_minutes} min</div>}
-
-          {!isRec && s.registration_count > 0 && (
-            <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 6 }}>{s.registration_count} registered</div>
-          )}
-
-          {s.description && (
-            <p style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5, marginBottom: 12, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', flex: 1 }}>{s.description}</p>
-          )}
-          {!s.description && <div style={{ flex: 1 }} />}
-
-          <Link href={isRec ? sessionUrl(s) : registerUrl(s.id)}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '9px 16px', borderRadius: 7, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 12, textDecoration: 'none', width: '100%', marginTop: 'auto' }}>
-            {isRec ? '\u25B6 Watch Recording \u2192' : (isLoggedIn ? 'View & Register \u2192' : 'Register to Join \u2192')}
-          </Link>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <>
       <style>{`
-        .pts-card { transition: box-shadow 0.2s, transform 0.2s; }
-        .pts-card:hover { box-shadow: 0 8px 28px rgba(0,0,0,0.12) !important; transform: translateY(-2px); }
+        .session-card { transition: box-shadow 0.2s, transform 0.2s; }
+        .session-card:hover { box-shadow: 0 8px 28px rgba(0,0,0,0.12) !important; transform: translateY(-2px); }
         @keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
       `}</style>
 
@@ -245,8 +145,8 @@ export function SessionsClient({ sessions }: { sessions: PublicSession[] }) {
           {upcoming.length > 0 && (
             <div style={{ marginBottom: 40 }}>
               <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 16px' }}>Upcoming Sessions</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
-                {upcoming.map(s => <SessionCard key={s.id} s={s} type="upcoming" />)}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 24 }}>
+                {upcoming.map(s => <SessionCard key={s.id} session={s as LiveSessionData} variant="public" />)}
               </div>
             </div>
           )}
@@ -254,8 +154,8 @@ export function SessionsClient({ sessions }: { sessions: PublicSession[] }) {
           {recorded.length > 0 && (
             <div id="recordings-section">
               <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 16px' }}>Recordings</h2>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 }}>
-                {recorded.map(s => <SessionCard key={s.id} s={s} type="recorded" />)}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 24 }}>
+                {recorded.map(s => <SessionCard key={s.id} session={s as LiveSessionData} variant="public" />)}
               </div>
             </div>
           )}

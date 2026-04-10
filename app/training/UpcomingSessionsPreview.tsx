@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { SessionCard, getEffectiveType, type LiveSessionData } from '@/src/components/sessions/SessionCard';
 
 interface Session {
   id: string;
@@ -18,20 +19,6 @@ interface Session {
 
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
-
-function getEffectiveType(s: { session_type: string; scheduled_datetime?: string }): string {
-  if (s.session_type === 'recorded') return 'recorded';
-  if (s.session_type === 'live') {
-    if (!s.scheduled_datetime) return 'live';
-    const endTime = new Date(s.scheduled_datetime);
-    endTime.setHours(endTime.getHours() + 3);
-    return new Date() > endTime ? 'recorded' : 'live';
-  }
-  if (s.session_type === 'upcoming' && s.scheduled_datetime) {
-    return new Date() > new Date(s.scheduled_datetime) ? 'recorded' : 'upcoming';
-  }
-  return s.session_type;
-}
 
 export function UpcomingSessionsPreview() {
   const [allSessions, setAllSessions] = useState<Session[]>([]);
@@ -85,49 +72,15 @@ export function UpcomingSessionsPreview() {
           </p>
         </div>
 
+        <style>{`
+          .session-card { transition: box-shadow 0.2s, transform 0.2s; }
+          .session-card:hover { box-shadow: 0 8px 28px rgba(0,0,0,0.12) !important; transform: translateY(-2px); }
+          @keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        `}</style>
         <div className="tsp-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
-          {display.map(s => {
-            const effType = getEffectiveType(s);
-            const isRec = effType === 'recorded';
-            const isLive = effType === 'live';
-
-            return (
-              <div key={s.id} style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.04)', display: 'flex', flexDirection: 'column' }}>
-                {/* Banner */}
-                {s.banner_url ? (
-                  <div style={{ height: 120, background: `url(${s.banner_url}) top/cover`, position: 'relative' }}>
-                    <span style={{ position: 'absolute', top: 6, left: 6, fontSize: 9, fontWeight: 800, padding: '2px 8px', borderRadius: 8, background: isLive ? '#EF4444' : isRec ? 'rgba(0,0,0,0.6)' : '#3B82F6', color: '#fff' }}>
-                      {isLive ? 'LIVE' : isRec ? 'RECORDED' : 'UPCOMING'}
-                    </span>
-                  </div>
-                ) : (
-                  <div style={{ height: 80, background: `linear-gradient(135deg, ${NAVY}, #1B4F8A)`, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-                    <span style={{ position: 'absolute', top: 6, left: 6, fontSize: 9, fontWeight: 800, padding: '2px 8px', borderRadius: 8, background: isLive ? '#EF4444' : isRec ? 'rgba(0,0,0,0.6)' : '#3B82F6', color: '#fff' }}>
-                      {isLive ? 'LIVE' : isRec ? 'RECORDED' : 'UPCOMING'}
-                    </span>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.6)', textAlign: 'center', padding: '0 8px' }}>{s.title}</span>
-                  </div>
-                )}
-                {/* Body */}
-                <div style={{ padding: '10px 12px', flex: 1, display: 'flex', flexDirection: 'column' }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 3, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden' }}>{s.title}</div>
-                  {s.scheduled_datetime && (
-                    <div style={{ fontSize: 12, color: '#374151', marginBottom: 2 }}>
-                      {new Date(s.scheduled_datetime).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      {` \u00B7 ${new Date(s.scheduled_datetime).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`}
-                    </div>
-                  )}
-                  {s.duration_minutes && <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 8 }}>{s.duration_minutes} min</div>}
-                  <div style={{ marginTop: 'auto' }}>
-                    <Link href={`/training-sessions/${s.id}`}
-                      style={{ display: 'block', textAlign: 'center', padding: '7px 12px', borderRadius: 7, background: isRec ? NAVY : GREEN, color: '#fff', fontWeight: 700, fontSize: 11, textDecoration: 'none' }}>
-                      {isRec ? 'View Recording \u2192' : 'View Session \u2192'}
-                    </Link>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+          {display.map(s => (
+            <SessionCard key={s.id} session={s as LiveSessionData} variant="public" compact />
+          ))}
         </div>
 
         <div style={{ textAlign: 'center', marginTop: 20 }}>
