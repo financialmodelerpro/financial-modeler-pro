@@ -1,3 +1,4 @@
+// cache-bust
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getModules, type Module } from '@/src/lib/shared/cms';
