@@ -385,3 +385,4 @@ export default async function TrainingPage() {
     </div>
   );
 }
+
