@@ -1,8 +1,10 @@
-// cache-bust
+// Last updated: 2026-04-10
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getModules, type Module } from '@/src/lib/shared/cms';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
+
+export const revalidate = 3600; // revalidate every hour
 
 const FALLBACK_MODULES: Module[] = [
   { id:'1',  name:'Real Estate Financial Modeling', slug:'real-estate',        description:'Multi-asset development models covering residential, hospitality, retail, commercial, industrial, and more.', icon:'🏗️', status:'live',        display_order:1,  launch_date:null },
@@ -16,8 +18,6 @@ const FALLBACK_MODULES: Module[] = [
   { id:'9',  name:'Startup & Venture',              slug:'startup-venture',    description:'SaaS unit economics, runway and burn analysis, cap table modeling, cohort analysis, VC returns.',         icon:'🚀', status:'coming_soon', display_order:9,  launch_date:null },
   { id:'10', name:'Banking & Credit',               slug:'banking-credit',     description:'Credit analysis, loan modeling, NPL workout, Basel compliance, portfolio stress testing.',                icon:'🏛️', status:'coming_soon', display_order:10, launch_date:null },
 ];
-
-export const revalidate = 60;
 
 export const metadata: Metadata = {
   title: 'About — Financial Modeler Pro',

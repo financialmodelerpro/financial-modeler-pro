@@ -1,3 +1,4 @@
+// Last updated: 2026-04-10
 /**
  * /contact — Public contact page
  */
@@ -5,6 +6,8 @@ import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { getCmsContent, cms } from '@/src/lib/shared/cms';
 import { ContactForm } from './ContactForm';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
+
+export const revalidate = 3600; // revalidate every hour
 
 export const metadata = {
   title: 'Contact Us — Financial Modeler Pro',

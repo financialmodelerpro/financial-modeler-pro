@@ -1,4 +1,4 @@
-// v2.2-force-deploy
+// Last updated: 2026-04-10
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
@@ -10,7 +10,7 @@ import { CurriculumCard, type CourseDescription } from './CurriculumCard';
 import { TestimonialsCarousel } from './TestimonialsCarousel';
 import { UpcomingSessionsPreview } from './UpcomingSessionsPreview';
 
-export const revalidate = 300; // 5-minute ISR cache — training page content changes rarely
+export const revalidate = 3600; // revalidate every hour
 
 export const metadata: Metadata = {
   title: 'Training Hub — Free Financial Modeling Certification | Financial Modeler Pro',

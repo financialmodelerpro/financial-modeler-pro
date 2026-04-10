@@ -1,3 +1,4 @@
+// Last updated: 2026-04-10
 /**
  * /pricing — Public pricing page
  * Server component with ISR. All data comes from Supabase + CMS.
@@ -10,7 +11,7 @@ import { getServerClient } from '@/src/lib/shared/supabase';
 import { PricingAccordion } from '@/src/components/pricing/PricingAccordion';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 
-export const revalidate = 60;
+export const revalidate = 3600; // revalidate every hour
 
 export const metadata: Metadata = {
   title: 'Pricing — Financial Modeler Pro',

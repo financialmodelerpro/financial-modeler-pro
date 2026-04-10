@@ -1,4 +1,4 @@
-// v2.2-force-deploy
+// Last updated: 2026-04-10
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
@@ -7,7 +7,7 @@ import { getCmsContent, cms, getModules, getTestimonialsForPage } from '@/src/li
 import type { Module } from '@/src/lib/shared/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 
-export const revalidate = 60;
+export const revalidate = 3600; // revalidate every hour
 
 export const metadata: Metadata = {
   title: 'Modeling Hub — Professional Financial Modeling Platforms | Financial Modeler Pro',
