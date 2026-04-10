@@ -2,9 +2,10 @@
  * /contact — Public contact page
  */
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
-import { getCmsContent, cms } from '@/src/lib/shared/cms';
+import { getCmsContent, cms, getPageSections } from '@/src/lib/shared/cms';
 import { ContactForm } from './ContactForm';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
+import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
 
 export const metadata = {
   title: 'Contact Us — Financial Modeler Pro',
@@ -12,7 +13,22 @@ export const metadata = {
 };
 
 export default async function ContactPage() {
-  const content = await getCmsContent();
+  const [content, cmsSections] = await Promise.all([getCmsContent(), getPageSections('contact')]);
+
+  // CMS-driven: if sections exist, render them (contact form still available via embed section)
+  if (cmsSections.length > 0) {
+    const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
+    const footerFounder   = cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder');
+    const footerCopyright = cms(content, 'footer', 'copyright', `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
+    return (
+      <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
+        <NavbarServer />
+        <div style={{ height: 64 }} />
+        <SectionRenderer sections={cmsSections} />
+        <SharedFooter company={footerCompany} founder={footerFounder} copyright={footerCopyright} />
+      </div>
+    );
+  }
 
   const contactEmail   = cms(content, 'contact', 'email',    'hello@financialmodelerpro.com');
   const contactPhone   = cms(content, 'contact', 'phone',    '');

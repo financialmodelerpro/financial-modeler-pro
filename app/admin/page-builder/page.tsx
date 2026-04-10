@@ -19,8 +19,38 @@ export default function PageBuilderListPage() {
   const [showNew, setShowNew] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newSlug, setNewSlug]   = useState('');
+  const [template, setTemplate] = useState('blank');
   const [creating, setCreating] = useState(false);
   const [toast, setToast]       = useState('');
+
+  const PAGE_TEMPLATES: { key: string; label: string; desc: string; sections: { type: string; content: Record<string, unknown> }[] }[] = [
+    { key: 'blank', label: 'Blank', desc: 'Empty page — start from scratch', sections: [] },
+    { key: 'landing', label: 'Landing Page', desc: 'Hero + Features + Testimonials + CTA', sections: [
+      { type: 'hero', content: { badge: '', headline: 'Welcome', subtitle: 'Your message here.', cta1Text: 'Get Started', cta1Url: '/register', cta2Text: 'Learn More', cta2Url: '#features' } },
+      { type: 'cards', content: { heading: 'Features', badge: 'Why Choose Us', cards: [{ icon: '🚀', title: 'Fast', description: 'Lightning fast performance.' }, { icon: '🔒', title: 'Secure', description: 'Enterprise-grade security.' }, { icon: '📊', title: 'Powerful', description: 'Advanced analytics tools.' }] } },
+      { type: 'testimonials', content: { heading: 'What People Say', badge: 'Testimonials', items: [{ photo: '', name: 'Happy Customer', role: 'CEO', quote: 'Amazing product that transformed our workflow.' }] } },
+      { type: 'cta', content: { heading: 'Ready to get started?', subtitle: 'Join thousands of professionals today.', buttonText: 'Sign Up Free', buttonUrl: '/register' } },
+    ]},
+    { key: 'about', label: 'About Page', desc: 'Hero + Story + Team + Stats + CTA', sections: [
+      { type: 'hero', content: { badge: 'About Us', headline: 'Our Story', subtitle: 'Learn about our mission and team.' } },
+      { type: 'text_image', content: { heading: 'Our Mission', html: '<p>We are on a mission to make financial modeling accessible to everyone.</p>', imageSrc: '', imageAlt: 'Mission', imagePosition: 'right', imageWidth: '45%' } },
+      { type: 'team', content: { heading: 'Meet the Team', badge: 'Our People', members: [{ photo: '', name: 'Founder', role: 'CEO', bio: 'Passionate about finance and technology.' }] } },
+      { type: 'stats', content: { items: [{ value: '10,000+', label: 'Users' }, { value: '50+', label: 'Countries' }, { value: '99.9%', label: 'Uptime' }] } },
+      { type: 'cta', content: { heading: 'Join our community', subtitle: '', buttonText: 'Get Started', buttonUrl: '/register' } },
+    ]},
+    { key: 'services', label: 'Services Page', desc: 'Hero + Cards + Columns + FAQ + CTA', sections: [
+      { type: 'hero', content: { badge: 'Services', headline: 'What We Offer', subtitle: 'Comprehensive solutions for your needs.' } },
+      { type: 'cards', content: { heading: 'Our Services', cards: [{ icon: '📈', title: 'Service 1', description: 'Description of service.' }, { icon: '💡', title: 'Service 2', description: 'Description of service.' }] } },
+      { type: 'columns', content: { heading: 'How It Works', badge: 'Process', columns: [{ heading: 'Step 1', html: 'Sign up for free', icon: '1' }, { heading: 'Step 2', html: 'Configure your tools', icon: '2' }, { heading: 'Step 3', html: 'Start modeling', icon: '3' }], count: 3 } },
+      { type: 'faq', content: { heading: 'Frequently Asked Questions', items: [{ question: 'How do I get started?', answer: 'Simply create an account and follow the setup wizard.' }] } },
+      { type: 'cta', content: { heading: 'Ready to begin?', subtitle: '', buttonText: 'Contact Us', buttonUrl: '/contact' } },
+    ]},
+    { key: 'contact', label: 'Contact Page', desc: 'Hero + Text + Embed', sections: [
+      { type: 'hero', content: { badge: 'Contact', headline: 'Get in Touch', subtitle: 'We would love to hear from you.' } },
+      { type: 'text', content: { heading: 'Contact Information', body: 'Email us at hello@example.com or use the form below.' } },
+      { type: 'embed', content: { heading: 'Send a Message', html: '<!-- Paste your contact form embed code here -->' } },
+    ]},
+  ];
 
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(''), 3000); }
 
@@ -43,9 +73,24 @@ export default function PageBuilderListPage() {
       });
       const d = await res.json() as { page?: CmsPage; error?: string };
       if (d.page) {
+        // Create template sections if not blank
+        const tpl = PAGE_TEMPLATES.find(t => t.key === template);
+        if (tpl && tpl.sections.length > 0) {
+          for (let i = 0; i < tpl.sections.length; i++) {
+            await fetch('/api/admin/page-sections', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                page_slug: newSlug.trim(),
+                section_type: tpl.sections[i].type,
+                content: tpl.sections[i].content,
+              }),
+            });
+          }
+        }
         setPages(prev => [...prev, d.page!]);
-        setNewTitle(''); setNewSlug(''); setShowNew(false);
-        showToast('Page created');
+        setNewTitle(''); setNewSlug(''); setTemplate('blank'); setShowNew(false);
+        showToast('Page created' + (tpl && tpl.sections.length ? ` with ${tpl.sections.length} sections` : ''));
       } else {
         showToast(d.error ?? 'Failed');
       }
@@ -119,6 +164,24 @@ export default function PageBuilderListPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 0 }}>
                   <span style={{ padding: '8px 10px', fontSize: 13, background: '#E5E7EB', border: '1px solid #D1D5DB', borderRight: 'none', borderRadius: '6px 0 0 6px', color: '#6B7280' }}>/</span>
                   <input style={{ ...IS, borderRadius: '0 6px 6px 0' }} value={newSlug} onChange={e => setNewSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))} placeholder="our-services" />
+                </div>
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 6 }}>Start from template</label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {PAGE_TEMPLATES.map(t => (
+                    <button key={t.key} onClick={() => setTemplate(t.key)} style={{
+                      padding: '6px 12px', borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      border: template === t.key ? '2px solid #1B4F8A' : '1px solid #D1D5DB',
+                      background: template === t.key ? '#EFF6FF' : '#fff',
+                      color: template === t.key ? '#1B4F8A' : '#374151',
+                    }}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 4 }}>
+                  {PAGE_TEMPLATES.find(t => t.key === template)?.desc}
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>

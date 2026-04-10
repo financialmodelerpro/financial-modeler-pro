@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { RichTextEditor } from '@/src/components/admin/RichTextEditor';
+import { MediaPickerButton } from '@/src/components/admin/MediaPicker';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,17 +31,27 @@ interface CmsPage {
 }
 
 const SECTION_TYPES = [
-  { value: 'hero',       label: 'Hero',           icon: '🎯', desc: 'Large banner with headline, subtitle, and CTAs' },
-  { value: 'text',       label: 'Text',           icon: '📝', desc: 'Simple heading + body text' },
-  { value: 'rich_text',  label: 'Rich Text',      icon: '📄', desc: 'HTML content with badge + heading' },
-  { value: 'image',      label: 'Image',          icon: '🖼️', desc: 'Single image with caption' },
-  { value: 'text_image', label: 'Text + Image',   icon: '📰', desc: 'Side-by-side text and image' },
-  { value: 'columns',    label: 'Columns',        icon: '▤',  desc: '2-4 column grid layout' },
-  { value: 'cards',      label: 'Cards',          icon: '🃏', desc: 'Grid of icon + title + description cards' },
-  { value: 'cta',        label: 'Call to Action',  icon: '📢', desc: 'Colored banner with buttons' },
-  { value: 'faq',        label: 'FAQ',            icon: '❓', desc: 'Accordion Q&A section' },
-  { value: 'stats',      label: 'Stats Bar',      icon: '📊', desc: 'Horizontal stats with values + labels' },
-  { value: 'list',       label: 'List',           icon: '📋', desc: 'Vertical or horizontal item list' },
+  { value: 'hero',          label: 'Hero',            icon: '🎯', desc: 'Large banner with headline, subtitle, and CTAs' },
+  { value: 'text',          label: 'Text',            icon: '📝', desc: 'Simple heading + body text' },
+  { value: 'rich_text',     label: 'Rich Text',       icon: '📄', desc: 'HTML content with badge + heading' },
+  { value: 'image',         label: 'Image',           icon: '🖼️', desc: 'Single image with caption' },
+  { value: 'text_image',    label: 'Text + Image',    icon: '📰', desc: 'Side-by-side text and image' },
+  { value: 'columns',       label: 'Columns',         icon: '▤',  desc: '2-4 column grid layout' },
+  { value: 'cards',         label: 'Cards',           icon: '🃏', desc: 'Grid of icon + title + description cards' },
+  { value: 'cta',           label: 'Call to Action',   icon: '📢', desc: 'Colored banner with buttons' },
+  { value: 'faq',           label: 'FAQ',             icon: '❓', desc: 'Accordion Q&A section' },
+  { value: 'stats',         label: 'Stats Bar',       icon: '📊', desc: 'Horizontal stats with values + labels' },
+  { value: 'list',          label: 'List',            icon: '📋', desc: 'Vertical or horizontal item list' },
+  { value: 'testimonials',  label: 'Testimonials',    icon: '💬', desc: 'Customer testimonial cards with photo + quote' },
+  { value: 'pricing_table', label: 'Pricing Table',   icon: '💰', desc: 'Pricing tiers with features and CTA' },
+  { value: 'video',         label: 'Video',           icon: '🎬', desc: 'Embedded YouTube/Vimeo video' },
+  { value: 'banner',        label: 'Banner',          icon: '🔔', desc: 'Thin announcement bar with optional link' },
+  { value: 'spacer',        label: 'Spacer',          icon: '↕️', desc: 'Adjustable whitespace between sections' },
+  { value: 'embed',         label: 'Embed',           icon: '🧩', desc: 'Raw HTML/iframe embed (forms, maps, widgets)' },
+  { value: 'team',          label: 'Team',            icon: '👥', desc: 'Team member grid with photo, name, role, bio' },
+  { value: 'timeline',      label: 'Timeline',        icon: '📅', desc: 'Vertical timeline with dates and descriptions' },
+  { value: 'logo_grid',     label: 'Logo Grid',       icon: '🏢', desc: 'Client/partner logo grid' },
+  { value: 'countdown',     label: 'Countdown',       icon: '⏱️', desc: 'Countdown timer to a date with CTA' },
 ] as const;
 
 const TYPE_LABELS: Record<string, string> = Object.fromEntries(SECTION_TYPES.map(t => [t.value, `${t.icon} ${t.label}`]));
@@ -56,8 +67,18 @@ const DEFAULT_CONTENT: Record<string, Record<string, unknown>> = {
   cards:      { heading: 'Cards Section', cards: [{ icon: '⭐', title: 'Card 1', description: 'Description' }] },
   cta:        { heading: 'Ready to get started?', subtitle: 'Join us today.', buttonText: 'Get Started', buttonUrl: '/' },
   faq:        { heading: 'Frequently Asked Questions', items: [{ question: 'Question?', answer: 'Answer.' }] },
-  stats:      { items: [{ value: '100+', label: 'Users' }, { value: '50+', label: 'Courses' }] },
-  list:       { heading: 'Features', layout: 'vertical', items: [{ icon: '✓', title: 'Feature 1', description: 'Description' }] },
+  stats:         { items: [{ value: '100+', label: 'Users' }, { value: '50+', label: 'Courses' }] },
+  list:          { heading: 'Features', layout: 'vertical', items: [{ icon: '✓', title: 'Feature 1', description: 'Description' }] },
+  testimonials:  { heading: 'What Our Students Say', badge: 'Testimonials', items: [{ photo: '', name: 'Jane Doe', role: 'Financial Analyst', quote: 'This platform transformed my modeling skills.' }] },
+  pricing_table: { heading: 'Choose Your Plan', badge: 'Pricing', tiers: [{ name: 'Free', price: '$0', period: 'forever', description: 'Get started', features: ['Basic access', 'Community support'], cta_text: 'Start Free', cta_url: '/register', highlighted: false }, { name: 'Pro', price: '$49', period: 'month', description: 'For professionals', features: ['Full access', 'Priority support', 'Export tools'], cta_text: 'Go Pro', cta_url: '/pricing', highlighted: true }] },
+  video:         { url: '', caption: '' },
+  banner:        { text: 'New feature available!', url: '' },
+  spacer:        { height: '60px' },
+  embed:         { heading: '', html: '' },
+  team:          { heading: 'Our Team', badge: 'Team', members: [{ photo: '', name: 'Team Member', role: 'Role', bio: 'Short bio here.' }] },
+  timeline:      { heading: 'Our Journey', badge: 'Timeline', items: [{ date: '2024', title: 'Founded', description: 'Started building the platform.' }] },
+  logo_grid:     { heading: 'Trusted By', badge: 'Partners', logos: [{ src: '', alt: 'Logo', url: '' }], logoHeight: '48px' },
+  countdown:     { heading: 'Launching Soon', subtitle: 'Something big is coming.', targetDate: '', ctaText: 'Get Notified', ctaUrl: '/register', expiredText: 'This event has passed.' },
 };
 
 // ── Shared styles ────────────────────────────────────────────────────────────
@@ -111,7 +132,11 @@ function ImageEditor({ content, onChange }: { content: Record<string, unknown>; 
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   return (
     <>
-      <label style={LS}>Image URL</label><input style={IS} value={(content.src as string) ?? ''} onChange={e => set('src', e.target.value)} placeholder="https://..." />
+      <label style={LS}>Image URL</label>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input style={{ ...IS, flex: 1 }} value={(content.src as string) ?? ''} onChange={e => set('src', e.target.value)} placeholder="https://..." />
+        <MediaPickerButton onSelect={url => set('src', url)} />
+      </div>
       <label style={{ ...LS, marginTop: 10 }}>Alt Text</label><input style={IS} value={(content.alt as string) ?? ''} onChange={e => set('alt', e.target.value)} />
       <label style={{ ...LS, marginTop: 10 }}>Caption</label><input style={IS} value={(content.caption as string) ?? ''} onChange={e => set('caption', e.target.value)} />
     </>
@@ -125,7 +150,11 @@ function TextImageEditor({ content, onChange }: { content: Record<string, unknow
       <label style={LS}>Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
       <label style={{ ...LS, marginTop: 10 }}>Content</label>
       <RichTextEditor value={(content.html as string) ?? ''} onChange={v => set('html', v)} compact />
-      <label style={{ ...LS, marginTop: 10 }}>Image URL</label><input style={IS} value={(content.imageSrc as string) ?? ''} onChange={e => set('imageSrc', e.target.value)} />
+      <label style={{ ...LS, marginTop: 10 }}>Image URL</label>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input style={{ ...IS, flex: 1 }} value={(content.imageSrc as string) ?? ''} onChange={e => set('imageSrc', e.target.value)} />
+        <MediaPickerButton onSelect={url => set('imageSrc', url)} />
+      </div>
       <label style={{ ...LS, marginTop: 10 }}>Image Alt</label><input style={IS} value={(content.imageAlt as string) ?? ''} onChange={e => set('imageAlt', e.target.value)} />
       <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
         <div>
@@ -269,40 +298,274 @@ function ListEditor({ content, onChange }: { content: Record<string, unknown>; o
   );
 }
 
+function TestimonialsEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  const items = (content.items as { photo: string; name: string; role: string; quote: string }[]) ?? [];
+  const set = (k: string, v: string) => onChange({ ...content, [k]: v });
+  const setItems = (next: typeof items) => onChange({ ...content, items: next });
+  return (
+    <>
+      <label style={LS}>Section Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      <label style={LS}>Badge</label><input style={{ ...IS, marginBottom: 10 }} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      {items.map((t, i) => (
+        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB' }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+            <div style={{ flex: 1 }}><label style={LS}>Name</label><input style={IS} value={t.name} onChange={e => { const n = [...items]; n[i] = { ...n[i], name: e.target.value }; setItems(n); }} /></div>
+            <div style={{ flex: 1 }}><label style={LS}>Role</label><input style={IS} value={t.role} onChange={e => { const n = [...items]; n[i] = { ...n[i], role: e.target.value }; setItems(n); }} /></div>
+            <button onClick={() => setItems(items.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11, alignSelf: 'end' }}>X</button>
+          </div>
+          <label style={LS}>Photo URL</label><input style={{ ...IS, marginBottom: 6 }} value={t.photo} onChange={e => { const n = [...items]; n[i] = { ...n[i], photo: e.target.value }; setItems(n); }} placeholder="https://..." />
+          <label style={LS}>Quote</label><textarea style={{ ...TA, minHeight: 50 }} value={t.quote} onChange={e => { const n = [...items]; n[i] = { ...n[i], quote: e.target.value }; setItems(n); }} />
+        </div>
+      ))}
+      <button onClick={() => setItems([...items, { photo: '', name: 'Name', role: 'Role', quote: 'Quote' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Testimonial</button>
+    </>
+  );
+}
+
+function PricingTableEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  const tiers = (content.tiers as { name: string; price: string; period: string; description: string; features: string[]; cta_text: string; cta_url: string; highlighted: boolean }[]) ?? [];
+  const set = (k: string, v: string) => onChange({ ...content, [k]: v });
+  const setTiers = (next: typeof tiers) => onChange({ ...content, tiers: next });
+  return (
+    <>
+      <label style={LS}>Section Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      <label style={LS}>Badge</label><input style={{ ...IS, marginBottom: 10 }} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      {tiers.map((tier, i) => (
+        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: tier.highlighted ? '2px solid #2EAA4A' : '1px solid #E5E7EB' }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'end' }}>
+            <div style={{ flex: 1 }}><label style={LS}>Plan Name</label><input style={IS} value={tier.name} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], name: e.target.value }; setTiers(n); }} /></div>
+            <div style={{ width: 80 }}><label style={LS}>Price</label><input style={IS} value={tier.price} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], price: e.target.value }; setTiers(n); }} /></div>
+            <div style={{ width: 70 }}><label style={LS}>Period</label><input style={IS} value={tier.period} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], period: e.target.value }; setTiers(n); }} placeholder="month" /></div>
+            <label style={{ fontSize: 11, display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer' }}>
+              <input type="checkbox" checked={tier.highlighted} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], highlighted: e.target.checked }; setTiers(n); }} /> Popular
+            </label>
+            <button onClick={() => setTiers(tiers.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11 }}>X</button>
+          </div>
+          <label style={LS}>Description</label><input style={{ ...IS, marginBottom: 6 }} value={tier.description} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], description: e.target.value }; setTiers(n); }} />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
+            <div><label style={LS}>CTA Text</label><input style={IS} value={tier.cta_text} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], cta_text: e.target.value }; setTiers(n); }} /></div>
+            <div><label style={LS}>CTA URL</label><input style={IS} value={tier.cta_url} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], cta_url: e.target.value }; setTiers(n); }} /></div>
+          </div>
+          <label style={LS}>Features (one per line)</label>
+          <textarea style={{ ...TA, minHeight: 60 }} value={tier.features.join('\n')} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], features: e.target.value.split('\n') }; setTiers(n); }} />
+        </div>
+      ))}
+      <button onClick={() => setTiers([...tiers, { name: 'Plan', price: '$0', period: 'month', description: '', features: ['Feature 1'], cta_text: 'Get Started', cta_url: '/', highlighted: false }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Tier</button>
+    </>
+  );
+}
+
+function VideoEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  const set = (k: string, v: string) => onChange({ ...content, [k]: v });
+  return (
+    <>
+      <label style={LS}>YouTube or Vimeo URL</label><input style={IS} value={(content.url as string) ?? ''} onChange={e => set('url', e.target.value)} placeholder="https://youtube.com/watch?v=..." />
+      <label style={{ ...LS, marginTop: 10 }}>Caption</label><input style={IS} value={(content.caption as string) ?? ''} onChange={e => set('caption', e.target.value)} />
+    </>
+  );
+}
+
+function BannerEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  const set = (k: string, v: string) => onChange({ ...content, [k]: v });
+  return (
+    <>
+      <label style={LS}>Banner Text</label><input style={IS} value={(content.text as string) ?? ''} onChange={e => set('text', e.target.value)} />
+      <label style={{ ...LS, marginTop: 10 }}>Link URL (optional)</label><input style={IS} value={(content.url as string) ?? ''} onChange={e => set('url', e.target.value)} placeholder="https://..." />
+    </>
+  );
+}
+
+function SpacerEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  const set = (k: string, v: string) => onChange({ ...content, [k]: v });
+  return (
+    <>
+      <label style={LS}>Height</label><input style={IS} value={(content.height as string) ?? '60px'} onChange={e => set('height', e.target.value)} placeholder="60px" />
+      <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>Use px, rem, or vh units (e.g. 80px, 5rem, 10vh)</div>
+    </>
+  );
+}
+
+function EmbedEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  const set = (k: string, v: string) => onChange({ ...content, [k]: v });
+  return (
+    <>
+      <label style={LS}>Heading (optional)</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      <label style={{ ...LS, marginTop: 10 }}>HTML / Iframe Code</label>
+      <textarea style={{ ...TA, minHeight: 120, fontFamily: 'monospace', fontSize: 12 }} value={(content.html as string) ?? ''} onChange={e => set('html', e.target.value)} placeholder='<iframe src="..."></iframe>' />
+      <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>Paste embed code for Google Maps, forms, calendars, etc.</div>
+    </>
+  );
+}
+
+function TeamEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  const members = (content.members as { photo: string; name: string; role: string; bio: string }[]) ?? [];
+  const set = (k: string, v: string) => onChange({ ...content, [k]: v });
+  const setMembers = (next: typeof members) => onChange({ ...content, members: next });
+  return (
+    <>
+      <label style={LS}>Section Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      <label style={LS}>Badge</label><input style={{ ...IS, marginBottom: 10 }} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      {members.map((m, i) => (
+        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB' }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'end' }}>
+            <div style={{ flex: 1 }}><label style={LS}>Name</label><input style={IS} value={m.name} onChange={e => { const n = [...members]; n[i] = { ...n[i], name: e.target.value }; setMembers(n); }} /></div>
+            <div style={{ flex: 1 }}><label style={LS}>Role</label><input style={IS} value={m.role} onChange={e => { const n = [...members]; n[i] = { ...n[i], role: e.target.value }; setMembers(n); }} /></div>
+            <button onClick={() => setMembers(members.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11 }}>X</button>
+          </div>
+          <label style={LS}>Photo URL</label><input style={{ ...IS, marginBottom: 6 }} value={m.photo} onChange={e => { const n = [...members]; n[i] = { ...n[i], photo: e.target.value }; setMembers(n); }} placeholder="https://..." />
+          <label style={LS}>Bio</label><textarea style={{ ...TA, minHeight: 40 }} value={m.bio} onChange={e => { const n = [...members]; n[i] = { ...n[i], bio: e.target.value }; setMembers(n); }} />
+        </div>
+      ))}
+      <button onClick={() => setMembers([...members, { photo: '', name: 'Name', role: 'Role', bio: 'Bio' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Member</button>
+    </>
+  );
+}
+
+function TimelineEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  const items = (content.items as { date: string; title: string; description: string }[]) ?? [];
+  const set = (k: string, v: string) => onChange({ ...content, [k]: v });
+  const setItems = (next: typeof items) => onChange({ ...content, items: next });
+  return (
+    <>
+      <label style={LS}>Section Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      <label style={LS}>Badge</label><input style={{ ...IS, marginBottom: 10 }} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      {items.map((item, i) => (
+        <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'end' }}>
+          <div style={{ width: 90 }}><label style={LS}>Date</label><input style={IS} value={item.date} onChange={e => { const n = [...items]; n[i] = { ...n[i], date: e.target.value }; setItems(n); }} /></div>
+          <div style={{ flex: 1 }}><label style={LS}>Title</label><input style={IS} value={item.title} onChange={e => { const n = [...items]; n[i] = { ...n[i], title: e.target.value }; setItems(n); }} /></div>
+          <div style={{ flex: 2 }}><label style={LS}>Description</label><input style={IS} value={item.description} onChange={e => { const n = [...items]; n[i] = { ...n[i], description: e.target.value }; setItems(n); }} /></div>
+          <button onClick={() => setItems(items.filter((_, j) => j !== i))} style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>X</button>
+        </div>
+      ))}
+      <button onClick={() => setItems([...items, { date: '2024', title: 'Event', description: 'Description' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Event</button>
+    </>
+  );
+}
+
+function LogoGridEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  const logos = (content.logos as { src: string; alt: string; url: string }[]) ?? [];
+  const set = (k: string, v: string) => onChange({ ...content, [k]: v });
+  const setLogos = (next: typeof logos) => onChange({ ...content, logos: next });
+  return (
+    <>
+      <label style={LS}>Section Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      <label style={LS}>Badge</label><input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      <label style={{ ...LS, marginTop: 6 }}>Logo Height</label><input style={{ ...IS, marginBottom: 10 }} value={(content.logoHeight as string) ?? '48px'} onChange={e => set('logoHeight', e.target.value)} placeholder="48px" />
+      {logos.map((logo, i) => (
+        <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'end' }}>
+          <div style={{ flex: 2 }}><label style={LS}>Image URL</label><input style={IS} value={logo.src} onChange={e => { const n = [...logos]; n[i] = { ...n[i], src: e.target.value }; setLogos(n); }} placeholder="https://..." /></div>
+          <div style={{ flex: 1 }}><label style={LS}>Alt</label><input style={IS} value={logo.alt} onChange={e => { const n = [...logos]; n[i] = { ...n[i], alt: e.target.value }; setLogos(n); }} /></div>
+          <div style={{ flex: 1 }}><label style={LS}>Link URL</label><input style={IS} value={logo.url} onChange={e => { const n = [...logos]; n[i] = { ...n[i], url: e.target.value }; setLogos(n); }} /></div>
+          <button onClick={() => setLogos(logos.filter((_, j) => j !== i))} style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>X</button>
+        </div>
+      ))}
+      <button onClick={() => setLogos([...logos, { src: '', alt: 'Logo', url: '' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Logo</button>
+    </>
+  );
+}
+
+function CountdownEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  const set = (k: string, v: string) => onChange({ ...content, [k]: v });
+  return (
+    <>
+      <label style={LS}>Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      <label style={{ ...LS, marginTop: 10 }}>Subtitle</label><textarea style={TA} value={(content.subtitle as string) ?? ''} onChange={e => set('subtitle', e.target.value)} />
+      <label style={{ ...LS, marginTop: 10 }}>Target Date & Time</label><input style={IS} type="datetime-local" value={(content.targetDate as string) ?? ''} onChange={e => set('targetDate', e.target.value)} />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
+        <div><label style={LS}>CTA Text</label><input style={IS} value={(content.ctaText as string) ?? ''} onChange={e => set('ctaText', e.target.value)} /></div>
+        <div><label style={LS}>CTA URL</label><input style={IS} value={(content.ctaUrl as string) ?? ''} onChange={e => set('ctaUrl', e.target.value)} /></div>
+      </div>
+      <label style={{ ...LS, marginTop: 10 }}>Expired Text</label><input style={IS} value={(content.expiredText as string) ?? ''} onChange={e => set('expiredText', e.target.value)} placeholder="This event has passed." />
+    </>
+  );
+}
+
 const EDITORS: Record<string, React.ComponentType<{ content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }>> = {
   hero: HeroEditor, text: TextEditor, rich_text: RichTextEditor2, image: ImageEditor,
   text_image: TextImageEditor, cta: CtaEditor, stats: StatsEditor, cards: CardsEditor,
   columns: ColumnsEditor, faq: FaqEditor, list: ListEditor,
+  testimonials: TestimonialsEditor, pricing_table: PricingTableEditor, video: VideoEditor,
+  banner: BannerEditor, spacer: SpacerEditor, embed: EmbedEditor, team: TeamEditor,
+  timeline: TimelineEditor, logo_grid: LogoGridEditor, countdown: CountdownEditor,
 };
 
 // ── Style editor (shared across all section types) ───────────────────────────
 
 function StyleEditor({ styles, onChange }: { styles: Record<string, unknown>; onChange: (s: Record<string, unknown>) => void }) {
   const set = (k: string, v: string) => onChange({ ...styles, [k]: v });
+  const colorInput = (label: string, key: string, placeholder: string, defaultVal: string) => (
+    <div>
+      <label style={LS}>{label}</label>
+      <div style={{ display: 'flex', gap: 4 }}>
+        <input type="color" value={(styles[key] as string) ?? defaultVal} onChange={e => set(key, e.target.value)} style={{ width: 28, height: 28, border: '1px solid #D1D5DB', borderRadius: 4, cursor: 'pointer', padding: 1 }} />
+        <input style={IS} value={(styles[key] as string) ?? ''} onChange={e => set(key, e.target.value)} placeholder={placeholder} />
+      </div>
+    </div>
+  );
   return (
     <div style={{ marginTop: 12, padding: 10, background: '#F9FAFB', borderRadius: 8, border: '1px solid #E5E7EB' }}>
       <div style={{ fontSize: 10, fontWeight: 800, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Style Overrides</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        {/* Background */}
+        {colorInput('Background', 'bgColor', '#ffffff or gradient', '#ffffff')}
+        {colorInput('Text Color', 'textColor', '#374151', '#374151')}
+
+        {/* Background extras */}
         <div>
-          <label style={LS}>Background</label>
-          <div style={{ display: 'flex', gap: 4 }}>
-            <input type="color" value={(styles.bgColor as string) ?? '#ffffff'} onChange={e => set('bgColor', e.target.value)} style={{ width: 28, height: 28, border: '1px solid #D1D5DB', borderRadius: 4, cursor: 'pointer', padding: 1 }} />
-            <input style={IS} value={(styles.bgColor as string) ?? ''} onChange={e => set('bgColor', e.target.value)} placeholder="#ffffff" />
-          </div>
+          <label style={LS}>BG Type</label>
+          <select style={IS} value={(styles.bgType as string) ?? 'solid'} onChange={e => set('bgType', e.target.value)}>
+            <option value="solid">Solid Color</option><option value="gradient">Gradient</option><option value="image">Image</option>
+          </select>
         </div>
-        <div>
-          <label style={LS}>Text Color</label>
-          <div style={{ display: 'flex', gap: 4 }}>
-            <input type="color" value={(styles.textColor as string) ?? '#374151'} onChange={e => set('textColor', e.target.value)} style={{ width: 28, height: 28, border: '1px solid #D1D5DB', borderRadius: 4, cursor: 'pointer', padding: 1 }} />
-            <input style={IS} value={(styles.textColor as string) ?? ''} onChange={e => set('textColor', e.target.value)} placeholder="#374151" />
-          </div>
+        {(styles.bgType === 'gradient') && (
+          <>
+            {colorInput('Gradient End', 'bgColor2', '#0D2E5A', '#0D2E5A')}
+            <div><label style={LS}>Direction</label>
+              <select style={IS} value={(styles.bgDirection as string) ?? '135deg'} onChange={e => set('bgDirection', e.target.value)}>
+                <option value="135deg">Diagonal (135)</option><option value="180deg">Top to Bottom</option><option value="90deg">Left to Right</option><option value="0deg">Bottom to Top</option><option value="270deg">Right to Left</option>
+              </select>
+            </div>
+          </>
+        )}
+        {(styles.bgType === 'image') && (
+          <>
+            <div style={{ gridColumn: '1 / -1' }}><label style={LS}>Background Image URL</label><input style={IS} value={(styles.bgImage as string) ?? ''} onChange={e => set('bgImage', e.target.value)} placeholder="https://..." /></div>
+            <div><label style={LS}>Overlay Opacity (0-1)</label><input style={IS} type="number" min="0" max="1" step="0.1" value={(styles.bgOverlay as string) ?? '0.5'} onChange={e => set('bgOverlay', e.target.value)} /></div>
+          </>
+        )}
+
+        {/* Padding */}
+        <div><label style={LS}>Padding Top</label><input style={IS} value={(styles.paddingTop as string) ?? ''} onChange={e => set('paddingTop', e.target.value)} placeholder="48px" /></div>
+        <div><label style={LS}>Padding Bottom</label><input style={IS} value={(styles.paddingBottom as string) ?? ''} onChange={e => set('paddingBottom', e.target.value)} placeholder="48px" /></div>
+        <div><label style={LS}>Padding Left</label><input style={IS} value={(styles.paddingLeft as string) ?? ''} onChange={e => set('paddingLeft', e.target.value)} placeholder="40px" /></div>
+        <div><label style={LS}>Padding Right</label><input style={IS} value={(styles.paddingRight as string) ?? ''} onChange={e => set('paddingRight', e.target.value)} placeholder="40px" /></div>
+
+        {/* Layout */}
+        <div><label style={LS}>Max Width</label>
+          <select style={IS} value={(styles.maxWidth as string) ?? ''} onChange={e => set('maxWidth', e.target.value)}>
+            <option value="">Default</option><option value="100%">Full</option><option value="1200px">Wide (1200)</option><option value="1000px">Normal (1000)</option><option value="700px">Narrow (700)</option>
+          </select>
         </div>
-        <div><label style={LS}>Padding Y</label><input style={IS} value={(styles.paddingY as string) ?? ''} onChange={e => set('paddingY', e.target.value)} placeholder="clamp(48px,7vw,80px)" /></div>
-        <div><label style={LS}>Max Width</label><input style={IS} value={(styles.maxWidth as string) ?? ''} onChange={e => set('maxWidth', e.target.value)} placeholder="1000px" /></div>
         <div><label style={LS}>Text Align</label>
           <select style={IS} value={(styles.textAlign as string) ?? ''} onChange={e => set('textAlign', e.target.value)}>
             <option value="">Default</option><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
           </select>
+        </div>
+
+        {/* Border Radius */}
+        <div><label style={LS}>Border Radius</label><input style={IS} value={(styles.borderRadius as string) ?? ''} onChange={e => set('borderRadius', e.target.value)} placeholder="0px" /></div>
+
+        {/* Animation */}
+        <div><label style={LS}>Animation</label>
+          <select style={IS} value={(styles.animation as string) ?? 'none'} onChange={e => set('animation', e.target.value)}>
+            <option value="none">None</option><option value="fade-in">Fade In</option><option value="slide-up">Slide Up</option>
+          </select>
+        </div>
+
+        {/* Custom CSS class */}
+        <div style={{ gridColumn: '1 / -1' }}>
+          <label style={LS}>Custom CSS Class</label>
+          <input style={IS} value={(styles.customClass as string) ?? ''} onChange={e => set('customClass', e.target.value)} placeholder="my-custom-section" />
         </div>
       </div>
     </div>
