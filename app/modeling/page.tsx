@@ -2,10 +2,9 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { PLATFORMS } from '@/src/config/platforms';
-import { getCmsContent, cms, getModules, getTestimonialsForPage, getPageSections } from '@/src/lib/shared/cms';
+import { getCmsContent, cms, getModules, getTestimonialsForPage } from '@/src/lib/shared/cms';
 import type { Module } from '@/src/lib/shared/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
 
 export const revalidate = 60;
 
@@ -37,22 +36,7 @@ const WHY_ITEMS = [
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function ModelingHubPage() {
-  const [content, dbModules, testimonials, cmsSections] = await Promise.all([getCmsContent(), getModules(), getTestimonialsForPage('modeling'), getPageSections('modeling')]);
-
-  // CMS-driven: if sections exist in page builder, render them
-  if (cmsSections.length > 0) {
-    const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
-    const footerFounder   = cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder');
-    const footerCopyright = cms(content, 'footer', 'copyright', `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
-    return (
-      <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
-        <NavbarServer />
-        <div style={{ height: 64 }} />
-        <SectionRenderer sections={cmsSections} />
-        <SharedFooter company={footerCompany} founder={footerFounder} copyright={footerCopyright} />
-      </div>
-    );
-  }
+  const [content, dbModules, testimonials] = await Promise.all([getCmsContent(), getModules(), getTestimonialsForPage('modeling')]);
 
   // Build a lookup from slug → DB row so the grid respects admin visibility + edits
   const dbMap = new Map<string, Module>(dbModules.map((m) => [m.slug, m]));

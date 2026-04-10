@@ -2,9 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { COURSES } from '@/src/config/courses';
-import { getCmsContent, cms, getTestimonialsForPage, getPageSections } from '@/src/lib/shared/cms';
+import { getCmsContent, cms, getTestimonialsForPage } from '@/src/lib/shared/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { CurriculumCard, type CourseDescription } from './CurriculumCard';
 import { TestimonialsCarousel } from './TestimonialsCarousel';
@@ -85,22 +84,7 @@ async function getCourseDescriptions(): Promise<Record<string, CourseDescription
 export default async function TrainingPage() {
   const sfm = COURSES['3sfm'];
   const bvm = COURSES['bvm'];
-  const [content, descriptions, testimonials, cmsSections] = await Promise.all([getCmsContent(), getCourseDescriptions(), getTestimonialsForPage('training'), getPageSections('training')]);
-
-  // CMS-driven: if sections exist in page builder, render them
-  if (cmsSections.length > 0) {
-    const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
-    const footerFounder   = cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder');
-    const footerCopyright = cms(content, 'footer', 'copyright', `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
-    return (
-      <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
-        <NavbarServer />
-        <div style={{ height: 64 }} />
-        <SectionRenderer sections={cmsSections} />
-        <SharedFooter company={footerCompany} founder={footerFounder} copyright={footerCopyright} />
-      </div>
-    );
-  }
+  const [content, descriptions, testimonials] = await Promise.all([getCmsContent(), getCourseDescriptions(), getTestimonialsForPage('training')]);
 
   const heroBadge       = cms(content, 'training_page', 'hero_badge',         '🎓 Free Certification Program');
   const heroHeadline    = cms(content, 'training_page', 'hero_headline',       'Get Certified in Financial Modeling — Free');

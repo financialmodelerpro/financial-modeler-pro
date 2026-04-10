@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getModules, getPageSections, type Module } from '@/src/lib/shared/cms';
+import { getModules, type Module } from '@/src/lib/shared/cms';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
-import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
 
 const FALLBACK_MODULES: Module[] = [
   { id:'1',  name:'Real Estate Financial Modeling', slug:'real-estate',        description:'Multi-asset development models covering residential, hospitality, retail, commercial, industrial, and more.', icon:'🏗️', status:'live',        display_order:1,  launch_date:null },
@@ -25,24 +24,7 @@ export const metadata: Metadata = {
 };
 
 export default async function AboutPage() {
-  const [modules, cmsSections] = await Promise.all([getModules(), getPageSections('about')]);
-
-  // If CMS sections exist for the about page, render them instead of hardcoded content
-  if (cmsSections.length > 0) {
-    return (
-      <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
-        <NavbarServer />
-        <div style={{ height: 64 }} />
-        <SectionRenderer sections={cmsSections} />
-        <footer style={{ borderTop: '1px solid rgba(0,0,0,0.07)', padding: '24px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
-          <span style={{ fontSize: 12, color: 'rgba(0,0,0,0.35)' }}>&#169; {new Date().getFullYear()} Financial Modeler Pro</span>
-          <span style={{ fontSize: 12, color: 'rgba(0,0,0,0.25)', fontStyle: 'italic' }}>Structured Modeling. Real-World Finance.</span>
-        </footer>
-      </div>
-    );
-  }
-
-  // Fallback: original hardcoded content
+  const modules = await getModules();
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
 

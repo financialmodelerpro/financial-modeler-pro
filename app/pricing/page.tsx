@@ -5,11 +5,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
-import { getCmsContent, cms, getPageSections } from '@/src/lib/shared/cms';
+import { getCmsContent, cms } from '@/src/lib/shared/cms';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { PricingAccordion } from '@/src/components/pricing/PricingAccordion';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
 
 export const revalidate = 60;
 
@@ -63,26 +62,10 @@ async function getPricingData() {
 }
 
 export default async function PricingPage() {
-  const [content, { plans, featuresMap }, cmsSections] = await Promise.all([
+  const [content, { plans, featuresMap }] = await Promise.all([
     getCmsContent(),
     getPricingData(),
-    getPageSections('pricing'),
   ]);
-
-  // CMS-driven: if sections exist, render them instead of hardcoded layout
-  if (cmsSections.length > 0) {
-    const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
-    const footerFounder   = cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder');
-    const footerCopyright = cms(content, 'footer', 'copyright', `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
-    return (
-      <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
-        <NavbarServer />
-        <div style={{ height: 64 }} />
-        <SectionRenderer sections={cmsSections} />
-        <SharedFooter company={footerCompany} founder={footerFounder} copyright={footerCopyright} />
-      </div>
-    );
-  }
 
   const badge           = cms(content, 'pricing_page', 'badge',            'Pricing');
   const heroTitle       = cms(content, 'pricing_page', 'hero_title',       'Simple, Transparent Pricing');
