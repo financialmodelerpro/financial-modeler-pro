@@ -1,7 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getModules, type Module } from '@/src/lib/shared/cms';
+import { getModules, getPageSections, type Module } from '@/src/lib/shared/cms';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
 
 export const revalidate = 3600; // revalidate every hour
 
@@ -24,7 +25,62 @@ export const metadata: Metadata = {
 };
 
 export default async function AboutPage() {
-  const modules = await getModules();
+  const [modules, sections] = await Promise.all([
+    getModules(),
+    getPageSections('about'),
+  ]);
+
+  // If CMS sections exist, render CMS-driven page
+  if (sections.length > 0) {
+    const platformModules = modules.length > 0 ? modules : FALLBACK_MODULES;
+    return (
+      <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
+        <NavbarServer />
+        <div style={{ height: 64 }} />
+
+        {sections.map((section) => {
+          // Section 5: dynamic modules grid — render inline instead of via SectionRenderer
+          if ((section.content as Record<string, unknown>)?._dynamic === 'modules') {
+            const bg = (section.styles as Record<string, string>)?.bgColor ?? '#0A2248';
+            return (
+              <section key={section.id} style={{ padding: '80px 40px', background: bg }}>
+                <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+                  <div style={{ textAlign: 'center', marginBottom: 48 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#4A90D9', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 14 }}>Our Platforms</div>
+                    <h2 style={{ fontSize: 'clamp(22px,3vw,32px)', fontWeight: 800, color: '#fff', marginBottom: 12 }}>10+ Professional Modeling Platforms</h2>
+                    <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)' }}>Live now and launching soon — one destination for every financial modeling discipline.</p>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16 }}>
+                    {platformModules.map((mod) => (
+                      <div key={mod.id} style={{ background: mod.status === 'live' ? 'rgba(27,79,138,0.2)' : 'rgba(255,255,255,0.03)', border: mod.status === 'live' ? '1px solid rgba(27,79,138,0.4)' : '1px solid rgba(255,255,255,0.07)', borderRadius: 10, padding: '20px', borderLeft: mod.status === 'live' ? '3px solid #1B4F8A' : '3px solid rgba(255,255,255,0.1)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                          <span style={{ fontSize: 24 }}>{mod.icon}</span>
+                          {mod.status === 'live'
+                            ? <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'rgba(22,101,52,0.3)', color: '#86EFAC', border: '1px solid rgba(134,239,172,0.25)' }}>✓ LIVE</span>
+                            : <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'rgba(120,53,15,0.3)', color: '#FCD34D', border: '1px solid rgba(252,211,77,0.2)' }}>COMING SOON</span>}
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: mod.status === 'live' ? '#fff' : 'rgba(255,255,255,0.55)', marginBottom: 6 }}>{mod.name}</div>
+                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', lineHeight: 1.6 }}>{mod.description.substring(0, 80)}{mod.description.length > 80 ? '…' : ''}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            );
+          }
+
+          return <SectionRenderer key={section.id} sections={[section]} />;
+        })}
+
+        <footer style={{ borderTop: '1px solid rgba(255,255,255,0.07)', padding: '24px 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>© {new Date().getFullYear()} Financial Modeler Pro</span>
+          <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.2)', fontStyle: 'italic' }}>Structured Modeling. Real-World Finance.</span>
+        </footer>
+      </div>
+    );
+  }
+
+  // Fallback: original hardcoded content (if no CMS sections exist)
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
 

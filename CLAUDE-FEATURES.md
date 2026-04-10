@@ -36,7 +36,7 @@
 | **CMS / Dynamic Nav** | ✅ Complete | `site_pages` table, admin editable |
 | **CMS — Dynamic Page Builder** | ✅ Complete | 11 section types, drag-and-drop, SEO. **System pages** (about, pricing, contact, training, modeling) use hardcoded JSX with `cms()` key-value overrides — NOT page_sections. Only custom pages use `(cms)/[slug]` + SectionRenderer. Prior incident: `fdaa77d` added CMS conditional + seeded empty placeholder rows, causing blank pages; fixed in `7da9a2e` by removing the conditional. Do NOT add `getPageSections()` / `SectionRenderer` back to system pages unless sections are properly seeded with real content |
 | **Email System** | ✅ Complete | Resend, 11 templates + CMS-controlled branding (logo, signature, footer, primary color via email_branding table) |
-| **Live Session Email Automation** | ✅ Complete | Auto-announcement on publish (or manual), 24h + 1h reminders (cron every 30min), recording-available email, 4 CMS-editable templates with placeholders, test send, admin Email Settings page |
+| **Live Session Email Automation** | ✅ Complete | Auto-announcement on publish (or manual), 24h + 1h reminders (cron daily 6AM UTC — Hobby plan limit), recording-available email, 4 CMS-editable templates with placeholders, test send, admin Email Settings page |
 | **Apps Script Integration** | ✅ Complete | Register student, fetch registration ID, attendance |
 | **REFM Module 1 — Project Setup** | ✅ Complete | Timeline, Land & Area, Dev Costs, Financing |
 | **Excel / PDF Export (REFM)** | ✅ Complete | exceljs static + formula, @react-pdf/renderer |
