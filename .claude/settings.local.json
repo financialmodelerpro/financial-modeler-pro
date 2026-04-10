@@ -82,7 +82,8 @@
       "Bash(mkdir -p \"D:/FMP/financial-modeler-pro/app/api/admin/live-sessions/[id]/notify\")",
       "Bash(mkdir -p \"D:/FMP/financial-modeler-pro/app/api/training/live-sessions/[id]/register\")",
       "Bash(mkdir -p \"D:/FMP/financial-modeler-pro/app/api/admin/live-sessions/[id]/registrations\")",
-      "Bash(taskkill //F //IM node.exe)"
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(gh api:*)"
     ]
   }
 }

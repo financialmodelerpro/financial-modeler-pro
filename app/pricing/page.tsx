@@ -1,4 +1,3 @@
-// Last updated: 2026-04-10
 /**
  * /pricing — Public pricing page
  * Server component with ISR. All data comes from Supabase + CMS.
