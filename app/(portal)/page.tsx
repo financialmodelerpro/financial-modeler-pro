@@ -179,6 +179,7 @@ export default async function LandingPage() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily:"'Inter',-apple-system,sans-serif", background:'#fff', color:'#374151', overflowX:'hidden' }}>
+      {/* v2.1 - restored */}
 
       {/* ── Admin edit bar ─────────────────────────────────────────────────── */}
       {isAdmin && <AdminEditBar />}
