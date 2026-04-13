@@ -576,6 +576,97 @@ function ColumnsEditor({ content, onChange }: { content: Record<string, unknown>
   );
 }
 
+// ── Platform columns editor (Two Platforms section) ─────────────────────────
+
+interface PlatformCol { id: string; title: string; description: string; borderColor: string; borderSideColor: string; accentColor: string; shadowColor: string; features: string[]; ctaText: string; ctaUrl: string; icon: string }
+
+function TwoPlatformsEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  const set = (k: string, v: unknown) => onChange({ ...content, [k]: v });
+  const cols = (content.columns as PlatformCol[]) ?? [];
+  const setCols = (next: PlatformCol[]) => onChange({ ...content, columns: next });
+  const updateCol = (i: number, patch: Partial<PlatformCol>) => { const n = [...cols]; n[i] = { ...n[i], ...patch }; setCols(n); };
+
+  return (
+    <>
+      <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
+      <VF label="Subheading" fieldKey="subheading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.subheading as string) ?? ''} onChange={e => set('subheading', e.target.value)} />
+      </VF>
+
+      {cols.map((col, ci) => {
+        const features = col.features ?? [];
+        const setFeatures = (next: string[]) => updateCol(ci, { features: next });
+        const handleFeatureDrag = (result: DropResult) => {
+          if (!result.destination) return;
+          const arr = Array.from(features);
+          const [removed] = arr.splice(result.source.index, 1);
+          arr.splice(result.destination.index, 0, removed);
+          setFeatures(arr);
+        };
+        return (
+          <div key={col.id || ci} style={{ marginTop: 12, padding: 12, background: '#F9FAFB', borderRadius: 10, border: `2px solid ${col.borderColor || '#E5E7EB'}`, borderTop: `4px solid ${col.borderColor || '#E5E7EB'}` }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: col.accentColor || '#374151', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
+              {col.title || `Column ${ci + 1}`}
+            </div>
+            <VF label="Title" fieldKey={`col${ci}_title`} content={content} onChange={onChange}>
+              <input style={IS} value={col.title} onChange={e => updateCol(ci, { title: e.target.value })} />
+            </VF>
+            <div style={{ marginTop: 6 }}>
+              <label style={LS}>Border Color</label>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <input type="color" value={col.borderColor || '#1B4F8A'} onChange={e => updateCol(ci, { borderColor: e.target.value, accentColor: e.target.value })} style={{ width: 28, height: 28, border: '1px solid #D1D5DB', borderRadius: 4, cursor: 'pointer', padding: 1 }} />
+                <input style={IS} value={col.borderColor || ''} onChange={e => updateCol(ci, { borderColor: e.target.value, accentColor: e.target.value })} placeholder="#1B4F8A" />
+              </div>
+            </div>
+            <VF label="Description" fieldKey={`col${ci}_desc`} content={content} onChange={onChange}>
+              <textarea style={{ ...TA, minHeight: 50 }} value={col.description} onChange={e => updateCol(ci, { description: e.target.value })} />
+            </VF>
+            <VF label="Features" fieldKey={`col${ci}_features`} content={content} onChange={onChange}>
+              <DragDropContext onDragEnd={handleFeatureDrag}>
+                <Droppable droppableId={`platform-features-${ci}`}>
+                  {(provided) => (
+                    <div ref={provided.innerRef} {...provided.droppableProps}>
+                      {features.map((feat, fi) => (
+                        <Draggable key={`${ci}-${fi}`} draggableId={`pf-${ci}-${fi}`} index={fi}>
+                          {(prov) => (
+                            <div ref={prov.innerRef} {...prov.draggableProps} style={{ display: 'flex', gap: 6, marginBottom: 4, alignItems: 'center', ...prov.draggableProps.style }}>
+                              <span {...prov.dragHandleProps} style={{ cursor: 'grab', color: '#9CA3AF', fontSize: 14, flexShrink: 0 }}>⠿</span>
+                              <span style={{ color: col.accentColor || '#1B4F8A', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>→</span>
+                              <input style={{ ...IS, flex: 1 }} value={feat} onChange={e => { const n = [...features]; n[fi] = e.target.value; setFeatures(n); }} />
+                              <button onClick={() => setFeatures(features.filter((_, j) => j !== fi))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11, flexShrink: 0 }}>X</button>
+                            </div>
+                          )}
+                        </Draggable>
+                      ))}
+                      {provided.placeholder}
+                    </div>
+                  )}
+                </Droppable>
+              </DragDropContext>
+              <button onClick={() => setFeatures([...features, 'New feature'])} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600, marginTop: 4 }}>+ Add Feature</button>
+            </VF>
+            <VF label="CTA Button" fieldKey={`col${ci}_cta`} content={content} onChange={onChange}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div><label style={LS}>Text</label><input style={IS} value={col.ctaText} onChange={e => updateCol(ci, { ctaText: e.target.value })} /></div>
+                <div><label style={LS}>URL</label><input style={IS} value={col.ctaUrl} onChange={e => updateCol(ci, { ctaUrl: e.target.value })} /></div>
+              </div>
+            </VF>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function SmartColumnsEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  const cols = content.columns as Record<string, unknown>[] | undefined;
+  const isPlatform = cols?.[0] && (cols[0].id === 'modeling' || Array.isArray(cols[0].features));
+  if (isPlatform) return <TwoPlatformsEditor content={content} onChange={onChange} />;
+  return <ColumnsEditor content={content} onChange={onChange} />;
+}
+
 function FaqEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
   const items = (content.items as { question: string; answer: string }[]) ?? [];
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
@@ -849,7 +940,7 @@ function CountdownEditor({ content, onChange }: { content: Record<string, unknow
 const EDITORS: Record<string, React.ComponentType<{ content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }>> = {
   hero: HeroEditor, text: TextEditor, rich_text: RichTextEditor2, image: ImageEditor,
   text_image: TextImageEditor, cta: CtaEditor, stats: StatsEditor, cards: CardsEditor,
-  columns: ColumnsEditor, faq: FaqEditor, list: ListEditor,
+  columns: SmartColumnsEditor, faq: FaqEditor, list: ListEditor,
   testimonials: TestimonialsEditor, pricing_table: PricingTableEditor, video: VideoEditor,
   banner: BannerEditor, spacer: SpacerEditor, embed: EmbedEditor, team: TeamEditor,
   timeline: TimelineEditor, logo_grid: LogoGridEditor, countdown: CountdownEditor,
