@@ -110,10 +110,30 @@ function VF({ label, fieldKey, content, onChange, children }: {
 
 // ── Section content editors ──────────────────────────────────────────────────
 
+interface HeroCustomField { id: string; label: string; value: string; visible: boolean; insertAfter: string }
+const HERO_POSITIONS = [
+  { value: 'top', label: 'Top (before badge)' },
+  { value: 'badge', label: 'After Badge' },
+  { value: 'headline', label: 'After Headline' },
+  { value: 'subtitle', label: 'After Subtitle' },
+  { value: 'powerStatement', label: 'After Power Statement' },
+  { value: 'softCta', label: 'After Soft CTA' },
+  { value: 'trustLine', label: 'After Trust Line' },
+  { value: 'tags', label: 'After Tags' },
+  { value: 'end', label: 'End (after everything)' },
+];
+
 function HeroEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
   const set = (k: string, v: unknown) => onChange({ ...content, [k]: v });
-  const customFields = (content.customFields as { label: string; value: string; visible: boolean }[]) ?? [];
-  const setFields = (next: typeof customFields) => onChange({ ...content, customFields: next });
+  const customFields = ((content.customFields as HeroCustomField[]) ?? []).map(f => ({ ...f, id: f.id || `field_${Math.random().toString(36).slice(2, 9)}` }));
+  const setFields = (next: HeroCustomField[]) => onChange({ ...content, customFields: next });
+  const handleCFDragEnd = (result: DropResult) => {
+    if (!result.destination) return;
+    const items = Array.from(customFields);
+    const [removed] = items.splice(result.source.index, 1);
+    items.splice(result.destination.index, 0, removed);
+    setFields(items);
+  };
   const align = (content.textAlign as string) ?? 'center';
   return (
     <>
@@ -173,15 +193,35 @@ function HeroEditor({ content, onChange }: { content: Record<string, unknown>; o
       {/* Additional custom fields */}
       <div style={{ marginTop: 14, padding: 10, background: '#F0F4FF', borderRadius: 8, border: '1px solid #C7D2FE' }}>
         <div style={{ fontSize: 11, fontWeight: 800, color: '#4F46E5', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Additional Fields</div>
-        {customFields.map((field, i) => (
-          <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'end' }}>
-            <input type="checkbox" style={VCS} checked={field.visible !== false} onChange={e => { const n = [...customFields]; n[i] = { ...n[i], visible: e.target.checked }; setFields(n); }} />
-            <div style={{ flex: 1 }}><label style={LS}>Label</label><input style={IS} value={field.label} onChange={e => { const n = [...customFields]; n[i] = { ...n[i], label: e.target.value }; setFields(n); }} /></div>
-            <div style={{ flex: 2 }}><label style={LS}>Value</label><input style={IS} value={field.value} onChange={e => { const n = [...customFields]; n[i] = { ...n[i], value: e.target.value }; setFields(n); }} /></div>
-            <button onClick={() => setFields(customFields.filter((_, j) => j !== i))} style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>X</button>
-          </div>
-        ))}
-        <button onClick={() => setFields([...customFields, { label: '', value: '', visible: true }])} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #C7D2FE', background: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#4F46E5' }}>+ Add Field</button>
+        <DragDropContext onDragEnd={handleCFDragEnd}>
+          <Droppable droppableId="hero-custom-fields">
+            {(provided) => (
+              <div ref={provided.innerRef} {...provided.droppableProps}>
+                {customFields.map((field, i) => (
+                  <Draggable key={field.id} draggableId={field.id} index={i}>
+                    {(prov) => (
+                      <div ref={prov.innerRef} {...prov.draggableProps} style={{ display:'flex', gap:6, marginBottom:6, alignItems:'end', background:'#fff', borderRadius:6, padding:'6px 4px', border:'1px solid #E5E7EB', ...prov.draggableProps.style }}>
+                        <span {...prov.dragHandleProps} style={{ cursor:'grab', color:'#9CA3AF', fontSize:16, flexShrink:0, padding:'0 2px', alignSelf:'center' }}>⠿</span>
+                        <input type="checkbox" style={VCS} checked={field.visible !== false} onChange={e => { const n = [...customFields]; n[i] = { ...n[i], visible: e.target.checked }; setFields(n); }} />
+                        <div style={{ flex: 1 }}><label style={LS}>Label</label><input style={IS} value={field.label} onChange={e => { const n = [...customFields]; n[i] = { ...n[i], label: e.target.value }; setFields(n); }} /></div>
+                        <div style={{ flex: 2 }}><label style={LS}>Value</label><input style={IS} value={field.value} onChange={e => { const n = [...customFields]; n[i] = { ...n[i], value: e.target.value }; setFields(n); }} /></div>
+                        <div style={{ width: 120, flexShrink: 0 }}>
+                          <label style={LS}>Position</label>
+                          <select style={{ ...IS, fontSize: 11 }} value={field.insertAfter || 'end'} onChange={e => { const n = [...customFields]; n[i] = { ...n[i], insertAfter: e.target.value }; setFields(n); }}>
+                            {HERO_POSITIONS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+                          </select>
+                        </div>
+                        <button onClick={() => setFields(customFields.filter((_, j) => j !== i))} style={{ padding:'7px 10px', borderRadius:6, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626', cursor:'pointer', fontSize:12, flexShrink:0 }}>X</button>
+                      </div>
+                    )}
+                  </Draggable>
+                ))}
+                {provided.placeholder}
+              </div>
+            )}
+          </Droppable>
+        </DragDropContext>
+        <button onClick={() => setFields([...customFields, { id: `field_${Date.now()}`, label: '', value: '', visible: true, insertAfter: 'end' }])} style={{ padding:'5px 12px', borderRadius:6, border:'1px solid #C7D2FE', background:'#fff', cursor:'pointer', fontSize:11, fontWeight:600, color:'#4F46E5', marginTop: 6 }}>+ Add Field</button>
       </div>
     </>
   );
