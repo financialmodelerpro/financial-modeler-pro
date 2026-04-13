@@ -21,6 +21,7 @@ function calcRemaining(target: string) {
 }
 
 export function CountdownSection({ content, styles }: Props) {
+  const v = (k: string) => content[`${k}_visible`] !== false;
   const heading    = content.heading as string ?? '';
   const subtitle   = content.subtitle as string ?? '';
   const targetDate = content.targetDate as string ?? '';
@@ -51,12 +52,12 @@ export function CountdownSection({ content, styles }: Props) {
   return (
     <section style={{ background: bgColor, padding: `${py} 40px`, textAlign: 'center', color: textColor }}>
       <div style={{ maxWidth: 700, margin: '0 auto' }}>
-        {heading && (
+        {v('heading') && heading && (
           <h2 style={{ fontSize: 'clamp(22px,3.5vw,36px)', fontWeight: 800, marginBottom: 12, lineHeight: 1.2 }}>
             {heading}
           </h2>
         )}
-        {subtitle && (
+        {v('subtitle') && subtitle && (
           <p style={{ fontSize: 'clamp(14px,2vw,17px)', color: 'rgba(255,255,255,0.6)', marginBottom: 36, lineHeight: 1.6 }}>
             {subtitle}
           </p>
@@ -80,7 +81,7 @@ export function CountdownSection({ content, styles }: Props) {
             ))}
           </div>
         )}
-        {ctaText && ctaUrl && !remaining.expired && (
+        {v('ctaText') && ctaText && ctaUrl && !remaining.expired && (
           <Link href={ctaUrl} style={{
             display: 'inline-flex', alignItems: 'center', gap: 8,
             background: '#2EAA4A', color: '#fff', fontWeight: 700, fontSize: 15,

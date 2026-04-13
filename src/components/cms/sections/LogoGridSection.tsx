@@ -10,6 +10,7 @@ interface LogoItem {
 }
 
 export function LogoGridSection({ content, styles }: Props) {
+  const v = (k: string) => content[`${k}_visible`] !== false;
   const logos   = (content.logos as LogoItem[]) ?? [];
   const heading = content.heading as string ?? '';
   const badge   = content.badge as string ?? '';
@@ -24,12 +25,12 @@ export function LogoGridSection({ content, styles }: Props) {
   return (
     <section style={{ background: bgColor, padding: `${py} 40px`, color: textColor || undefined }}>
       <div style={{ maxWidth: maxW, margin: '0 auto' }}>
-        {badge && (
+        {v('badge') && badge && (
           <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#9CA3AF', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
             {badge}
           </div>
         )}
-        {heading && (
+        {v('heading') && heading && (
           <h2 style={{ textAlign: 'center', fontSize: 'clamp(18px,2.5vw,24px)', fontWeight: 700, color: textColor || '#6B7280', marginBottom: 32 }}>
             {heading}
           </h2>

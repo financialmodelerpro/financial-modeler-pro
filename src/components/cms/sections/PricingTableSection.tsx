@@ -17,6 +17,7 @@ interface PricingTier {
 }
 
 export function PricingTableSection({ content, styles }: Props) {
+  const v = (k: string) => content[`${k}_visible`] !== false;
   const tiers   = (content.tiers as PricingTier[]) ?? [];
   const heading = content.heading as string ?? '';
   const badge   = content.badge as string ?? '';
@@ -30,12 +31,12 @@ export function PricingTableSection({ content, styles }: Props) {
   return (
     <section style={{ background: bgColor, padding: `${py} 40px`, color: textColor || undefined }}>
       <div style={{ maxWidth: maxW, margin: '0 auto' }}>
-        {badge && (
+        {v('badge') && badge && (
           <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#2EAA4A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
             {badge}
           </div>
         )}
-        {heading && (
+        {v('heading') && heading && (
           <h2 style={{ textAlign: 'center', fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: textColor || '#0D2E5A', marginBottom: 40 }}>
             {heading}
           </h2>

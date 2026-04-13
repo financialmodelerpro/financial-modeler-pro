@@ -4,6 +4,7 @@ interface Props {
 }
 
 export function ImageSection({ content, styles }: Props) {
+  const v = (k: string) => content[`${k}_visible`] !== false;
   const src     = content.src as string ?? '';
   const alt     = content.alt as string ?? '';
   const caption = content.caption as string ?? '';
@@ -36,7 +37,7 @@ export function ImageSection({ content, styles }: Props) {
             margin: align === 'center' ? '0 auto' : align === 'right' ? '0 0 0 auto' : undefined,
           }}
         />
-        {caption && (
+        {v('caption') && caption && (
           <p style={{ fontSize: 13, color: '#9CA3AF', marginTop: 10, lineHeight: 1.5 }}>
             {caption}
           </p>

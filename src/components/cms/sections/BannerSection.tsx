@@ -6,8 +6,9 @@ interface Props {
 }
 
 export function BannerSection({ content, styles }: Props) {
-  const text    = content.text as string ?? '';
-  const url     = content.url as string ?? '';
+  const v = (k: string) => content[`${k}_visible`] !== false;
+  const text    = v('text') ? (content.text as string ?? '') : '';
+  const url     = v('url') ? (content.url as string ?? '') : '';
   const bgColor = (styles.bgColor as string) ?? '#2EAA4A';
   const textColor = (styles.textColor as string) ?? '#ffffff';
   const py      = (styles.paddingY as string) ?? '12px';

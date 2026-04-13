@@ -6,6 +6,7 @@ interface Props {
 }
 
 export function HeroSection({ content, styles }: Props) {
+  const v = (k: string) => content[`${k}_visible`] !== false;
   const badge     = content.badge as string ?? '';
   const headline  = content.headline as string ?? '';
   const subtitle  = content.subtitle as string ?? '';
@@ -26,7 +27,7 @@ export function HeroSection({ content, styles }: Props) {
       color: textColor,
     }}>
       <div style={{ maxWidth: 720, margin: '0 auto' }}>
-        {badge && (
+        {v('badge') && badge && (
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 7,
             background: 'rgba(46,170,74,0.18)', border: '1px solid rgba(46,170,74,0.45)',
@@ -36,7 +37,7 @@ export function HeroSection({ content, styles }: Props) {
             {badge}
           </div>
         )}
-        {headline && (
+        {v('headline') && headline && (
           <h1 style={{
             fontSize: 'clamp(28px,5vw,52px)', fontWeight: 800,
             lineHeight: 1.15, marginBottom: 20, letterSpacing: '-0.02em',
@@ -44,7 +45,7 @@ export function HeroSection({ content, styles }: Props) {
             {headline}
           </h1>
         )}
-        {subtitle && (
+        {v('subtitle') && subtitle && (
           <p style={{
             fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.6)',
             lineHeight: 1.7, marginBottom: 36, maxWidth: 560, margin: '0 auto 36px',
@@ -52,9 +53,9 @@ export function HeroSection({ content, styles }: Props) {
             {subtitle}
           </p>
         )}
-        {(cta1Text || cta2Text) && (
+        {(v('cta1') && cta1Text.trim() && cta1Url) || (v('cta2') && cta2Text.trim() && cta2Url) ? (
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-            {cta1Text && cta1Url && (
+            {v('cta1') && cta1Text.trim() && cta1Url && (
               <Link href={cta1Url} style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 background: '#2EAA4A', color: '#fff',
@@ -65,7 +66,7 @@ export function HeroSection({ content, styles }: Props) {
                 {cta1Text}
               </Link>
             )}
-            {cta2Text && cta2Url && (
+            {v('cta2') && cta2Text.trim() && cta2Url && (
               <Link href={cta2Url} style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 background: 'transparent', color: '#fff',
@@ -77,7 +78,7 @@ export function HeroSection({ content, styles }: Props) {
               </Link>
             )}
           </div>
-        )}
+        ) : null}
       </div>
     </section>
   );

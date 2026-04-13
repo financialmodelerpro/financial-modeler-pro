@@ -87,21 +87,54 @@ const IS: React.CSSProperties = { width: '100%', padding: '7px 10px', fontSize: 
 const LS: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 3 };
 const TA: React.CSSProperties = { ...IS, resize: 'vertical' as const, minHeight: 60, fontFamily: 'inherit' };
 
+// ── Visibility-aware field wrapper ───────────────────────────────────────────
+
+const VCS: React.CSSProperties = { width: 14, height: 14, cursor: 'pointer', accentColor: '#1B4F8A', margin: 0, flexShrink: 0 };
+
+function VF({ label, fieldKey, content, onChange, children }: {
+  label: string; fieldKey: string; content: Record<string, unknown>;
+  onChange: (c: Record<string, unknown>) => void; children: React.ReactNode;
+}) {
+  const visKey = `${fieldKey}_visible`;
+  const visible = content[visKey] !== false;
+  return (
+    <div style={{ marginTop: 8, opacity: visible ? 1 : 0.4, transition: 'opacity 0.15s' }}>
+      <label style={{ ...LS, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}>
+        <input type="checkbox" style={VCS} checked={visible} onChange={e => onChange({ ...content, [visKey]: e.target.checked })} />
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
 // ── Section content editors ──────────────────────────────────────────────────
 
 function HeroEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   return (
     <>
-      <label style={LS}>Badge</label><input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} placeholder="e.g. Free Certification" />
-      <label style={{ ...LS, marginTop: 10 }}>Headline</label><input style={IS} value={(content.headline as string) ?? ''} onChange={e => set('headline', e.target.value)} />
-      <label style={{ ...LS, marginTop: 10 }}>Subtitle</label><textarea style={TA} value={(content.subtitle as string) ?? ''} onChange={e => set('subtitle', e.target.value)} />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
-        <div><label style={LS}>CTA 1 Text</label><input style={IS} value={(content.cta1Text as string) ?? ''} onChange={e => set('cta1Text', e.target.value)} /></div>
-        <div><label style={LS}>CTA 1 URL</label><input style={IS} value={(content.cta1Url as string) ?? ''} onChange={e => set('cta1Url', e.target.value)} /></div>
-        <div><label style={LS}>CTA 2 Text</label><input style={IS} value={(content.cta2Text as string) ?? ''} onChange={e => set('cta2Text', e.target.value)} /></div>
-        <div><label style={LS}>CTA 2 URL</label><input style={IS} value={(content.cta2Url as string) ?? ''} onChange={e => set('cta2Url', e.target.value)} /></div>
-      </div>
+      <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
+        <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} placeholder="e.g. Free Certification" />
+      </VF>
+      <VF label="Headline" fieldKey="headline" content={content} onChange={onChange}>
+        <input style={IS} value={(content.headline as string) ?? ''} onChange={e => set('headline', e.target.value)} />
+      </VF>
+      <VF label="Subtitle" fieldKey="subtitle" content={content} onChange={onChange}>
+        <textarea style={TA} value={(content.subtitle as string) ?? ''} onChange={e => set('subtitle', e.target.value)} />
+      </VF>
+      <VF label="CTA 1" fieldKey="cta1" content={content} onChange={onChange}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div><label style={LS}>Text</label><input style={IS} value={(content.cta1Text as string) ?? ''} onChange={e => set('cta1Text', e.target.value)} /></div>
+          <div><label style={LS}>URL</label><input style={IS} value={(content.cta1Url as string) ?? ''} onChange={e => set('cta1Url', e.target.value)} /></div>
+        </div>
+      </VF>
+      <VF label="CTA 2" fieldKey="cta2" content={content} onChange={onChange}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div><label style={LS}>Text</label><input style={IS} value={(content.cta2Text as string) ?? ''} onChange={e => set('cta2Text', e.target.value)} /></div>
+          <div><label style={LS}>URL</label><input style={IS} value={(content.cta2Url as string) ?? ''} onChange={e => set('cta2Url', e.target.value)} /></div>
+        </div>
+      </VF>
     </>
   );
 }
@@ -110,8 +143,12 @@ function TextEditor({ content, onChange }: { content: Record<string, unknown>; o
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   return (
     <>
-      <label style={LS}>Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
-      <label style={{ ...LS, marginTop: 10 }}>Body</label><textarea style={{ ...TA, minHeight: 100 }} value={(content.body as string) ?? ''} onChange={e => set('body', e.target.value)} />
+      <VF label="Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
+      <VF label="Body" fieldKey="body" content={content} onChange={onChange}>
+        <textarea style={{ ...TA, minHeight: 100 }} value={(content.body as string) ?? ''} onChange={e => set('body', e.target.value)} />
+      </VF>
     </>
   );
 }
@@ -120,10 +157,15 @@ function RichTextEditor2({ content, onChange }: { content: Record<string, unknow
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   return (
     <>
-      <label style={LS}>Badge</label><input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
-      <label style={{ ...LS, marginTop: 10 }}>Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
-      <label style={{ ...LS, marginTop: 10 }}>Content</label>
-      <RichTextEditor value={(content.html as string) ?? ''} onChange={v => set('html', v)} />
+      <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
+        <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      </VF>
+      <VF label="Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
+      <VF label="Content" fieldKey="html" content={content} onChange={onChange}>
+        <RichTextEditor value={(content.html as string) ?? ''} onChange={v => set('html', v)} />
+      </VF>
     </>
   );
 }
@@ -132,13 +174,16 @@ function ImageEditor({ content, onChange }: { content: Record<string, unknown>; 
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   return (
     <>
-      <label style={LS}>Image URL</label>
-      <div style={{ display: 'flex', gap: 6 }}>
-        <input style={{ ...IS, flex: 1 }} value={(content.src as string) ?? ''} onChange={e => set('src', e.target.value)} placeholder="https://..." />
-        <MediaPickerButton onSelect={url => set('src', url)} />
-      </div>
-      <label style={{ ...LS, marginTop: 10 }}>Alt Text</label><input style={IS} value={(content.alt as string) ?? ''} onChange={e => set('alt', e.target.value)} />
-      <label style={{ ...LS, marginTop: 10 }}>Caption</label><input style={IS} value={(content.caption as string) ?? ''} onChange={e => set('caption', e.target.value)} />
+      <VF label="Image" fieldKey="src" content={content} onChange={onChange}>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input style={{ ...IS, flex: 1 }} value={(content.src as string) ?? ''} onChange={e => set('src', e.target.value)} placeholder="https://..." />
+          <MediaPickerButton onSelect={url => set('src', url)} />
+        </div>
+        <label style={{ ...LS, marginTop: 6 }}>Alt Text</label><input style={IS} value={(content.alt as string) ?? ''} onChange={e => set('alt', e.target.value)} />
+      </VF>
+      <VF label="Caption" fieldKey="caption" content={content} onChange={onChange}>
+        <input style={IS} value={(content.caption as string) ?? ''} onChange={e => set('caption', e.target.value)} />
+      </VF>
     </>
   );
 }
@@ -147,27 +192,31 @@ function TextImageEditor({ content, onChange }: { content: Record<string, unknow
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   return (
     <>
-      <label style={LS}>Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
-      <label style={{ ...LS, marginTop: 10 }}>Content</label>
-      <RichTextEditor value={(content.html as string) ?? ''} onChange={v => set('html', v)} compact />
-      <label style={{ ...LS, marginTop: 10 }}>Image URL</label>
-      <div style={{ display: 'flex', gap: 6 }}>
-        <input style={{ ...IS, flex: 1 }} value={(content.imageSrc as string) ?? ''} onChange={e => set('imageSrc', e.target.value)} />
-        <MediaPickerButton onSelect={url => set('imageSrc', url)} />
-      </div>
-      <label style={{ ...LS, marginTop: 10 }}>Image Alt</label><input style={IS} value={(content.imageAlt as string) ?? ''} onChange={e => set('imageAlt', e.target.value)} />
-      <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
-        <div>
-          <label style={LS}>Image Position</label>
-          <select style={IS} value={(content.imagePosition as string) ?? 'right'} onChange={e => set('imagePosition', e.target.value)}>
-            <option value="left">Left</option><option value="right">Right</option>
-          </select>
+      <VF label="Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
+      <VF label="Content" fieldKey="html" content={content} onChange={onChange}>
+        <RichTextEditor value={(content.html as string) ?? ''} onChange={v => set('html', v)} compact />
+      </VF>
+      <VF label="Image" fieldKey="imageSrc" content={content} onChange={onChange}>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input style={{ ...IS, flex: 1 }} value={(content.imageSrc as string) ?? ''} onChange={e => set('imageSrc', e.target.value)} />
+          <MediaPickerButton onSelect={url => set('imageSrc', url)} />
         </div>
-        <div>
-          <label style={LS}>Image Width</label>
-          <input style={IS} value={(content.imageWidth as string) ?? '45%'} onChange={e => set('imageWidth', e.target.value)} placeholder="45%" />
+        <label style={{ ...LS, marginTop: 6 }}>Image Alt</label><input style={IS} value={(content.imageAlt as string) ?? ''} onChange={e => set('imageAlt', e.target.value)} />
+        <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+          <div>
+            <label style={LS}>Position</label>
+            <select style={IS} value={(content.imagePosition as string) ?? 'right'} onChange={e => set('imagePosition', e.target.value)}>
+              <option value="left">Left</option><option value="right">Right</option>
+            </select>
+          </div>
+          <div>
+            <label style={LS}>Width</label>
+            <input style={IS} value={(content.imageWidth as string) ?? '45%'} onChange={e => set('imageWidth', e.target.value)} placeholder="45%" />
+          </div>
         </div>
-      </div>
+      </VF>
     </>
   );
 }
@@ -176,14 +225,24 @@ function CtaEditor({ content, onChange }: { content: Record<string, unknown>; on
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   return (
     <>
-      <label style={LS}>Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
-      <label style={{ ...LS, marginTop: 10 }}>Subtitle</label><textarea style={TA} value={(content.subtitle as string) ?? ''} onChange={e => set('subtitle', e.target.value)} />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
-        <div><label style={LS}>Button Text</label><input style={IS} value={(content.buttonText as string) ?? ''} onChange={e => set('buttonText', e.target.value)} /></div>
-        <div><label style={LS}>Button URL</label><input style={IS} value={(content.buttonUrl as string) ?? ''} onChange={e => set('buttonUrl', e.target.value)} /></div>
-        <div><label style={LS}>Button 2 Text</label><input style={IS} value={(content.button2Text as string) ?? ''} onChange={e => set('button2Text', e.target.value)} /></div>
-        <div><label style={LS}>Button 2 URL</label><input style={IS} value={(content.button2Url as string) ?? ''} onChange={e => set('button2Url', e.target.value)} /></div>
-      </div>
+      <VF label="Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
+      <VF label="Subtitle" fieldKey="subtitle" content={content} onChange={onChange}>
+        <textarea style={TA} value={(content.subtitle as string) ?? ''} onChange={e => set('subtitle', e.target.value)} />
+      </VF>
+      <VF label="Button 1" fieldKey="buttonText" content={content} onChange={onChange}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div><label style={LS}>Text</label><input style={IS} value={(content.buttonText as string) ?? ''} onChange={e => set('buttonText', e.target.value)} /></div>
+          <div><label style={LS}>URL</label><input style={IS} value={(content.buttonUrl as string) ?? ''} onChange={e => set('buttonUrl', e.target.value)} /></div>
+        </div>
+      </VF>
+      <VF label="Button 2" fieldKey="button2Text" content={content} onChange={onChange}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div><label style={LS}>Text</label><input style={IS} value={(content.button2Text as string) ?? ''} onChange={e => set('button2Text', e.target.value)} /></div>
+          <div><label style={LS}>URL</label><input style={IS} value={(content.button2Url as string) ?? ''} onChange={e => set('button2Url', e.target.value)} /></div>
+        </div>
+      </VF>
     </>
   );
 }
@@ -211,8 +270,12 @@ function CardsEditor({ content, onChange }: { content: Record<string, unknown>; 
   const setCards = (next: typeof cards) => onChange({ ...content, cards: next });
   return (
     <>
-      <label style={LS}>Section Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
-      <label style={LS}>Badge</label><input style={{ ...IS, marginBottom: 10 }} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
+      <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
+        <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      </VF>
       {cards.map((card, i) => (
         <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB' }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
@@ -234,8 +297,12 @@ function ColumnsEditor({ content, onChange }: { content: Record<string, unknown>
   const setCols = (next: typeof columns) => onChange({ ...content, columns: next, count: next.length });
   return (
     <>
-      <label style={LS}>Section Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
-      <label style={{ ...LS, marginTop: 6 }}>Badge</label><input style={{ ...IS, marginBottom: 10 }} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value as unknown)} />
+      </VF>
+      <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
+        <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value as unknown)} />
+      </VF>
       {columns.map((col, i) => (
         <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB' }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
@@ -257,7 +324,9 @@ function FaqEditor({ content, onChange }: { content: Record<string, unknown>; on
   const setItems = (next: typeof items) => onChange({ ...content, items: next });
   return (
     <>
-      <label style={LS}>Section Heading</label><input style={{ ...IS, marginBottom: 10 }} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
       {items.map((item, i) => (
         <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'end', marginBottom: 6 }}>
@@ -278,7 +347,9 @@ function ListEditor({ content, onChange }: { content: Record<string, unknown>; o
   const setItems = (next: typeof items) => onChange({ ...content, items: next });
   return (
     <>
-      <label style={LS}>Section Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
       <div style={{ display: 'flex', gap: 8, marginTop: 6, marginBottom: 10 }}>
         <label style={LS}>Layout</label>
         <select style={{ ...IS, width: 'auto' }} value={(content.layout as string) ?? 'vertical'} onChange={e => set('layout', e.target.value)}>
@@ -304,8 +375,12 @@ function TestimonialsEditor({ content, onChange }: { content: Record<string, unk
   const setItems = (next: typeof items) => onChange({ ...content, items: next });
   return (
     <>
-      <label style={LS}>Section Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
-      <label style={LS}>Badge</label><input style={{ ...IS, marginBottom: 10 }} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
+      <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
+        <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      </VF>
       {items.map((t, i) => (
         <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB' }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
@@ -328,8 +403,12 @@ function PricingTableEditor({ content, onChange }: { content: Record<string, unk
   const setTiers = (next: typeof tiers) => onChange({ ...content, tiers: next });
   return (
     <>
-      <label style={LS}>Section Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
-      <label style={LS}>Badge</label><input style={{ ...IS, marginBottom: 10 }} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
+      <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
+        <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      </VF>
       {tiers.map((tier, i) => (
         <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: tier.highlighted ? '2px solid #2EAA4A' : '1px solid #E5E7EB' }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'end' }}>
@@ -359,8 +438,12 @@ function VideoEditor({ content, onChange }: { content: Record<string, unknown>; 
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   return (
     <>
-      <label style={LS}>YouTube or Vimeo URL</label><input style={IS} value={(content.url as string) ?? ''} onChange={e => set('url', e.target.value)} placeholder="https://youtube.com/watch?v=..." />
-      <label style={{ ...LS, marginTop: 10 }}>Caption</label><input style={IS} value={(content.caption as string) ?? ''} onChange={e => set('caption', e.target.value)} />
+      <VF label="Video URL" fieldKey="url" content={content} onChange={onChange}>
+        <input style={IS} value={(content.url as string) ?? ''} onChange={e => set('url', e.target.value)} placeholder="https://youtube.com/watch?v=..." />
+      </VF>
+      <VF label="Caption" fieldKey="caption" content={content} onChange={onChange}>
+        <input style={IS} value={(content.caption as string) ?? ''} onChange={e => set('caption', e.target.value)} />
+      </VF>
     </>
   );
 }
@@ -369,8 +452,12 @@ function BannerEditor({ content, onChange }: { content: Record<string, unknown>;
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   return (
     <>
-      <label style={LS}>Banner Text</label><input style={IS} value={(content.text as string) ?? ''} onChange={e => set('text', e.target.value)} />
-      <label style={{ ...LS, marginTop: 10 }}>Link URL (optional)</label><input style={IS} value={(content.url as string) ?? ''} onChange={e => set('url', e.target.value)} placeholder="https://..." />
+      <VF label="Banner Text" fieldKey="text" content={content} onChange={onChange}>
+        <input style={IS} value={(content.text as string) ?? ''} onChange={e => set('text', e.target.value)} />
+      </VF>
+      <VF label="Link URL" fieldKey="url" content={content} onChange={onChange}>
+        <input style={IS} value={(content.url as string) ?? ''} onChange={e => set('url', e.target.value)} placeholder="https://..." />
+      </VF>
     </>
   );
 }
@@ -389,10 +476,13 @@ function EmbedEditor({ content, onChange }: { content: Record<string, unknown>; 
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   return (
     <>
-      <label style={LS}>Heading (optional)</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
-      <label style={{ ...LS, marginTop: 10 }}>HTML / Iframe Code</label>
-      <textarea style={{ ...TA, minHeight: 120, fontFamily: 'monospace', fontSize: 12 }} value={(content.html as string) ?? ''} onChange={e => set('html', e.target.value)} placeholder='<iframe src="..."></iframe>' />
-      <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>Paste embed code for Google Maps, forms, calendars, etc.</div>
+      <VF label="Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
+      <VF label="HTML / Iframe Code" fieldKey="html" content={content} onChange={onChange}>
+        <textarea style={{ ...TA, minHeight: 120, fontFamily: 'monospace', fontSize: 12 }} value={(content.html as string) ?? ''} onChange={e => set('html', e.target.value)} placeholder='<iframe src="..."></iframe>' />
+        <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>Paste embed code for Google Maps, forms, calendars, etc.</div>
+      </VF>
     </>
   );
 }
@@ -403,8 +493,12 @@ function TeamEditor({ content, onChange }: { content: Record<string, unknown>; o
   const setMembers = (next: typeof members) => onChange({ ...content, members: next });
   return (
     <>
-      <label style={LS}>Section Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
-      <label style={LS}>Badge</label><input style={{ ...IS, marginBottom: 10 }} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
+      <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
+        <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      </VF>
       {members.map((m, i) => (
         <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB' }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'end' }}>
@@ -427,8 +521,12 @@ function TimelineEditor({ content, onChange }: { content: Record<string, unknown
   const setItems = (next: typeof items) => onChange({ ...content, items: next });
   return (
     <>
-      <label style={LS}>Section Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
-      <label style={LS}>Badge</label><input style={{ ...IS, marginBottom: 10 }} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
+      <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
+        <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      </VF>
       {items.map((item, i) => (
         <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'end' }}>
           <div style={{ width: 90 }}><label style={LS}>Date</label><input style={IS} value={item.date} onChange={e => { const n = [...items]; n[i] = { ...n[i], date: e.target.value }; setItems(n); }} /></div>
@@ -448,8 +546,12 @@ function LogoGridEditor({ content, onChange }: { content: Record<string, unknown
   const setLogos = (next: typeof logos) => onChange({ ...content, logos: next });
   return (
     <>
-      <label style={LS}>Section Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
-      <label style={LS}>Badge</label><input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
+      <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
+        <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      </VF>
       <label style={{ ...LS, marginTop: 6 }}>Logo Height</label><input style={{ ...IS, marginBottom: 10 }} value={(content.logoHeight as string) ?? '48px'} onChange={e => set('logoHeight', e.target.value)} placeholder="48px" />
       {logos.map((logo, i) => (
         <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'end' }}>
@@ -468,13 +570,19 @@ function CountdownEditor({ content, onChange }: { content: Record<string, unknow
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   return (
     <>
-      <label style={LS}>Heading</label><input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
-      <label style={{ ...LS, marginTop: 10 }}>Subtitle</label><textarea style={TA} value={(content.subtitle as string) ?? ''} onChange={e => set('subtitle', e.target.value)} />
+      <VF label="Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
+      <VF label="Subtitle" fieldKey="subtitle" content={content} onChange={onChange}>
+        <textarea style={TA} value={(content.subtitle as string) ?? ''} onChange={e => set('subtitle', e.target.value)} />
+      </VF>
       <label style={{ ...LS, marginTop: 10 }}>Target Date & Time</label><input style={IS} type="datetime-local" value={(content.targetDate as string) ?? ''} onChange={e => set('targetDate', e.target.value)} />
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 10 }}>
-        <div><label style={LS}>CTA Text</label><input style={IS} value={(content.ctaText as string) ?? ''} onChange={e => set('ctaText', e.target.value)} /></div>
-        <div><label style={LS}>CTA URL</label><input style={IS} value={(content.ctaUrl as string) ?? ''} onChange={e => set('ctaUrl', e.target.value)} /></div>
-      </div>
+      <VF label="CTA Button" fieldKey="ctaText" content={content} onChange={onChange}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div><label style={LS}>Text</label><input style={IS} value={(content.ctaText as string) ?? ''} onChange={e => set('ctaText', e.target.value)} /></div>
+          <div><label style={LS}>URL</label><input style={IS} value={(content.ctaUrl as string) ?? ''} onChange={e => set('ctaUrl', e.target.value)} /></div>
+        </div>
+      </VF>
       <label style={{ ...LS, marginTop: 10 }}>Expired Text</label><input style={IS} value={(content.expiredText as string) ?? ''} onChange={e => set('expiredText', e.target.value)} placeholder="This event has passed." />
     </>
   );

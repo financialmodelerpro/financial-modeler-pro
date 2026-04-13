@@ -16,6 +16,7 @@ function getEmbedUrl(url: string): string {
 }
 
 export function VideoSection({ content, styles }: Props) {
+  const v = (k: string) => content[`${k}_visible`] !== false;
   const url     = content.url as string ?? '';
   const caption = content.caption as string ?? '';
   const bgColor = (styles.bgColor as string) ?? '#ffffff';
@@ -40,7 +41,7 @@ export function VideoSection({ content, styles }: Props) {
             allowFullScreen
           />
         </div>
-        {caption && (
+        {v('caption') && caption && (
           <p style={{ textAlign: 'center', fontSize: 13, color: textColor || '#6B7280', marginTop: 16, lineHeight: 1.6 }}>
             {caption}
           </p>
