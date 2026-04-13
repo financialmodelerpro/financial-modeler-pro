@@ -1,3 +1,4 @@
+// cache-bust-v2
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getFounderProfile, cms, getAllPageSections } from '@/src/lib/shared/cms';
