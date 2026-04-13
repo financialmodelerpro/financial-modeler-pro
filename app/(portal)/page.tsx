@@ -190,7 +190,7 @@ export default async function LandingPage() {
       <div style={{ height: isAdmin ? 108 : 64 }} />
 
       {/* ── Hero ───────────────────────────────────────────────────────────── */}
-      <section style={{ paddingTop: heroStyles.paddingY ?? 'max(130px,10vw)', paddingBottom: heroStyles.paddingY ?? 110, paddingLeft:40, paddingRight:40, textAlign:'center', position:'relative', background:'linear-gradient(180deg,#0D2E5A 0%,#0A2448 100%)', overflow:'hidden', color:'#fff' }}>
+      <section style={{ padding:'clamp(56px,8vw,96px) 40px clamp(64px,9vw,104px)', textAlign:'center', position:'relative', background:'linear-gradient(180deg,#0D2E5A 0%,#0A2448 100%)', overflow:'hidden', color:'#fff' }}>
         {/* Radial gradient overlay */}
         <div style={{ position:'absolute', inset:0, background:'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(45,107,168,0.25) 0%, transparent 65%)', pointerEvents:'none' }} />
         {/* Grid pattern */}
@@ -279,24 +279,6 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* ── Our Mission ───────────────────────────────────────────────────── */}
-      <section style={{ background:'#ffffff', padding:'64px 24px', maxWidth:'800px', margin:'0 auto', textAlign:'center' }}>
-        <h2 style={{ fontSize:'2rem', fontWeight:700, color:'#1F3864', marginBottom:'16px' }}>Our Mission</h2>
-        <p style={{ fontSize:'1.125rem', color:'#374151', lineHeight:1.7 }}>
-          To make professional financial modeling accessible to every finance professional worldwide. We believe structured, real-world modeling skills should not be locked behind expensive courses or years of trial and error.
-        </p>
-      </section>
-
-      {/* ── Our Vision ────────────────────────────────────────────────────── */}
-      <section style={{ background:'#F5F6FA', padding:'64px 24px', textAlign:'center' }}>
-        <div style={{ maxWidth:'800px', margin:'0 auto' }}>
-          <h2 style={{ fontSize:'2rem', fontWeight:700, color:'#1F3864', marginBottom:'16px' }}>Our Vision</h2>
-          <p style={{ fontSize:'1.125rem', color:'#374151', lineHeight:1.7 }}>
-            To become the world&apos;s leading financial modeling platform — where analysts, bankers, and finance teams come to build, learn, and grow their modeling capabilities across every discipline.
-          </p>
-        </div>
-      </section>
-
       {/* ── Stats Bar ──────────────────────────────────────────────────────── */}
       <section id="stats-bar" style={{ borderTop:'1px solid rgba(255,255,255,0.07)', borderBottom:'1px solid rgba(255,255,255,0.07)', padding:'32px 40px', background:'#0A2248', color:'#fff' }}>
         <div style={{ display:'flex', justifyContent:'center', gap:'clamp(32px,6vw,80px)', flexWrap:'wrap', maxWidth:900, margin:'0 auto' }}>
@@ -329,6 +311,43 @@ export default async function LandingPage() {
                 <span style={{ fontSize:14, color:'#4B5563', lineHeight:1.55 }}>{text}</span>
               </div>
             ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Our Mission ───────────────────────────────────────────────────── */}
+      <style>{`
+        @media (max-width: 767px) {
+          .fmp-mission-grid, .fmp-vision-grid { grid-template-columns: 1fr !important; }
+        }
+      `}</style>
+      <section style={{ background:'#ffffff', padding:'80px 40px' }}>
+        <div className="fmp-mission-grid" style={{ maxWidth:1200, margin:'0 auto', display:'grid', gridTemplateColumns:'1fr 1fr', gap:64, alignItems:'center' }}>
+          <div>
+            <div style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>OUR MISSION</div>
+            <h2 style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1F3864', marginBottom:16, lineHeight:1.2 }}>Our Mission</h2>
+            <p style={{ fontSize:15, color:'#374151', lineHeight:1.75 }}>
+              To make professional financial modeling accessible to every finance professional worldwide. We believe structured, real-world modeling skills should not be locked behind expensive courses or years of trial and error.
+            </p>
+          </div>
+          <div style={{ background:'#F3F4F6', border:'2px solid #E5E7EB', borderRadius:12, minHeight:280, display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <span style={{ fontSize:15, color:'#9CA3AF', fontWeight:500 }}>Mission Image</span>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Our Vision ────────────────────────────────────────────────────── */}
+      <section style={{ background:'#F5F6FA', padding:'80px 40px' }}>
+        <div className="fmp-vision-grid" style={{ maxWidth:1200, margin:'0 auto', display:'grid', gridTemplateColumns:'1fr 1fr', gap:64, alignItems:'center' }}>
+          <div style={{ background:'#F3F4F6', border:'2px solid #E5E7EB', borderRadius:12, minHeight:280, display:'flex', alignItems:'center', justifyContent:'center' }}>
+            <span style={{ fontSize:15, color:'#9CA3AF', fontWeight:500 }}>Vision Image</span>
+          </div>
+          <div>
+            <div style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>OUR VISION</div>
+            <h2 style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1F3864', marginBottom:16, lineHeight:1.2 }}>Our Vision</h2>
+            <p style={{ fontSize:15, color:'#374151', lineHeight:1.75 }}>
+              To become the world&apos;s leading financial modeling platform — where analysts, bankers, and finance teams come to build, learn, and grow their modeling capabilities across every discipline.
+            </p>
           </div>
         </div>
       </section>
