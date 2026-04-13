@@ -35,16 +35,12 @@ export default async function FounderPage() {
   const linkedin   = (fc?.cta_secondary_url as string) || (fc?.linkedin_url as string) || cms(founder, 'bio', 'linkedin_url', '');
   const philosophy = (fc?.philosophy as string)     || cms(founder, 'philosophy', 'text', 'A good financial model is not just a calculation — it\'s a communication tool. Every assumption should be visible, every output should be traceable, and the final product should be something you\'d be proud to present to a board or an investor committee without reformatting.');
 
-  const bgParas = (fc?.background_paragraphs as string[]) ?? [];
-  const longBio = bgParas.length > 0 ? bgParas : ((fc?.long_bio as string) || cms(founder, 'bio', 'long_bio', 'Ahmad Din has spent over 15 years at the intersection of real estate development and structured finance.')).split('\n\n');
+  // Long bio: split by \n\n first, then \n — handles both DB-stored newlines and literal \n
+  const longBioRaw = (fc?.long_bio as string) || cms(founder, 'bio', 'long_bio', 'Ahmad Din has spent over 15 years at the intersection of real estate development and structured finance.');
+  const longBio = longBioRaw.split(/\n\n|\n/).map(p => p.trim()).filter(Boolean);
 
-  const expItems = (fc?.experience as string[]) ?? [
-    '15+ years in real estate finance and development advisory',
-    'Structured financing for projects across GCC, SEA, and international markets',
-    'Built financial models for residential, hospitality, and mixed-use developments',
-    'Worked with developers, sovereign funds, and institutional investors',
-    'Founded Financial Modeler Pro to democratize professional-grade modeling',
-  ];
+  // Experience: from CMS content.experience[] (NOT credentials — those are home card only)
+  const expItems = (fc?.experience as string[]) ?? [];
 
   const projects = (fc?.projects as { id: string; title: string; description: string; sector: string; value: string }[]) ?? [];
 
@@ -89,12 +85,14 @@ export default async function FounderPage() {
       </section>
 
       {/* Background */}
-      <section style={{ padding: '72px 40px', maxWidth: 800, margin: '0 auto' }}>
-        <h2 style={{ fontSize: 22, fontWeight: 800, color: '#fff', marginBottom: 24 }}>Background</h2>
-        {longBio.map((para, i) => (
-          <p key={i} style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.55)', lineHeight: 1.8, marginBottom: 20 }}>{para}</p>
-        ))}
-      </section>
+      {longBio.length > 0 && (
+        <section style={{ padding: '72px 40px', maxWidth: 800, margin: '0 auto' }}>
+          <h2 style={{ fontSize: 22, fontWeight: 800, color: '#fff', marginBottom: 24 }}>Background</h2>
+          {longBio.map((para, i) => (
+            <p key={i} style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.85)', lineHeight: 1.8, marginBottom: 16 }}>{para}</p>
+          ))}
+        </section>
+      )}
 
       {/* Experience */}
       <section style={{ padding: '0 40px 72px', maxWidth: 800, margin: '0 auto' }}>
