@@ -39,7 +39,9 @@ export function TextImageSection({ content, styles }: Props) {
     </div>
   );
 
-  const imageBlock = imageSrc ? (
+  const items = Array.isArray(content.items) ? (content.items as string[]).filter(Boolean) : [];
+
+  const rightBlock = imageSrc ? (
     <div style={{ flexShrink: 0, width: imageWidth, minWidth: 200 }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={imageSrc} alt={imageAlt}
@@ -50,6 +52,15 @@ export function TextImageSection({ content, styles }: Props) {
           objectFit: imageFit as React.CSSProperties['objectFit'],
           display: 'block',
         }} />
+    </div>
+  ) : items.length > 0 ? (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1, minWidth: 280 }}>
+      {items.map((item, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          <span style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, background: '#E8F0FB', border: '1px solid #C7D9F2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#1B4F8A', marginTop: 1 }}>✓</span>
+          <span style={{ fontSize: 14, color: '#4B5563', lineHeight: 1.55 }}>{item}</span>
+        </div>
+      ))}
     </div>
   ) : (
     <div style={{
@@ -72,7 +83,7 @@ export function TextImageSection({ content, styles }: Props) {
         flexDirection: imagePosition === 'left' ? 'row-reverse' : 'row',
       }}>
         {textBlock}
-        {imageBlock}
+        {rightBlock}
       </div>
     </section>
   );

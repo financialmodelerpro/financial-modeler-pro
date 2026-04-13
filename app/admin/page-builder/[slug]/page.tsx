@@ -355,6 +355,25 @@ function TextImageEditor({ content, onChange }: { content: Record<string, unknow
           </div>
         </div>
       </VF>
+
+      {/* Checklist items (shown when no image uploaded) */}
+      {(() => {
+        const items = Array.isArray(content.items) ? (content.items as string[]) : [];
+        const setItems = (next: string[]) => onChange({ ...content, items: next });
+        return (
+          <div style={{ marginTop: 10, padding: 10, background: '#F0FFF4', borderRadius: 8, border: '1px solid #BBF7D0' }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: '#15803D', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Checklist Items <span style={{ fontWeight: 400, textTransform: 'none', color: '#6B7280' }}>(shown when no image)</span></div>
+            {items.map((item, i) => (
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
+                <span style={{ color: '#9CA3AF', fontSize: 14, flexShrink: 0 }}>✓</span>
+                <input style={{ ...IS, flex: 1 }} value={item} onChange={e => { const n = [...items]; n[i] = e.target.value; setItems(n); }} />
+                <button onClick={() => setItems(items.filter((_, j) => j !== i))} style={{ padding: '5px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11, flexShrink: 0 }}>X</button>
+              </div>
+            ))}
+            <button onClick={() => setItems([...items, 'New item'])} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #BBF7D0', background: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#15803D' }}>+ Add Item</button>
+          </div>
+        );
+      })()}
     </>
   );
 }
