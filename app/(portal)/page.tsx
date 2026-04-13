@@ -121,13 +121,18 @@ export default async function LandingPage() {
 
   // ── About (fallback styles only — text now comes from CMS text_image sections) ──
 
-  // ── Pillars ───────────────────────────────────────────────────────────────
-  const pillarsH2        = cms(content, 'pillars', 'heading',       'Two Platforms. One Destination.');
-  const pillarsSub       = cms(content, 'pillars', 'subheading',    'Modeling + Training — everything a financial professional needs in one place.');
-  const modelTitle       = cms(content, 'pillars', 'model_title',   'Modeling Platform');
-  const modelDesc        = cms(content, 'pillars', 'model_desc',    'Structured workflows that take you from project setup to investor-ready reports. All outputs link — change one assumption, everything updates.');
-  const trainingTitle    = cms(content, 'pillars', 'training_title','Training Hub');
-  const trainingDesc     = cms(content, 'pillars', 'training_desc', 'Free video courses taught by finance professionals. Learn the methodology behind the model — from first principles to advanced deal structuring.');
+  // ── Pillars (CMS page_sections → cms_content → hardcoded fallback) ──────
+  const cmsPillarsRaw = homePageSections.find(s => s.section_type === 'columns' && (s.content as Record<string,unknown>)?.heading?.toString().includes('Two Platforms'));
+  const pillarsHidden = cmsPillarsRaw?.visible === false;
+  const cmsPillars = cmsPillarsRaw?.visible !== false ? cmsPillarsRaw : undefined;
+  const pc = cmsPillars?.content as Record<string, unknown> | undefined;
+  const pillarsH2        = (pc?.heading as string)    || cms(content, 'pillars', 'heading',       'Two Platforms. One Destination.');
+  const pillarsSub       = (pc?.subheading as string) || cms(content, 'pillars', 'subheading',    'Modeling + Training — everything a financial professional needs in one place.');
+  const pillarsCols = (pc?.columns as { id: string; title: string; description: string; borderColor: string; borderSideColor: string; accentColor: string; shadowColor: string; features: string[]; ctaText: string; ctaUrl: string; icon: string }[]) ?? [];
+  const modelTitle       = pillarsCols[0]?.title       || cms(content, 'pillars', 'model_title',   'Modeling Platform');
+  const modelDesc        = pillarsCols[0]?.description || cms(content, 'pillars', 'model_desc',    'Structured workflows that take you from project setup to investor-ready reports. All outputs link — change one assumption, everything updates.');
+  const trainingTitle    = pillarsCols[1]?.title       || cms(content, 'pillars', 'training_title','Training Hub');
+  const trainingDesc     = pillarsCols[1]?.description || cms(content, 'pillars', 'training_desc', 'Free video courses taught by finance professionals. Learn the methodology behind the model — from first principles to advanced deal structuring.');
 
   // ── Articles section ──────────────────────────────────────────────────────
   const articlesBadge = cms(content, 'articles_section', 'badge',  'Insights');
@@ -396,56 +401,65 @@ export default async function LandingPage() {
       )}
 
       {/* ── Two Pillars ────────────────────────────────────────────────────── */}
-      <section style={{ background:'#F5F7FA', padding:`${pillarsStyles.paddingY ?? '88px'} 40px` }}>
-        <div style={{ maxWidth:1100, margin:'0 auto' }}>
-          <div style={{ textAlign:'center', marginBottom:48 }}>
-            <InlineEdit tag="h2" section="pillars" fieldKey="heading" value={pillarsH2} isAdmin={isAdmin}
-              style={{ fontSize: pillarsStyles.headingSize ?? 'clamp(24px,3vw,36px)', fontWeight:800, color: pillarsStyles.headingColor ?? '#1B3A6B' }} />
-            <InlineEdit tag="p" section="pillars" fieldKey="subheading" value={pillarsSub} isAdmin={isAdmin}
-              style={{ fontSize:15, color:'#6B7280', marginTop:10 }} />
-          </div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:24 }}>
-            {/* Modeling card */}
-            <div style={{ background:'#fff', border:'1px solid #C7D9F2', borderTop:'4px solid #1B4F8A', borderRadius:16, padding:'36px 32px', boxShadow:'0 2px 12px rgba(27,79,138,0.06)' }}>
-              <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginBottom:16, display:'block' }}>
-                <rect x="4" y="26" width="10" height="18" rx="3" fill="#1B4F8A"/>
-                <rect x="19" y="16" width="10" height="28" rx="3" fill="#1B4F8A" fillOpacity="0.65"/>
-                <rect x="34" y="6" width="10" height="38" rx="3" fill="#1B4F8A" fillOpacity="0.35"/>
-                <line x1="2" y1="46" x2="46" y2="46" stroke="#1B4F8A" strokeWidth="2.5" strokeLinecap="round"/>
-              </svg>
-              <InlineEdit tag="h3" section="pillars" fieldKey="model_title" value={modelTitle} isAdmin={isAdmin}
-                style={{ fontSize:22, fontWeight:800, color:'#1B3A6B', marginBottom:12 }} />
-              <InlineEdit tag="p" section="pillars" fieldKey="model_desc" value={modelDesc} isAdmin={isAdmin}
-                style={{ fontSize:14, color:'#4B5563', lineHeight:1.7, marginBottom:24 }} />
-              <ul style={{ listStyle:'none', padding:0, margin:'0 0 28px', display:'flex', flexDirection:'column', gap:8 }}>
-                {['Multi-discipline project structure','Debt & equity scheduling','IRR, NPV, and equity multiple','Excel & PDF export'].map(t=>(
-                  <li key={t} style={{ fontSize:13, color:'#4B5563', display:'flex', gap:8, alignItems:'center' }}><span style={{ color:'#1B4F8A', fontWeight:700 }}>→</span> {t}</li>
-                ))}
-              </ul>
-              <Link href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/modeling`} style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1B4F8A', color:'#fff', fontSize:13, fontWeight:700, padding:'10px 22px', borderRadius:7, textDecoration:'none' }}>Explore Modeling Hub →</Link>
+      {!pillarsHidden && (() => {
+        const APP_URL_P = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
+        const LEARN_URL_P = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+        const cols = pillarsCols.length >= 2 ? pillarsCols : null;
+        const mFeatures = cols?.[0]?.features ?? ['Multi-discipline project structure','Debt & equity scheduling','IRR, NPV, and equity multiple','Excel & PDF export'];
+        const tFeatures = cols?.[1]?.features ?? ['Always 100% free','Real-world case studies','GCC & international markets','Certificate on completion'];
+        const mCtaText = cols?.[0]?.ctaText ?? 'Explore Modeling Hub →';
+        const mCtaUrl  = cols?.[0]?.ctaUrl ? cols[0].ctaUrl : `${APP_URL_P}/modeling`;
+        const tCtaText = cols?.[1]?.ctaText ?? 'Browse Free Courses →';
+        const tCtaUrl  = cols?.[1]?.ctaUrl ? cols[1].ctaUrl : `${LEARN_URL_P}/training`;
+        const mBorder  = cols?.[0]?.borderColor ?? '#1B4F8A';
+        const mSide    = cols?.[0]?.borderSideColor ?? '#C7D9F2';
+        const mAccent  = cols?.[0]?.accentColor ?? '#1B4F8A';
+        const mShadow  = cols?.[0]?.shadowColor ?? 'rgba(27,79,138,0.06)';
+        const tBorder  = cols?.[1]?.borderColor ?? '#1A7A30';
+        const tSide    = cols?.[1]?.borderSideColor ?? '#C3E9CE';
+        const tAccent  = cols?.[1]?.accentColor ?? '#1A7A30';
+        const tShadow  = cols?.[1]?.shadowColor ?? 'rgba(26,122,48,0.06)';
+        return (
+        <section style={{ background:'#F5F7FA', padding:`${(cmsPillars?.styles as Record<string,string>)?.paddingY ?? pillarsStyles.paddingY ?? '88px'} 40px` }}>
+          <div style={{ maxWidth:1100, margin:'0 auto' }}>
+            <div style={{ textAlign:'center', marginBottom:48 }}>
+              <h2 style={{ fontSize: pillarsStyles.headingSize ?? 'clamp(24px,3vw,36px)', fontWeight:800, color: pillarsStyles.headingColor ?? '#1B3A6B' }}>{pillarsH2}</h2>
+              <p style={{ fontSize:15, color:'#6B7280', marginTop:10 }}>{pillarsSub}</p>
             </div>
-            {/* Training card */}
-            <div style={{ background:'#fff', border:'1px solid #C3E9CE', borderTop:'4px solid #1A7A30', borderRadius:16, padding:'36px 32px', boxShadow:'0 2px 12px rgba(26,122,48,0.06)' }}>
-              <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginBottom:16, display:'block' }}>
-                <path d="M24 10L6 20L24 30L42 20L24 10Z" fill="#1A7A30"/>
-                <path d="M13 25.5V35C13 35 17.5 40 24 40C30.5 40 35 35 35 35V25.5" stroke="#1A7A30" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
-                <line x1="42" y1="20" x2="42" y2="32" stroke="#1A7A30" strokeWidth="3" strokeLinecap="round"/>
-                <circle cx="42" cy="33.5" r="2.5" fill="#1A7A30"/>
-              </svg>
-              <InlineEdit tag="h3" section="pillars" fieldKey="training_title" value={trainingTitle} isAdmin={isAdmin}
-                style={{ fontSize:22, fontWeight:800, color:'#1B3A6B', marginBottom:12 }} />
-              <InlineEdit tag="p" section="pillars" fieldKey="training_desc" value={trainingDesc} isAdmin={isAdmin}
-                style={{ fontSize:14, color:'#4B5563', lineHeight:1.7, marginBottom:24 }} />
-              <ul style={{ listStyle:'none', padding:0, margin:'0 0 28px', display:'flex', flexDirection:'column', gap:8 }}>
-                {['Always 100% free','Real-world case studies','GCC & international markets','Certificate on completion'].map(t=>(
-                  <li key={t} style={{ fontSize:13, color:'#4B5563', display:'flex', gap:8, alignItems:'center' }}><span style={{ color:'#1A7A30', fontWeight:700 }}>→</span> {t}</li>
-                ))}
-              </ul>
-              <Link href={`${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training`} style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1A7A30', color:'#fff', fontSize:13, fontWeight:700, padding:'10px 22px', borderRadius:7, textDecoration:'none' }}>Browse Free Courses →</Link>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:24 }}>
+              {/* Modeling card */}
+              <div style={{ background:'#fff', border:`1px solid ${mSide}`, borderTop:`4px solid ${mBorder}`, borderRadius:16, padding:'36px 32px', boxShadow:`0 2px 12px ${mShadow}` }}>
+                {cols?.[0]?.icon ? <div style={{ marginBottom:16 }} dangerouslySetInnerHTML={{ __html: cols[0].icon }} /> : (
+                  <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginBottom:16, display:'block' }}>
+                    <rect x="4" y="26" width="10" height="18" rx="3" fill="#1B4F8A"/><rect x="19" y="16" width="10" height="28" rx="3" fill="#1B4F8A" fillOpacity="0.65"/><rect x="34" y="6" width="10" height="38" rx="3" fill="#1B4F8A" fillOpacity="0.35"/><line x1="2" y1="46" x2="46" y2="46" stroke="#1B4F8A" strokeWidth="2.5" strokeLinecap="round"/>
+                  </svg>
+                )}
+                <h3 style={{ fontSize:22, fontWeight:800, color:'#1B3A6B', marginBottom:12 }}>{modelTitle}</h3>
+                <p style={{ fontSize:14, color:'#4B5563', lineHeight:1.7, marginBottom:24 }}>{modelDesc}</p>
+                <ul style={{ listStyle:'none', padding:0, margin:'0 0 28px', display:'flex', flexDirection:'column', gap:8 }}>
+                  {mFeatures.map(t=>(<li key={t} style={{ fontSize:13, color:'#4B5563', display:'flex', gap:8, alignItems:'center' }}><span style={{ color:mAccent, fontWeight:700 }}>→</span> {t}</li>))}
+                </ul>
+                <Link href={mCtaUrl} style={{ display:'inline-flex', alignItems:'center', gap:6, background:mAccent, color:'#fff', fontSize:13, fontWeight:700, padding:'10px 22px', borderRadius:7, textDecoration:'none' }}>{mCtaText}</Link>
+              </div>
+              {/* Training card */}
+              <div style={{ background:'#fff', border:`1px solid ${tSide}`, borderTop:`4px solid ${tBorder}`, borderRadius:16, padding:'36px 32px', boxShadow:`0 2px 12px ${tShadow}` }}>
+                {cols?.[1]?.icon ? <div style={{ marginBottom:16 }} dangerouslySetInnerHTML={{ __html: cols[1].icon }} /> : (
+                  <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ marginBottom:16, display:'block' }}>
+                    <path d="M24 10L6 20L24 30L42 20L24 10Z" fill="#1A7A30"/><path d="M13 25.5V35C13 35 17.5 40 24 40C30.5 40 35 35 35 35V25.5" stroke="#1A7A30" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/><line x1="42" y1="20" x2="42" y2="32" stroke="#1A7A30" strokeWidth="3" strokeLinecap="round"/><circle cx="42" cy="33.5" r="2.5" fill="#1A7A30"/>
+                  </svg>
+                )}
+                <h3 style={{ fontSize:22, fontWeight:800, color:'#1B3A6B', marginBottom:12 }}>{trainingTitle}</h3>
+                <p style={{ fontSize:14, color:'#4B5563', lineHeight:1.7, marginBottom:24 }}>{trainingDesc}</p>
+                <ul style={{ listStyle:'none', padding:0, margin:'0 0 28px', display:'flex', flexDirection:'column', gap:8 }}>
+                  {tFeatures.map(t=>(<li key={t} style={{ fontSize:13, color:'#4B5563', display:'flex', gap:8, alignItems:'center' }}><span style={{ color:tAccent, fontWeight:700 }}>→</span> {t}</li>))}
+                </ul>
+                <Link href={tCtaUrl} style={{ display:'inline-flex', alignItems:'center', gap:6, background:tAccent, color:'#fff', fontSize:13, fontWeight:700, padding:'10px 22px', borderRadius:7, textDecoration:'none' }}>{tCtaText}</Link>
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+        );
+      })()}
 
       {/* ── Founder ────────────────────────────────────────────────────────── */}
       <section style={{ padding:'64px 40px 80px', background:'#1B3A6B', color:'#fff' }}>
