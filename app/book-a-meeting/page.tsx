@@ -24,6 +24,11 @@ export default async function BookAMeetingPage() {
   const _photoRaw = cms(founder, 'bio', 'photo_url', '');
   const photoUrl = (fc?.photo_url as string) || (_photoRaw.startsWith('data:') || _photoRaw.startsWith('http') ? _photoRaw : _photoRaw ? `data:image/jpeg;base64,${_photoRaw}` : '');
   const expectations = (fc?.booking_expectations as string[]) ?? ['60-minute consultation', 'Financial modeling advice', 'Platform walkthrough', 'Corporate finance guidance'];
+  const pageHeading = (fc?.booking_page_heading as string) || 'Book a Meeting';
+  const redirectNote = (fc?.booking_redirect_note as string) || 'You will be redirected to our Microsoft Bookings page to select your preferred time slot.';
+  const backText = (fc?.booking_back_text as string) || '← Back to Home';
+  const backUrl = (fc?.booking_back_url as string) || '/';
+  const expectLabel = (fc?.booking_expectations_label as string) || 'What to expect';
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -40,7 +45,7 @@ export default async function BookAMeetingPage() {
             </div>
           )}
 
-          <h1 style={{ fontSize: 'clamp(24px, 4vw, 36px)', fontWeight: 800, color: '#fff', marginBottom: 4, lineHeight: 1.15 }}>Book a Meeting</h1>
+          <h1 style={{ fontSize: 'clamp(24px, 4vw, 36px)', fontWeight: 800, color: '#fff', marginBottom: 4, lineHeight: 1.15 }}>{pageHeading}</h1>
           <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>with <strong style={{ color: '#fff' }}>{name}</strong></p>
 
           <div style={{ marginBottom: 4 }}>
@@ -56,7 +61,7 @@ export default async function BookAMeetingPage() {
           {/* Expectations */}
           {expectations.length > 0 && (
             <div style={{ textAlign: 'left', marginBottom: 28 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>What to expect</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>{expectLabel}</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 {expectations.map((item, i) => (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -82,7 +87,7 @@ export default async function BookAMeetingPage() {
                 📅 Open Booking Calendar →
               </a>
               <p style={{ marginTop: 14, fontSize: 12, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>
-                You will be redirected to our Microsoft Bookings page to select your preferred time slot.
+                {redirectNote}
               </p>
             </>
           ) : (
@@ -97,7 +102,7 @@ export default async function BookAMeetingPage() {
           )}
 
           <div style={{ marginTop: 28 }}>
-            <Link href="/" style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)', textDecoration: 'none' }}>← Back to Home</Link>
+            <Link href={backUrl} style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)', textDecoration: 'none' }}>{backText}</Link>
           </div>
         </div>
       </section>

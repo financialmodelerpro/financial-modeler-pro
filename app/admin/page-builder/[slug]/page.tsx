@@ -985,6 +985,17 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
             <div><label style={LS}>URL</label><input style={IS} value={(content.booking_url as string) ?? ''} onChange={e => set('booking_url', e.target.value)} placeholder="Paste Microsoft Bookings URL" /></div>
           </div>
         </VF>
+        <VF label="Page Heading" fieldKey="booking_page_heading" content={content} onChange={onChange}>
+          <input style={IS} value={(content.booking_page_heading as string) ?? ''} onChange={e => set('booking_page_heading', e.target.value)} placeholder="Book a Meeting" />
+        </VF>
+        <VF label="Redirect Note" fieldKey="booking_redirect_note" content={content} onChange={onChange}>
+          <textarea style={{ ...TA, minHeight: 40 }} value={(content.booking_redirect_note as string) ?? ''} onChange={e => set('booking_redirect_note', e.target.value)} placeholder="You will be redirected to our Microsoft Bookings page..." />
+        </VF>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
+          <div><label style={LS}>Back Link Text</label><input style={IS} value={(content.booking_back_text as string) ?? ''} onChange={e => set('booking_back_text', e.target.value)} placeholder="← Back to Home" /></div>
+          <div><label style={LS}>Back Link URL</label><input style={IS} value={(content.booking_back_url as string) ?? ''} onChange={e => set('booking_back_url', e.target.value)} placeholder="/" /></div>
+        </div>
+        <div style={{ marginTop: 6 }}><label style={LS}>Expectations Label</label><input style={IS} value={(content.booking_expectations_label as string) ?? ''} onChange={e => set('booking_expectations_label', e.target.value)} placeholder="WHAT TO EXPECT" /></div>
       </div>
 
       {/* Read More / Full Profile */}
