@@ -378,6 +378,21 @@ export async function getPageSections(slug: string): Promise<PageSection[]> {
   }
 }
 
+/** Fetch ALL page sections for a slug (including hidden ones). Used by pages that need to distinguish "hidden" from "not seeded". */
+export async function getAllPageSections(slug: string): Promise<PageSection[]> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('page_sections')
+      .select('*')
+      .eq('page_slug', slug)
+      .order('display_order');
+    return (data as PageSection[]) ?? [];
+  } catch {
+    return [];
+  }
+}
+
 /** Fetch page metadata by slug */
 export async function getCmsPage(slug: string): Promise<CmsPage | null> {
   try {

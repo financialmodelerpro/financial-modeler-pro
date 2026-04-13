@@ -12,7 +12,7 @@ import {
   getFounderProfile, getSitePages,
   getTestimonialsForPage,
   getSectionStyles,
-  getPageSections,
+  getAllPageSections,
 } from '@/src/lib/shared/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { getServerClient } from '@/src/lib/shared/supabase';
@@ -55,11 +55,13 @@ export default async function LandingPage() {
     getTestimonialsForPage('landing'),
     getFounderProfile(), getServerSession(), getSitePages(),
     getPublicPlanNames(),
-    getPageSections('home'),
+    getAllPageSections('home'),
   ]);
 
-  // Extract CMS hero section if it exists
-  const cmsHero = homePageSections.find(s => s.section_type === 'hero');
+  // Extract CMS sections (including hidden ones so we can distinguish "hidden" from "not seeded")
+  const cmsHeroRaw = homePageSections.find(s => s.section_type === 'hero');
+  const heroHidden = cmsHeroRaw?.visible === false;
+  const cmsHero = cmsHeroRaw?.visible !== false ? cmsHeroRaw : undefined;
   const h = cmsHero?.content as Record<string, unknown> | undefined;
 
   const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'admin';
@@ -88,7 +90,9 @@ export default async function LandingPage() {
   const heroTags           = heroTagsRaw.split(',').map(t => t.trim()).filter(Boolean);
 
   // ── Stats (CMS page_sections → cms_content → hardcoded fallback) ────────
-  const cmsStats = homePageSections.find(s => s.section_type === 'stats');
+  const cmsStatsRaw = homePageSections.find(s => s.section_type === 'stats');
+  const statsHidden = cmsStatsRaw?.visible === false;
+  const cmsStats = cmsStatsRaw?.visible !== false ? cmsStatsRaw : undefined;
   const cmsStatsItems = cmsStats ? (cmsStats.content as Record<string, unknown>).items as { value: string; label: string; visible?: boolean }[] : null;
   type StatItem = { value: string; label: string; order: number };
   let statsData: StatItem[] = [];
@@ -204,7 +208,7 @@ export default async function LandingPage() {
       <div style={{ height: isAdmin ? 108 : 64 }} />
 
       {/* ── Hero ───────────────────────────────────────────────────────────── */}
-      <section style={{ padding:'clamp(56px,8vw,96px) 40px clamp(64px,9vw,104px)', textAlign:'center', position:'relative', background:'linear-gradient(180deg,#0D2E5A 0%,#0A2448 100%)', overflow:'hidden', color:'#fff' }}>
+      {!heroHidden && <section style={{ padding:'clamp(56px,8vw,96px) 40px clamp(64px,9vw,104px)', textAlign:'center', position:'relative', background:'linear-gradient(180deg,#0D2E5A 0%,#0A2448 100%)', overflow:'hidden', color:'#fff' }}>
         {/* Radial gradient overlay */}
         <div style={{ position:'absolute', inset:0, background:'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(45,107,168,0.25) 0%, transparent 65%)', pointerEvents:'none' }} />
         {/* Grid pattern */}
@@ -327,10 +331,10 @@ export default async function LandingPage() {
           );
         })()}
 
-      </section>
+      </section>}
 
       {/* ── Stats Bar ──────────────────────────────────────────────────────── */}
-      <section id="stats-bar" style={{ borderTop:'1px solid rgba(255,255,255,0.07)', borderBottom:'1px solid rgba(255,255,255,0.07)', padding:`${statsStyles?.paddingY ?? '32px'} 40px`, background: statsStyles?.bgColor ?? '#0A2248', color: statsStyles?.textColor ?? '#fff' }}>
+      {!statsHidden && <section id="stats-bar" style={{ borderTop:'1px solid rgba(255,255,255,0.07)', borderBottom:'1px solid rgba(255,255,255,0.07)', padding:`${statsStyles?.paddingY ?? '32px'} 40px`, background: statsStyles?.bgColor ?? '#0A2248', color: statsStyles?.textColor ?? '#fff' }}>
         <div style={{ display:'flex', justifyContent:'center', gap:'clamp(32px,6vw,80px)', flexWrap:'wrap', maxWidth:900, margin:'0 auto' }}>
           {statsData.map((s, i) => (
             <div key={i} style={{ textAlign:'center' }}>
@@ -339,7 +343,7 @@ export default async function LandingPage() {
             </div>
           ))}
         </div>
-      </section>
+      </section>}
 
       {/* ── What is FMP ────────────────────────────────────────────────────── */}
       <section style={{ padding:`${aboutStyles.paddingY ?? '88px'} 40px`, maxWidth:1100, margin:'0 auto', color:'#374151' }}>
