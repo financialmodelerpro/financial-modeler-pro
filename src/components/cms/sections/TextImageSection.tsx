@@ -22,52 +22,65 @@ export function TextImageSection({ content, styles }: Props) {
   const maxW          = (styles.maxWidth as string) ?? '1100px';
   const items         = Array.isArray(content.items) ? (content.items as string[]).filter(Boolean) : [];
 
+  // Background image support
+  const bgImageUrl = content.bgImageUrl as string ?? '';
+  const bgOverlay  = (content.bgOverlay as string) || 'rgba(15,35,70,0.75)';
+  const hasBg      = !!bgImageUrl;
+  const textColor  = hasBg ? '#ffffff' : '#374151';
+  const headColor  = hasBg ? '#ffffff' : '#0D2E5A';
+  const badgeColor = hasBg ? 'rgba(255,255,255,0.7)' : '#1B4F8A';
+
   const textBlock = (
     <div style={{ flex: 1, minWidth: 280, borderLeft: '4px solid #1ABC9C', paddingLeft: 24 }}>
       {v('badge') && badge && badge.toUpperCase() !== heading.toUpperCase() && (
-        <div style={{ fontSize: 12, fontWeight: 700, color: '#1B4F8A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: badgeColor, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 14 }}>
           {badge}
         </div>
       )}
       {v('heading') && heading && (
-        <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 16, lineHeight: 1.2 }}>
+        <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: headColor, marginBottom: 16, lineHeight: 1.2 }}>
           {heading}
         </h2>
       )}
       {v('html') && html && (
         <div dangerouslySetInnerHTML={{ __html: html }}
-          style={{ fontSize: 15, color: '#374151', lineHeight: 1.75 }} />
+          style={{ fontSize: 15, color: textColor, lineHeight: 1.75 }} />
       )}
     </div>
   );
 
   // Checklist card
   const checklistBlock = items.length > 0 ? (
-    <div style={{ background: '#F8FAFF', border: '1px solid #E2EBF6', borderRadius: 12, padding: 24 }}>
+    <div style={{
+      background: hasBg ? 'rgba(255,255,255,0.1)' : '#F8FAFF',
+      border: hasBg ? '1px solid rgba(255,255,255,0.2)' : '1px solid #E2EBF6',
+      borderRadius: 12, padding: 24,
+    }}>
       {itemsHeading && (
-        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1F3864', marginBottom: 16 }}>
+        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: hasBg ? '#fff' : '#1F3864', marginBottom: 16 }}>
           {itemsHeading}
         </h3>
       )}
       {items.map((item, i) => (
         <div key={i} style={{
           display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 0',
-          borderBottom: i < items.length - 1 ? '1px solid #F3F4F6' : 'none',
+          borderBottom: i < items.length - 1 ? `1px solid ${hasBg ? 'rgba(255,255,255,0.1)' : '#F3F4F6'}` : 'none',
         }}>
           <span style={{
             width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
-            background: '#E8F4FD', border: '1px solid #2E75B6',
+            background: hasBg ? 'rgba(255,255,255,0.15)' : '#E8F4FD',
+            border: `1px solid ${hasBg ? 'rgba(255,255,255,0.3)' : '#2E75B6'}`,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 13, fontWeight: 700, color: '#1B4F8A', marginTop: 1,
+            fontSize: 13, fontWeight: 700, color: hasBg ? '#fff' : '#1B4F8A', marginTop: 1,
           }}>✓</span>
-          <span style={{ fontSize: '0.95rem', color: '#374151', lineHeight: 1.55, paddingTop: 3 }}>{item}</span>
+          <span style={{ fontSize: '0.95rem', color: hasBg ? '#fff' : '#374151', lineHeight: 1.55, paddingTop: 3 }}>{item}</span>
         </div>
       ))}
     </div>
   ) : null;
 
-  // Image block
-  const imageBlock = imageSrc ? (
+  // Image block (hidden when background image is set)
+  const imageBlock = !hasBg && imageSrc ? (
     <div>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={imageSrc} alt={imageAlt}
@@ -83,11 +96,11 @@ export function TextImageSection({ content, styles }: Props) {
 
   // Right side: image + checklist, image only, checklist only, or placeholder
   const rightBlock = (imageBlock || checklistBlock) ? (
-    <div style={{ flexShrink: 0, width: imageWidth, minWidth: 200, display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ flexShrink: 0, width: hasBg ? 'auto' : imageWidth, minWidth: 200, display: 'flex', flexDirection: 'column', gap: 16, flex: checklistBlock && !imageBlock ? 1 : undefined }}>
       {imageBlock}
       {checklistBlock}
     </div>
-  ) : (
+  ) : !hasBg ? (
     <div style={{
       flexShrink: 0, width: imageWidth, minWidth: 200,
       minHeight: imageHeight === 'auto' ? 220 : imageHeight,
@@ -98,15 +111,20 @@ export function TextImageSection({ content, styles }: Props) {
     }}>
       {placeholder}
     </div>
-  );
+  ) : null;
+
+  const sectionBg: React.CSSProperties = hasBg
+    ? { backgroundImage: `url(${bgImageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', position: 'relative' as const }
+    : {};
 
   return (
-    <section style={{ background: bgColor, padding: `${py} 40px` }}>
+    <section style={{ background: bgColor, padding: `${py} 40px`, ...sectionBg }}>
+      {hasBg && <div style={{ position: 'absolute', inset: 0, background: bgOverlay, zIndex: 0 }} />}
       <div style={{
-        maxWidth: maxW, margin: '0 auto',
-        background: '#FAFBFC', borderRadius: 12, padding: '40px 32px',
-        boxShadow: '0 2px 20px rgba(0,0,0,0.04)',
-        display: 'flex', gap: 40, alignItems: 'flex-start', flexWrap: 'wrap',
+        maxWidth: maxW, margin: '0 auto', position: 'relative', zIndex: 1,
+        background: hasBg ? 'transparent' : '#FAFBFC', borderRadius: 12, padding: '40px 32px',
+        boxShadow: hasBg ? 'none' : '0 2px 20px rgba(0,0,0,0.04)',
+        display: 'flex', gap: 40, alignItems: 'center', flexWrap: 'wrap',
         flexDirection: imagePosition === 'left' ? 'row-reverse' : 'row',
       }}>
         {textBlock}

@@ -296,6 +296,16 @@ function ImageEditor({ content, onChange }: { content: Record<string, unknown>; 
 function TextImageEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   const imgSrc = (content.imageSrc as string) ?? '';
+  const bgImg = (content.bgImageUrl as string) ?? '';
+  const hasBg = !!bgImg;
+  const OVERLAY_OPTIONS = [
+    { label: '0%', value: 'rgba(15,35,70,0)' },
+    { label: '25%', value: 'rgba(15,35,70,0.25)' },
+    { label: '50%', value: 'rgba(15,35,70,0.50)' },
+    { label: '60%', value: 'rgba(15,35,70,0.60)' },
+    { label: '75%', value: 'rgba(15,35,70,0.75)' },
+    { label: '85%', value: 'rgba(15,35,70,0.85)' },
+  ];
   return (
     <>
       <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
@@ -307,54 +317,82 @@ function TextImageEditor({ content, onChange }: { content: Record<string, unknow
       <VF label="Content" fieldKey="html" content={content} onChange={onChange}>
         <RichTextEditor value={(content.html as string) ?? ''} onChange={v => set('html', v)} compact />
       </VF>
-      <VF label="Image" fieldKey="imageSrc" content={content} onChange={onChange}>
+
+      {/* Background image */}
+      <div style={{ marginTop: 10, padding: 10, background: '#EFF6FF', borderRadius: 8, border: '1px solid #BFDBFE' }}>
+        <div style={{ fontSize: 11, fontWeight: 800, color: '#1D4ED8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Background Image <span style={{ fontWeight: 400, textTransform: 'none', color: '#6B7280' }}>(covers full section)</span></div>
         <div style={{ display: 'flex', gap: 6 }}>
-          <input style={{ ...IS, flex: 1 }} value={imgSrc} onChange={e => set('imageSrc', e.target.value)} placeholder="https://... or upload →" />
-          <MediaPickerButton onSelect={url => set('imageSrc', url)} />
+          <input style={{ ...IS, flex: 1 }} value={bgImg} onChange={e => set('bgImageUrl', e.target.value)} placeholder="https://... or upload →" />
+          <MediaPickerButton onSelect={url => set('bgImageUrl', url)} />
         </div>
-        {imgSrc && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={imgSrc} alt="" style={{ marginTop: 6, maxWidth: 200, maxHeight: 120, borderRadius: 6, objectFit: 'cover', border: '1px solid #E5E7EB' }} />
+        {bgImg && (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={bgImg} alt="" style={{ marginTop: 6, maxWidth: 200, maxHeight: 80, borderRadius: 6, objectFit: 'cover', border: '1px solid #E5E7EB' }} />
+            <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center' }}>
+              <div style={{ flex: 1 }}>
+                <label style={LS}>Overlay Opacity</label>
+                <select style={IS} value={(content.bgOverlay as string) || 'rgba(15,35,70,0.75)'} onChange={e => set('bgOverlay', e.target.value)}>
+                  {OVERLAY_OPTIONS.map(o => <option key={o.label} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <button onClick={() => { onChange({ ...content, bgImageUrl: '', bgOverlay: '' }); }} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>✕ Remove</button>
+            </div>
+          </>
         )}
-        <label style={{ ...LS, marginTop: 6 }}>Alt Text</label><input style={IS} value={(content.imageAlt as string) ?? ''} onChange={e => set('imageAlt', e.target.value)} />
-        <label style={{ ...LS, marginTop: 6 }}>Placeholder Text (when no image)</label><input style={IS} value={(content.imagePlaceholder as string) ?? ''} onChange={e => set('imagePlaceholder', e.target.value)} placeholder="Mission Image" />
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 8 }}>
-          <div>
-            <label style={LS}>Position</label>
-            <select style={IS} value={(content.imagePosition as string) ?? 'right'} onChange={e => set('imagePosition', e.target.value)}>
-              <option value="left">Left</option><option value="right">Right</option>
-            </select>
+      </div>
+
+      {/* Side image (hidden when background image is set) */}
+      {!hasBg && (
+        <VF label="Side Image" fieldKey="imageSrc" content={content} onChange={onChange}>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <input style={{ ...IS, flex: 1 }} value={imgSrc} onChange={e => set('imageSrc', e.target.value)} placeholder="https://... or upload →" />
+            <MediaPickerButton onSelect={url => set('imageSrc', url)} />
           </div>
-          <div>
-            <label style={LS}>Width</label>
-            <select style={IS} value={(content.imageWidth as string) ?? '45%'} onChange={e => set('imageWidth', e.target.value)}>
-              <option value="100%">100%</option><option value="90%">90%</option><option value="80%">80%</option>
-              <option value="70%">70%</option><option value="60%">60%</option><option value="50%">50%</option>
-              <option value="45%">45%</option><option value="40%">40%</option>
-            </select>
+          {imgSrc && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={imgSrc} alt="" style={{ marginTop: 6, maxWidth: 200, maxHeight: 120, borderRadius: 6, objectFit: 'cover', border: '1px solid #E5E7EB' }} />
+          )}
+          <label style={{ ...LS, marginTop: 6 }}>Alt Text</label><input style={IS} value={(content.imageAlt as string) ?? ''} onChange={e => set('imageAlt', e.target.value)} />
+          <label style={{ ...LS, marginTop: 6 }}>Placeholder Text</label><input style={IS} value={(content.imagePlaceholder as string) ?? ''} onChange={e => set('imagePlaceholder', e.target.value)} placeholder="Mission Image" />
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 8 }}>
+            <div>
+              <label style={LS}>Position</label>
+              <select style={IS} value={(content.imagePosition as string) ?? 'right'} onChange={e => set('imagePosition', e.target.value)}>
+                <option value="left">Left</option><option value="right">Right</option>
+              </select>
+            </div>
+            <div>
+              <label style={LS}>Width</label>
+              <select style={IS} value={(content.imageWidth as string) ?? '45%'} onChange={e => set('imageWidth', e.target.value)}>
+                <option value="100%">100%</option><option value="90%">90%</option><option value="80%">80%</option>
+                <option value="70%">70%</option><option value="60%">60%</option><option value="50%">50%</option>
+                <option value="45%">45%</option><option value="40%">40%</option>
+              </select>
+            </div>
+            <div>
+              <label style={LS}>Height</label>
+              <select style={IS} value={(content.imageHeight as string) ?? 'auto'} onChange={e => set('imageHeight', e.target.value)}>
+                <option value="auto">Auto</option><option value="200px">200px</option><option value="240px">240px</option>
+                <option value="280px">280px</option><option value="320px">320px</option><option value="360px">360px</option>
+                <option value="400px">400px</option>
+              </select>
+            </div>
           </div>
-          <div>
-            <label style={LS}>Height</label>
-            <select style={IS} value={(content.imageHeight as string) ?? 'auto'} onChange={e => set('imageHeight', e.target.value)}>
-              <option value="auto">Auto</option><option value="200px">200px</option><option value="240px">240px</option>
-              <option value="280px">280px</option><option value="320px">320px</option><option value="360px">360px</option>
-              <option value="400px">400px</option>
-            </select>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
+            <div>
+              <label style={LS}>Object Fit</label>
+              <select style={IS} value={(content.imageFit as string) ?? 'cover'} onChange={e => set('imageFit', e.target.value)}>
+                <option value="cover">Cover</option><option value="contain">Contain</option><option value="fill">Fill</option>
+              </select>
+            </div>
+            <div>
+              <label style={LS}>Border Radius</label>
+              <input style={IS} value={(content.imageRadius as string) ?? '12px'} onChange={e => set('imageRadius', e.target.value)} placeholder="12px" />
+            </div>
           </div>
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
-          <div>
-            <label style={LS}>Object Fit</label>
-            <select style={IS} value={(content.imageFit as string) ?? 'cover'} onChange={e => set('imageFit', e.target.value)}>
-              <option value="cover">Cover</option><option value="contain">Contain</option><option value="fill">Fill</option>
-            </select>
-          </div>
-          <div>
-            <label style={LS}>Border Radius</label>
-            <input style={IS} value={(content.imageRadius as string) ?? '12px'} onChange={e => set('imageRadius', e.target.value)} placeholder="12px" />
-          </div>
-        </div>
-      </VF>
+        </VF>
+      )}
 
       {/* Checklist items (shown when no image uploaded) */}
       {(() => {
