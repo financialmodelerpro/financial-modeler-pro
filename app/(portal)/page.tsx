@@ -6,6 +6,7 @@ import type { Metadata } from 'next';
 import { getServerSession } from 'next-auth';
 import Link from 'next/link';
 import { HeroScrollBtn } from './HeroScrollBtn';
+import { FounderExpand } from './FounderExpand';
 import {
   getCmsContent, cms,
   getPublishedArticles,
@@ -79,6 +80,12 @@ export default async function LandingPage() {
     : _founderPhotoRaw
       ? `data:image/jpeg;base64,${_founderPhotoRaw}`
       : '';
+
+  // ── Founder (CMS page_sections → founder_profile → hardcoded fallback) ──
+  const cmsFounderRaw = homePageSections.find(s => s.section_type === 'team');
+  const founderHidden = cmsFounderRaw?.visible === false;
+  const cmsFounder = cmsFounderRaw?.visible !== false ? cmsFounderRaw : undefined;
+  const fc = cmsFounder?.content as Record<string, unknown> | undefined;
 
   // ── Hero (CMS page_sections → cms_content → hardcoded fallback) ────────
   const heroBadge          = (h?.badge as string)          || cms(content, 'hero', 'badge_text',       '🚀 Now Live — Free to Use');
@@ -462,67 +469,84 @@ export default async function LandingPage() {
       })()}
 
       {/* ── Founder ────────────────────────────────────────────────────────── */}
-      <section style={{ padding:'64px 40px 80px', background:'#1B3A6B', color:'#fff' }}>
-        <style>{`
-          @media (max-width: 640px) {
-            .fmp-founder-img-col { order: -1 !important; }
-            .fmp-founder-photo   { width: min(280px, 80vw) !important; height: min(280px, 80vw) !important; }
-          }
-        `}</style>
-        <div style={{ maxWidth:1100, margin:'0 auto' }}>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(min(300px,100%),1fr))', gap:56, alignItems:'center' }}>
-            <div className="fmp-founder-img-col" style={{ display:'flex', justifyContent:'center', order:1 }}>
-              {founderPhotoUrl ? (
-                <div className="fmp-founder-photo" style={{ width:320, height:320, borderRadius:16, overflow:'hidden', position:'relative', border:'3px solid #2E75B6', boxShadow:'0 12px 48px rgba(0,0,0,0.5)', flexShrink:0 }}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={founderPhotoUrl}
-                    alt=""
-                    style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'center' }}
-                    onError={undefined}
-                  />
-                </div>
-              ) : (
-                <div className="fmp-founder-photo" style={{ width:320, height:320, borderRadius:16, background:'linear-gradient(135deg,#0D2E5A,#1B4F8A)', display:'flex', alignItems:'center', justifyContent:'center', border:'3px solid #2E75B6', boxShadow:'0 12px 48px rgba(0,0,0,0.5)', flexShrink:0 }}>
-                  <span style={{ fontSize:72, fontWeight:800, color:'rgba(255,255,255,0.9)', letterSpacing:'-2px', fontFamily:"'Inter',sans-serif" }}>AD</span>
-                </div>
-              )}
-            </div>
-            <div>
-              <InlineEdit tag="div" section="founder_section" fieldKey="badge" value={founderBadge} isAdmin={isAdmin} darkBg
-                style={{ fontSize:12, fontWeight:700, color:'#4A90D9', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }} />
-              <h2 style={{ fontSize:'clamp(22px,3vw,32px)', fontWeight:800, color:'#fff', marginBottom:6 }}>{founderName}</h2>
-              <div style={{ fontSize:14, color:'#93C5FD', fontWeight:600, marginBottom:20, lineHeight:1.4 }}>
-                Corporate Finance &amp; Transaction Advisory Specialist | Financial Modeling Expert
-              </div>
-              <p style={{ fontSize:14.5, color:'rgba(255,255,255,0.65)', lineHeight:1.75, marginBottom:16 }}>{founderShortBio}</p>
-              <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:isAdmin?8:24 }}>
-                {[
-                  '12+ years in Corporate Finance & Advisory',
-                  'Experience across KSA & Pakistan',
-                  'Lender-grade models: IRR, DSCR, Feasibility',
-                  'Real estate, energy, infrastructure & industrial sectors',
-                  'Transaction advisory & investment support',
-                ].map(text=>(
-                  <div key={text} style={{ display:'flex', alignItems:'center', gap:10 }}>
-                    <span style={{ color:'#4A90D9', fontWeight:700, fontSize:12, flexShrink:0 }}>✓</span>
-                    <span style={{ fontSize:13.5, color:'rgba(255,255,255,0.6)' }}>{text}</span>
+      {!founderHidden && (() => {
+        const fBadge   = (fc?.badge as string)            || founderBadge;
+        const fName    = (fc?.name as string)             || founderName;
+        const fTitle   = (fc?.title as string)            || 'Corporate Finance & Transaction Advisory Specialist | Financial Modeling Expert';
+        const fBio     = (fc?.bio as string)              || founderShortBio;
+        const fCreds   = (fc?.credentials as string[])    || ['12+ years in Corporate Finance & Advisory','Experience across KSA & Pakistan','Lender-grade models: IRR, DSCR, Feasibility','Real estate, energy, infrastructure & industrial sectors','Transaction advisory & investment support'];
+        const fPhoto   = (fc?.photo_url as string)        || founderPhotoUrl;
+        const fRadius  = (fc?.photo_radius as string)     || '16px';
+        const fHeight  = (fc?.photo_height as string)     || '320px';
+        const fFit     = (fc?.photo_fit as string)        || 'cover';
+        const fLinkedIn = (fc?.cta_secondary_url as string) || (fc?.linkedin_url as string) || founderLinkedIn;
+        const fCtaPri  = (fc?.cta_primary_text as string) || 'Read Full Profile →';
+        const fCtaUrl  = (fc?.cta_primary_url as string)  || '/about/ahmad-din';
+        const fCtaSec  = (fc?.cta_secondary_text as string) || 'Connect on LinkedIn →';
+        const fBookTxt = (fc?.booking_text as string)     || 'Book a Meeting';
+        const fBookUrl = (fc?.booking_url as string)      || '';
+        const fLongBio = (fc?.long_bio as string)         || '';
+        const fExp     = (fc?.experience as string[])     || [];
+        const fPhilo   = (fc?.philosophy as string)       || '';
+        const fShowMore = fc?.show_read_more !== false;
+        const fMoreLabel = (fc?.read_more_label as string) || 'Read Full Profile →';
+        const fBg      = (cmsFounder?.styles as Record<string,string>)?.bgColor ?? '#1B3A6B';
+        return (
+        <section style={{ padding:'64px 40px 80px', background:fBg, color:'#fff' }}>
+          <style>{`
+            @media (max-width: 640px) {
+              .fmp-founder-img-col { order: -1 !important; }
+              .fmp-founder-photo   { width: min(280px, 80vw) !important; height: min(280px, 80vw) !important; }
+            }
+          `}</style>
+          <div style={{ maxWidth:1100, margin:'0 auto' }}>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(min(300px,100%),1fr))', gap:56, alignItems:'center' }}>
+              <div className="fmp-founder-img-col" style={{ display:'flex', justifyContent:'center', order:1 }}>
+                {fPhoto ? (
+                  <div className="fmp-founder-photo" style={{ width:'100%', maxWidth:400, height:fHeight, borderRadius:fRadius, overflow:'hidden', position:'relative', flexShrink:0 }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={fPhoto} alt="" style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:fFit as React.CSSProperties['objectFit'], objectPosition:'center' }} />
                   </div>
-                ))}
+                ) : (
+                  <div className="fmp-founder-photo" style={{ width:'100%', maxWidth:400, height:fHeight, borderRadius:fRadius, background:'linear-gradient(135deg,#0D2E5A,#1B4F8A)', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                    <span style={{ fontSize:72, fontWeight:800, color:'rgba(255,255,255,0.9)', letterSpacing:'-2px', fontFamily:"'Inter',sans-serif" }}>AD</span>
+                  </div>
+                )}
               </div>
-              {isAdmin && (
-                <Link href="/admin/founder" target="_blank" style={{ fontSize:11, color:'#93C5FD', textDecoration:'none', display:'block', marginBottom:20 }}>✏️ Edit founder profile in Admin →</Link>
-              )}
-              <div style={{ display:'flex', gap:14, flexWrap:'wrap' }}>
-                <Link href="/about/ahmad-din" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1B4F8A', border:'1px solid #1B4F8A', color:'#fff', fontSize:13, fontWeight:700, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>Read Full Profile →</Link>
-                {founderLinkedIn && (
-                  <a href={founderLinkedIn} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'transparent', border:'1px solid rgba(255,255,255,0.25)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:600, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>Connect on LinkedIn →</a>
+              <div>
+                <div style={{ fontSize:12, fontWeight:700, color:'#4A90D9', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>{fBadge}</div>
+                <h2 style={{ fontSize:'clamp(22px,3vw,32px)', fontWeight:800, color:'#fff', marginBottom:6 }}>{fName}</h2>
+                <div style={{ fontSize:14, color:'#93C5FD', fontWeight:600, marginBottom:20, lineHeight:1.4 }}>{fTitle}</div>
+                <p style={{ fontSize:14.5, color:'rgba(255,255,255,0.65)', lineHeight:1.75, marginBottom:16 }}>{fBio}</p>
+                <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:24 }}>
+                  {fCreds.map(text=>(
+                    <div key={text} style={{ display:'flex', alignItems:'center', gap:10 }}>
+                      <span style={{ color:'#4A90D9', fontWeight:700, fontSize:12, flexShrink:0 }}>✓</span>
+                      <span style={{ fontSize:13.5, color:'rgba(255,255,255,0.6)' }}>{text}</span>
+                    </div>
+                  ))}
+                </div>
+                {isAdmin && (
+                  <Link href="/admin/founder" target="_blank" style={{ fontSize:11, color:'#93C5FD', textDecoration:'none', display:'block', marginBottom:20 }}>✏️ Edit founder profile in Admin →</Link>
+                )}
+                <div style={{ display:'flex', gap:14, flexWrap:'wrap' }}>
+                  <Link href={fCtaUrl} style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1B4F8A', border:'1px solid #1B4F8A', color:'#fff', fontSize:13, fontWeight:700, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>{fCtaPri}</Link>
+                  {fLinkedIn && (
+                    <a href={fLinkedIn} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'transparent', border:'1px solid rgba(255,255,255,0.25)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:600, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>{fCtaSec}</a>
+                  )}
+                  {fBookUrl && (
+                    <a href={fBookUrl} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1ABC9C', color:'#fff', fontSize:13, fontWeight:700, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>📅 {fBookTxt}</a>
+                  )}
+                </div>
+                {fShowMore && (fLongBio || fExp.length > 0) && (
+                  <FounderExpand label={fMoreLabel} longBio={fLongBio} experience={fExp} philosophy={fPhilo} name={fName} />
                 )}
               </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+        );
+      })()}
 
       {/* ── PaceMakers ─────────────────────────────────────────────────────── */}
       <section style={{ padding:'88px 40px', background:'#0A2248', color:'#fff' }}>

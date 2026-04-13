@@ -864,6 +864,121 @@ function TeamEditor({ content, onChange }: { content: Record<string, unknown>; o
   );
 }
 
+// ── Founder profile editor (for team sections with content.name) ────────────
+
+function FounderEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  const set = (k: string, v: unknown) => onChange({ ...content, [k]: v });
+  const creds = (content.credentials as string[]) ?? [];
+  const setCreds = (next: string[]) => onChange({ ...content, credentials: next });
+  const exp = (content.experience as string[]) ?? [];
+  const setExp = (next: string[]) => onChange({ ...content, experience: next });
+  const photoUrl = (content.photo_url as string) ?? '';
+
+  return (
+    <>
+      {/* Basic Info */}
+      <div style={{ fontSize:10, fontWeight:800, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>Basic Info</div>
+      <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
+        <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      </VF>
+      <VF label="Name" fieldKey="name" content={content} onChange={onChange}>
+        <input style={IS} value={(content.name as string) ?? ''} onChange={e => set('name', e.target.value)} />
+      </VF>
+      <VF label="Title / Role" fieldKey="title" content={content} onChange={onChange}>
+        <input style={IS} value={(content.title as string) ?? ''} onChange={e => set('title', e.target.value)} />
+      </VF>
+      <VF label="Short Bio" fieldKey="bio" content={content} onChange={onChange}>
+        <textarea style={{ ...TA, minHeight:60 }} value={(content.bio as string) ?? ''} onChange={e => set('bio', e.target.value)} />
+      </VF>
+
+      {/* Credentials */}
+      <div style={{ marginTop:12, padding:10, background:'#F0F4FF', borderRadius:8, border:'1px solid #C7D2FE' }}>
+        <div style={{ fontSize:10, fontWeight:800, color:'#4F46E5', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>Credentials</div>
+        {creds.map((c, i) => (
+          <div key={i} style={{ display:'flex', gap:6, marginBottom:4, alignItems:'center' }}>
+            <span style={{ color:'#4A90D9', fontWeight:700, fontSize:12, flexShrink:0 }}>✓</span>
+            <input style={{ ...IS, flex:1 }} value={c} onChange={e => { const n=[...creds]; n[i]=e.target.value; setCreds(n); }} />
+            <button onClick={() => setCreds(creds.filter((_,j)=>j!==i))} style={{ padding:'4px 8px', borderRadius:4, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626', cursor:'pointer', fontSize:11, flexShrink:0 }}>X</button>
+          </div>
+        ))}
+        <button onClick={() => setCreds([...creds,'New credential'])} style={{ padding:'4px 10px', borderRadius:6, border:'1px solid #C7D2FE', background:'#fff', cursor:'pointer', fontSize:11, fontWeight:600, color:'#4F46E5' }}>+ Add</button>
+      </div>
+
+      {/* Photo */}
+      <div style={{ marginTop:12, padding:10, background:'#F9FAFB', borderRadius:8, border:'1px solid #E5E7EB' }}>
+        <div style={{ fontSize:10, fontWeight:800, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>Photo</div>
+        <div style={{ display:'flex', gap:6 }}>
+          <input style={{ ...IS, flex:1 }} value={photoUrl} onChange={e => set('photo_url', e.target.value)} placeholder="https://... or upload →" />
+          <MediaPickerButton onSelect={url => set('photo_url', url)} />
+        </div>
+        {photoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={photoUrl} alt="" style={{ marginTop:6, maxWidth:160, maxHeight:100, borderRadius:8, objectFit:'cover', border:'1px solid #E5E7EB' }} />
+        )}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginTop:6 }}>
+          <div><label style={LS}>Height</label><select style={IS} value={(content.photo_height as string) ?? '320px'} onChange={e => set('photo_height', e.target.value)}><option value="280px">280px</option><option value="320px">320px</option><option value="360px">360px</option><option value="400px">400px</option><option value="auto">Auto</option></select></div>
+          <div><label style={LS}>Fit</label><select style={IS} value={(content.photo_fit as string) ?? 'cover'} onChange={e => set('photo_fit', e.target.value)}><option value="cover">Cover</option><option value="contain">Contain</option></select></div>
+          <div><label style={LS}>Radius</label><input style={IS} value={(content.photo_radius as string) ?? '16px'} onChange={e => set('photo_radius', e.target.value)} placeholder="16px" /></div>
+        </div>
+      </div>
+
+      {/* Buttons */}
+      <div style={{ marginTop:12, padding:10, background:'#F9FAFB', borderRadius:8, border:'1px solid #E5E7EB' }}>
+        <div style={{ fontSize:10, fontWeight:800, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>Buttons & Links</div>
+        <VF label="Primary CTA" fieldKey="cta_primary" content={content} onChange={onChange}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+            <div><label style={LS}>Text</label><input style={IS} value={(content.cta_primary_text as string) ?? ''} onChange={e => set('cta_primary_text', e.target.value)} /></div>
+            <div><label style={LS}>URL</label><input style={IS} value={(content.cta_primary_url as string) ?? ''} onChange={e => set('cta_primary_url', e.target.value)} /></div>
+          </div>
+        </VF>
+        <VF label="Secondary CTA (LinkedIn)" fieldKey="cta_secondary" content={content} onChange={onChange}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+            <div><label style={LS}>Text</label><input style={IS} value={(content.cta_secondary_text as string) ?? ''} onChange={e => set('cta_secondary_text', e.target.value)} /></div>
+            <div><label style={LS}>URL</label><input style={IS} value={(content.cta_secondary_url as string) ?? ''} onChange={e => set('cta_secondary_url', e.target.value)} /></div>
+          </div>
+        </VF>
+        <VF label="Book a Meeting" fieldKey="booking" content={content} onChange={onChange}>
+          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
+            <div><label style={LS}>Text</label><input style={IS} value={(content.booking_text as string) ?? ''} onChange={e => set('booking_text', e.target.value)} /></div>
+            <div><label style={LS}>URL</label><input style={IS} value={(content.booking_url as string) ?? ''} onChange={e => set('booking_url', e.target.value)} placeholder="Paste Microsoft Bookings URL" /></div>
+          </div>
+        </VF>
+      </div>
+
+      {/* Read More / Full Profile */}
+      <div style={{ marginTop:12, padding:10, background:'#F0FFF4', borderRadius:8, border:'1px solid #BBF7D0' }}>
+        <div style={{ fontSize:10, fontWeight:800, color:'#15803D', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>Expandable Profile</div>
+        <label style={{ ...LS, display:'flex', alignItems:'center', gap:6, cursor:'pointer' }}>
+          <input type="checkbox" style={VCS} checked={content.show_read_more !== false} onChange={e => set('show_read_more', e.target.checked)} />
+          Show &quot;Read Full Profile&quot; link
+        </label>
+        <VF label="Long Bio" fieldKey="long_bio" content={content} onChange={onChange}>
+          <textarea style={{ ...TA, minHeight:80 }} value={(content.long_bio as string) ?? ''} onChange={e => set('long_bio', e.target.value)} placeholder="Extended biography (paragraphs separated by blank lines)" />
+        </VF>
+        <VF label="Philosophy Quote" fieldKey="philosophy" content={content} onChange={onChange}>
+          <textarea style={{ ...TA, minHeight:50 }} value={(content.philosophy as string) ?? ''} onChange={e => set('philosophy', e.target.value)} />
+        </VF>
+        <div style={{ marginTop:8 }}>
+          <label style={LS}>Experience Highlights</label>
+          {exp.map((item, i) => (
+            <div key={i} style={{ display:'flex', gap:6, marginBottom:4, alignItems:'center' }}>
+              <span style={{ color:'#4A90D9', fontSize:11, flexShrink:0 }}>{i+1}.</span>
+              <input style={{ ...IS, flex:1 }} value={item} onChange={e => { const n=[...exp]; n[i]=e.target.value; setExp(n); }} />
+              <button onClick={() => setExp(exp.filter((_,j)=>j!==i))} style={{ padding:'4px 8px', borderRadius:4, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626', cursor:'pointer', fontSize:11, flexShrink:0 }}>X</button>
+            </div>
+          ))}
+          <button onClick={() => setExp([...exp,'New experience'])} style={{ padding:'4px 10px', borderRadius:6, border:'1px solid #BBF7D0', background:'#fff', cursor:'pointer', fontSize:11, fontWeight:600, color:'#15803D' }}>+ Add</button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function SmartTeamEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  if (content.name && typeof content.name === 'string') return <FounderEditor content={content} onChange={onChange} />;
+  return <TeamEditor content={content} onChange={onChange} />;
+}
+
 function TimelineEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
   const items = (content.items as { date: string; title: string; description: string }[]) ?? [];
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
@@ -942,7 +1057,7 @@ const EDITORS: Record<string, React.ComponentType<{ content: Record<string, unkn
   text_image: TextImageEditor, cta: CtaEditor, stats: StatsEditor, cards: CardsEditor,
   columns: SmartColumnsEditor, faq: FaqEditor, list: ListEditor,
   testimonials: TestimonialsEditor, pricing_table: PricingTableEditor, video: VideoEditor,
-  banner: BannerEditor, spacer: SpacerEditor, embed: EmbedEditor, team: TeamEditor,
+  banner: BannerEditor, spacer: SpacerEditor, embed: EmbedEditor, team: SmartTeamEditor,
   timeline: TimelineEditor, logo_grid: LogoGridEditor, countdown: CountdownEditor,
 };
 
