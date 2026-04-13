@@ -336,18 +336,40 @@ function CtaEditor({ content, onChange }: { content: Record<string, unknown>; on
 }
 
 function StatsEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
-  const items = (content.items as { value: string; label: string }[]) ?? [];
-  const setItems = (next: { value: string; label: string }[]) => onChange({ ...content, items: next });
+  const items = ((content.items as { id?: string; value: string; label: string; visible?: boolean }[]) ?? []).map(it => ({ ...it, id: it.id || `stat_${Math.random().toString(36).slice(2, 9)}` }));
+  const setItems = (next: typeof items) => onChange({ ...content, items: next });
+  const handleDragEnd = (result: DropResult) => {
+    if (!result.destination) return;
+    const arr = Array.from(items);
+    const [removed] = arr.splice(result.source.index, 1);
+    arr.splice(result.destination.index, 0, removed);
+    setItems(arr);
+  };
   return (
     <>
-      {items.map((item, i) => (
-        <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'end' }}>
-          <div style={{ flex: 1 }}><label style={LS}>Value</label><input style={IS} value={item.value} onChange={e => { const n = [...items]; n[i] = { ...n[i], value: e.target.value }; setItems(n); }} /></div>
-          <div style={{ flex: 1 }}><label style={LS}>Label</label><input style={IS} value={item.label} onChange={e => { const n = [...items]; n[i] = { ...n[i], label: e.target.value }; setItems(n); }} /></div>
-          <button onClick={() => setItems(items.filter((_, j) => j !== i))} style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>X</button>
-        </div>
-      ))}
-      <button onClick={() => setItems([...items, { value: '0', label: 'Label' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Stat</button>
+      <DragDropContext onDragEnd={handleDragEnd}>
+        <Droppable droppableId="stats-items">
+          {(provided) => (
+            <div ref={provided.innerRef} {...provided.droppableProps}>
+              {items.map((item, i) => (
+                <Draggable key={item.id} draggableId={item.id} index={i}>
+                  {(prov) => (
+                    <div ref={prov.innerRef} {...prov.draggableProps} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'end', background: '#fff', borderRadius: 6, padding: '6px 4px', border: '1px solid #E5E7EB', ...prov.draggableProps.style }}>
+                      <span {...prov.dragHandleProps} style={{ cursor: 'grab', color: '#9CA3AF', fontSize: 16, flexShrink: 0, padding: '0 2px', alignSelf: 'center' }}>⠿</span>
+                      <input type="checkbox" style={VCS} checked={item.visible !== false} onChange={e => { const n = [...items]; n[i] = { ...n[i], visible: e.target.checked }; setItems(n); }} />
+                      <div style={{ flex: 1 }}><label style={LS}>Value</label><input style={IS} value={item.value} onChange={e => { const n = [...items]; n[i] = { ...n[i], value: e.target.value }; setItems(n); }} /></div>
+                      <div style={{ flex: 2 }}><label style={LS}>Label</label><input style={IS} value={item.label} onChange={e => { const n = [...items]; n[i] = { ...n[i], label: e.target.value }; setItems(n); }} /></div>
+                      <button onClick={() => setItems(items.filter((_, j) => j !== i))} style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>X</button>
+                    </div>
+                  )}
+                </Draggable>
+              ))}
+              {provided.placeholder}
+            </div>
+          )}
+        </Droppable>
+      </DragDropContext>
+      <button onClick={() => setItems([...items, { id: `stat_${Date.now()}`, value: '0', label: 'Label', visible: true }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Stat</button>
     </>
   );
 }

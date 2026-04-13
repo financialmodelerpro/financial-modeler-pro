@@ -87,12 +87,19 @@ export default async function LandingPage() {
   const heroTagsRaw        = (h?.tags as string)           || cms(content, 'hero', 'tags',             'Real Estate Models, Business Valuation, Project Finance, Fund Models');
   const heroTags           = heroTagsRaw.split(',').map(t => t.trim()).filter(Boolean);
 
-  // ── Stats ──────────────────────────────────────────────────────────────────
+  // ── Stats (CMS page_sections → cms_content → hardcoded fallback) ────────
+  const cmsStats = homePageSections.find(s => s.section_type === 'stats');
+  const cmsStatsItems = cmsStats ? (cmsStats.content as Record<string, unknown>).items as { value: string; label: string; visible?: boolean }[] : null;
   type StatItem = { value: string; label: string; order: number };
-  const statsBarJson = cms(content, 'stats', 'stats_bar_items', '');
   let statsData: StatItem[] = [];
-  if (statsBarJson) {
-    try { statsData = (JSON.parse(statsBarJson) as StatItem[]).sort((a, b) => a.order - b.order); } catch { /* fall through */ }
+  if (cmsStatsItems?.length) {
+    statsData = cmsStatsItems.filter(s => s.visible !== false).map((s, i) => ({ value: s.value, label: s.label, order: i }));
+  }
+  if (!statsData.length) {
+    const statsBarJson = cms(content, 'stats', 'stats_bar_items', '');
+    if (statsBarJson) {
+      try { statsData = (JSON.parse(statsBarJson) as StatItem[]).sort((a, b) => a.order - b.order); } catch { /* fall through */ }
+    }
   }
   if (!statsData.length) {
     statsData = [
@@ -102,6 +109,7 @@ export default async function LandingPage() {
       { value: cms(content,'stats','stat4_value','100%'), label: cms(content,'stats','stat4_label','Free Training — No Paywall'), order: 4 },
     ];
   }
+  const statsStyles = cmsStats?.styles as Record<string, string> | undefined;
 
   // ── About ─────────────────────────────────────────────────────────────────
   const aboutBadge  = cms(content, 'about', 'badge',        'The Platform');
@@ -299,11 +307,11 @@ export default async function LandingPage() {
       </section>
 
       {/* ── Stats Bar ──────────────────────────────────────────────────────── */}
-      <section id="stats-bar" style={{ borderTop:'1px solid rgba(255,255,255,0.07)', borderBottom:'1px solid rgba(255,255,255,0.07)', padding:'32px 40px', background:'#0A2248', color:'#fff' }}>
+      <section id="stats-bar" style={{ borderTop:'1px solid rgba(255,255,255,0.07)', borderBottom:'1px solid rgba(255,255,255,0.07)', padding:`${statsStyles?.paddingY ?? '32px'} 40px`, background: statsStyles?.bgColor ?? '#0A2248', color: statsStyles?.textColor ?? '#fff' }}>
         <div style={{ display:'flex', justifyContent:'center', gap:'clamp(32px,6vw,80px)', flexWrap:'wrap', maxWidth:900, margin:'0 auto' }}>
           {statsData.map((s, i) => (
             <div key={i} style={{ textAlign:'center' }}>
-              <div style={{ fontSize:30, fontWeight:800, color:'#4A90D9', letterSpacing:'-0.02em' }}>{s.value}</div>
+              <div style={{ fontSize:30, fontWeight:800, color: statsStyles?.valueColor ?? '#4A90D9', letterSpacing:'-0.02em' }}>{s.value}</div>
               <div style={{ fontSize:11, color:'rgba(255,255,255,0.4)', marginTop:5, letterSpacing:'0.08em', textTransform:'uppercase', fontWeight:500 }}>{s.label}</div>
             </div>
           ))}
