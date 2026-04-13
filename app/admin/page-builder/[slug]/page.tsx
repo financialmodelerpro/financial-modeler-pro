@@ -362,7 +362,10 @@ function TextImageEditor({ content, onChange }: { content: Record<string, unknow
         const setItems = (next: string[]) => onChange({ ...content, items: next });
         return (
           <div style={{ marginTop: 10, padding: 10, background: '#F0FFF4', borderRadius: 8, border: '1px solid #BBF7D0' }}>
-            <div style={{ fontSize: 11, fontWeight: 800, color: '#15803D', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Checklist Items <span style={{ fontWeight: 400, textTransform: 'none', color: '#6B7280' }}>(shown when no image)</span></div>
+            <div style={{ fontSize: 11, fontWeight: 800, color: '#15803D', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Checklist Items</div>
+            <VF label="Checklist Heading" fieldKey="itemsHeading" content={content} onChange={onChange}>
+              <input style={IS} value={(content.itemsHeading as string) ?? ''} onChange={e => set('itemsHeading', e.target.value)} placeholder="e.g. What You Get" />
+            </VF>
             {items.map((item, i) => (
               <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'center' }}>
                 <span style={{ color: '#9CA3AF', fontSize: 14, flexShrink: 0 }}>✓</span>

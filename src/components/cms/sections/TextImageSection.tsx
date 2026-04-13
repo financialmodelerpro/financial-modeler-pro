@@ -16,12 +16,14 @@ export function TextImageSection({ content, styles }: Props) {
   const imageFit      = (content.imageFit as string) ?? 'cover';
   const imageRadius   = (content.imageRadius as string) ?? '12px';
   const placeholder   = (content.imagePlaceholder as string) ?? 'Image';
+  const itemsHeading  = content.itemsHeading as string ?? '';
   const bgColor       = (styles.bgColor as string) ?? '#ffffff';
   const py            = (styles.paddingY as string) ?? 'clamp(48px,7vw,80px)';
-  const maxW          = (styles.maxWidth as string) ?? '1000px';
+  const maxW          = (styles.maxWidth as string) ?? '1100px';
+  const items         = Array.isArray(content.items) ? (content.items as string[]).filter(Boolean) : [];
 
   const textBlock = (
-    <div style={{ flex: 1, minWidth: 280 }}>
+    <div style={{ flex: 1, minWidth: 280, borderLeft: '4px solid #1ABC9C', paddingLeft: 24 }}>
       {v('badge') && badge && badge.toUpperCase() !== heading.toUpperCase() && (
         <div style={{ fontSize: 12, fontWeight: 700, color: '#1B4F8A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 14 }}>
           {badge}
@@ -39,10 +41,34 @@ export function TextImageSection({ content, styles }: Props) {
     </div>
   );
 
-  const items = Array.isArray(content.items) ? (content.items as string[]).filter(Boolean) : [];
+  // Checklist card
+  const checklistBlock = items.length > 0 ? (
+    <div style={{ background: '#F8FAFF', border: '1px solid #E2EBF6', borderRadius: 12, padding: 24 }}>
+      {itemsHeading && (
+        <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: '#1F3864', marginBottom: 16 }}>
+          {itemsHeading}
+        </h3>
+      )}
+      {items.map((item, i) => (
+        <div key={i} style={{
+          display: 'flex', alignItems: 'flex-start', gap: 12, padding: '10px 0',
+          borderBottom: i < items.length - 1 ? '1px solid #F3F4F6' : 'none',
+        }}>
+          <span style={{
+            width: 28, height: 28, borderRadius: '50%', flexShrink: 0,
+            background: '#E8F4FD', border: '1px solid #2E75B6',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 13, fontWeight: 700, color: '#1B4F8A', marginTop: 1,
+          }}>✓</span>
+          <span style={{ fontSize: '0.95rem', color: '#374151', lineHeight: 1.55, paddingTop: 3 }}>{item}</span>
+        </div>
+      ))}
+    </div>
+  ) : null;
 
-  const rightBlock = imageSrc ? (
-    <div style={{ flexShrink: 0, width: imageWidth, minWidth: 200 }}>
+  // Image block
+  const imageBlock = imageSrc ? (
+    <div>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={imageSrc} alt={imageAlt}
         style={{
@@ -53,14 +79,13 @@ export function TextImageSection({ content, styles }: Props) {
           display: 'block',
         }} />
     </div>
-  ) : items.length > 0 ? (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, flex: 1, minWidth: 280 }}>
-      {items.map((item, i) => (
-        <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-          <span style={{ width: 22, height: 22, borderRadius: '50%', flexShrink: 0, background: '#E8F0FB', border: '1px solid #C7D9F2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#1B4F8A', marginTop: 1 }}>✓</span>
-          <span style={{ fontSize: 14, color: '#4B5563', lineHeight: 1.55 }}>{item}</span>
-        </div>
-      ))}
+  ) : null;
+
+  // Right side: image + checklist, image only, checklist only, or placeholder
+  const rightBlock = (imageBlock || checklistBlock) ? (
+    <div style={{ flexShrink: 0, width: imageWidth, minWidth: 200, display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {imageBlock}
+      {checklistBlock}
     </div>
   ) : (
     <div style={{
@@ -79,7 +104,9 @@ export function TextImageSection({ content, styles }: Props) {
     <section style={{ background: bgColor, padding: `${py} 40px` }}>
       <div style={{
         maxWidth: maxW, margin: '0 auto',
-        display: 'flex', gap: 40, alignItems: 'center', flexWrap: 'wrap',
+        background: '#FAFBFC', borderRadius: 12, padding: '40px 32px',
+        boxShadow: '0 2px 20px rgba(0,0,0,0.04)',
+        display: 'flex', gap: 40, alignItems: 'flex-start', flexWrap: 'wrap',
         flexDirection: imagePosition === 'left' ? 'row-reverse' : 'row',
       }}>
         {textBlock}
