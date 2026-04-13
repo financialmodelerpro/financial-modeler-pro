@@ -221,14 +221,14 @@ export default async function LandingPage() {
           />
 
           {/* Primary CTA Buttons (show/hide controlled from Admin → Hero) */}
-          {(heroCta1_visible || heroCta2_visible) && (
+          {((heroCta1_visible && heroCta1.trim()) || (heroCta2_visible && heroCta2.trim())) && (
             <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 280ms both', display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap', marginBottom:28 }}>
-              {heroCta1_visible && (
+              {heroCta1_visible && heroCta1.trim() && (
                 <Link href="/login" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#2EAA4A', color:'#fff', fontWeight:700, fontSize:15, padding:'14px 36px', borderRadius:8, textDecoration:'none', boxShadow:'0 4px 20px rgba(46,170,74,0.35)' }}>
                   {heroCta1}
                 </Link>
               )}
-              {heroCta2_visible && (
+              {heroCta2_visible && heroCta2.trim() && (
                 <Link href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/modeling`} style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.2)', color:'rgba(255,255,255,0.9)', fontWeight:600, fontSize:15, padding:'14px 32px', borderRadius:8, textDecoration:'none' }}>
                   {heroCta2}
                 </Link>
@@ -247,15 +247,11 @@ export default async function LandingPage() {
           )}
 
           {/* Soft CTA */}
-          {heroCta_visible && (
+          {heroCta_visible && heroSoftCta && (
             <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 400ms both', marginBottom:26 }}>
-              <HeroScrollBtn
-                className="hero-soft-cta"
-                style={{ background:'none', border:'none', cursor:'pointer', fontSize:'0.9rem', fontWeight:500, color:'rgba(255,255,255,0.65)', padding:0, display:'inline-flex', alignItems:'center', gap:6 }}
-              >
-                <InlineEdit tag="span" section="hero" fieldKey="soft_cta" value={heroSoftCta} isAdmin={isAdmin} darkBg />
-                <span className="hero-cta-arrow" style={{ fontSize:14 }}>&#8595;</span>
-              </HeroScrollBtn>
+              <a href="#stats-bar" style={{ fontSize:'0.9rem', fontWeight:500, color:'rgba(255,255,255,0.65)', textDecoration:'none', display:'inline-flex', alignItems:'center', gap:6 }}>
+                {heroSoftCta} <span style={{ fontSize:14 }}>&#8595;</span>
+              </a>
             </div>
           )}
 
