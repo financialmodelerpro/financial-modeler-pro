@@ -141,6 +141,22 @@ function HeroEditor({ content, onChange }: { content: Record<string, unknown>; o
       <VF label="Subtitle" fieldKey="subtitle" content={content} onChange={onChange}>
         <textarea style={TA} value={(content.subtitle as string) ?? ''} onChange={e => set('subtitle', e.target.value)} />
       </VF>
+      <VF label="Power Statement" fieldKey="powerStatement" content={content} onChange={onChange}>
+        <textarea style={{ ...TA, minHeight: 50 }} value={(content.powerStatement as string) ?? ''} onChange={e => set('powerStatement', e.target.value)} placeholder="Highlighted blockquote line" />
+      </VF>
+      <VF label="Soft CTA" fieldKey="softCta" content={content} onChange={onChange}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div><label style={LS}>Text</label><input style={IS} value={(content.softCta as string) ?? ''} onChange={e => set('softCta', e.target.value)} placeholder="Explore the platform" /></div>
+          <div><label style={LS}>URL</label><input style={IS} value={(content.softCtaUrl as string) ?? ''} onChange={e => set('softCtaUrl', e.target.value)} placeholder="#stats-bar" /></div>
+        </div>
+      </VF>
+      <VF label="Trust Line" fieldKey="trustLine" content={content} onChange={onChange}>
+        <input style={IS} value={(content.trustLine as string) ?? ''} onChange={e => set('trustLine', e.target.value)} placeholder="Designed by Investment & Corporate Finance Experts..." />
+      </VF>
+      <VF label="Tags" fieldKey="tags" content={content} onChange={onChange}>
+        <input style={IS} value={(content.tags as string) ?? ''} onChange={e => set('tags', e.target.value)} placeholder="Real Estate Models, Business Valuation, ..." />
+        <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 3 }}>Separate tags with commas</div>
+      </VF>
       <VF label="CTA 1" fieldKey="cta1" content={content} onChange={onChange}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <div><label style={LS}>Text</label><input style={IS} value={(content.cta1Text as string) ?? ''} onChange={e => set('cta1Text', e.target.value)} /></div>

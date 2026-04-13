@@ -237,7 +237,7 @@ export default async function LandingPage() {
           )}
 
           {/* Power statement */}
-          {heroPowerStatement && (
+          {h?.powerStatement_visible !== false && heroPowerStatement && (
             <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 300ms both', borderLeft:'3px solid #2EAA4A', paddingLeft:16, maxWidth:580, margin:'0 auto 26px', textAlign:'left' }}>
               <InlineEdit
                 tag="p" section="hero" fieldKey="power_statement" value={heroPowerStatement} isAdmin={isAdmin} darkBg
@@ -247,22 +247,24 @@ export default async function LandingPage() {
           )}
 
           {/* Soft CTA */}
-          {heroCta_visible && heroSoftCta && (
+          {h?.softCta_visible !== false && heroCta_visible && heroSoftCta && (
             <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 400ms both', marginBottom:26 }}>
-              <a href="#stats-bar" style={{ fontSize:'0.9rem', fontWeight:500, color:'rgba(255,255,255,0.65)', textDecoration:'none', display:'inline-flex', alignItems:'center', gap:6 }}>
+              <a href={(h?.softCtaUrl as string) || '#stats-bar'} style={{ fontSize:'0.9rem', fontWeight:500, color:'rgba(255,255,255,0.65)', textDecoration:'none', display:'inline-flex', alignItems:'center', gap:6 }}>
                 {heroSoftCta} <span style={{ fontSize:14 }}>&#8595;</span>
               </a>
             </div>
           )}
 
           {/* Trust line */}
-          <InlineEdit
-            tag="p" section="hero" fieldKey="trust_line" value={heroTrustLine} isAdmin={isAdmin} darkBg
-            style={{ animation:'hero-fade-in 550ms ease-out 500ms both', fontSize:'0.78rem', fontWeight:400, color:'rgba(255,255,255,0.48)', letterSpacing:'0.025em', margin:'0 auto 22px', display:'block' } as React.CSSProperties}
-          />
+          {h?.trustLine_visible !== false && heroTrustLine && (
+            <InlineEdit
+              tag="p" section="hero" fieldKey="trust_line" value={heroTrustLine} isAdmin={isAdmin} darkBg
+              style={{ animation:'hero-fade-in 550ms ease-out 500ms both', fontSize:'0.78rem', fontWeight:400, color:'rgba(255,255,255,0.48)', letterSpacing:'0.025em', margin:'0 auto 22px', display:'block' } as React.CSSProperties}
+            />
+          )}
 
           {/* Specialty tags */}
-          {heroTags.length > 0 && (
+          {h?.tags_visible !== false && heroTags.length > 0 && (
             <div className="ha" style={{ animation:'hero-fade-in 550ms ease-out 600ms both', display:'flex', flexWrap:'wrap', justifyContent:'center', gap:10 }}>
               {heroTags.map(tag => (
                 <span key={tag} className="hero-tag" style={{ fontSize:'0.72rem', border:'1px solid rgba(255,255,255,0.2)', borderRadius:999, padding:'4px 14px', color:'rgba(255,255,255,0.58)' }}>{tag}</span>
