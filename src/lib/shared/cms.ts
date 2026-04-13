@@ -272,7 +272,7 @@ export async function getTestimonialsForPage(page: 'landing' | 'modeling' | 'tra
     const sb = getServerClient();
 
     let manualQ = sb.from('testimonials')
-      .select('id,name,role,company,text,rating,created_at,hub,show_on_landing')
+      .select('id,name,role,company,text,rating,created_at,hub,show_on_landing,linkedin_url')
       .eq('status', 'approved')
       .order('approved_at', { ascending: false })
       .limit(12);
@@ -298,6 +298,7 @@ export async function getTestimonialsForPage(page: 'landing' | 'modeling' | 'tra
       id: t.id, name: t.name, role: t.role ?? '', company: t.company ?? '',
       text: t.text ?? '', rating: t.rating ?? 5, created_at: t.created_at,
       source: 'manual' as const, testimonial_type: 'manual' as const,
+      linkedin_url: t.linkedin_url,
     }));
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

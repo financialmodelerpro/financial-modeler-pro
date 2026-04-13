@@ -31,6 +31,7 @@ export default function SubmitModelingTestimonialPage() {
     name:             '',
     role:             '',
     company:          '',
+    linkedin_url:     '',
     rating:           5,
     testimonial_type: 'written' as 'written' | 'video',
     text:             '',
@@ -57,6 +58,7 @@ export default function SubmitModelingTestimonialPage() {
           name:             form.name,
           role:             form.role || undefined,
           company:          form.company || undefined,
+          linkedin_url:     form.linkedin_url || undefined,
           rating:           form.rating,
           testimonial_type: form.testimonial_type,
           text:             form.testimonial_type === 'written' ? form.text : undefined,
@@ -149,6 +151,14 @@ export default function SubmitModelingTestimonialPage() {
                 <input value={form.company} onChange={e => set('company', e.target.value)}
                   placeholder="e.g. BlackRock" style={inputStyle} />
               </div>
+            </div>
+
+            {/* LinkedIn */}
+            <div>
+              <label style={labelStyle}>LinkedIn Profile URL <span style={{ fontWeight: 400, color: '#9CA3AF' }}>(optional)</span></label>
+              <input value={form.linkedin_url} onChange={e => set('linkedin_url', e.target.value)}
+                placeholder="https://linkedin.com/in/yourprofile" style={inputStyle} />
+              <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>Adding your LinkedIn helps verify your testimonial and builds trust</div>
             </div>
 
             {/* Rating */}

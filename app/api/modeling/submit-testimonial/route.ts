@@ -14,6 +14,7 @@ export async function POST(req: NextRequest) {
       name: string;
       role?: string;
       company?: string;
+      linkedin_url?: string;
       rating?: number;
       testimonial_type: 'written' | 'video';
       text?: string;
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
       name:             name.trim(),
       role:             body.role?.trim() ?? null,
       company:          body.company?.trim() ?? null,
+      linkedin_url:     body.linkedin_url?.trim() ?? null,
       rating:           body.rating ?? null,
       text:             body.text?.trim() ?? null,
       video_url:        body.video_url?.trim() ?? null,
