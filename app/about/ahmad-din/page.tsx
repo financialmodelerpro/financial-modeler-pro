@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getFounderProfile, cms } from '@/src/lib/shared/cms';
+import { getFounderProfile, cms, getAllPageSections } from '@/src/lib/shared/cms';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 
 export const revalidate = 60;
@@ -16,17 +16,26 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function FounderPage() {
-  const founder = await getFounderProfile();
+  const [founder, homeSections] = await Promise.all([
+    getFounderProfile(),
+    getAllPageSections('home'),
+  ]);
 
-  const name       = cms(founder, 'bio', 'name',       'Ahmad Din');
-  const title      = cms(founder, 'bio', 'title',      'Founder & Lead Instructor');
-  const photoUrl   = cms(founder, 'bio', 'photo_url',  '');
-  const shortBio   = cms(founder, 'bio', 'short_bio',  'Real estate finance professional with 15+ years of deal structuring, development financing, and financial modeling experience across GCC and international markets.');
-  const longBio    = cms(founder, 'bio', 'long_bio',   'Ahmad Din has spent over 15 years at the intersection of real estate development and structured finance. His career spans deal origination, feasibility analysis, development financing, and investor relations across the GCC, Southeast Asia, and international markets.\n\nBefore founding Financial Modeler Pro, Ahmad worked with major real estate developers and advisory firms, building financial models for projects ranging from luxury residential towers to large-scale mixed-use developments. He noticed that the same spreadsheet problems — inconsistent assumptions, untraceable errors, and hours spent reformatting for investor presentations — kept appearing on every engagement.\n\nFinancial Modeler Pro was built to solve that problem once and for all: a structured, professional-grade platform that produces audit-ready models and investor-ready outputs without the spreadsheet overhead.');
-  const linkedin   = cms(founder, 'bio', 'linkedin_url', '');
-  const philosophy = cms(founder, 'philosophy', 'text', 'A good financial model is not just a calculation — it\'s a communication tool. Every assumption should be visible, every output should be traceable, and the final product should be something you\'d be proud to present to a board or an investor committee without reformatting.');
+  const founderSection = homeSections.find(s => s.section_type === 'team');
+  const fc = founderSection?.content as Record<string, unknown> | undefined;
+  const bookingUrl = (fc?.booking_url as string) ?? '';
 
-  const expItems = [
+  const name       = (fc?.name as string)           || cms(founder, 'bio', 'name',       'Ahmad Din');
+  const title      = (fc?.title as string)          || cms(founder, 'bio', 'title',      'Founder & Lead Instructor');
+  const quals      = (fc?.qualifications as string) || '';
+  const _photoRaw  = cms(founder, 'bio', 'photo_url',  '');
+  const photoUrl   = (fc?.photo_url as string)      || (_photoRaw.startsWith('data:') || _photoRaw.startsWith('http') ? _photoRaw : _photoRaw ? `data:image/jpeg;base64,${_photoRaw}` : '');
+  const shortBio   = (fc?.bio as string)            || cms(founder, 'bio', 'short_bio',  'Real estate finance professional with 15+ years of deal structuring, development financing, and financial modeling experience across GCC and international markets.');
+  const longBio    = (fc?.long_bio as string)       || cms(founder, 'bio', 'long_bio',   'Ahmad Din has spent over 15 years at the intersection of real estate development and structured finance. His career spans deal origination, feasibility analysis, development financing, and investor relations across the GCC, Southeast Asia, and international markets.\n\nBefore founding Financial Modeler Pro, Ahmad worked with major real estate developers and advisory firms, building financial models for projects ranging from luxury residential towers to large-scale mixed-use developments. He noticed that the same spreadsheet problems — inconsistent assumptions, untraceable errors, and hours spent reformatting for investor presentations — kept appearing on every engagement.\n\nFinancial Modeler Pro was built to solve that problem once and for all: a structured, professional-grade platform that produces audit-ready models and investor-ready outputs without the spreadsheet overhead.');
+  const linkedin   = (fc?.cta_secondary_url as string) || (fc?.linkedin_url as string) || cms(founder, 'bio', 'linkedin_url', '');
+  const philosophy = (fc?.philosophy as string)     || cms(founder, 'philosophy', 'text', 'A good financial model is not just a calculation — it\'s a communication tool. Every assumption should be visible, every output should be traceable, and the final product should be something you\'d be proud to present to a board or an investor committee without reformatting.');
+
+  const expItems = (fc?.experience as string[]) ?? [
     cms(founder, 'experience', 'item_1', '15+ years in real estate finance and development advisory'),
     cms(founder, 'experience', 'item_2', 'Structured financing for projects across GCC, SEA, and international markets'),
     cms(founder, 'experience', 'item_3', 'Built financial models for residential, hospitality, and mixed-use developments'),
@@ -46,13 +55,11 @@ export default async function FounderPage() {
           {/* Photo */}
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             {photoUrl ? (
-              <div style={{ width: 240, height: 240, borderRadius: '50%', overflow: 'hidden', position: 'relative', border: '3px solid rgba(27,79,138,0.5)', boxShadow: '0 8px 40px rgba(0,0,0,0.5)' }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={photoUrl} alt={name} style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center' }} />
-              </div>
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={photoUrl} alt={name} style={{ width: '100%', maxWidth: 360, height: 'auto', objectFit: 'contain', borderRadius: 12, display: 'block' }} />
             ) : (
-              <div style={{ width: 240, height: 240, borderRadius: '50%', background: 'linear-gradient(135deg, #1B4F8A, #2D6BA8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 96, border: '3px solid rgba(27,79,138,0.5)', boxShadow: '0 8px 40px rgba(0,0,0,0.5)' }}>
-                👤
+              <div style={{ width: '100%', maxWidth: 360, height: 300, borderRadius: 12, background: 'linear-gradient(135deg, #1B4F8A, #2D6BA8)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ fontSize: 72, fontWeight: 800, color: 'rgba(255,255,255,0.9)', letterSpacing: '-2px' }}>AD</span>
               </div>
             )}
           </div>
@@ -60,7 +67,15 @@ export default async function FounderPage() {
           <div>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#4A90D9', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>Founder</div>
             <h1 style={{ fontSize: 'clamp(28px, 4vw, 44px)', fontWeight: 800, color: '#fff', marginBottom: 8, lineHeight: 1.1 }}>{name}</h1>
-            <div style={{ fontSize: 15, color: '#4A90D9', fontWeight: 600, marginBottom: 20 }}>{title}</div>
+            {/* Title split on | */}
+            <div style={{ marginBottom: 4 }}>
+              {title.split('|').map((line, i) => (
+                <div key={i} style={{ fontSize: i === 0 ? '1rem' : '0.95rem', color: i === 0 ? '#93C5FD' : '#1ABC9C', fontWeight: i === 0 ? 500 : 600, marginBottom: 2 }}>{line.trim()}</div>
+              ))}
+            </div>
+            {quals && (
+              <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.6)', letterSpacing: '0.05em', marginBottom: 16, marginTop: 4 }}>{quals}</div>
+            )}
             <p style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.55)', lineHeight: 1.75, marginBottom: 24 }}>{shortBio}</p>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               <Link href={`${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1B4F8A', color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}>
@@ -70,6 +85,11 @@ export default async function FounderPage() {
                 <a href={linkedin} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 600, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}>
                   LinkedIn ↗
                 </a>
+              )}
+              {bookingUrl && (
+                <Link href="/book-a-meeting" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1ABC9C', color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}>
+                  📅 Book a Meeting
+                </Link>
               )}
             </div>
           </div>
@@ -107,7 +127,7 @@ export default async function FounderPage() {
             borderLeft: '3px solid #1B4F8A', paddingLeft: 24, margin: 0,
             fontSize: 16, color: 'rgba(255,255,255,0.6)', lineHeight: 1.8, fontStyle: 'italic',
           }}>
-            "{philosophy}"
+            &ldquo;{philosophy}&rdquo;
           </blockquote>
           <div style={{ marginTop: 16, fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>— {name}</div>
         </div>
