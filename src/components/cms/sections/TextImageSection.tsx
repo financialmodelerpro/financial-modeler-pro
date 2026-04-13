@@ -23,12 +23,18 @@ export function TextImageSection({ content, styles }: Props) {
   const items         = Array.isArray(content.items) ? (content.items as string[]).filter(Boolean) : [];
 
   // Background image support
-  const bgImageUrl = content.bgImageUrl as string ?? '';
-  const bgOverlay  = (content.bgOverlay as string) || 'rgba(15,35,70,0.75)';
-  const hasBg      = !!bgImageUrl;
-  const textColor  = hasBg ? '#ffffff' : '#374151';
-  const headColor  = hasBg ? '#ffffff' : '#0D2E5A';
-  const badgeColor = hasBg ? 'rgba(255,255,255,0.7)' : '#1B4F8A';
+  const bgImageUrl  = content.bgImageUrl as string ?? '';
+  const bgOverlay   = (content.bgOverlay as string) || 'rgba(15,35,70,0.75)';
+  const bgPadTop    = (content.bgImagePaddingTop as string) || '0px';
+  const bgPadBottom = (content.bgImagePaddingBottom as string) || '0px';
+  const bgPadLeft   = (content.bgImagePaddingLeft as string) || '0px';
+  const bgPadRight  = (content.bgImagePaddingRight as string) || '0px';
+  const bgRadius    = (content.bgImageRadius as string) || '0px';
+  const bgPos       = (content.bgImagePosition as string) || 'center';
+  const hasBg       = !!bgImageUrl;
+  const textColor   = hasBg ? '#ffffff' : '#374151';
+  const headColor   = hasBg ? '#ffffff' : '#0D2E5A';
+  const badgeColor  = hasBg ? 'rgba(255,255,255,0.7)' : '#1B4F8A';
 
   const textBlock = (
     <div style={{ flex: 1, minWidth: 280, borderLeft: '4px solid #1ABC9C', paddingLeft: 24 }}>
@@ -49,7 +55,6 @@ export function TextImageSection({ content, styles }: Props) {
     </div>
   );
 
-  // Checklist card
   const checklistBlock = items.length > 0 ? (
     <div style={{
       background: hasBg ? 'rgba(255,255,255,0.1)' : '#F8FAFF',
@@ -79,8 +84,7 @@ export function TextImageSection({ content, styles }: Props) {
     </div>
   ) : null;
 
-  // Image block (hidden when background image is set)
-  const imageBlock = !hasBg && imageSrc ? (
+  const sideImageBlock = !hasBg && imageSrc ? (
     <div>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img src={imageSrc} alt={imageAlt}
@@ -94,10 +98,9 @@ export function TextImageSection({ content, styles }: Props) {
     </div>
   ) : null;
 
-  // Right side: image + checklist, image only, checklist only, or placeholder
-  const rightBlock = (imageBlock || checklistBlock) ? (
-    <div style={{ flexShrink: 0, width: hasBg ? 'auto' : imageWidth, minWidth: 200, display: 'flex', flexDirection: 'column', gap: 16, flex: checklistBlock && !imageBlock ? 1 : undefined }}>
-      {imageBlock}
+  const rightBlock = (sideImageBlock || checklistBlock) ? (
+    <div style={{ flexShrink: 0, width: hasBg ? 'auto' : imageWidth, minWidth: 200, display: 'flex', flexDirection: 'column', gap: 16, flex: checklistBlock && !sideImageBlock ? 1 : undefined }}>
+      {sideImageBlock}
       {checklistBlock}
     </div>
   ) : !hasBg ? (
@@ -113,23 +116,33 @@ export function TextImageSection({ content, styles }: Props) {
     </div>
   ) : null;
 
-  const sectionBg: React.CSSProperties = hasBg
-    ? { backgroundImage: `url(${bgImageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat', position: 'relative' as const }
-    : {};
+  const innerContent = (
+    <div style={{
+      maxWidth: maxW, margin: '0 auto', position: 'relative', zIndex: 1,
+      background: hasBg ? 'transparent' : '#FAFBFC', borderRadius: 12, padding: '40px 32px',
+      boxShadow: hasBg ? 'none' : '0 2px 20px rgba(0,0,0,0.04)',
+      display: 'flex', gap: 40, alignItems: 'center', flexWrap: 'wrap',
+      flexDirection: imagePosition === 'left' ? 'row-reverse' : 'row',
+    }}>
+      {textBlock}
+      {rightBlock}
+    </div>
+  );
 
   return (
-    <section style={{ background: bgColor, padding: `${py} 40px`, ...sectionBg }}>
-      {hasBg && <div style={{ position: 'absolute', inset: 0, background: bgOverlay, zIndex: 0 }} />}
-      <div style={{
-        maxWidth: maxW, margin: '0 auto', position: 'relative', zIndex: 1,
-        background: hasBg ? 'transparent' : '#FAFBFC', borderRadius: 12, padding: '40px 32px',
-        boxShadow: hasBg ? 'none' : '0 2px 20px rgba(0,0,0,0.04)',
-        display: 'flex', gap: 40, alignItems: 'center', flexWrap: 'wrap',
-        flexDirection: imagePosition === 'left' ? 'row-reverse' : 'row',
-      }}>
-        {textBlock}
-        {rightBlock}
-      </div>
+    <section style={{ background: bgColor, padding: `${py} 40px`, position: 'relative', overflow: 'hidden' }}>
+      {hasBg && (
+        <div style={{
+          position: 'absolute',
+          top: bgPadTop, bottom: bgPadBottom, left: bgPadLeft, right: bgPadRight,
+          borderRadius: bgRadius, overflow: 'hidden', zIndex: 0,
+        }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={bgImageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: bgPos, display: 'block' }} />
+          <div style={{ position: 'absolute', inset: 0, background: bgOverlay }} />
+        </div>
+      )}
+      {innerContent}
     </section>
   );
 }

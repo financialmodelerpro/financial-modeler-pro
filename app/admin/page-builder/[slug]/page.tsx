@@ -336,8 +336,28 @@ function TextImageEditor({ content, onChange }: { content: Record<string, unknow
                   {OVERLAY_OPTIONS.map(o => <option key={o.label} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
-              <button onClick={() => { onChange({ ...content, bgImageUrl: '', bgOverlay: '' }); }} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>✕ Remove</button>
+              <button onClick={() => { onChange({ ...content, bgImageUrl: '', bgOverlay: '', bgImagePaddingTop: '', bgImagePaddingBottom: '', bgImagePaddingLeft: '', bgImagePaddingRight: '', bgImageRadius: '', bgImagePosition: '' }); }} style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap' }}>✕ Remove</button>
             </div>
+            {/* Padding + position */}
+            {(() => {
+              const PAD_OPTS = ['0px','8px','16px','24px','32px','40px','48px','64px','80px'];
+              const POS_OPTS = ['center','top','bottom','left','right','top left','top right','bottom left','bottom right'];
+              return (
+                <div style={{ marginTop: 8 }}>
+                  <label style={LS}>Image Padding (from edges)</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                    <div><label style={{ ...LS, fontSize: 10 }}>Top</label><select style={IS} value={(content.bgImagePaddingTop as string) || '0px'} onChange={e => set('bgImagePaddingTop', e.target.value)}>{PAD_OPTS.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+                    <div><label style={{ ...LS, fontSize: 10 }}>Bottom</label><select style={IS} value={(content.bgImagePaddingBottom as string) || '0px'} onChange={e => set('bgImagePaddingBottom', e.target.value)}>{PAD_OPTS.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+                    <div><label style={{ ...LS, fontSize: 10 }}>Left</label><select style={IS} value={(content.bgImagePaddingLeft as string) || '0px'} onChange={e => set('bgImagePaddingLeft', e.target.value)}>{PAD_OPTS.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+                    <div><label style={{ ...LS, fontSize: 10 }}>Right</label><select style={IS} value={(content.bgImagePaddingRight as string) || '0px'} onChange={e => set('bgImagePaddingRight', e.target.value)}>{PAD_OPTS.map(p => <option key={p} value={p}>{p}</option>)}</select></div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
+                    <div><label style={LS}>Image Radius</label><input style={IS} value={(content.bgImageRadius as string) || '0px'} onChange={e => set('bgImageRadius', e.target.value)} placeholder="0px" /></div>
+                    <div><label style={LS}>Image Position</label><select style={IS} value={(content.bgImagePosition as string) || 'center'} onChange={e => set('bgImagePosition', e.target.value)}>{POS_OPTS.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}</select></div>
+                  </div>
+                </div>
+              );
+            })()}
           </>
         )}
       </div>
