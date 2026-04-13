@@ -12,6 +12,7 @@ import {
   getFounderProfile, getSitePages,
   getTestimonialsForPage,
   getSectionStyles,
+  getPageSections,
 } from '@/src/lib/shared/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { getServerClient } from '@/src/lib/shared/supabase';
@@ -48,13 +49,18 @@ async function getPublicPlanNames(): Promise<string[]> {
 }
 
 export default async function LandingPage() {
-  const [content, articles, testimonials, founder, session, sitePages, planNames] = await Promise.all([
+  const [content, articles, testimonials, founder, session, sitePages, planNames, homePageSections] = await Promise.all([
     getCmsContent(),
     getPublishedArticles(3),
     getTestimonialsForPage('landing'),
     getFounderProfile(), getServerSession(), getSitePages(),
     getPublicPlanNames(),
+    getPageSections('home'),
   ]);
+
+  // Extract CMS hero section if it exists
+  const cmsHero = homePageSections.find(s => s.section_type === 'hero');
+  const h = cmsHero?.content as Record<string, unknown> | undefined;
 
   const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'admin';
 
@@ -71,14 +77,14 @@ export default async function LandingPage() {
       ? `data:image/jpeg;base64,${_founderPhotoRaw}`
       : '';
 
-  // ── Hero ──────────────────────────────────────────────────────────────────
-  const heroBadge          = cms(content, 'hero', 'badge_text',       '🚀 Now Live — Free to Use');
-  const heroHeadline       = cms(content, 'hero', 'headline',         'Build Institutional-Grade Financial Models — Without Starting From Scratch');
-  const heroSub            = cms(content, 'hero', 'subheadline',      'Pre-built, structured financial models for real estate, valuation, and project finance — designed by corporate finance professionals for real-world use.');
-  const heroPowerStatement = cms(content, 'hero', 'power_statement',  'No more rebuilding models. No more broken Excel files. No more wasted hours.');
-  const heroSoftCta        = cms(content, 'hero', 'soft_cta',         'Explore the platform');
-  const heroTrustLine      = cms(content, 'hero', 'trust_line',       'Designed by Investment & Corporate Finance Experts  |  12+ Years Experience  |  Used Across KSA & Pakistan');
-  const heroTagsRaw        = cms(content, 'hero', 'tags',             'Real Estate Models, Business Valuation, Project Finance, Fund Models');
+  // ── Hero (CMS page_sections → cms_content → hardcoded fallback) ────────
+  const heroBadge          = (h?.badge as string)          || cms(content, 'hero', 'badge_text',       '🚀 Now Live — Free to Use');
+  const heroHeadline       = (h?.headline as string)       || cms(content, 'hero', 'headline',         'Build Institutional-Grade Financial Models — Without Starting From Scratch');
+  const heroSub            = (h?.subtitle as string)       || cms(content, 'hero', 'subheadline',      'Pre-built, structured financial models for real estate, valuation, and project finance — designed by corporate finance professionals for real-world use.');
+  const heroPowerStatement = (h?.powerStatement as string) || cms(content, 'hero', 'power_statement',  'No more rebuilding models. No more broken Excel files. No more wasted hours.');
+  const heroSoftCta        = (h?.softCta as string)        || cms(content, 'hero', 'soft_cta',         'Explore the platform');
+  const heroTrustLine      = (h?.trustLine as string)      || cms(content, 'hero', 'trust_line',       'Designed by Investment & Corporate Finance Experts  |  12+ Years Experience  |  Used Across KSA & Pakistan');
+  const heroTagsRaw        = (h?.tags as string)           || cms(content, 'hero', 'tags',             'Real Estate Models, Business Valuation, Project Finance, Fund Models');
   const heroTags           = heroTagsRaw.split(',').map(t => t.trim()).filter(Boolean);
 
   // ── Stats ──────────────────────────────────────────────────────────────────
@@ -132,14 +138,14 @@ export default async function LandingPage() {
   const ctaSub   = cms(content, 'cta', 'subheading', 'Join finance professionals using Financial Modeler Pro to build better models, faster.');
   const ctaBtn   = cms(content, 'cta', 'button',     'Get Started Free →');
 
-  // ── Hero CTA button text ──────────────────────────────────────────────────
-  const heroCta1         = cms(content, 'hero', 'cta1',         'Launch Platform Free →');
-  const heroCta2         = cms(content, 'hero', 'cta2',         'Explore Platforms ↓');
+  // ── Hero CTA button text (CMS page_sections → cms_content → fallback) ──
+  const heroCta1         = (h?.cta1Text as string)   || cms(content, 'hero', 'cta1',         'Launch Platform Free →');
+  const heroCta2         = (h?.cta2Text as string)   || cms(content, 'hero', 'cta2',         'Explore Platforms ↓');
 
   // ── Visibility toggles ────────────────────────────────────────────────────
-  const heroCta_visible    = cms(content, 'hero', 'cta_visible',     'true') !== 'false';
-  const heroCta1_visible   = cms(content, 'hero', 'cta1_visible',    'false') === 'true';
-  const heroCta2_visible   = cms(content, 'hero', 'cta2_visible',    'false') === 'true';
+  const heroCta_visible    = h?.softCtaVisible !== undefined ? !!h.softCtaVisible : cms(content, 'hero', 'cta_visible',     'true') !== 'false';
+  const heroCta1_visible   = h?.cta1Visible !== undefined    ? !!h.cta1Visible    : cms(content, 'hero', 'cta1_visible',    'false') === 'true';
+  const heroCta2_visible   = h?.cta2Visible !== undefined    ? !!h.cta2Visible    : cms(content, 'hero', 'cta2_visible',    'false') === 'true';
   const ctaSection_visible = cms(content, 'cta',  'section_visible', 'true') !== 'false';
 
   // ── Section style overrides ───────────────────────────────────────────────
