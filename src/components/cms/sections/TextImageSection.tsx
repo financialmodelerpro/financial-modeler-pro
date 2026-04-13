@@ -31,6 +31,8 @@ export function TextImageSection({ content, styles }: Props) {
   const bgPadRight  = (content.bgImagePaddingRight as string) || '0px';
   const bgRadius    = (content.bgImageRadius as string) || '0px';
   const bgPos       = (content.bgImagePosition as string) || 'center';
+  const bgImgFit    = (content.bgImageFit as string) || 'contain';
+  const bgColorBg   = (content.bgColor as string) || '#0D2E5A';
   const hasBg       = !!bgImageUrl;
   const textColor   = hasBg ? '#ffffff' : '#374151';
   const headColor   = hasBg ? '#ffffff' : '#0D2E5A';
@@ -130,15 +132,16 @@ export function TextImageSection({ content, styles }: Props) {
   );
 
   return (
-    <section style={{ background: bgColor, padding: `${py} 40px`, position: 'relative', overflow: 'hidden' }}>
+    <section style={{ background: hasBg ? bgColorBg : bgColor, padding: `${py} 40px`, position: 'relative', overflow: 'hidden' }}>
       {hasBg && (
         <div style={{
           position: 'absolute',
           top: bgPadTop, bottom: bgPadBottom, left: bgPadLeft, right: bgPadRight,
           borderRadius: bgRadius, overflow: 'hidden', zIndex: 0,
+          backgroundColor: bgColorBg,
         }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={bgImageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: bgPos, display: 'block' }} />
+          <img src={bgImageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: bgImgFit as React.CSSProperties['objectFit'], objectPosition: bgPos, display: 'block' }} />
           <div style={{ position: 'absolute', inset: 0, background: bgOverlay }} />
         </div>
       )}

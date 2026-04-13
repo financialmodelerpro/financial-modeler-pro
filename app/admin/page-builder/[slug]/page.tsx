@@ -355,6 +355,24 @@ function TextImageEditor({ content, onChange }: { content: Record<string, unknow
                     <div><label style={LS}>Image Radius</label><input style={IS} value={(content.bgImageRadius as string) || '0px'} onChange={e => set('bgImageRadius', e.target.value)} placeholder="0px" /></div>
                     <div><label style={LS}>Image Position</label><select style={IS} value={(content.bgImagePosition as string) || 'center'} onChange={e => set('bgImagePosition', e.target.value)}>{POS_OPTS.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}</select></div>
                   </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
+                    <div>
+                      <label style={LS}>Image Fit</label>
+                      <select style={IS} value={(content.bgImageFit as string) || 'contain'} onChange={e => set('bgImageFit', e.target.value)}>
+                        <option value="contain">Contain (full image)</option>
+                        <option value="cover">Cover (may crop)</option>
+                        <option value="fill">Fill (stretch)</option>
+                        <option value="none">Auto (natural size)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={LS}>BG Color (behind image)</label>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        <input type="color" value={(content.bgColor as string) || '#0D2E5A'} onChange={e => set('bgColor', e.target.value)} style={{ width: 28, height: 28, border: '1px solid #D1D5DB', borderRadius: 4, cursor: 'pointer', padding: 1 }} />
+                        <input style={IS} value={(content.bgColor as string) || ''} onChange={e => set('bgColor', e.target.value)} placeholder="#0D2E5A" />
+                      </div>
+                    </div>
+                  </div>
                 </div>
               );
             })()}
