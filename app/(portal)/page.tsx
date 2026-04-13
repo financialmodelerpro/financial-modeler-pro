@@ -148,6 +148,8 @@ export default async function LandingPage() {
   const trainingDesc     = pillarsCols[1]?.description || cms(content, 'pillars', 'training_desc', 'Free video courses taught by finance professionals. Learn the methodology behind the model — from first principles to advanced deal structuring.');
 
   // ── Articles section ──────────────────────────────────────────────────────
+  const cmsArticlesRow = homePageSections.find(s => s.section_type === 'cards' && (s.content as Record<string,unknown>)?._dynamic === 'articles');
+  const articlesHidden = cmsArticlesRow?.visible === false;
   const articlesBadge = cms(content, 'articles_section', 'badge',  'Insights');
   const articlesH2    = cms(content, 'articles_section', 'heading', 'Latest Articles');
 
@@ -155,15 +157,21 @@ export default async function LandingPage() {
   const founderBadge = cms(content, 'founder_section', 'badge', 'The Founder');
 
   // ── Testimonials ──────────────────────────────────────────────────────────
+  const cmsTestimonialsRow = homePageSections.find(s => s.section_type === 'cards' && (s.content as Record<string,unknown>)?._dynamic === 'testimonials');
+  const testimonialsHidden = cmsTestimonialsRow?.visible === false;
   const testimonialsH2  = cms(content, 'testimonials', 'heading',    'What Professionals Say');
   const testimonialsSub = cms(content, 'testimonials', 'subheading', 'We are collecting feedback from early users of Financial Modeler Pro.');
 
   // ── Pricing ───────────────────────────────────────────────────────────────
+  const cmsPricingRow = homePageSections.find(s => s.section_type === 'cards' && (s.content as Record<string,unknown>)?._dynamic === 'pricing_preview');
+  const pricingHidden = cmsPricingRow?.visible === false;
   const pricingBadge = cms(content, 'pricing', 'badge',     'Pricing');
   const pricingH2    = cms(content, 'pricing', 'heading',   'Simple, Transparent Pricing');
   const pricingSub   = cms(content, 'pricing', 'subheading','Join the beta — currently free for all users.');
 
   // ── CTA ───────────────────────────────────────────────────────────────────
+  const cmsCtaRow = homePageSections.find(s => s.section_type === 'cta');
+  const ctaSectionHidden = cmsCtaRow?.visible === false;
   const ctaH2    = cms(content, 'cta', 'heading',    'Ready to build your first model?');
   const ctaSub   = cms(content, 'cta', 'subheading', 'Join finance professionals using Financial Modeler Pro to build better models, faster.');
   const ctaBtn   = cms(content, 'cta', 'button',     'Get Started Free →');
@@ -600,7 +608,7 @@ export default async function LandingPage() {
       })()}
 
       {/* ── Articles Preview ───────────────────────────────────────────────── */}
-      <section style={{ padding:'88px 40px', background:'#fff' }}>
+      {!articlesHidden && <section style={{ padding:'88px 40px', background:'#fff' }}>
         <div style={{ maxWidth:1100, margin:'0 auto' }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', marginBottom:44, flexWrap:'wrap', gap:16 }}>
             <div>
@@ -621,10 +629,10 @@ export default async function LandingPage() {
             </div>
           )}
         </div>
-      </section>
+      </section>}
 
       {/* ── Testimonials */}
-      <section style={{ padding:`${testimonialsStyles.paddingY ?? '88px'} 40px`, background:'#fff' }}>
+      {!testimonialsHidden && <section style={{ padding:`${testimonialsStyles.paddingY ?? '88px'} 40px`, background:'#fff' }}>
         <div style={{ maxWidth:1100, margin:'0 auto' }}>
           <div style={{ textAlign:'center', marginBottom:52 }}>
             <InlineEdit tag="h2" section="testimonials" fieldKey="heading" value={testimonialsH2} isAdmin={isAdmin}
@@ -707,10 +715,10 @@ export default async function LandingPage() {
             </Link>
           </div>
         </div>
-      </section>
+      </section>}
 
       {/* ── Pricing teaser ─────────────────────────────────────────────────── */}
-      <section id="pricing" style={{ padding:'88px 40px', background:'#F5F7FA' }}>
+      {!pricingHidden && <section id="pricing" style={{ padding:'88px 40px', background:'#F5F7FA' }}>
         <div style={{ maxWidth:720, margin:'0 auto', textAlign:'center' }}>
           <InlineEdit tag="div" section="pricing" fieldKey="badge" value={pricingBadge} isAdmin={isAdmin}
             style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }} />
@@ -729,10 +737,10 @@ export default async function LandingPage() {
             View Full Pricing →
           </Link>
         </div>
-      </section>
+      </section>}
 
       {/* ── CTA Banner ─────────────────────────────────────────────────────── */}
-      {ctaSection_visible && (
+      {!ctaSectionHidden && ctaSection_visible && (
         <section style={{ padding:`${ctaStyles.paddingY ?? '80px'} 40px`, textAlign:'center', background:'#1B4F8A', color:'#fff' }}>
           <div style={{ maxWidth:640, margin:'0 auto' }}>
             <InlineEdit tag="h2" section="cta" fieldKey="heading" value={ctaH2} isAdmin={isAdmin} darkBg
