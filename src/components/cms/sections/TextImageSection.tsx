@@ -22,7 +22,7 @@ export function TextImageSection({ content, styles }: Props) {
 
   const textBlock = (
     <div style={{ flex: 1, minWidth: 280 }}>
-      {v('badge') && badge && (
+      {v('badge') && badge && badge.toUpperCase() !== heading.toUpperCase() && (
         <div style={{ fontSize: 12, fontWeight: 700, color: '#1B4F8A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 14 }}>
           {badge}
         </div>
