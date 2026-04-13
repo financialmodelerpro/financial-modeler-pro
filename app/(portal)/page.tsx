@@ -202,7 +202,7 @@ export default async function LandingPage() {
         {/* Grid pattern */}
         <div style={{ position:'absolute', inset:0, opacity:0.04, backgroundImage:'linear-gradient(rgba(255,255,255,0.5) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.5) 1px,transparent 1px)', backgroundSize:'40px 40px', pointerEvents:'none' }} />
 
-        <div style={{ position:'relative', maxWidth:820, margin:'0 auto' }}>
+        <div style={{ position:'relative', maxWidth:1200, margin:'0 auto', textAlign: ((h?.textAlign as string) || 'center') as React.CSSProperties['textAlign'] }}>
           {/* Badge */}
           <div className="ha" style={{ animation:'hero-fade-in 550ms ease-out 0ms both', display:'inline-flex', alignItems:'center', gap:7, background:'rgba(27,79,138,0.5)', border:'1px solid rgba(27,79,138,0.8)', borderRadius:20, padding:'5px 16px', fontSize:12, color:'rgba(255,255,255,0.8)', fontWeight:600, marginBottom:28, letterSpacing:'0.03em' }}>
             <InlineEdit tag="span" section="hero" fieldKey="badge_text" value={heroBadge} isAdmin={isAdmin} darkBg />
@@ -217,7 +217,7 @@ export default async function LandingPage() {
           {/* Subheading */}
           <InlineEdit
             tag="p" section="hero" fieldKey="subheadline" value={heroSub} isAdmin={isAdmin} darkBg
-            style={{ animation:'hero-fade-up 550ms ease-out 200ms both', fontSize:'clamp(1rem,2vw,1.2rem)', color:'rgba(255,255,255,0.75)', lineHeight:1.65, maxWidth:620, margin:'0 auto 26px', display:'block' } as React.CSSProperties}
+            style={{ animation:'hero-fade-up 550ms ease-out 200ms both', fontSize:'clamp(1rem,2vw,1.2rem)', color:'rgba(255,255,255,0.75)', lineHeight:1.65, maxWidth:800, margin:'0 auto 26px', display:'block' } as React.CSSProperties}
           />
 
           {/* Primary CTA Buttons (show/hide controlled from Admin → Hero) */}
@@ -269,6 +269,14 @@ export default async function LandingPage() {
               ))}
             </div>
           )}
+
+          {/* Custom fields from CMS */}
+          {(h?.customFields as { label: string; value: string; visible?: boolean }[] | undefined)?.filter(f => f.visible !== false && f.value).map((field, i) => (
+            <div key={i} style={{ color:'rgba(255,255,255,0.8)', fontSize:'0.9rem', marginTop:8 }}>
+              {field.label && <span style={{ fontWeight:600 }}>{field.label}:{' '}</span>}
+              {field.value}
+            </div>
+          ))}
         </div>
 
       </section>

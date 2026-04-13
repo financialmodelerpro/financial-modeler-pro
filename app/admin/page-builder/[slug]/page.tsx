@@ -111,9 +111,27 @@ function VF({ label, fieldKey, content, onChange, children }: {
 // ── Section content editors ──────────────────────────────────────────────────
 
 function HeroEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
-  const set = (k: string, v: string) => onChange({ ...content, [k]: v });
+  const set = (k: string, v: unknown) => onChange({ ...content, [k]: v });
+  const customFields = (content.customFields as { label: string; value: string; visible: boolean }[]) ?? [];
+  const setFields = (next: typeof customFields) => onChange({ ...content, customFields: next });
+  const align = (content.textAlign as string) ?? 'center';
   return (
     <>
+      {/* Text alignment */}
+      <div style={{ marginBottom: 10 }}>
+        <label style={LS}>Content Alignment</label>
+        <div style={{ display: 'flex', gap: 0 }}>
+          {(['left', 'center', 'right'] as const).map(a => (
+            <button key={a} onClick={() => set('textAlign', a)} style={{
+              flex: 1, padding: '6px 0', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              background: align === a ? '#1B4F8A' : '#F9FAFB', color: align === a ? '#fff' : '#374151',
+              border: '1px solid #D1D5DB', borderRadius: a === 'left' ? '6px 0 0 6px' : a === 'right' ? '0 6px 6px 0' : 0,
+              textTransform: 'capitalize',
+            }}>{a}</button>
+          ))}
+        </div>
+      </div>
+
       <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
         <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} placeholder="e.g. Free Certification" />
       </VF>
@@ -135,6 +153,20 @@ function HeroEditor({ content, onChange }: { content: Record<string, unknown>; o
           <div><label style={LS}>URL</label><input style={IS} value={(content.cta2Url as string) ?? ''} onChange={e => set('cta2Url', e.target.value)} /></div>
         </div>
       </VF>
+
+      {/* Additional custom fields */}
+      <div style={{ marginTop: 14, padding: 10, background: '#F0F4FF', borderRadius: 8, border: '1px solid #C7D2FE' }}>
+        <div style={{ fontSize: 11, fontWeight: 800, color: '#4F46E5', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Additional Fields</div>
+        {customFields.map((field, i) => (
+          <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'end' }}>
+            <input type="checkbox" style={VCS} checked={field.visible !== false} onChange={e => { const n = [...customFields]; n[i] = { ...n[i], visible: e.target.checked }; setFields(n); }} />
+            <div style={{ flex: 1 }}><label style={LS}>Label</label><input style={IS} value={field.label} onChange={e => { const n = [...customFields]; n[i] = { ...n[i], label: e.target.value }; setFields(n); }} /></div>
+            <div style={{ flex: 2 }}><label style={LS}>Value</label><input style={IS} value={field.value} onChange={e => { const n = [...customFields]; n[i] = { ...n[i], value: e.target.value }; setFields(n); }} /></div>
+            <button onClick={() => setFields(customFields.filter((_, j) => j !== i))} style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>X</button>
+          </div>
+        ))}
+        <button onClick={() => setFields([...customFields, { label: '', value: '', visible: true }])} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #C7D2FE', background: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#4F46E5' }}>+ Add Field</button>
+      </div>
     </>
   );
 }
