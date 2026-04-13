@@ -98,12 +98,12 @@ export default async function FounderPage() {
 
       {/* Experience */}
       <section style={{ padding: '0 40px 72px', maxWidth: 800, margin: '0 auto' }}>
-        <h2 style={{ fontSize: 22, fontWeight: 800, color: '#fff', marginBottom: 24 }}>Experience Highlights</h2>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <h2 style={{ fontSize: 22, fontWeight: 800, color: '#fff', marginBottom: 24 }}>Experience &amp; Background</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           {expItems.map((item, i) => (
-            <div key={i} style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(27,79,138,0.3)', border: '1px solid rgba(27,79,138,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: '#4A90D9', flexShrink: 0, marginTop: 1 }}>{i + 1}</div>
-              <div style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6, paddingTop: 4 }}>{item}</div>
+            <div key={i} style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+              <span style={{ background: '#1ABC9C', color: '#fff', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
+              <p style={{ color: 'rgba(255,255,255,0.85)', lineHeight: 1.6, margin: 0 }}>{item}</p>
             </div>
           ))}
         </div>

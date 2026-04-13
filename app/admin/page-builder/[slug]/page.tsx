@@ -671,8 +671,25 @@ function PaceMakersEditor({ content, onChange }: { content: Record<string, unkno
     arr.splice(result.destination.index, 0, removed);
     setSvcs(arr);
   };
+  const logoUrl = (content.logo_url as string) ?? '';
   return (
     <>
+      {/* Logo */}
+      <div style={{ marginBottom:10, padding:10, background:'#F9FAFB', borderRadius:8, border:'1px solid #E5E7EB' }}>
+        <div style={{ fontSize:10, fontWeight:800, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>Company Logo</div>
+        <div style={{ display:'flex', gap:6 }}>
+          <input style={{ ...IS, flex:1 }} value={logoUrl} onChange={e => set('logo_url', e.target.value)} placeholder="https://... or upload →" />
+          <MediaPickerButton onSelect={url => set('logo_url', url)} />
+        </div>
+        {logoUrl && (
+          <div style={{ display:'flex', gap:8, alignItems:'center', marginTop:6 }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={logoUrl} alt="" style={{ maxWidth:140, maxHeight:48, objectFit:'contain' }} />
+            <div style={{ flex:1 }}><label style={LS}>Logo Width</label><input style={IS} value={(content.logo_width as string) ?? '180px'} onChange={e => set('logo_width', e.target.value)} placeholder="180px" /></div>
+            <button onClick={() => { onChange({ ...content, logo_url: '', logo_width: '' }); }} style={{ padding:'4px 8px', borderRadius:4, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626', cursor:'pointer', fontSize:11 }}>✕</button>
+          </div>
+        )}
+      </div>
       <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
         <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
       </VF>
@@ -938,11 +955,8 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
 
   return (
     <>
-      {/* Basic Info */}
-      <div style={{ fontSize:10, fontWeight:800, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>Basic Info</div>
-      <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
-        <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
-      </VF>
+      {/* ── SECTION 1: HOME CARD ── */}
+      <div style={{ fontSize:10, fontWeight:800, color:'#1B4F8A', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6, borderBottom:'2px solid #1B4F8A', paddingBottom:4 }}>1. Home Card</div>
       <VF label="Name" fieldKey="name" content={content} onChange={onChange}>
         <input style={IS} value={(content.name as string) ?? ''} onChange={e => set('name', e.target.value)} />
       </VF>
@@ -957,10 +971,13 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
       <VF label="Short Bio" fieldKey="bio" content={content} onChange={onChange}>
         <textarea style={{ ...TA, minHeight:60 }} value={(content.bio as string) ?? ''} onChange={e => set('bio', e.target.value)} />
       </VF>
+      <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
+        <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      </VF>
 
-      {/* Credentials */}
-      <div style={{ marginTop:12, padding:10, background:'#F0F4FF', borderRadius:8, border:'1px solid #C7D2FE' }}>
-        <div style={{ fontSize:10, fontWeight:800, color:'#4F46E5', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>Credentials</div>
+      {/* ── SECTION 2: CREDENTIALS ── */}
+      <div style={{ marginTop:14, padding:10, background:'#F0F4FF', borderRadius:8, border:'1px solid #C7D2FE' }}>
+        <div style={{ fontSize:10, fontWeight:800, color:'#4F46E5', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>2. Credentials (home card checklist)</div>
         {creds.map((c, i) => (
           <div key={i} style={{ display:'flex', gap:6, marginBottom:4, alignItems:'center' }}>
             <span style={{ color:'#4A90D9', fontWeight:700, fontSize:12, flexShrink:0 }}>✓</span>
@@ -971,9 +988,9 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
         <button onClick={() => setCreds([...creds,'New credential'])} style={{ padding:'4px 10px', borderRadius:6, border:'1px solid #C7D2FE', background:'#fff', cursor:'pointer', fontSize:11, fontWeight:600, color:'#4F46E5' }}>+ Add</button>
       </div>
 
-      {/* Photo */}
-      <div style={{ marginTop:12, padding:10, background:'#F9FAFB', borderRadius:8, border:'1px solid #E5E7EB' }}>
-        <div style={{ fontSize:10, fontWeight:800, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>Photo</div>
+      {/* ── SECTION 3: PHOTO ── */}
+      <div style={{ marginTop:14, padding:10, background:'#F9FAFB', borderRadius:8, border:'1px solid #E5E7EB' }}>
+        <div style={{ fontSize:10, fontWeight:800, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>3. Photo</div>
         <div style={{ display:'flex', gap:6 }}>
           <input style={{ ...IS, flex:1 }} value={photoUrl} onChange={e => set('photo_url', e.target.value)} placeholder="https://... or upload →" />
           <MediaPickerButton onSelect={url => set('photo_url', url)} />
@@ -983,96 +1000,60 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
           <img src={photoUrl} alt="" style={{ marginTop:6, maxWidth:160, maxHeight:100, borderRadius:8, objectFit:'cover', border:'1px solid #E5E7EB' }} />
         )}
         <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6, marginTop:6 }}>
-          <div><label style={LS}>Height</label><select style={IS} value={(content.photo_height as string) ?? '320px'} onChange={e => set('photo_height', e.target.value)}><option value="280px">280px</option><option value="320px">320px</option><option value="360px">360px</option><option value="400px">400px</option><option value="auto">Auto</option></select></div>
-          <div><label style={LS}>Fit</label><select style={IS} value={(content.photo_fit as string) ?? 'cover'} onChange={e => set('photo_fit', e.target.value)}><option value="cover">Cover</option><option value="contain">Contain</option></select></div>
-          <div><label style={LS}>Radius</label><input style={IS} value={(content.photo_radius as string) ?? '16px'} onChange={e => set('photo_radius', e.target.value)} placeholder="16px" /></div>
+          <div><label style={LS}>Height</label><select style={IS} value={(content.photo_height as string) ?? 'auto'} onChange={e => set('photo_height', e.target.value)}><option value="auto">Auto</option><option value="280px">280px</option><option value="320px">320px</option><option value="360px">360px</option><option value="400px">400px</option></select></div>
+          <div><label style={LS}>Fit</label><select style={IS} value={(content.photo_fit as string) ?? 'contain'} onChange={e => set('photo_fit', e.target.value)}><option value="contain">Contain</option><option value="cover">Cover</option></select></div>
+          <div><label style={LS}>Radius</label><input style={IS} value={(content.photo_radius as string) ?? '12px'} onChange={e => set('photo_radius', e.target.value)} placeholder="12px" /></div>
         </div>
       </div>
 
-      {/* Buttons */}
-      <div style={{ marginTop:12, padding:10, background:'#F9FAFB', borderRadius:8, border:'1px solid #E5E7EB' }}>
-        <div style={{ fontSize:10, fontWeight:800, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>Buttons & Links</div>
+      {/* ── SECTION 4: BUTTONS & LINKS ── */}
+      <div style={{ marginTop:14, padding:10, background:'#F9FAFB', borderRadius:8, border:'1px solid #E5E7EB' }}>
+        <div style={{ fontSize:10, fontWeight:800, color:'#9CA3AF', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>4. Buttons & Links</div>
         <VF label="Primary CTA" fieldKey="cta_primary" content={content} onChange={onChange}>
           <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
             <div><label style={LS}>Text</label><input style={IS} value={(content.cta_primary_text as string) ?? ''} onChange={e => set('cta_primary_text', e.target.value)} /></div>
             <div><label style={LS}>URL</label><input style={IS} value={(content.cta_primary_url as string) ?? ''} onChange={e => set('cta_primary_url', e.target.value)} /></div>
           </div>
         </VF>
-        <VF label="Secondary CTA (LinkedIn)" fieldKey="cta_secondary" content={content} onChange={onChange}>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
-            <div><label style={LS}>Text</label><input style={IS} value={(content.cta_secondary_text as string) ?? ''} onChange={e => set('cta_secondary_text', e.target.value)} /></div>
-            <div><label style={LS}>URL</label><input style={IS} value={(content.cta_secondary_url as string) ?? ''} onChange={e => set('cta_secondary_url', e.target.value)} /></div>
-          </div>
+        <VF label="LinkedIn" fieldKey="cta_secondary" content={content} onChange={onChange}>
+          <input style={IS} value={(content.cta_secondary_url as string) ?? ''} onChange={e => set('cta_secondary_url', e.target.value)} placeholder="https://linkedin.com/in/..." />
         </VF>
         <VF label="Book a Meeting" fieldKey="booking" content={content} onChange={onChange}>
-          <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6 }}>
-            <div><label style={LS}>Text</label><input style={IS} value={(content.booking_text as string) ?? ''} onChange={e => set('booking_text', e.target.value)} /></div>
-            <div><label style={LS}>URL</label><input style={IS} value={(content.booking_url as string) ?? ''} onChange={e => set('booking_url', e.target.value)} placeholder="Paste Microsoft Bookings URL" /></div>
-          </div>
+          <input style={IS} value={(content.booking_url as string) ?? ''} onChange={e => set('booking_url', e.target.value)} placeholder="Paste Microsoft Bookings URL" />
         </VF>
-        <VF label="Page Heading" fieldKey="booking_page_heading" content={content} onChange={onChange}>
-          <input style={IS} value={(content.booking_page_heading as string) ?? ''} onChange={e => set('booking_page_heading', e.target.value)} placeholder="Book a Meeting" />
-        </VF>
-        <VF label="Redirect Note" fieldKey="booking_redirect_note" content={content} onChange={onChange}>
-          <textarea style={{ ...TA, minHeight: 40 }} value={(content.booking_redirect_note as string) ?? ''} onChange={e => set('booking_redirect_note', e.target.value)} placeholder="You will be redirected to our Microsoft Bookings page..." />
-        </VF>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 6 }}>
-          <div><label style={LS}>Back Link Text</label><input style={IS} value={(content.booking_back_text as string) ?? ''} onChange={e => set('booking_back_text', e.target.value)} placeholder="← Back to Home" /></div>
-          <div><label style={LS}>Back Link URL</label><input style={IS} value={(content.booking_back_url as string) ?? ''} onChange={e => set('booking_back_url', e.target.value)} placeholder="/" /></div>
-        </div>
-        <div style={{ marginTop: 6 }}><label style={LS}>Expectations Label</label><input style={IS} value={(content.booking_expectations_label as string) ?? ''} onChange={e => set('booking_expectations_label', e.target.value)} placeholder="WHAT TO EXPECT" /></div>
       </div>
 
-      {/* Read More / Full Profile */}
-      <div style={{ marginTop:12, padding:10, background:'#F0FFF4', borderRadius:8, border:'1px solid #BBF7D0' }}>
-        <div style={{ fontSize:10, fontWeight:800, color:'#15803D', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>Expandable Profile</div>
+      {/* ── SECTION 5: FULL PROFILE ── */}
+      <div style={{ marginTop:14, padding:10, background:'#F0FFF4', borderRadius:8, border:'1px solid #BBF7D0' }}>
+        <div style={{ fontSize:10, fontWeight:800, color:'#15803D', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>5. Full Profile (about page + expanded view)</div>
         <label style={{ ...LS, display:'flex', alignItems:'center', gap:6, cursor:'pointer' }}>
           <input type="checkbox" style={VCS} checked={content.show_read_more !== false} onChange={e => set('show_read_more', e.target.checked)} />
-          Show &quot;Read Full Profile&quot; link
+          Show &quot;Read Full Profile&quot; link on home
         </label>
         <VF label="Long Bio" fieldKey="long_bio" content={content} onChange={onChange}>
-          <textarea style={{ ...TA, minHeight:80 }} value={(content.long_bio as string) ?? ''} onChange={e => set('long_bio', e.target.value)} placeholder="Extended biography (paragraphs separated by blank lines)" />
+          <textarea style={{ ...TA, minHeight:80 }} value={(content.long_bio as string) ?? ''} onChange={e => set('long_bio', e.target.value)} placeholder="Full background (paragraphs separated by blank lines)" />
         </VF>
         <VF label="Philosophy Quote" fieldKey="philosophy" content={content} onChange={onChange}>
           <textarea style={{ ...TA, minHeight:50 }} value={(content.philosophy as string) ?? ''} onChange={e => set('philosophy', e.target.value)} />
         </VF>
         <div style={{ marginTop:8 }}>
-          <label style={LS}>Experience Highlights</label>
+          <label style={LS}>Experience & Highlights</label>
           {exp.map((item, i) => (
             <div key={i} style={{ display:'flex', gap:6, marginBottom:4, alignItems:'center' }}>
-              <span style={{ color:'#4A90D9', fontSize:11, flexShrink:0 }}>{i+1}.</span>
+              <span style={{ color:'#1ABC9C', fontSize:11, flexShrink:0 }}>{i+1}.</span>
               <input style={{ ...IS, flex:1 }} value={item} onChange={e => { const n=[...exp]; n[i]=e.target.value; setExp(n); }} />
               <button onClick={() => setExp(exp.filter((_,j)=>j!==i))} style={{ padding:'4px 8px', borderRadius:4, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626', cursor:'pointer', fontSize:11, flexShrink:0 }}>X</button>
             </div>
           ))}
-          <button onClick={() => setExp([...exp,'New experience'])} style={{ padding:'4px 10px', borderRadius:6, border:'1px solid #BBF7D0', background:'#fff', cursor:'pointer', fontSize:11, fontWeight:600, color:'#15803D' }}>+ Add</button>
+          <button onClick={() => setExp([...exp,'New item'])} style={{ padding:'4px 10px', borderRadius:6, border:'1px solid #BBF7D0', background:'#fff', cursor:'pointer', fontSize:11, fontWeight:600, color:'#15803D' }}>+ Add</button>
         </div>
-
-        {/* Background paragraphs */}
-        {(() => {
-          const paras = (content.background_paragraphs as string[]) ?? [];
-          const setParas = (next: string[]) => onChange({ ...content, background_paragraphs: next });
-          return (
-            <div style={{ marginTop:10 }}>
-              <label style={LS}>Background Paragraphs (/about page)</label>
-              {paras.map((p, i) => (
-                <div key={i} style={{ display:'flex', gap:6, marginBottom:4, alignItems:'start' }}>
-                  <textarea style={{ ...TA, flex:1, minHeight:50 }} value={p} onChange={e => { const n=[...paras]; n[i]=e.target.value; setParas(n); }} />
-                  <button onClick={() => setParas(paras.filter((_,j)=>j!==i))} style={{ padding:'4px 8px', borderRadius:4, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626', cursor:'pointer', fontSize:11, flexShrink:0 }}>X</button>
-                </div>
-              ))}
-              <button onClick={() => setParas([...paras,'New paragraph'])} style={{ padding:'4px 10px', borderRadius:6, border:'1px solid #BBF7D0', background:'#fff', cursor:'pointer', fontSize:11, fontWeight:600, color:'#15803D' }}>+ Add Paragraph</button>
-            </div>
-          );
-        })()}
-
         {/* Projects */}
         {(() => {
           const projs = (content.projects as { id: string; title: string; description: string; sector: string; value: string }[]) ?? [];
           const setProjs = (next: typeof projs) => onChange({ ...content, projects: next });
           return (
             <div style={{ marginTop:10 }}>
-              <label style={LS}>Projects (/about page)</label>
+              <label style={LS}>Projects</label>
               {projs.map((p, i) => (
                 <div key={p.id||i} style={{ background:'#F9FAFB', borderRadius:8, padding:8, marginBottom:6, border:'1px solid #E5E7EB' }}>
                   <div style={{ display:'flex', gap:6, marginBottom:4 }}>
@@ -1088,8 +1069,11 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
             </div>
           );
         })()}
+      </div>
 
-        {/* Booking expectations */}
+      {/* ── SECTION 6: BOOKING PAGE ── */}
+      <div style={{ marginTop:14, padding:10, background:'#FFF7ED', borderRadius:8, border:'1px solid #FED7AA' }}>
+        <div style={{ fontSize:10, fontWeight:800, color:'#C2410C', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>6. Booking Page (/book-a-meeting)</div>
         {(() => {
           const items = (content.booking_expectations as string[]) ?? [];
           const setItems = (next: string[]) => onChange({ ...content, booking_expectations: next });

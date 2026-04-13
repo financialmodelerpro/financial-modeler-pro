@@ -570,6 +570,8 @@ export default async function LandingPage() {
 
       {/* ── PaceMakers ─────────────────────────────────────────────────────── */}
       {!pmHidden && (() => {
+        const pmLogo  = (pm?.logo_url as string) || '';
+        const pmLogoW = (pm?.logo_width as string) || '180px';
         const pmBadge = (pm?.badge as string) || 'The Firm Behind the Platform';
         const pmHead  = (pm?.heading as string) || 'Powered by PaceMakers Business Consultants';
         const pmDesc  = (pm?.description as string) || 'Financial Modeler Pro is a product of PaceMakers — a corporate finance advisory firm with 12+ years of experience delivering institutional-grade financial solutions across KSA and Pakistan.';
@@ -588,6 +590,10 @@ export default async function LandingPage() {
           <div style={{ maxWidth:1100, margin:'0 auto' }}>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:56, alignItems:'center' }}>
               <div>
+                {pmLogo && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={pmLogo} alt="PaceMakers" style={{ width:pmLogoW, height:'auto', marginBottom:16, display:'block' }} />
+                )}
                 <div style={{ fontSize:12, fontWeight:700, color:'#4A90D9', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>{pmBadge}</div>
                 <h2 style={{ fontSize:'clamp(22px,3vw,32px)', fontWeight:800, color:'#fff', marginBottom:20, lineHeight:1.2 }}>{pmHead}</h2>
                 <p style={{ fontSize:15, color:'rgba(255,255,255,0.6)', lineHeight:1.75, marginBottom:32 }}>{pmDesc}</p>
