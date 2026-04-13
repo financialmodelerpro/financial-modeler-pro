@@ -149,3 +149,11 @@
 | `041_watch_history_instructor_title.sql` | session_watch_history table + instructor_title on live_sessions |
 | `042_site_settings.sql` | site_settings table (header, footer, colors, SEO JSONB) |
 | `043_email_system.sql` | email_branding + email_templates tables, 5 new columns on live_sessions (announcement_sent, announcement_send_mode, reminder_24h_sent, reminder_1h_sent, recording_email_sent) |
+| `044_cms_about_page.sql` | Seed page_sections for /about (hero, columns, cards, team, cta) |
+| `045_cms_contact_page.sql` | Seed page_sections for /contact (hero, contact_body dynamic) |
+| `046_cms_pricing_page.sql` | Seed page_sections for /pricing (hero, pricing_plans dynamic, FAQ dynamic, cta) |
+| `047_cms_training_page.sql` | Seed page_sections for /training (hero, steps, courses dynamic, benefits, banner, testimonials dynamic, upcoming_sessions dynamic, cta) |
+| `048_cms_modeling_page.sql` | Seed page_sections for /modeling (hero, audience cards, modules dynamic, why cards, testimonials dynamic, cta) |
+| `049_cms_home_page.sql` | Seed page_sections for / home (hero, mission, vision, stats, what-is-fmp, pillars, founder dynamic, pacemakers, articles dynamic, testimonials dynamic, pricing_preview dynamic, cta) |
+| `050_cms_articles_page.sql` | Seed page_sections for /articles (hero, articles dynamic) |
+| `051_cms_training_sessions_page.sql` | Seed page_sections for /training-sessions (hero, live_sessions dynamic) |
