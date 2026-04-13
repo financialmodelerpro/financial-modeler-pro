@@ -157,3 +157,16 @@
 | `049_cms_home_page.sql` | Seed page_sections for / home (hero, mission, vision, stats, what-is-fmp, pillars, founder dynamic, pacemakers, articles dynamic, testimonials dynamic, pricing_preview dynamic, cta) |
 | `050_cms_articles_page.sql` | Seed page_sections for /articles (hero, articles dynamic) |
 | `051_cms_training_sessions_page.sql` | Seed page_sections for /training-sessions (hero, live_sessions dynamic) |
+| `052_cms_fix_missing_sections.sql` | Fix missing CMS sections: pricing comparison/footer note markers, training section order + submit CTA, modeling submit CTA, home pillars complete content, training-sessions hero removal |
+| `053_cms_home_hero.sql` | Seed home page hero into page_sections (badge, headline, subtitle, powerStatement, softCta, trustLine, tags, CTA buttons, visibility flags) |
+| `054_cms_home_stats.sql` | Seed home page stats bar into page_sections (4 stat items with value+label) |
+| `055_cms_home_mission_vision.sql` | Seed home page Mission & Vision as text_image sections with image upload support |
+| `056_cleanup_duplicates.sql` | Remove duplicate text-type Mission/Vision, add What is FMP text_image section, fix display_order for all 12 home sections |
+| `057_fix_whatisfmp_content.sql` | Restore full What is FMP body text + 6 checklist items verbatim |
+| `058_cms_home_two_platforms.sql` | Seed Two Platforms columns section with full content (SVG icons, features, CTAs, border colors) |
+| `059_cms_home_founder.sql` | Seed Founder team section (badge, name, title, bio, credentials, long_bio, philosophy, experience, photo, CTAs, booking) |
+| `060_founder_fixes.sql` | Add qualifications field, change photo to auto height + contain fit |
+| `061_founder_content.sql` | Add background_paragraphs, projects array, booking_expectations to founder |
+| `062_cms_home_pacemakers.sql` | Seed PaceMakers columns section (badge, heading, description, CTA, services list) |
+| `063_founder_consolidate.sql` | Consolidate founder experience list, remove old duplicate keys |
+| `064_testimonials_linkedin.sql` | Add linkedin_url column to testimonials table (manual submissions) |

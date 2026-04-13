@@ -230,6 +230,24 @@ npm run verify       # type-check + lint + build
 
 ## Key Architectural Notes
 
+### Home Page CMS (Option B)
+- Home page (`app/(portal)/page.tsx`) uses **Option B**: each section fetched from `page_sections` via `getAllPageSections('home')` and fed into custom hardcoded JSX (NOT SectionRenderer)
+- `getAllPageSections()` returns ALL sections including `visible=false` so the page can distinguish "hidden by admin" from "not seeded"
+- Pattern: `section.visible === false ? null : section ? <CMS render> : <hardcoded fallback>`
+- Sections migrated: hero (053), stats (054), text_image x3 (055-057), two-platforms (058), founder (059-063), pacemakers (062)
+- Page builder editors: SmartColumnsEditor (TwoPlatforms/PaceMakers/generic), SmartTeamEditor (Founder/generic)
+- Per-field visibility: `content.fieldName_visible !== false` pattern across all section renderers
+- Per-field width/alignment: `content.fieldName_width`, `content.fieldName_align` (hero fields only)
+
+### Founder Section Data Structure
+- `content.credentials[]` — home card checklist (✓ items). NOT shown on about page
+- `content.experience[]` — about/expanded view numbered list. NOT shown on home card
+- `content.long_bio` — full background story (split by `\n\n` or `\n`). About page + expanded view
+- `content.philosophy` — modeling philosophy quote
+- `content.projects[]` — { id, title, description, sector, value }
+- `content.booking_url` — Microsoft Bookings URL. `/book-a-meeting` page reads this
+- `content.booking_expectations[]` — "What to expect" list on booking page
+
 ### certificateEngine.ts
 - PDF generation uses scaleX/scaleY (editor 1240x877 -> PDF points) and per-font ascent correction
 - Badge generation reads BadgeLayout from cms_content (section: badge_layout)

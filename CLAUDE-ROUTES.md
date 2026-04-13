@@ -10,13 +10,16 @@
 ```
 app/
 ├── (cms)/[slug]/page.tsx        # Dynamic CMS catch-all
-├── (portal)/page.tsx            # Legacy portal group
+├── (portal)/page.tsx            # Home page — CMS Option B (each section from page_sections fed into custom JSX)
+├── (portal)/HeroScrollBtn.tsx   # Client scroll button
+├── (portal)/FounderExpand.tsx   # Client expand/collapse for founder profile (long bio, experience, philosophy)
 ├── layout.tsx                   # Root layout, SessionProvider, Inter font
 ├── globals.css                  # SINGLE SOURCE OF TRUTH for all CSS tokens
 ├── about/page.tsx
-├── about/ahmad-din/page.tsx
+├── about/ahmad-din/page.tsx     # Founder profile page — reads from page_sections team content
 ├── articles/page.tsx
 ├── articles/[slug]/page.tsx
+├── book-a-meeting/page.tsx      # Professional booking redirect page (reads booking_url from CMS)
 ├── confidentiality/page.tsx
 ├── contact/page.tsx
 ├── forgot-password/page.tsx
@@ -238,13 +241,15 @@ src/components/
 │   ├── index.ts
 │   └── sections/ (Hero, Text, RichText, Image, TextImage, Columns, Cards, Cta, Faq, Stats, List,
 │       Testimonials, PricingTable, Video, Banner, Spacer, Embed, Team, Timeline, LogoGrid, Countdown)
+│       All sections support per-field visibility (content.fieldName_visible !== false)
+│       TextImage: checklist items, background image with padding/position/fit/overlay controls
 ├── sessions/
 │   └── SessionCard.tsx              # Universal live session card (variant: student|public, compact mode)
 ├── landing/
 │   ├── AdminEditBar.tsx  ArticleCard.tsx  CategoryFilter.tsx
 │   ├── CourseCard.tsx  InlineEdit.tsx  SharedFooter.tsx  VideoPlayer.tsx
 ├── layout/
-│   ├── Navbar.tsx               # Absolute <a> tags; DEFAULT_PAGES includes "Training Sessions"
+│   ├── Navbar.tsx               # Absolute <a> tags; filters visible !== false, sorts by display_order; About removed from DEFAULT_PAGES
 │   └── NavbarServer.tsx         # absolutizeHref() for DB hrefs
 ├── pricing/PricingAccordion.tsx
 ├── refm/
@@ -281,7 +286,7 @@ src/lib/
 │   ├── export/ (excel-formula, excel-static, pdf)
 │   └── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))
 ├── shared/
-│   ├── audit.ts  auth.ts  captcha.ts  cms.ts  deviceTrust.ts
+│   ├── audit.ts  auth.ts  captcha.ts  cms.ts (getAllPageSections, getPageSections, getTestimonialsForPage)  deviceTrust.ts
 │   ├── emailConfirmation.ts  password.ts  permissions.ts
 │   ├── storage.ts  supabase.ts  urls.ts
 └── training/
