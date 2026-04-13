@@ -122,59 +122,45 @@ export default async function ModelingHubPage() {
             );
           }
           if (dynamic === 'testimonials') {
+            if (testimonials.length === 0) return null;
             return (
-              <div key={section.id}>
-                {testimonials.length > 0 && (
-                  <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
-                    <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-                      <div style={{ textAlign: 'center', marginBottom: 48 }}>
-                        <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 10 }}>{testimonialsH2}</h2>
-                        <p style={{ fontSize: 14, color: '#6B7280' }}>{testimonialsSub}</p>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 24 }}>
-                        {testimonials.map(t => (
-                          <div key={t.id} style={{ background: '#F9FAFB', border: `1px solid ${t.is_featured ? '#C9A84C' : '#E5E7EB'}`, borderRadius: 14, padding: 24, display: 'flex', flexDirection: 'column' }}>
-                            <div style={{ display: 'flex', gap: 2, marginBottom: 12 }}>
-                              {Array.from({length:5}).map((_,i) => <span key={i} style={{ fontSize: 14, color: i < (t.rating ?? 5) ? '#F59E0B' : '#E5E7EB' }}>★</span>)}
-                            </div>
-                            {t.testimonial_type === 'video' && t.video_url ? (
-                              <a href={t.video_url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#0D2E5A', borderRadius: 8, padding: 20, marginBottom: 16, textDecoration: 'none', gap: 6 }}>
-                                <span style={{ fontSize: 28 }}>▶️</span>
-                                <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>Watch video testimonial ↗</span>
-                              </a>
-                            ) : (
-                              <>
-                                <div style={{ fontSize: 28, color: '#1B4F8A', fontFamily: 'Georgia,serif', marginBottom: 8 }}>&ldquo;</div>
-                                <p style={{ fontSize: 13.5, color: '#374151', lineHeight: 1.75, marginBottom: 16, fontStyle: 'italic', flex: 1 }}>{t.text}</p>
-                              </>
-                            )}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                              <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'linear-gradient(135deg,#1B4F8A,#0D2E5A)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
-                                {t.name.charAt(0).toUpperCase()}
-                              </div>
-                              <div>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B' }}>{t.name}</div>
-                                {(t.role || t.company) && <div style={{ fontSize: 11, color: '#9CA3AF' }}>{[t.role, t.company].filter(Boolean).join(' · ')}</div>}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </section>
-                )}
-                {/* Submit testimonial CTA */}
-                <section style={{ background: '#EEF2FF', padding: 'clamp(28px,4vw,48px) 40px', textAlign: 'center', borderTop: '1px solid #C7D2FE', borderBottom: '1px solid #C7D2FE' }}>
-                  <div style={{ maxWidth: 540, margin: '0 auto' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#4F46E5', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>Your Voice Matters</div>
-                    <h2 style={{ fontSize: 'clamp(18px,3vw,24px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 10 }}>Using the Modeling Hub? Share Your Experience</h2>
-                    <p style={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.7, marginBottom: 22 }}>Your feedback helps other finance professionals and helps us build a better platform.</p>
-                    <Link href="/modeling/submit-testimonial" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14, padding: '11px 26px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 16px rgba(27,79,138,0.25)' }}>
-                      ⭐ Submit Your Testimonial
-                    </Link>
+              <section key={section.id} style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
+                <div style={{ maxWidth: 1100, margin: '0 auto' }}>
+                  <div style={{ textAlign: 'center', marginBottom: 48 }}>
+                    <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 10 }}>{testimonialsH2}</h2>
+                    <p style={{ fontSize: 14, color: '#6B7280' }}>{testimonialsSub}</p>
                   </div>
-                </section>
-              </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 24 }}>
+                    {testimonials.map(t => (
+                      <div key={t.id} style={{ background: '#F9FAFB', border: `1px solid ${t.is_featured ? '#C9A84C' : '#E5E7EB'}`, borderRadius: 14, padding: 24, display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ display: 'flex', gap: 2, marginBottom: 12 }}>
+                          {Array.from({length:5}).map((_,i) => <span key={i} style={{ fontSize: 14, color: i < (t.rating ?? 5) ? '#F59E0B' : '#E5E7EB' }}>★</span>)}
+                        </div>
+                        {t.testimonial_type === 'video' && t.video_url ? (
+                          <a href={t.video_url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: '#0D2E5A', borderRadius: 8, padding: 20, marginBottom: 16, textDecoration: 'none', gap: 6 }}>
+                            <span style={{ fontSize: 28 }}>▶️</span>
+                            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>Watch video testimonial ↗</span>
+                          </a>
+                        ) : (
+                          <>
+                            <div style={{ fontSize: 28, color: '#1B4F8A', fontFamily: 'Georgia,serif', marginBottom: 8 }}>&ldquo;</div>
+                            <p style={{ fontSize: 13.5, color: '#374151', lineHeight: 1.75, marginBottom: 16, fontStyle: 'italic', flex: 1 }}>{t.text}</p>
+                          </>
+                        )}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'linear-gradient(135deg,#1B4F8A,#0D2E5A)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: '#fff', flexShrink: 0 }}>
+                            {t.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B' }}>{t.name}</div>
+                            {(t.role || t.company) && <div style={{ fontSize: 11, color: '#9CA3AF' }}>{[t.role, t.company].filter(Boolean).join(' · ')}</div>}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
             );
           }
           return <SectionRenderer key={section.id} sections={[section]} />;

@@ -251,6 +251,61 @@ export default async function PricingPage() {
           if (dynamic === 'pricing_plans') {
             return <div key={section.id}>{pricingBody}</div>;
           }
+          if (dynamic === 'pricing_comparison') {
+            return showComparisonTable ? (
+              <section key={section.id} style={{ padding: '0 40px 80px', maxWidth: 1100, margin: '0 auto' }}>
+                <h2 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', textAlign: 'center', marginBottom: 40 }}>{comparisonTitle}</h2>
+                <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 16, overflow: 'hidden' }}>
+                  <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: '#1B4F8A' }}>
+                        <th style={{ padding: '14px 20px', textAlign: 'left', fontSize: 12, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Feature</th>
+                        {plans.map(p => (
+                          <th key={p.id} style={{ padding: '14px 16px', textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{p.name}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {categories.map(cat => (
+                        <>
+                          <tr key={`cat-${cat}`}>
+                            <td colSpan={plans.length + 1} style={{ padding: '10px 20px 6px', fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.1em', background: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
+                              {cat}
+                            </td>
+                          </tr>
+                          {featuresByCategory[cat].map((feat, fi) => (
+                            <tr key={`${cat}-${fi}`} style={{ borderBottom: '1px solid #F3F4F6', background: fi % 2 === 0 ? '#fff' : '#FAFAFA' }}>
+                              <td style={{ padding: '12px 20px', fontSize: 13, color: '#374151' }}>{feat}</td>
+                              {plans.map(plan => {
+                                const planFeatures = featuresMap[plan.id] ?? [];
+                                const match = planFeatures.find(f => f.category === cat && f.feature_text === feat);
+                                const included = match?.is_included ?? false;
+                                return (
+                                  <td key={plan.id} style={{ padding: '12px 16px', textAlign: 'center' }}>
+                                    {included
+                                      ? <span style={{ fontSize: 16, color: '#2EAA4A' }}>✓</span>
+                                      : <span style={{ fontSize: 16, color: '#D1D5DB' }}>✗</span>
+                                    }
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            ) : null;
+          }
+          if (dynamic === 'footer_note') {
+            return footerNote ? (
+              <div key={section.id} style={{ textAlign: 'center', padding: '0 40px 32px', maxWidth: 1100, margin: '0 auto' }}>
+                <p style={{ fontSize: 13, color: '#9CA3AF' }}>{footerNote}</p>
+              </div>
+            ) : null;
+          }
           if (dynamic === 'pricing_faq') {
             return <div key={section.id}>{pricingFaq}</div>;
           }

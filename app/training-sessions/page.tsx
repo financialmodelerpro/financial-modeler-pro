@@ -83,9 +83,12 @@ export default async function TrainingSessionsPage() {
         <div style={{ height: 64 }} />
 
         {sections.map((section) => {
+          // SessionsClient has its own hero — render it directly, skip CMS hero
           if ((section.content as Record<string, unknown>)?._dynamic === 'live_sessions') {
             return <SessionsClient key={section.id} sessions={sessions} />;
           }
+          // Skip hero sections — SessionsClient handles its own hero
+          if (section.section_type === 'hero') return null;
           return <SectionRenderer key={section.id} sections={[section]} />;
         })}
 

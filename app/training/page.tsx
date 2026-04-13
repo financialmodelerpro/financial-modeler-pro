@@ -127,22 +127,7 @@ export default async function TrainingPage() {
             );
           }
           if (dynamic === 'testimonials') {
-            return (
-              <div key={section.id}>
-                <TestimonialsCarousel testimonials={testimonials} heading={testimonialsH2} subheading={testimonialsSub} />
-                {/* Submit testimonial CTA */}
-                <section style={{ background: '#F0F4FF', padding: 'clamp(32px,5vw,56px) 40px', textAlign: 'center', borderTop: '1px solid #E0E7F8', borderBottom: '1px solid #E0E7F8' }}>
-                  <div style={{ maxWidth: 560, margin: '0 auto' }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#4F46E5', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>Your Voice Matters</div>
-                    <h2 style={{ fontSize: 'clamp(18px,3vw,26px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 10 }}>Completed a Course? Share Your Story</h2>
-                    <p style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.7, marginBottom: 24 }}>Help other learners by sharing your experience. Your testimonial could inspire the next finance professional.</p>
-                    <Link href="/training/submit-testimonial" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14, padding: '12px 28px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 16px rgba(27,79,138,0.25)' }}>
-                      ⭐ Submit Your Testimonial
-                    </Link>
-                  </div>
-                </section>
-              </div>
-            );
+            return <TestimonialsCarousel key={section.id} testimonials={testimonials} heading={testimonialsH2} subheading={testimonialsSub} />;
           }
           if (dynamic === 'upcoming_sessions') {
             return <UpcomingSessionsPreview key={section.id} />;
