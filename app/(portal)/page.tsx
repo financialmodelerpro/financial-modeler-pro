@@ -116,18 +116,10 @@ export default async function LandingPage() {
   }
   const statsStyles = cmsStats?.styles as Record<string, string> | undefined;
 
-  // ── Mission & Vision (CMS page_sections → hardcoded fallback) ──────────
-  const cmsMissionVision = homePageSections.filter(s => s.section_type === 'text_image').sort((a, b) => a.display_order - b.display_order);
-  const cmsMission = cmsMissionVision[0];
-  const cmsVision = cmsMissionVision[1];
-  const missionHidden = cmsMission?.visible === false;
-  const visionHidden = cmsVision?.visible === false;
+  // ── Text+Image sections (What is FMP, Mission, Vision) from CMS ────────
+  const cmsTextImageSections = homePageSections.filter(s => s.section_type === 'text_image').sort((a, b) => a.display_order - b.display_order);
 
-  // ── About ─────────────────────────────────────────────────────────────────
-  const aboutBadge  = cms(content, 'about', 'badge',        'The Platform');
-  const aboutH2     = cms(content, 'about', 'heading',      'What is Financial Modeler Pro?');
-  const aboutBody1  = cms(content, 'about', 'what_is_fmp',  'Financial Modeler Pro is a professional hub for financial modeling across all disciplines — built for analysts, developers, and investors. It replaces complex spreadsheets with a structured, guided workflow that produces audit-ready models in a fraction of the time.');
-  const aboutBody2  = cms(content, 'about', 'what_is_fmp_2','Every assumption is traceable. Every output is formatted for investor presentation. And every model can be exported to a formula-linked Excel workbook or a clean investor PDF — ready to share on day one.');
+  // ── About (fallback styles only — text now comes from CMS text_image sections) ──
 
   // ── Pillars ───────────────────────────────────────────────────────────────
   const pillarsH2        = cms(content, 'pillars', 'heading',       'Two Platforms. One Destination.');
@@ -356,73 +348,52 @@ export default async function LandingPage() {
         </div>
       </section>}
 
-      {/* ── What is FMP ────────────────────────────────────────────────────── */}
-      <section style={{ padding:`${aboutStyles.paddingY ?? '88px'} 40px`, maxWidth:1100, margin:'0 auto', color:'#374151' }}>
-        <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(320px,1fr))', gap:56, alignItems:'center' }}>
-          <div>
-            <InlineEdit tag="div" section="about" fieldKey="badge" value={aboutBadge} isAdmin={isAdmin}
-              style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }} />
-            <InlineEdit tag="h2" section="about" fieldKey="heading" value={aboutH2} isAdmin={isAdmin}
-              style={{ fontSize: aboutStyles.headingSize ?? 'clamp(24px,3vw,36px)', fontWeight:800, color: aboutStyles.headingColor ?? '#1B3A6B', marginBottom:20, lineHeight:1.2 }} />
-            <InlineEdit tag="p" section="about" fieldKey="what_is_fmp" value={aboutBody1} isAdmin={isAdmin}
-              style={{ fontSize:15, color:'#4B5563', lineHeight:1.75, marginBottom:20 }} />
-            <InlineEdit tag="p" section="about" fieldKey="what_is_fmp_2" value={aboutBody2} isAdmin={isAdmin}
-              style={{ fontSize:15, color:'#6B7280', lineHeight:1.75 }} />
-          </div>
-          <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-            {['Multi-discipline modeling — real estate, valuation, FP&A, LBO, and more','Structured workflows — from assumptions to investor-ready outputs','Monthly or annual modeling with full period control','Formula-linked Excel export + investor PDF reports','White-label ready for advisory firms and consultants','100% free training on every financial modeling topic'].map((text)=>(
-              <div key={text} style={{ display:'flex', alignItems:'flex-start', gap:12 }}>
-                <span style={{ width:22, height:22, borderRadius:'50%', flexShrink:0, background:'#E8F0FB', border:'1px solid #C7D9F2', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:'#1B4F8A', marginTop:1 }}>✓</span>
-                <span style={{ fontSize:14, color:'#4B5563', lineHeight:1.55 }}>{text}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ── Our Mission ───────────────────────────────────────────────────── */}
-      {!missionHidden && (cmsMission?.visible ? (
-        <SectionRenderer sections={[cmsMission]} />
+      {/* ── Text+Image sections: What is FMP, Mission, Vision (from CMS) ── */}
+      {cmsTextImageSections.length > 0 ? (
+        cmsTextImageSections.map(s => s.visible === false ? null : (
+          <SectionRenderer key={s.id} sections={[s]} />
+        ))
       ) : (
+        /* Hardcoded fallback when no CMS sections exist */
         <>
+          <section style={{ padding:`${aboutStyles.paddingY ?? '88px'} 40px`, maxWidth:1100, margin:'0 auto', color:'#374151' }}>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(320px,1fr))', gap:56, alignItems:'center' }}>
+              <div>
+                <div style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>The Platform</div>
+                <h2 style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1B3A6B', marginBottom:20, lineHeight:1.2 }}>What is Financial Modeler Pro?</h2>
+                <p style={{ fontSize:15, color:'#4B5563', lineHeight:1.75, marginBottom:20 }}>Financial Modeler Pro is a professional hub for financial modeling across all disciplines — built for analysts, developers, and investors. It replaces complex spreadsheets with a structured, guided workflow that produces audit-ready models in a fraction of the time.</p>
+                <p style={{ fontSize:15, color:'#6B7280', lineHeight:1.75 }}>Every assumption is traceable. Every output is formatted for investor presentation. And every model can be exported to a formula-linked Excel workbook or a clean investor PDF — ready to share on day one.</p>
+              </div>
+              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+                {['Multi-discipline modeling — real estate, valuation, FP&A, LBO, and more','Structured workflows — from assumptions to investor-ready outputs','Monthly or annual modeling with full period control','Formula-linked Excel export + investor PDF reports','White-label ready for advisory firms and consultants','100% free training on every financial modeling topic'].map(text=>(
+                  <div key={text} style={{ display:'flex', alignItems:'flex-start', gap:12 }}>
+                    <span style={{ width:22, height:22, borderRadius:'50%', flexShrink:0, background:'#E8F0FB', border:'1px solid #C7D9F2', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:'#1B4F8A', marginTop:1 }}>✓</span>
+                    <span style={{ fontSize:14, color:'#4B5563', lineHeight:1.55 }}>{text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
           <section style={{ background:'#EFF6FF', padding:'64px 40px' }}>
             <div style={{ maxWidth:1200, margin:'0 auto', display:'flex', gap:40, alignItems:'center', flexWrap:'wrap' }}>
               <div style={{ flex:1, minWidth:280 }}>
-                <div style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>OUR MISSION</div>
                 <h2 style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1F3864', marginBottom:16, lineHeight:1.2 }}>Our Mission</h2>
-                <p style={{ fontSize:15, color:'#374151', lineHeight:1.75 }}>
-                  To make professional financial modeling accessible to every finance professional worldwide. We believe structured, real-world modeling skills should not be locked behind expensive courses or years of trial and error.
-                </p>
+                <p style={{ fontSize:15, color:'#374151', lineHeight:1.75 }}>To make professional financial modeling accessible to every finance professional worldwide.</p>
               </div>
-              <div style={{ flexShrink:0, width:'50%', minWidth:200, minHeight:220, borderRadius:12, background:'#F3F4F6', border:'2px solid #E5E7EB', display:'flex', alignItems:'center', justifyContent:'center', color:'#9CA3AF', fontSize:15, fontWeight:500 }}>
-                Mission Image
-              </div>
+              <div style={{ flexShrink:0, width:'50%', minWidth:200, minHeight:220, borderRadius:12, background:'#F3F4F6', border:'2px solid #E5E7EB', display:'flex', alignItems:'center', justifyContent:'center', color:'#9CA3AF', fontSize:15, fontWeight:500 }}>Mission Image</div>
             </div>
           </section>
-        </>
-      ))}
-
-      {/* ── Our Vision ────────────────────────────────────────────────────── */}
-      {!visionHidden && (cmsVision?.visible ? (
-        <SectionRenderer sections={[cmsVision]} />
-      ) : (
-        <>
           <section style={{ background:'#EFF6FF', padding:'64px 40px' }}>
             <div style={{ maxWidth:1200, margin:'0 auto', display:'flex', gap:40, alignItems:'center', flexWrap:'wrap', flexDirection:'row-reverse' }}>
               <div style={{ flex:1, minWidth:280 }}>
-                <div style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>OUR VISION</div>
                 <h2 style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1F3864', marginBottom:16, lineHeight:1.2 }}>Our Vision</h2>
-                <p style={{ fontSize:15, color:'#374151', lineHeight:1.75 }}>
-                  To become the world&apos;s leading financial modeling platform — where analysts, bankers, and finance teams come to build, learn, and grow their modeling capabilities across every discipline.
-                </p>
+                <p style={{ fontSize:15, color:'#374151', lineHeight:1.75 }}>To become the world&apos;s leading financial modeling platform.</p>
               </div>
-              <div style={{ flexShrink:0, width:'50%', minWidth:200, minHeight:220, borderRadius:12, background:'#F3F4F6', border:'2px solid #E5E7EB', display:'flex', alignItems:'center', justifyContent:'center', color:'#9CA3AF', fontSize:15, fontWeight:500 }}>
-                Vision Image
-              </div>
+              <div style={{ flexShrink:0, width:'50%', minWidth:200, minHeight:220, borderRadius:12, background:'#F3F4F6', border:'2px solid #E5E7EB', display:'flex', alignItems:'center', justifyContent:'center', color:'#9CA3AF', fontSize:15, fontWeight:500 }}>Vision Image</div>
             </div>
           </section>
         </>
-      ))}
+      )}
 
       {/* ── Two Pillars ────────────────────────────────────────────────────── */}
       <section style={{ background:'#F5F7FA', padding:`${pillarsStyles.paddingY ?? '88px'} 40px` }}>
