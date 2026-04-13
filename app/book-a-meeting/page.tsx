@@ -73,7 +73,7 @@ export default async function BookAMeetingPage() {
 
           {bookingUrl ? (
             <>
-              <a href={bookingUrl} style={{
+              <a href={bookingUrl} target="_blank" rel="noopener noreferrer" style={{
                 display: 'block', width: '100%', textAlign: 'center',
                 background: '#1ABC9C', color: '#fff', fontWeight: 700, fontSize: 16,
                 padding: '16px 24px', borderRadius: 10, textDecoration: 'none',
