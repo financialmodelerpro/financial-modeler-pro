@@ -660,10 +660,47 @@ function TwoPlatformsEditor({ content, onChange }: { content: Record<string, unk
   );
 }
 
+function PaceMakersEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  const set = (k: string, v: unknown) => onChange({ ...content, [k]: v });
+  const svcs = (content.services as { id: string; text: string }[]) ?? [];
+  const setSvcs = (next: typeof svcs) => onChange({ ...content, services: next });
+  return (
+    <>
+      <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
+        <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      </VF>
+      <VF label="Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
+      <VF label="Description" fieldKey="description" content={content} onChange={onChange}>
+        <textarea style={{ ...TA, minHeight: 60 }} value={(content.description as string) ?? ''} onChange={e => set('description', e.target.value)} />
+      </VF>
+      <VF label="CTA Button" fieldKey="cta_text" content={content} onChange={onChange}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+          <div><label style={LS}>Text</label><input style={IS} value={(content.cta_text as string) ?? ''} onChange={e => set('cta_text', e.target.value)} /></div>
+          <div><label style={LS}>URL</label><input style={IS} value={(content.cta_url as string) ?? ''} onChange={e => set('cta_url', e.target.value)} /></div>
+        </div>
+      </VF>
+      <div style={{ marginTop: 10, padding: 10, background: '#F0F4FF', borderRadius: 8, border: '1px solid #C7D2FE' }}>
+        <div style={{ fontSize: 11, fontWeight: 800, color: '#4F46E5', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Services</div>
+        {svcs.map((svc, i) => (
+          <div key={svc.id || i} style={{ display: 'flex', gap: 6, marginBottom: 4, alignItems: 'center' }}>
+            <span style={{ color: '#4A90D9', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>✓</span>
+            <input style={{ ...IS, flex: 1 }} value={svc.text} onChange={e => { const n = [...svcs]; n[i] = { ...n[i], text: e.target.value }; setSvcs(n); }} />
+            <button onClick={() => setSvcs(svcs.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11, flexShrink: 0 }}>X</button>
+          </div>
+        ))}
+        <button onClick={() => setSvcs([...svcs, { id: `svc_${Date.now()}`, text: 'New service' }])} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #C7D2FE', background: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#4F46E5' }}>+ Add Service</button>
+      </div>
+    </>
+  );
+}
+
 function SmartColumnsEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
   const cols = content.columns as Record<string, unknown>[] | undefined;
   const isPlatform = cols?.[0] && (cols[0].id === 'modeling' || Array.isArray(cols[0].features));
   if (isPlatform) return <TwoPlatformsEditor content={content} onChange={onChange} />;
+  if (content.services && Array.isArray(content.services)) return <PaceMakersEditor content={content} onChange={onChange} />;
   return <ColumnsEditor content={content} onChange={onChange} />;
 }
 

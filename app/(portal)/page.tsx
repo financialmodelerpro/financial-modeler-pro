@@ -87,6 +87,12 @@ export default async function LandingPage() {
   const cmsFounder = cmsFounderRaw?.visible !== false ? cmsFounderRaw : undefined;
   const fc = cmsFounder?.content as Record<string, unknown> | undefined;
 
+  // ── PaceMakers (CMS page_sections → hardcoded fallback) ─────────────────
+  const cmsPMRaw = homePageSections.find(s => s.section_type === 'columns' && (s.content as Record<string,unknown>)?.heading?.toString().includes('PaceMakers'));
+  const pmHidden = cmsPMRaw?.visible === false;
+  const cmsPM = cmsPMRaw?.visible !== false ? cmsPMRaw : undefined;
+  const pm = cmsPM?.content as Record<string, unknown> | undefined;
+
   // ── Hero (CMS page_sections → cms_content → hardcoded fallback) ────────
   const heroBadge          = (h?.badge as string)          || cms(content, 'hero', 'badge_text',       '🚀 Now Live — Free to Use');
   const heroHeadline       = (h?.headline as string)       || cms(content, 'hero', 'headline',         'Build Institutional-Grade Financial Models — Without Starting From Scratch');
@@ -555,44 +561,43 @@ export default async function LandingPage() {
       })()}
 
       {/* ── PaceMakers ─────────────────────────────────────────────────────── */}
-      <section style={{ padding:'88px 40px', background:'#0A2248', color:'#fff' }}>
-        <div style={{ maxWidth:1100, margin:'0 auto' }}>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:56, alignItems:'center' }}>
-            <div>
-              <div style={{ fontSize:12, fontWeight:700, color:'#4A90D9', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>
-                The Firm Behind the Platform
+      {!pmHidden && (() => {
+        const pmBadge = (pm?.badge as string) || 'The Firm Behind the Platform';
+        const pmHead  = (pm?.heading as string) || 'Powered by PaceMakers Business Consultants';
+        const pmDesc  = (pm?.description as string) || 'Financial Modeler Pro is a product of PaceMakers — a corporate finance advisory firm with 12+ years of experience delivering institutional-grade financial solutions across KSA and Pakistan.';
+        const pmCta   = (pm?.cta_text as string) || 'Visit PaceMakers →';
+        const pmUrl   = (pm?.cta_url as string) || 'https://www.pacemakersglobal.com';
+        const pmSvcs  = (pm?.services as { id: string; text: string }[]) ?? [
+          { id:'1', text:'Financial Modeling & Valuation' },
+          { id:'2', text:'Transaction Advisory & Due Diligence' },
+          { id:'3', text:'Fractional CFO Services' },
+          { id:'4', text:'Investment Analysis & Feasibility' },
+        ];
+        const pmBg = (cmsPM?.styles as Record<string,string>)?.bgColor ?? '#0A2248';
+        const pmPy = (cmsPM?.styles as Record<string,string>)?.paddingY ?? '88px';
+        return (
+        <section style={{ padding:`${pmPy} 40px`, background:pmBg, color:'#fff' }}>
+          <div style={{ maxWidth:1100, margin:'0 auto' }}>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:56, alignItems:'center' }}>
+              <div>
+                <div style={{ fontSize:12, fontWeight:700, color:'#4A90D9', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>{pmBadge}</div>
+                <h2 style={{ fontSize:'clamp(22px,3vw,32px)', fontWeight:800, color:'#fff', marginBottom:20, lineHeight:1.2 }}>{pmHead}</h2>
+                <p style={{ fontSize:15, color:'rgba(255,255,255,0.6)', lineHeight:1.75, marginBottom:32 }}>{pmDesc}</p>
+                <a href={pmUrl} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#1B4F8A', color:'#fff', fontWeight:700, fontSize:13, padding:'10px 24px', borderRadius:7, textDecoration:'none' }}>{pmCta}</a>
               </div>
-              <h2 style={{ fontSize:'clamp(22px,3vw,32px)', fontWeight:800, color:'#fff', marginBottom:20, lineHeight:1.2 }}>
-                Powered by PaceMakers Business Consultants
-              </h2>
-              <p style={{ fontSize:15, color:'rgba(255,255,255,0.6)', lineHeight:1.75, marginBottom:32 }}>
-                Financial Modeler Pro is a product of PaceMakers — a corporate finance advisory firm with 12+ years of experience delivering institutional-grade financial solutions across KSA and Pakistan.
-              </p>
-              <a
-                href="https://www.pacemakersglobal.com"
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#1B4F8A', color:'#fff', fontWeight:700, fontSize:13, padding:'10px 24px', borderRadius:7, textDecoration:'none' }}
-              >
-                Visit PaceMakers →
-              </a>
-            </div>
-            <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
-              {[
-                'Financial Modeling & Valuation',
-                'Transaction Advisory & Due Diligence',
-                'Fractional CFO Services',
-                'Investment Analysis & Feasibility',
-              ].map((service) => (
-                <div key={service} style={{ display:'flex', alignItems:'center', gap:14, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'16px 20px' }}>
-                  <span style={{ width:22, height:22, borderRadius:'50%', flexShrink:0, background:'rgba(27,79,138,0.4)', border:'1px solid rgba(74,144,217,0.4)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:'#4A90D9' }}>✓</span>
-                  <span style={{ fontSize:14, fontWeight:600, color:'rgba(255,255,255,0.85)' }}>{service}</span>
-                </div>
-              ))}
+              <div style={{ display:'flex', flexDirection:'column', gap:16 }}>
+                {pmSvcs.map(svc => (
+                  <div key={svc.id} style={{ display:'flex', alignItems:'center', gap:14, background:'rgba(255,255,255,0.04)', border:'1px solid rgba(255,255,255,0.08)', borderRadius:10, padding:'16px 20px' }}>
+                    <span style={{ width:22, height:22, borderRadius:'50%', flexShrink:0, background:'rgba(27,79,138,0.4)', border:'1px solid rgba(74,144,217,0.4)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:'#4A90D9' }}>✓</span>
+                    <span style={{ fontSize:14, fontWeight:600, color:'rgba(255,255,255,0.85)' }}>{svc.text}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
-        </div>
-      </section>
+        </section>
+        );
+      })()}
 
       {/* ── Articles Preview ───────────────────────────────────────────────── */}
       <section style={{ padding:'88px 40px', background:'#fff' }}>
