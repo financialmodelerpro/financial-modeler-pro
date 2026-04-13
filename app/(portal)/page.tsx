@@ -398,24 +398,28 @@ export default async function LandingPage() {
 
       {/* ── Founder ────────────────────────────────────────────────────────── */}
       <section style={{ padding:'64px 40px 80px', background:'#1B3A6B', color:'#fff' }}>
-        {/* eslint-disable-next-line react/no-danger */}
         <style>{`
           @media (max-width: 640px) {
             .fmp-founder-img-col { order: -1 !important; }
-            .fmp-founder-circle  { width: min(180px, 60vw) !important; height: min(180px, 60vw) !important; }
+            .fmp-founder-photo   { width: min(280px, 80vw) !important; height: min(280px, 80vw) !important; }
           }
         `}</style>
         <div style={{ maxWidth:1100, margin:'0 auto' }}>
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(min(300px,100%),1fr))', gap:56, alignItems:'center' }}>
             <div className="fmp-founder-img-col" style={{ display:'flex', justifyContent:'center', order:1 }}>
               {founderPhotoUrl ? (
-                <div className="fmp-founder-circle" style={{ width:220, height:220, borderRadius:'50%', overflow:'hidden', position:'relative', border:'3px solid rgba(255,255,255,0.2)', boxShadow:'0 8px 40px rgba(0,0,0,0.4)', flexShrink:0 }}>
+                <div className="fmp-founder-photo" style={{ width:320, height:320, borderRadius:16, overflow:'hidden', position:'relative', border:'3px solid #2E75B6', boxShadow:'0 12px 48px rgba(0,0,0,0.5)', flexShrink:0 }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={founderPhotoUrl} alt={founderName} style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'center' }} />
+                  <img
+                    src={founderPhotoUrl}
+                    alt=""
+                    style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'center' }}
+                    onError={undefined}
+                  />
                 </div>
               ) : (
-                <div className="fmp-founder-circle" style={{ width:220, height:220, borderRadius:'50%', background:'linear-gradient(135deg,#0D2E5A,#1B4F8A)', display:'flex', alignItems:'center', justifyContent:'center', border:'3px solid rgba(255,255,255,0.2)', boxShadow:'0 8px 40px rgba(0,0,0,0.4)', flexShrink:0 }}>
-                  <span style={{ fontSize:56, fontWeight:800, color:'rgba(255,255,255,0.9)', letterSpacing:'-2px', fontFamily:"'Inter',sans-serif" }}>AD</span>
+                <div className="fmp-founder-photo" style={{ width:320, height:320, borderRadius:16, background:'linear-gradient(135deg,#0D2E5A,#1B4F8A)', display:'flex', alignItems:'center', justifyContent:'center', border:'3px solid #2E75B6', boxShadow:'0 12px 48px rgba(0,0,0,0.5)', flexShrink:0 }}>
+                  <span style={{ fontSize:72, fontWeight:800, color:'rgba(255,255,255,0.9)', letterSpacing:'-2px', fontFamily:"'Inter',sans-serif" }}>AD</span>
                 </div>
               )}
             </div>
