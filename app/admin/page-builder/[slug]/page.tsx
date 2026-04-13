@@ -974,6 +974,66 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
           ))}
           <button onClick={() => setExp([...exp,'New experience'])} style={{ padding:'4px 10px', borderRadius:6, border:'1px solid #BBF7D0', background:'#fff', cursor:'pointer', fontSize:11, fontWeight:600, color:'#15803D' }}>+ Add</button>
         </div>
+
+        {/* Background paragraphs */}
+        {(() => {
+          const paras = (content.background_paragraphs as string[]) ?? [];
+          const setParas = (next: string[]) => onChange({ ...content, background_paragraphs: next });
+          return (
+            <div style={{ marginTop:10 }}>
+              <label style={LS}>Background Paragraphs (/about page)</label>
+              {paras.map((p, i) => (
+                <div key={i} style={{ display:'flex', gap:6, marginBottom:4, alignItems:'start' }}>
+                  <textarea style={{ ...TA, flex:1, minHeight:50 }} value={p} onChange={e => { const n=[...paras]; n[i]=e.target.value; setParas(n); }} />
+                  <button onClick={() => setParas(paras.filter((_,j)=>j!==i))} style={{ padding:'4px 8px', borderRadius:4, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626', cursor:'pointer', fontSize:11, flexShrink:0 }}>X</button>
+                </div>
+              ))}
+              <button onClick={() => setParas([...paras,'New paragraph'])} style={{ padding:'4px 10px', borderRadius:6, border:'1px solid #BBF7D0', background:'#fff', cursor:'pointer', fontSize:11, fontWeight:600, color:'#15803D' }}>+ Add Paragraph</button>
+            </div>
+          );
+        })()}
+
+        {/* Projects */}
+        {(() => {
+          const projs = (content.projects as { id: string; title: string; description: string; sector: string; value: string }[]) ?? [];
+          const setProjs = (next: typeof projs) => onChange({ ...content, projects: next });
+          return (
+            <div style={{ marginTop:10 }}>
+              <label style={LS}>Projects (/about page)</label>
+              {projs.map((p, i) => (
+                <div key={p.id||i} style={{ background:'#F9FAFB', borderRadius:8, padding:8, marginBottom:6, border:'1px solid #E5E7EB' }}>
+                  <div style={{ display:'flex', gap:6, marginBottom:4 }}>
+                    <div style={{ flex:1 }}><label style={{...LS,fontSize:10}}>Title</label><input style={IS} value={p.title} onChange={e=>{const n=[...projs];n[i]={...n[i],title:e.target.value};setProjs(n);}}/></div>
+                    <div style={{ flex:1 }}><label style={{...LS,fontSize:10}}>Sector</label><input style={IS} value={p.sector} onChange={e=>{const n=[...projs];n[i]={...n[i],sector:e.target.value};setProjs(n);}}/></div>
+                    <button onClick={()=>setProjs(projs.filter((_,j)=>j!==i))} style={{ padding:'4px 8px', borderRadius:4, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626', cursor:'pointer', fontSize:11, alignSelf:'end' }}>X</button>
+                  </div>
+                  <label style={{...LS,fontSize:10}}>Description</label><textarea style={{...TA,minHeight:30}} value={p.description} onChange={e=>{const n=[...projs];n[i]={...n[i],description:e.target.value};setProjs(n);}}/>
+                  <label style={{...LS,fontSize:10,marginTop:4}}>Value</label><input style={IS} value={p.value} onChange={e=>{const n=[...projs];n[i]={...n[i],value:e.target.value};setProjs(n);}} placeholder="e.g. $50M"/>
+                </div>
+              ))}
+              <button onClick={()=>setProjs([...projs,{id:`proj_${Date.now()}`,title:'',description:'',sector:'',value:''}])} style={{ padding:'4px 10px', borderRadius:6, border:'1px solid #BBF7D0', background:'#fff', cursor:'pointer', fontSize:11, fontWeight:600, color:'#15803D' }}>+ Add Project</button>
+            </div>
+          );
+        })()}
+
+        {/* Booking expectations */}
+        {(() => {
+          const items = (content.booking_expectations as string[]) ?? [];
+          const setItems = (next: string[]) => onChange({ ...content, booking_expectations: next });
+          return (
+            <div style={{ marginTop:10 }}>
+              <label style={LS}>What to Expect (booking page)</label>
+              {items.map((item, i) => (
+                <div key={i} style={{ display:'flex', gap:6, marginBottom:4, alignItems:'center' }}>
+                  <span style={{ color:'#1ABC9C', fontSize:12, flexShrink:0 }}>✓</span>
+                  <input style={{ ...IS, flex:1 }} value={item} onChange={e => { const n=[...items]; n[i]=e.target.value; setItems(n); }} />
+                  <button onClick={() => setItems(items.filter((_,j)=>j!==i))} style={{ padding:'4px 8px', borderRadius:4, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626', cursor:'pointer', fontSize:11, flexShrink:0 }}>X</button>
+                </div>
+              ))}
+              <button onClick={() => setItems([...items,'New item'])} style={{ padding:'4px 10px', borderRadius:6, border:'1px solid #BBF7D0', background:'#fff', cursor:'pointer', fontSize:11, fontWeight:600, color:'#15803D' }}>+ Add</button>
+            </div>
+          );
+        })()}
       </div>
     </>
   );
