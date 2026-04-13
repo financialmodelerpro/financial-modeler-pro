@@ -223,14 +223,17 @@ export default async function LandingPage() {
             </div>
           ));
           // Per-field width + alignment wrapper
-          const fw = (key: string) => ({
-            width: (h?.[`${key}_width`] as string) || '100%',
-            maxWidth: (h?.[`${key}_width`] as string) || '100%',
-            textAlign: ((h?.[`${key}_align`] as string) || (h?.textAlign as string) || 'center') as React.CSSProperties['textAlign'],
-            margin: '0 auto',
-          });
+          const fw = (key: string) => {
+            const w = (h?.[`${key}_width`] as string) || '100%';
+            return {
+              width: w,
+              maxWidth: w,
+              textAlign: ((h?.[`${key}_align`] as string) || (h?.textAlign as string) || 'center') as React.CSSProperties['textAlign'],
+              margin: w === '100%' ? '0' as const : '0 auto' as const,
+            };
+          };
           return (
-          <div style={{ position:'relative', maxWidth:1200, margin:'0 auto', textAlign: ((h?.textAlign as string) || 'center') as React.CSSProperties['textAlign'] }}>
+          <div style={{ position:'relative', maxWidth:'min(1200px, 90vw)', margin:'0 auto', textAlign: ((h?.textAlign as string) || 'center') as React.CSSProperties['textAlign'] }}>
             {cfAt('top')}
 
             {/* Badge */}
@@ -280,7 +283,7 @@ export default async function LandingPage() {
             {/* Power statement */}
             {h?.powerStatement_visible !== false && heroPowerStatement && (
               <div style={fw('powerStatement')}>
-                <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 300ms both', borderLeft:'3px solid #2EAA4A', paddingLeft:16, maxWidth:580, margin:'0 auto 26px', textAlign:'left' }}>
+                <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 300ms both', borderLeft:'3px solid #2EAA4A', paddingLeft:16, margin:'0 auto 26px', textAlign:'left' }}>
                   <InlineEdit
                     tag="p" section="hero" fieldKey="power_statement" value={heroPowerStatement} isAdmin={isAdmin} darkBg
                     style={{ fontSize:'clamp(0.95rem,1.8vw,1.05rem)', fontWeight:600, color:'rgba(255,255,255,0.9)', margin:0, lineHeight:1.55 }}
