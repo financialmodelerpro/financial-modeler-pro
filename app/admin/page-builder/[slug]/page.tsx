@@ -886,6 +886,11 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
       </VF>
       <VF label="Title / Role" fieldKey="title" content={content} onChange={onChange}>
         <input style={IS} value={(content.title as string) ?? ''} onChange={e => set('title', e.target.value)} />
+        <div style={{ fontSize:10, color:'#9CA3AF', marginTop:3 }}>Use | to split into two lines</div>
+      </VF>
+      <VF label="Qualifications" fieldKey="qualifications" content={content} onChange={onChange}>
+        <input style={IS} value={(content.qualifications as string) ?? ''} onChange={e => set('qualifications', e.target.value)} placeholder="ACCA | FMVA | 12+ Years Experience" />
+        <div style={{ fontSize:10, color:'#9CA3AF', marginTop:3 }}>Separate with |</div>
       </VF>
       <VF label="Short Bio" fieldKey="bio" content={content} onChange={onChange}>
         <textarea style={{ ...TA, minHeight:60 }} value={(content.bio as string) ?? ''} onChange={e => set('bio', e.target.value)} />
