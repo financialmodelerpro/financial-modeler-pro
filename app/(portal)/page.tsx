@@ -12,7 +12,9 @@ import {
   getFounderProfile, getSitePages,
   getTestimonialsForPage,
   getSectionStyles,
+  getPageSections,
 } from '@/src/lib/shared/cms';
+import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/ArticleCard';
@@ -48,12 +50,13 @@ async function getPublicPlanNames(): Promise<string[]> {
 }
 
 export default async function LandingPage() {
-  const [content, articles, testimonials, founder, session, sitePages, planNames] = await Promise.all([
+  const [content, articles, testimonials, founder, session, sitePages, planNames, pageSections] = await Promise.all([
     getCmsContent(),
     getPublishedArticles(3),
     getTestimonialsForPage('landing'),
     getFounderProfile(), getServerSession(), getSitePages(),
     getPublicPlanNames(),
+    getPageSections('home'),
   ]);
 
   const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'admin';
@@ -176,7 +179,200 @@ export default async function LandingPage() {
   ];
   const navPages = sitePages.length > 0 ? sitePages : fallbackPages;
 
-  // ── Render ────────────────────────────────────────────────────────────────
+  // ── CMS-driven rendering ───────────────────────────────────────────────────
+  if (pageSections.length > 0) {
+    return (
+      <div style={{ fontFamily:"'Inter',-apple-system,sans-serif", background:'#fff', color:'#374151', overflowX:'hidden' }}>
+        {isAdmin && <AdminEditBar />}
+        <Navbar navPages={navPages} topOffset={isAdmin ? 44 : 0} />
+        <div style={{ height: isAdmin ? 108 : 64 }} />
+
+        {pageSections.map((section) => {
+          const dynamic = (section.content as Record<string, unknown>)?._dynamic;
+
+          if (dynamic === 'founder') {
+            return (
+              <section key={section.id} style={{ padding:'64px 40px 80px', background:'#1B3A6B', color:'#fff' }}>
+                <style>{`
+                  @media (max-width: 640px) {
+                    .fmp-founder-img-col { order: -1 !important; }
+                    .fmp-founder-circle  { width: min(180px, 60vw) !important; height: min(180px, 60vw) !important; }
+                  }
+                `}</style>
+                <div style={{ maxWidth:1100, margin:'0 auto' }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(min(300px,100%),1fr))', gap:56, alignItems:'center' }}>
+                    <div className="fmp-founder-img-col" style={{ display:'flex', justifyContent:'center', order:1 }}>
+                      {founderPhotoUrl ? (
+                        <div className="fmp-founder-circle" style={{ width:220, height:220, borderRadius:'50%', overflow:'hidden', position:'relative', border:'3px solid rgba(255,255,255,0.2)', boxShadow:'0 8px 40px rgba(0,0,0,0.4)', flexShrink:0 }}>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={founderPhotoUrl} alt={founderName} style={{ position:'absolute', top:0, left:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'center' }} />
+                        </div>
+                      ) : (
+                        <div className="fmp-founder-circle" style={{ width:220, height:220, borderRadius:'50%', background:'linear-gradient(135deg,#0D2E5A,#1B4F8A)', display:'flex', alignItems:'center', justifyContent:'center', border:'3px solid rgba(255,255,255,0.2)', boxShadow:'0 8px 40px rgba(0,0,0,0.4)', flexShrink:0 }}>
+                          <span style={{ fontSize:56, fontWeight:800, color:'rgba(255,255,255,0.9)', letterSpacing:'-2px', fontFamily:"'Inter',sans-serif" }}>AD</span>
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <div style={{ fontSize:12, fontWeight:700, color:'#4A90D9', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>{founderBadge}</div>
+                      <h2 style={{ fontSize:'clamp(22px,3vw,32px)', fontWeight:800, color:'#fff', marginBottom:6 }}>{founderName}</h2>
+                      <div style={{ fontSize:14, color:'#93C5FD', fontWeight:600, marginBottom:20, lineHeight:1.4 }}>Corporate Finance &amp; Transaction Advisory Specialist | Financial Modeling Expert</div>
+                      <p style={{ fontSize:14.5, color:'rgba(255,255,255,0.65)', lineHeight:1.75, marginBottom:16 }}>{founderShortBio}</p>
+                      <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:24 }}>
+                        {['12+ years in Corporate Finance & Advisory','Experience across KSA & Pakistan','Lender-grade models: IRR, DSCR, Feasibility','Real estate, energy, infrastructure & industrial sectors','Transaction advisory & investment support'].map(text=>(
+                          <div key={text} style={{ display:'flex', alignItems:'center', gap:10 }}>
+                            <span style={{ color:'#4A90D9', fontWeight:700, fontSize:12, flexShrink:0 }}>✓</span>
+                            <span style={{ fontSize:13.5, color:'rgba(255,255,255,0.6)' }}>{text}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div style={{ display:'flex', gap:14, flexWrap:'wrap' }}>
+                        <Link href="/about/ahmad-din" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1B4F8A', border:'1px solid #1B4F8A', color:'#fff', fontSize:13, fontWeight:700, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>Read Full Profile →</Link>
+                        {founderLinkedIn && (
+                          <a href={founderLinkedIn} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'transparent', border:'1px solid rgba(255,255,255,0.25)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:600, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>Connect on LinkedIn →</a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            );
+          }
+
+          if (dynamic === 'articles') {
+            return (
+              <section key={section.id} style={{ padding:'88px 40px', background:'#fff' }}>
+                <div style={{ maxWidth:1100, margin:'0 auto' }}>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-end', marginBottom:44, flexWrap:'wrap', gap:16 }}>
+                    <div>
+                      <div style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:10 }}>{articlesBadge}</div>
+                      <h2 style={{ fontSize:'clamp(22px,3vw,34px)', fontWeight:800, color:'#1B3A6B', margin:0 }}>{articlesH2}</h2>
+                    </div>
+                    <Link href="/articles" style={{ fontSize:13, fontWeight:700, color:'#1B4F8A', textDecoration:'none' }}>View All Articles →</Link>
+                  </div>
+                  {articles.length > 0 ? (
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', gap:20 }}>
+                      {articles.map((a)=><ArticleCard key={a.id} article={a} />)}
+                    </div>
+                  ) : (
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', gap:20 }}>
+                      {[0,1,2].map((i)=><ArticleCardPlaceholder key={i} index={i} />)}
+                    </div>
+                  )}
+                </div>
+              </section>
+            );
+          }
+
+          if (dynamic === 'testimonials') {
+            return (
+              <section key={section.id} style={{ padding:`${testimonialsStyles.paddingY ?? '88px'} 40px`, background:'#fff' }}>
+                <div style={{ maxWidth:1100, margin:'0 auto' }}>
+                  <div style={{ textAlign:'center', marginBottom:52 }}>
+                    <h2 style={{ fontSize: testimonialsStyles.headingSize ?? 'clamp(22px,3vw,34px)', fontWeight:800, color: testimonialsStyles.headingColor ?? '#1B3A6B', marginBottom:10 }}>{testimonialsH2}</h2>
+                    <p style={{ fontSize:14, color:'#6B7280' }}>{testimonialsSub}</p>
+                  </div>
+                  {testimonials.length > 0 ? (
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:24 }}>
+                      {testimonials.map(t => (
+                        <div key={t.id} style={{ background:'#F9FAFB', border:`1px solid ${t.is_featured ? '#C9A84C' : '#E5E7EB'}`, borderRadius:14, padding:'24px', position:'relative', display:'flex', flexDirection:'column' }}>
+                          <div style={{ display:'flex', gap:2, marginBottom:12 }}>
+                            {Array.from({length:5}).map((_,i) => (
+                              <span key={i} style={{ fontSize:14, color: i < (t.rating ?? 5) ? '#F59E0B' : '#E5E7EB' }}>★</span>
+                            ))}
+                            {t.is_featured && <span style={{ marginLeft:'auto', fontSize:10, fontWeight:700, color:'#C9A84C' }}>★ Featured</span>}
+                          </div>
+                          {t.testimonial_type === 'video' && t.video_url ? (
+                            <a href={t.video_url} target="_blank" rel="noopener noreferrer" style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', background:'#0D2E5A', borderRadius:8, padding:'20px', marginBottom:16, textDecoration:'none', gap:6 }}>
+                              <span style={{ fontSize:28 }}>▶️</span>
+                              <span style={{ fontSize:11, color:'rgba(255,255,255,0.7)', fontWeight:600 }}>Watch video testimonial ↗</span>
+                            </a>
+                          ) : (
+                            <>
+                              <div style={{ fontSize:28, color:'#1B4F8A', fontFamily:'Georgia,serif', lineHeight:1, marginBottom:8 }}>&ldquo;</div>
+                              <p style={{ fontSize:13.5, color:'#374151', lineHeight:1.75, marginBottom:16, fontStyle:'italic', flex:1 }}>{t.text}</p>
+                            </>
+                          )}
+                          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                            <div style={{ width:38, height:38, borderRadius:'50%', background:'linear-gradient(135deg,#1B4F8A,#0D2E5A)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:14, fontWeight:800, color:'#fff', flexShrink:0 }}>
+                              {t.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div style={{ minWidth:0 }}>
+                              <div style={{ fontSize:13, fontWeight:700, color:'#1B3A6B', display:'flex', alignItems:'center', gap:5 }}>
+                                {t.name}
+                                {t.linkedin_url && (
+                                  <a href={t.linkedin_url} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', justifyContent:'center', width:16, height:16, background:'#0A66C2', color:'#fff', borderRadius:3, fontSize:9, fontWeight:800, textDecoration:'none', flexShrink:0 }}>in</a>
+                                )}
+                              </div>
+                              {(t.role || t.company) && (
+                                <div style={{ fontSize:11, color:'#9CA3AF', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{[t.role, t.company].filter(Boolean).join(' · ')}</div>
+                              )}
+                              {t.location && <div style={{ fontSize:10, color:'#B0B8C8', marginTop:1 }}>{t.location}</div>}
+                            </div>
+                          </div>
+                          {t.source === 'student' && (
+                            <div style={{ marginTop:12, paddingTop:10, borderTop:'1px solid #F3F4F6', display:'flex', alignItems:'center', gap:6 }}>
+                              <span style={{ fontSize:10, color:'#2EAA4A', fontWeight:700 }}>✅ Verified via FMP Training</span>
+                              {t.course_name && <span style={{ fontSize:10, color:'#9CA3AF' }}>· {t.course_name}</span>}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', gap:20 }}>
+                      {[0,1,2].map(i=>(
+                        <div key={i} style={{ background:'#F9FAFB', border:'1px dashed #E5E7EB', borderRadius:12, padding:'32px 24px', textAlign:'center' }}>
+                          <div style={{ fontSize:40, color:'#D1D5DB', marginBottom:16, fontFamily:'Georgia,serif' }}>&ldquo;</div>
+                          <p style={{ fontSize:14, color:'#9CA3AF', lineHeight:1.7, marginBottom:20, fontStyle:'italic' }}>Testimonial coming soon</p>
+                          <p style={{ fontSize:12, color:'#D1D5DB' }}>We are collecting feedback from early users</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ textAlign:'center', marginTop:32 }}>
+                    <Link href={`${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training`} style={{ fontSize:13, color:'#1B4F8A', fontWeight:600, textDecoration:'none', borderBottom:'1px solid #C7D9F2', paddingBottom:2 }}>Join the free course →</Link>
+                  </div>
+                </div>
+              </section>
+            );
+          }
+
+          if (dynamic === 'pricing_preview') {
+            return (
+              <section key={section.id} id="pricing" style={{ padding:'88px 40px', background:'#F5F7FA' }}>
+                <div style={{ maxWidth:720, margin:'0 auto', textAlign:'center' }}>
+                  <div style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>{pricingBadge}</div>
+                  <h2 style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1B3A6B', marginBottom:10 }}>{pricingH2}</h2>
+                  <p style={{ fontSize:15, color:'#6B7280', marginBottom:36 }}>{pricingSub}</p>
+                  {planNames.length > 0 && (
+                    <div style={{ display:'flex', justifyContent:'center', gap:12, flexWrap:'wrap', marginBottom:36 }}>
+                      {planNames.map(name=>(
+                        <div key={name} style={{ padding:'12px 24px', background:'#fff', border:'1px solid #E5E7EB', borderRadius:10, fontSize:14, fontWeight:600, color:'#374151', boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>{name}</div>
+                      ))}
+                    </div>
+                  )}
+                  <Link href="/pricing" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#1B4F8A', color:'#fff', fontWeight:700, fontSize:15, padding:'14px 36px', borderRadius:8, textDecoration:'none', boxShadow:'0 4px 20px rgba(27,79,138,0.25)' }}>View Full Pricing →</Link>
+                </div>
+              </section>
+            );
+          }
+
+          return <SectionRenderer key={section.id} sections={[section]} />;
+        })}
+
+        <SharedFooter
+          company={footerCompany} founder={footerFounder} copyright={footerCopyright} isAdmin={isAdmin}
+          height={footerHeight} paddingTop={footerPaddingTop} paddingBottom={footerPaddingBottom}
+          showDescription={footerShowDescription} showQuickLinks={footerShowQuickLinks}
+          showCompanyLinks={footerShowCompanyLinks} showPrivacy={footerShowPrivacy}
+          showConfidentiality={footerShowConfidentiality}
+        />
+      </div>
+    );
+  }
+
+  // ── Render (fallback) ─────────────────────────────────────────────────────
   return (
     <div style={{ fontFamily:"'Inter',-apple-system,sans-serif", background:'#fff', color:'#374151', overflowX:'hidden' }}>
 

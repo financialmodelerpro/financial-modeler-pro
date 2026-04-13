@@ -2,8 +2,9 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { COURSES } from '@/src/config/courses';
-import { getCmsContent, cms, getTestimonialsForPage } from '@/src/lib/shared/cms';
+import { getCmsContent, cms, getTestimonialsForPage, getPageSections } from '@/src/lib/shared/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
+import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { CurriculumCard, type CourseDescription } from './CurriculumCard';
 import { TestimonialsCarousel } from './TestimonialsCarousel';
@@ -84,7 +85,7 @@ async function getCourseDescriptions(): Promise<Record<string, CourseDescription
 export default async function TrainingPage() {
   const sfm = COURSES['3sfm'];
   const bvm = COURSES['bvm'];
-  const [content, descriptions, testimonials] = await Promise.all([getCmsContent(), getCourseDescriptions(), getTestimonialsForPage('training')]);
+  const [content, descriptions, testimonials, sections] = await Promise.all([getCmsContent(), getCourseDescriptions(), getTestimonialsForPage('training'), getPageSections('training')]);
 
   const heroBadge       = cms(content, 'training_page', 'hero_badge',         '🎓 Free Certification Program');
   const heroHeadline    = cms(content, 'training_page', 'hero_headline',       'Get Certified in Financial Modeling — Free');
@@ -100,6 +101,61 @@ export default async function TrainingPage() {
   const footerFounder      = cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder');
   const footerCopyright    = cms(content, 'footer', 'copyright',    `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
 
+  // CMS-driven rendering
+  if (sections.length > 0) {
+    return (
+      <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
+        <NavbarServer />
+        <div style={{ height: 64 }} />
+
+        {sections.map((section) => {
+          const dynamic = (section.content as Record<string, unknown>)?._dynamic;
+          if (dynamic === 'courses') {
+            return (
+              <section key={section.id} style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
+                <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+                  <div style={{ textAlign: 'center', marginBottom: 48 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: '#2EAA4A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>Available Courses</div>
+                    <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', margin: 0 }}>Choose Your Certification Path</h2>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 28 }}>
+                    <CurriculumCard course={sfm} accentColor="#1B4F8A" badgeBg="#EEF2FF" badgeColor="#4F46E5" badgeBorder="#C7D2FE" sessionLabel={`${sfm.sessions.filter(s => !s.isFinal).length} Sessions`} description={descriptions['3sfm']} />
+                    <CurriculumCard course={bvm} accentColor="#2EAA4A" badgeBg="#F0FFF4" badgeColor="#15803D" badgeBorder="#BBF7D0" sessionLabel={`${bvm.sessions.filter(s => !s.isFinal).length} Lessons`} description={descriptions['bvm']} />
+                  </div>
+                </div>
+              </section>
+            );
+          }
+          if (dynamic === 'testimonials') {
+            return (
+              <div key={section.id}>
+                <TestimonialsCarousel testimonials={testimonials} heading={testimonialsH2} subheading={testimonialsSub} />
+                {/* Submit testimonial CTA */}
+                <section style={{ background: '#F0F4FF', padding: 'clamp(32px,5vw,56px) 40px', textAlign: 'center', borderTop: '1px solid #E0E7F8', borderBottom: '1px solid #E0E7F8' }}>
+                  <div style={{ maxWidth: 560, margin: '0 auto' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#4F46E5', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>Your Voice Matters</div>
+                    <h2 style={{ fontSize: 'clamp(18px,3vw,26px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 10 }}>Completed a Course? Share Your Story</h2>
+                    <p style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.7, marginBottom: 24 }}>Help other learners by sharing your experience. Your testimonial could inspire the next finance professional.</p>
+                    <Link href="/training/submit-testimonial" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14, padding: '12px 28px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 16px rgba(27,79,138,0.25)' }}>
+                      ⭐ Submit Your Testimonial
+                    </Link>
+                  </div>
+                </section>
+              </div>
+            );
+          }
+          if (dynamic === 'upcoming_sessions') {
+            return <UpcomingSessionsPreview key={section.id} />;
+          }
+          return <SectionRenderer key={section.id} sections={[section]} />;
+        })}
+
+        <SharedFooter company={footerCompany} founder={footerFounder} copyright={footerCopyright} />
+      </div>
+    );
+  }
+
+  // Fallback: original hardcoded layout
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
       <NavbarServer />

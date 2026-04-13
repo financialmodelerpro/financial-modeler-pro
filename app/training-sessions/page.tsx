@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { getServerClient } from '@/src/lib/shared/supabase';
+import { getPageSections } from '@/src/lib/shared/cms';
+import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
 import { SessionsClient, type PublicSession } from './SessionsClient';
 
 export const metadata: Metadata = {
@@ -68,8 +70,36 @@ async function getSessions(): Promise<PublicSession[]> {
 }
 
 export default async function TrainingSessionsPage() {
-  const sessions = await getSessions();
+  const [sessions, sections] = await Promise.all([
+    getSessions(),
+    getPageSections('training-sessions'),
+  ]);
 
+  // CMS-driven rendering
+  if (sections.length > 0) {
+    return (
+      <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', minHeight: '100vh' }}>
+        <NavbarServer />
+        <div style={{ height: 64 }} />
+
+        {sections.map((section) => {
+          if ((section.content as Record<string, unknown>)?._dynamic === 'live_sessions') {
+            return <SessionsClient key={section.id} sessions={sessions} />;
+          }
+          return <SectionRenderer key={section.id} sections={[section]} />;
+        })}
+
+        <SharedFooter
+          company="Financial Modeler Pro"
+          founder="Ahmad Din"
+          copyright={`\u00A9 ${new Date().getFullYear()} Financial Modeler Pro`}
+          height="compact"
+        />
+      </div>
+    );
+  }
+
+  // Fallback: original hardcoded layout
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', minHeight: '100vh' }}>
       <NavbarServer />

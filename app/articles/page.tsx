@@ -1,10 +1,11 @@
 import type { Metadata } from 'next';
 import { Suspense } from 'react';
-import { getPublishedArticles, getCmsContent, cms } from '@/src/lib/shared/cms';
+import { getPublishedArticles, getCmsContent, cms, getPageSections } from '@/src/lib/shared/cms';
 import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/ArticleCard';
 import { CategoryFilter } from '@/src/components/landing/CategoryFilter';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
+import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
 
 export const revalidate = 60;
 
@@ -19,7 +20,7 @@ interface Props {
 
 export default async function ArticlesPage({ searchParams }: Props) {
   const params   = await searchParams;
-  const [articles, content] = await Promise.all([getPublishedArticles(), getCmsContent()]);
+  const [articles, content, sections] = await Promise.all([getPublishedArticles(), getCmsContent(), getPageSections('articles')]);
 
   const pageBadge      = cms(content, 'articles_page', 'badge',         'Knowledge Hub');
   const pageTitle      = cms(content, 'articles_page', 'title',         'Financial Modeling Insights');
@@ -36,6 +37,66 @@ export default async function ArticlesPage({ searchParams }: Props) {
     ? articles
     : articles.filter((a) => a.category === activeCategory);
 
+  const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
+  const footerFounder   = cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder');
+  const footerCopyright = cms(content, 'footer', 'copyright', `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
+
+  // Shared articles grid JSX
+  const articlesGrid = (
+    <section style={{ padding: '56px 40px', maxWidth: 1100, margin: '0 auto' }}>
+      {categories.length > 0 && (
+        <div style={{ marginBottom: 40 }}>
+          <Suspense>
+            <CategoryFilter categories={categories} active={activeCategory} />
+          </Suspense>
+        </div>
+      )}
+
+      {filtered.length > 0 ? (
+        <>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 24 }}>{allTitle}</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 24 }}>
+            {filtered.map((article) => (
+              <ArticleCard key={article.id} article={article} />
+            ))}
+          </div>
+        </>
+      ) : articles.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '80px 24px' }}>
+          <div style={{ fontSize: 48, marginBottom: 20 }}>📝</div>
+          <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.55)', marginBottom: 32 }}>{emptyMessage}</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 20, maxWidth: 900, margin: '0 auto' }}>
+            {[0, 1, 2].map((i) => <ArticleCardPlaceholder key={i} index={i} />)}
+          </div>
+        </div>
+      ) : (
+        <div style={{ textAlign: 'center', padding: '60px 24px' }}>
+          <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>No articles found in this category.</div>
+        </div>
+      )}
+    </section>
+  );
+
+  // CMS-driven rendering
+  if (sections.length > 0) {
+    return (
+      <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
+        <NavbarServer />
+        <div style={{ height: 64 }} />
+
+        {sections.map((section) => {
+          if ((section.content as Record<string, unknown>)?._dynamic === 'articles') {
+            return <div key={section.id}>{articlesGrid}</div>;
+          }
+          return <SectionRenderer key={section.id} sections={[section]} />;
+        })}
+
+        <SharedFooter company={footerCompany} founder={footerFounder} copyright={footerCopyright} />
+      </div>
+    );
+  }
+
+  // Fallback: original hardcoded layout
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
 
@@ -55,45 +116,9 @@ export default async function ArticlesPage({ searchParams }: Props) {
         </div>
       </section>
 
-      {/* Category Filter + Grid */}
-      <section style={{ padding: '56px 40px', maxWidth: 1100, margin: '0 auto' }}>
-        {categories.length > 0 && (
-          <div style={{ marginBottom: 40 }}>
-            <Suspense>
-              <CategoryFilter categories={categories} active={activeCategory} />
-            </Suspense>
-          </div>
-        )}
+      {articlesGrid}
 
-        {filtered.length > 0 ? (
-          <>
-            <h2 style={{ fontSize: 18, fontWeight: 700, color: '#fff', marginBottom: 24 }}>{allTitle}</h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 24 }}>
-              {filtered.map((article) => (
-                <ArticleCard key={article.id} article={article} />
-              ))}
-            </div>
-          </>
-        ) : articles.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '80px 24px' }}>
-            <div style={{ fontSize: 48, marginBottom: 20 }}>📝</div>
-            <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.55)', marginBottom: 32 }}>{emptyMessage}</p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 20, maxWidth: 900, margin: '0 auto' }}>
-              {[0, 1, 2].map((i) => <ArticleCardPlaceholder key={i} index={i} />)}
-            </div>
-          </div>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '60px 24px' }}>
-            <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>No articles found in this category.</div>
-          </div>
-        )}
-      </section>
-
-      <SharedFooter
-        company={cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants')}
-        founder={cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder')}
-        copyright={cms(content, 'footer', 'copyright', `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`)}
-      />
+      <SharedFooter company={footerCompany} founder={footerFounder} copyright={footerCopyright} />
     </div>
   );
 }
