@@ -218,82 +218,105 @@ export default async function LandingPage() {
               {field.value}
             </div>
           ));
+          // Per-field width + alignment wrapper
+          const fw = (key: string) => ({
+            width: (h?.[`${key}_width`] as string) || '100%',
+            maxWidth: (h?.[`${key}_width`] as string) || '100%',
+            textAlign: ((h?.[`${key}_align`] as string) || (h?.textAlign as string) || 'center') as React.CSSProperties['textAlign'],
+            margin: '0 auto',
+          });
           return (
           <div style={{ position:'relative', maxWidth:1200, margin:'0 auto', textAlign: ((h?.textAlign as string) || 'center') as React.CSSProperties['textAlign'] }}>
             {cfAt('top')}
 
             {/* Badge */}
-            <div className="ha" style={{ animation:'hero-fade-in 550ms ease-out 0ms both', display:'inline-flex', alignItems:'center', gap:7, background:'rgba(27,79,138,0.5)', border:'1px solid rgba(27,79,138,0.8)', borderRadius:20, padding:'5px 16px', fontSize:12, color:'rgba(255,255,255,0.8)', fontWeight:600, marginBottom:28, letterSpacing:'0.03em' }}>
-              <InlineEdit tag="span" section="hero" fieldKey="badge_text" value={heroBadge} isAdmin={isAdmin} darkBg />
+            <div style={fw('badge')}>
+              <div className="ha" style={{ animation:'hero-fade-in 550ms ease-out 0ms both', display:'inline-flex', alignItems:'center', gap:7, background:'rgba(27,79,138,0.5)', border:'1px solid rgba(27,79,138,0.8)', borderRadius:20, padding:'5px 16px', fontSize:12, color:'rgba(255,255,255,0.8)', fontWeight:600, marginBottom:28, letterSpacing:'0.03em' }}>
+                <InlineEdit tag="span" section="hero" fieldKey="badge_text" value={heroBadge} isAdmin={isAdmin} darkBg />
+              </div>
             </div>
             {cfAt('badge')}
 
             {/* Headline */}
-            <InlineEdit
-              tag="h1" section="hero" fieldKey="headline" value={heroHeadline} isAdmin={isAdmin} darkBg
-              style={{ animation:'hero-fade-up 550ms ease-out 100ms both', fontSize: heroStyles.headingSize ?? 'clamp(2.2rem,4.5vw,3.8rem)', fontWeight:800, lineHeight:1.1, color: heroStyles.headingColor ?? '#fff', marginBottom:22, whiteSpace:'pre-line', display:'block' } as React.CSSProperties}
-            />
+            <div style={fw('headline')}>
+              <InlineEdit
+                tag="h1" section="hero" fieldKey="headline" value={heroHeadline} isAdmin={isAdmin} darkBg
+                style={{ animation:'hero-fade-up 550ms ease-out 100ms both', fontSize: heroStyles.headingSize ?? 'clamp(2.2rem,4.5vw,3.8rem)', fontWeight:800, lineHeight:1.1, color: heroStyles.headingColor ?? '#fff', marginBottom:22, whiteSpace:'pre-line', display:'block' } as React.CSSProperties}
+              />
+            </div>
             {cfAt('headline')}
 
             {/* Subheading */}
-            <InlineEdit
-              tag="p" section="hero" fieldKey="subheadline" value={heroSub} isAdmin={isAdmin} darkBg
-              style={{ animation:'hero-fade-up 550ms ease-out 200ms both', fontSize:'clamp(1rem,2vw,1.2rem)', color:'rgba(255,255,255,0.75)', lineHeight:1.65, maxWidth:800, margin:'0 auto 26px', display:'block' } as React.CSSProperties}
-            />
+            <div style={fw('subtitle')}>
+              <InlineEdit
+                tag="p" section="hero" fieldKey="subheadline" value={heroSub} isAdmin={isAdmin} darkBg
+                style={{ animation:'hero-fade-up 550ms ease-out 200ms both', fontSize:'clamp(1rem,2vw,1.2rem)', color:'rgba(255,255,255,0.75)', lineHeight:1.65, maxWidth:800, margin:'0 auto 26px', display:'block' } as React.CSSProperties}
+              />
+            </div>
             {cfAt('subtitle')}
 
             {/* Primary CTA Buttons */}
-            {((heroCta1_visible && heroCta1.trim()) || (heroCta2_visible && heroCta2.trim())) && (
-              <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 280ms both', display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap', marginBottom:28 }}>
-                {heroCta1_visible && heroCta1.trim() && (
-                  <Link href="/login" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#2EAA4A', color:'#fff', fontWeight:700, fontSize:15, padding:'14px 36px', borderRadius:8, textDecoration:'none', boxShadow:'0 4px 20px rgba(46,170,74,0.35)' }}>
-                    {heroCta1}
-                  </Link>
-                )}
-                {heroCta2_visible && heroCta2.trim() && (
-                  <Link href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/modeling`} style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.2)', color:'rgba(255,255,255,0.9)', fontWeight:600, fontSize:15, padding:'14px 32px', borderRadius:8, textDecoration:'none' }}>
-                    {heroCta2}
-                  </Link>
-                )}
-              </div>
-            )}
+            <div style={fw('cta1')}>
+              {((heroCta1_visible && heroCta1.trim()) || (heroCta2_visible && heroCta2.trim())) && (
+                <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 280ms both', display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap', marginBottom:28 }}>
+                  {heroCta1_visible && heroCta1.trim() && (
+                    <Link href="/login" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#2EAA4A', color:'#fff', fontWeight:700, fontSize:15, padding:'14px 36px', borderRadius:8, textDecoration:'none', boxShadow:'0 4px 20px rgba(46,170,74,0.35)' }}>
+                      {heroCta1}
+                    </Link>
+                  )}
+                  {heroCta2_visible && heroCta2.trim() && (
+                    <Link href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/modeling`} style={{ display:'inline-flex', alignItems:'center', gap:8, background:'rgba(255,255,255,0.1)', border:'1px solid rgba(255,255,255,0.2)', color:'rgba(255,255,255,0.9)', fontWeight:600, fontSize:15, padding:'14px 32px', borderRadius:8, textDecoration:'none' }}>
+                      {heroCta2}
+                    </Link>
+                  )}
+                </div>
+              )}
+            </div>
 
             {/* Power statement */}
             {h?.powerStatement_visible !== false && heroPowerStatement && (
-              <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 300ms both', borderLeft:'3px solid #2EAA4A', paddingLeft:16, maxWidth:580, margin:'0 auto 26px', textAlign:'left' }}>
-                <InlineEdit
-                  tag="p" section="hero" fieldKey="power_statement" value={heroPowerStatement} isAdmin={isAdmin} darkBg
-                  style={{ fontSize:'clamp(0.95rem,1.8vw,1.05rem)', fontWeight:600, color:'rgba(255,255,255,0.9)', margin:0, lineHeight:1.55 }}
-                />
+              <div style={fw('powerStatement')}>
+                <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 300ms both', borderLeft:'3px solid #2EAA4A', paddingLeft:16, maxWidth:580, margin:'0 auto 26px', textAlign:'left' }}>
+                  <InlineEdit
+                    tag="p" section="hero" fieldKey="power_statement" value={heroPowerStatement} isAdmin={isAdmin} darkBg
+                    style={{ fontSize:'clamp(0.95rem,1.8vw,1.05rem)', fontWeight:600, color:'rgba(255,255,255,0.9)', margin:0, lineHeight:1.55 }}
+                  />
+                </div>
               </div>
             )}
             {cfAt('powerStatement')}
 
             {/* Soft CTA */}
             {h?.softCta_visible !== false && heroCta_visible && heroSoftCta && (
-              <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 400ms both', marginBottom:26 }}>
-                <a href={(h?.softCtaUrl as string) || '#stats-bar'} style={{ fontSize:'0.9rem', fontWeight:500, color:'rgba(255,255,255,0.65)', textDecoration:'none', display:'inline-flex', alignItems:'center', gap:6 }}>
-                  {heroSoftCta} <span style={{ fontSize:14 }}>&#8595;</span>
-                </a>
+              <div style={fw('softCta')}>
+                <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 400ms both', marginBottom:26 }}>
+                  <a href={(h?.softCtaUrl as string) || '#stats-bar'} style={{ fontSize:'0.9rem', fontWeight:500, color:'rgba(255,255,255,0.65)', textDecoration:'none', display:'inline-flex', alignItems:'center', gap:6 }}>
+                    {heroSoftCta} <span style={{ fontSize:14 }}>&#8595;</span>
+                  </a>
+                </div>
               </div>
             )}
             {cfAt('softCta')}
 
             {/* Trust line */}
             {h?.trustLine_visible !== false && heroTrustLine && (
-              <InlineEdit
-                tag="p" section="hero" fieldKey="trust_line" value={heroTrustLine} isAdmin={isAdmin} darkBg
-                style={{ animation:'hero-fade-in 550ms ease-out 500ms both', fontSize:'0.78rem', fontWeight:400, color:'rgba(255,255,255,0.48)', letterSpacing:'0.025em', margin:'0 auto 22px', display:'block' } as React.CSSProperties}
-              />
+              <div style={fw('trustLine')}>
+                <InlineEdit
+                  tag="p" section="hero" fieldKey="trust_line" value={heroTrustLine} isAdmin={isAdmin} darkBg
+                  style={{ animation:'hero-fade-in 550ms ease-out 500ms both', fontSize:'0.78rem', fontWeight:400, color:'rgba(255,255,255,0.48)', letterSpacing:'0.025em', margin:'0 auto 22px', display:'block' } as React.CSSProperties}
+                />
+              </div>
             )}
             {cfAt('trustLine')}
 
             {/* Specialty tags */}
             {h?.tags_visible !== false && heroTags.length > 0 && (
-              <div className="ha" style={{ animation:'hero-fade-in 550ms ease-out 600ms both', display:'flex', flexWrap:'wrap', justifyContent:'center', gap:10 }}>
-                {heroTags.map(tag => (
-                  <span key={tag} className="hero-tag" style={{ fontSize:'0.72rem', border:'1px solid rgba(255,255,255,0.2)', borderRadius:999, padding:'4px 14px', color:'rgba(255,255,255,0.58)' }}>{tag}</span>
-                ))}
+              <div style={fw('tags')}>
+                <div className="ha" style={{ animation:'hero-fade-in 550ms ease-out 600ms both', display:'flex', flexWrap:'wrap', justifyContent:'center', gap:10 }}>
+                  {heroTags.map(tag => (
+                    <span key={tag} className="hero-tag" style={{ fontSize:'0.72rem', border:'1px solid rgba(255,255,255,0.2)', borderRadius:999, padding:'4px 14px', color:'rgba(255,255,255,0.58)' }}>{tag}</span>
+                  ))}
+                </div>
               </div>
             )}
             {cfAt('tags')}

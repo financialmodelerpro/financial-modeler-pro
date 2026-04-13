@@ -90,19 +90,36 @@ const TA: React.CSSProperties = { ...IS, resize: 'vertical' as const, minHeight:
 // ── Visibility-aware field wrapper ───────────────────────────────────────────
 
 const VCS: React.CSSProperties = { width: 14, height: 14, cursor: 'pointer', accentColor: '#1B4F8A', margin: 0, flexShrink: 0 };
+const WIDTH_OPTIONS = ['100%', '80%', '70%', '60%', '50%', 'auto'] as const;
+const ALIGN_OPTIONS = ['left', 'center', 'right', 'justify'] as const;
+const MINI_SELECT: React.CSSProperties = { padding: '2px 4px', fontSize: 10, borderRadius: 4, border: '1px solid #D1D5DB', background: '#F9FAFB', cursor: 'pointer', outline: 'none' };
 
-function VF({ label, fieldKey, content, onChange, children }: {
+function VF({ label, fieldKey, content, onChange, children, showLayout }: {
   label: string; fieldKey: string; content: Record<string, unknown>;
-  onChange: (c: Record<string, unknown>) => void; children: React.ReactNode;
+  onChange: (c: Record<string, unknown>) => void; children: React.ReactNode; showLayout?: boolean;
 }) {
   const visKey = `${fieldKey}_visible`;
+  const wKey = `${fieldKey}_width`;
+  const aKey = `${fieldKey}_align`;
   const visible = content[visKey] !== false;
   return (
     <div style={{ marginTop: 8, opacity: visible ? 1 : 0.4, transition: 'opacity 0.15s' }}>
-      <label style={{ ...LS, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none' }}>
-        <input type="checkbox" style={VCS} checked={visible} onChange={e => onChange({ ...content, [visKey]: e.target.checked })} />
-        {label}
-      </label>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+        <label style={{ ...LS, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none', margin: 0, flex: 1 }}>
+          <input type="checkbox" style={VCS} checked={visible} onChange={e => onChange({ ...content, [visKey]: e.target.checked })} />
+          {label}
+        </label>
+        {showLayout && (
+          <>
+            <select style={MINI_SELECT} value={(content[wKey] as string) ?? '100%'} onChange={e => onChange({ ...content, [wKey]: e.target.value })} title="Width">
+              {WIDTH_OPTIONS.map(w => <option key={w} value={w}>{w}</option>)}
+            </select>
+            <select style={MINI_SELECT} value={(content[aKey] as string) ?? 'center'} onChange={e => onChange({ ...content, [aKey]: e.target.value })} title="Align">
+              {ALIGN_OPTIONS.map(a => <option key={a} value={a}>{a.charAt(0).toUpperCase() + a.slice(1)}</option>)}
+            </select>
+          </>
+        )}
+      </div>
       {children}
     </div>
   );
@@ -152,38 +169,38 @@ function HeroEditor({ content, onChange }: { content: Record<string, unknown>; o
         </div>
       </div>
 
-      <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
+      <VF label="Badge" fieldKey="badge" content={content} onChange={onChange} showLayout>
         <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} placeholder="e.g. Free Certification" />
       </VF>
-      <VF label="Headline" fieldKey="headline" content={content} onChange={onChange}>
+      <VF label="Headline" fieldKey="headline" content={content} onChange={onChange} showLayout>
         <input style={IS} value={(content.headline as string) ?? ''} onChange={e => set('headline', e.target.value)} />
       </VF>
-      <VF label="Subtitle" fieldKey="subtitle" content={content} onChange={onChange}>
+      <VF label="Subtitle" fieldKey="subtitle" content={content} onChange={onChange} showLayout>
         <textarea style={TA} value={(content.subtitle as string) ?? ''} onChange={e => set('subtitle', e.target.value)} />
       </VF>
-      <VF label="Power Statement" fieldKey="powerStatement" content={content} onChange={onChange}>
+      <VF label="Power Statement" fieldKey="powerStatement" content={content} onChange={onChange} showLayout>
         <textarea style={{ ...TA, minHeight: 50 }} value={(content.powerStatement as string) ?? ''} onChange={e => set('powerStatement', e.target.value)} placeholder="Highlighted blockquote line" />
       </VF>
-      <VF label="Soft CTA" fieldKey="softCta" content={content} onChange={onChange}>
+      <VF label="Soft CTA" fieldKey="softCta" content={content} onChange={onChange} showLayout>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <div><label style={LS}>Text</label><input style={IS} value={(content.softCta as string) ?? ''} onChange={e => set('softCta', e.target.value)} placeholder="Explore the platform" /></div>
           <div><label style={LS}>URL</label><input style={IS} value={(content.softCtaUrl as string) ?? ''} onChange={e => set('softCtaUrl', e.target.value)} placeholder="#stats-bar" /></div>
         </div>
       </VF>
-      <VF label="Trust Line" fieldKey="trustLine" content={content} onChange={onChange}>
+      <VF label="Trust Line" fieldKey="trustLine" content={content} onChange={onChange} showLayout>
         <input style={IS} value={(content.trustLine as string) ?? ''} onChange={e => set('trustLine', e.target.value)} placeholder="Designed by Investment & Corporate Finance Experts..." />
       </VF>
-      <VF label="Tags" fieldKey="tags" content={content} onChange={onChange}>
+      <VF label="Tags" fieldKey="tags" content={content} onChange={onChange} showLayout>
         <input style={IS} value={(content.tags as string) ?? ''} onChange={e => set('tags', e.target.value)} placeholder="Real Estate Models, Business Valuation, ..." />
         <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 3 }}>Separate tags with commas</div>
       </VF>
-      <VF label="CTA 1" fieldKey="cta1" content={content} onChange={onChange}>
+      <VF label="CTA 1" fieldKey="cta1" content={content} onChange={onChange} showLayout>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <div><label style={LS}>Text</label><input style={IS} value={(content.cta1Text as string) ?? ''} onChange={e => set('cta1Text', e.target.value)} /></div>
           <div><label style={LS}>URL</label><input style={IS} value={(content.cta1Url as string) ?? ''} onChange={e => set('cta1Url', e.target.value)} /></div>
         </div>
       </VF>
-      <VF label="CTA 2" fieldKey="cta2" content={content} onChange={onChange}>
+      <VF label="CTA 2" fieldKey="cta2" content={content} onChange={onChange} showLayout>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
           <div><label style={LS}>Text</label><input style={IS} value={(content.cta2Text as string) ?? ''} onChange={e => set('cta2Text', e.target.value)} /></div>
           <div><label style={LS}>URL</label><input style={IS} value={(content.cta2Url as string) ?? ''} onChange={e => set('cta2Url', e.target.value)} /></div>
