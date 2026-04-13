@@ -170,12 +170,13 @@ export default async function LandingPage() {
 
   // ── Nav pages ─────────────────────────────────────────────────────────────
   const fallbackPages = [
-    { id:'1', label:'Home',             href:'/',         visible:true, display_order:1, can_toggle:false },
-    { id:'2', label:'Modeling Hub',     href:'/modeling', visible:true, display_order:2, can_toggle:true },
-    { id:'3', label:'Training Hub', href:'/training', visible:true, display_order:3, can_toggle:true },
-    { id:'4', label:'Articles',         href:'/articles', visible:true, display_order:4, can_toggle:true },
-    { id:'5', label:'About',            href:'/about',    visible:true, display_order:5, can_toggle:true },
-    { id:'6', label:'Pricing',          href:'/pricing',  visible:true, display_order:6, can_toggle:true },
+    { id:'1', label:'Home',              href:'/',                  visible:true, display_order:1, can_toggle:false },
+    { id:'2', label:'Modeling Hub',      href:'/modeling',          visible:true, display_order:2, can_toggle:true },
+    { id:'3', label:'Training Hub',      href:'/training',         visible:true, display_order:3, can_toggle:true },
+    { id:'8', label:'Training Sessions', href:'/training-sessions', visible:true, display_order:4, can_toggle:true },
+    { id:'4', label:'Articles',          href:'/articles',          visible:true, display_order:5, can_toggle:true },
+    { id:'6', label:'Pricing',           href:'/pricing',           visible:true, display_order:6, can_toggle:true },
+    { id:'7', label:'Contact',           href:'/contact',           visible:true, display_order:7, can_toggle:true },
   ];
   const navPages = sitePages.length > 0 ? sitePages : fallbackPages;
 
