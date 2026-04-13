@@ -269,14 +269,6 @@ export default async function LandingPage() {
           )}
         </div>
 
-        {/* Scroll indicator */}
-        <div style={{ position:'absolute', bottom:24, left:0, right:0, display:'flex', justifyContent:'center' }}>
-          <HeroScrollBtn style={{ background:'none', border:'none', cursor:'pointer', color:'rgba(255,255,255,0.35)', padding:8, animation:'hero-bounce 2s ease-in-out infinite' }}>
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="6 9 12 15 18 9" />
-            </svg>
-          </HeroScrollBtn>
-        </div>
       </section>
 
       {/* ── Stats Bar ──────────────────────────────────────────────────────── */}
@@ -321,7 +313,7 @@ export default async function LandingPage() {
           .fmp-mission-grid, .fmp-vision-grid { grid-template-columns: 1fr !important; }
         }
       `}</style>
-      <section style={{ background:'#ffffff', padding:'80px 40px' }}>
+      <section style={{ background:'#EFF6FF', padding:'64px 40px' }}>
         <div className="fmp-mission-grid" style={{ maxWidth:1200, margin:'0 auto', display:'grid', gridTemplateColumns:'1fr 1fr', gap:64, alignItems:'center' }}>
           <div>
             <div style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>OUR MISSION</div>
@@ -330,16 +322,16 @@ export default async function LandingPage() {
               To make professional financial modeling accessible to every finance professional worldwide. We believe structured, real-world modeling skills should not be locked behind expensive courses or years of trial and error.
             </p>
           </div>
-          <div style={{ background:'#F3F4F6', border:'2px solid #E5E7EB', borderRadius:12, minHeight:280, display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div style={{ background:'#F3F4F6', border:'2px solid #E5E7EB', borderRadius:12, minHeight:220, display:'flex', alignItems:'center', justifyContent:'center' }}>
             <span style={{ fontSize:15, color:'#9CA3AF', fontWeight:500 }}>Mission Image</span>
           </div>
         </div>
       </section>
 
       {/* ── Our Vision ────────────────────────────────────────────────────── */}
-      <section style={{ background:'#F5F6FA', padding:'80px 40px' }}>
+      <section style={{ background:'#EFF6FF', padding:'64px 40px' }}>
         <div className="fmp-vision-grid" style={{ maxWidth:1200, margin:'0 auto', display:'grid', gridTemplateColumns:'1fr 1fr', gap:64, alignItems:'center' }}>
-          <div style={{ background:'#F3F4F6', border:'2px solid #E5E7EB', borderRadius:12, minHeight:280, display:'flex', alignItems:'center', justifyContent:'center' }}>
+          <div style={{ background:'#F3F4F6', border:'2px solid #E5E7EB', borderRadius:12, minHeight:220, display:'flex', alignItems:'center', justifyContent:'center' }}>
             <span style={{ fontSize:15, color:'#9CA3AF', fontWeight:500 }}>Vision Image</span>
           </div>
           <div>
