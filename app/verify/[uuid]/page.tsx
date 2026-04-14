@@ -96,20 +96,37 @@ export default async function VerifyPage({ params }: PageProps) {
 
   if (!cert || cert.cert_status !== 'Issued') {
     return (
-      <div style={{ minHeight: '100vh', background: '#F5F7FA', fontFamily: 'Inter, -apple-system, sans-serif', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px' }}>
-        <div style={{ maxWidth: 440, textAlign: 'center' }}>
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, marginBottom: 32 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 9, background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>🎓</div>
-            <span style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A' }}>Financial Modeler Pro</span>
+      <div style={{ minHeight: '100vh', background: '#F5F7FA', fontFamily: 'Inter, -apple-system, sans-serif' }}>
+        {/* Top Bar */}
+        <div style={{ background: '#0D2E5A', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 16 }}>🔒</span>
+          <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Certificate Verification</span>
+          <span style={{ color: 'rgba(255,255,255,0.4)', margin: '0 6px' }}>|</span>
+          <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>Financial Modeler Pro</span>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 48px)', padding: '40px 20px' }}>
+          <div style={{ maxWidth: 480, textAlign: 'center' }}>
+            <div style={{ fontSize: 56, marginBottom: 20 }}>🔍</div>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0D2E5A', marginBottom: 12 }}>Certificate Not Found</h1>
+            <p style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.7, marginBottom: 8 }}>
+              No certificate found with ID:
+            </p>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#0D2E5A', fontFamily: 'monospace', background: '#F3F4F6', padding: '8px 16px', borderRadius: 8, display: 'inline-block', marginBottom: 24, wordBreak: 'break-all' }}>
+              {uuid}
+            </div>
+            <p style={{ fontSize: 13, color: '#9CA3AF', lineHeight: 1.6, marginBottom: 32 }}>
+              Please check the Certificate ID and try again. Certificate IDs are case-sensitive.
+            </p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <Link href="/verify" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '11px 24px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: '#1B4F8A', color: '#fff', textDecoration: 'none' }}>
+                Try Again →
+              </Link>
+              <Link href="/" style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '11px 24px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: 'transparent', color: '#6B7280', textDecoration: 'none', border: '1.5px solid #D1D5DB' }}>
+                ← Back to Home
+              </Link>
+            </div>
           </div>
-          <div style={{ fontSize: 52, marginBottom: 16 }}>❌</div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: '#0D2E5A', marginBottom: 12 }}>Certificate Not Found</h1>
-          <p style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.6, marginBottom: 28 }}>
-            This certificate ID could not be verified. Please check the URL and try again.
-          </p>
-          <Link href={`${learnUrl}/training`} style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '11px 24px', borderRadius: 8, fontSize: 13, fontWeight: 700, background: '#2EAA4A', color: '#fff', textDecoration: 'none' }}>
-            ← Back to Training Hub
-          </Link>
         </div>
       </div>
     );
