@@ -949,8 +949,8 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
   const set = (k: string, v: unknown) => onChange({ ...content, [k]: v });
   const creds = (content.credentials as string[]) ?? [];
   const setCreds = (next: string[]) => onChange({ ...content, credentials: next });
-  const exp = (content.experience as string[]) ?? [];
-  const setExp = (next: string[]) => onChange({ ...content, experience: next });
+
+
   const photoUrl = (content.photo_url as string) ?? '';
 
   return (
@@ -977,7 +977,8 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
 
       {/* ── SECTION 2: CREDENTIALS ── */}
       <div style={{ marginTop:14, padding:10, background:'#F0F4FF', borderRadius:8, border:'1px solid #C7D2FE' }}>
-        <div style={{ fontSize:10, fontWeight:800, color:'#4F46E5', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>2. Credentials (home card checklist)</div>
+        <div style={{ fontSize:10, fontWeight:800, color:'#4F46E5', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>2. Credentials & Experience</div>
+        <div style={{ fontSize:9, color:'#6B7280', marginBottom:6 }}>Shows as ✓ checklist on home card AND numbered list on full profile page</div>
         {creds.map((c, i) => (
           <div key={i} style={{ display:'flex', gap:6, marginBottom:4, alignItems:'center' }}>
             <span style={{ color:'#4A90D9', fontWeight:700, fontSize:12, flexShrink:0 }}>✓</span>
@@ -1036,17 +1037,6 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
         <VF label="Philosophy Quote" fieldKey="philosophy" content={content} onChange={onChange}>
           <textarea style={{ ...TA, minHeight:50 }} value={(content.philosophy as string) ?? ''} onChange={e => set('philosophy', e.target.value)} />
         </VF>
-        <div style={{ marginTop:8 }}>
-          <label style={LS}>Experience & Highlights</label>
-          {exp.map((item, i) => (
-            <div key={i} style={{ display:'flex', gap:6, marginBottom:4, alignItems:'center' }}>
-              <span style={{ color:'#1ABC9C', fontSize:11, flexShrink:0 }}>{i+1}.</span>
-              <input style={{ ...IS, flex:1 }} value={item} onChange={e => { const n=[...exp]; n[i]=e.target.value; setExp(n); }} />
-              <button onClick={() => setExp(exp.filter((_,j)=>j!==i))} style={{ padding:'4px 8px', borderRadius:4, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626', cursor:'pointer', fontSize:11, flexShrink:0 }}>X</button>
-            </div>
-          ))}
-          <button onClick={() => setExp([...exp,'New item'])} style={{ padding:'4px 10px', borderRadius:6, border:'1px solid #BBF7D0', background:'#fff', cursor:'pointer', fontSize:11, fontWeight:600, color:'#15803D' }}>+ Add</button>
-        </div>
         {/* Projects */}
         {(() => {
           const projs = (content.projects as { id: string; title: string; description: string; sector: string; value: string }[]) ?? [];

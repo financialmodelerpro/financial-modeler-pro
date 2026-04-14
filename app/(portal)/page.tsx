@@ -501,7 +501,6 @@ export default async function LandingPage() {
         const fBookTxt = (fc?.booking_text as string)     || 'Book a Meeting';
         const fBookUrl = (fc?.booking_url as string)      || '';
         const fLongBio = (fc?.long_bio as string)         || '';
-        const fExp     = (fc?.experience as string[])     || [];
         const fPhilo   = (fc?.philosophy as string)       || '';
         const fShowMore = fc?.show_read_more !== false;
         const fMoreLabel = (fc?.read_more_label as string) || 'Read Full Profile →';
@@ -559,8 +558,8 @@ export default async function LandingPage() {
                     <Link href="/book-a-meeting" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1ABC9C', color:'#fff', fontSize:13, fontWeight:700, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>📅 {fBookTxt}</Link>
                   )}
                 </div>
-                {fShowMore && (fLongBio || fExp.length > 0) && (
-                  <FounderExpand label={fMoreLabel} longBio={fLongBio} experience={fExp} philosophy={fPhilo} name={fName} photoUrl={fPhoto} photoRadius={fRadius} qualifications={fQuals} bookingUrl={fBookUrl} bookingText={fBookTxt} />
+                {fShowMore && (fLongBio || fCreds.length > 0) && (
+                  <FounderExpand label={fMoreLabel} longBio={fLongBio} experience={fCreds} philosophy={fPhilo} name={fName} photoUrl={fPhoto} photoRadius={fRadius} qualifications={fQuals} bookingUrl={fBookUrl} bookingText={fBookTxt} />
                 )}
               </div>
             </div>

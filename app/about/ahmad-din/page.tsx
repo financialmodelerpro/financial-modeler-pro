@@ -40,8 +40,8 @@ export default async function FounderPage() {
   const longBioRaw = (fc?.long_bio as string) || cms(founder, 'bio', 'long_bio', 'Ahmad Din has spent over 15 years at the intersection of real estate development and structured finance.');
   const longBio = longBioRaw.split(/\n\n|\n/).map(p => p.trim()).filter(Boolean);
 
-  // Experience: from CMS content.experience[] (NOT credentials — those are home card only)
-  const expItems = (fc?.experience as string[]) ?? [];
+  // Credentials: unified list — shows as ✓ on home card, numbered on about page
+  const expItems = (fc?.credentials as string[]) ?? [];
 
   const projects = (fc?.projects as { id: string; title: string; description: string; sector: string; value: string }[]) ?? [];
 
