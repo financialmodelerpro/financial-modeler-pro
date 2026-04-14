@@ -317,6 +317,33 @@ function TextImageEditor({ content, onChange }: { content: Record<string, unknow
       <VF label="Content" fieldKey="html" content={content} onChange={onChange}>
         <RichTextEditor value={(content.html as string) ?? ''} onChange={v => set('html', v)} compact />
       </VF>
+      {/* Body text field (used by modeling hub "What is" section) */}
+      {content.body !== undefined && (
+        <VF label="Description" fieldKey="body" content={content} onChange={onChange}>
+          <textarea style={{ ...TA, minHeight: 80 }} value={(content.body as string) ?? ''} onChange={e => set('body', e.target.value)} />
+        </VF>
+      )}
+      {/* Audience cards (used by modeling hub "What is" section) */}
+      {Array.isArray(content.audience) && (() => {
+        const audience = content.audience as { icon: string; role: string; desc: string }[];
+        const setAudience = (next: typeof audience) => onChange({ ...content, audience: next });
+        return (
+          <div style={{ marginTop: 10, padding: 10, background: '#EFF6FF', borderRadius: 8, border: '1px solid #BFDBFE' }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: '#1D4ED8', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Audience Cards</div>
+            {audience.map((a, i) => (
+              <div key={i} style={{ background: '#fff', borderRadius: 8, padding: 8, marginBottom: 6, border: '1px solid #E5E7EB' }}>
+                <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
+                  <div style={{ width: 50 }}><label style={LS}>Icon</label><input style={IS} value={a.icon} onChange={e => { const n = [...audience]; n[i] = { ...n[i], icon: e.target.value }; setAudience(n); }} /></div>
+                  <div style={{ flex: 1 }}><label style={LS}>Title</label><input style={IS} value={a.role} onChange={e => { const n = [...audience]; n[i] = { ...n[i], role: e.target.value }; setAudience(n); }} /></div>
+                  <button onClick={() => setAudience(audience.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11, alignSelf: 'end' }}>X</button>
+                </div>
+                <label style={LS}>Description</label><input style={IS} value={a.desc} onChange={e => { const n = [...audience]; n[i] = { ...n[i], desc: e.target.value }; setAudience(n); }} />
+              </div>
+            ))}
+            <button onClick={() => setAudience([...audience, { icon: '📌', role: 'New Audience', desc: 'Description' }])} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #BFDBFE', background: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#1D4ED8' }}>+ Add Audience Card</button>
+          </div>
+        );
+      })()}
 
       {/* Background image */}
       <div style={{ marginTop: 10, padding: 10, background: '#EFF6FF', borderRadius: 8, border: '1px solid #BFDBFE' }}>
@@ -523,9 +550,20 @@ function StatsEditor({ content, onChange }: { content: Record<string, unknown>; 
 }
 
 function CardsEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
-  const cards = (content.cards as { icon: string; title: string; description: string }[]) ?? [];
+  // Smart detection: benefits[] (modeling why section), cards[] (generic)
+  const isDynamic = !!(content as Record<string, unknown>)?._dynamic;
+  const arrayKey = content.benefits ? 'benefits' : 'cards';
+  const rawItems = (content[arrayKey] as { icon: string; title: string; desc?: string; description?: string }[]) ?? [];
+  // Normalize: support both desc and description field names
+  const cards = rawItems.map(c => ({ icon: c.icon ?? '', title: c.title ?? '', description: c.description ?? c.desc ?? '' }));
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
-  const setCards = (next: typeof cards) => onChange({ ...content, cards: next });
+  const setCards = (next: { icon: string; title: string; description: string }[]) => {
+    // Write back using the original key; for benefits, store as {icon, title, desc}
+    const stored = arrayKey === 'benefits'
+      ? next.map(c => ({ icon: c.icon, title: c.title, desc: c.description }))
+      : next;
+    onChange({ ...content, [arrayKey]: stored });
+  };
   return (
     <>
       <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
@@ -534,7 +572,17 @@ function CardsEditor({ content, onChange }: { content: Record<string, unknown>; 
       <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
         <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
       </VF>
-      {cards.map((card, i) => (
+      {content.description !== undefined && (
+        <VF label="Description" fieldKey="description" content={content} onChange={onChange}>
+          <textarea style={{ ...TA, minHeight: 40 }} value={(content.description as string) ?? ''} onChange={e => set('description', e.target.value)} />
+        </VF>
+      )}
+      {isDynamic && (
+        <div style={{ padding: 10, background: '#F0F4FF', borderRadius: 8, border: '1px solid #C7D2FE', marginBottom: 8, fontSize: 11, color: '#4F46E5', fontWeight: 600 }}>
+          Content is auto-generated from database. Only headings are editable here.
+        </div>
+      )}
+      {!isDynamic && cards.map((card, i) => (
         <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB' }}>
           <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
             <div style={{ width: 60 }}><label style={LS}>Icon</label><input style={IS} value={card.icon} onChange={e => { const n = [...cards]; n[i] = { ...n[i], icon: e.target.value }; setCards(n); }} /></div>
@@ -544,7 +592,9 @@ function CardsEditor({ content, onChange }: { content: Record<string, unknown>; 
           <label style={LS}>Description</label><textarea style={{ ...TA, minHeight: 40 }} value={card.description} onChange={e => { const n = [...cards]; n[i] = { ...n[i], description: e.target.value }; setCards(n); }} />
         </div>
       ))}
-      <button onClick={() => setCards([...cards, { icon: '⭐', title: 'New Card', description: 'Description' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Card</button>
+      {!isDynamic && (
+        <button onClick={() => setCards([...cards, { icon: '⭐', title: 'New Card', description: 'Description' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Card</button>
+      )}
     </>
   );
 }
