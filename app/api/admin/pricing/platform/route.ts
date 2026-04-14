@@ -18,12 +18,29 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    const { id, ...updates } = await req.json();
+    const { id, featureAccess, ...updates } = await req.json();
     if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 });
-    updates.updated_at = new Date().toISOString();
     const sb = getServerClient();
-    const { error } = await sb.from('platform_pricing').update(updates).eq('id', id);
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // Update plan fields
+    if (Object.keys(updates).length > 0) {
+      updates.updated_at = new Date().toISOString();
+      const { error } = await sb.from('platform_pricing').update(updates).eq('id', id);
+      if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    // Bulk update feature access
+    if (Array.isArray(featureAccess)) {
+      for (const fa of featureAccess as { feature_id: string; is_included: boolean; override_text?: string | null }[]) {
+        await sb.from('plan_feature_access').upsert({
+          plan_id: id,
+          feature_id: fa.feature_id,
+          is_included: fa.is_included,
+          override_text: fa.override_text ?? null,
+        }, { onConflict: 'plan_id,feature_id' });
+      }
+    }
+
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: 'Failed to update plan' }, { status: 500 });
