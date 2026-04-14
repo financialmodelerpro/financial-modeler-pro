@@ -78,6 +78,7 @@ export default function LiveSessionsPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [loading, setLoading] = useState(true);
   const [regStatus, setRegStatus] = useState<Record<string, { registered: boolean; joinLinkAvailable: boolean }>>({});
+  const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const sess = getTrainingSession();
@@ -85,9 +86,13 @@ export default function LiveSessionsPage() {
     Promise.all([
       fetch('/api/training/live-sessions?type=upcoming').then(r => r.json()),
       fetch('/api/training/live-sessions?type=recorded').then(r => r.json()),
-    ]).then(async ([upRes, recRes]) => {
+      fetch(`/api/training/watch-history?email=${encodeURIComponent(sess.email)}`).then(r => r.json()),
+    ]).then(async ([upRes, recRes, watchRes]) => {
       const all = [...(upRes.sessions ?? []), ...(recRes.sessions ?? [])];
       setSessions(all);
+      // Build watched set
+      const history = (watchRes.history ?? []) as { session_id: string }[];
+      setWatchedIds(new Set(history.map(h => h.session_id)));
       // Fetch registration status for all upcoming sessions
       const upcomingIds = all.filter(s => s.session_type === 'upcoming' || s.session_type === 'live').map(s => s.id);
       if (upcomingIds.length > 0) {
@@ -187,6 +192,7 @@ export default function LiveSessionsPage() {
                       key={s.id}
                       session={s as unknown as LiveSessionData}
                       variant="student"
+                      watched={watchedIds.has(s.id)}
                     />
                   ))}
                 </div>

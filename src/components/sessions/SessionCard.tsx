@@ -29,6 +29,7 @@ export interface SessionCardProps {
   compact?: boolean;
   isRegistered?: boolean;
   joinLinkAvailable?: boolean;
+  watched?: boolean;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -71,7 +72,7 @@ export function getEffectiveType(s: { session_type: string; scheduled_datetime?:
 
 // ── Component ──────────────────────────────────────────────────────────────────
 
-export function SessionCard({ session: s, variant, compact, isRegistered, joinLinkAvailable }: SessionCardProps) {
+export function SessionCard({ session: s, variant, compact, isRegistered, joinLinkAvailable, watched }: SessionCardProps) {
   const effType = getEffectiveType(s);
   const isLive = effType === 'live';
   const isRec  = effType === 'recorded';
@@ -209,6 +210,25 @@ export function SessionCard({ session: s, variant, compact, isRegistered, joinLi
             <span style={{ color: '#16A34A' }}>{'\u2705'}</span> Registered
             {joinLinkAvailable && <span style={{ color: '#DC2626', fontWeight: 700 }}> &middot; Join link active!</span>}
           </div>
+        )}
+
+        {/* Watched badge (recorded sessions only) */}
+        {watched && (
+          <span style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+            padding: '2px 10px',
+            background: '#dcfce7',
+            color: '#16a34a',
+            borderRadius: 99,
+            fontSize: 12,
+            fontWeight: 600,
+            marginBottom: compact ? 4 : 6,
+            alignSelf: 'flex-start',
+          }}>
+            ✓ Watched
+          </span>
         )}
 
         {/* Description (skip in compact) */}
