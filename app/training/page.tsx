@@ -10,7 +10,7 @@ import { CurriculumCard, type CourseDescription } from './CurriculumCard';
 import { TestimonialsCarousel } from './TestimonialsCarousel';
 import { UpcomingSessionsPreview } from './UpcomingSessionsPreview';
 
-export const revalidate = 3600;
+export const revalidate = 0;
 
 export const metadata: Metadata = {
   title: 'Training Hub — Free Financial Modeling Certification | Financial Modeler Pro',
