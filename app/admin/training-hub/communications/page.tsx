@@ -17,7 +17,7 @@ interface EmailLog {
   subject: string | null; sent_at: string; status: string;
 }
 
-type TabType = 'send' | 'history';
+type TabType = 'send' | 'history' | 'share';
 type GroupType = 'neverStarted' | 'stalled' | 'almostDone' | 'custom';
 
 const GROUP_META: Record<GroupType, { label: string; color: string; bg: string; icon: string; desc: string }> = {
@@ -32,6 +32,11 @@ export default function CommunicationsPage() {
   const router = useRouter();
 
   const [tab, setTab]               = useState<TabType>('send');
+  const [shareTitle, setShareTitle] = useState('');
+  const [shareMsg, setShareMsg]     = useState('');
+  const [shareLoaded, setShareLoaded] = useState(false);
+  const [shareSaving, setShareSaving] = useState(false);
+  const [shareToast, setShareToast]   = useState('');
   const [dropout, setDropout]       = useState<DropoutData | null>(null);
   const [logs, setLogs]             = useState<EmailLog[]>([]);
   const [loadingDropout, setLoadingDropout] = useState(false);
@@ -153,7 +158,7 @@ export default function CommunicationsPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 28, background: '#fff', padding: 4, borderRadius: 8, width: 'fit-content', border: '1px solid #E8F0FB' }}>
-          {([['send', '✉️ Send Campaign'], ['history', '📜 Email History']] as const).map(([t, label]) => (
+          {([['send', '✉️ Send Campaign'], ['history', '📜 Email History'], ['share', '🎉 Share Messages']] as const).map(([t, label]) => (
             <button key={t} onClick={() => setTab(t)}
               style={{ padding: '7px 20px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: tab === t ? 700 : 500, background: tab === t ? '#1B4F8A' : 'transparent', color: tab === t ? '#fff' : '#6B7280' }}>
               {label}
@@ -330,6 +335,70 @@ export default function CommunicationsPage() {
                   ))}
                 </tbody>
               </table>
+            )}
+          </div>
+        )}
+
+        {/* ── Share Messages Tab ── */}
+        {tab === 'share' && (
+          <div style={{ maxWidth: 680 }}>
+            {!shareLoaded ? (
+              <div style={{ textAlign: 'center', padding: 40, color: '#6B7280' }}>
+                {(() => {
+                  // Load on first render of this tab
+                  if (!shareLoaded) {
+                    fetch('/api/admin/content')
+                      .then(r => r.json())
+                      .then(j => {
+                        for (const row of (j.rows ?? []) as { section: string; key: string; value: string }[]) {
+                          if (row.section === 'training' && row.key === 'share_achievement_title') setShareTitle(row.value);
+                          if (row.section === 'training' && row.key === 'share_default_message') setShareMsg(row.value);
+                        }
+                        setShareLoaded(true);
+                      })
+                      .catch(() => setShareLoaded(true));
+                  }
+                  return 'Loading...';
+                })()}
+              </div>
+            ) : (
+              <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: 28 }}>
+                <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 24, padding: '10px 14px', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 7 }}>
+                  Controls the <strong>Share Achievement</strong> modal text shown to students after passing a session or earning a certificate. Use <code style={{ background: '#F3F4F6', padding: '1px 5px', borderRadius: 3 }}>{'{action}'}</code> for the achievement and <code style={{ background: '#F3F4F6', padding: '1px 5px', borderRadius: 3 }}>{'{course}'}</code> for the course name.
+                </p>
+                <div style={{ marginBottom: 20 }}>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Share Modal Title</label>
+                  <input style={{ width: '100%', padding: '10px 14px', border: '1.5px solid #D1D5DB', borderRadius: 8, fontSize: 14, boxSizing: 'border-box' }}
+                    value={shareTitle || '🎉 Share Your Achievement'}
+                    onChange={e => setShareTitle(e.target.value)}
+                    placeholder="🎉 Share Your Achievement" />
+                </div>
+                <div style={{ marginBottom: 24 }}>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Default Share Message</label>
+                  <textarea style={{ width: '100%', padding: '10px 14px', border: '1.5px solid #D1D5DB', borderRadius: 8, fontSize: 14, resize: 'vertical', minHeight: 120, fontFamily: 'inherit', boxSizing: 'border-box' }}
+                    value={shareMsg || 'I just {action} at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — Free certification program: https://financialmodelerpro.com/training\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro'}
+                    onChange={e => setShareMsg(e.target.value)} />
+                  <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>Supports {'{action}'} and {'{course}'} placeholders.</p>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <button onClick={async () => {
+                    setShareSaving(true);
+                    try {
+                      await Promise.all([
+                        fetch('/api/admin/content', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ section: 'training', key: 'share_achievement_title', value: shareTitle }) }),
+                        fetch('/api/admin/content', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ section: 'training', key: 'share_default_message', value: shareMsg }) }),
+                      ]);
+                      setShareToast('Saved');
+                      setTimeout(() => setShareToast(''), 2500);
+                    } catch { setShareToast('Failed'); }
+                    finally { setShareSaving(false); }
+                  }} disabled={shareSaving}
+                    style={{ padding: '10px 24px', borderRadius: 8, border: 'none', background: '#1B4F8A', color: '#fff', fontSize: 13, fontWeight: 700, cursor: shareSaving ? 'not-allowed' : 'pointer' }}>
+                    {shareSaving ? 'Saving...' : 'Save Share Messages'}
+                  </button>
+                  {shareToast && <span style={{ fontSize: 12, fontWeight: 600, color: '#2EAA4A' }}>{shareToast}</span>}
+                </div>
+              </div>
             )}
           </div>
         )}

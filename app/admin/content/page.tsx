@@ -3,27 +3,18 @@ import React, { useState, useEffect, useRef } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { RichTextEditor } from '@/src/components/admin/RichTextEditor';
 
-type Tab = 'branding' | 'hero' | 'stats' | 'about' | 'pillars' | 'cta' | 'footer' | 'section_styles' | 'training_page' | 'training_share' | 'modeling_hub' | 'articles_page' | 'contact_page' | 'legal';
+type Tab = 'footer' | 'section_styles' | 'articles_page' | 'legal' | 'branding';
 
 const TABS: { key: Tab; label: string; page: string }[] = [
-  { key: 'branding',       label: 'Logo & Branding',  page: 'All Pages' },
+  { key: 'footer',         label: 'Footer',           page: 'All Pages' },
   { key: 'section_styles', label: 'Section Styles',   page: 'All Pages' },
-  { key: 'hero',           label: 'Hero',             page: 'Landing Page' },
-  { key: 'stats',          label: 'Stats Bar',        page: 'Landing Page' },
-  { key: 'about',          label: 'About FMP',        page: 'Landing Page' },
-  { key: 'pillars',        label: 'Two Pillars',      page: 'Landing Page' },
-  { key: 'cta',            label: 'CTA Banner',       page: 'Landing Page' },
-  { key: 'footer',         label: 'Footer',           page: 'Landing Page' },
-  { key: 'training_page',  label: 'Training Hub',     page: 'Training Page' },
-  { key: 'training_share', label: 'Share Messages',   page: 'Training Dashboard' },
-  { key: 'modeling_hub',   label: 'Modeling Hub',     page: 'Modeling Hub Page' },
+  { key: 'branding',       label: 'Logo & Branding',  page: 'All Pages' },
   { key: 'articles_page',  label: 'Articles',         page: 'Articles Page' },
-  { key: 'contact_page',   label: 'Contact Page',     page: 'Contact Page' },
-  { key: 'legal',          label: 'Legal Pages',      page: 'Contact Page' },
+  { key: 'legal',          label: 'Legal Pages',      page: 'Legal Pages' },
 ];
 
 export default function AdminContentPage() {
-  const [tab, setTab] = useState<Tab>('hero');
+  const [tab, setTab] = useState<Tab>('footer');
   const [values, setValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -486,202 +477,12 @@ export default function AdminContentPage() {
               );
             })()}
 
-            {/* ── Landing: Hero ── */}
-            {tab === 'hero' && (
-              <div>
-                <div style={fieldStyle}><label style={labelStyle}>Badge Text</label><input style={inputStyle} value={get('hero','badge_text','🚀 Now Live — Free to Use')} onChange={e => set('hero','badge_text',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Headline</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={2} value={get('hero','headline','Build Institutional-Grade Financial Models — Without Starting From Scratch')} onChange={e => set('hero','headline',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Sub-headline</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={3} value={get('hero','subheadline','')} onChange={e => set('hero','subheadline',e.target.value)} /></div>
-                <div style={fieldStyle}>
-                  <label style={labelStyle}>Power Statement</label>
-                  <input style={inputStyle} value={get('hero','power_statement','No more rebuilding models. No more broken Excel files. No more wasted hours.')} onChange={e => set('hero','power_statement',e.target.value)} placeholder="No more rebuilding models. No more broken Excel files." />
-                  <p style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Short punchy line shown below the subheading with a green left accent.</p>
-                </div>
-                <div style={fieldStyle}>
-                  <label style={labelStyle}>Soft CTA Text</label>
-                  <input style={inputStyle} value={get('hero','soft_cta','Explore the platform')} onChange={e => set('hero','soft_cta',e.target.value)} placeholder="Explore the platform" />
-                  <p style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Subtle text link with a down arrow. Scrolls to the platforms section on click.</p>
-                </div>
-                <div style={fieldStyle}>
-                  <label style={labelStyle}>Trust Line</label>
-                  <input style={inputStyle} value={get('hero','trust_line','Designed by Investment & Corporate Finance Experts  |  12+ Years Experience  |  Used Across KSA & Pakistan')} onChange={e => set('hero','trust_line',e.target.value)} />
-                </div>
-                <div style={fieldStyle}>
-                  <label style={labelStyle}>Specialty Tags</label>
-                  <input style={inputStyle} value={get('hero','tags','Real Estate Models, Business Valuation, Project Finance, Fund Models')} onChange={e => set('hero','tags',e.target.value)} placeholder="Real Estate Models, Business Valuation, Project Finance" />
-                  <p style={{ fontSize:11, color:'#9CA3AF', marginTop:4 }}>Comma-separated. Rendered as pill badges below the trust line.</p>
-                </div>
-                <div style={{ borderTop:'1px solid #E8F0FB', paddingTop:20, marginTop:4, marginBottom:20 }}>
-                  <p style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:14 }}>CTA BUTTONS</p>
-                  <p style={{ fontSize:11, color:'#6B7280', marginBottom:14 }}>Primary action buttons displayed in the hero. Toggle show/hide independently.</p>
-
-                  {/* Button 1 */}
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:12, alignItems:'end', marginBottom:16, padding:'14px 16px', background:'#F9FAFB', borderRadius:8, border:'1px solid #E5E7EB' }}>
-                    <div>
-                      <label style={labelStyle}>Button 1 Label</label>
-                      <input style={inputStyle} value={get('hero','cta1','Launch Platform Free →')} onChange={e => set('hero','cta1',e.target.value)} placeholder="Launch Platform Free →" />
-                    </div>
-                    <label style={{ display:'flex', alignItems:'center', gap:7, fontSize:13, cursor:'pointer', paddingBottom:2, whiteSpace:'nowrap' }}>
-                      <input type="checkbox" checked={get('hero','cta1_visible','false') === 'true'} onChange={e => set('hero','cta1_visible', e.target.checked ? 'true' : 'false')} style={{ width:15, height:15, cursor:'pointer' }} />
-                      Show
-                    </label>
-                  </div>
-
-                  {/* Button 2 */}
-                  <div style={{ display:'grid', gridTemplateColumns:'1fr auto', gap:12, alignItems:'end', marginBottom:16, padding:'14px 16px', background:'#F9FAFB', borderRadius:8, border:'1px solid #E5E7EB' }}>
-                    <div>
-                      <label style={labelStyle}>Button 2 Label</label>
-                      <input style={inputStyle} value={get('hero','cta2','Explore Platforms ↓')} onChange={e => set('hero','cta2',e.target.value)} placeholder="Explore Platforms ↓" />
-                    </div>
-                    <label style={{ display:'flex', alignItems:'center', gap:7, fontSize:13, cursor:'pointer', paddingBottom:2, whiteSpace:'nowrap' }}>
-                      <input type="checkbox" checked={get('hero','cta2_visible','false') === 'true'} onChange={e => set('hero','cta2_visible', e.target.checked ? 'true' : 'false')} style={{ width:15, height:15, cursor:'pointer' }} />
-                      Show
-                    </label>
-                  </div>
-                </div>
-
-                <div style={{ borderTop:'1px solid #E8F0FB', paddingTop:20, marginBottom:20 }}>
-                  <p style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:10 }}>VISIBILITY</p>
-                  <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
-                    <input type="checkbox" checked={get('hero','cta_visible','true') !== 'false'} onChange={e => set('hero','cta_visible', e.target.checked ? 'true' : 'false')} style={{ width:16, height:16, cursor:'pointer' }} />
-                    <span style={{ fontSize:13, color:'#374151', fontWeight:500 }}>Show &ldquo;Explore the platform&rdquo; Soft CTA in Hero</span>
-                  </label>
-                </div>
-                {saveBtn([
-                  {section:'hero',key:'badge_text'},
-                  {section:'hero',key:'headline'},
-                  {section:'hero',key:'subheadline'},
-                  {section:'hero',key:'power_statement'},
-                  {section:'hero',key:'soft_cta'},
-                  {section:'hero',key:'trust_line'},
-                  {section:'hero',key:'tags'},
-                  {section:'hero',key:'cta1'},
-                  {section:'hero',key:'cta2'},
-                  {section:'hero',key:'cta1_visible'},
-                  {section:'hero',key:'cta2_visible'},
-                  {section:'hero',key:'cta_visible'},
-                ])}
-              </div>
-            )}
-
-            {/* ── Landing: Stats ── */}
-            {tab === 'stats' && (
-              <div>
-                <p style={{ fontSize:13, fontWeight:700, color:'#1B3A6B', marginBottom:6 }}>Stats Bar Management</p>
-                <p style={{ fontSize:12, color:'#6B7280', marginBottom:20 }}>Manage the stats displayed below the hero section. Use the arrows to reorder.</p>
-
-                {statItems.map((stat, idx) => (
-                  <div key={stat.id} style={{ display:'flex', alignItems:'flex-end', gap:10, marginBottom:12, padding:'12px 14px', background:'#F9FAFB', borderRadius:8, border:'1px solid #E5E7EB' }}>
-                    {/* Reorder */}
-                    <div style={{ display:'flex', flexDirection:'column', gap:3, paddingBottom:2 }}>
-                      <button
-                        disabled={idx === 0}
-                        onClick={() => { const a=[...statItems]; [a[idx-1],a[idx]]=[a[idx],a[idx-1]]; setStatItems(a); setStatsDirty(true); }}
-                        style={{ background:'none', border:'1px solid #D1D5DB', borderRadius:4, cursor:idx===0?'default':'pointer', padding:'1px 7px', fontSize:10, color:idx===0?'#D1D5DB':'#374151' }}
-                      >&#9650;</button>
-                      <button
-                        disabled={idx===statItems.length-1}
-                        onClick={() => { const a=[...statItems]; [a[idx],a[idx+1]]=[a[idx+1],a[idx]]; setStatItems(a); setStatsDirty(true); }}
-                        style={{ background:'none', border:'1px solid #D1D5DB', borderRadius:4, cursor:idx===statItems.length-1?'default':'pointer', padding:'1px 7px', fontSize:10, color:idx===statItems.length-1?'#D1D5DB':'#374151' }}
-                      >&#9660;</button>
-                    </div>
-                    {/* Value */}
-                    <div style={{ flex:'0 0 120px' }}>
-                      <label style={{ ...labelStyle, marginBottom:4 }}>Value</label>
-                      <input style={inputStyle} value={stat.value} placeholder="e.g. 10+" onChange={e => { setStatItems(statItems.map((s,i)=>i===idx?{...s,value:e.target.value}:s)); setStatsDirty(true); }} />
-                    </div>
-                    {/* Label */}
-                    <div style={{ flex:1 }}>
-                      <label style={{ ...labelStyle, marginBottom:4 }}>Label</label>
-                      <input style={inputStyle} value={stat.label} placeholder="e.g. MODELING PLATFORMS" onChange={e => { setStatItems(statItems.map((s,i)=>i===idx?{...s,label:e.target.value}:s)); setStatsDirty(true); }} />
-                    </div>
-                    {/* Delete */}
-                    <button
-                      onClick={() => {
-                        if (statItems.length === 1 && !confirm('Remove the last stat?')) return;
-                        setStatItems(statItems.filter((_,i)=>i!==idx));
-                        setStatsDirty(true);
-                      }}
-                      style={{ background:'none', border:'1px solid #FCA5A5', borderRadius:6, color:'#EF4444', cursor:'pointer', padding:'6px 10px', fontSize:12, marginBottom:1 }}
-                      title="Delete stat"
-                    >&#10005;</button>
-                  </div>
-                ))}
-
-                {statItems.length < 8 ? (
-                  <button
-                    onClick={() => { setStatItems([...statItems, { id: Date.now(), value: '', label: '' }]); setStatsDirty(true); }}
-                    style={{ background:'none', border:'1px dashed #9CA3AF', borderRadius:8, color:'#6B7280', cursor:'pointer', padding:'10px 20px', fontSize:13, width:'100%', marginBottom:20 }}
-                  >+ Add Stat</button>
-                ) : (
-                  <p style={{ fontSize:12, color:'#9CA3AF', textAlign:'center', marginBottom:20 }}>Maximum 8 stats reached.</p>
-                )}
-
-                <div style={{ display:'flex', alignItems:'center', gap:14, flexWrap:'wrap' }}>
-                  <button
-                    disabled={saving}
-                    onClick={saveStats}
-                    style={{ background:saving?'#6B7280':'#1B4F8A', color:'#fff', border:'none', borderRadius:8, padding:'10px 24px', fontSize:13, fontWeight:700, cursor:'pointer' }}
-                  >{saving ? 'Saving…' : 'Save Changes'}</button>
-                  {statsDirty && <span style={{ fontSize:12, color:'#D97706', fontWeight:600 }}>&#9679; Unsaved changes</span>}
-                </div>
-                <p style={{ fontSize:11, color:'#9CA3AF', marginTop:10 }}>Changes reflect on the live site within 60 seconds.</p>
-              </div>
-            )}
-
-            {/* ── Landing: About ── */}
-            {tab === 'about' && (
-              <div>
-                <div style={fieldStyle}><label style={labelStyle}>Section Badge</label><input style={inputStyle} value={get('about','badge','The Platform')} onChange={e => set('about','badge',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Section Heading</label><input style={inputStyle} value={get('about','heading','What is Financial Modeler Pro?')} onChange={e => set('about','heading',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Body Paragraph 1</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={4} value={get('about','what_is_fmp','')} onChange={e => set('about','what_is_fmp',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Body Paragraph 2</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={4} value={get('about','what_is_fmp_2','')} onChange={e => set('about','what_is_fmp_2',e.target.value)} /></div>
-                {saveBtn([{section:'about',key:'badge'},{section:'about',key:'heading'},{section:'about',key:'what_is_fmp'},{section:'about',key:'what_is_fmp_2'}])}
-              </div>
-            )}
-
-            {/* ── Landing: Pillars ── */}
-            {tab === 'pillars' && (
-              <div>
-                <div style={fieldStyle}><label style={labelStyle}>Section Heading</label><input style={inputStyle} value={get('pillars','heading','Two Platforms. One Destination.')} onChange={e => set('pillars','heading',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Section Sub-heading</label><input style={inputStyle} value={get('pillars','subheading','Modeling + Training — everything a financial professional needs in one place.')} onChange={e => set('pillars','subheading',e.target.value)} /></div>
-                <div style={{ borderTop: '1px solid #E8F0FB', paddingTop: 20, marginTop: 8, marginBottom: 20 }}>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: '#1B4F8A', marginBottom: 14 }}>MODELING CARD</p>
-                  <div style={fieldStyle}><label style={labelStyle}>Title</label><input style={inputStyle} value={get('pillars','model_title','Modeling Platform')} onChange={e => set('pillars','model_title',e.target.value)} /></div>
-                  <div style={fieldStyle}><label style={labelStyle}>Description</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={3} value={get('pillars','model_desc','')} onChange={e => set('pillars','model_desc',e.target.value)} /></div>
-                </div>
-                <div style={{ borderTop: '1px solid #E8F0FB', paddingTop: 20, marginBottom: 20 }}>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: '#1A7A30', marginBottom: 14 }}>TRAINING CARD</p>
-                  <div style={fieldStyle}><label style={labelStyle}>Title</label><input style={inputStyle} value={get('pillars','training_title','Training Hub')} onChange={e => set('pillars','training_title',e.target.value)} /></div>
-                  <div style={fieldStyle}><label style={labelStyle}>Description</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={3} value={get('pillars','training_desc','')} onChange={e => set('pillars','training_desc',e.target.value)} /></div>
-                </div>
-                {saveBtn([{section:'pillars',key:'heading'},{section:'pillars',key:'subheading'},{section:'pillars',key:'model_title'},{section:'pillars',key:'model_desc'},{section:'pillars',key:'training_title'},{section:'pillars',key:'training_desc'}])}
-              </div>
-            )}
-
-            {/* ── Landing: CTA Banner ── */}
-            {tab === 'cta' && (
-              <div>
-                <div style={{ padding:'10px 14px', background:'#F0F9FF', border:'1px solid #BAE6FD', borderRadius:7, marginBottom:20 }}>
-                  <p style={{ fontSize:12, color:'#0C4A6E', margin:0 }}>&#9432; This CTA section appears <strong>before the footer</strong> on the Landing Page, Modeling Hub, and Training Hub.</p>
-                </div>
-                <div style={{ borderBottom:'1px solid #E8F0FB', paddingBottom:16, marginBottom:16 }}>
-                  <p style={{ fontSize:12, fontWeight:700, color:'#374151', marginBottom:10 }}>VISIBILITY</p>
-                  <label style={{ display:'flex', alignItems:'center', gap:10, cursor:'pointer' }}>
-                    <input type="checkbox" checked={get('cta','section_visible','true') !== 'false'} onChange={e => set('cta','section_visible', e.target.checked ? 'true' : 'false')} style={{ width:16, height:16, cursor:'pointer' }} />
-                    <span style={{ fontSize:13, color:'#374151', fontWeight:500 }}>Show CTA section on all pages</span>
-                  </label>
-                </div>
-                <div style={fieldStyle}><label style={labelStyle}>Heading</label><input style={inputStyle} value={get('cta','heading','Ready to build your first model?')} onChange={e => set('cta','heading',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Sub-heading</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={2} value={get('cta','subheading','')} onChange={e => set('cta','subheading',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Button Label</label><input style={inputStyle} value={get('cta','button','Get Started Free →')} onChange={e => set('cta','button',e.target.value)} /></div>
-                {saveBtn([{section:'cta',key:'section_visible'},{section:'cta',key:'heading'},{section:'cta',key:'subheading'},{section:'cta',key:'button'}])}
-              </div>
-            )}
+            {/* Obsolete tabs (hero, stats, about, pillars, cta) removed — migrated to Page Builder */}
 
             {/* ── Landing: Footer ── */}
             {tab === 'footer' && (
               <div>
+                <div style={fieldStyle}><label style={labelStyle}>Company Line</label><input style={inputStyle} value={get('footer','company_line','')} onChange={e => set('footer','company_line',e.target.value)} /></div>
                 <div style={fieldStyle}><label style={labelStyle}>Company Line</label><input style={inputStyle} value={get('footer','company_line','')} onChange={e => set('footer','company_line',e.target.value)} /></div>
                 <div style={fieldStyle}><label style={labelStyle}>Founder Line</label><input style={inputStyle} value={get('footer','founder_line','')} onChange={e => set('footer','founder_line',e.target.value)} /></div>
                 <div style={fieldStyle}><label style={labelStyle}>Copyright Text</label><input style={inputStyle} value={get('footer','copyright','')} onChange={e => set('footer','copyright',e.target.value)} /></div>
@@ -742,54 +543,6 @@ export default function AdminContentPage() {
               </div>
             )}
 
-            {/* ── Training Hub Page ── */}
-            {tab === 'training_page' && (
-              <div>
-                <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 24, padding: '10px 14px', background: '#F0FFF4', border: '1px solid #BBF7D0', borderRadius: 7 }}>
-                  📍 Controls text on the public <strong>/training</strong> page. Leave blank to use the default text.
-                </p>
-                <div style={fieldStyle}><label style={labelStyle}>Hero Badge Text</label><input style={inputStyle} value={get('training_page','hero_badge','🎓 Free Certification Program')} onChange={e => set('training_page','hero_badge',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Hero Headline</label><input style={inputStyle} value={get('training_page','hero_headline','Get Certified in Financial Modeling — Free')} onChange={e => set('training_page','hero_headline',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Hero Sub-headline</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={3} value={get('training_page','hero_sub','Professional certification backed by real practitioner training. 100% free. Always.')} onChange={e => set('training_page','hero_sub',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>CTA Primary Label</label><input style={inputStyle} value={get('training_page','cta_primary','Register Free →')} onChange={e => set('training_page','cta_primary',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>CTA Secondary Label</label><input style={inputStyle} value={get('training_page','cta_secondary','Login to Dashboard →')} onChange={e => set('training_page','cta_secondary',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Bottom CTA Heading</label><input style={inputStyle} value={get('training_page','bottom_cta_heading','Ready to get certified?')} onChange={e => set('training_page','bottom_cta_heading',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Bottom CTA Sub-text</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={2} value={get('training_page','bottom_cta_sub','Join hundreds of finance professionals building verified skills — completely free.')} onChange={e => set('training_page','bottom_cta_sub',e.target.value)} /></div>
-                {saveBtn([
-                  {section:'training_page',key:'hero_badge'},
-                  {section:'training_page',key:'hero_headline'},
-                  {section:'training_page',key:'hero_sub'},
-                  {section:'training_page',key:'cta_primary'},
-                  {section:'training_page',key:'cta_secondary'},
-                  {section:'training_page',key:'bottom_cta_heading'},
-                  {section:'training_page',key:'bottom_cta_sub'},
-                ])}
-              </div>
-            )}
-
-            {/* ── Training Dashboard: Share Messages ── */}
-            {tab === 'training_share' && (
-              <div>
-                <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 24, padding: '10px 14px', background: '#FFFBF0', border: '1px solid #FDE68A', borderRadius: 7 }}>
-                  🎉 Controls the <strong>Share Achievement</strong> modal text shown to students after passing a session or earning a certificate. Use <code style={{ background: '#F3F4F6', padding: '1px 5px', borderRadius: 3 }}>{'{action}'}</code> for the achievement (e.g. "passed Session 5") and <code style={{ background: '#F3F4F6', padding: '1px 5px', borderRadius: 3 }}>{'{course}'}</code> for the course name.
-                </p>
-                <div style={fieldStyle}>
-                  <label style={labelStyle}>Share Modal Title</label>
-                  <input style={inputStyle} value={get('training','share_achievement_title','🎉 Share Your Achievement')} onChange={e => set('training','share_achievement_title',e.target.value)} placeholder="🎉 Share Your Achievement" />
-                  <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>Heading shown in the share dialog.</p>
-                </div>
-                <div style={fieldStyle}>
-                  <label style={labelStyle}>Default Share Message</label>
-                  <textarea style={{ ...inputStyle, resize: 'vertical' }} rows={5} value={get('training','share_default_message','I just {action} at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — Free certification program: https://financialmodelerpro.com/training\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro')} onChange={e => set('training','share_default_message',e.target.value)} />
-                  <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>Pre-filled message students can edit before sharing. Available variables: <code style={{ background: '#F3F4F6', padding: '1px 4px', borderRadius: 3 }}>{'{action}'}</code></p>
-                </div>
-                {saveBtn([
-                  { section: 'training', key: 'share_achievement_title' },
-                  { section: 'training', key: 'share_default_message' },
-                ])}
-              </div>
-            )}
-
             {/* ── Articles Page ── */}
             {tab === 'articles_page' && (
               <div>
@@ -833,83 +586,6 @@ export default function AdminContentPage() {
                   {section:'articles_page',key:'featured_title'},
                   {section:'articles_page',key:'all_title'},
                   {section:'articles_page',key:'empty_message'},
-                ])}
-              </div>
-            )}
-
-            {/* ── Contact Page ── */}
-            {tab === 'contact_page' && (
-              <div>
-                <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 24, padding: '10px 14px', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 7 }}>
-                  📬 Controls the contact information displayed on the public <strong>/contact</strong> page.
-                </p>
-                <div style={fieldStyle}><label style={labelStyle}>Contact Email</label><input style={inputStyle} value={get('contact','email','')} onChange={e => set('contact','email',e.target.value)} placeholder="info@example.com" /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Phone Number</label><input style={inputStyle} value={get('contact','phone','')} onChange={e => set('contact','phone',e.target.value)} placeholder="+1 (555) 000-0000" /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Address</label><textarea style={{...inputStyle, resize:'vertical'}} rows={3} value={get('contact','address','')} onChange={e => set('contact','address',e.target.value)} placeholder="123 Main St, City, Country" /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Google Maps Embed URL</label><input style={inputStyle} value={get('contact','maps_url','')} onChange={e => set('contact','maps_url',e.target.value)} placeholder="https://maps.google.com/…" /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Office Hours</label><input style={inputStyle} value={get('contact','hours','Monday – Friday, 9am – 6pm')} onChange={e => set('contact','hours',e.target.value)} /></div>
-
-                {/* ── Additional Contact Fields ── */}
-                <div style={{ borderTop: '1px solid #E5E7EB', paddingTop: 20, marginTop: 4, marginBottom: 4 }}>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Additional Contact Fields</p>
-                  <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
-                    ℹ️ Add extra contact details like WhatsApp, Office Hours, LinkedIn, YouTube, etc.
-                  </p>
-                  {customFields.map((field, idx) => (
-                    <div key={idx} style={{ display: 'flex', gap: 10, marginBottom: 10, alignItems: 'flex-end' }}>
-                      <div style={{ flex: 1 }}>
-                        <label style={{ ...labelStyle, marginBottom: 4 }}>Field Label</label>
-                        <input style={inputStyle} value={field.label} placeholder="e.g. WhatsApp" onChange={e => setCustomFields(customFields.map((f, i) => i === idx ? { ...f, label: e.target.value } : f))} />
-                      </div>
-                      <div style={{ flex: 2 }}>
-                        <label style={{ ...labelStyle, marginBottom: 4 }}>Value</label>
-                        <input style={inputStyle} value={field.value} placeholder="e.g. +1 555 000 0000" onChange={e => setCustomFields(customFields.map((f, i) => i === idx ? { ...f, value: e.target.value } : f))} />
-                      </div>
-                      <button onClick={() => setCustomFields(customFields.filter((_, i) => i !== idx))} style={{ background: 'none', border: '1px solid #FCA5A5', borderRadius: 6, color: '#EF4444', cursor: 'pointer', padding: '6px 10px', fontSize: 12, marginBottom: 1 }}>Remove</button>
-                    </div>
-                  ))}
-                  {customFields.length < 10 ? (
-                    <button onClick={() => setCustomFields([...customFields, { label: '', value: '' }])} style={{ background: 'none', border: '1px dashed #9CA3AF', borderRadius: 8, color: '#6B7280', cursor: 'pointer', padding: '10px 20px', fontSize: 13, width: '100%', marginBottom: 16 }}>+ Add Field</button>
-                  ) : (
-                    <p style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 16 }}>Maximum 10 fields reached.</p>
-                  )}
-                </div>
-
-                <button disabled={saving} onClick={saveContactPage} style={{ background: saving ? '#6B7280' : '#1B4F8A', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 24px', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
-                  {saving ? 'Saving…' : 'Save All Contact Settings'}
-                </button>
-              </div>
-            )}
-
-            {/* ── Modeling Hub Page ── */}
-            {tab === 'modeling_hub' && (
-              <div>
-                <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 24, padding: '10px 14px', background: '#EEF2FF', border: '1px solid #C7D2FE', borderRadius: 7 }}>
-                  📍 Controls text on the public <strong>/modeling</strong> page. Leave blank to use the default text.
-                </p>
-                <div style={fieldStyle}><label style={labelStyle}>Hero Badge Text</label><input style={inputStyle} value={get('modeling_hub','hero_badge','📐 Professional Modeling Platform')} onChange={e => set('modeling_hub','hero_badge',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Hero Headline</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={2} value={get('modeling_hub','hero_headline','Build Institutional-Grade\nFinancial Models')} onChange={e => set('modeling_hub','hero_headline',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>Hero Sub-headline</label><textarea style={{...inputStyle, resize: 'vertical'}} rows={3} value={get('modeling_hub','hero_sub','Structured, guided workflows for every financial discipline — real estate, business valuation, LBO, FP&A, and more. Built by practitioners. Free to use.')} onChange={e => set('modeling_hub','hero_sub',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>CTA Primary Label</label><input style={inputStyle} value={get('modeling_hub','cta_primary','Launch Platform Free →')} onChange={e => set('modeling_hub','cta_primary',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>CTA Secondary Label</label><input style={inputStyle} value={get('modeling_hub','cta_secondary','Login to Dashboard →')} onChange={e => set('modeling_hub','cta_secondary',e.target.value)} /></div>
-                <div style={fieldStyle}><label style={labelStyle}>"What is Modeling Hub" Heading</label><input style={inputStyle} value={get('modeling_hub','what_heading','What is the Modeling Hub?')} onChange={e => set('modeling_hub','what_heading',e.target.value)} /></div>
-                <div style={fieldStyle}>
-                  <label style={labelStyle}>&ldquo;What is Modeling Hub&rdquo; Body (Rich Text)</label>
-                  <RichTextEditor
-                    value={get('modeling_hub','what_body','')}
-                    onChange={v => set('modeling_hub','what_body',v)}
-                  />
-                </div>
-                <div style={fieldStyle}><label style={labelStyle}>Bottom CTA Heading</label><input style={inputStyle} value={get('modeling_hub','bottom_cta_heading','Ready to build your first model?')} onChange={e => set('modeling_hub','bottom_cta_heading',e.target.value)} /></div>
-                {saveBtn([
-                  {section:'modeling_hub',key:'hero_badge'},
-                  {section:'modeling_hub',key:'hero_headline'},
-                  {section:'modeling_hub',key:'hero_sub'},
-                  {section:'modeling_hub',key:'cta_primary'},
-                  {section:'modeling_hub',key:'cta_secondary'},
-                  {section:'modeling_hub',key:'what_heading'},
-                  {section:'modeling_hub',key:'what_body'},
-                  {section:'modeling_hub',key:'bottom_cta_heading'},
                 ])}
               </div>
             )}
