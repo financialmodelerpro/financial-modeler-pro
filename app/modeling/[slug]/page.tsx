@@ -1,4 +1,4 @@
-// v-cms-platform-071
+// v-cms-platform-072
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
@@ -100,9 +100,12 @@ export default async function PlatformDetailPage({
   // ── LIVE platform layout ──────────────────────────────────────────────
   if (isLive) {
     const heroRaw    = findSection('hero');
-    const textRaw    = findSection('text');
-    const whoRaw     = findSectionByOrder(3);
-    const whatRaw    = findSectionByOrder(4);
+    const statsRaw   = findSection('stats');
+    const textImgRaw = findSection('text_image') || findSection('text');
+    // Find list sections by heading content to avoid order dependency
+    const listSections = cmsSections.filter(s => s.section_type === 'list');
+    const whoRaw     = listSections.find(s => ((s.content as Record<string, unknown>)?.heading as string)?.includes('Who')) || listSections[0];
+    const whatRaw    = listSections.find(s => ((s.content as Record<string, unknown>)?.heading as string)?.includes('Get') || ((s.content as Record<string, unknown>)?.heading as string)?.includes('What You')) || listSections[1];
     const moduleRaw  = findSection('embed', 'platform_modules');
     const ctaRaw     = findSection('cta');
 
@@ -116,9 +119,17 @@ export default async function PlatformDetailPage({
     const heroCta2Text  = (h?.cta_secondary_text as string) || '← Back to Modeling Hub';
     const heroCta2Url   = (h?.cta_secondary_url as string)  || '/modeling';
 
-    const tc = fc(textRaw);
-    const whatCoversHead = (tc?.heading as string) || 'What This Platform Covers';
-    const whatCoversBody = (tc?.body as string)    || platform.longDescription;
+    // Stats bar
+    const statsContent = fc(statsRaw);
+    const statsItems = (statsContent?.items as { value: string; label: string; visible?: boolean }[]) ?? [];
+    const statsBg = (statsRaw?.styles as Record<string, string>)?.bgColor ?? '#0A2248';
+
+    const tc = fc(textImgRaw);
+    const whatCoversHead = (tc?.heading as string)  || 'What This Platform Covers';
+    const whatCoversBody = (tc?.body as string) || (tc?.html as string) || platform.longDescription;
+    const whatCoversImg  = (tc?.imageSrc as string) || '';
+    const whatCoversImgPos  = (tc?.imagePosition as string) || 'right';
+    const whatCoversImgPlaceholder = (tc?.imagePlaceholder as string) || '';
 
     const wc = fc(whoRaw);
     const whoHead  = (wc?.heading as string) || 'Who Is It For';
@@ -219,18 +230,52 @@ export default async function PlatformDetailPage({
           </section>
         )}
 
-        {/* ── What It Covers + Who / What ──────────────────────────────────── */}
-        {!hidden(textRaw) && (
+        {/* ── Stats Bar ──────────────────────────────────────────────────── */}
+        {!hidden(statsRaw) && statsItems.length > 0 && (
+          <section style={{ background: statsBg, padding: '28px 40px' }}>
+            <div style={{ maxWidth: 1000, margin: '0 auto', display: 'flex', justifyContent: 'center', gap: 48, flexWrap: 'wrap' }}>
+              {statsItems.filter(s => s.visible !== false).map((stat, i) => (
+                <div key={i} style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: '#fff', lineHeight: 1.2 }}>{stat.value}</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 4 }}>{stat.label}</div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* ── What It Covers ──────────────────────────────────────────────── */}
+        {!hidden(textImgRaw) && (
           <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
             <div style={{ maxWidth: 1000, margin: '0 auto' }}>
               <h2 style={{ fontSize: 'clamp(20px,3vw,30px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 20 }}>
                 {whatCoversHead}
               </h2>
 
-              <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.8, marginBottom: 40, maxWidth: 760 }}>
-                {whatCoversBody}
-              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: whatCoversImg ? 'repeat(auto-fit,minmax(300px,1fr))' : '1fr', gap: 40, alignItems: 'start' }}>
+                <div style={{ order: whatCoversImgPos === 'left' ? 1 : 0 }}>
+                  <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.8, marginBottom: 0, maxWidth: whatCoversImg ? undefined : 760 }}>
+                    {whatCoversBody}
+                  </p>
+                </div>
+                {whatCoversImg ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={whatCoversImg} alt={whatCoversHead} style={{ width: '100%', height: 'auto', objectFit: 'cover', borderRadius: 12, order: whatCoversImgPos === 'left' ? 0 : 1 }} />
+                ) : whatCoversImgPlaceholder ? (
+                  <div style={{ width: '100%', height: 280, borderRadius: 12, background: '#F5F7FA', border: '2px dashed #D1D5DB', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9CA3AF', fontSize: 13, fontWeight: 600, order: whatCoversImgPos === 'left' ? 0 : 1 }}>
+                    {whatCoversImgPlaceholder}
+                  </div>
+                ) : null}
+              </div>
 
+            </div>
+          </section>
+        )}
+
+        {/* ── Who Is It For + What You Get ─────────────────────────────────── */}
+        {(!hidden(whoRaw) || !hidden(whatRaw)) && (
+          <section style={{ background: '#F9FAFB', padding: 'clamp(48px,7vw,80px) 40px' }}>
+            <div style={{ maxWidth: 1000, margin: '0 auto' }}>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 40 }}>
                 {/* Who Is It For */}
                 {!hidden(whoRaw) && (
