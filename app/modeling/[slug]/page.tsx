@@ -127,6 +127,7 @@ export default async function PlatformDetailPage({
     const tc = fc(textImgRaw);
     const whatCoversHead = (tc?.heading as string)  || 'What This Platform Covers';
     const whatCoversBody = (tc?.body as string) || (tc?.html as string) || platform.longDescription;
+    const whatCoversParagraphs = Array.isArray(tc?.paragraphs) ? (tc.paragraphs as string[]).filter(Boolean) : [];
     const whatCoversImg  = (tc?.imageSrc as string) || '';
     const whatCoversImgPos  = (tc?.imagePosition as string) || 'right';
     const whatCoversImgPlaceholder = (tc?.imagePlaceholder as string) || '';
@@ -254,9 +255,14 @@ export default async function PlatformDetailPage({
 
               <div style={{ display: 'grid', gridTemplateColumns: whatCoversImg ? 'repeat(auto-fit,minmax(300px,1fr))' : '1fr', gap: 40, alignItems: 'start' }}>
                 <div style={{ order: whatCoversImgPos === 'left' ? 1 : 0 }}>
-                  <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.8, marginBottom: 0, maxWidth: whatCoversImg ? undefined : 760 }}>
+                  <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.8, marginBottom: whatCoversParagraphs.length > 0 ? 0 : 0, maxWidth: whatCoversImg ? undefined : 760 }}>
                     {whatCoversBody}
                   </p>
+                  {whatCoversParagraphs.map((para, i) => (
+                    <p key={i} style={{ fontSize: 15, color: '#374151', lineHeight: 1.8, marginTop: 16 }}>
+                      {para}
+                    </p>
+                  ))}
                 </div>
                 {whatCoversImg ? (
                   // eslint-disable-next-line @next/next/no-img-element

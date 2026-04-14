@@ -323,6 +323,24 @@ function TextImageEditor({ content, onChange }: { content: Record<string, unknow
           <textarea style={{ ...TA, minHeight: 80 }} value={(content.body as string) ?? ''} onChange={e => set('body', e.target.value)} />
         </VF>
       )}
+      {/* Additional paragraphs */}
+      {(() => {
+        const paragraphs = (content.paragraphs as string[]) ?? [];
+        const setParagraphs = (next: string[]) => onChange({ ...content, paragraphs: next });
+        return (
+          <div style={{ marginTop: 10, padding: 10, background: '#FEFCE8', borderRadius: 8, border: '1px solid #FDE68A' }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: '#92400E', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Additional Paragraphs</div>
+            {paragraphs.map((para, i) => (
+              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'start' }}>
+                <span style={{ color: '#9CA3AF', fontSize: 11, flexShrink: 0, marginTop: 8 }}>{i + 1}.</span>
+                <textarea style={{ ...TA, flex: 1, minHeight: 50 }} value={para} onChange={e => { const n = [...paragraphs]; n[i] = e.target.value; setParagraphs(n); }} />
+                <button onClick={() => setParagraphs(paragraphs.filter((_, j) => j !== i))} style={{ padding: '5px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11, flexShrink: 0, marginTop: 4 }}>X</button>
+              </div>
+            ))}
+            <button onClick={() => setParagraphs([...paragraphs, ''])} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #FDE68A', background: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#92400E' }}>+ Add Paragraph</button>
+          </div>
+        );
+      })()}
       {/* Audience cards (used by modeling hub "What is" section) */}
       {Array.isArray(content.audience) && (() => {
         const audience = content.audience as { icon: string; role: string; desc: string }[];
