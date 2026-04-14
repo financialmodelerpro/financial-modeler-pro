@@ -84,7 +84,7 @@ export function SessionCard({ session: s, variant, compact, isRegistered, joinLi
     ? `/training/live-sessions/${s.id}`
     : `/training-sessions/${s.id}`;
 
-  const bannerH = compact ? (thumbUrl ? 120 : 80) : (thumbUrl ? 220 : 160);
+  const placeholderH = compact ? 80 : 160;
 
   return (
     <div className="session-card" style={{
@@ -95,15 +95,15 @@ export function SessionCard({ session: s, variant, compact, isRegistered, joinLi
       display: 'flex', flexDirection: 'column', position: 'relative',
     }}>
       {/* ── Banner / Thumbnail ─────────────────────────────────────────────── */}
-      <Link href={detailUrl} style={{ display: 'block', position: 'relative' }}>
+      <Link href={detailUrl} style={{ display: 'block', position: 'relative', background: NAVY }}>
         {thumbUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={thumbUrl} alt={s.title} style={{
-            width: '100%', height: bannerH, objectFit: 'cover', objectPosition: 'top', display: 'block',
+            width: '100%', height: 'auto', maxHeight: compact ? 160 : 280, objectFit: 'contain', display: 'block', background: NAVY,
           }} />
         ) : (
           <div style={{
-            width: '100%', height: bannerH,
+            width: '100%', height: placeholderH,
             background: `linear-gradient(135deg, ${NAVY} 0%, #1B4F8A 60%, #2563EB 100%)`,
             display: 'flex', alignItems: 'center', justifyContent: 'center', padding: compact ? 8 : 20,
           }}>

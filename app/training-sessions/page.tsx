@@ -2,9 +2,8 @@ import type { Metadata } from 'next';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { getServerClient } from '@/src/lib/shared/supabase';
-import { getPageSections } from '@/src/lib/shared/cms';
-import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
-import { SessionsClient, type PublicSession } from './SessionsClient';
+import { getAllPageSections } from '@/src/lib/shared/cms';
+import { SessionsClient, type PublicSession, type HeroContent } from './SessionsClient';
 
 export const metadata: Metadata = {
   title: 'Training Sessions | Financial Modeler Pro',
@@ -70,49 +69,27 @@ async function getSessions(): Promise<PublicSession[]> {
 }
 
 export default async function TrainingSessionsPage() {
-  const [sessions, sections] = await Promise.all([
+  const [sessions, cmsSections] = await Promise.all([
     getSessions(),
-    getPageSections('training-sessions'),
+    getAllPageSections('training-sessions'),
   ]);
 
-  // CMS-driven rendering
-  if (sections.length > 0) {
-    return (
-      <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', minHeight: '100vh' }}>
-        <NavbarServer />
-        <div style={{ height: 64 }} />
+  // Extract hero from CMS
+  const heroRaw = cmsSections.find(s => s.section_type === 'hero');
+  const heroContent: HeroContent | undefined = heroRaw?.visible !== false
+    ? heroRaw?.content as HeroContent | undefined
+    : undefined;
 
-        {sections.map((section) => {
-          // SessionsClient has its own hero — render it directly, skip CMS hero
-          if ((section.content as Record<string, unknown>)?._dynamic === 'live_sessions') {
-            return <SessionsClient key={section.id} sessions={sessions} />;
-          }
-          // Skip hero sections — SessionsClient handles its own hero
-          if (section.section_type === 'hero') return null;
-          return <SectionRenderer key={section.id} sections={[section]} />;
-        })}
-
-        <SharedFooter
-          company="Financial Modeler Pro"
-          founder="Ahmad Din"
-          copyright={`\u00A9 ${new Date().getFullYear()} Financial Modeler Pro`}
-          height="compact"
-        />
-      </div>
-    );
-  }
-
-  // Fallback: original hardcoded layout
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', minHeight: '100vh' }}>
       <NavbarServer />
       <div style={{ height: 64 }} />
 
-      <SessionsClient sessions={sessions} />
+      <SessionsClient sessions={sessions} hero={heroContent} />
 
       <SharedFooter
         company="Financial Modeler Pro"
-        founder="Ahmad Din"
+        founder="Financial Modeler Pro Team"
         copyright={`\u00A9 ${new Date().getFullYear()} Financial Modeler Pro`}
         height="compact"
       />
