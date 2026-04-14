@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { MediaPickerButton } from '@/src/components/admin/MediaPicker';
+import { RichTextEditor } from '@/src/components/admin/RichTextEditor';
 
 const SECTION = 'header_settings';
 
@@ -136,7 +137,11 @@ export default function HeaderSettingsPage() {
               <input type="checkbox" checked={bool('show_tagline')} onChange={e => set('show_tagline', e.target.checked ? 'true' : 'false')} style={{ width: 16, height: 16 }} />
               Show Tagline
             </label>
-            <div><label style={LS}>Tagline</label><input style={IS} value={vals.tagline ?? ''} onChange={e => set('tagline', e.target.value)} /></div>
+            <div>
+              <label style={LS}>Tagline</label>
+              <RichTextEditor value={vals.tagline ?? ''} onChange={v => set('tagline', v)} compact />
+              <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 4 }}>Supports bold, italic, color, font size. HTML saved directly.</div>
+            </div>
           </div>
 
           {/* ── Section C: Header Icon ── */}

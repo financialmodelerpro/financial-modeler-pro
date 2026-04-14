@@ -49,7 +49,7 @@ export async function NavbarServer({ topOffset = 0 }: Props) {
       showTagline={hs('show_tagline', 'true') === 'true'}
       tagline={hs('tagline', 'Structured Modeling. Real-World Finance.')}
       iconUrl={hs('icon_url', '') || undefined}
-      iconAsFavicon={hs('icon_as_favicon', 'false') === 'true'}
+      // iconAsFavicon handled by root layout metadata
       iconInHeader={hs('icon_in_header', 'false') === 'true'}
       iconSizePx={hs('icon_size_px', '20')}
       headerHeightPx={hs('header_height_px', '') || undefined}

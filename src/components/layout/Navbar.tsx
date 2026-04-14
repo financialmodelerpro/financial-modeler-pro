@@ -39,7 +39,6 @@ interface NavbarProps {
   showTagline?: boolean;
   tagline?: string;
   iconUrl?: string;
-  iconAsFavicon?: boolean;
   iconInHeader?: boolean;
   iconSizePx?: string;
   headerHeightPx?: string;
@@ -55,7 +54,7 @@ export function Navbar({
   logoEnabled = true, logoUrl, logoWidthPx, logoHeightPx = '36', logoPosition: _logoPosition,
   showBrandName = true, brandName = 'Financial Modeler Pro',
   showTagline = true, tagline = 'Structured Modeling. Real-World Finance.',
-  iconUrl, iconAsFavicon, iconInHeader, iconSizePx = '20',
+  iconUrl, iconInHeader, iconSizePx = '20',
   headerHeightPx, headerPaddingTopPx, headerPaddingBottomPx,
   logoWidthInches, logoHeightInches,
 }: NavbarProps) {
@@ -80,15 +79,6 @@ export function Navbar({
     return () => { document.body.style.overflow = ''; };
   }, [mobileMenuOpen]);
 
-  // Favicon injection
-  useEffect(() => {
-    if (iconAsFavicon && iconUrl) {
-      let link = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
-      if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
-      link.href = iconUrl;
-    }
-  }, [iconAsFavicon, iconUrl]);
-
   // Logo sizing: new px props take priority, fall back to old inch conversion
   const logoH = parseInt(logoHeightPx || '') || (logoHeightInches ? Math.round(parseFloat(logoHeightInches) * 96) : 36);
   const logoW = (logoWidthPx ? parseInt(logoWidthPx) : undefined) ?? (logoWidthInches ? Math.round(parseFloat(logoWidthInches) * 96) : undefined);
@@ -107,9 +97,7 @@ export function Navbar({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={logoUrl} alt={brandName} style={{ height: logoH, width: logoW ?? 'auto', objectFit: 'contain' }} />
           {showTagline && tagline && (
-            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 2 }}>
-              {tagline}
-            </div>
+            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 2 }} dangerouslySetInnerHTML={{ __html: tagline }} />
           )}
         </>
       ) : (
