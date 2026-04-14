@@ -5,7 +5,7 @@ import { getFounderProfile, cms, getAllPageSections } from '@/src/lib/shared/cms
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 
-export const revalidate = 60;
+export const revalidate = 0;
 
 export async function generateMetadata(): Promise<Metadata> {
   const founder = await getFounderProfile();

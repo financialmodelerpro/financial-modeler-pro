@@ -24,7 +24,7 @@ import { InlineEdit } from '@/src/components/landing/InlineEdit';
 import { AdminEditBar } from '@/src/components/landing/AdminEditBar';
 import { Navbar } from '@/src/components/layout/Navbar';
 
-export const revalidate = 60;
+export const revalidate = 0;
 
 export const metadata: Metadata = {
   title: 'Financial Modeler Pro — The Professional Hub for Financial Modeling',
