@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { getTrainingSession } from '@/src/lib/training/training-session';
 import { FilePreviewModal } from '@/src/components/training/dashboard/FilePreviewModal';
 import { TrainingShell } from '@/src/components/training/TrainingShell';
+import { YouTubePlayer } from '@/src/components/training/YouTubePlayer';
 
 interface Attachment { id: string; file_name: string; file_url: string; file_type: string; file_size: number }
 interface Session {
@@ -269,14 +270,7 @@ export default function LiveSessionDetailPage() {
         {/* Video — embed or external link based on youtube_embed flag */}
         {isRecorded && session.youtube_url && (
           session.youtube_embed && ytId ? (
-            <div style={{ marginBottom: 24, borderRadius: 12, overflow: 'hidden', background: '#000', aspectRatio: '16/9' }}>
-              <iframe
-                src={`https://www.youtube.com/embed/${ytId}`}
-                width="100%" height="100%" style={{ border: 'none', display: 'block' }}
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowFullScreen
-              />
-            </div>
+            <YouTubePlayer videoId={ytId} title={session.title} />
           ) : (
             <div style={{ marginBottom: 24, textAlign: 'center' }}>
               <a href={session.youtube_url} target="_blank" rel="noopener noreferrer"
