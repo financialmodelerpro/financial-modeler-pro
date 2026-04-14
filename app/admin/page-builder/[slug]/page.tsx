@@ -407,57 +407,56 @@ function TextImageEditor({ content, onChange }: { content: Record<string, unknow
         )}
       </div>
 
-      {/* Side image (hidden when background image is set) */}
-      {!hasBg && (
-        <VF label="Side Image" fieldKey="imageSrc" content={content} onChange={onChange}>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <input style={{ ...IS, flex: 1 }} value={imgSrc} onChange={e => set('imageSrc', e.target.value)} placeholder="https://... or upload →" />
-            <MediaPickerButton onSelect={url => set('imageSrc', url)} />
+      {/* Side image — always visible */}
+      <div style={{ marginTop: 10, padding: 10, background: '#F0FFF4', borderRadius: 8, border: '1px solid #BBF7D0' }}>
+        <div style={{ fontSize: 11, fontWeight: 800, color: '#15803D', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Side Image <span style={{ fontWeight: 400, textTransform: 'none', color: '#6B7280' }}>(shown beside text content)</span></div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input style={{ ...IS, flex: 1 }} value={imgSrc} onChange={e => set('imageSrc', e.target.value)} placeholder="https://... or upload →" />
+          <MediaPickerButton onSelect={url => set('imageSrc', url)} />
+        </div>
+        {imgSrc && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={imgSrc} alt="" style={{ marginTop: 6, maxWidth: 200, maxHeight: 120, borderRadius: 6, objectFit: 'cover', border: '1px solid #E5E7EB' }} />
+        )}
+        <label style={{ ...LS, marginTop: 6 }}>Alt Text</label><input style={IS} value={(content.imageAlt as string) ?? ''} onChange={e => set('imageAlt', e.target.value)} />
+        <label style={{ ...LS, marginTop: 6 }}>Placeholder Text</label><input style={IS} value={(content.imagePlaceholder as string) ?? ''} onChange={e => set('imagePlaceholder', e.target.value)} placeholder="e.g. Platform Screenshot" />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 8 }}>
+          <div>
+            <label style={LS}>Position</label>
+            <select style={IS} value={(content.imagePosition as string) ?? 'right'} onChange={e => set('imagePosition', e.target.value)}>
+              <option value="left">Left</option><option value="right">Right</option>
+            </select>
           </div>
-          {imgSrc && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={imgSrc} alt="" style={{ marginTop: 6, maxWidth: 200, maxHeight: 120, borderRadius: 6, objectFit: 'cover', border: '1px solid #E5E7EB' }} />
-          )}
-          <label style={{ ...LS, marginTop: 6 }}>Alt Text</label><input style={IS} value={(content.imageAlt as string) ?? ''} onChange={e => set('imageAlt', e.target.value)} />
-          <label style={{ ...LS, marginTop: 6 }}>Placeholder Text</label><input style={IS} value={(content.imagePlaceholder as string) ?? ''} onChange={e => set('imagePlaceholder', e.target.value)} placeholder="Mission Image" />
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginTop: 8 }}>
-            <div>
-              <label style={LS}>Position</label>
-              <select style={IS} value={(content.imagePosition as string) ?? 'right'} onChange={e => set('imagePosition', e.target.value)}>
-                <option value="left">Left</option><option value="right">Right</option>
-              </select>
-            </div>
-            <div>
-              <label style={LS}>Width</label>
-              <select style={IS} value={(content.imageWidth as string) ?? '45%'} onChange={e => set('imageWidth', e.target.value)}>
-                <option value="100%">100%</option><option value="90%">90%</option><option value="80%">80%</option>
-                <option value="70%">70%</option><option value="60%">60%</option><option value="50%">50%</option>
-                <option value="45%">45%</option><option value="40%">40%</option>
-              </select>
-            </div>
-            <div>
-              <label style={LS}>Height</label>
-              <select style={IS} value={(content.imageHeight as string) ?? 'auto'} onChange={e => set('imageHeight', e.target.value)}>
-                <option value="auto">Auto</option><option value="200px">200px</option><option value="240px">240px</option>
-                <option value="280px">280px</option><option value="320px">320px</option><option value="360px">360px</option>
-                <option value="400px">400px</option>
-              </select>
-            </div>
+          <div>
+            <label style={LS}>Width</label>
+            <select style={IS} value={(content.imageWidth as string) ?? '45%'} onChange={e => set('imageWidth', e.target.value)}>
+              <option value="100%">100%</option><option value="90%">90%</option><option value="80%">80%</option>
+              <option value="70%">70%</option><option value="60%">60%</option><option value="50%">50%</option>
+              <option value="45%">45%</option><option value="40%">40%</option>
+            </select>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
-            <div>
-              <label style={LS}>Object Fit</label>
-              <select style={IS} value={(content.imageFit as string) ?? 'cover'} onChange={e => set('imageFit', e.target.value)}>
-                <option value="cover">Cover</option><option value="contain">Contain</option><option value="fill">Fill</option>
-              </select>
-            </div>
-            <div>
-              <label style={LS}>Border Radius</label>
-              <input style={IS} value={(content.imageRadius as string) ?? '12px'} onChange={e => set('imageRadius', e.target.value)} placeholder="12px" />
-            </div>
+          <div>
+            <label style={LS}>Height</label>
+            <select style={IS} value={(content.imageHeight as string) ?? 'auto'} onChange={e => set('imageHeight', e.target.value)}>
+              <option value="auto">Auto</option><option value="200px">200px</option><option value="240px">240px</option>
+              <option value="280px">280px</option><option value="320px">320px</option><option value="360px">360px</option>
+              <option value="400px">400px</option>
+            </select>
           </div>
-        </VF>
-      )}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginTop: 6 }}>
+          <div>
+            <label style={LS}>Object Fit</label>
+            <select style={IS} value={(content.imageFit as string) ?? 'cover'} onChange={e => set('imageFit', e.target.value)}>
+              <option value="cover">Cover</option><option value="contain">Contain</option><option value="fill">Fill</option>
+            </select>
+          </div>
+          <div>
+            <label style={LS}>Border Radius</label>
+            <input style={IS} value={(content.imageRadius as string) ?? '12px'} onChange={e => set('imageRadius', e.target.value)} placeholder="12px" />
+          </div>
+        </div>
+      </div>
 
       {/* Checklist items (shown when no image uploaded) */}
       {(() => {
