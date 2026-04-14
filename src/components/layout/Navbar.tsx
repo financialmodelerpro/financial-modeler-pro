@@ -227,7 +227,7 @@ export function Navbar({
         style={{
           position: 'fixed', top: topOffset, left: 0, right: 0, zIndex: 100,
           display: 'flex', alignItems: 'center', padding: `${headerPaddingTopPx ? headerPaddingTopPx + 'px' : '0'} 40px ${headerPaddingBottomPx ? headerPaddingBottomPx + 'px' : '0'}`,
-          height: headerHeightPx ? parseInt(headerHeightPx) : 64,
+          minHeight: headerHeightPx ? parseInt(headerHeightPx) : 64, boxSizing: 'border-box',
           background: 'rgba(13,46,90,0.97)', borderBottom: '1px solid rgba(255,255,255,0.08)',
           backdropFilter: 'blur(12px)', boxShadow: '0 2px 20px rgba(0,0,0,0.4)',
         }}
