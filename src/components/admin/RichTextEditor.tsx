@@ -5,6 +5,8 @@ import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
 import TextAlign from '@tiptap/extension-text-align';
 import Link from '@tiptap/extension-link';
+import { Color } from '@tiptap/extension-color';
+import { TextStyle } from '@tiptap/extension-text-style';
 import { useEffect, useRef } from 'react';
 
 interface Props {
@@ -25,6 +27,8 @@ export function RichTextEditor({ value, onChange, compact }: Props) {
       Image.configure({ inline: false, allowBase64: true }),
       TextAlign.configure({ types: ['heading', 'paragraph'] }),
       Link.configure({ openOnClick: false, HTMLAttributes: { class: 'fmp-link' } }),
+      TextStyle,
+      Color,
     ],
     content: value || '<p></p>',
     onUpdate: ({ editor: ed }) => {
@@ -97,6 +101,32 @@ export function RichTextEditor({ value, onChange, compact }: Props) {
         {btn('B', () => editor.chain().focus().toggleBold().run(), editor.isActive('bold'), 'Bold')}
         {btn('I', () => editor.chain().focus().toggleItalic().run(), editor.isActive('italic'), 'Italic')}
         {btn('S', () => editor.chain().focus().toggleStrike().run(), editor.isActive('strike'), 'Strikethrough')}
+        <input type="color" title="Text Color"
+          value={editor.getAttributes('textStyle').color || '#000000'}
+          onInput={e => editor.chain().focus().setColor((e.target as HTMLInputElement).value).run()}
+          style={{ width: 28, height: 28, padding: 2, cursor: 'pointer', border: '1px solid #D1D5DB', borderRadius: 4, background: '#fff' }} />
+        <select title="Font Size"
+          value=""
+          onChange={e => {
+            const sz = e.target.value;
+            if (sz) editor.chain().focus().setMark('textStyle', { fontSize: sz }).run();
+            else editor.chain().focus().unsetMark('textStyle').run();
+            e.target.value = '';
+          }}
+          style={{ fontSize: 11, height: 28, border: '1px solid #D1D5DB', borderRadius: 4, padding: '0 4px', cursor: 'pointer', color: '#374151' }}>
+          <option value="">Size</option>
+          <option value="9px">9</option>
+          <option value="10px">10</option>
+          <option value="11px">11</option>
+          <option value="12px">12</option>
+          <option value="14px">14</option>
+          <option value="16px">16</option>
+          <option value="18px">18</option>
+          <option value="20px">20</option>
+          <option value="24px">24</option>
+          <option value="28px">28</option>
+          <option value="32px">32</option>
+        </select>
         {sep}
 
         {/* Headings */}
