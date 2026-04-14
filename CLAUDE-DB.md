@@ -93,6 +93,8 @@
 | `pricing_plans` | Subscription plan definitions |
 | `pricing_features` | Feature flags per plan |
 | `pricing_modules` | Module access per plan |
+| `platform_pricing` | Per-platform pricing plans: slug, plan_name, price, features JSONB, trial_days, max_projects, badge, CTA |
+| `coupon_codes` | Discount codes: percentage/fixed, applicable plans/platforms, max uses, expiry |
 
 ### Email System
 | Table | Purpose |
@@ -178,3 +180,5 @@
 | `071_cms_modeling_real_estate.sql` | Seed Real Estate platform sub-page: 6 sections (hero, what-covers, who-is-it-for, what-you-get, module-guide dynamic, bottom CTA) |
 | `072_modeling_platform_enhancements.sql` | Add stats bar after hero, upgrade text→text_image with image support, add image fields to list sections |
 | `074_modeling_coming_soon.sql` | Add modeling_hub_coming_soon setting to training_settings (default: true) |
+| `075_contact_page_items.sql` | Add contact_items[] to contact page sections, update footer founder line |
+| `076_pricing_restructure.sql` | Create platform_pricing + coupon_codes tables, seed 4 Real Estate plans + LAUNCH20 coupon |
