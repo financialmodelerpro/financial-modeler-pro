@@ -171,3 +171,4 @@
 | `063_founder_consolidate.sql` | Consolidate founder experience list, remove old duplicate keys |
 | `064_testimonials_linkedin.sql` | Add linkedin_url column to testimonials table (manual submissions) |
 | `065_cms_training_page.sql` | Seed Training Hub marketing page into CMS: 9 sections (hero, courses, how-it-works, why-certify, cert-verification, upcoming-sessions, testimonials, submit-testimonial CTA, bottom CTA) |
+| `066_training_page_content.sql` | Full verbatim content for all training sections, remove hero login hint, normalize CTA field names |
