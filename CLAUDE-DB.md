@@ -177,3 +177,4 @@
 | `070_cms_modeling_page.sql` | Seed Modeling Hub marketing page into CMS: 7 sections (hero, audience, platforms grid, why-modeling, testimonials, submit-testimonial CTA, bottom CTA) |
 | `071_cms_modeling_real_estate.sql` | Seed Real Estate platform sub-page: 6 sections (hero, what-covers, who-is-it-for, what-you-get, module-guide dynamic, bottom CTA) |
 | `072_modeling_platform_enhancements.sql` | Add stats bar after hero, upgrade text→text_image with image support, add image fields to list sections |
+| `074_modeling_coming_soon.sql` | Add modeling_hub_coming_soon setting to training_settings (default: true) |
