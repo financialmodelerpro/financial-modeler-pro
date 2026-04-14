@@ -1,4 +1,4 @@
-// cache-bust-v2
+// v-founder-fix-final
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getFounderProfile, cms, getAllPageSections } from '@/src/lib/shared/cms';
