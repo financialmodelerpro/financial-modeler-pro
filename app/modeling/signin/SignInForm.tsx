@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useRef, Suspense } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Navbar } from '@/src/components/layout/Navbar';
+// Navbar now rendered by server page.tsx via NavbarServer
 import HCaptcha from '@hcaptcha/react-hcaptcha';
 import { PhoneInput } from '@/src/components/shared/PhoneInput';
 
@@ -177,7 +177,7 @@ function ModelingSignInInner() {
   if (deviceStep === 'otp') {
     return (
       <>
-        <Navbar />
+        {/* NavbarServer rendered by page.tsx */}
         <div style={{ minHeight: 'calc(100vh - 64px)', background: '#F5F7FA', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', fontFamily: "'Inter', sans-serif" }}>
           <div style={{ width: '100%', maxWidth: 440 }}>
             <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', boxShadow: '0 4px 24px rgba(0,0,0,0.07)', padding: '36px 36px 32px' }}>
@@ -241,7 +241,7 @@ function ModelingSignInInner() {
 
   return (
     <>
-      <Navbar />
+      {/* NavbarServer rendered by page.tsx */}
       <div style={{
         minHeight: 'calc(100vh - 64px)', background: '#F5F7FA',
         display: 'flex', flexDirection: 'column', alignItems: 'center',

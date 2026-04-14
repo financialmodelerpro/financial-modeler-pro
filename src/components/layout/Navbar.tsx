@@ -28,14 +28,37 @@ const DEFAULT_PAGES: NavPage[] = [
 interface NavbarProps {
   navPages?: NavPage[];
   topOffset?: number;
+  // New header settings props (from cms_content header_settings section)
+  logoEnabled?: boolean;
   logoUrl?: string;
-  logoAlt?: string;
+  logoWidthPx?: string;
+  logoHeightPx?: string;
+  logoPosition?: string;
+  showBrandName?: boolean;
+  brandName?: string;
+  showTagline?: boolean;
+  tagline?: string;
+  iconUrl?: string;
+  iconAsFavicon?: boolean;
+  iconInHeader?: boolean;
+  iconSizePx?: string;
+  headerHeightPx?: string;
+  headerPaddingTopPx?: string;
+  headerPaddingBottomPx?: string;
+  // Deprecated — kept for backward compat
   logoWidthInches?: string;
   logoHeightInches?: string;
-  logoPosition?: string;
 }
 
-export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial Modeler Pro', logoWidthInches, logoHeightInches, logoPosition: _logoPosition }: NavbarProps) {
+export function Navbar({
+  navPages, topOffset = 0,
+  logoEnabled = true, logoUrl, logoWidthPx, logoHeightPx = '36', logoPosition: _logoPosition,
+  showBrandName = true, brandName = 'Financial Modeler Pro',
+  showTagline = true, tagline = 'Structured Modeling. Real-World Finance.',
+  iconUrl, iconAsFavicon, iconInHeader, iconSizePx = '20',
+  headerHeightPx, headerPaddingTopPx, headerPaddingBottomPx,
+  logoWidthInches, logoHeightInches,
+}: NavbarProps) {
   const pages = (navPages ?? DEFAULT_PAGES)
     .filter(p => p.visible !== false)
     .sort((a, b) => (a.display_order ?? 999) - (b.display_order ?? 999));
@@ -44,7 +67,6 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Close dropdown on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) setDropdownOpen(false);
@@ -53,31 +75,60 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
     return () => document.removeEventListener('mousedown', handleClick);
   }, []);
 
-  // Lock body scroll when mobile menu open
   useEffect(() => {
     document.body.style.overflow = mobileMenuOpen ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
   }, [mobileMenuOpen]);
 
-  // Convert stored inches to px (96 DPI), fall back to nav-friendly defaults
-  const logoW = logoWidthInches  ? Math.round(parseFloat(logoWidthInches)  * 96) : undefined;
-  const logoH = logoHeightInches ? Math.round(parseFloat(logoHeightInches) * 96) : 36;
+  // Favicon injection
+  useEffect(() => {
+    if (iconAsFavicon && iconUrl) {
+      let link = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
+      if (!link) { link = document.createElement('link'); link.rel = 'icon'; document.head.appendChild(link); }
+      link.href = iconUrl;
+    }
+  }, [iconAsFavicon, iconUrl]);
+
+  // Logo sizing: new px props take priority, fall back to old inch conversion
+  const logoH = parseInt(logoHeightPx || '') || (logoHeightInches ? Math.round(parseFloat(logoHeightInches) * 96) : 36);
+  const logoW = (logoWidthPx ? parseInt(logoWidthPx) : undefined) ?? (logoWidthInches ? Math.round(parseFloat(logoWidthInches) * 96) : undefined);
+  const hasLogo = logoEnabled && !!logoUrl;
+  const iconSize = parseInt(iconSizePx || '20') || 20;
 
   const logo = (
     <a href={`${MAIN_URL}/`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-      {logoUrl ? (
-        /* eslint-disable-next-line @next/next/no-img-element */
-        <img src={logoUrl} alt={logoAlt} style={{ height: logoH, width: logoW ?? 'auto', objectFit: 'contain' }} />
+      {/* Header icon */}
+      {iconInHeader && iconUrl && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={iconUrl} alt="" style={{ width: iconSize, height: iconSize, objectFit: 'contain', flexShrink: 0 }} />
+      )}
+      {hasLogo ? (
+        <>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={logoUrl} alt={brandName} style={{ height: logoH, width: logoW ?? 'auto', objectFit: 'contain' }} />
+          {showTagline && tagline && (
+            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 2 }}>
+              {tagline}
+            </div>
+          )}
+        </>
       ) : (
         <>
-          <span style={{ fontSize: 24, flexShrink: 0 }}>📐</span>
+          {!iconInHeader && <span style={{ fontSize: 24, flexShrink: 0 }}>📐</span>}
           <div>
-            <div style={{ fontWeight: 800, fontSize: 14, color: '#fff', letterSpacing: '0.01em', lineHeight: 1 }}>
-              Financial Modeler Pro
-            </div>
-            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 2 }}>
-              Structured Modeling. Real-World Finance.
-            </div>
+            {showBrandName && (
+              <div style={{ fontWeight: 800, fontSize: 14, color: '#fff', letterSpacing: '0.01em', lineHeight: 1 }}>
+                {brandName}
+              </div>
+            )}
+            {showTagline && tagline && (
+              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.1em', textTransform: 'uppercase', marginTop: 2 }}>
+                {tagline}
+              </div>
+            )}
+            {!showBrandName && !showTagline && !iconInHeader && (
+              <div style={{ fontWeight: 800, fontSize: 14, color: '#fff' }}>Financial Modeler Pro</div>
+            )}
           </div>
         </>
       )}
@@ -175,7 +226,8 @@ export function Navbar({ navPages, topOffset = 0, logoUrl, logoAlt = 'Financial 
         data-fmp-nav
         style={{
           position: 'fixed', top: topOffset, left: 0, right: 0, zIndex: 100,
-          display: 'flex', alignItems: 'center', padding: '0 40px', height: 64,
+          display: 'flex', alignItems: 'center', padding: `${headerPaddingTopPx ? headerPaddingTopPx + 'px' : '0'} 40px ${headerPaddingBottomPx ? headerPaddingBottomPx + 'px' : '0'}`,
+          height: headerHeightPx ? parseInt(headerHeightPx) : 64,
           background: 'rgba(13,46,90,0.97)', borderBottom: '1px solid rgba(255,255,255,0.08)',
           backdropFilter: 'blur(12px)', boxShadow: '0 2px 20px rgba(0,0,0,0.4)',
         }}

@@ -1,4 +1,5 @@
 import { isModelingComingSoon } from '@/src/lib/shared/modelingComingSoon';
+import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { RegisterForm } from './RegisterForm';
 import { ModelingComingSoon } from '../ComingSoon';
 
@@ -9,5 +10,5 @@ export default async function ModelingRegisterPage() {
   if (comingSoon) {
     return <ModelingComingSoon variant="register" />;
   }
-  return <RegisterForm />;
+  return <><NavbarServer /><RegisterForm /></>;
 }

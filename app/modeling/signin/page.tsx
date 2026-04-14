@@ -1,4 +1,5 @@
 import { isModelingComingSoon } from '@/src/lib/shared/modelingComingSoon';
+import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { SignInForm } from './SignInForm';
 import { ModelingComingSoonWrapper } from './ComingSoonWrapper';
 
@@ -9,5 +10,5 @@ export default async function ModelingSignInPage() {
   if (comingSoon) {
     return <ModelingComingSoonWrapper variant="signin" />;
   }
-  return <SignInForm />;
+  return <><NavbarServer /><SignInForm /></>;
 }

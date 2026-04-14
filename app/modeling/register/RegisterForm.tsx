@@ -7,7 +7,7 @@
 
 import React, { useState, useRef, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
-import { Navbar } from '@/src/components/layout/Navbar';
+// Navbar now rendered by server page.tsx via NavbarServer
 import HCaptcha from '@hcaptcha/react-hcaptcha';
 import { PhoneInput } from '@/src/components/shared/PhoneInput';
 
@@ -86,7 +86,7 @@ function RegisterInner() {
 
   return (
     <>
-      <Navbar />
+      {/* NavbarServer rendered by page.tsx */}
       <div style={{
         minHeight: 'calc(100vh - 64px)', background: '#F5F7FA',
         display: 'flex', flexDirection: 'column', alignItems: 'center',

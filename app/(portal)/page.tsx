@@ -22,7 +22,7 @@ import { getServerClient } from '@/src/lib/shared/supabase';
 import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/ArticleCard';
 import { InlineEdit } from '@/src/components/landing/InlineEdit';
 import { AdminEditBar } from '@/src/components/landing/AdminEditBar';
-import { Navbar } from '@/src/components/layout/Navbar';
+import { NavbarServer } from '@/src/components/layout/NavbarServer';
 
 export const revalidate = 0;
 
@@ -229,7 +229,7 @@ export default async function LandingPage() {
       {isAdmin && <AdminEditBar />}
 
       {/* ── Navbar ─────────────────────────────────────────────────────────── */}
-      <Navbar navPages={navPages} topOffset={isAdmin ? 44 : 0} />
+      <NavbarServer topOffset={isAdmin ? 44 : 0} />
 
       {/* ── Spacer for fixed navbar ────────────────────────────────────────── */}
       <div style={{ height: isAdmin ? 108 : 64 }} />
