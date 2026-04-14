@@ -7,6 +7,7 @@ import { getTrainingSession } from '@/src/lib/training/training-session';
 import { FilePreviewModal } from '@/src/components/training/dashboard/FilePreviewModal';
 import { TrainingShell } from '@/src/components/training/TrainingShell';
 import { YouTubePlayer } from '@/src/components/training/YouTubePlayer';
+import { SubscribeButton } from '@/src/components/training/SubscribeButton';
 
 interface Attachment { id: string; file_name: string; file_url: string; file_type: string; file_size: number }
 interface Session {
@@ -270,7 +271,17 @@ export default function LiveSessionDetailPage() {
         {/* Video — embed or external link based on youtube_embed flag */}
         {isRecorded && session.youtube_url && (
           session.youtube_embed && ytId ? (
-            <YouTubePlayer videoId={ytId} title={session.title} />
+            <>
+              <YouTubePlayer videoId={ytId} title={session.title} />
+              <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <span style={{ fontSize: 14, color: '#6b7280' }}>Enjoy this session?</span>
+                <SubscribeButton
+                  channelId={process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}
+                  layout="default"
+                  count="default"
+                />
+              </div>
+            </>
           ) : (
             <div style={{ marginBottom: 24, textAlign: 'center' }}>
               <a href={session.youtube_url} target="_blank" rel="noopener noreferrer"
