@@ -1,3 +1,5 @@
+import { CmsParagraphs } from './CmsParagraphs';
+
 interface Props {
   content: Record<string, unknown>;
   styles: Record<string, unknown>;
@@ -33,6 +35,7 @@ export function TextSection({ content, styles }: Props) {
             {body}
           </p>
         )}
+        <CmsParagraphs content={content} color={color} />
       </div>
     </section>
   );

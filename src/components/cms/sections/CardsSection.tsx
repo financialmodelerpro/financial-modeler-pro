@@ -1,3 +1,5 @@
+import { CmsParagraphs } from './CmsParagraphs';
+
 interface Props {
   content: Record<string, unknown>;
   styles: Record<string, unknown>;
@@ -29,10 +31,11 @@ export function CardsSection({ content, styles }: Props) {
           </div>
         )}
         {v('heading') && heading && (
-          <h2 style={{ textAlign: 'center', fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 40 }}>
+          <h2 style={{ textAlign: 'center', fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 16 }}>
             {heading}
           </h2>
         )}
+        <div style={{ textAlign: 'center', marginBottom: 24 }}><CmsParagraphs content={content} color="#6B7280" /></div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 24 }}>
           {cards.map((card, i) => (
             <div key={i} style={{

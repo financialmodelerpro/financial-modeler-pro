@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { CmsParagraphs } from './CmsParagraphs';
 
 interface Props {
   content: Record<string, unknown>;
@@ -36,6 +37,7 @@ export function CtaSection({ content, styles }: Props) {
             {subtitle}
           </p>
         )}
+        <CmsParagraphs content={content} color="rgba(255,255,255,0.8)" />
         {((v('buttonText') && buttonText.trim() && buttonUrl) || (v('button2Text') && button2Text.trim() && button2Url)) && (
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
             {v('buttonText') && buttonText.trim() && buttonUrl && (

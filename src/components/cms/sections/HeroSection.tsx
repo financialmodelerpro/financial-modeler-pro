@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { CmsParagraphs } from './CmsParagraphs';
 
 interface Props {
   content: Record<string, unknown>;
@@ -53,6 +54,7 @@ export function HeroSection({ content, styles }: Props) {
             {subtitle}
           </p>
         )}
+        <CmsParagraphs content={content} color="rgba(255,255,255,0.6)" />
         {(v('cta1') && cta1Text.trim() && cta1Url) || (v('cta2') && cta2Text.trim() && cta2Url) ? (
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
             {v('cta1') && cta1Text.trim() && cta1Url && (

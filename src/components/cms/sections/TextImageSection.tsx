@@ -1,3 +1,5 @@
+import { CmsParagraphs } from './CmsParagraphs';
+
 interface Props {
   content: Record<string, unknown>;
   styles: Record<string, unknown>;
@@ -39,7 +41,6 @@ export function TextImageSection({ content, styles }: Props) {
   const badgeColor  = hasBg ? 'rgba(255,255,255,0.7)' : '#1B4F8A';
 
   const body       = content.body as string ?? '';
-  const paragraphs = Array.isArray(content.paragraphs) ? (content.paragraphs as string[]).filter(Boolean) : [];
 
   const textBlock = (
     <div style={{ flex: 1, minWidth: 280, borderLeft: '4px solid #1ABC9C', paddingLeft: 24 }}>
@@ -62,11 +63,7 @@ export function TextImageSection({ content, styles }: Props) {
           {body}
         </p>
       )}
-      {paragraphs.map((para, i) => (
-        <p key={i} style={{ fontSize: 15, color: textColor, lineHeight: 1.75, marginTop: 16 }}>
-          {para}
-        </p>
-      ))}
+      <CmsParagraphs content={content} color={textColor} />
     </div>
   );
 

@@ -323,24 +323,6 @@ function TextImageEditor({ content, onChange }: { content: Record<string, unknow
           <textarea style={{ ...TA, minHeight: 80 }} value={(content.body as string) ?? ''} onChange={e => set('body', e.target.value)} />
         </VF>
       )}
-      {/* Additional paragraphs */}
-      {(() => {
-        const paragraphs = (content.paragraphs as string[]) ?? [];
-        const setParagraphs = (next: string[]) => onChange({ ...content, paragraphs: next });
-        return (
-          <div style={{ marginTop: 10, padding: 10, background: '#FEFCE8', borderRadius: 8, border: '1px solid #FDE68A' }}>
-            <div style={{ fontSize: 11, fontWeight: 800, color: '#92400E', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Additional Paragraphs</div>
-            {paragraphs.map((para, i) => (
-              <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'start' }}>
-                <span style={{ color: '#9CA3AF', fontSize: 11, flexShrink: 0, marginTop: 8 }}>{i + 1}.</span>
-                <textarea style={{ ...TA, flex: 1, minHeight: 50 }} value={para} onChange={e => { const n = [...paragraphs]; n[i] = e.target.value; setParagraphs(n); }} />
-                <button onClick={() => setParagraphs(paragraphs.filter((_, j) => j !== i))} style={{ padding: '5px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11, flexShrink: 0, marginTop: 4 }}>X</button>
-              </div>
-            ))}
-            <button onClick={() => setParagraphs([...paragraphs, ''])} style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #FDE68A', background: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#92400E' }}>+ Add Paragraph</button>
-          </div>
-        );
-      })()}
       {/* Audience cards (used by modeling hub "What is" section) */}
       {Array.isArray(content.audience) && (() => {
         const audience = content.audience as { icon: string; role: string; desc: string }[];
@@ -1271,6 +1253,66 @@ const EDITORS: Record<string, React.ComponentType<{ content: Record<string, unkn
   timeline: TimelineEditor, logo_grid: LogoGridEditor, countdown: CountdownEditor,
 };
 
+// ── Universal paragraphs + alignment editor (shown for every section type) ──
+
+const ALIGN_BTNS: { value: string; label: string }[] = [
+  { value: 'left', label: 'L' },
+  { value: 'center', label: 'C' },
+  { value: 'right', label: 'R' },
+  { value: 'justify', label: 'J' },
+];
+
+function AlignPicker({ value, onChange: onPick }: { value: string; onChange: (v: string) => void }) {
+  return (
+    <div style={{ display: 'inline-flex', border: '1px solid #D1D5DB', borderRadius: 4, overflow: 'hidden', flexShrink: 0 }}>
+      {ALIGN_BTNS.map(a => (
+        <button key={a.value} type="button" onClick={() => onPick(a.value)}
+          style={{ padding: '2px 6px', fontSize: 10, fontWeight: 700, border: 'none', cursor: 'pointer', background: value === a.value ? '#1B4F8A' : '#fff', color: value === a.value ? '#fff' : '#9CA3AF' }}>
+          {a.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function ParagraphsEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  // Normalize: support both string[] and {text,align}[] formats
+  const raw = (content.paragraphs ?? []) as (string | { text: string; align?: string })[];
+  const paragraphs = raw.map(p => typeof p === 'string' ? { text: p, align: 'left' } : { text: p.text ?? '', align: p.align ?? 'left' });
+  const setParagraphs = (next: typeof paragraphs) => onChange({ ...content, paragraphs: next });
+
+  if (paragraphs.length === 0) {
+    return (
+      <div style={{ marginTop: 14 }}>
+        <button onClick={() => setParagraphs([{ text: '', align: 'left' }])}
+          style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #FDE68A', background: '#FEFCE8', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#92400E' }}>
+          + Add Paragraph
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 14, padding: 10, background: '#FEFCE8', borderRadius: 8, border: '1px solid #FDE68A' }}>
+      <div style={{ fontSize: 10, fontWeight: 800, color: '#92400E', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Additional Paragraphs</div>
+      {paragraphs.map((para, i) => (
+        <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'start' }}>
+          <span style={{ color: '#9CA3AF', fontSize: 11, flexShrink: 0, marginTop: 8 }}>{i + 1}.</span>
+          <textarea style={{ ...TA, flex: 1, minHeight: 50 }} value={para.text} onChange={e => { const n = [...paragraphs]; n[i] = { ...n[i], text: e.target.value }; setParagraphs(n); }} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0, marginTop: 4 }}>
+            <AlignPicker value={para.align} onChange={v => { const n = [...paragraphs]; n[i] = { ...n[i], align: v }; setParagraphs(n); }} />
+            <button onClick={() => setParagraphs(paragraphs.filter((_, j) => j !== i))} style={{ padding: '3px 6px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 10 }}>X</button>
+          </div>
+        </div>
+      ))}
+      <button onClick={() => setParagraphs([...paragraphs, { text: '', align: 'left' }])}
+        style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #FDE68A', background: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#92400E' }}>
+        + Add Paragraph
+      </button>
+    </div>
+  );
+}
+
 // ── Style editor (shared across all section types) ───────────────────────────
 
 function StyleEditor({ styles, onChange }: { styles: Record<string, unknown>; onChange: (s: Record<string, unknown>) => void }) {
@@ -1625,6 +1667,10 @@ export default function PageBuilderEditorPage() {
                   </button>
                 </div>
                 <ActiveEditor
+                  content={activeSection.content}
+                  onChange={c => updateSection(activeSection.id, { content: c })}
+                />
+                <ParagraphsEditor
                   content={activeSection.content}
                   onChange={c => updateSection(activeSection.id, { content: c })}
                 />
