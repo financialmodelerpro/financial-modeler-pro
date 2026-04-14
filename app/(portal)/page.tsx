@@ -539,7 +539,7 @@ export default async function LandingPage() {
                 )}
                 <p style={{ fontSize:14.5, color:'rgba(255,255,255,0.65)', lineHeight:1.75, marginBottom:16 }}>{fBio}</p>
                 <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:24 }}>
-                  {fCreds.map(text=>(
+                  {fCreds.slice(0, 5).map(text=>(
                     <div key={text} style={{ display:'flex', alignItems:'center', gap:10 }}>
                       <span style={{ color:'#4A90D9', fontWeight:700, fontSize:12, flexShrink:0 }}>✓</span>
                       <span style={{ fontSize:13.5, color:'rgba(255,255,255,0.6)' }}>{text}</span>
