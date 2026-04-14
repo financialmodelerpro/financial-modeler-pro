@@ -1091,7 +1091,33 @@ function SmartTeamEditor({ content, onChange }: { content: Record<string, unknow
   return <TeamEditor content={content} onChange={onChange} />;
 }
 
-function TimelineEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+function ProcessStepsEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  const steps = (content.steps as { icon: string; label: string; desc: string }[]) ?? [];
+  const set = (k: string, v: string) => onChange({ ...content, [k]: v });
+  const setSteps = (next: typeof steps) => onChange({ ...content, steps: next });
+  return (
+    <>
+      <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
+        <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
+      </VF>
+      <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
+        <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
+      </VF>
+      <label style={{ ...LS, marginTop: 8 }}>Process Steps</label>
+      {steps.map((step, i) => (
+        <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'end', background: '#F9FAFB', borderRadius: 8, padding: 8, border: '1px solid #E5E7EB' }}>
+          <div style={{ width: 50 }}><label style={LS}>Icon</label><input style={IS} value={step.icon} onChange={e => { const n = [...steps]; n[i] = { ...n[i], icon: e.target.value }; setSteps(n); }} /></div>
+          <div style={{ flex: 1 }}><label style={LS}>Title</label><input style={IS} value={step.label} onChange={e => { const n = [...steps]; n[i] = { ...n[i], label: e.target.value }; setSteps(n); }} /></div>
+          <div style={{ flex: 2 }}><label style={LS}>Description</label><input style={IS} value={step.desc} onChange={e => { const n = [...steps]; n[i] = { ...n[i], desc: e.target.value }; setSteps(n); }} /></div>
+          <button onClick={() => setSteps(steps.filter((_, j) => j !== i))} style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>X</button>
+        </div>
+      ))}
+      <button onClick={() => setSteps([...steps, { icon: '📌', label: 'New Step', desc: 'Step description' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #BBF7D0', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600, color: '#15803D' }}>+ Add Step</button>
+    </>
+  );
+}
+
+function TimelineEventsEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
   const items = (content.items as { date: string; title: string; description: string }[]) ?? [];
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   const setItems = (next: typeof items) => onChange({ ...content, items: next });
@@ -1114,6 +1140,11 @@ function TimelineEditor({ content, onChange }: { content: Record<string, unknown
       <button onClick={() => setItems([...items, { date: '2024', title: 'Event', description: 'Description' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Event</button>
     </>
   );
+}
+
+function TimelineEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  if (Array.isArray(content.steps)) return <ProcessStepsEditor content={content} onChange={onChange} />;
+  return <TimelineEventsEditor content={content} onChange={onChange} />;
 }
 
 function LogoGridEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
