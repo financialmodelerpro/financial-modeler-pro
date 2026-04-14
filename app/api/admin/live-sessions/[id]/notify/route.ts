@@ -65,8 +65,8 @@ export async function POST(
   for (let i = 0; i < students.length; i += batchSize) {
     const batch = students.slice(i, i + batchSize);
     const results = await Promise.allSettled(
-      batch.map(student => {
-        const { subject, html } = liveSessionNotificationTemplate({
+      batch.map(async student => {
+        const { subject, html } = await liveSessionNotificationTemplate({
           name: student.name,
           sessionTitle: liveSession.title,
           sessionDate,

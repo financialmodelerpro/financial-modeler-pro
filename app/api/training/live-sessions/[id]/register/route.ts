@@ -35,7 +35,7 @@ export async function POST(
   // Send confirmation email
   try {
     const dt = session.scheduled_datetime ? new Date(session.scheduled_datetime) : null;
-    const { subject, html } = registrationConfirmationTemplate({
+    const { subject, html } = await registrationConfirmationTemplate({
       name: body.name ?? body.regId,
       sessionTitle: session.title,
       sessionDate: dt ? dt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '',

@@ -1,7 +1,10 @@
 /**
  * Live Session email templates.
  * Sent directly via Resend from Next.js (no Apps Script).
+ * Uses email_branding table for logo + signature (same as System A).
  */
+
+import { getEmailBranding } from './_base';
 
 interface NotificationParams {
   name: string;
@@ -9,7 +12,7 @@ interface NotificationParams {
   sessionDate: string;
   sessionTime: string;
   timezone: string;
-  sessionUrl: string;          // learn.financialmodelerpro.com/training/live-sessions/[id]
+  sessionUrl: string;
   description?: string;
   attachments?: { name: string; url: string }[];
   isReminder: boolean;
@@ -26,26 +29,31 @@ interface ConfirmationParams {
   liveUrl?: string;
 }
 
-function emailShell(bannerText: string, body: string): string {
+async function emailShell(bannerText: string, body: string): Promise<string> {
+  const b = await getEmailBranding();
+  const logoBlock = b.logo_url
+    ? `<img src="${b.logo_url}" alt="${b.logo_alt}" width="${b.logo_width}" style="display:block;margin:0 auto;max-width:100%;height:auto;" />`
+    : `<span style="font-size:22px;font-weight:700;color:#ffffff;">Financial Modeler Pro</span>
+       <div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:4px;letter-spacing:0.8px;text-transform:uppercase;">Training & Certification Platform</div>`;
+
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>
 <body style="margin:0;padding:0;background:#f4f6f9;font-family:Arial,sans-serif;">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f9;padding:32px 16px;">
 <tr><td align="center">
 <table width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#fff;border-radius:10px;overflow:hidden;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
-<tr><td style="background:#1F3864;padding:28px 36px;">
-  <div style="color:#fff;font-size:22px;font-weight:bold;">Financial Modeler Pro</div>
-  <div style="color:#a8c4e0;font-size:13px;margin-top:4px;">Training & Certification Platform</div>
+<tr><td style="background:${b.primary_color};padding:28px 36px;text-align:center;">
+  ${logoBlock}
 </td></tr>
 <tr><td style="background:#2E75B6;padding:14px 36px;">
   <div style="color:#fff;font-size:16px;font-weight:bold;">${bannerText}</div>
 </td></tr>
 <tr><td style="padding:36px;color:#333;font-size:15px;line-height:1.7;">
   ${body}
-  <p>Best regards,<br><strong>Ahmad Din</strong><br>Financial Modeler Pro</p>
+  ${b.signature_html}
 </td></tr>
 <tr><td style="background:#f8f9fb;padding:20px 36px;border-top:1px solid #e8ecf0;">
-  <p style="margin:0;font-size:12px;color:#888;">&copy; ${new Date().getFullYear()} Financial Modeler Pro</p>
+  <p style="margin:0;font-size:12px;color:#888;">${b.footer_text.replace('{year}', String(new Date().getFullYear()))}</p>
 </td></tr>
 </table></td></tr></table>
 </body></html>`;
@@ -54,7 +62,7 @@ function emailShell(bannerText: string, body: string): string {
 /**
  * Announcement or reminder email — links to session page (not direct join link).
  */
-export function liveSessionNotificationTemplate(p: NotificationParams): { subject: string; html: string } {
+export async function liveSessionNotificationTemplate(p: NotificationParams): Promise<{ subject: string; html: string }> {
   const subject = p.isReminder
     ? `Reminder: ${p.sessionTitle} starts in 1 hour`
     : `New Live Session: ${p.sessionTitle} - ${p.sessionDate}`;
@@ -86,13 +94,13 @@ export function liveSessionNotificationTemplate(p: NotificationParams): { subjec
        <h2 style="color:#1F3864;margin:16px 0;">${p.sessionTitle}</h2>
        ${dateBlock}${attachBlock}`;
 
-  return { subject, html: emailShell(p.isReminder ? 'Session Reminder' : 'Live Session Announcement', body) };
+  return { subject, html: await emailShell(p.isReminder ? 'Session Reminder' : 'Live Session Announcement', body) };
 }
 
 /**
  * Registration confirmation email — sent when student registers for a session.
  */
-export function registrationConfirmationTemplate(p: ConfirmationParams): { subject: string; html: string } {
+export async function registrationConfirmationTemplate(p: ConfirmationParams): Promise<{ subject: string; html: string }> {
   const subject = `You're registered: ${p.sessionTitle} - ${p.sessionDate}`;
 
   const body = `
@@ -119,5 +127,5 @@ export function registrationConfirmationTemplate(p: ConfirmationParams): { subje
     <p style="font-size:13px;color:#6B7280;">The join link will also be available in your dashboard 30 minutes before the session starts.</p>
     <p style="font-size:13px;color:#6B7280;">Can't make it? You can cancel your registration from your dashboard.</p>`;
 
-  return { subject, html: emailShell('Registration Confirmed', body) };
+  return { subject, html: await emailShell('Registration Confirmed', body) };
 }
