@@ -240,8 +240,7 @@ npm run verify       # type-check + lint + build
 - Per-field width/alignment: `content.fieldName_width`, `content.fieldName_align` (hero fields only)
 
 ### Founder Section Data Structure
-- `content.credentials[]` — home card checklist (✓ items). NOT shown on about page
-- `content.experience[]` — about/expanded view numbered list. NOT shown on home card
+- `content.credentials[]` — unified list: home card shows as ✓ checklist, about page + expanded view show as numbered teal circles. Single source of truth (experience[] removed in migration 068)
 - `content.long_bio` — full background story (split by `\n\n` or `\n`). About page + expanded view
 - `content.philosophy` — modeling philosophy quote
 - `content.projects[]` — { id, title, description, sector, value }
