@@ -3,62 +3,76 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
 
-async function guard() {
+async function checkAdmin() {
   const session = await getServerSession(authOptions);
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  if ((session.user as { role?: string }).role !== 'admin')
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  return null;
+  return session?.user && (session.user as { role?: string }).role === 'admin';
 }
 
+/** GET — all features for a platform + access rows */
 export async function GET(req: NextRequest) {
-  const err = await guard();
-  if (err) return err;
+  if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const slug = req.nextUrl.searchParams.get('platform') ?? 'real-estate';
   const sb = getServerClient();
-  const planId = req.nextUrl.searchParams.get('plan_id');
-  let q = sb.from('pricing_features').select('*').order('category').order('display_order');
-  if (planId) q = q.eq('plan_id', planId);
-  const { data, error } = await q;
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ features: data ?? [] });
+
+  const { data: features } = await sb
+    .from('platform_features')
+    .select('*')
+    .eq('platform_slug', slug)
+    .eq('is_active', true)
+    .order('display_order');
+
+  const { data: access } = await sb.from('plan_feature_access').select('*');
+
+  return NextResponse.json({ features: features ?? [], access: access ?? [] });
 }
 
+/** POST — create new platform feature */
 export async function POST(req: NextRequest) {
-  const err = await guard();
-  if (err) return err;
+  if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const body = await req.json();
     const sb = getServerClient();
-    const { data, error } = await sb.from('pricing_features').insert(body).select().single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json({ feature: data });
-  } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    const { data, error } = await sb.from('platform_features').insert({
+      platform_slug: body.platform_slug,
+      feature_key: body.feature_key,
+      feature_text: body.feature_text,
+      feature_category: body.feature_category ?? 'general',
+      display_order: body.display_order ?? 99,
+    }).select().single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    // Auto-create access rows for all plans of this platform
+    const { data: plans } = await sb.from('platform_pricing').select('id').eq('platform_slug', body.platform_slug);
+    if (plans?.length && data) {
+      await sb.from('plan_feature_access').insert(
+        plans.map((p: { id: string }) => ({ plan_id: p.id, feature_id: data.id, is_included: false }))
+      );
+    }
+    return NextResponse.json({ ok: true, feature: data });
+  } catch {
+    return NextResponse.json({ error: 'Failed to create feature' }, { status: 500 });
   }
 }
 
+/** PATCH — bulk update feature access for a plan */
 export async function PATCH(req: NextRequest) {
-  const err = await guard();
-  if (err) return err;
+  if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
-    const { id, ...patch } = await req.json() as { id?: string; [k: string]: unknown };
-    if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+    const { plan_id, updates } = await req.json() as {
+      plan_id: string;
+      updates: { feature_id: string; is_included: boolean; override_text?: string | null }[];
+    };
     const sb = getServerClient();
-    const { data, error } = await sb.from('pricing_features').update(patch).eq('id', id).select().single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json({ feature: data });
-  } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    for (const u of updates) {
+      await sb.from('plan_feature_access').upsert({
+        plan_id,
+        feature_id: u.feature_id,
+        is_included: u.is_included,
+        override_text: u.override_text ?? null,
+      }, { onConflict: 'plan_id,feature_id' });
+    }
+    return NextResponse.json({ ok: true });
+  } catch {
+    return NextResponse.json({ error: 'Failed to update features' }, { status: 500 });
   }
-}
-
-export async function DELETE(req: NextRequest) {
-  const err = await guard();
-  if (err) return err;
-  const id = req.nextUrl.searchParams.get('id');
-  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
-  const sb = getServerClient();
-  const { error } = await sb.from('pricing_features').delete().eq('id', id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-  return NextResponse.json({ ok: true });
 }
