@@ -25,18 +25,32 @@ declare global {
 interface YouTubePlayerProps {
   videoId: string;
   title: string;
+  sessionId?: string;
+  studentEmail?: string;
+  studentRegId?: string;
   onReady?: () => void;
   onPlaying?: () => void;
   onPaused?: () => void;
   onEnded?: () => void;
 }
 
-export function YouTubePlayer({ videoId, title, onReady, onPlaying, onPaused, onEnded }: YouTubePlayerProps) {
+export function YouTubePlayer({ videoId, title, sessionId, studentEmail, studentRegId, onReady, onPlaying, onPaused, onEnded }: YouTubePlayerProps) {
   const playerRef = useRef<YTPlayer | null>(null);
   const containerIdRef = useRef(`yt-player-${videoId}`);
+  const reportedRef = useRef(false);
 
   useEffect(() => {
     let destroyed = false;
+
+    function reportCompletion() {
+      if (!sessionId || !studentEmail || reportedRef.current) return;
+      reportedRef.current = true;
+      fetch(`/api/training/live-sessions/${sessionId}/watched`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: studentEmail, regId: studentRegId ?? '' }),
+      }).catch(() => { reportedRef.current = false; });
+    }
 
     function initPlayer() {
       if (destroyed) return;
@@ -53,7 +67,10 @@ export function YouTubePlayer({ videoId, title, onReady, onPlaying, onPaused, on
             const PS = window.YT.PlayerState;
             if (event.data === PS.PLAYING) onPlaying?.();
             if (event.data === PS.PAUSED) onPaused?.();
-            if (event.data === PS.ENDED) onEnded?.();
+            if (event.data === PS.ENDED) {
+              onEnded?.();
+              reportCompletion();
+            }
           },
         },
       });

@@ -272,7 +272,13 @@ export default function LiveSessionDetailPage() {
         {isRecorded && session.youtube_url && (
           session.youtube_embed && ytId ? (
             <>
-              <YouTubePlayer videoId={ytId} title={session.title} />
+              <YouTubePlayer
+                videoId={ytId}
+                title={session.title}
+                sessionId={session.id}
+                studentEmail={studentSession?.email}
+                studentRegId={studentSession?.registrationId}
+              />
               <div style={{ marginTop: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
                 <span style={{ fontSize: 14, color: '#6b7280' }}>Enjoy this session?</span>
                 <SubscribeButton
