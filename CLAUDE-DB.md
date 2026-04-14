@@ -170,3 +170,4 @@
 | `062_cms_home_pacemakers.sql` | Seed PaceMakers columns section (badge, heading, description, CTA, services list) |
 | `063_founder_consolidate.sql` | Consolidate founder experience list, remove old duplicate keys |
 | `064_testimonials_linkedin.sql` | Add linkedin_url column to testimonials table (manual submissions) |
+| `065_cms_training_page.sql` | Seed Training Hub marketing page into CMS: 9 sections (hero, courses, how-it-works, why-certify, cert-verification, upcoming-sessions, testimonials, submit-testimonial CTA, bottom CTA) |
