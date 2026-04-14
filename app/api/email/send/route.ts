@@ -56,28 +56,28 @@ export async function POST(req: NextRequest) {
   try {
     switch (template) {
       case 'otpVerification':
-        result = otpVerificationTemplate(d as Parameters<typeof otpVerificationTemplate>[0]);
+        result = await otpVerificationTemplate(d as Parameters<typeof otpVerificationTemplate>[0]);
         break;
       case 'registrationConfirmation':
-        result = registrationConfirmationTemplate(d as Parameters<typeof registrationConfirmationTemplate>[0]);
+        result = await registrationConfirmationTemplate(d as Parameters<typeof registrationConfirmationTemplate>[0]);
         break;
       case 'resendRegistrationId':
-        result = resendRegistrationIdTemplate(d as Parameters<typeof resendRegistrationIdTemplate>[0]);
+        result = await resendRegistrationIdTemplate(d as Parameters<typeof resendRegistrationIdTemplate>[0]);
         break;
       case 'quizResult':
-        result = quizResultTemplate(d as Parameters<typeof quizResultTemplate>[0]);
+        result = await quizResultTemplate(d as Parameters<typeof quizResultTemplate>[0]);
         break;
       case 'certificateIssued':
-        result = certificateIssuedTemplate(d as Parameters<typeof certificateIssuedTemplate>[0]);
+        result = await certificateIssuedTemplate(d as Parameters<typeof certificateIssuedTemplate>[0]);
         break;
       case 'lockedOut':
-        result = lockedOutTemplate(d as Parameters<typeof lockedOutTemplate>[0]);
+        result = await lockedOutTemplate(d as Parameters<typeof lockedOutTemplate>[0]);
         break;
       case 'passwordReset':
-        result = passwordResetTemplate(d as Parameters<typeof passwordResetTemplate>[0]);
+        result = await passwordResetTemplate(d as Parameters<typeof passwordResetTemplate>[0]);
         break;
       case 'accountConfirmation':
-        result = accountConfirmationTemplate(d as Parameters<typeof accountConfirmationTemplate>[0]);
+        result = await accountConfirmationTemplate(d as Parameters<typeof accountConfirmationTemplate>[0]);
         break;
       default:
         return NextResponse.json({ error: `Unknown template: ${template}` }, { status: 400 });

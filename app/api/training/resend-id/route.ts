@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, notFound: true }, { status: 400 });
     }
 
-    const { subject, html, text } = resendRegistrationIdTemplate({
+    const { subject, html, text } = await resendRegistrationIdTemplate({
       registrationId: data.registration_id,
     });
     await sendEmail({ to: email, subject, html, text, from: FROM.training });

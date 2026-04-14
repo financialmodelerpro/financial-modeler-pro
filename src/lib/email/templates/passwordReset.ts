@@ -1,14 +1,14 @@
-import { baseLayout, h1, p, button, divider } from './_base';
+import { baseLayoutBranded, h1, p, button, divider } from './_base';
 
 interface PasswordResetData {
   resetUrl: string;
   expiresMinutes?: number;
 }
 
-export function passwordResetTemplate({ resetUrl, expiresMinutes = 60 }: PasswordResetData) {
+export async function passwordResetTemplate({ resetUrl, expiresMinutes = 60 }: PasswordResetData) {
   const subject = 'Reset Your Financial Modeler Pro Password';
 
-  const html = baseLayout(`
+  const html = await baseLayoutBranded(`
     ${h1('Password Reset Request')}
     ${p('We received a request to reset the password for your Financial Modeler Pro account. Click the button below to set a new password.')}
 

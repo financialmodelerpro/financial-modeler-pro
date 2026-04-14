@@ -1,4 +1,4 @@
-import { baseLayout, h1, p, button, divider } from './_base';
+import { baseLayoutBranded, h1, p, button, divider } from './_base';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://financialmodelerpro.com';
 
@@ -8,10 +8,10 @@ interface AccountConfirmationData {
   confirmUrl?: string;
 }
 
-export function accountConfirmationTemplate({ name, email, confirmUrl }: AccountConfirmationData) {
+export async function accountConfirmationTemplate({ name, email, confirmUrl }: AccountConfirmationData) {
   const subject = 'Welcome to Financial Modeler Pro — Confirm Your Account';
 
-  const html = baseLayout(`
+  const html = await baseLayoutBranded(`
     ${h1(`Welcome, ${name}!`)}
     ${p(`Your Financial Modeler Pro account has been created for <strong>${email}</strong>.`)}
     ${p('You now have access to the Modeling Hub — professional financial modeling tools built for real-world transactions.')}

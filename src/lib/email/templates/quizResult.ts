@@ -1,4 +1,4 @@
-import { baseLayout, h1, p, button, divider } from './_base';
+import { baseLayoutBranded, h1, p, button, divider } from './_base';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://financialmodelerpro.com';
 
@@ -12,7 +12,7 @@ interface QuizResultData {
   maxAttempts?: number;
 }
 
-export function quizResultTemplate({ name, sessionName, score, passMark, passed, attemptsUsed, maxAttempts }: QuizResultData) {
+export async function quizResultTemplate({ name, sessionName, score, passMark, passed, attemptsUsed, maxAttempts }: QuizResultData) {
   const subject = passed
     ? `✓ Passed: ${sessionName} — Score ${score}%`
     : `Result: ${sessionName} — Score ${score}%`;
@@ -22,7 +22,7 @@ export function quizResultTemplate({ name, sessionName, score, passMark, passed,
   const borderColor = passed ? '#2EAA4A' : '#EF4444';
   const statusLabel = passed ? 'PASSED' : 'NOT PASSED';
 
-  const html = baseLayout(`
+  const html = await baseLayoutBranded(`
     ${h1(passed ? `Well done${name ? `, ${name}` : ''}!` : `Result: ${sessionName}`)}
     ${name && !passed ? p(`Hi <strong>${name}</strong>,`) : ''}
     ${p(`Here are your results for <strong>${sessionName}</strong>:`)}

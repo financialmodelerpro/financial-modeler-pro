@@ -71,7 +71,7 @@ export async function POST(req: NextRequest) {
     // Create and send confirmation email
     const token      = await createConfirmationToken(normalEmail, 'training');
     const confirmUrl = `${LEARN_URL}/training/confirm-email?token=${token}`;
-    const { subject, html } = confirmEmailTemplate({ confirmUrl, hub: 'training' });
+    const { subject, html } = await confirmEmailTemplate({ confirmUrl, hub: 'training' });
 
     await sendEmail({ to: normalEmail, subject, html, from: FROM.training });
 

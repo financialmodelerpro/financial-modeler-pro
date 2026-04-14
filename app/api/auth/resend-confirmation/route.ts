@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     if (user && !user.email_confirmed) {
       const token      = await createConfirmationToken(email, 'modeling');
       const confirmUrl = `${APP_URL}/modeling/confirm-email?token=${token}`;
-      const { subject, html } = confirmEmailTemplate({ confirmUrl, hub: 'modeling' });
+      const { subject, html } = await confirmEmailTemplate({ confirmUrl, hub: 'modeling' });
       await sendEmail({ to: email, subject, html, from: FROM.noreply }).catch(() => null);
     }
 

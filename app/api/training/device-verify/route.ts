@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
         used: false,
       });
 
-      const { subject, html } = deviceVerificationTemplate({ code: otp });
+      const { subject, html } = await deviceVerificationTemplate({ code: otp });
       await sendEmail({ to: email, subject, html, from: FROM.noreply });
 
       return NextResponse.json({ success: true });

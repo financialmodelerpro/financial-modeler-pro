@@ -1,4 +1,4 @@
-import { baseLayout, h1, p, button, divider } from './_base';
+import { baseLayoutBranded, h1, p, button, divider } from './_base';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
@@ -7,10 +7,10 @@ interface ResendRegistrationIdData {
   registrationId: string;
 }
 
-export function resendRegistrationIdTemplate({ name, registrationId }: ResendRegistrationIdData) {
+export async function resendRegistrationIdTemplate({ name, registrationId }: ResendRegistrationIdData) {
   const subject = 'Your Financial Modeler Pro Registration ID';
 
-  const html = baseLayout(`
+  const html = await baseLayoutBranded(`
     ${h1('Your Registration ID')}
     ${name ? p(`Hi <strong>${name}</strong>,`) : ''}
     ${p('You requested your Registration ID for Financial Modeler Pro Training. Here it is:')}

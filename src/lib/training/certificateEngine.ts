@@ -479,7 +479,7 @@ export async function processPendingCertificates(): Promise<{
 
       // 6. Send certificate email
       try {
-        const { subject, html } = certificateIssuedTemplate({
+        const { subject, html } = await certificateIssuedTemplate({
           studentName:     cert.studentName,
           courseName:      cert.courseName,
           certPdfUrl,

@@ -1,17 +1,17 @@
-import { baseLayout, h1, p, button, divider } from './_base';
+import { baseLayoutBranded, h1, p, button, divider } from './_base';
 
 interface ConfirmEmailOptions {
   confirmUrl: string;
   hub: 'training' | 'modeling';
 }
 
-export function confirmEmailTemplate({ confirmUrl, hub }: ConfirmEmailOptions): {
+export async function confirmEmailTemplate({ confirmUrl, hub }: ConfirmEmailOptions): Promise<{
   subject: string;
   html: string;
-} {
+}> {
   const hubName = hub === 'training' ? 'Training Hub' : 'Modeling Hub';
 
-  const html = baseLayout(`
+  const html = await baseLayoutBranded(`
     ${h1('Confirm Your Email Address')}
     ${p(`Thank you for registering with the Financial Modeler Pro <strong>${hubName}</strong>.`)}
     ${p('Please click the button below to confirm your email address and activate your account.')}

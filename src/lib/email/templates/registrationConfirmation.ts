@@ -1,4 +1,4 @@
-import { baseLayout, h1, p, button, divider } from './_base';
+import { baseLayoutBranded, h1, p, button, divider } from './_base';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
@@ -8,10 +8,10 @@ interface RegistrationConfirmationData {
   courseName: string;
 }
 
-export function registrationConfirmationTemplate({ name, registrationId, courseName }: RegistrationConfirmationData) {
+export async function registrationConfirmationTemplate({ name, registrationId, courseName }: RegistrationConfirmationData) {
   const subject = `Welcome to ${courseName} — Your Registration is Confirmed`;
 
-  const html = baseLayout(`
+  const html = await baseLayoutBranded(`
     ${h1('Registration Confirmed!')}
     ${p(`Hi <strong>${name}</strong>,`)}
     ${p(`Welcome to <strong>Financial Modeler Pro Training</strong>! You are now enrolled in <strong>${courseName}</strong>. Save your Registration ID — you will need it to sign in.`)}

@@ -36,14 +36,14 @@ async function run() {
     {
       label: '[training@] OTP Verification',
       fn: async () => {
-        const t = otpVerificationTemplate({ code: '847291', expiresMinutes: 10 });
+        const t = await otpVerificationTemplate({ code: '847291', expiresMinutes: 10 });
         return sendEmail({ to: TEST_TO, ...t, from: FROM.training });
       },
     },
     {
       label: '[training@] Registration Confirmation',
       fn: async () => {
-        const t = registrationConfirmationTemplate({
+        const t = await registrationConfirmationTemplate({
           name: 'Test User',
           registrationId: 'FMP-2026-TEST',
           courseName: '3-Statement Financial Modeling',
@@ -54,14 +54,14 @@ async function run() {
     {
       label: '[training@] Resend Registration ID',
       fn: async () => {
-        const t = resendRegistrationIdTemplate({ name: 'Test User', registrationId: 'FMP-2026-TEST' });
+        const t = await resendRegistrationIdTemplate({ name: 'Test User', registrationId: 'FMP-2026-TEST' });
         return sendEmail({ to: TEST_TO, ...t, from: FROM.training });
       },
     },
     {
       label: '[training@] Quiz Result — Passed',
       fn: async () => {
-        const t = quizResultTemplate({
+        const t = await quizResultTemplate({
           name: 'Test User', sessionName: 'Session 3 — Income Statement',
           score: 85, passMark: 70, passed: true, attemptsUsed: 1, maxAttempts: 3,
         });
@@ -71,7 +71,7 @@ async function run() {
     {
       label: '[training@] Quiz Result — Failed',
       fn: async () => {
-        const t = quizResultTemplate({
+        const t = await quizResultTemplate({
           name: 'Test User', sessionName: 'Session 3 — Income Statement',
           score: 55, passMark: 70, passed: false, attemptsUsed: 2, maxAttempts: 3,
         });
@@ -81,7 +81,7 @@ async function run() {
     {
       label: '[training@] Certificate Issued',
       fn: async () => {
-        const t = certificateIssuedTemplate({
+        const t = await certificateIssuedTemplate({
           studentName: 'Test User',
           courseName: '3-Statement Financial Modeling',
           verificationUrl: 'https://financialmodelerpro.com/verify/test-uuid',
@@ -92,7 +92,7 @@ async function run() {
     {
       label: '[training@] Locked Out',
       fn: async () => {
-        const t = lockedOutTemplate({
+        const t = await lockedOutTemplate({
           name: 'Test User', sessionName: 'Final Exam',
           attemptsUsed: 3, maxAttempts: 3,
           reason: 'Maximum attempts reached.',
@@ -103,7 +103,7 @@ async function run() {
     {
       label: '[no-reply@] Password Reset',
       fn: async () => {
-        const t = passwordResetTemplate({
+        const t = await passwordResetTemplate({
           resetUrl: 'https://financialmodelerpro.com/reset-password?token=test-token-123',
           expiresMinutes: 60,
         });
@@ -113,7 +113,7 @@ async function run() {
     {
       label: '[no-reply@] Account Confirmation',
       fn: async () => {
-        const t = accountConfirmationTemplate({
+        const t = await accountConfirmationTemplate({
           name: 'Test User',
           email: TEST_TO,
           confirmUrl: 'https://financialmodelerpro.com/confirm-email?token=test-token-456',

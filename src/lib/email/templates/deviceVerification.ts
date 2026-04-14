@@ -1,15 +1,15 @@
-import { baseLayout, h1, p, divider } from './_base';
+import { baseLayoutBranded, h1, p, divider } from './_base';
 
 interface DeviceVerificationOptions {
   code: string;
   expiryMinutes?: number;
 }
 
-export function deviceVerificationTemplate({ code, expiryMinutes = 10 }: DeviceVerificationOptions): {
+export async function deviceVerificationTemplate({ code, expiryMinutes = 10 }: DeviceVerificationOptions): Promise<{
   subject: string;
   html: string;
-} {
-  const html = baseLayout(`
+}> {
+  const html = await baseLayoutBranded(`
     ${h1('New Device Sign-In')}
     ${p('We noticed a sign-in attempt from a new or unrecognised device. Enter the code below to verify it\'s you.')}
     <div style="text-align:center;margin:28px 0;">

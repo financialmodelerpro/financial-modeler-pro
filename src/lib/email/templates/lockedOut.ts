@@ -1,4 +1,4 @@
-import { baseLayout, h1, p, divider } from './_base';
+import { baseLayoutBranded, h1, p, divider } from './_base';
 
 const SUPPORT_EMAIL = process.env.EMAIL_FROM_SUPPORT ?? 'support@financialmodelerpro.com';
 
@@ -10,10 +10,10 @@ interface LockedOutData {
   maxAttempts?: number;
 }
 
-export function lockedOutTemplate({ name, sessionName, reason, attemptsUsed, maxAttempts }: LockedOutData) {
+export async function lockedOutTemplate({ name, sessionName, reason, attemptsUsed, maxAttempts }: LockedOutData) {
   const subject = `Access Restricted — ${sessionName}`;
 
-  const html = baseLayout(`
+  const html = await baseLayoutBranded(`
     ${h1('Session Access Restricted')}
     ${name ? p(`Hi <strong>${name}</strong>,`) : ''}
     ${p(`Your access to <strong>${sessionName}</strong> has been temporarily restricted.`)}

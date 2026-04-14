@@ -1,4 +1,4 @@
-import { baseLayout, h1, p, button, divider } from './_base';
+import { baseLayoutBranded, h1, p, button, divider } from './_base';
 
 interface CertificateIssuedData {
   studentName:     string;
@@ -14,7 +14,7 @@ interface CertificateIssuedData {
   certifierUrl?:   string;
 }
 
-export function certificateIssuedTemplate(data: CertificateIssuedData) {
+export async function certificateIssuedTemplate(data: CertificateIssuedData) {
   const name      = data.studentName || data.name || 'Student';
   const course    = data.courseName;
   const certUrl   = data.certPdfUrl ?? data.certificateUrl ?? data.certifierUrl ?? '';
@@ -27,7 +27,7 @@ export function certificateIssuedTemplate(data: CertificateIssuedData) {
 
   const subject = `Congratulations! Your ${course} Certificate is Ready`;
 
-  const html = baseLayout(`
+  const html = await baseLayoutBranded(`
     <div style="text-align:center;margin-bottom:24px;">
       <div style="font-size:48px;">🏆</div>
       <div style="font-size:13px;font-weight:700;color:#C9A84C;text-transform:uppercase;letter-spacing:1px;margin-top:8px;">Certificate Issued</div>

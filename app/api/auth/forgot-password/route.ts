@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      const { subject, html, text } = passwordResetTemplate({ resetUrl, expiresMinutes: TOKEN_TTL_MINUTES });
+      const { subject, html, text } = await passwordResetTemplate({ resetUrl, expiresMinutes: TOKEN_TTL_MINUTES });
       await sendEmail({ to: email, subject, html, text, from: FROM.noreply });
     } catch (err) {
       console.error('[forgot-password] Email send failed:', err);

@@ -1,14 +1,14 @@
-import { baseLayout, h1, p, divider } from './_base';
+import { baseLayoutBranded, h1, p, divider } from './_base';
 
 interface OtpVerificationData {
   code: string;
   expiresMinutes?: number;
 }
 
-export function otpVerificationTemplate({ code, expiresMinutes = 10 }: OtpVerificationData) {
+export async function otpVerificationTemplate({ code, expiresMinutes = 10 }: OtpVerificationData) {
   const subject = 'Your Financial Modeler Pro Verification Code';
 
-  const html = baseLayout(`
+  const html = await baseLayoutBranded(`
     ${h1('Email Verification Code')}
     ${p('Use the code below to verify your email address. This code expires in <strong>' + expiresMinutes + ' minutes</strong>.')}
 
