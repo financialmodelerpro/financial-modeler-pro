@@ -74,9 +74,10 @@
 | Table | Purpose |
 |-------|---------|
 | `live_playlists` | Session grouping: name, description, thumbnail, display_order, is_published |
-| `live_sessions` | Sessions: title, description, youtube_url, youtube_embed, live_url, session_type, scheduled_datetime, timezone, category, playlist_id, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, instructor_title, tags[], is_featured, live_password, registration_url, notification/reminder tracking |
+| `live_sessions` | Sessions: title, description, youtube_url, youtube_embed, show_like_button, live_url, session_type, scheduled_datetime, timezone, category, playlist_id, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, instructor_title, tags[], is_featured, live_password, registration_url, notification/reminder tracking |
 | `session_registrations` | Student RSVP: session_id, student_reg_id, student_name, student_email, registered_at, attended |
-| `session_watch_history` | Recording watch tracking: session_id, student_email, student_reg_id, watched_at, points_awarded (50); UNIQUE(session_id, student_email) |
+| `session_watch_history` | Recording watch tracking: session_id, student_email, student_reg_id, watched_at, points_awarded (50), status (default 'completed'), watch_percentage (default 100); UNIQUE(session_id, student_email) |
+| `youtube_comments_cache` | Cached YouTube comments: video_id (UNIQUE), comments (JSONB), fetched_at, comment_count; 24h TTL |
 | `course_attachments` | Reused for session files with tab_key='LIVE_'+session_id |
 
 ### Dynamic CMS
@@ -187,3 +188,9 @@
 | `076_pricing_restructure.sql` | Create platform_pricing + coupon_codes tables, seed 4 Real Estate plans + LAUNCH20 coupon |
 | `077_pricing_platform_features.sql` | Create platform_features + plan_feature_access tables, seed 16 RE features + access rows, update plan prices |
 | `078_articles_newsletter.sql` | Create newsletter_subscribers table |
+| `079_training_sessions_hero.sql` | Update training-sessions hero with full CMS content (heading, subtitle, badge, CTAs) |
+| `080_header_settings.sql` | Seed header_settings into cms_content (logo, brand name, tagline, icon, header sizing) |
+| `081_tagline_richtext.sql` | No schema change — tagline stored as HTML in cms_content, favicon moved to root layout metadata |
+| `082_watch_progress_status.sql` | Add status (TEXT, default 'completed') and watch_percentage (INTEGER, default 100) to session_watch_history |
+| `083_youtube_comments_cache.sql` | Create youtube_comments_cache table (video_id UNIQUE, comments JSONB, fetched_at, comment_count) |
+| `084_show_like_button.sql` | Add show_like_button (BOOLEAN, default true) to live_sessions |

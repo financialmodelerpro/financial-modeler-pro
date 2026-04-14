@@ -18,7 +18,7 @@
 | **Training Hub — Certificate System** | ✅ Complete | Internal pdf-lib PDF gen, sharp badge overlay, Supabase storage, daily cron + manual Generate Now |
 | **Training Hub — Transcript** | ✅ Complete | Token-gated HTML + PDF, QR code, Certificate ID, CMS-driven, ASCII-only |
 | **Training Hub — Profile** | ✅ Complete | Avatar upload, name/city/country |
-| **Training Hub — Live Sessions** | ✅ Complete | Full CRUD, registration/RSVP, public pages, watch tracking, email notifications |
+| **Training Hub — Live Sessions** | ✅ Complete | Full CRUD, registration/RSVP, public pages, watch tracking, email notifications, YouTube player + subscribe banner + like button + comments |
 | **Training Hub — Course Attachments** | ✅ Complete | Per-lesson + per-course files, in-dashboard preview |
 | **Training Hub — Share Experience** | ✅ Complete | 3-tab modal (written, video, social), both hubs |
 | **Public Training Sessions** | ✅ Complete | SSR pages, public API, learn homepage preview |
@@ -36,7 +36,7 @@
 | **CMS / Dynamic Nav** | ✅ Complete | `site_pages` table, admin editable |
 | **CMS — Dynamic Page Builder** | ✅ Complete | 21 section types, drag-and-drop, SEO, per-field visibility checkboxes, per-field width/alignment controls. **Home page** Option B (053-063, 067-068). **Training page** Option B (065-066): 9 sections. **Modeling page** Option B (070): 7 sections. **Modeling platform sub-pages** Option B (071-072): per-platform CMS via `modeling-{slug}` pattern, Real Estate has 7 sections including stats bar. Other pages use SectionRenderer + `_dynamic` markers. Smart editors: SmartColumnsEditor, SmartTeamEditor, FounderEditor, PaceMakersEditor, CardsEditor (benefits[]/cards[] smart detect), ProcessStepsEditor (steps[] in timeline). Universal ParagraphsEditor on all sections with per-paragraph alignment. TextImageEditor: body field, audience cards, side+bg image always visible, paragraphs. CmsParagraphs shared renderer for Text, CTA, Hero, Cards, List, TextImage sections. Admin modules page shows "Content Ready ✓" / "Setup Required" per platform with page builder links |
 | **CMS — Book a Meeting Page** | ✅ Complete | `/book-a-meeting` — professional redirect page with founder photo, title, qualifications, "What to expect" checklist, booking calendar button (opens new tab). All text editable from FounderEditor. Booking URL from `page_sections` team content |
-| **Email System** | ✅ Complete | Resend, 11 templates + CMS-controlled branding (logo, signature, footer, primary color via email_branding table) |
+| **Email System** | ✅ Complete | Resend, 11 templates all using `baseLayoutBranded()` (async, DB-driven logo/signature/footer/color via email_branding table). No personal names in signatures |
 | **Live Session Email Automation** | ✅ Complete | Auto-announcement on publish (or manual), 24h + 1h reminders (cron daily 6AM UTC — Hobby plan limit), recording-available email, 4 CMS-editable templates with placeholders, test send, admin Email Settings page |
 | **Apps Script Integration** | ✅ Complete | Register student, fetch registration ID, attendance |
 | **REFM Module 1 — Project Setup** | ✅ Complete | Timeline, Land & Area, Dev Costs, Financing |
@@ -49,6 +49,9 @@
 | **Modeling Hub — Platform Sub-pages CMS** | ✅ Complete | CMS-editable via `modeling-{slug}` pattern, Real Estate fully seeded (071-072), other platforms auto-setup from admin |
 | **CMS — Universal Paragraphs** | ✅ Complete | ParagraphsEditor on every section type, per-paragraph alignment (L/C/R/J), CmsParagraphs shared renderer, backward-compat string[] + {text,align}[] |
 | **CMS — LinkedIn on Testimonials** | ✅ Complete | Blue LinkedIn button with SVG icon on training testimonial cards |
+| **YouTube Player + Subscribe** | ✅ Complete | YT IFrame API player (replaces raw iframe), styled subscribe banner, like button (admin-toggleable via show_like_button), watch completion tracking (50 pts) |
+| **YouTube Comments Cache** | ✅ Complete | Server-side proxy fetches comments via YouTube Data API v3, caches in youtube_comments_cache table (24h TTL), empty state shows "Be the first to comment" CTA |
+| **Watch Progress Indicators** | ✅ Complete | Green "Watched" badge on live session cards, watch-history API, session_watch_history with status + watch_percentage columns |
 | **BVM / FPA / other platforms** | ❌ Not Started | Config defined, no content |
 
 ---

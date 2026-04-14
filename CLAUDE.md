@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-15**
+**Last updated: 2026-04-15** (docs updated session end)
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md) — Database tables, storage buckets, migrations log
@@ -103,6 +103,7 @@
 | **Google Apps Script** | Training registration + attendance source of truth | URL in `training_settings` table |
 | **hCaptcha** | Spam protection on signup forms (both hubs) | `HCAPTCHA_SECRET_KEY`, `NEXT_PUBLIC_HCAPTCHA_SITE_KEY` |
 | **Anthropic Claude API** | AI market research + contextual help agents | `ANTHROPIC_API_KEY` |
+| **YouTube Data API v3** | Fetch video comments (cached 24h in DB) | `YOUTUBE_API_KEY` |
 | **Vercel** | Hosting + edge middleware | Auto-deploy on `main` push |
 
 ---
@@ -198,6 +199,8 @@ Use `/signin`, `/register`, `/forgot` for all training/modeling auth links.
 | `HCAPTCHA_SECRET_KEY` | hCaptcha server-side secret |
 | `NEXT_PUBLIC_HCAPTCHA_SITE_KEY` | hCaptcha client-side site key |
 | `CRON_SECRET` | Bearer token for Vercel cron job auth (`/api/cron/certificates`) |
+| `YOUTUBE_API_KEY` | YouTube Data API v3 key (server-only, for comments fetch) |
+| `NEXT_PUBLIC_YOUTUBE_CHANNEL_ID` | YouTube channel ID for subscribe button (client-safe) |
 
 ### Scripts
 ```bash
@@ -276,6 +279,22 @@ All three marketing pages use **Option B**: each section fetched from `page_sect
 
 ### sheets.ts
 - `normalizeProgressObject()` handles both bestScore/score field names and passed/status detection with score >= 70 fallback
+
+### Email Templates — Branding System
+- All 11 hardcoded email templates use `baseLayoutBranded()` from `_base.ts` (async, fetches `email_branding` table)
+- `baseLayoutBranded()` provides: dynamic logo (with text fallback), `signature_html`, `footer_text`, `primary_color`
+- Legacy `baseLayout()` still exists in `_base.ts` but is no longer used by any template
+- `liveSessionNotification.ts` has its own `emailShell()` that also fetches `getEmailBranding()` directly
+- All template functions are async — callers must `await` them
+- No personal names in any email template signatures — company name only
+
+### YouTube Integration (Live Sessions)
+- **YouTubePlayer**: `src/components/training/YouTubePlayer.tsx` — YT IFrame API, tracks completion via `/api/training/live-sessions/[id]/watched`
+- **SubscribeButton**: `src/components/training/SubscribeButton.tsx` — styled dark banner with Google `g-ytsubscribe` widget
+- **LikeButton**: `src/components/training/LikeButton.tsx` — links to YouTube for likes
+- **YouTubeComments**: `src/components/training/YouTubeComments.tsx` — fetches from `/api/training/youtube-comments` (24h DB cache)
+- **Admin toggle**: `show_like_button` on `live_sessions` table (default true), toggled in admin session edit form
+- **Watch progress**: `session_watch_history` table, 50 points on first completion, badges on live sessions listing page
 
 ### `/api/branding`
 - GET is public (no auth) — PATCH requires admin

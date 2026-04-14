@@ -180,7 +180,9 @@ app/api/training/
 ├── live-sessions/[id]/            # GET: single session detail
 ├── live-sessions/[id]/register/   # POST/DELETE/GET: register/cancel/status
 ├── live-sessions/[id]/watched/    # POST: record watch, 50 points
-└── live-sessions/registration-status-batch/ # POST: batch status
+├── live-sessions/registration-status-batch/ # POST: batch status
+├── watch-history/                 # GET: student watch history (session_watch_history rows)
+└── youtube-comments/              # GET: cached YouTube comments (24h DB cache via youtube_comments_cache)
 ```
 
 ### Admin
@@ -253,7 +255,7 @@ src/components/
 │       CmsParagraphs: shared paragraph renderer supporting string[] and {text,align}[] formats
 │       TextImage: checklist items, background image with padding/position/fit/overlay controls, body field, audience cards
 ├── sessions/
-│   └── SessionCard.tsx              # Universal live session card (variant: student|public, compact mode)
+│   └── SessionCard.tsx              # Universal live session card (variant: student|public, compact mode, watched badge)
 ├── landing/
 │   ├── AdminEditBar.tsx  ArticleCard.tsx  CategoryFilter.tsx
 │   ├── CourseCard.tsx  InlineEdit.tsx  SharedFooter.tsx  VideoPlayer.tsx
@@ -273,6 +275,10 @@ src/components/
 ├── training/
 │   ├── CountdownTimer.tsx
 │   ├── TrainingShell.tsx            # Shared layout (header + sidebar + footer + mobile nav)
+│   ├── YouTubePlayer.tsx            # YT IFrame API player with watch progress tracking
+│   ├── SubscribeButton.tsx          # Styled dark banner with Google subscribe widget
+│   ├── LikeButton.tsx               # "Like on YouTube" link button
+│   ├── YouTubeComments.tsx          # Cached YouTube comments with expand/collapse
 │   └── dashboard/
 │       ├── AboutThisCourse.tsx  BvmLockedContent.tsx  CertificateImageCard.tsx
 │       ├── CourseContent.tsx  FeedbackModal.tsx  ProfileModal.tsx
@@ -291,6 +297,7 @@ src/lib/
 │   └── templates/ (_base, accountConfirmation, certificateIssued, confirmEmail,
 │       deviceVerification, lockedOut, otpVerification, passwordReset,
 │       liveSessionNotification, quizResult, registrationConfirmation, resendRegistrationId)
+│       ALL template functions are async (use baseLayoutBranded) — callers must await
 ├── modeling/real-estate/
 │   ├── export/ (excel-formula, excel-static, pdf)
 │   └── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))
