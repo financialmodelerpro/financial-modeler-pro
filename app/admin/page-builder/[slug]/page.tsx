@@ -786,7 +786,36 @@ function PaceMakersEditor({ content, onChange }: { content: Record<string, unkno
   );
 }
 
+function ContactItemsEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  const items = (content.contact_items as { type: string; icon: string; label: string; value: string; visible?: boolean }[]) ?? [];
+  const setItems = (next: typeof items) => onChange({ ...content, contact_items: next });
+  return (
+    <>
+      <div style={{ fontSize: 10, fontWeight: 800, color: '#1B4F8A', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Contact Information Items</div>
+      {items.map((item, i) => (
+        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB', opacity: item.visible === false ? 0.5 : 1 }}>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 4, alignItems: 'end' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', flexShrink: 0 }}>
+              <input type="checkbox" checked={item.visible !== false} onChange={e => { const n = [...items]; n[i] = { ...n[i], visible: e.target.checked }; setItems(n); }} style={{ width: 14, height: 14 }} />
+            </label>
+            <div style={{ width: 50 }}><label style={LS}>Icon</label><input style={IS} value={item.icon} onChange={e => { const n = [...items]; n[i] = { ...n[i], icon: e.target.value }; setItems(n); }} /></div>
+            <div style={{ width: 80 }}><label style={LS}>Type</label><select style={IS} value={item.type} onChange={e => { const n = [...items]; n[i] = { ...n[i], type: e.target.value }; setItems(n); }}><option value="email">Email</option><option value="phone">Phone</option><option value="location">Location</option><option value="other">Other</option></select></div>
+            <div style={{ flex: 1 }}><label style={LS}>Label</label><input style={IS} value={item.label} onChange={e => { const n = [...items]; n[i] = { ...n[i], label: e.target.value }; setItems(n); }} /></div>
+            <button onClick={() => setItems(items.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11, alignSelf: 'end' }}>X</button>
+          </div>
+          <div style={{ marginLeft: 22 }}><label style={LS}>Value</label><input style={IS} value={item.value} onChange={e => { const n = [...items]; n[i] = { ...n[i], value: e.target.value }; setItems(n); }} /></div>
+        </div>
+      ))}
+      <button onClick={() => setItems([...items, { type: 'email', icon: '📧', label: 'New Contact', value: '', visible: true }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Contact Item</button>
+      <div style={{ marginTop: 12, padding: 10, background: '#F0F4FF', borderRadius: 8, border: '1px solid #C7D2FE', fontSize: 11, color: '#4F46E5' }}>
+        Contact form and Response Time box are auto-generated. Book a Meeting card appears when booking URL is set in Founder editor.
+      </div>
+    </>
+  );
+}
+
 function SmartColumnsEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
+  if (Array.isArray(content.contact_items) || content._dynamic === 'contact_body') return <ContactItemsEditor content={content} onChange={onChange} />;
   const cols = content.columns as Record<string, unknown>[] | undefined;
   const isPlatform = cols?.[0] && (cols[0].id === 'modeling' || Array.isArray(cols[0].features));
   if (isPlatform) return <TwoPlatformsEditor content={content} onChange={onChange} />;
