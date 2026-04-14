@@ -174,3 +174,4 @@
 | `066_training_page_content.sql` | Full verbatim content for all training sections, remove hero login hint, normalize CTA field names |
 | `067_reset_founder.sql` | Delete and reseed founder (team) section with correct field names and full verbatim content |
 | `068_merge_credentials.sql` | Remove experience[] field — credentials[] is now single source of truth for both home card and about page |
+| `070_cms_modeling_page.sql` | Seed Modeling Hub marketing page into CMS: 7 sections (hero, audience, platforms grid, why-modeling, testimonials, submit-testimonial CTA, bottom CTA) |
