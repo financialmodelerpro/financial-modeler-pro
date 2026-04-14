@@ -16,6 +16,7 @@ const NEXT_LABEL:  Record<string, string>            = { live: 'Set Coming Soon'
 export default function AdminModulesPage() {
   const [modules,    setModules]    = useState<Module[]>([]);
   const [assetTypes, setAssetTypes] = useState<AssetType[]>([]);
+  const [cmsReady,   setCmsReady]   = useState<Set<string>>(new Set());
   const [loadingM,   setLoadingM]   = useState(true);
   const [loadingA,   setLoadingA]   = useState(true);
   const [togglingM,  setTogglingM]  = useState<string | null>(null);
@@ -34,6 +35,10 @@ export default function AdminModulesPage() {
       .then(r => r.json())
       .then(j => { setAssetTypes(j.assetTypes ?? []); setLoadingA(false); })
       .catch(() => setLoadingA(false));
+    fetch('/api/admin/modules/cms-status')
+      .then(r => r.json())
+      .then(j => { setCmsReady(new Set((j.slugs as string[]) ?? [])); })
+      .catch(() => {});
   }, []);
 
   function showToast(msg: string, type: 'success' | 'error' = 'success') {
@@ -127,7 +132,7 @@ export default function AdminModulesPage() {
         ) : (
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8F0FB', overflow: 'hidden', marginBottom: 48 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <THead cols={['#', 'Icon', 'Platform Name & Description', 'Status', 'Actions']} />
+              <THead cols={['#', 'Icon', 'Platform Name & Description', 'Status', 'Page', 'Actions']} />
               <tbody>
                 {modules.map((mod, i) => {
                   const cfg = STATUS_CFG[mod.status];
@@ -143,6 +148,13 @@ export default function AdminModulesPage() {
                         </td>
                         <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
                           <span style={{ fontSize: 11, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: cfg.bg, color: cfg.color }}>{cfg.label}</span>
+                        </td>
+                        <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
+                          {cmsReady.has(mod.slug) ? (
+                            <a href={`/admin/page-builder/modeling-${mod.slug}`} style={{ fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: '#E8F7EC', color: '#1A7A30', textDecoration: 'none' }}>Content Ready ✓</a>
+                          ) : (
+                            <a href={`/admin/page-builder/modeling-${mod.slug}`} style={{ fontSize: 10, fontWeight: 700, padding: '4px 10px', borderRadius: 20, background: '#FEF3C7', color: '#92400E', textDecoration: 'none' }}>Setup Required</a>
+                          )}
                         </td>
                         <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>
                           <div style={{ display: 'flex', gap: 8 }}>

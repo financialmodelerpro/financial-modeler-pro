@@ -1,12 +1,15 @@
+// v-cms-platform-071
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { PLATFORMS, getPlatform } from '@/src/config/platforms';
 import type { PlatformModule } from '@/src/config/platforms';
-import { getModules } from '@/src/lib/shared/cms';
+import { getModules, getAllPageSections } from '@/src/lib/shared/cms';
 
-export const revalidate = 60;
+export const revalidate = 0;
+
+const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
 
 // ── Static params ──────────────────────────────────────────────────────────
 
@@ -73,159 +76,221 @@ export default async function PlatformDetailPage({
   if (!dbEntry) notFound();
 
   // DB overrides name/description/icon/status; static config provides colors + detail content
-  const displayName   = dbEntry.name        || platform.name;
-  const displayDesc   = dbEntry.description || platform.description;
+  const displayName = dbEntry.name || platform.name;
+  const displayDesc = dbEntry.description || platform.description;
   const isLive = (dbEntry.status as string) === 'live';
 
-  // ── LIVE platform layout ────────────────────────────────────────────────
+  // ── CMS sections for this platform ─────────────────────────────────────
+  const cmsSections = await getAllPageSections(`modeling-${slug}`);
+
+  const findSection = (type: string, dynamic?: string) =>
+    cmsSections.find(s => {
+      if (s.section_type !== type) return false;
+      if (dynamic) return (s.content as Record<string, unknown>)?._dynamic === dynamic;
+      return !(s.content as Record<string, unknown>)?._dynamic;
+    });
+
+  const findSectionByOrder = (order: number) =>
+    cmsSections.find(s => s.display_order === order);
+
+  const fc = (raw: ReturnType<typeof findSection>) =>
+    raw?.visible !== false ? raw?.content as Record<string, unknown> | undefined : undefined;
+  const hidden = (raw: ReturnType<typeof findSection>) => raw?.visible === false;
+
+  // ── LIVE platform layout ──────────────────────────────────────────────
   if (isLive) {
+    const heroRaw    = findSection('hero');
+    const textRaw    = findSection('text');
+    const whoRaw     = findSectionByOrder(3);
+    const whatRaw    = findSectionByOrder(4);
+    const moduleRaw  = findSection('embed', 'platform_modules');
+    const ctaRaw     = findSection('cta');
+
+    const h = fc(heroRaw);
+    const heroHeadline  = (h?.headline as string)           || displayName;
+    const heroSubtitle  = (h?.subtitle as string)           || platform.tagline;
+    const heroBadge     = (h?.badge as string)              || platform.shortName;
+    const heroStatusBdg = (h?.status_badge as string)       || '✓ LIVE — Available Now';
+    const heroCta1Text  = (h?.cta_primary_text as string)   || 'Launch Platform →';
+    const heroCta1Url   = (h?.cta_primary_url as string)    || '/signin';
+    const heroCta2Text  = (h?.cta_secondary_text as string) || '← Back to Modeling Hub';
+    const heroCta2Url   = (h?.cta_secondary_url as string)  || '/modeling';
+
+    const tc = fc(textRaw);
+    const whatCoversHead = (tc?.heading as string) || 'What This Platform Covers';
+    const whatCoversBody = (tc?.body as string)    || platform.longDescription;
+
+    const wc = fc(whoRaw);
+    const whoHead  = (wc?.heading as string) || 'Who Is It For';
+    const whoItems = wc?.items
+      ? (wc.items as { icon?: string; title: string; description?: string }[]).map(i => i.title)
+      : platform.whoIsItFor;
+
+    const gc = fc(whatRaw);
+    const getHead  = (gc?.heading as string) || 'What You Get';
+    const getItems = gc?.items
+      ? (gc.items as { icon?: string; title: string; description?: string }[]).map(i => i.title)
+      : platform.whatYouGet;
+
+    const mc = fc(moduleRaw);
+    const moduleGuideHead = (mc?.heading as string)    || 'Step-by-Step Module Guide';
+    const moduleGuideSub  = (mc?.subheading as string) || 'Build your model module by module — each unlocks when you complete the previous step.';
+
+    const cc = fc(ctaRaw);
+    const ctaHead    = (cc?.heading as string)           || 'Ready to build your model?';
+    const ctaDesc    = (cc?.description as string)       || 'Start with Module 1 — free, structured, and ready to use right now.';
+    const ctaText    = (cc?.cta_text as string)          || 'Launch Platform Free →';
+    const ctaUrl     = (cc?.cta_url as string)           || '/register';
+
     return (
       <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
         <NavbarServer />
         <div style={{ height: 64 }} />
 
         {/* ── Hero ─────────────────────────────────────────────────────────── */}
-        <section style={{
-          background: `linear-gradient(135deg, ${platform.color}EE 0%, ${platform.color} 100%)`,
-          padding: 'clamp(48px,7vw,88px) 40px clamp(56px,8vw,96px)',
-          color: '#fff',
-        }}>
-          <div style={{ maxWidth: 1000, margin: '0 auto' }}>
-            {/* Breadcrumb */}
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Link href="/modeling" style={{ color: 'rgba(255,255,255,0.55)', textDecoration: 'none' }}>
-                Modeling Hub
-              </Link>
-              <span>→</span>
-              <span style={{ color: 'rgba(255,255,255,0.85)' }}>{displayName}</span>
-            </div>
-
-            {/* shortName badge */}
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: 7,
-              background: platform.bgColor, borderRadius: 6,
-              padding: '4px 12px', fontSize: 11, fontWeight: 800,
-              color: platform.color, letterSpacing: '0.08em',
-              textTransform: 'uppercase', marginBottom: 20,
-            }}>
-              {dbEntry.icon || platform.icon} {platform.shortName}
-            </div>
-
-            <h1 style={{
-              fontSize: 'clamp(26px,4.5vw,48px)', fontWeight: 800,
-              color: '#fff', lineHeight: 1.15, marginBottom: 16,
-              letterSpacing: '-0.02em',
-            }}>
-              {displayName}
-            </h1>
-
-            <p style={{
-              fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.75)',
-              lineHeight: 1.65, marginBottom: 28, maxWidth: 620,
-            }}>
-              {platform.tagline}
-            </p>
-
-            {/* Live status */}
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8,
-              background: 'rgba(255,255,255,0.15)', borderRadius: 6,
-              padding: '6px 14px', fontSize: 12, fontWeight: 700,
-              color: '#fff', marginBottom: 32,
-            }}>
-              ✓ LIVE — Available Now
-            </div>
-
-            {/* CTAs */}
-            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-              <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/signin`} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                background: '#fff', color: platform.color,
-                fontWeight: 700, fontSize: 15, padding: '13px 32px',
-                borderRadius: 8, textDecoration: 'none',
-                boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
-              }}>
-                Launch Platform →
-              </a>
-              <Link href="/modeling" style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                background: 'transparent', color: '#fff',
-                fontWeight: 700, fontSize: 15, padding: '13px 32px',
-                borderRadius: 8, textDecoration: 'none',
-                border: '2px solid rgba(255,255,255,0.4)',
-              }}>
-                ← Back to Modeling Hub
-              </Link>
-            </div>
-          </div>
-        </section>
-
-        {/* ── What It Covers ───────────────────────────────────────────────── */}
-        <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
-          <div style={{ maxWidth: 1000, margin: '0 auto' }}>
-            <h2 style={{ fontSize: 'clamp(20px,3vw,30px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 20 }}>
-              What This Platform Covers
-            </h2>
-
-            <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.8, marginBottom: 40, maxWidth: 760 }}>
-              {platform.longDescription}
-            </p>
-
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 40 }}>
-              {/* Who Is It For */}
-              <div>
-                <h3 style={{ fontSize: 14, fontWeight: 800, color: '#0D2E5A', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>
-                  Who Is It For
-                </h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {platform.whoIsItFor.map((who) => (
-                    <div key={who} style={{
-                      display: 'flex', alignItems: 'center', gap: 10,
-                      padding: '10px 14px', borderRadius: 8,
-                      background: platform.bgColor,
-                      border: `1px solid ${platform.color}22`,
-                    }}>
-                      <span style={{ fontSize: 14, color: platform.color, fontWeight: 700, flexShrink: 0 }}>✓</span>
-                      <span style={{ fontSize: 13, color: '#374151', fontWeight: 600 }}>{who}</span>
-                    </div>
-                  ))}
-                </div>
+        {!hidden(heroRaw) && (
+          <section style={{
+            background: `linear-gradient(135deg, ${platform.color}EE 0%, ${platform.color} 100%)`,
+            padding: 'clamp(48px,7vw,88px) 40px clamp(56px,8vw,96px)',
+            color: '#fff',
+          }}>
+            <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+              <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <Link href="/modeling" style={{ color: 'rgba(255,255,255,0.55)', textDecoration: 'none' }}>Modeling Hub</Link>
+                <span>→</span>
+                <span style={{ color: 'rgba(255,255,255,0.85)' }}>{heroHeadline}</span>
               </div>
 
-              {/* What You Get */}
-              <div>
-                <h3 style={{ fontSize: 14, fontWeight: 800, color: '#0D2E5A', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>
-                  What You Get
-                </h3>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {platform.whatYouGet.map((item) => (
-                    <div key={item} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                      <span style={{
-                        width: 20, height: 20, borderRadius: '50%',
-                        background: platform.color, color: '#fff',
-                        fontSize: 11, fontWeight: 700, flexShrink: 0,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        marginTop: 1,
-                      }}>✓</span>
-                      <span style={{ fontSize: 13.5, color: '#374151', lineHeight: 1.6 }}>{item}</span>
-                    </div>
-                  ))}
-                </div>
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 7,
+                background: platform.bgColor, borderRadius: 6,
+                padding: '4px 12px', fontSize: 11, fontWeight: 800,
+                color: platform.color, letterSpacing: '0.08em',
+                textTransform: 'uppercase', marginBottom: 20,
+              }}>
+                {dbEntry.icon || platform.icon} {heroBadge}
+              </div>
+
+              <h1 style={{
+                fontSize: 'clamp(26px,4.5vw,48px)', fontWeight: 800,
+                color: '#fff', lineHeight: 1.15, marginBottom: 16,
+                letterSpacing: '-0.02em',
+              }}>
+                {heroHeadline}
+              </h1>
+
+              <p style={{
+                fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.75)',
+                lineHeight: 1.65, marginBottom: 28, maxWidth: 620,
+              }}>
+                {heroSubtitle}
+              </p>
+
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                background: 'rgba(255,255,255,0.15)', borderRadius: 6,
+                padding: '6px 14px', fontSize: 12, fontWeight: 700,
+                color: '#fff', marginBottom: 32,
+              }}>
+                {heroStatusBdg}
+              </div>
+
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                <a href={`${APP_URL}${heroCta1Url}`} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  background: '#fff', color: platform.color,
+                  fontWeight: 700, fontSize: 15, padding: '13px 32px',
+                  borderRadius: 8, textDecoration: 'none',
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
+                }}>
+                  {heroCta1Text}
+                </a>
+                <Link href={heroCta2Url} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  background: 'transparent', color: '#fff',
+                  fontWeight: 700, fontSize: 15, padding: '13px 32px',
+                  borderRadius: 8, textDecoration: 'none',
+                  border: '2px solid rgba(255,255,255,0.4)',
+                }}>
+                  {heroCta2Text}
+                </Link>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
 
-        {/* ── Modules Roadmap ───────────────────────────────────────────────── */}
-        {platform.modules.length > 0 && (
+        {/* ── What It Covers + Who / What ──────────────────────────────────── */}
+        {!hidden(textRaw) && (
+          <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
+            <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+              <h2 style={{ fontSize: 'clamp(20px,3vw,30px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 20 }}>
+                {whatCoversHead}
+              </h2>
+
+              <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.8, marginBottom: 40, maxWidth: 760 }}>
+                {whatCoversBody}
+              </p>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 40 }}>
+                {/* Who Is It For */}
+                {!hidden(whoRaw) && (
+                  <div>
+                    <h3 style={{ fontSize: 14, fontWeight: 800, color: '#0D2E5A', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>
+                      {whoHead}
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {whoItems.map((who) => (
+                        <div key={who} style={{
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          padding: '10px 14px', borderRadius: 8,
+                          background: platform.bgColor,
+                          border: `1px solid ${platform.color}22`,
+                        }}>
+                          <span style={{ fontSize: 14, color: platform.color, fontWeight: 700, flexShrink: 0 }}>✓</span>
+                          <span style={{ fontSize: 13, color: '#374151', fontWeight: 600 }}>{who}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* What You Get */}
+                {!hidden(whatRaw) && (
+                  <div>
+                    <h3 style={{ fontSize: 14, fontWeight: 800, color: '#0D2E5A', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>
+                      {getHead}
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                      {getItems.map((item) => (
+                        <div key={item} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                          <span style={{
+                            width: 20, height: 20, borderRadius: '50%',
+                            background: platform.color, color: '#fff',
+                            fontSize: 11, fontWeight: 700, flexShrink: 0,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            marginTop: 1,
+                          }}>✓</span>
+                          <span style={{ fontSize: 13.5, color: '#374151', lineHeight: 1.6 }}>{item}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── Modules Roadmap (from config) ────────────────────────────────── */}
+        {!hidden(moduleRaw) && platform.modules.length > 0 && (
           <section style={{ background: '#F5F7FA', padding: 'clamp(48px,7vw,80px) 40px' }}>
             <div style={{ maxWidth: 1000, margin: '0 auto' }}>
               <div style={{ marginBottom: 40 }}>
                 <h2 style={{ fontSize: 'clamp(20px,3vw,30px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 8 }}>
-                  Step-by-Step Module Guide
+                  {moduleGuideHead}
                 </h2>
                 <p style={{ fontSize: 15, color: '#6B7280', maxWidth: 600 }}>
-                  Build your model module by module — each unlocks when you complete the previous step.
+                  {moduleGuideSub}
                 </p>
               </div>
 
@@ -238,7 +303,6 @@ export default async function PlatformDetailPage({
                     display: 'flex', alignItems: 'flex-start', gap: 20,
                     boxShadow: '0 1px 8px rgba(0,0,0,0.04)',
                   }}>
-                    {/* Number circle */}
                     <div style={{
                       width: 44, height: 44, borderRadius: '50%',
                       background: moduleCircleColor(mod.status),
@@ -249,7 +313,6 @@ export default async function PlatformDetailPage({
                       {mod.number}
                     </div>
 
-                    {/* Content */}
                     <div style={{ flex: 1 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 15, fontWeight: 800, color: '#0D2E5A' }}>
@@ -268,7 +331,6 @@ export default async function PlatformDetailPage({
                         {mod.description}
                       </p>
 
-                      {/* Tab pills */}
                       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 10 }}>
                         {mod.tabs.map((tab) => (
                           <span key={tab} style={{
@@ -293,32 +355,34 @@ export default async function PlatformDetailPage({
         )}
 
         {/* ── CTA ──────────────────────────────────────────────────────────── */}
-        <section style={{
-          background: platform.color,
-          padding: 'clamp(48px,7vw,80px) 40px',
-          textAlign: 'center',
-        }}>
-          <div style={{ maxWidth: 600, margin: '0 auto' }}>
-            <h2 style={{
-              fontSize: 'clamp(22px,4vw,36px)', fontWeight: 800,
-              color: '#fff', marginBottom: 12, lineHeight: 1.2,
-            }}>
-              Ready to build your model?
-            </h2>
-            <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}>
-              Start with Module 1 — free, structured, and ready to use right now.
-            </p>
-            <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/register`} style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8,
-              background: '#fff', color: platform.color,
-              fontWeight: 800, fontSize: 16, padding: '14px 40px',
-              borderRadius: 8, textDecoration: 'none',
-              boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-            }}>
-              Launch Platform Free →
-            </a>
-          </div>
-        </section>
+        {!hidden(ctaRaw) && (
+          <section style={{
+            background: platform.color,
+            padding: 'clamp(48px,7vw,80px) 40px',
+            textAlign: 'center',
+          }}>
+            <div style={{ maxWidth: 600, margin: '0 auto' }}>
+              <h2 style={{
+                fontSize: 'clamp(22px,4vw,36px)', fontWeight: 800,
+                color: '#fff', marginBottom: 12, lineHeight: 1.2,
+              }}>
+                {ctaHead}
+              </h2>
+              <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}>
+                {ctaDesc}
+              </p>
+              <a href={`${APP_URL}${ctaUrl}`} style={{
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                background: '#fff', color: platform.color,
+                fontWeight: 800, fontSize: 16, padding: '14px 40px',
+                borderRadius: 8, textDecoration: 'none',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+              }}>
+                {ctaText}
+              </a>
+            </div>
+          </section>
+        )}
 
         {/* ── Footer ───────────────────────────────────────────────────────── */}
         <footer style={{
@@ -333,7 +397,7 @@ export default async function PlatformDetailPage({
           <div style={{ display: 'flex', gap: 20 }}>
             <Link href="/" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>← Home</Link>
             <Link href="/modeling" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Modeling Hub</Link>
-            <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/signin`} style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Login</a>
+            <a href={`${APP_URL}/signin`} style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Login</a>
           </div>
         </footer>
       </div>
@@ -341,7 +405,6 @@ export default async function PlatformDetailPage({
   }
 
   // ── COMING SOON layout ──────────────────────────────────────────────────
-  // Only show live platforms that are also visible in DB
   const dbSlugSet = new Set(dbModules.map((m) => m.slug));
   const livePlatforms = PLATFORMS.filter(
     (p) => dbSlugSet.has(p.slug) && dbModules.find((m) => m.slug === p.slug)?.status === 'live'
@@ -359,16 +422,12 @@ export default async function PlatformDetailPage({
         color: '#fff',
       }}>
         <div style={{ maxWidth: 1000, margin: '0 auto' }}>
-          {/* Breadcrumb */}
           <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Link href="/modeling" style={{ color: 'rgba(255,255,255,0.55)', textDecoration: 'none' }}>
-              Modeling Hub
-            </Link>
+            <Link href="/modeling" style={{ color: 'rgba(255,255,255,0.55)', textDecoration: 'none' }}>Modeling Hub</Link>
             <span>→</span>
             <span style={{ color: 'rgba(255,255,255,0.85)' }}>{displayName}</span>
           </div>
 
-          {/* shortName badge */}
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 7,
             background: platform.bgColor, borderRadius: 6,
@@ -379,7 +438,6 @@ export default async function PlatformDetailPage({
             {dbEntry.icon || platform.icon} {platform.shortName}
           </div>
 
-          {/* Coming Soon badge */}
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 7,
             background: 'rgba(180,83,9,0.18)', border: '1px solid rgba(180,83,9,0.45)',
@@ -428,7 +486,6 @@ export default async function PlatformDetailPage({
           </p>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 40 }}>
-            {/* Who Is It For */}
             <div>
               <h3 style={{ fontSize: 14, fontWeight: 800, color: '#0D2E5A', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>
                 Who Is It For
@@ -448,7 +505,6 @@ export default async function PlatformDetailPage({
               </div>
             </div>
 
-            {/* What You Get */}
             <div>
               <h3 style={{ fontSize: 14, fontWeight: 800, color: '#0D2E5A', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>
                 What You Will Get
@@ -482,9 +538,7 @@ export default async function PlatformDetailPage({
             boxShadow: '0 2px 8px rgba(180,83,9,0.1)',
           }}>
             <span style={{ fontSize: 20 }}>🔜</span>
-            <span style={{ fontSize: 15, fontWeight: 800, color: '#B45309' }}>
-              Launching Soon
-            </span>
+            <span style={{ fontSize: 15, fontWeight: 800, color: '#B45309' }}>Launching Soon</span>
           </div>
 
           <h2 style={{ fontSize: 'clamp(18px,3vw,26px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 14 }}>
@@ -502,7 +556,7 @@ export default async function PlatformDetailPage({
             }}>
               See All Platforms →
             </Link>
-            <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/register`} style={{
+            <a href={`${APP_URL}/register`} style={{
               display: 'inline-flex', alignItems: 'center', gap: 7,
               background: 'transparent', color: '#B45309',
               fontWeight: 700, fontSize: 14, padding: '10px 26px',
@@ -533,30 +587,14 @@ export default async function PlatformDetailPage({
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                     <span style={{ fontSize: 28 }}>{p.icon}</span>
                     <div>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: p.color, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
-                        {p.shortName}
-                      </div>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: p.color, letterSpacing: '0.08em', textTransform: 'uppercase' }}>{p.shortName}</div>
                       <div style={{ fontSize: 14, fontWeight: 800, color: '#0D2E5A' }}>{p.name}</div>
                     </div>
                   </div>
-                  <p style={{ fontSize: 12.5, color: '#6B7280', lineHeight: 1.6, marginBottom: 16 }}>
-                    {p.description}
-                  </p>
+                  <p style={{ fontSize: 12.5, color: '#6B7280', lineHeight: 1.6, marginBottom: 16 }}>{p.description}</p>
                   <div style={{ display: 'flex', gap: 10 }}>
-                    <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/signin`} style={{
-                      fontSize: 12, fontWeight: 700, padding: '7px 16px',
-                      borderRadius: 6, background: p.color, color: '#fff',
-                      textDecoration: 'none',
-                    }}>
-                      Launch →
-                    </a>
-                    <Link href={`/modeling/${p.slug}`} style={{
-                      fontSize: 12, fontWeight: 700, padding: '6px 14px',
-                      borderRadius: 6, background: 'transparent', color: p.color,
-                      border: `1.5px solid ${p.color}`, textDecoration: 'none',
-                    }}>
-                      Learn More
-                    </Link>
+                    <a href={`${APP_URL}/signin`} style={{ fontSize: 12, fontWeight: 700, padding: '7px 16px', borderRadius: 6, background: p.color, color: '#fff', textDecoration: 'none' }}>Launch →</a>
+                    <Link href={`/modeling/${p.slug}`} style={{ fontSize: 12, fontWeight: 700, padding: '6px 14px', borderRadius: 6, background: 'transparent', color: p.color, border: `1.5px solid ${p.color}`, textDecoration: 'none' }}>Learn More</Link>
                   </div>
                 </div>
               ))}
@@ -578,7 +616,7 @@ export default async function PlatformDetailPage({
         <div style={{ display: 'flex', gap: 20 }}>
           <Link href="/" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>← Home</Link>
           <Link href="/modeling" style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Modeling Hub</Link>
-          <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/signin`} style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Login</a>
+          <a href={`${APP_URL}/signin`} style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textDecoration: 'none' }}>Login</a>
         </div>
       </footer>
     </div>
