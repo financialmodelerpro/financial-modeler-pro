@@ -8,6 +8,7 @@ import { FilePreviewModal } from '@/src/components/training/dashboard/FilePrevie
 import { TrainingShell } from '@/src/components/training/TrainingShell';
 import { YouTubePlayer } from '@/src/components/training/YouTubePlayer';
 import { SubscribeButton } from '@/src/components/training/SubscribeButton';
+import { YouTubeComments } from '@/src/components/training/YouTubeComments';
 
 interface Attachment { id: string; file_name: string; file_url: string; file_type: string; file_size: number }
 interface Session {
@@ -286,6 +287,9 @@ export default function LiveSessionDetailPage() {
                   layout="default"
                   count="default"
                 />
+              </div>
+              <div style={{ marginTop: 32 }}>
+                <YouTubeComments videoId={ytId} youtubeUrl={session.youtube_url} />
               </div>
             </>
           ) : (
