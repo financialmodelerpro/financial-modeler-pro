@@ -63,11 +63,35 @@ export function YouTubeComments({ videoId, youtubeUrl }: YouTubeCommentsProps) {
     );
   }
 
-  if (comments.length === 0) return null;
+  if (comments.length === 0) {
+    return (
+      <div style={{ marginTop: 24 }}>
+        <a
+          href={youtubeUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '10px 20px',
+            background: '#FF0000',
+            color: '#fff',
+            borderRadius: 6,
+            fontWeight: 600,
+            fontSize: 14,
+            textDecoration: 'none',
+          }}
+        >
+          Be the first to comment on YouTube →
+        </a>
+      </div>
+    );
+  }
 
   return (
     <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24 }}>
-      <h3 style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 16 }}>What others are saying</h3>
+      <h3 style={{ fontSize: 18, fontWeight: 700, color: '#111827', marginBottom: 16 }}>What others are saying</h3>
 
       {comments.map(c => {
         const isExpanded = expanded.has(c.id);

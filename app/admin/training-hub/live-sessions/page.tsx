@@ -46,6 +46,7 @@ interface LiveSession {
   live_password?: string;
   registration_url?: string;
   youtube_embed?: boolean;
+  show_like_button?: boolean;
   announcement_send_mode?: string;
 }
 
@@ -265,6 +266,7 @@ interface FormState {
   live_password: string;
   registration_url: string;
   youtube_embed: boolean;
+  show_like_button: boolean;
   announcement_send_mode: 'auto' | 'manual';
 }
 
@@ -273,9 +275,9 @@ const defaultForm: FormState = {
   type: 'UPCOMING', date: '', time: '', timezone: 'Asia/Riyadh',
   live_url: '', youtube_url: '', published: false,
   duration_minutes: '', max_attendees: '', difficulty_level: 'All Levels',
-  prerequisites: '', instructor_name: 'Ahmad Din', instructor_title: '', tags: [],
+  prerequisites: '', instructor_name: '', instructor_title: '', tags: [],
   is_featured: false, live_password: '', registration_url: '',
-  youtube_embed: false, announcement_send_mode: 'auto',
+  youtube_embed: false, show_like_button: true, announcement_send_mode: 'auto',
 };
 
 /* ── Component ─────────────────────────────────────────────────── */
@@ -527,13 +529,14 @@ export default function LiveSessionsPage() {
     max_attendees: s.max_attendees != null ? String(s.max_attendees) : '',
     difficulty_level: s.difficulty_level ?? 'All Levels',
     prerequisites: s.prerequisites ?? '',
-    instructor_name: s.instructor_name ?? 'Ahmad Din',
+    instructor_name: s.instructor_name ?? '',
     instructor_title: s.instructor_title ?? '',
     tags: s.tags ?? [],
     is_featured: s.is_featured ?? false,
     live_password: s.live_password ?? '',
     registration_url: s.registration_url ?? '',
     youtube_embed: s.youtube_embed ?? false,
+    show_like_button: s.show_like_button ?? true,
     announcement_send_mode: (s.announcement_send_mode === 'manual' ? 'manual' : 'auto') as 'auto' | 'manual',
   };};
 
@@ -610,6 +613,7 @@ export default function LiveSessionsPage() {
         live_password:      form.live_password,
         registration_url:   form.registration_url,
         youtube_embed:      form.youtube_embed,
+        show_like_button:   form.show_like_button,
         announcement_send_mode: form.announcement_send_mode,
       };
 
@@ -1309,6 +1313,22 @@ export default function LiveSessionsPage() {
                       <div style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Embed in Platform</div>
                       <div style={{ fontSize: 11, color: '#9CA3AF' }}>Video plays within the dashboard</div>
                     </div>
+                  </label>
+                </div>
+              )}
+
+              {/* Like Button Toggle */}
+              {form.youtube_url && form.youtube_embed && (
+                <div style={{ maxWidth: 500, marginTop: 12 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={form.show_like_button}
+                      onChange={e => setForm(f => ({ ...f, show_like_button: e.target.checked }))}
+                    />
+                    <span style={{ fontSize: 13, color: '#374151' }}>
+                      Show &quot;Like on YouTube&quot; button on session page
+                    </span>
                   </label>
                 </div>
               )}
