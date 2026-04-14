@@ -1,4 +1,4 @@
-// v-cms-training-065
+// v-cms-training-066
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
@@ -106,13 +106,10 @@ export default async function TrainingPage() {
   const heroBadge    = (h?.badge as string)    || cms(content, 'training_page', 'hero_badge',    '🎓 Free Certification Program');
   const heroHeadline = (h?.headline as string) || cms(content, 'training_page', 'hero_headline', 'Get Certified in Financial Modeling — Free');
   const heroSub      = (h?.subtitle as string) || cms(content, 'training_page', 'hero_sub',      'Professional certification backed by real practitioner training. 100% free. Always.');
-  const ctaPrimary   = (h?.cta1Text as string) || cms(content, 'training_page', 'cta_primary',   'Register Free →');
-  const ctaPriUrl    = (h?.cta1Url as string)  || '/register';
-  const ctaSecondary = (h?.cta2Text as string) || cms(content, 'training_page', 'cta_secondary', 'Login to Dashboard →');
-  const ctaSecUrl    = (h?.cta2Url as string)  || '/signin';
-  const loginHint    = (h?.login_hint as string) || 'Already registered?';
-  const loginText    = (h?.login_text as string) || 'Login →';
-  const loginUrl     = (h?.login_url as string)  || '/signin';
+  const ctaPrimary   = (h?.cta_primary_text as string) || (h?.cta1Text as string) || cms(content, 'training_page', 'cta_primary',   'Register Free →');
+  const ctaPriUrl    = (h?.cta_primary_url as string)  || (h?.cta1Url as string)  || '/register';
+  const ctaSecondary = (h?.cta_secondary_text as string) || (h?.cta2Text as string) || cms(content, 'training_page', 'cta_secondary', 'Login to Dashboard →');
+  const ctaSecUrl    = (h?.cta_secondary_url as string)  || (h?.cta2Url as string)  || '/signin';
 
   const cc = fc(coursesRaw);
   const coursesBadge   = (cc?.badge as string)   || 'Available Courses';
@@ -225,12 +222,6 @@ export default async function TrainingPage() {
               </Link>
             </div>
 
-            <p style={{ marginTop: 20, fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>
-              {loginHint}{' '}
-              <Link href={loginUrl} style={{ color: '#6EE589', textDecoration: 'none', fontWeight: 600 }}>
-                {loginText}
-              </Link>
-            </p>
           </div>
         </section>
       )}
