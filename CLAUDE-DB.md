@@ -97,6 +97,7 @@
 | `coupon_codes` | Discount codes: percentage/fixed, applicable plans/platforms, max uses, expiry |
 | `platform_features` | Per-platform features: key, text, category (modules/projects/exports/support/team), display_order |
 | `plan_feature_access` | Admin toggles: plan_id + feature_id → is_included, override_text |
+| `newsletter_subscribers` | Email subscribers: email, name, source, is_active, subscribed_at |
 
 ### Email System
 | Table | Purpose |
@@ -185,3 +186,4 @@
 | `075_contact_page_items.sql` | Add contact_items[] to contact page sections, update footer founder line |
 | `076_pricing_restructure.sql` | Create platform_pricing + coupon_codes tables, seed 4 Real Estate plans + LAUNCH20 coupon |
 | `077_pricing_platform_features.sql` | Create platform_features + plan_feature_access tables, seed 16 RE features + access rows, update plan prices |
+| `078_articles_newsletter.sql` | Create newsletter_subscribers table |
