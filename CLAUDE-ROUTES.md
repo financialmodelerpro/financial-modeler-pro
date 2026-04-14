@@ -86,7 +86,9 @@ app/training-sessions/
 ### Training Hub (`learn.financialmodelerpro.com`)
 ```
 app/training/
-├── page.tsx                     # + UpcomingSessionsPreview
+├── page.tsx                     # CMS Option B (065-066), revalidate=0
+├── CurriculumCard.tsx           # Course card component
+├── TestimonialsCarousel.tsx     # Auto-scrolling testimonials with LinkedIn buttons
 ├── UpcomingSessionsPreview.tsx  # 3-column session preview cards
 ├── [courseId]/page.tsx
 ├── [courseId]/assessment/page.tsx
@@ -109,12 +111,16 @@ app/training/
 ### Modeling Hub (`app.financialmodelerpro.com`)
 ```
 app/modeling/
-├── page.tsx                     # CTA links use APP_URL constant with fallback
-├── [slug]/page.tsx
+├── page.tsx                     # CMS Option B (070), revalidate=0
+├── ComingSoon.tsx               # Coming soon page component (shared by signin/register)
+├── [slug]/page.tsx              # CMS platform sub-pages (071-072), revalidate=0
 ├── confirm-email/page.tsx
 ├── dashboard/page.tsx
-├── register/page.tsx            # Standalone signup form
-├── signin/page.tsx              # Sign-in + signup + device OTP
+├── register/page.tsx            # Server component → RegisterForm or ComingSoon
+├── register/RegisterForm.tsx    # Client signup form (extracted)
+├── signin/page.tsx              # Server component → ComingSoonWrapper or SignInForm
+├── signin/SignInForm.tsx        # Client sign-in + signup + device OTP (extracted)
+├── signin/ComingSoonWrapper.tsx # Handles ?bypass=true for admin access
 └── submit-testimonial/page.tsx
 # NOTE: app/modeling/login/page.tsx was DELETED
 
@@ -187,7 +193,8 @@ app/api/admin/
 ├── certificate-layout/ certificates/sync/ certificates/upload-template/
 ├── certificates/settings/       # GET/POST auto_generation_enabled
 ├── certificates/generate/       # POST: trigger processPendingCertificates()
-├── contact-submissions/ content/ env-check/ founder/ media/ modules/ pages/ permissions/
+├── contact-submissions/ content/ env-check/ founder/ media/ modules/ modules/cms-status/ pages/ permissions/
+├── modeling-coming-soon/        # GET/PATCH: toggle coming soon mode
 ├── pricing/features/ + modules/ + plans/
 ├── projects/ testimonials/ training/ + [courseId]/lessons/
 ├── training-actions/ + [id]/
@@ -240,9 +247,11 @@ src/components/
 │   ├── SectionRenderer.tsx      # Maps section_type -> component
 │   ├── index.ts
 │   └── sections/ (Hero, Text, RichText, Image, TextImage, Columns, Cards, Cta, Faq, Stats, List,
-│       Testimonials, PricingTable, Video, Banner, Spacer, Embed, Team, Timeline, LogoGrid, Countdown)
+│       Testimonials, PricingTable, Video, Banner, Spacer, Embed, Team, Timeline, LogoGrid, Countdown,
+│       CmsParagraphs)
 │       All sections support per-field visibility (content.fieldName_visible !== false)
-│       TextImage: checklist items, background image with padding/position/fit/overlay controls
+│       CmsParagraphs: shared paragraph renderer supporting string[] and {text,align}[] formats
+│       TextImage: checklist items, background image with padding/position/fit/overlay controls, body field, audience cards
 ├── sessions/
 │   └── SessionCard.tsx              # Universal live session card (variant: student|public, compact mode)
 ├── landing/
@@ -287,7 +296,7 @@ src/lib/
 │   └── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))
 ├── shared/
 │   ├── audit.ts  auth.ts  captcha.ts  cms.ts (getAllPageSections, getPageSections, getTestimonialsForPage)  deviceTrust.ts
-│   ├── emailConfirmation.ts  password.ts  permissions.ts
+│   ├── emailConfirmation.ts  modelingComingSoon.ts  password.ts  permissions.ts
 │   ├── storage.ts  supabase.ts  urls.ts
 └── training/
     ├── appsScript.ts  certificateEngine.ts  certificateLayout.ts  certifier.ts(deprecated)

@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-10**
+**Last updated: 2026-04-15**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md) — Database tables, storage buckets, migrations log
@@ -230,22 +230,41 @@ npm run verify       # type-check + lint + build
 
 ## Key Architectural Notes
 
-### Home Page CMS (Option B)
-- Home page (`app/(portal)/page.tsx`) uses **Option B**: each section fetched from `page_sections` via `getAllPageSections('home')` and fed into custom hardcoded JSX (NOT SectionRenderer)
-- `getAllPageSections()` returns ALL sections including `visible=false` so the page can distinguish "hidden by admin" from "not seeded"
-- Pattern: `section.visible === false ? null : section ? <CMS render> : <hardcoded fallback>`
-- Sections migrated: hero (053), stats (054), text_image x3 (055-057), two-platforms (058), founder (059-063), pacemakers (062)
-- Page builder editors: SmartColumnsEditor (TwoPlatforms/PaceMakers/generic), SmartTeamEditor (Founder/generic)
+### CMS Option B Pages
+All three marketing pages use **Option B**: each section fetched from `page_sections` via `getAllPageSections(slug)` and fed into custom hardcoded JSX (NOT SectionRenderer). `getAllPageSections()` returns ALL sections including `visible=false`. Pattern: `section.visible === false ? null : section ? <CMS render> : <hardcoded fallback>`. All pages use `revalidate = 0` (no ISR caching).
+
+**Home page** (`app/(portal)/page.tsx`): hero (053), stats (054), text_image x3 (055-057), two-platforms (058), founder (059-063, 067-068), pacemakers (062). Home founder card shows `credentials.slice(0, 5)` max.
+
+**Training page** (`app/training/page.tsx`, migration 065-066): 9 sections — hero, courses (dynamic), how-it-works (steps), why-certify (benefits), cert-verification, upcoming-sessions (dynamic), testimonials (dynamic), submit-testimonial CTA, bottom CTA. Testimonial cards show LinkedIn button via `TestimonialsCarousel.tsx`.
+
+**Modeling page** (`app/modeling/page.tsx`, migration 070): 7 sections — hero, audience/what-is (text_image with audience[] cards), platforms grid (dynamic modules), why-modeling (benefits[]), testimonials (dynamic), submit-testimonial CTA, bottom CTA.
+
+**Modeling platform sub-pages** (`app/modeling/[slug]/page.tsx`, migration 071-072): CMS-first with config fallbacks. Slug pattern: `modeling-{platform-slug}`. Real Estate has 7 sections: hero, stats bar, what-covers (text_image), who-is-it-for (list), what-you-get (list), module guide (dynamic from config), CTA.
+
+### CMS Editors
+- SmartColumnsEditor (TwoPlatforms/PaceMakers/generic), SmartTeamEditor (Founder/generic)
+- FounderEditor (6 sections: home card, credentials, photo, buttons, full profile, booking page)
+- CardsEditor: smart detection for benefits[]/cards[], normalizes desc/description, shows description field for dynamic sections
+- TextImageEditor: body textarea, audience cards editor, side image + background image always visible, paragraphs support
+- ProcessStepsEditor: auto-detected for timeline sections with content.steps[]
+- **Universal ParagraphsEditor**: renders between ActiveEditor and StyleEditor for every section type, with per-paragraph alignment (L/C/R/J)
 - Per-field visibility: `content.fieldName_visible !== false` pattern across all section renderers
-- Per-field width/alignment: `content.fieldName_width`, `content.fieldName_align` (hero fields only)
 
 ### Founder Section Data Structure
-- `content.credentials[]` — unified list: home card shows as ✓ checklist, about page + expanded view show as numbered teal circles. Single source of truth (experience[] removed in migration 068)
+- `content.credentials[]` — unified list: home card shows as ✓ checklist (max 5 via `.slice(0, 5)`), about page + expanded view show as numbered teal circles. Single source of truth (experience[] removed in migration 068)
 - `content.long_bio` — full background story (split by `\n\n` or `\n`). About page + expanded view
 - `content.philosophy` — modeling philosophy quote
 - `content.projects[]` — { id, title, description, sector, value }
 - `content.booking_url` — Microsoft Bookings URL. `/book-a-meeting` page reads this
 - `content.booking_expectations[]` — "What to expect" list on booking page
+
+### Modeling Hub Coming Soon Mode
+- Setting: `training_settings` table, key `modeling_hub_coming_soon`, value `'true'`/`'false'`
+- Server helper: `src/lib/shared/modelingComingSoon.ts` → `isModelingComingSoon()`
+- Signin page: server component checks setting → shows `ComingSoonWrapper` (handles `?bypass=true`) or `SignInForm`
+- Register page: server component checks setting → shows `ModelingComingSoon` or `RegisterForm`
+- Admin toggle: `/admin/modules` page header, API `GET/PATCH /api/admin/modeling-coming-soon`
+- Files: `app/modeling/signin/SignInForm.tsx`, `app/modeling/signin/ComingSoonWrapper.tsx`, `app/modeling/register/RegisterForm.tsx`, `app/modeling/ComingSoon.tsx`
 
 ### certificateEngine.ts
 - PDF generation uses scaleX/scaleY (editor 1240x877 -> PDF points) and per-font ascent correction
