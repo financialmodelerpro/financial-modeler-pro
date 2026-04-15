@@ -98,69 +98,74 @@ export function CoursePlayerLayout({
     return () => window.removeEventListener('resize', check);
   }, []);
 
+  const NAVY = '#0D2E5A';
+  const GREEN = '#2EAA4A';
+
   const sidebar = (
     <div style={{
-      width: isMobile ? '100%' : videoOpen ? '15%' : 300,
-      minWidth: isMobile ? undefined : videoOpen ? 200 : 260,
+      width: isMobile ? '100%' : 240,
       flexShrink: 0,
-      background: '#ffffff',
-      borderRight: isMobile ? 'none' : '1px solid #e5e7eb',
-      borderTop: isMobile ? '1px solid #e5e7eb' : 'none',
-      overflowY: 'auto',
+      background: NAVY,
+      borderRight: isMobile ? 'none' : '1px solid rgba(255,255,255,0.08)',
+      borderTop: isMobile ? '1px solid rgba(255,255,255,0.08)' : 'none',
+      overflowY: 'auto', overflowX: 'hidden',
       ...(isMobile ? {} : { position: 'sticky' as const, top: 108, height: 'calc(100vh - 108px)' }),
     }}>
-      <div style={{ padding: 16, borderBottom: '1px solid #f3f4f6' }}>
+      <div style={{ padding: '12px 8px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
         <Link
           href={backUrl}
-          style={{ fontSize: 13, color: '#6b7280', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 6, fontWeight: 500 }}
+          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)', textDecoration: 'none', borderRadius: 6 }}
         >
           ← {backLabel}
         </Link>
       </div>
-      <div style={{ padding: '12px 16px 8px', borderBottom: '1px solid #f3f4f6' }}>
-        <h3 style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>
+      <div style={{ padding: '10px 12px 4px' }}>
+        <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)' }}>
           Sessions
-        </h3>
+        </div>
       </div>
-      {sessions.map((session, index) => (
-        <Link
-          key={session.id}
-          href={session.href}
-          style={{
-            display: 'flex', alignItems: 'flex-start', gap: 10,
-            padding: '12px 16px', textDecoration: 'none',
-            background: session.id === currentSessionId ? '#eff6ff' : 'transparent',
-            borderLeft: session.id === currentSessionId ? '3px solid #2563eb' : '3px solid transparent',
-            borderBottom: '1px solid #f9fafb',
-            transition: 'background 0.15s',
-          }}
-        >
-          <div style={{
-            width: 20, height: 20, borderRadius: '50%',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            flexShrink: 0, marginTop: 1,
-            background: session.watched ? '#2563eb' : session.id === currentSessionId ? '#dbeafe' : '#f3f4f6',
-            fontSize: 10, fontWeight: 700,
-            color: session.watched ? '#ffffff' : session.id === currentSessionId ? '#2563eb' : '#9ca3af',
-          }}>
-            {session.watched ? '✓' : index + 1}
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{
-              fontSize: 13,
-              fontWeight: session.id === currentSessionId ? 600 : 400,
-              color: session.id === currentSessionId ? '#1d4ed8' : '#374151',
-              lineHeight: 1.4, overflow: 'hidden',
-              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const,
-            }}>
-              {session.title}
-            </div>
-            {session.duration_minutes && (
-              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>{session.duration_minutes} min</div>
-            )}
-          </div>
-        </Link>
-      ))}
+      <div style={{ padding: '4px 8px' }}>
+        {sessions.map((session, index) => {
+          const active = session.id === currentSessionId;
+          return (
+            <Link
+              key={session.id}
+              href={session.href}
+              style={{
+                display: 'flex', alignItems: 'flex-start', gap: 8,
+                padding: '8px 12px', textDecoration: 'none', borderRadius: 6,
+                background: active ? '#1B4F8A' : 'transparent',
+                borderLeft: `3px solid ${active ? GREEN : 'transparent'}`,
+                marginBottom: 2, transition: 'background 0.15s',
+              }}
+            >
+              <div style={{
+                width: 18, height: 18, borderRadius: '50%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                flexShrink: 0, marginTop: 1,
+                background: session.watched ? '#2563eb' : active ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)',
+                fontSize: 9, fontWeight: 700,
+                color: session.watched ? '#fff' : active ? '#fff' : 'rgba(255,255,255,0.5)',
+              }}>
+                {session.watched ? '✓' : index + 1}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{
+                  fontSize: 12, fontWeight: active ? 700 : 600,
+                  color: active ? '#fff' : 'rgba(255,255,255,0.7)',
+                  lineHeight: 1.3, overflow: 'hidden',
+                  display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const,
+                }}>
+                  {session.title}
+                </div>
+                {session.duration_minutes && (
+                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{session.duration_minutes} min</div>
+                )}
+              </div>
+            </Link>
+          );
+        })}
+      </div>
     </div>
   );
 
@@ -227,7 +232,7 @@ export function CoursePlayerLayout({
         {!isMobile && sidebar}
 
         {/* Middle content */}
-        <div style={{ flex: videoOpen ? '0 0 60%' : 1, minWidth: 0 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           {/* Screen 1: Video NOT open — full session info */}
           {!videoOpen && (
             <div style={{ padding: '24px 32px', maxWidth: 860 }}>

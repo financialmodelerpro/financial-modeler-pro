@@ -52,6 +52,10 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
   // Live session indicators
   const [hasLiveNow, setHasLiveNow] = useState(false);
   const [upcomingCount, setUpcomingCount] = useState(0);
+  // Live sessions accordion
+  const [sessionsExpanded, setSessionsExpanded] = useState(false);
+  const [sessionsList, setSessionsList] = useState<Array<{ id: string; title: string; session_type: string; duration_minutes: number | null; scheduled_datetime: string }>>([]);
+  const [sessionsLoaded, setSessionsLoaded] = useState(false);
 
   useInactivityLogout({
     logoutUrl: '/api/training/logout',
@@ -280,9 +284,63 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
 
             {/* TRAINING SESSIONS */}
             <NavLabel text="Training Sessions" />
-            <NavItem icon={<Video size={16} />} label="Live Sessions" active={currentNav === 'live-sessions'} href="/training/live-sessions"
+            <NavItem icon={<Video size={16} />} label="Live Sessions" active={currentNav === 'live-sessions'}
               dot={hasLiveNow} dotColor="#EF4444"
-              badge={upcomingCount > 0 ? upcomingCount : undefined} badgeColor="#3B82F6" />
+              badge={upcomingCount > 0 ? upcomingCount : undefined} badgeColor="#3B82F6"
+              onClick={() => {
+                setSessionsExpanded(prev => !prev);
+                if (!sessionsLoaded) {
+                  fetch('/api/public/training-sessions?limit=30')
+                    .then(r => r.json())
+                    .then((d: { sessions?: Array<{ id: string; title: string; session_type: string; duration_minutes: number | null; scheduled_datetime: string }> }) => {
+                      setSessionsList(d.sessions ?? []);
+                      setSessionsLoaded(true);
+                    })
+                    .catch(() => {});
+                }
+              }}
+            />
+            {/* Accordion — session list */}
+            {sessionsExpanded && !sidebarCollapsed && (
+              <div style={{ padding: '0 8px 4px' }}>
+                {!sessionsLoaded && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', padding: '6px 12px' }}>Loading...</div>}
+                {sessionsLoaded && (() => {
+                  const upcoming = sessionsList.filter(s => s.session_type === 'upcoming' || s.session_type === 'live')
+                    .sort((a, b) => new Date(a.scheduled_datetime).getTime() - new Date(b.scheduled_datetime).getTime());
+                  const recorded = sessionsList.filter(s => s.session_type === 'recorded')
+                    .sort((a, b) => new Date(b.scheduled_datetime).getTime() - new Date(a.scheduled_datetime).getTime());
+                  return (
+                    <>
+                      {upcoming.length > 0 && (
+                        <>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.25)', padding: '6px 12px 2px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Upcoming</div>
+                          {upcoming.map(s => (
+                            <Link key={s.id} href={`/training/live-sessions/${s.id}`} onClick={() => setMobileSidebarOpen(false)}
+                              style={{ display: 'block', padding: '6px 12px', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.6)', textDecoration: 'none', borderRadius: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {s.title}
+                              {s.duration_minutes && <span style={{ color: 'rgba(255,255,255,0.3)', marginLeft: 6 }}>{s.duration_minutes}m</span>}
+                            </Link>
+                          ))}
+                        </>
+                      )}
+                      {recorded.length > 0 && (
+                        <>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.25)', padding: '6px 12px 2px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Recordings</div>
+                          {recorded.map(s => (
+                            <Link key={s.id} href={`/training/live-sessions/${s.id}`} onClick={() => setMobileSidebarOpen(false)}
+                              style={{ display: 'block', padding: '6px 12px', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.6)', textDecoration: 'none', borderRadius: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {s.title}
+                              {s.duration_minutes && <span style={{ color: 'rgba(255,255,255,0.3)', marginLeft: 6 }}>{s.duration_minutes}m</span>}
+                            </Link>
+                          ))}
+                        </>
+                      )}
+                      {sessionsList.length === 0 && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', padding: '6px 12px' }}>No sessions yet</div>}
+                    </>
+                  );
+                })()}
+              </div>
+            )}
 
             {/* MY ACHIEVEMENTS */}
             <NavLabel text="My Achievements" />
