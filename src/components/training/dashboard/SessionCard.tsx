@@ -35,13 +35,15 @@ export interface SessionCardProps {
   watchLocked?: boolean;
   /** Server-side timer bypass — admin toggled in course manager, stored in training_settings DB */
   timerBypassed?: boolean;
+  /** Course ID for internal watch page link */
+  courseId?: string;
 }
 
 export function SessionCard({
-  sessionTitle, maxAttempts, questionCount, passingScore,
+  sessionTitle, sessionId, maxAttempts, questionCount, passingScore,
   idx, prog, locked, ytUrl, formUrl, isFinal, passedCount, regularCount,
   tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
-  bvmLocked, watchLocked, timerBypassed,
+  bvmLocked, watchLocked, timerBypassed, courseId,
 }: SessionCardProps) {
   const [timerStatus, setTimerStatus] = useState<TimerStatus>({ locked: false, secondsRemaining: 0, started: false });
   const [notesOpen, setNotesOpen] = useState(false);
@@ -170,14 +172,21 @@ export function SessionCard({
             🔒 Watch Video
           </span>
         ) : ytUrl ? (
-          <a href={ytUrl} target="_blank" rel="noopener noreferrer"
-            onClick={() => {
-              startTimer(regId, tabKey, videoDuration);
-              setTimerStatus(getTimerStatus(regId, tabKey, videoDuration, timerBypassed));
-            }}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: '#FF0000', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
-            ▶ Watch Video
-          </a>
+          courseId ? (
+            <Link href={`/training/watch/${courseId}/${sessionId}`}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: '#FF0000', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+              ▶ Watch Video
+            </Link>
+          ) : (
+            <a href={ytUrl} target="_blank" rel="noopener noreferrer"
+              onClick={() => {
+                startTimer(regId, tabKey, videoDuration);
+                setTimerStatus(getTimerStatus(regId, tabKey, videoDuration, timerBypassed));
+              }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: '#FF0000', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+              ▶ Watch Video
+            </a>
+          )
         ) : !isFinal ? (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#F3F4F6', color: '#9CA3AF', whiteSpace: 'nowrap' }}>
             📹 Coming Soon

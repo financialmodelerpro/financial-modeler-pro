@@ -17,6 +17,8 @@ interface CourseTopBarProps {
   nextSessionHref?: string;
   isWatched?: boolean;
   onMarkComplete?: () => void;
+  assessmentUrl?: string;
+  assessmentReady?: boolean;
 }
 
 const iconBtnStyle: React.CSSProperties = {
@@ -39,6 +41,7 @@ export function CourseTopBar({
   title, youtubeUrl, channelId, showLikeButton,
   sessionTitle, sessionDescription, sessionUrl,
   nextSessionHref, isWatched, onMarkComplete,
+  assessmentUrl, assessmentReady,
 }: CourseTopBarProps) {
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -130,6 +133,32 @@ export function CourseTopBar({
             >
               {isWatched ? '✓ Completed' : 'Mark Complete'}
             </button>
+          )}
+
+          {/* Assessment */}
+          {assessmentUrl && assessmentReady && (
+            <Link
+              href={assessmentUrl}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '6px 14px', fontSize: 13, fontWeight: 600,
+                color: '#ffffff', background: '#16a34a',
+                border: 'none', borderRadius: 6,
+                textDecoration: 'none', whiteSpace: 'nowrap',
+              }}
+            >
+              Take Assessment →
+            </Link>
+          )}
+          {assessmentUrl && !assessmentReady && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', fontSize: 12, fontWeight: 500,
+              color: 'rgba(255,255,255,0.4)',
+              whiteSpace: 'nowrap',
+            }}>
+              Watch video to unlock assessment
+            </span>
           )}
 
           {/* Continue / Next */}

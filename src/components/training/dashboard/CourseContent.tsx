@@ -311,6 +311,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
               bvmLocked={bvmLocked}
               watchLocked={watchLocked}
               timerBypassed={timerBypassed}
+              courseId={courseId}
             />
           );
         })}
