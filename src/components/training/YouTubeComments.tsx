@@ -14,6 +14,7 @@ interface Comment {
 interface YouTubeCommentsProps {
   videoId: string;
   youtubeUrl: string;
+  hideAction?: boolean;
 }
 
 function relativeTime(iso: string): string {
@@ -32,7 +33,7 @@ function relativeTime(iso: string): string {
 
 const NAVY = '#0D2E5A';
 
-export function YouTubeComments({ videoId, youtubeUrl }: YouTubeCommentsProps) {
+export function YouTubeComments({ videoId, youtubeUrl, hideAction }: YouTubeCommentsProps) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -64,6 +65,11 @@ export function YouTubeComments({ videoId, youtubeUrl }: YouTubeCommentsProps) {
   }
 
   if (comments.length === 0) {
+    if (hideAction) {
+      return (
+        <div style={{ padding: '16px 0', fontSize: 13, color: '#9CA3AF' }}>No comments yet.</div>
+      );
+    }
     return (
       <div style={{ marginTop: 24 }}>
         <a
@@ -146,26 +152,28 @@ export function YouTubeComments({ videoId, youtubeUrl }: YouTubeCommentsProps) {
         );
       })}
 
-      <a
-        href={youtubeUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 8,
-          marginTop: 16,
-          padding: '10px 20px',
-          background: '#FF0000',
-          color: '#fff',
-          borderRadius: 6,
-          fontWeight: 600,
-          fontSize: 14,
-          textDecoration: 'none',
-        }}
-      >
-        Join the Discussion on YouTube →
-      </a>
+      {!hideAction && (
+        <a
+          href={youtubeUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            marginTop: 16,
+            padding: '10px 20px',
+            background: '#FF0000',
+            color: '#fff',
+            borderRadius: 6,
+            fontWeight: 600,
+            fontSize: 14,
+            textDecoration: 'none',
+          }}
+        >
+          Join the Discussion on YouTube →
+        </a>
+      )}
     </div>
   );
 }

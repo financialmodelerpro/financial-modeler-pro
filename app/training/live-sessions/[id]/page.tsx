@@ -7,9 +7,9 @@ import { getTrainingSession } from '@/src/lib/training/training-session';
 import { FilePreviewModal } from '@/src/components/training/dashboard/FilePreviewModal';
 import { TrainingShell } from '@/src/components/training/TrainingShell';
 import { YouTubePlayer } from '@/src/components/training/YouTubePlayer';
-import { SubscribeButton } from '@/src/components/training/SubscribeButton';
 import { YouTubeComments } from '@/src/components/training/YouTubeComments';
-import { LikeButton } from '@/src/components/training/LikeButton';
+import { EngagementBar } from '@/src/components/training/EngagementBar';
+import { PlaylistSidebar } from '@/src/components/training/PlaylistSidebar';
 
 interface Attachment { id: string; file_name: string; file_url: string; file_type: string; file_size: number }
 interface Session {
@@ -200,11 +200,19 @@ export default function LiveSessionDetailPage() {
     const isUpcoming = effType === 'upcoming' || effType === 'live';
     const isRecorded = effType === 'recorded';
     const ytId = extractYouTubeId(session.youtube_url);
+    const hasVideoPlayer = isRecorded && session.youtube_embed && !!ytId;
+    const hasSidebar = hasVideoPlayer && !!session.playlist;
 
     return (
-      <div style={{ maxWidth: 800, margin: '0 auto' }}>
-        {/* Banner hero */}
-        {session.banner_url && (
+      <div style={{ maxWidth: hasSidebar ? 1100 : 800, margin: '0 auto' }}>
+        {/* Responsive grid CSS */}
+        <style>{`
+          .course-player-grid { display: grid; grid-template-columns: 1fr 300px; gap: 24px; }
+          @media (max-width: 767px) { .course-player-grid { grid-template-columns: 1fr !important; } }
+        `}</style>
+
+        {/* Banner hero — hide when video player is active */}
+        {session.banner_url && !hasVideoPlayer && (
           <div style={{ marginBottom: 20, borderRadius: 14, overflow: 'hidden' }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={session.banner_url} alt={session.title} style={{ width: '100%', height: 'auto', maxHeight: 300, objectFit: 'cover', objectPosition: 'top', display: 'block' }} />
@@ -270,31 +278,38 @@ export default function LiveSessionDetailPage() {
           </div>
         )}
 
-        {/* Video — embed or external link based on youtube_embed flag */}
+        {/* Video — two-column player + sidebar, or external link */}
         {isRecorded && session.youtube_url && (
           session.youtube_embed && ytId ? (
-            <>
-              <YouTubePlayer
-                videoId={ytId}
-                title={session.title}
-                sessionId={session.id}
-                studentEmail={studentSession?.email}
-                studentRegId={studentSession?.registrationId}
-              />
-              <div style={{ marginTop: 24 }}>
-                {session.show_like_button !== false && (
-                  <div style={{ marginBottom: 16 }}>
-                    <LikeButton youtubeUrl={session.youtube_url} />
-                  </div>
-                )}
-                <SubscribeButton
-                  channelId={process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}
+            <div className={session.playlist ? 'course-player-grid' : undefined} style={{ marginBottom: 24 }}>
+              <div>
+                <YouTubePlayer
+                  videoId={ytId}
+                  title={session.title}
+                  sessionId={session.id}
+                  studentEmail={studentSession?.email}
+                  studentRegId={studentSession?.registrationId}
                 />
-                <div style={{ marginTop: 32 }}>
-                  <YouTubeComments videoId={ytId} youtubeUrl={session.youtube_url} />
+                <EngagementBar
+                  youtubeUrl={session.youtube_url}
+                  channelId={process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}
+                  showLike={session.show_like_button !== false}
+                />
+                <div id="yt-comments" style={{ marginTop: 24 }}>
+                  <YouTubeComments videoId={ytId} youtubeUrl={session.youtube_url} hideAction />
                 </div>
               </div>
-            </>
+              {session.playlist && (
+                <div style={{ position: 'sticky', top: 80, alignSelf: 'start' }}>
+                  <PlaylistSidebar
+                    playlistId={session.playlist.id}
+                    playlistName={session.playlist.name}
+                    currentSessionId={session.id}
+                    variant="student"
+                  />
+                </div>
+              )}
+            </div>
           ) : (
             <div style={{ marginBottom: 24, textAlign: 'center' }}>
               <a href={session.youtube_url} target="_blank" rel="noopener noreferrer"

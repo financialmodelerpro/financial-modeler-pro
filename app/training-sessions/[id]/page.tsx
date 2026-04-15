@@ -11,7 +11,7 @@ async function getSession(id: string): Promise<DetailSession | null> {
     const sb = getServerClient();
     const { data, error } = await sb
       .from('live_sessions')
-      .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, instructor_title, tags, is_featured, youtube_url, youtube_embed, playlist_id, live_playlists(id, name)')
+      .select('id, title, description, session_type, scheduled_datetime, timezone, category, banner_url, duration_minutes, max_attendees, difficulty_level, prerequisites, instructor_name, instructor_title, tags, is_featured, youtube_url, youtube_embed, show_like_button, playlist_id, live_playlists(id, name)')
       .eq('id', id)
       .eq('is_published', true)
       .single();
@@ -68,6 +68,7 @@ async function getSession(id: string): Promise<DetailSession | null> {
       is_featured: data.is_featured,
       youtube_url: data.session_type === 'recorded' ? data.youtube_url : null,
       youtube_embed: data.youtube_embed ?? false,
+      show_like_button: (data as Record<string, unknown>).show_like_button !== false,
       playlist: (Array.isArray(data.live_playlists) ? data.live_playlists[0] : data.live_playlists) as DetailSession['playlist'],
       registration_count: count ?? 0,
       attachments: (atts ?? []).map(a => ({ file_name: a.file_name, file_type: a.file_type, file_size: a.file_size })),
