@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { YouTubePlayer } from '../YouTubePlayer';
 import { YouTubeComments } from '../YouTubeComments';
+import { StudentNotes } from '../StudentNotes';
 import { CourseTopBar } from './CourseTopBar';
 
 export interface SidebarSession {
@@ -41,6 +42,9 @@ interface CoursePlayerLayoutProps {
   durationMinutes?: number | null;
   difficultyLevel?: string;
   tags?: string[];
+  prerequisites?: string;
+  category?: string;
+  isFeatured?: boolean;
   sessionType?: string;
   liveUrl?: string;
   isLoggedIn?: boolean;
@@ -62,6 +66,7 @@ export function CoursePlayerLayout({
   videoId, sessionId, studentEmail, studentRegId,
   bannerUrl, instructorName, instructorTitle,
   scheduledDatetime, timezone, durationMinutes, difficultyLevel, tags,
+  prerequisites, category, isFeatured,
   sessionType, liveUrl, isLoggedIn,
   sessions, currentSessionId, backUrl, backLabel,
   children,
@@ -209,10 +214,10 @@ export function CoursePlayerLayout({
 
         {/* Middle content */}
         <div style={{ flex: videoOpen ? '0 0 60%' : 1, minWidth: 0 }}>
-          {/* Screen 1: Video NOT open */}
+          {/* Screen 1: Video NOT open — full session info */}
           {!videoOpen && (
             <div style={{ padding: '24px 32px', maxWidth: 860 }}>
-              {/* Primary CTA */}
+              {/* Primary CTA at top */}
               {hasVideo ? (
                 <button
                   onClick={() => setVideoOpen(true)}
@@ -235,13 +240,26 @@ export function CoursePlayerLayout({
                 </div>
               )}
 
-              {/* Description */}
-              {sessionDescription && (
-                <div style={{ marginBottom: 24 }}>
-                  <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 8 }}>About this session</h3>
-                  <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{sessionDescription}</p>
-                </div>
-              )}
+              {/* Session title */}
+              <h1 style={{ fontSize: 'clamp(22px,4vw,28px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 10, lineHeight: 1.3 }}>{title}</h1>
+
+              {/* Badges */}
+              <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
+                {sessionType && (
+                  <span style={{
+                    fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20,
+                    background: sessionType === 'live' ? '#FEF2F2' : isUpcoming ? '#EFF6FF' : '#F3F4F6',
+                    color: sessionType === 'live' ? '#DC2626' : isUpcoming ? '#1D4ED8' : '#6B7280',
+                  }}>
+                    {sessionType === 'live' ? 'LIVE NOW' : isUpcoming ? 'UPCOMING' : 'RECORDED'}
+                  </span>
+                )}
+                {difficultyLevel && difficultyLevel !== 'All Levels' && (
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: '#F3F4F6', color: '#6B7280' }}>{difficultyLevel}</span>
+                )}
+                {category && <span style={{ fontSize: 11, fontWeight: 600, color: '#6B7280' }}>{category}</span>}
+                {isFeatured && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 12, background: '#FEF3C7', color: '#B45309' }}>FEATURED</span>}
+              </div>
 
               {/* Instructor */}
               {instructorName && (
@@ -260,14 +278,21 @@ export function CoursePlayerLayout({
                 </div>
               )}
 
-              {/* Meta */}
+              {/* Date, duration, difficulty */}
               <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16, fontSize: 13, color: '#6b7280' }}>
                 {scheduledDatetime && (
                   <span>{fmtDate(scheduledDatetime)} at {fmtTime(scheduledDatetime)}{timezone ? ` (${timezone})` : ''}</span>
                 )}
                 {durationMinutes && <span>{durationMinutes} min</span>}
-                {difficultyLevel && difficultyLevel !== 'All Levels' && <span>{difficultyLevel}</span>}
               </div>
+
+              {/* Prerequisites */}
+              {prerequisites && (
+                <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: '#92400E' }}>Prerequisites: </span>
+                  <span style={{ fontSize: 13, color: '#374151' }}>{prerequisites}</span>
+                </div>
+              )}
 
               {/* Tags */}
               {tags && tags.length > 0 && (
@@ -276,7 +301,38 @@ export function CoursePlayerLayout({
                 </div>
               )}
 
+              {/* Description */}
+              {sessionDescription && (
+                <div style={{ marginBottom: 24 }}>
+                  <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 8 }}>About this session</h3>
+                  <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{sessionDescription}</p>
+                </div>
+              )}
+
+              {/* Children (attachments, sign-in CTA, etc.) */}
               {children}
+
+              {/* Student notes (logged in only) */}
+              {studentEmail && sessionId && (
+                <StudentNotes sessionId={sessionId} studentEmail={studentEmail} />
+              )}
+
+              {/* Watch Session button at bottom too */}
+              {hasVideo && (
+                <div style={{ marginTop: 24 }}>
+                  <button
+                    onClick={() => setVideoOpen(true)}
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 8,
+                      padding: '12px 24px', background: '#2563eb', color: '#ffffff',
+                      fontSize: 15, fontWeight: 600, borderRadius: 8,
+                      border: 'none', cursor: 'pointer',
+                    }}
+                  >
+                    ▶ Watch Session
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -294,6 +350,9 @@ export function CoursePlayerLayout({
               </div>
               <div style={{ padding: '24px 32px', maxWidth: 860 }}>
                 {children}
+                {studentEmail && sessionId && (
+                  <StudentNotes sessionId={sessionId} studentEmail={studentEmail} />
+                )}
               </div>
             </>
           )}

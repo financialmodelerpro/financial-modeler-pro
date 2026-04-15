@@ -279,6 +279,9 @@ export default function LiveSessionDetailPage() {
         durationMinutes={session.duration_minutes}
         difficultyLevel={session.difficulty_level}
         tags={session.tags}
+        prerequisites={session.prerequisites}
+        category={session.category}
+        isFeatured={session.is_featured}
         sessionType={effType}
         liveUrl={session.live_url}
         isLoggedIn={true}

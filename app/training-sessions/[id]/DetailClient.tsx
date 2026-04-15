@@ -95,6 +95,9 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
       durationMinutes={session.duration_minutes}
       difficultyLevel={session.difficulty_level}
       tags={session.tags}
+      prerequisites={session.prerequisites}
+      category={session.category}
+      isFeatured={session.is_featured}
       sessionType={session.session_type}
       isLoggedIn={isLoggedIn}
       sessions={playlistSessions}
