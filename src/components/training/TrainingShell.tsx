@@ -36,12 +36,12 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
   // If no logo prop was passed (client-side usage), fetch from CMS
   useEffect(() => {
     if (logoUrlProp) return;
-    fetch('/api/cms')
+    fetch('/api/cms?section=header_settings&keys=logo_url,logo_height_px')
       .then(r => r.json())
-      .then((d: { content?: Array<{ section: string; key: string; value: string }> }) => {
-        const rows = d.content ?? [];
-        const url = rows.find(r => r.section === 'header_settings' && r.key === 'logo_url')?.value;
-        const h = rows.find(r => r.section === 'header_settings' && r.key === 'logo_height_px')?.value;
+      .then((d: { map?: Record<string, string> }) => {
+        const m = d.map ?? {};
+        const url = m['header_settings__logo_url'];
+        const h = m['header_settings__logo_height_px'];
         if (url) setCmsLogo({ url, height: h || '36' });
       })
       .catch(() => {});
