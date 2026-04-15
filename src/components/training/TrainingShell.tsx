@@ -17,14 +17,38 @@ interface TrainingShellProps {
   children: ReactNode;
   /** Currently active nav key for sidebar highlight */
   activeNav?: 'dashboard' | 'live-sessions' | 'certificates';
+  /** When true, show only the top header bar — no sidebar, no footer */
+  headerOnly?: boolean;
+  /** CMS logo URL */
+  logoUrl?: string;
+  /** CMS logo height in px */
+  logoHeightPx?: string;
 }
 
-export function TrainingShell({ children, activeNav }: TrainingShellProps) {
+export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUrlProp, logoHeightPx: logoHeightPxProp = '36' }: TrainingShellProps) {
   const router = useRouter();
   const pathname = usePathname();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [session, setSession] = useState<{ email: string; registrationId: string } | null>(null);
+  const [cmsLogo, setCmsLogo] = useState<{ url?: string; height?: string }>({});
+
+  // If no logo prop was passed (client-side usage), fetch from CMS
+  useEffect(() => {
+    if (logoUrlProp) return;
+    fetch('/api/cms')
+      .then(r => r.json())
+      .then((d: { content?: Array<{ section: string; key: string; value: string }> }) => {
+        const rows = d.content ?? [];
+        const url = rows.find(r => r.section === 'header_settings' && r.key === 'logo_url')?.value;
+        const h = rows.find(r => r.section === 'header_settings' && r.key === 'logo_height_px')?.value;
+        if (url) setCmsLogo({ url, height: h || '36' });
+      })
+      .catch(() => {});
+  }, [logoUrlProp]);
+
+  const logoUrl = logoUrlProp || cmsLogo.url;
+  const logoHeightPx = logoUrlProp ? logoHeightPxProp : (cmsLogo.height || logoHeightPxProp);
   // Live session indicators
   const [hasLiveNow, setHasLiveNow] = useState(false);
   const [upcomingCount, setUpcomingCount] = useState(0);
@@ -204,11 +228,13 @@ export function TrainingShell({ children, activeNav }: TrainingShellProps) {
             &#9776;
           </button>
           <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', flexShrink: 0 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 6, background: GREEN, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>&#128208;</div>
-            <div>
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt="Financial Modeler Pro" style={{ height: parseInt(logoHeightPx) || 36, width: 'auto', objectFit: 'contain' }} />
+            ) : (
               <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', lineHeight: 1 }}>Financial Modeler Pro</div>
-              <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Training Hub</div>
-            </div>
+            )}
+            <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Training Hub</div>
           </Link>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -220,6 +246,9 @@ export function TrainingShell({ children, activeNav }: TrainingShellProps) {
       </div>
 
       {/* ── BODY ─────────────────────────────────────────────────────────────── */}
+      {headerOnly ? (
+        <div style={{ flex: 1, minHeight: 'calc(100vh - 56px)' }}>{children}</div>
+      ) : (
       <div style={{ display: 'flex', minHeight: 'calc(100vh - 56px)' }}>
 
         {/* ── SIDEBAR ────────────────────────────────────────────────────────── */}
@@ -281,8 +310,10 @@ export function TrainingShell({ children, activeNav }: TrainingShellProps) {
           {children}
         </main>
       </div>
+      )}
 
-      {/* ── FOOTER ───────────────────────────────────────────────────────────── */}
+      {/* ── FOOTER + BOTTOM NAV (hidden in headerOnly mode) ──────────────── */}
+      {!headerOnly && (<>
       <footer style={{ background: NAVY, color: 'rgba(255,255,255,0.5)', padding: '32px 24px 24px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
           <div>
@@ -315,6 +346,7 @@ export function TrainingShell({ children, activeNav }: TrainingShellProps) {
           </Link>
         ))}
       </div>
+      </>)}
     </div>
   );
 }

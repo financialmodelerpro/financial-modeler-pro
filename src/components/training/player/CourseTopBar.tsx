@@ -45,7 +45,7 @@ export function CourseTopBar({
   return (
     <>
       <div style={{
-        position: 'sticky', top: 0, zIndex: 100,
+        position: 'sticky', top: 56, zIndex: 100,
         display: 'flex', alignItems: 'center', gap: 12,
         padding: '0 20px', height: 52,
         background: '#0D2E5A', color: '#fff',

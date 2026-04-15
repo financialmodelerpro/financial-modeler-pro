@@ -93,7 +93,7 @@ export function CoursePlayerLayout({
       borderRight: isMobile ? 'none' : '1px solid #e5e7eb',
       borderTop: isMobile ? '1px solid #e5e7eb' : 'none',
       overflowY: 'auto',
-      ...(isMobile ? {} : { position: 'sticky' as const, top: 52, height: 'calc(100vh - 52px)' }),
+      ...(isMobile ? {} : { position: 'sticky' as const, top: 108, height: 'calc(100vh - 108px)' }),
     }}>
       <div style={{ padding: 16, borderBottom: '1px solid #f3f4f6' }}>
         <Link
@@ -339,7 +339,7 @@ export function CoursePlayerLayout({
           {/* Screen 2: Video OPEN */}
           {videoOpen && hasVideo && (
             <>
-              <div style={{ maxHeight: 'calc(100vh - 52px)', aspectRatio: '16/9' }}>
+              <div style={{ maxHeight: 'calc(100vh - 108px)', aspectRatio: '16/9' }}>
                 <YouTubePlayer
                   videoId={videoId!}
                   title={title}
@@ -363,8 +363,8 @@ export function CoursePlayerLayout({
           <div style={{
             flex: '0 0 25%', minWidth: 280, maxWidth: 380,
             background: '#ffffff', borderLeft: '1px solid #e5e7eb',
-            overflowY: 'auto', position: 'sticky', top: 52,
-            height: 'calc(100vh - 52px)', padding: 16,
+            overflowY: 'auto', position: 'sticky', top: 108,
+            height: 'calc(100vh - 108px)', padding: 16,
           }}>
             <h3 style={{ fontSize: 14, fontWeight: 700, color: '#111827', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
               💬 Discussion

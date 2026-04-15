@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 interface SubscribeModalProps {
   channelId: string;
@@ -14,46 +14,43 @@ declare global {
 }
 
 export function SubscribeModal({ channelId, onClose }: SubscribeModalProps) {
+  const [scriptLoaded, setScriptLoaded] = useState(false);
   const [widgetReady, setWidgetReady] = useState(false);
-  const [timedOut, setTimedOut] = useState(false);
+  const widgetRef = useRef<HTMLDivElement>(null);
 
+  // Step 1: Load Google platform script
   useEffect(() => {
-    let cancelled = false;
-
-    // 3-second timeout — if widget isn't ready, show fallback only
-    const timer = setTimeout(() => {
-      if (!cancelled) setTimedOut(true);
-    }, 3000);
-
-    function tryRenderWidget() {
-      if (cancelled) return;
-      if (window.gapi?.ytsubscribe?.go) {
-        window.gapi.ytsubscribe.go();
-        setWidgetReady(true);
-        clearTimeout(timer);
-      }
-    }
-
     const existing = document.querySelector(
       'script[src="https://apis.google.com/js/platform.js"]'
     );
     if (existing) {
-      // Script already in DOM — try immediately, retry after short delay
-      tryRenderWidget();
-      if (!widgetReady) setTimeout(tryRenderWidget, 500);
-    } else {
-      const script = document.createElement('script');
-      script.src = 'https://apis.google.com/js/platform.js';
-      script.async = true;
-      script.onload = () => setTimeout(tryRenderWidget, 300);
-      document.head.appendChild(script);
+      setScriptLoaded(true);
+      return;
     }
-
-    return () => { cancelled = true; clearTimeout(timer); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const script = document.createElement('script');
+    script.src = 'https://apis.google.com/js/platform.js';
+    script.async = true;
+    script.onload = () => setScriptLoaded(true);
+    document.head.appendChild(script);
   }, []);
 
-  const showWidget = widgetReady && !timedOut;
+  // Step 2: After script loads AND widget div is in DOM, call go()
+  useEffect(() => {
+    if (!scriptLoaded) return;
+
+    function tryGo() {
+      if (window.gapi?.ytsubscribe?.go) {
+        window.gapi.ytsubscribe.go();
+        setWidgetReady(true);
+      }
+    }
+
+    // Try immediately, then retry at 300ms and 800ms
+    tryGo();
+    const t1 = setTimeout(tryGo, 300);
+    const t2 = setTimeout(tryGo, 800);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [scriptLoaded]);
 
   return (
     <>
@@ -83,28 +80,33 @@ export function SubscribeModal({ channelId, onClose }: SubscribeModalProps) {
           tutorials, and live training go live on YouTube.
         </p>
 
-        {/* Widget — only rendered when confirmed ready */}
-        {showWidget && (
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 20, minHeight: 40 }}>
-            <div
-              className="g-ytsubscribe"
-              data-channelid={channelId}
-              data-layout="default"
-              data-count="default"
-            />
-          </div>
-        )}
+        {/* Widget div — always in DOM so go() can find it */}
+        <div
+          ref={widgetRef}
+          style={{
+            display: 'flex', justifyContent: 'center',
+            marginBottom: 20, minHeight: 40,
+            visibility: widgetReady ? 'visible' : 'hidden',
+          }}
+        >
+          <div
+            className="g-ytsubscribe"
+            data-channelid={channelId}
+            data-layout="default"
+            data-count="default"
+          />
+        </div>
 
-        {/* Loading state */}
-        {!showWidget && !timedOut && (
-          <div style={{ height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
-            <span style={{ fontSize: 13, color: '#9ca3af' }}>Loading...</span>
+        {/* Loading state — shown while widget is invisible */}
+        {!widgetReady && (
+          <div style={{ height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20, marginTop: -60 }}>
+            <span style={{ fontSize: 13, color: '#9ca3af' }}>Loading subscribe button...</span>
           </div>
         )}
 
         <div style={{ borderTop: '1px solid #f3f4f6', paddingTop: 16, marginTop: 4 }}>
           <p style={{ fontSize: 12, color: '#9ca3af', marginBottom: 8 }}>
-            {timedOut ? 'Widget could not load.' : 'Button not showing? You may need to be signed into Google.'}
+            Button not showing? You may need to be signed into Google.
           </p>
           <a
             href={`https://www.youtube.com/channel/${channelId}?sub_confirmation=1`}

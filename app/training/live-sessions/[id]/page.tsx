@@ -327,12 +327,16 @@ export default function LiveSessionDetailPage() {
     );
   })();
 
-  // CoursePlayerLayout is a full-page layout — bypass TrainingShell for all session detail views
-  // TrainingShell only used for loading/404 states
+  // Session loaded — show with headerOnly (no sidebar/footer, just the Training Hub header)
   if (session) {
-    return <>{content}</>;
+    return (
+      <TrainingShell activeNav="live-sessions" headerOnly>
+        {content}
+      </TrainingShell>
+    );
   }
 
+  // Loading/404 — show with full sidebar
   return (
     <TrainingShell activeNav="live-sessions">
       {content}
