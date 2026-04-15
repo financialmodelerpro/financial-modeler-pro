@@ -27,6 +27,8 @@ export default function CourseWatchPage() {
   const [loading, setLoading] = useState(true);
   const [timerComplete, setTimerComplete] = useState(false);
   const [timerBypassed, setTimerBypassed] = useState(false);
+  const [videoEnded, setVideoEnded] = useState(false);
+  const [markedComplete, setMarkedComplete] = useState(false);
 
   const course = COURSES[courseId];
 
@@ -75,21 +77,43 @@ export default function CourseWatchPage() {
     return () => clearInterval(id);
   }, [loading, checkTimer]);
 
-  // Check for forced completion from previous watch
+  // Restore persisted states
   useEffect(() => {
     if (!studentSession) return;
-    const key = `fmp_timer_complete_${studentSession.registrationId}_${sessionKey}`;
-    if (typeof localStorage !== 'undefined' && localStorage.getItem(key) === 'true') {
-      setTimerComplete(true);
+    const regId = studentSession.registrationId;
+    if (typeof localStorage !== 'undefined') {
+      if (localStorage.getItem(`fmp_ended_${regId}_${sessionKey}`) === 'true') setVideoEnded(true);
+      if (localStorage.getItem(`fmp_complete_${regId}_${sessionKey}`) === 'true') setMarkedComplete(true);
+      if (localStorage.getItem(`fmp_timer_complete_${regId}_${sessionKey}`) === 'true') setTimerComplete(true);
     }
   }, [studentSession, sessionKey]);
 
-  // Handle video ended — force timer complete
+  // Handle video ended — show Mark Complete button
   const handleVideoEnded = useCallback(() => {
+    setVideoEnded(true);
     setTimerComplete(true);
     if (studentSession) {
-      const key = `fmp_timer_complete_${studentSession.registrationId}_${sessionKey}`;
-      if (typeof localStorage !== 'undefined') localStorage.setItem(key, 'true');
+      const regId = studentSession.registrationId;
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(`fmp_ended_${regId}_${sessionKey}`, 'true');
+        localStorage.setItem(`fmp_timer_complete_${regId}_${sessionKey}`, 'true');
+      }
+    }
+  }, [studentSession, sessionKey]);
+
+  // Handle Mark Complete click — then show assessment
+  const handleMarkComplete = useCallback(async () => {
+    if (!studentSession) return;
+    try {
+      await fetch(`/api/training/live-sessions/${sessionKey}/watched`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: studentSession.email, regId: studentSession.registrationId }),
+      });
+    } catch {}
+    setMarkedComplete(true);
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(`fmp_complete_${studentSession.registrationId}_${sessionKey}`, 'true');
     }
   }, [studentSession, sessionKey]);
 
@@ -185,7 +209,8 @@ export default function CourseWatchPage() {
         sessionDescription={liveLinks[tk]?.description || `${course.title} — ${currentSession.title}`}
         sessionUrl={typeof window !== 'undefined' ? window.location.href : ''}
         nextSessionHref={nextHref}
-        isWatched={progressMap.get(sessionKey)?.passed}
+        isWatched={markedComplete || progressMap.get(sessionKey)?.passed}
+        onMarkComplete={videoEnded && !markedComplete ? handleMarkComplete : undefined}
         videoId={videoId || undefined}
         sessionId={sessionKey}
         studentEmail={studentSession?.email}
@@ -196,8 +221,8 @@ export default function CourseWatchPage() {
         currentSessionId={sessionKey}
         backUrl={`/training/dashboard?course=${courseId}`}
         backLabel={`← ${course.shortTitle}`}
-        assessmentUrl={assessmentUrl}
-        assessmentReady={timerComplete}
+        assessmentUrl={markedComplete ? assessmentUrl : undefined}
+        assessmentReady={markedComplete}
         onVideoPlaying={handlePlaying}
         onVideoEnded={handleVideoEnded}
       />

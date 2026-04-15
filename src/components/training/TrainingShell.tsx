@@ -33,19 +33,34 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [session, setSession] = useState<{ email: string; registrationId: string } | null>(null);
   const [cmsLogo, setCmsLogo] = useState<{ url?: string; height?: string }>({});
+  const [liveSessionsLabel, setLiveSessionsLabel] = useState('Live Sessions');
 
-  // If no logo prop was passed (client-side usage), fetch from CMS
+  // Fetch CMS settings (logo + training hub labels)
   useEffect(() => {
-    if (logoUrlProp) return;
-    fetch('/api/cms?section=header_settings&keys=logo_url,logo_height_px')
-      .then(r => r.json())
-      .then((d: { map?: Record<string, string> }) => {
-        const m = d.map ?? {};
-        const url = m['header_settings__logo_url'];
-        const h = m['header_settings__logo_height_px'];
-        if (url) setCmsLogo({ url, height: h || '36' });
-      })
-      .catch(() => {});
+    const fetches: Promise<void>[] = [];
+    if (!logoUrlProp) {
+      fetches.push(
+        fetch('/api/cms?section=header_settings&keys=logo_url,logo_height_px')
+          .then(r => r.json())
+          .then((d: { map?: Record<string, string> }) => {
+            const m = d.map ?? {};
+            const url = m['header_settings__logo_url'];
+            const h = m['header_settings__logo_height_px'];
+            if (url) setCmsLogo({ url, height: h || '36' });
+          })
+          .catch(() => {})
+      );
+    }
+    fetches.push(
+      fetch('/api/cms?section=training_hub&keys=live_sessions_label')
+        .then(r => r.json())
+        .then((d: { map?: Record<string, string> }) => {
+          const label = d.map?.['training_hub__live_sessions_label'];
+          if (label) setLiveSessionsLabel(label);
+        })
+        .catch(() => {})
+    );
+    Promise.all(fetches);
   }, [logoUrlProp]);
 
   const logoUrl = logoUrlProp || cmsLogo.url;
@@ -285,7 +300,7 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
 
             {/* TRAINING SESSIONS */}
             <NavLabel text="Training Sessions" />
-            <NavItem icon={<Video size={16} />} label="Live Sessions" active={currentNav === 'live-sessions'}
+            <NavItem icon={<Video size={16} />} label={liveSessionsLabel} active={currentNav === 'live-sessions'}
               dot={hasLiveNow} dotColor="#EF4444"
               badge={sessionsLoaded ? sessionsList.length : (upcomingCount > 0 ? upcomingCount : undefined)} badgeColor="#3B82F6"
               onClick={() => {
