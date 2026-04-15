@@ -206,6 +206,8 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
                 youtubeUrl={session.youtube_url!}
                 channelId={process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}
                 showLike={session.show_like_button !== false}
+                sessionTitle={session.title}
+                sessionDescription={session.description}
               />
               {!isLoggedIn && (
                 <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 8, background: '#EFF6FF', border: '1px solid #93C5FD', textAlign: 'center', fontSize: 12, color: '#1D4ED8' }}>
@@ -215,7 +217,7 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
                 </div>
               )}
               <div id="yt-comments" style={{ marginTop: 24 }}>
-                <YouTubeComments videoId={ytId!} youtubeUrl={session.youtube_url!} hideAction />
+                <YouTubeComments videoId={ytId!} youtubeUrl={session.youtube_url!} />
               </div>
             </div>
             {session.playlist && (

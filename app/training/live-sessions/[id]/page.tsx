@@ -294,9 +294,11 @@ export default function LiveSessionDetailPage() {
                   youtubeUrl={session.youtube_url}
                   channelId={process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}
                   showLike={session.show_like_button !== false}
+                  sessionTitle={session.title}
+                  sessionDescription={session.description}
                 />
                 <div id="yt-comments" style={{ marginTop: 24 }}>
-                  <YouTubeComments videoId={ytId} youtubeUrl={session.youtube_url} hideAction />
+                  <YouTubeComments videoId={ytId} youtubeUrl={session.youtube_url} />
                 </div>
               </div>
               {session.playlist && (
