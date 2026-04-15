@@ -77,14 +77,23 @@ export default function CourseWatchPage() {
     return () => clearInterval(id);
   }, [loading, checkTimer]);
 
-  // Restore persisted states
+  // Restore video-ended state from DB (progressMap) — session already passed = already complete
+  useEffect(() => {
+    if (!progressMap.size) return;
+    const prog = progressMap.get(sessionKey);
+    if (prog?.passed) {
+      setVideoEnded(true);
+      setMarkedComplete(true);
+      setTimerComplete(true);
+    }
+  }, [progressMap, sessionKey]);
+
+  // Restore timer-complete from localStorage (timer is time-based, stays in localStorage)
   useEffect(() => {
     if (!studentSession) return;
-    const regId = studentSession.registrationId;
-    if (typeof localStorage !== 'undefined') {
-      if (localStorage.getItem(`fmp_ended_${regId}_${sessionKey}`) === 'true') setVideoEnded(true);
-      if (localStorage.getItem(`fmp_complete_${regId}_${sessionKey}`) === 'true') setMarkedComplete(true);
-      if (localStorage.getItem(`fmp_timer_complete_${regId}_${sessionKey}`) === 'true') setTimerComplete(true);
+    const key = `fmp_timer_complete_${studentSession.registrationId}_${sessionKey}`;
+    if (typeof localStorage !== 'undefined' && localStorage.getItem(key) === 'true') {
+      setTimerComplete(true);
     }
   }, [studentSession, sessionKey]);
 
@@ -93,29 +102,17 @@ export default function CourseWatchPage() {
     setVideoEnded(true);
     setTimerComplete(true);
     if (studentSession) {
-      const regId = studentSession.registrationId;
-      if (typeof localStorage !== 'undefined') {
-        localStorage.setItem(`fmp_ended_${regId}_${sessionKey}`, 'true');
-        localStorage.setItem(`fmp_timer_complete_${regId}_${sessionKey}`, 'true');
-      }
+      const key = `fmp_timer_complete_${studentSession.registrationId}_${sessionKey}`;
+      if (typeof localStorage !== 'undefined') localStorage.setItem(key, 'true');
     }
   }, [studentSession, sessionKey]);
 
-  // Handle Mark Complete click — then show assessment
-  const handleMarkComplete = useCallback(async () => {
-    if (!studentSession) return;
-    try {
-      await fetch(`/api/training/live-sessions/${sessionKey}/watched`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: studentSession.email, regId: studentSession.registrationId }),
-      });
-    } catch {}
+  // Handle Mark Complete click — certification sessions don't use session_watch_history
+  // (session_watch_history requires live_sessions UUIDs, not course session IDs like S1/S2)
+  // Progress is tracked via the assessment system — Mark Complete just advances the UI
+  const handleMarkComplete = useCallback(() => {
     setMarkedComplete(true);
-    if (typeof localStorage !== 'undefined') {
-      localStorage.setItem(`fmp_complete_${studentSession.registrationId}_${sessionKey}`, 'true');
-    }
-  }, [studentSession, sessionKey]);
+  }, []);
 
   // Handle video play — start timer
   const handlePlaying = useCallback(() => {
