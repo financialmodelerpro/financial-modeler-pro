@@ -423,7 +423,7 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
         ))}
       </div>
       </>)}
-      <WelcomeModal />
+      <WelcomeModal storageKey="fmp_hub_welcomed" />
     </div>
   );
 }
