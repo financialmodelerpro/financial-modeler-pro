@@ -55,6 +55,9 @@ const nextConfig: NextConfig = {
         { source: '/signin',   destination: '/training/signin',   has: [{ type: 'host', value: 'learn.financialmodelerpro.com' }] },
         { source: '/register', destination: '/training/register', has: [{ type: 'host', value: 'learn.financialmodelerpro.com' }] },
         { source: '/forgot',   destination: '/training/forgot',   has: [{ type: 'host', value: 'learn.financialmodelerpro.com' }] },
+        // learn. /training-sessions → app/training-sessions/ pages
+        { source: '/training-sessions',     destination: '/training-sessions',      has: [{ type: 'host', value: 'learn.financialmodelerpro.com' }] },
+        { source: '/training-sessions/:id', destination: '/training-sessions/:id',  has: [{ type: 'host', value: 'learn.financialmodelerpro.com' }] },
         // app. root → serve /modeling page (no redirect, clean URL)
         {
           source: '/',
@@ -115,6 +118,20 @@ const nextConfig: NextConfig = {
       // Subdomains → main domain for main-site paths
       ...learnToMain,
       ...appToMain,
+
+      // Main domain → learn. for /training-sessions/*
+      {
+        source: '/training-sessions',
+        destination: `${LEARN_URL}/training-sessions`,
+        permanent: false,
+        has: [{ type: 'host' as const, value: 'financialmodelerpro.com' }],
+      },
+      {
+        source: '/training-sessions/:id',
+        destination: `${LEARN_URL}/training-sessions/:id`,
+        permanent: false,
+        has: [{ type: 'host' as const, value: 'financialmodelerpro.com' }],
+      },
 
       // Main domain → learn. for /training/*
       {

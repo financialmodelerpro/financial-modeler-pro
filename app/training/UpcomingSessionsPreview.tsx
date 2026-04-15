@@ -17,6 +17,7 @@ interface Session {
   youtube_url?: string | null;
 }
 
+const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
 
@@ -84,7 +85,7 @@ export function UpcomingSessionsPreview() {
         </div>
 
         <div style={{ textAlign: 'center', marginTop: 20 }}>
-          <Link href="/training-sessions" style={{ fontSize: 14, fontWeight: 700, color: '#1B4F8A', textDecoration: 'none' }}>
+          <Link href={`${LEARN_URL}/training-sessions`} style={{ fontSize: 14, fontWeight: 700, color: '#1B4F8A', textDecoration: 'none' }}>
             View All Training Sessions &#8594;
           </Link>
         </div>

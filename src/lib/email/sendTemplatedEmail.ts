@@ -137,7 +137,7 @@ export function buildSessionPlaceholders(session: {
     session_description: (session.description ?? '').slice(0, 200),
     instructor_name: session.instructor_name ?? '',
     join_url: session.live_url ?? '',
-    view_url: `${mainUrl}/training-sessions/${session.id}`,
+    view_url: `${learnUrl}/training-sessions/${session.id}`,
     youtube_url: session.youtube_url ?? '',
     registration_count: String(session.registration_count ?? 0),
   };

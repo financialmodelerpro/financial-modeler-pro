@@ -29,7 +29,7 @@ export async function POST(
     session_description: 'An introduction to real estate financial modeling covering project setup, timeline, and financing structure.',
     instructor_name: 'Ahmad Din',
     join_url: 'https://teams.microsoft.com/meet/test-session',
-    view_url: 'https://financialmodelerpro.com/training-sessions/test-id',
+    view_url: `${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training-sessions/test-id`,
     youtube_url: 'https://youtube.com/watch?v=test123',
     registration_count: '47',
   };

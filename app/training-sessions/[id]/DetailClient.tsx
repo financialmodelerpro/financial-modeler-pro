@@ -28,6 +28,7 @@ function fmtTime(iso: string): string {
   try { return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }); } catch { return ''; }
 }
 
+const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
 
@@ -66,7 +67,7 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
       <div style={{ textAlign: 'center', padding: 80 }}>
         <div style={{ fontSize: 48, marginBottom: 12 }}>404</div>
         <div style={{ color: '#6B7280', marginBottom: 12 }}>Session not found</div>
-        <Link href="/training-sessions" style={{ color: '#1B4F8A' }}>Back to Training Sessions</Link>
+        <Link href={`${LEARN_URL}/training-sessions`} style={{ color: '#1B4F8A' }}>Back to Training Sessions</Link>
       </div>
     );
   }
@@ -82,7 +83,7 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
           )}
 
           <div style={{ maxWidth: 800, margin: '0 auto', padding: 'clamp(20px,4vw,36px) clamp(16px,3vw,24px) 64px' }}>
-            <Link href="/training-sessions" style={{ fontSize: 13, color: '#6B7280', textDecoration: 'none', marginBottom: 16, display: 'inline-block' }}>
+            <Link href={`${LEARN_URL}/training-sessions`} style={{ fontSize: 13, color: '#6B7280', textDecoration: 'none', marginBottom: 16, display: 'inline-block' }}>
               &larr; Back to Training Sessions
             </Link>
 
@@ -281,7 +282,7 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
                     const rYtId = extractYouTubeId(r.youtube_url);
                     const rThumb = r.banner_url || (rYtId ? `https://img.youtube.com/vi/${rYtId}/mqdefault.jpg` : null);
                     return (
-                      <Link key={r.id} href={`/training-sessions/${r.id}`} style={{ textDecoration: 'none' }}>
+                      <Link key={r.id} href={`${LEARN_URL}/training-sessions/${r.id}`} style={{ textDecoration: 'none' }}>
                         <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
                           {rThumb ? (
                             // eslint-disable-next-line @next/next/no-img-element

@@ -34,6 +34,7 @@ export interface SessionCardProps {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
+const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
 
@@ -83,7 +84,7 @@ export function SessionCard({ session: s, variant, compact, isRegistered, joinLi
   // Link targets differ by variant
   const detailUrl = variant === 'student'
     ? `/training/live-sessions/${s.id}`
-    : `/training-sessions/${s.id}`;
+    : `${LEARN_URL}/training-sessions/${s.id}`;
 
   const placeholderH = compact ? 80 : 160;
 
