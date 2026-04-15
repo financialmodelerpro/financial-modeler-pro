@@ -75,6 +75,24 @@ export default function CourseWatchPage() {
     return () => clearInterval(id);
   }, [loading, checkTimer]);
 
+  // Check for forced completion from previous watch
+  useEffect(() => {
+    if (!studentSession) return;
+    const key = `fmp_timer_complete_${studentSession.registrationId}_${sessionKey}`;
+    if (typeof localStorage !== 'undefined' && localStorage.getItem(key) === 'true') {
+      setTimerComplete(true);
+    }
+  }, [studentSession, sessionKey]);
+
+  // Handle video ended — force timer complete
+  const handleVideoEnded = useCallback(() => {
+    setTimerComplete(true);
+    if (studentSession) {
+      const key = `fmp_timer_complete_${studentSession.registrationId}_${sessionKey}`;
+      if (typeof localStorage !== 'undefined') localStorage.setItem(key, 'true');
+    }
+  }, [studentSession, sessionKey]);
+
   // Handle video play — start timer
   const handlePlaying = useCallback(() => {
     if (!studentSession || !course) return;
@@ -181,6 +199,7 @@ export default function CourseWatchPage() {
         assessmentUrl={assessmentUrl}
         assessmentReady={timerComplete}
         onVideoPlaying={handlePlaying}
+        onVideoEnded={handleVideoEnded}
       />
     </TrainingShell>
   );

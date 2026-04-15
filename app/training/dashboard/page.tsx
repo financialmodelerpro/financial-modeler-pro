@@ -119,6 +119,21 @@ export default function TrainingDashboardPage() {
   const [upcomingCount, setUpcomingCount]          = useState(0);
   const [scrolledDown, setScrolledDown]           = useState(false);
   const [shareBannerDismissed, setShareBannerDismissed] = useState(true); // default true until checked
+  const [dashLogoUrl, setDashLogoUrl] = useState<string | undefined>();
+  const [dashLogoHeight, setDashLogoHeight] = useState('36');
+
+  // Fetch CMS logo for header
+  useEffect(() => {
+    fetch('/api/cms?section=header_settings&keys=logo_url,logo_height_px')
+      .then(r => r.json())
+      .then((d: { map?: Record<string, string> }) => {
+        const url = d.map?.['header_settings__logo_url'];
+        const h = d.map?.['header_settings__logo_height_px'];
+        if (url) setDashLogoUrl(url);
+        if (h) setDashLogoHeight(h);
+      })
+      .catch(() => {});
+  }, []);
 
   // Restore sidebar state + share banner from localStorage (client-only)
   useEffect(() => {
@@ -685,12 +700,14 @@ export default function TrainingDashboardPage() {
           >
             &#9776;
           </button>
-          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', flexShrink: 0 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 6, background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>&#128208;</div>
-            <div>
+          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', flexShrink: 0 }}>
+            {dashLogoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={dashLogoUrl} alt="Financial Modeler Pro" style={{ height: parseInt(dashLogoHeight) || 36, width: 'auto', objectFit: 'contain' }} />
+            ) : (
               <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', lineHeight: 1 }}>Financial Modeler Pro</div>
-              <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Training Hub</div>
-            </div>
+            )}
+            <span style={{ fontSize: 9, fontWeight: 700, color: '#2EAA4A', background: 'rgba(46,170,74,0.15)', padding: '3px 8px', borderRadius: 4, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Training Hub</span>
           </Link>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

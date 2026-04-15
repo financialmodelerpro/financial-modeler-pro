@@ -32,6 +32,7 @@ interface CoursePlayerLayoutProps {
   assessmentUrl?: string;
   assessmentReady?: boolean;
   onVideoPlaying?: () => void;
+  onVideoEnded?: () => void;
   // Video (optional — may not have embedded video)
   videoId?: string;
   sessionId?: string;
@@ -67,7 +68,7 @@ export function CoursePlayerLayout({
   title, youtubeUrl, channelId, showLikeButton,
   sessionTitle, sessionDescription, sessionUrl,
   nextSessionHref, isWatched, onMarkComplete,
-  assessmentUrl, assessmentReady, onVideoPlaying,
+  assessmentUrl, assessmentReady, onVideoPlaying, onVideoEnded,
   videoId, sessionId, studentEmail, studentRegId,
   bannerUrl, instructorName, instructorTitle,
   scheduledDatetime, timezone, durationMinutes, difficultyLevel, tags,
@@ -372,6 +373,7 @@ export function CoursePlayerLayout({
                   studentEmail={studentEmail}
                   studentRegId={studentRegId}
                   onPlaying={onVideoPlaying}
+                  onEnded={onVideoEnded}
                 />
               </div>
               <div style={{ padding: '24px 32px', maxWidth: 860 }}>
