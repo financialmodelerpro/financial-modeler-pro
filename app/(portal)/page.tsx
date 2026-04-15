@@ -17,6 +17,7 @@ import {
   getAllPageSections,
 } from '@/src/lib/shared/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
+import { SiteFollowPopup } from '@/src/components/shared/SiteFollowPopup';
 import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/ArticleCard';
@@ -772,6 +773,7 @@ export default async function LandingPage() {
         showPrivacy={footerShowPrivacy}
         showConfidentiality={footerShowConfidentiality}
       />
+      <SiteFollowPopup />
     </div>
   );
 }

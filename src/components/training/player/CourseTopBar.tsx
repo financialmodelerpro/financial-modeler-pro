@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import Link from 'next/link';
 import { SubscribeModal } from '../SubscribeModal';
 import { ShareModal } from './ShareModal';
+import { FollowPopup } from '@/src/components/shared/FollowPopup';
 
 interface CourseTopBarProps {
   title: string;
@@ -41,6 +42,13 @@ export function CourseTopBar({
 }: CourseTopBarProps) {
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showCompletePopup, setShowCompletePopup] = useState(false);
+
+  const handleMarkCompleteWithPopup = useCallback(() => {
+    onMarkComplete?.();
+    setShowCompletePopup(true);
+    if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('fmp_complete_popup_shown', '1');
+  }, [onMarkComplete]);
 
   return (
     <>
@@ -109,7 +117,7 @@ export function CourseTopBar({
           {/* Mark Complete */}
           {onMarkComplete && (
             <button
-              onClick={isWatched ? undefined : onMarkComplete}
+              onClick={isWatched ? undefined : handleMarkCompleteWithPopup}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6,
                 padding: '6px 14px', fontSize: 13, fontWeight: 600,
@@ -153,6 +161,15 @@ export function CourseTopBar({
           onClose={() => setShowShareModal(false)}
         />
       )}
+
+      {/* Post-complete popup */}
+      <FollowPopup
+        heading="✅ Session Complete!"
+        subtext="Stay connected for more financial modeling content."
+        show={showCompletePopup}
+        autoDismissMs={5000}
+        onClose={() => setShowCompletePopup(false)}
+      />
     </>
   );
 }

@@ -6,6 +6,7 @@ import { YouTubePlayer } from '../YouTubePlayer';
 import { YouTubeComments } from '../YouTubeComments';
 import { StudentNotes } from '../StudentNotes';
 import { CourseTopBar } from './CourseTopBar';
+import { FollowPopup } from '@/src/components/shared/FollowPopup';
 
 export interface SidebarSession {
   id: string;
@@ -74,8 +75,21 @@ export function CoursePlayerLayout({
   const [isMobile, setIsMobile] = useState(false);
   const [videoOpen, setVideoOpen] = useState(false);
 
+  const [showVideoPopup, setShowVideoPopup] = useState(false);
+
   const hasVideo = !!videoId && !!youtubeUrl;
   const isUpcoming = sessionType === 'upcoming' || sessionType === 'live';
+
+  // 60s video popup — once per session, skip if post-complete popup was shown
+  useEffect(() => {
+    if (!videoOpen) return;
+    if (typeof sessionStorage !== 'undefined' && (sessionStorage.getItem('fmp_video_popup_shown') || sessionStorage.getItem('fmp_complete_popup_shown'))) return;
+    const t = setTimeout(() => {
+      setShowVideoPopup(true);
+      if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('fmp_video_popup_shown', '1');
+    }, 60000);
+    return () => clearTimeout(t);
+  }, [videoOpen]);
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -384,6 +398,14 @@ export function CoursePlayerLayout({
           </div>
         )}
       </div>
+
+      {/* 60s video popup */}
+      <FollowPopup
+        heading="Enjoying this session?"
+        subtext="Follow us for more financial modeling sessions and training content."
+        show={showVideoPopup}
+        onClose={() => setShowVideoPopup(false)}
+      />
     </div>
   );
 }
