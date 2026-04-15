@@ -75,6 +75,7 @@ export function LiveSessionsContent({ studentEmail }: LiveSessionsContentProps) 
   const [loading, setLoading] = useState(true);
   const [regStatus, setRegStatus] = useState<Record<string, { registered: boolean; joinLinkAvailable: boolean }>>({});
   const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState('');
 
   useEffect(() => {
     if (!studentEmail) { setLoading(false); return; }
@@ -109,8 +110,10 @@ export function LiveSessionsContent({ studentEmail }: LiveSessionsContentProps) 
     })();
   }, [studentEmail]);
 
-  const upcoming = sessions.filter(s => { const t = getEffectiveType(s); return t === 'upcoming' || t === 'live'; });
-  const recorded = sessions.filter(s => getEffectiveType(s) === 'recorded');
+  const q = search.toLowerCase().trim();
+  const filtered = q ? sessions.filter(s => s.title.toLowerCase().includes(q)) : sessions;
+  const upcoming = filtered.filter(s => { const t = getEffectiveType(s); return t === 'upcoming' || t === 'live'; });
+  const recorded = filtered.filter(s => getEffectiveType(s) === 'recorded');
   const groupedRecordings: Record<string, Session[]> = {};
   for (const s of recorded) {
     const key = s.playlist?.name ?? 'Other Sessions';
@@ -143,7 +146,39 @@ export function LiveSessionsContent({ studentEmail }: LiveSessionsContentProps) 
         </div>
       </div>
 
+      {/* Search */}
+      {!loading && sessions.length > 0 && (
+        <div style={{ position: 'relative', marginBottom: 20 }}>
+          <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', fontSize: 15, color: '#9CA3AF', pointerEvents: 'none' }}>🔍</span>
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search sessions..."
+            style={{
+              width: '100%', padding: '10px 36px 10px 38px', fontSize: 14,
+              border: '1px solid #E5E7EB', borderRadius: 10, background: '#fff',
+              outline: 'none', color: '#374151', boxSizing: 'border-box',
+            }}
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', fontSize: 16, color: '#9CA3AF', cursor: 'pointer', padding: 4 }}
+            >×</button>
+          )}
+        </div>
+      )}
+
       {loading && <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>Loading sessions...</div>}
+
+      {/* No search results */}
+      {!loading && q && filtered.length === 0 && (
+        <div style={{ textAlign: 'center', padding: 60, color: '#9CA3AF' }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No sessions found for &lsquo;{search}&rsquo;</div>
+          <button onClick={() => setSearch('')} style={{ fontSize: 13, color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', marginTop: 8 }}>Clear search</button>
+        </div>
+      )}
 
       {/* Upcoming */}
       {!loading && upcoming.length > 0 && (
