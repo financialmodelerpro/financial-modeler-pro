@@ -115,7 +115,12 @@ export default function CourseWatchPage() {
     }
   }, [studentSession, sessionKey]);
 
-  // Handle video ended — show Mark Complete button
+  // Handle near end (20s before video ends) — show Mark Complete early
+  const handleNearEnd = useCallback(() => {
+    setVideoEnded(true);
+  }, []);
+
+  // Handle video ended — also show Mark Complete button
   const handleVideoEnded = useCallback(() => {
     setVideoEnded(true);
     setTimerComplete(true);
@@ -241,6 +246,7 @@ export default function CourseWatchPage() {
         assessmentReady={markedComplete}
         onVideoPlaying={handlePlaying}
         onVideoEnded={handleVideoEnded}
+        onVideoNearEnd={handleNearEnd}
       />
     </TrainingShell>
   );

@@ -2,8 +2,6 @@
 
 import { useEffect, useState, useRef } from 'react';
 import Link from 'next/link';
-import { startTimer, getTimerStatus, type TimerStatus } from '@/src/lib/training/videoTimer';
-import { CountdownTimer } from '@/src/components/training/CountdownTimer';
 import type { SessionProgress } from './types';
 import { StatusBadge } from './StatusBadge';
 import { FilePreviewModal } from './FilePreviewModal';
@@ -45,7 +43,6 @@ export function SessionCard({
   tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
   bvmLocked, watchLocked, timerBypassed, courseId,
 }: SessionCardProps) {
-  const [timerStatus, setTimerStatus] = useState<TimerStatus>({ locked: false, secondsRemaining: 0, started: false });
   const [notesOpen, setNotesOpen] = useState(false);
   const [noteText, setNoteText] = useState(noteContent);
   const [sessionAttachments, setSessionAttachments] = useState<{ id: string; file_name: string; file_url: string; file_type: string; file_size: number }[]>([]);
@@ -55,11 +52,6 @@ export function SessionCard({
 
   // Sync incoming noteContent (loaded async)
   useEffect(() => { setNoteText(noteContent); }, [noteContent]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !regId) return;
-    setTimerStatus(getTimerStatus(regId, tabKey, videoDuration, timerBypassed));
-  }, [regId, tabKey, videoDuration, timerBypassed]);
 
   // Load attachments for this session
   useEffect(() => {
@@ -84,11 +76,6 @@ export function SessionCard({
   const attemptsUsed = prog?.attempts ?? 0;
   const attemptsLeft = maxAttempts - attemptsUsed;
   const label = isFinal ? '🏆' : `S${idx + 1}`;
-
-  // Time-lock state (only applies when formUrl is available and session not locked/passed)
-  const hasTimeLock = videoDuration > 0 && !!ytUrl;
-  const timerLocked  = hasTimeLock && timerStatus.locked;
-  const timerStarted = timerStatus.started;
 
   return (
     <div style={{
@@ -179,10 +166,6 @@ export function SessionCard({
             </Link>
           ) : (
             <a href={ytUrl} target="_blank" rel="noopener noreferrer"
-              onClick={() => {
-                startTimer(regId, tabKey, videoDuration);
-                setTimerStatus(getTimerStatus(regId, tabKey, videoDuration, timerBypassed));
-              }}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: '#FF0000', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
               ▶ Watch Video
             </a>
@@ -193,7 +176,7 @@ export function SessionCard({
           </span>
         ) : null}
 
-        {/* Assessment */}
+        {/* Assessment status (assessment itself is on watch page) */}
         {bvmLocked ? (
           <span title="Complete 3-Statement Financial Modeling first to unlock"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#FEF2F2', color: '#FCA5A5', whiteSpace: 'nowrap', cursor: 'default' }}>
@@ -211,32 +194,7 @@ export function SessionCard({
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#FEF2F2', color: '#DC2626', whiteSpace: 'nowrap' }}>
             No Attempts Left
           </span>
-        ) : questionCount === 0 ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#F3F4F6', color: '#9CA3AF', whiteSpace: 'nowrap' }}>
-            📝 Assessment Coming Soon
-          </span>
-        ) : timerLocked && !timerStarted ? (
-          // STATE 2: video exists but never watched
-          <span title="Watch the video to unlock the assessment"
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#F3F4F6', color: '#9CA3AF', whiteSpace: 'nowrap', cursor: 'default' }}>
-            👁 Watch Video First
-          </span>
-        ) : timerLocked && timerStarted ? (
-          // STATE 3: timer running — live countdown
-          <CountdownTimer
-            regId={regId}
-            tabKey={tabKey}
-            durationMinutes={videoDuration}
-            onExpired={() => setTimerStatus({ locked: false, secondsRemaining: 0, started: true })}
-            timerBypassed={timerBypassed}
-          />
-        ) : (
-          // STATE 1 / 4: no lock or timer expired
-          <Link href={`/training/assessment/${encodeURIComponent(tabKey)}`}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: isFinal ? '#C9A84C' : '#2EAA4A', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
-            {isFinal ? '🏆 Take Final Exam →' : '📝 Take Assessment →'}
-          </Link>
-        )}
+        ) : null}
       </div>
 
       {/* Attachments */}

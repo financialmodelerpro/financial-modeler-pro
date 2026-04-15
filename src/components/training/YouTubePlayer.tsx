@@ -11,7 +11,7 @@ interface YTPlayerOptions {
     onStateChange?: (e: { data: number }) => void;
   };
 }
-interface YTPlayer { destroy(): void }
+interface YTPlayer { destroy(): void; getDuration?(): number; getCurrentTime?(): number }
 interface YTAPI { Player: new (el: string, opts: YTPlayerOptions) => YTPlayer; PlayerState: { PLAYING: number; PAUSED: number; ENDED: number } }
 
 declare global {
@@ -32,15 +32,37 @@ interface YouTubePlayerProps {
   onPlaying?: () => void;
   onPaused?: () => void;
   onEnded?: () => void;
+  onNearEnd?: () => void;
 }
 
-export function YouTubePlayer({ videoId, title, sessionId, studentEmail, studentRegId, onReady, onPlaying, onPaused, onEnded }: YouTubePlayerProps) {
+export function YouTubePlayer({ videoId, title, sessionId, studentEmail, studentRegId, onReady, onPlaying, onPaused, onEnded, onNearEnd }: YouTubePlayerProps) {
   const playerRef = useRef<YTPlayer | null>(null);
   const containerIdRef = useRef(`yt-player-${videoId}`);
   const reportedRef = useRef(false);
 
   useEffect(() => {
     let destroyed = false;
+    let nearEndInterval: ReturnType<typeof setInterval> | null = null;
+    let nearEndFired = false;
+
+    function startNearEndCheck() {
+      if (nearEndFired || !onNearEnd || nearEndInterval) return;
+      nearEndInterval = setInterval(() => {
+        const p = playerRef.current;
+        if (!p?.getDuration || !p?.getCurrentTime) return;
+        const dur = p.getDuration();
+        const cur = p.getCurrentTime();
+        if (dur > 0 && (dur - cur) <= 20) {
+          nearEndFired = true;
+          onNearEnd();
+          if (nearEndInterval) { clearInterval(nearEndInterval); nearEndInterval = null; }
+        }
+      }, 1000);
+    }
+
+    function stopNearEndCheck() {
+      if (nearEndInterval) { clearInterval(nearEndInterval); nearEndInterval = null; }
+    }
 
     function reportCompletion() {
       if (!sessionId || !studentEmail || reportedRef.current) return;
@@ -65,9 +87,9 @@ export function YouTubePlayer({ videoId, title, sessionId, studentEmail, student
           onReady: () => onReady?.(),
           onStateChange: (event) => {
             const PS = window.YT.PlayerState;
-            if (event.data === PS.PLAYING) onPlaying?.();
-            if (event.data === PS.PAUSED) onPaused?.();
-            if (event.data === PS.ENDED) {
+            if (event.data === PS.PLAYING) { onPlaying?.(); startNearEndCheck(); }
+            if (event.data === PS.PAUSED) { onPaused?.(); stopNearEndCheck(); }
+            if (event.data === PS.ENDED) { stopNearEndCheck();
               onEnded?.();
               reportCompletion();
             }
@@ -96,6 +118,7 @@ export function YouTubePlayer({ videoId, title, sessionId, studentEmail, student
 
     return () => {
       destroyed = true;
+      stopNearEndCheck();
       try { playerRef.current?.destroy(); } catch { /* already gone */ }
       playerRef.current = null;
     };
