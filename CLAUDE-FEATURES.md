@@ -231,6 +231,56 @@ Fixed bottom bar (56px): Home, Courses, Live, Achieve, Profile
 
 ---
 
+## CFI-Style Course Player System
+
+### CoursePlayerLayout (`src/components/training/player/CoursePlayerLayout.tsx`)
+Full-page immersive layout for watching training sessions and certification videos:
+- **Left sidebar**: Navy background, session list with checkmarks/numbers, back link
+- **Top bar** (`CourseTopBar.tsx`): Session title, action icons (Subscribe, Like, Ask Question, Share), Mark Complete button, Take Assessment button, Continue link
+- **Main area**: Two states — Screen 1 (session info + "Watch Session" button) and Screen 2 (embedded YouTubePlayer + comments panel)
+- **Right panel**: YouTube comments (desktop only, when video open)
+- **Mobile**: Single column, sidebar below content
+
+### Certification Watch Page (`app/training/watch/[courseId]/[sessionKey]/page.tsx`)
+- Embedded video player for certification course sessions (3SFM, BVM)
+- Timer starts on play, `onNearEnd` triggers Mark Complete 20s before video ends
+- Two-step flow: Mark Complete → Take Assessment
+- Progress restored from `progressMap` (DB-backed via `/api/training/progress`)
+- Timer bypass support from `training_settings` DB key `timer_bypass_enabled`
+- Dashboard SessionCard "Watch Video" links to internal watch page (not external YouTube)
+
+### Student Notes (`src/components/training/StudentNotes.tsx`)
+- Per-session private notes with bold/bullet toolbar
+- Auto-save on blur via `POST /api/training/session-notes`
+- Table: `session_notes` (session_id + student_email UNIQUE)
+
+### Subscribe Modal (`src/components/training/SubscribeModal.tsx`)
+- Clean modal with YouTube subscribe link (`?sub_confirmation=1`)
+- No Google widget dependency — simple reliable button
+
+### Welcome Modal (`src/components/training/WelcomeModal.tsx`)
+- First-visit modal with YouTube + LinkedIn buttons
+- Configurable `storageKey` prop (default `fmp_welcomed`, Training Hub uses `fmp_hub_welcomed`)
+- Shows on Training Hub pages + public training sessions pages
+
+### Follow Popups (`src/components/shared/FollowPopup.tsx`)
+- LinkedIn + YouTube buttons in: main site footer, Training Hub sidebar, post-complete popup, 60s video popup, site-wide 60s popup
+- sessionStorage dedup, auto-dismiss, configurable
+
+### Live Sessions as Dashboard Tab
+- `LiveSessionsContent.tsx` extracted as reusable component
+- Dashboard `?tab=live-sessions` renders it inline (no page navigation)
+- `/training/live-sessions` redirects to dashboard tab
+- Search filter for sessions by title
+
+### Training Hub Header
+- CMS logo fetched client-side from `/api/cms?section=header_settings&keys=logo_url,logo_height_px`
+- `minHeight` instead of fixed height (logo doesn't clip)
+- "Training Hub" green badge beside logo
+- Live Sessions sidebar accordion with Upcoming/Recordings groups + counts
+
+---
+
 ## Share Experience & Testimonial System
 
 ### ShareExperienceModal (`src/components/shared/ShareExperienceModal.tsx`)

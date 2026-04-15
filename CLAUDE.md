@@ -289,12 +289,32 @@ All three marketing pages use **Option B**: each section fetched from `page_sect
 - No personal names in any email template signatures — company name only
 
 ### YouTube Integration (Live Sessions)
-- **YouTubePlayer**: `src/components/training/YouTubePlayer.tsx` — YT IFrame API, tracks completion via `/api/training/live-sessions/[id]/watched`
-- **SubscribeButton**: `src/components/training/SubscribeButton.tsx` — styled dark banner with Google `g-ytsubscribe` widget
+- **YouTubePlayer**: `src/components/training/YouTubePlayer.tsx` — YT IFrame API, tracks completion via `/api/training/live-sessions/[id]/watched`, `onNearEnd` fires 20s before end
+- **SubscribeButton**: `src/components/training/SubscribeButton.tsx` — legacy, unused (replaced by SubscribeModal)
+- **SubscribeModal**: `src/components/training/SubscribeModal.tsx` — clean modal with YouTube subscribe link
 - **LikeButton**: `src/components/training/LikeButton.tsx` — links to YouTube for likes
 - **YouTubeComments**: `src/components/training/YouTubeComments.tsx` — fetches from `/api/training/youtube-comments` (24h DB cache)
 - **Admin toggle**: `show_like_button` on `live_sessions` table (default true), toggled in admin session edit form
 - **Watch progress**: `session_watch_history` table, 50 points on first completion, badges on live sessions listing page
+
+### Course Player System
+- **CoursePlayerLayout**: `src/components/training/player/CoursePlayerLayout.tsx` — CFI-style: left sidebar, video, right comments panel
+- **CourseTopBar**: `src/components/training/player/CourseTopBar.tsx` — dark sticky bar with actions, Mark Complete, Assessment, Continue
+- **ShareModal**: `src/components/training/player/ShareModal.tsx` — Copy Link, LinkedIn, WhatsApp share
+- **StudentNotes**: `src/components/training/StudentNotes.tsx` — per-session private notes with auto-save
+- **WelcomeModal**: `src/components/training/WelcomeModal.tsx` — first-visit modal with YouTube+LinkedIn
+- **FollowPopup**: `src/components/shared/FollowPopup.tsx` — reusable follow popup with LinkedIn+YouTube
+- **Cert Watch Page**: `app/training/watch/[courseId]/[sessionKey]/page.tsx` — embedded player for certification courses
+- **Live Sessions Tab**: Dashboard `?tab=live-sessions` renders `LiveSessionsContent.tsx` inline
+- **Session Notes API**: `app/api/training/session-notes/route.ts` — GET+POST with upsert
+
+### Training Hub Dashboard
+- Dashboard has its OWN built-in header/sidebar (NOT TrainingShell)
+- CMS logo fetched from `/api/cms?section=header_settings&keys=logo_url,logo_height_px`
+- Live Sessions is a dashboard tab (`?tab=live-sessions`), not a separate page
+- `/training/live-sessions` redirects to `/training/dashboard?tab=live-sessions`
+- Sidebar accordion shows Upcoming/Recordings with counts
+- Live Sessions label configurable via CMS key `training_hub/live_sessions_label`
 
 ### `/api/branding`
 - GET is public (no auth) — PATCH requires admin

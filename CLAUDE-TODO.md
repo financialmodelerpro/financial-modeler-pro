@@ -4,6 +4,26 @@
 
 ---
 
+## Recently Completed (This Session)
+
+| Feature | Status |
+|---------|--------|
+| **CFI-style Course Player** | Complete — CoursePlayerLayout, CourseTopBar, ShareModal, sidebar, three-column layout |
+| **Certification Watch Page** | Complete — `/training/watch/[courseId]/[sessionKey]`, embedded player, timer, Mark Complete → Assessment flow |
+| **Student Notes** | Complete — per-session notes with toolbar, auto-save, API route, migration 086 |
+| **Subscribe Modal** | Complete — replaced g-ytsubscribe widget with reliable YouTube link |
+| **Welcome Modal** | Complete — first-visit modal with YouTube+LinkedIn on Training Hub + public pages |
+| **Follow Popups** | Complete — LinkedIn+YouTube in footer, sidebar, post-complete, 60s video, site-wide |
+| **Live Sessions Dashboard Tab** | Complete — `?tab=live-sessions`, search filter, redirect from old page |
+| **Training Hub Logo** | Complete — CMS logo on TrainingShell + dashboard, minHeight fix |
+| **Sidebar Consistency** | Complete — Course player sidebar matches dashboard (navy bg, same styles) |
+| **Live Sessions Accordion** | Complete — sidebar dropdown with Upcoming/Recordings groups + counts |
+| **Training Sessions Subdomain** | Complete — rewrites, redirects, all links point to learn. subdomain |
+| **Video Timer Improvements** | Complete — onNearEnd 20s before end, timer bypass race fix, dashboard timer removed |
+| **Live Sessions Label CMS** | Complete — admin-controllable via `training_hub/live_sessions_label` (migration 087) |
+
+---
+
 ## In Progress
 
 | Feature | Current State | What Remains |

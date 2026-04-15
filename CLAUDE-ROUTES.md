@@ -83,6 +83,13 @@ app/training-sessions/
 └── [id]/DetailClient.tsx        # Client: detail with countdown, video, instructor
 ```
 
+### Certification Watch Page
+```
+app/training/watch/
+└── [courseId]/[sessionKey]/page.tsx  # Embedded video player for cert courses (S1, S2, etc.)
+                                      # CoursePlayerLayout + timer + assessment flow
+```
+
 ### Training Hub (`learn.financialmodelerpro.com`)
 ```
 app/training/
@@ -232,6 +239,7 @@ app/api/
 ├── testimonials/ + student/
 ├── public/training-sessions/      # GET: public list (no auth, no live_url/password)
 ├── public/training-sessions/[id]/ # GET: public detail (no auth, no live_url/password)
+├── training/session-notes/        # GET+POST: per-student notes per session (upsert)
 └── user/account/ + password/ + profile/
 ```
 
@@ -272,18 +280,32 @@ src/components/
 │   ├── BrandingSettingsPanel.tsx  BrandingThemeApplier.tsx
 │   ├── PhoneInput.tsx  SessionProviderWrapper.tsx  UpgradePrompt.tsx
 │   └── ShareExperienceModal.tsx     # 3-tab testimonial modal for both hubs
+├── shared/
+│   ├── FollowPopup.tsx              # Reusable LinkedIn+YouTube follow popup (bottom-right toast)
+│   └── SiteFollowPopup.tsx          # Site-wide 60s popup wrapper
 ├── training/
 │   ├── CountdownTimer.tsx
-│   ├── TrainingShell.tsx            # Shared layout (header + sidebar + footer + mobile nav)
-│   ├── YouTubePlayer.tsx            # YT IFrame API player with watch progress tracking
-│   ├── SubscribeButton.tsx          # Styled dark banner with Google subscribe widget
+│   ├── TrainingShell.tsx            # Shared layout (header + sidebar + footer + mobile nav + CMS logo)
+│   ├── TrainingShellServer.tsx      # Server wrapper — fetches CMS logo for TrainingShell
+│   ├── YouTubePlayer.tsx            # YT IFrame API player with onNearEnd (20s) + watch tracking
+│   ├── SubscribeButton.tsx          # Legacy — unused (replaced by SubscribeModal)
+│   ├── SubscribeModal.tsx           # Subscribe modal with YouTube link + ?sub_confirmation=1
+│   ├── EngagementBar.tsx            # Legacy — unused (replaced by CourseTopBar)
+│   ├── PlaylistSidebar.tsx          # Legacy — unused (replaced by CoursePlayerLayout sidebar)
 │   ├── LikeButton.tsx               # "Like on YouTube" link button
 │   ├── YouTubeComments.tsx          # Cached YouTube comments with expand/collapse
+│   ├── StudentNotes.tsx             # Per-session student notes with bold/bullet toolbar + auto-save
+│   ├── WelcomeModal.tsx             # First-visit welcome modal (localStorage, configurable key)
+│   ├── player/
+│   │   ├── CoursePlayerLayout.tsx   # CFI-style layout: left sidebar + video + right comments panel
+│   │   ├── CourseTopBar.tsx         # Dark sticky bar: title, actions, Mark Complete, Assessment, Continue
+│   │   └── ShareModal.tsx           # Share modal: Copy Link, LinkedIn, WhatsApp
 │   └── dashboard/
 │       ├── AboutThisCourse.tsx  BvmLockedContent.tsx  CertificateImageCard.tsx
 │       ├── CourseContent.tsx  FeedbackModal.tsx  ProfileModal.tsx
 │       ├── SessionCard.tsx  ShareModal.tsx  Skeleton.tsx  StatusBadge.tsx
 │       ├── FilePreviewModal.tsx  TestimonialModal.tsx  index.ts  types.ts
+│       └── LiveSessionsContent.tsx  # Extracted live sessions tab content
 └── ui/
     └── ColorPicker.tsx  OfficeColorPicker.tsx  Toaster.tsx
 ```

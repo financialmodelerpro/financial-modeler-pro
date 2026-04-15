@@ -194,3 +194,6 @@
 | `082_watch_progress_status.sql` | Add status (TEXT, default 'completed') and watch_percentage (INTEGER, default 100) to session_watch_history |
 | `083_youtube_comments_cache.sql` | Create youtube_comments_cache table (video_id UNIQUE, comments JSONB, fetched_at, comment_count) |
 | `084_show_like_button.sql` | Add show_like_button (BOOLEAN, default true) to live_sessions |
+| `085_nav_training_sessions_learn.sql` | Update site_pages href for training-sessions to learn subdomain absolute URL |
+| `086_session_notes.sql` | Create session_notes table (session_id FK, student_email, notes TEXT, UNIQUE constraint) |
+| `087_training_hub_settings.sql` | Seed cms_content training_hub/live_sessions_label = 'Live Sessions' |
