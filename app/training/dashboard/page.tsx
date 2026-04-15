@@ -29,6 +29,7 @@ import {
   ProfileModal,
 } from '@/src/components/training/dashboard';
 import { ShareExperienceModal } from '@/src/components/shared/ShareExperienceModal';
+import { LiveSessionsContent } from '@/src/components/training/dashboard/LiveSessionsContent';
 
 // ── Badge metadata ─────────────────────────────────────────────────────────────
 const BADGE_META: Record<string, { icon: string; label: string; desc: string }> = {
@@ -83,8 +84,8 @@ export default function TrainingDashboardPage() {
   const [lastUpdated, setLastUpdated]             = useState<Date | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed]   = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  // View mode: 'overview' (landing page) or 'course' (course detail)
-  const [activeView, setActiveView]               = useState<'overview' | 'course'>('overview');
+  // View mode: 'overview' (landing page), 'course' (course detail), or 'live-sessions'
+  const [activeView, setActiveView]               = useState<'overview' | 'course' | 'live-sessions'>('overview');
   // share + testimonials
   const [shareModal, setShareModal]               = useState<{ label: string; certUrl?: string } | null>(null);
   const [testimonialModal, setTestimonialModal]   = useState<'written' | 'video' | 'social' | null>(null);
@@ -175,12 +176,14 @@ export default function TrainingDashboardPage() {
     localStorage.setItem('fmp_sidebar_collapsed', String(next));
   }
 
-  function navigateTo(view: 'overview' | 'course', courseId?: string) {
+  function navigateTo(view: 'overview' | 'course' | 'live-sessions', courseId?: string) {
     setActiveView(view);
     if (courseId) setActiveCourse(courseId);
     setMobileSidebarOpen(false);
     // Update URL without full navigation
-    const url = view === 'overview' ? '/training/dashboard' : `/training/dashboard?course=${courseId ?? activeCourse}`;
+    const url = view === 'overview' ? '/training/dashboard'
+      : view === 'live-sessions' ? '/training/dashboard?tab=live-sessions'
+      : `/training/dashboard?course=${courseId ?? activeCourse}`;
     window.history.replaceState({}, '', url);
   }
 
@@ -325,6 +328,11 @@ export default function TrainingDashboardPage() {
           }
         }
       } catch { /* ignore */ }
+    }
+    // If ?tab=live-sessions, go to live sessions view
+    const tabParam = params.get('tab');
+    if (tabParam === 'live-sessions') {
+      setActiveView('live-sessions');
     }
     // If ?course= is set, go directly to course view
     const courseParam = params.get('course');
@@ -1416,6 +1424,13 @@ export default function TrainingDashboardPage() {
               )}
             </>
           )}
+
+          {/* ════════════════════════════════════════════════════════════════════ */}
+          {/* LIVE SESSIONS TAB                                                   */}
+          {/* ════════════════════════════════════════════════════════════════════ */}
+          {activeView === 'live-sessions' && localSession && (
+            <LiveSessionsContent studentEmail={localSession.email} />
+          )}
         </main>
       </div>
 
@@ -1424,7 +1439,7 @@ export default function TrainingDashboardPage() {
         {[
           { icon: '\u{1F3E0}', label: 'Home', action: () => navigateTo('overview'), active: activeView === 'overview' },
           { icon: '\u{1F4CA}', label: 'Courses', action: () => navigateTo('course', enrolledCourses[0] ?? '3sfm'), active: activeView === 'course' },
-          { icon: '\u{1F4FA}', label: 'Live', action: () => router.push('/training/live-sessions'), active: false },
+          { icon: '\u{1F4FA}', label: 'Live', action: () => navigateTo('live-sessions'), active: activeView === 'live-sessions' },
           { icon: '\u{1F3C6}', label: 'Achieve', action: () => { navigateTo('overview'); setTimeout(() => document.getElementById('dash-achievements')?.scrollIntoView({ behavior: 'smooth' }), 100); }, active: false },
           { icon: '\u{1F464}', label: 'Profile', action: () => { setProfileModal(true); }, active: false },
         ].map(item => (

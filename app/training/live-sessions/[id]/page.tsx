@@ -230,7 +230,7 @@ export default function LiveSessionDetailPage() {
         <div style={{ textAlign: 'center', padding: 80 }}>
           <div style={{ fontSize: 48, marginBottom: 12 }}>404</div>
           <div style={{ color: '#6B7280' }}>Session not found</div>
-          <Link href="/training/live-sessions" style={{ color: '#1B4F8A', marginTop: 12, display: 'inline-block' }}>Back to Live Sessions</Link>
+          <Link href="/training/dashboard?tab=live-sessions" style={{ color: '#1B4F8A', marginTop: 12, display: 'inline-block' }}>Back to Live Sessions</Link>
         </div>
       );
     }
@@ -287,7 +287,7 @@ export default function LiveSessionDetailPage() {
         isLoggedIn={true}
         sessions={playlistSessions}
         currentSessionId={session.id}
-        backUrl="/training/live-sessions"
+        backUrl="/training/dashboard?tab=live-sessions"
         backLabel="Live Sessions"
       >
         {/* Attachments */}

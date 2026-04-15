@@ -399,7 +399,7 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
           <div style={{ display: 'flex', gap: 20, fontSize: 11, flexWrap: 'wrap' }}>
             <Link href="/" style={{ color: 'rgba(255,255,255,0.5)', textDecoration: 'none' }}>Home</Link>
             <Link href="/training/dashboard" style={{ color: 'rgba(255,255,255,0.5)', textDecoration: 'none' }}>Courses</Link>
-            <Link href="/training/live-sessions" style={{ color: 'rgba(255,255,255,0.5)', textDecoration: 'none' }}>Live Sessions</Link>
+            <Link href="/training/dashboard?tab=live-sessions" style={{ color: 'rgba(255,255,255,0.5)', textDecoration: 'none' }}>Live Sessions</Link>
             <Link href="/privacy-policy" style={{ color: 'rgba(255,255,255,0.5)', textDecoration: 'none' }}>Privacy</Link>
             <Link href="/confidentiality" style={{ color: 'rgba(255,255,255,0.5)', textDecoration: 'none' }}>Terms</Link>
           </div>
@@ -411,7 +411,7 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
         {[
           { icon: <LayoutDashboard size={18} />, label: 'Home', href: '/training/dashboard', active: currentNav === 'dashboard' },
           { icon: <BookOpen size={18} />, label: 'Courses', href: '/training/dashboard?course=3sfm', active: false },
-          { icon: <Video size={18} />, label: 'Live', href: '/training/live-sessions', active: currentNav === 'live-sessions' },
+          { icon: <Video size={18} />, label: 'Live', href: '/training/dashboard?tab=live-sessions', active: currentNav === 'live-sessions' },
           { icon: <Award size={18} />, label: 'Achieve', href: '/training/dashboard', active: false },
           { icon: <User size={18} />, label: 'Profile', href: '/training/dashboard', active: false },
         ].map(item => (
