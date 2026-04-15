@@ -65,17 +65,7 @@ export function YouTubeComments({ videoId, youtubeUrl }: YouTubeCommentsProps) {
 
   if (comments.length === 0) {
     return (
-      <div style={{ padding: '16px 0' }}>
-        <div style={{ fontSize: 13, color: '#9CA3AF', marginBottom: 8 }}>No comments yet.</div>
-        <a
-          href={youtubeUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ fontSize: 13, color: '#1B4F8A', fontWeight: 600, textDecoration: 'none' }}
-        >
-          Comment on YouTube &rarr;
-        </a>
-      </div>
+      <div style={{ padding: '16px 0', fontSize: 13, color: '#9CA3AF' }}>No comments yet.</div>
     );
   }
 
@@ -136,21 +126,6 @@ export function YouTubeComments({ videoId, youtubeUrl }: YouTubeCommentsProps) {
         );
       })}
 
-      <a
-        href={youtubeUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        style={{
-          display: 'inline-block',
-          marginTop: 16,
-          fontSize: 13,
-          color: '#1B4F8A',
-          fontWeight: 600,
-          textDecoration: 'none',
-        }}
-      >
-        Comment on YouTube &rarr;
-      </a>
     </div>
   );
 }

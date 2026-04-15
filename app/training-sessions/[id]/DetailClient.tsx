@@ -4,7 +4,6 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { getTrainingSession } from '@/src/lib/training/training-session';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/components/training/player/CoursePlayerLayout';
-import { YouTubeComments } from '@/src/components/training/YouTubeComments';
 
 export interface DetailSession {
   id: string; title: string; description: string; youtube_url: string | null;
@@ -119,6 +118,14 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
         nextSessionHref={nextSession?.href}
         isWatched={false}
         videoId={ytId!}
+        bannerUrl={session.banner_url}
+        instructorName={session.instructor_name}
+        instructorTitle={session.instructor_title}
+        scheduledDatetime={session.scheduled_datetime}
+        timezone={session.timezone}
+        durationMinutes={session.duration_minutes}
+        difficultyLevel={session.difficulty_level}
+        tags={session.tags}
         sessions={playlistSessions}
         currentSessionId={session.id}
         backUrl={`${LEARN_URL}/training-sessions`}
@@ -132,17 +139,6 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
             </Link>
           </div>
         )}
-
-        {/* Description */}
-        {session.description && (
-          <div style={{ marginBottom: 24 }}>
-            <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 8 }}>About this session</h3>
-            <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{session.description}</p>
-          </div>
-        )}
-
-        {/* YouTube Comments */}
-        <YouTubeComments videoId={ytId!} youtubeUrl={session.youtube_url!} />
       </CoursePlayerLayout>
     );
   }

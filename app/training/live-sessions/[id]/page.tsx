@@ -7,7 +7,6 @@ import { getTrainingSession } from '@/src/lib/training/training-session';
 import { FilePreviewModal } from '@/src/components/training/dashboard/FilePreviewModal';
 import { TrainingShell } from '@/src/components/training/TrainingShell';
 import { YouTubePlayer } from '@/src/components/training/YouTubePlayer';
-import { YouTubeComments } from '@/src/components/training/YouTubeComments';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/components/training/player/CoursePlayerLayout';
 
 interface Attachment { id: string; file_name: string; file_url: string; file_type: string; file_size: number }
@@ -276,22 +275,19 @@ export default function LiveSessionDetailPage() {
           sessionId={session.id}
           studentEmail={studentSession?.email}
           studentRegId={studentSession?.registrationId}
+          bannerUrl={session.banner_url}
+          instructorName={session.instructor_name}
+          instructorTitle={session.instructor_title}
+          scheduledDatetime={session.scheduled_datetime}
+          timezone={session.timezone}
+          durationMinutes={session.duration_minutes}
+          difficultyLevel={session.difficulty_level}
+          tags={session.tags}
           sessions={playlistSessions}
           currentSessionId={session.id}
           backUrl="/training/live-sessions"
           backLabel="Live Sessions"
         >
-          {/* Description */}
-          {session.description && (
-            <div style={{ marginBottom: 24 }}>
-              <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 8 }}>About this session</h3>
-              <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{session.description}</p>
-            </div>
-          )}
-
-          {/* YouTube Comments */}
-          <YouTubeComments videoId={ytId!} youtubeUrl={session.youtube_url} />
-
           {/* Attachments */}
           {session.attachments.length > 0 && (
             <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24, marginTop: 24 }}>
