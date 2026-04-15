@@ -8,8 +8,7 @@ import { FilePreviewModal } from '@/src/components/training/dashboard/FilePrevie
 import { TrainingShell } from '@/src/components/training/TrainingShell';
 import { YouTubePlayer } from '@/src/components/training/YouTubePlayer';
 import { YouTubeComments } from '@/src/components/training/YouTubeComments';
-import { EngagementBar } from '@/src/components/training/EngagementBar';
-import { PlaylistSidebar } from '@/src/components/training/PlaylistSidebar';
+import { CoursePlayerLayout, type SidebarSession } from '@/src/components/training/player/CoursePlayerLayout';
 
 interface Attachment { id: string; file_name: string; file_url: string; file_type: string; file_size: number }
 interface Session {
@@ -102,6 +101,8 @@ export default function LiveSessionDetailPage() {
   const [regCount, setRegCount] = useState(0);
   const [registering, setRegistering] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [playlistSessions, setPlaylistSessions] = useState<SidebarSession[]>([]);
+  const [isWatched, setIsWatched] = useState(false);
 
   useEffect(() => {
     const sess = getTrainingSession();
@@ -118,6 +119,45 @@ export default function LiveSessionDetailPage() {
       setRegCount(regData.registrationCount ?? 0);
     }).catch(() => {}).finally(() => setLoading(false));
   }, [params.id, router]);
+
+  // Fetch playlist sessions for sidebar
+  useEffect(() => {
+    if (!session?.playlist?.id) return;
+    const pid = session.playlist.id;
+    fetch('/api/public/training-sessions?limit=50')
+      .then(r => r.json())
+      .then((d: { sessions?: Array<{ id: string; title: string; duration_minutes: number | null; session_type: string; scheduled_datetime?: string; playlist?: { id: string } | { id: string }[] | null }> }) => {
+        const filtered = (d.sessions ?? [])
+          .filter(s => {
+            const p = Array.isArray(s.playlist) ? s.playlist[0] : s.playlist;
+            return p?.id === pid;
+          })
+          .sort((a, b) => new Date(a.scheduled_datetime ?? 0).getTime() - new Date(b.scheduled_datetime ?? 0).getTime())
+          .map(s => ({
+            id: s.id,
+            title: s.title,
+            duration_minutes: s.duration_minutes ?? undefined,
+            type: (s.session_type === 'recorded' ? 'recorded' : s.session_type === 'live' ? 'live' : 'upcoming') as SidebarSession['type'],
+            watched: false,
+            href: `/training/live-sessions/${s.id}`,
+          }));
+        setPlaylistSessions(filtered);
+      })
+      .catch(() => {});
+  }, [session?.playlist?.id]);
+
+  // Check watched state
+  useEffect(() => {
+    if (!studentSession?.email || !session?.id) return;
+    fetch(`/api/training/watch-history?email=${encodeURIComponent(studentSession.email)}`)
+      .then(r => r.json())
+      .then((d: { history?: Array<{ session_id: string }> }) => {
+        const watchedIds = new Set((d.history ?? []).map(h => h.session_id));
+        setIsWatched(watchedIds.has(session.id));
+        setPlaylistSessions(prev => prev.map(s => ({ ...s, watched: watchedIds.has(s.id) })));
+      })
+      .catch(() => {});
+  }, [studentSession?.email, session?.id]);
 
   // Refresh join link availability every 30 seconds
   useEffect(() => {
@@ -201,18 +241,99 @@ export default function LiveSessionDetailPage() {
     const isRecorded = effType === 'recorded';
     const ytId = extractYouTubeId(session.youtube_url);
     const hasVideoPlayer = isRecorded && session.youtube_embed && !!ytId;
-    const hasSidebar = hasVideoPlayer && !!session.playlist;
 
+    // ── CFI-style layout for recorded sessions with embedded video ──
+    if (hasVideoPlayer) {
+      const currentIndex = playlistSessions.findIndex(s => s.id === session.id);
+      const nextSess = currentIndex >= 0 ? playlistSessions[currentIndex + 1] : null;
+
+      const handleMarkComplete = async () => {
+        if (!studentSession?.email) return;
+        try {
+          await fetch(`/api/training/live-sessions/${session.id}/watched`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: studentSession.email, regId: studentSession.registrationId }),
+          });
+          setIsWatched(true);
+          setPlaylistSessions(prev => prev.map(s => s.id === session.id ? { ...s, watched: true } : s));
+        } catch {}
+      };
+
+      return (
+        <CoursePlayerLayout
+          title={session.title}
+          youtubeUrl={session.youtube_url}
+          channelId={process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}
+          showLikeButton={session.show_like_button}
+          sessionTitle={session.title}
+          sessionDescription={session.description}
+          sessionUrl={typeof window !== 'undefined' ? window.location.href : ''}
+          nextSessionHref={nextSess?.href}
+          isWatched={isWatched}
+          onMarkComplete={handleMarkComplete}
+          videoId={ytId!}
+          sessionId={session.id}
+          studentEmail={studentSession?.email}
+          studentRegId={studentSession?.registrationId}
+          sessions={playlistSessions}
+          currentSessionId={session.id}
+          backUrl="/training/live-sessions"
+          backLabel="Live Sessions"
+        >
+          {/* Description */}
+          {session.description && (
+            <div style={{ marginBottom: 24 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 8 }}>About this session</h3>
+              <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{session.description}</p>
+            </div>
+          )}
+
+          {/* YouTube Comments */}
+          <YouTubeComments videoId={ytId!} youtubeUrl={session.youtube_url} />
+
+          {/* Attachments */}
+          {session.attachments.length > 0 && (
+            <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24, marginTop: 24 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 12 }}>Session Materials</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {session.attachments.map(att => {
+                  const icon = att.file_type === 'pdf' ? '&#128196;' : att.file_type === 'docx' ? '&#128221;' : att.file_type === 'pptx' ? '&#128202;' : att.file_type === 'xlsx' ? '&#128215;' : '&#128444;';
+                  const size = att.file_size ? att.file_size > 1048576 ? `${(att.file_size / 1048576).toFixed(1)} MB` : `${(att.file_size / 1024).toFixed(0)} KB` : '';
+                  return (
+                    <button key={att.id} onClick={() => setPreviewFile(att)}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#F9FAFB', cursor: 'pointer', textAlign: 'left', width: '100%' }}>
+                      <span style={{ fontSize: 20 }} dangerouslySetInnerHTML={{ __html: icon }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#0D2E5A' }}>{att.file_name}</div>
+                        <div style={{ fontSize: 11, color: '#9CA3AF' }}>{att.file_type.toUpperCase()}{size ? ` - ${size}` : ''}</div>
+                      </div>
+                      <span style={{ fontSize: 12, color: '#1B4F8A', fontWeight: 700 }}>View</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {previewFile && (
+            <FilePreviewModal
+              fileName={previewFile.file_name}
+              fileUrl={previewFile.file_url}
+              fileType={previewFile.file_type}
+              fileSize={previewFile.file_size}
+              onClose={() => setPreviewFile(null)}
+            />
+          )}
+        </CoursePlayerLayout>
+      );
+    }
+
+    // ── Original layout for upcoming / non-embed / no-video sessions ──
     return (
-      <div style={{ maxWidth: hasSidebar ? 1100 : 800, margin: '0 auto' }}>
-        {/* Responsive grid CSS */}
-        <style>{`
-          .course-player-grid { display: grid; grid-template-columns: 1fr 300px; gap: 24px; }
-          @media (max-width: 767px) { .course-player-grid { grid-template-columns: 1fr !important; } }
-        `}</style>
-
-        {/* Banner hero — hide when video player is active */}
-        {session.banner_url && !hasVideoPlayer && (
+      <div style={{ maxWidth: 800, margin: '0 auto' }}>
+        {/* Banner hero */}
+        {session.banner_url && (
           <div style={{ marginBottom: 20, borderRadius: 14, overflow: 'hidden' }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={session.banner_url} alt={session.title} style={{ width: '100%', height: 'auto', maxHeight: 300, objectFit: 'cover', objectPosition: 'top', display: 'block' }} />
@@ -278,49 +399,15 @@ export default function LiveSessionDetailPage() {
           </div>
         )}
 
-        {/* Video — two-column player + sidebar, or external link */}
-        {isRecorded && session.youtube_url && (
-          session.youtube_embed && ytId ? (
-            <div className={session.playlist ? 'course-player-grid' : undefined} style={{ marginBottom: 24 }}>
-              <div>
-                <YouTubePlayer
-                  videoId={ytId}
-                  title={session.title}
-                  sessionId={session.id}
-                  studentEmail={studentSession?.email}
-                  studentRegId={studentSession?.registrationId}
-                />
-                <EngagementBar
-                  youtubeUrl={session.youtube_url}
-                  channelId={process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}
-                  showLike={session.show_like_button !== false}
-                  sessionTitle={session.title}
-                  sessionDescription={session.description}
-                />
-                <div id="yt-comments" style={{ marginTop: 24 }}>
-                  <YouTubeComments videoId={ytId} youtubeUrl={session.youtube_url} />
-                </div>
-              </div>
-              {session.playlist && (
-                <div style={{ position: 'sticky', top: 80, alignSelf: 'start' }}>
-                  <PlaylistSidebar
-                    playlistId={session.playlist.id}
-                    playlistName={session.playlist.name}
-                    currentSessionId={session.id}
-                    variant="student"
-                  />
-                </div>
-              )}
-            </div>
-          ) : (
-            <div style={{ marginBottom: 24, textAlign: 'center' }}>
-              <a href={session.youtube_url} target="_blank" rel="noopener noreferrer"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '14px 32px', borderRadius: 10, background: '#DC2626', color: '#fff', fontWeight: 700, fontSize: 15, textDecoration: 'none', boxShadow: '0 4px 12px rgba(220,38,38,0.3)' }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
-                Watch on YouTube
-              </a>
-            </div>
-          )
+        {/* Recorded — non-embed fallback */}
+        {isRecorded && session.youtube_url && !hasVideoPlayer && (
+          <div style={{ marginBottom: 24, textAlign: 'center' }}>
+            <a href={session.youtube_url} target="_blank" rel="noopener noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '14px 32px', borderRadius: 10, background: '#DC2626', color: '#fff', fontWeight: 700, fontSize: 15, textDecoration: 'none', boxShadow: '0 4px 12px rgba(220,38,38,0.3)' }}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+              Watch on YouTube
+            </a>
+          </div>
         )}
 
         {/* Registration */}
@@ -442,6 +529,11 @@ export default function LiveSessionDetailPage() {
       </div>
     );
   })();
+
+  // CoursePlayerLayout is a full-page layout — don't wrap in TrainingShell
+  if (session && getEffectiveType(session) === 'recorded' && session.youtube_embed && extractYouTubeId(session.youtube_url)) {
+    return <>{content}</>;
+  }
 
   return (
     <TrainingShell activeNav="live-sessions">

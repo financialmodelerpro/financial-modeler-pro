@@ -3,9 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { getTrainingSession } from '@/src/lib/training/training-session';
-import { YouTubePlayer } from '@/src/components/training/YouTubePlayer';
-import { EngagementBar } from '@/src/components/training/EngagementBar';
-import { PlaylistSidebar } from '@/src/components/training/PlaylistSidebar';
+import { CoursePlayerLayout, type SidebarSession } from '@/src/components/training/player/CoursePlayerLayout';
 import { YouTubeComments } from '@/src/components/training/YouTubeComments';
 
 export interface DetailSession {
@@ -39,11 +37,38 @@ const GREEN = '#2EAA4A';
 export function DetailClient({ session }: { session: DetailSession | null }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [countdown, setCountdown] = useState('');
+  const [playlistSessions, setPlaylistSessions] = useState<SidebarSession[]>([]);
   const localTz = typeof Intl !== 'undefined' ? Intl.DateTimeFormat().resolvedOptions().timeZone : '';
 
   useEffect(() => {
     if (getTrainingSession()) setIsLoggedIn(true);
   }, []);
+
+  // Fetch playlist sessions for sidebar
+  useEffect(() => {
+    if (!session?.playlist?.id) return;
+    const pid = session.playlist.id;
+    fetch('/api/public/training-sessions?limit=50')
+      .then(r => r.json())
+      .then((d: { sessions?: Array<{ id: string; title: string; duration_minutes: number | null; session_type: string; scheduled_datetime?: string; playlist?: { id: string } | { id: string }[] | null }> }) => {
+        const filtered = (d.sessions ?? [])
+          .filter(s => {
+            const p = Array.isArray(s.playlist) ? s.playlist[0] : s.playlist;
+            return p?.id === pid;
+          })
+          .sort((a, b) => new Date(a.scheduled_datetime ?? 0).getTime() - new Date(b.scheduled_datetime ?? 0).getTime())
+          .map(s => ({
+            id: s.id,
+            title: s.title,
+            duration_minutes: s.duration_minutes ?? undefined,
+            type: (s.session_type === 'recorded' ? 'recorded' : s.session_type === 'live' ? 'live' : 'upcoming') as SidebarSession['type'],
+            watched: false,
+            href: `${LEARN_URL}/training-sessions/${s.id}`,
+          }));
+        setPlaylistSessions(filtered);
+      })
+      .catch(() => {});
+  }, [session?.playlist?.id]);
 
   // Countdown
   useEffect(() => {
@@ -66,7 +91,6 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
   const isRecorded = session?.session_type === 'recorded';
   const ytId = extractYouTubeId(session?.youtube_url ?? null);
   const hasVideoPlayer = isRecorded && session?.youtube_embed && !!ytId;
-  const hasSidebar = hasVideoPlayer && !!session?.playlist;
 
   if (!session) {
     return (
@@ -78,24 +102,63 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
     );
   }
 
+  // ── CFI-style layout for recorded sessions with embedded video ──
+  if (hasVideoPlayer) {
+    const currentIndex = playlistSessions.findIndex(s => s.id === session.id);
+    const nextSession = currentIndex >= 0 ? playlistSessions[currentIndex + 1] : null;
+
+    return (
+      <CoursePlayerLayout
+        title={session.title}
+        youtubeUrl={session.youtube_url!}
+        channelId={process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}
+        showLikeButton={session.show_like_button}
+        sessionTitle={session.title}
+        sessionDescription={session.description}
+        sessionUrl={`${LEARN_URL}/training-sessions/${session.id}`}
+        nextSessionHref={nextSession?.href}
+        isWatched={false}
+        videoId={ytId!}
+        sessions={playlistSessions}
+        currentSessionId={session.id}
+        backUrl={`${LEARN_URL}/training-sessions`}
+        backLabel="All Sessions"
+      >
+        {/* Sign in CTA */}
+        {!isLoggedIn && (
+          <div style={{ marginBottom: 20, padding: '10px 14px', borderRadius: 8, background: '#EFF6FF', border: '1px solid #93C5FD', textAlign: 'center', fontSize: 12, color: '#1D4ED8' }}>
+            <Link href={`/register?redirect=/training/live-sessions/${session.id}`} style={{ fontWeight: 700, color: '#1D4ED8', textDecoration: 'none' }}>
+              Sign in to earn points and badges for watching!
+            </Link>
+          </div>
+        )}
+
+        {/* Description */}
+        {session.description && (
+          <div style={{ marginBottom: 24 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 8 }}>About this session</h3>
+            <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{session.description}</p>
+          </div>
+        )}
+
+        {/* YouTube Comments */}
+        <YouTubeComments videoId={ytId!} youtubeUrl={session.youtube_url!} />
+      </CoursePlayerLayout>
+    );
+  }
+
+  // ── Original layout for upcoming / non-embed / no-video sessions ──
   return (
     <>
-      {/* Responsive grid CSS */}
-      <style>{`
-        .course-player-grid { display: grid; grid-template-columns: 1fr 300px; gap: 24px; }
-        @media (max-width: 767px) { .course-player-grid { grid-template-columns: 1fr !important; } }
-      `}</style>
-
-      {/* Banner — hide when video player is active */}
-      {session.banner_url && !hasVideoPlayer && (
+      {/* Banner */}
+      {session.banner_url && (
         <div style={{ maxWidth: 900, margin: '0 auto' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={session.banner_url} alt={session.title} style={{ width: '100%', height: 'auto', maxHeight: 320, objectFit: 'cover', objectPosition: 'top', display: 'block' }} />
         </div>
       )}
 
-      {/* Session info header */}
-      <div style={{ maxWidth: hasSidebar ? 1100 : 800, margin: '0 auto', padding: 'clamp(20px,4vw,36px) clamp(16px,3vw,24px) 0' }}>
+      <div style={{ maxWidth: 800, margin: '0 auto', padding: 'clamp(20px,4vw,36px) clamp(16px,3vw,24px) 64px' }}>
         <Link href={`${LEARN_URL}/training-sessions`} style={{ fontSize: 13, color: '#6B7280', textDecoration: 'none', marginBottom: 16, display: 'inline-block' }}>
           &larr; Back to Training Sessions
         </Link>
@@ -149,7 +212,7 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
           </div>
         )}
 
-        {/* ── UPCOMING CTA (not logged in) ──────────────────────────────── */}
+        {/* UPCOMING CTAs */}
         {isUpcoming && !isLoggedIn && (
           <div style={{ background: '#F0F7FF', border: '2px solid #93C5FD', borderRadius: 14, padding: 'clamp(20px,3vw,28px)', marginBottom: 24 }}>
             {countdown && (
@@ -176,7 +239,6 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
           </div>
         )}
 
-        {/* ── UPCOMING CTA (logged in) ──────────────────────────────────── */}
         {isUpcoming && isLoggedIn && (
           <div style={{ background: '#F0F7FF', border: '2px solid #93C5FD', borderRadius: 14, padding: 24, marginBottom: 24, textAlign: 'center' }}>
             {countdown && (
@@ -194,50 +256,10 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
             )}
           </div>
         )}
-      </div>
 
-      {/* ── RECORDED — two-column video player + sidebar ────────────── */}
-      {hasVideoPlayer && (
-        <div style={{ maxWidth: hasSidebar ? 1100 : 800, margin: '0 auto', padding: '0 clamp(16px,3vw,24px)', marginBottom: 24 }}>
-          <div className={hasSidebar ? 'course-player-grid' : undefined}>
-            <div>
-              <YouTubePlayer videoId={ytId!} title={session.title} />
-              <EngagementBar
-                youtubeUrl={session.youtube_url!}
-                channelId={process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}
-                showLike={session.show_like_button !== false}
-                sessionTitle={session.title}
-                sessionDescription={session.description}
-              />
-              {!isLoggedIn && (
-                <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 8, background: '#EFF6FF', border: '1px solid #93C5FD', textAlign: 'center', fontSize: 12, color: '#1D4ED8' }}>
-                  <Link href={`/register?redirect=/training/live-sessions/${session.id}`} style={{ fontWeight: 700, color: '#1D4ED8', textDecoration: 'none' }}>
-                    Sign in to earn points and badges for watching!
-                  </Link>
-                </div>
-              )}
-              <div id="yt-comments" style={{ marginTop: 24 }}>
-                <YouTubeComments videoId={ytId!} youtubeUrl={session.youtube_url!} />
-              </div>
-            </div>
-            {session.playlist && (
-              <div style={{ position: 'sticky', top: 80, alignSelf: 'start' }}>
-                <PlaylistSidebar
-                  playlistId={session.playlist.id}
-                  playlistName={session.playlist.name}
-                  currentSessionId={session.id}
-                  variant="public"
-                />
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* RECORDED — non-embed fallback (external YouTube link) */}
-      {isRecorded && session.youtube_url && !hasVideoPlayer && (
-        <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 clamp(16px,3vw,24px)', marginBottom: 24 }}>
-          <div style={{ background: '#fff', border: '2px solid #E5E7EB', borderRadius: 14, padding: 24 }}>
+        {/* RECORDED — non-embed fallback */}
+        {isRecorded && session.youtube_url && (
+          <div style={{ background: '#fff', border: '2px solid #E5E7EB', borderRadius: 14, padding: 24, marginBottom: 24 }}>
             <div style={{ textAlign: 'center', padding: 20 }}>
               <a href={session.youtube_url} target="_blank" rel="noopener noreferrer"
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '14px 32px', borderRadius: 10, background: '#DC2626', color: '#fff', fontWeight: 700, fontSize: 15, textDecoration: 'none', boxShadow: '0 4px 12px rgba(220,38,38,0.3)' }}>
@@ -245,28 +267,15 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
                 Watch on YouTube
               </a>
             </div>
-            {!isLoggedIn && (
-              <div style={{ marginTop: 14, padding: '10px 14px', borderRadius: 8, background: '#EFF6FF', border: '1px solid #93C5FD', textAlign: 'center', fontSize: 12, color: '#1D4ED8' }}>
-                <Link href={`/register?redirect=/training/live-sessions/${session.id}`} style={{ fontWeight: 700, color: '#1D4ED8', textDecoration: 'none' }}>
-                  Sign in to earn points and badges for watching!
-                </Link>
-              </div>
-            )}
           </div>
-        </div>
-      )}
+        )}
 
-      {/* RECORDED — no URL */}
-      {isRecorded && !session.youtube_url && (
-        <div style={{ maxWidth: 800, margin: '0 auto', padding: '0 clamp(16px,3vw,24px)', marginBottom: 24 }}>
-          <div style={{ background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 14, padding: 24, textAlign: 'center' }}>
+        {isRecorded && !session.youtube_url && (
+          <div style={{ background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 14, padding: 24, textAlign: 'center', marginBottom: 24 }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: '#6B7280' }}>Recording not yet available. Check back soon.</div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Below-video content */}
-      <div style={{ maxWidth: hasSidebar ? 1100 : 800, margin: '0 auto', padding: '0 clamp(16px,3vw,24px) 64px' }}>
         {/* Prerequisites */}
         {session.prerequisites && (
           <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
@@ -283,7 +292,7 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
           </div>
         )}
 
-        {/* Attachments (names only) */}
+        {/* Attachments */}
         {session.attachments.length > 0 && (
           <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: 24, marginBottom: 24 }}>
             <h3 style={{ fontSize: 15, fontWeight: 700, color: NAVY, marginBottom: 10 }}>Session Materials</h3>

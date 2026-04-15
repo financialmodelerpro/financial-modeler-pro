@@ -1,0 +1,157 @@
+'use client';
+
+import { useState } from 'react';
+import Link from 'next/link';
+import { SubscribeModal } from '../SubscribeModal';
+import { ShareModal } from './ShareModal';
+
+interface CourseTopBarProps {
+  title: string;
+  youtubeUrl: string;
+  channelId?: string;
+  showLikeButton?: boolean;
+  sessionTitle: string;
+  sessionDescription?: string;
+  sessionUrl: string;
+  nextSessionHref?: string;
+  isWatched?: boolean;
+  onMarkComplete?: () => void;
+}
+
+const iconBtnStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 36,
+  height: 36,
+  background: 'transparent',
+  border: 'none',
+  borderRadius: 6,
+  cursor: 'pointer',
+  fontSize: 18,
+  textDecoration: 'none',
+  color: '#ffffff',
+};
+
+export function CourseTopBar({
+  title, youtubeUrl, channelId, showLikeButton,
+  sessionTitle, sessionDescription, sessionUrl,
+  nextSessionHref, isWatched, onMarkComplete,
+}: CourseTopBarProps) {
+  const [showSubscribeModal, setShowSubscribeModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
+
+  return (
+    <>
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 100,
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '0 20px', height: 52,
+        background: '#0D2E5A', color: '#fff',
+        borderBottom: '1px solid rgba(255,255,255,0.08)',
+        flexWrap: 'wrap',
+      }}>
+        {/* Session title */}
+        <div style={{
+          flex: 1, minWidth: 0,
+          fontSize: 14, fontWeight: 600,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {title}
+        </div>
+
+        {/* Action icons */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+          {channelId && (
+            <button
+              onClick={() => setShowSubscribeModal(true)}
+              title="Subscribe to our YouTube channel"
+              style={iconBtnStyle}
+            >
+              🔔
+            </button>
+          )}
+
+          {showLikeButton !== false && (
+            <a
+              href={youtubeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Like this video on YouTube"
+              style={iconBtnStyle}
+            >
+              👍
+            </a>
+          )}
+
+          <a
+            href={youtubeUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Ask a question on YouTube — get a quick answer"
+            style={iconBtnStyle}
+          >
+            💬
+          </a>
+
+          <button
+            onClick={() => setShowShareModal(true)}
+            title="Share this session"
+            style={iconBtnStyle}
+          >
+            📤
+          </button>
+
+          {/* Divider */}
+          <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
+
+          {/* Mark Complete */}
+          {onMarkComplete && (
+            <button
+              onClick={isWatched ? undefined : onMarkComplete}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '6px 14px', fontSize: 13, fontWeight: 600,
+                color: isWatched ? '#ffffff' : '#ffffff',
+                background: isWatched ? '#16a34a' : 'rgba(255,255,255,0.12)',
+                border: 'none', borderRadius: 6,
+                cursor: isWatched ? 'default' : 'pointer',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {isWatched ? '✓ Completed' : 'Mark Complete'}
+            </button>
+          )}
+
+          {/* Continue / Next */}
+          {nextSessionHref && (
+            <Link
+              href={nextSessionHref}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+                padding: '6px 14px', fontSize: 13, fontWeight: 600,
+                color: '#ffffff', background: '#2563eb',
+                border: 'none', borderRadius: 6,
+                textDecoration: 'none', whiteSpace: 'nowrap',
+              }}
+            >
+              Continue →
+            </Link>
+          )}
+        </div>
+      </div>
+
+      {showSubscribeModal && channelId && (
+        <SubscribeModal channelId={channelId} onClose={() => setShowSubscribeModal(false)} />
+      )}
+      {showShareModal && (
+        <ShareModal
+          sessionTitle={sessionTitle}
+          sessionDescription={sessionDescription}
+          sessionUrl={sessionUrl}
+          onClose={() => setShowShareModal(false)}
+        />
+      )}
+    </>
+  );
+}
