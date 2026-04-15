@@ -236,262 +236,60 @@ export default function LiveSessionDetailPage() {
     }
 
     const effType = getEffectiveType(session);
-    const isUpcoming = effType === 'upcoming' || effType === 'live';
-    const isRecorded = effType === 'recorded';
     const ytId = extractYouTubeId(session.youtube_url);
-    const hasVideoPlayer = isRecorded && session.youtube_embed && !!ytId;
+    const hasVideo = session.youtube_embed && !!ytId;
 
-    // ── CFI-style layout for recorded sessions with embedded video ──
-    if (hasVideoPlayer) {
-      const currentIndex = playlistSessions.findIndex(s => s.id === session.id);
-      const nextSess = currentIndex >= 0 ? playlistSessions[currentIndex + 1] : null;
+    const currentIndex = playlistSessions.findIndex(s => s.id === session.id);
+    const nextSess = currentIndex >= 0 ? playlistSessions[currentIndex + 1] : null;
 
-      const handleMarkComplete = async () => {
-        if (!studentSession?.email) return;
-        try {
-          await fetch(`/api/training/live-sessions/${session.id}/watched`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: studentSession.email, regId: studentSession.registrationId }),
-          });
-          setIsWatched(true);
-          setPlaylistSessions(prev => prev.map(s => s.id === session.id ? { ...s, watched: true } : s));
-        } catch {}
-      };
+    const handleMarkComplete = async () => {
+      if (!studentSession?.email) return;
+      try {
+        await fetch(`/api/training/live-sessions/${session.id}/watched`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: studentSession.email, regId: studentSession.registrationId }),
+        });
+        setIsWatched(true);
+        setPlaylistSessions(prev => prev.map(s => s.id === session.id ? { ...s, watched: true } : s));
+      } catch {}
+    };
 
-      return (
-        <CoursePlayerLayout
-          title={session.title}
-          youtubeUrl={session.youtube_url}
-          channelId={process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}
-          showLikeButton={session.show_like_button}
-          sessionTitle={session.title}
-          sessionDescription={session.description}
-          sessionUrl={typeof window !== 'undefined' ? window.location.href : ''}
-          nextSessionHref={nextSess?.href}
-          isWatched={isWatched}
-          onMarkComplete={handleMarkComplete}
-          videoId={ytId!}
-          sessionId={session.id}
-          studentEmail={studentSession?.email}
-          studentRegId={studentSession?.registrationId}
-          bannerUrl={session.banner_url}
-          instructorName={session.instructor_name}
-          instructorTitle={session.instructor_title}
-          scheduledDatetime={session.scheduled_datetime}
-          timezone={session.timezone}
-          durationMinutes={session.duration_minutes}
-          difficultyLevel={session.difficulty_level}
-          tags={session.tags}
-          sessions={playlistSessions}
-          currentSessionId={session.id}
-          backUrl="/training/live-sessions"
-          backLabel="Live Sessions"
-        >
-          {/* Attachments */}
-          {session.attachments.length > 0 && (
-            <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24, marginTop: 24 }}>
-              <h3 style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 12 }}>Session Materials</h3>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {session.attachments.map(att => {
-                  const icon = att.file_type === 'pdf' ? '&#128196;' : att.file_type === 'docx' ? '&#128221;' : att.file_type === 'pptx' ? '&#128202;' : att.file_type === 'xlsx' ? '&#128215;' : '&#128444;';
-                  const size = att.file_size ? att.file_size > 1048576 ? `${(att.file_size / 1048576).toFixed(1)} MB` : `${(att.file_size / 1024).toFixed(0)} KB` : '';
-                  return (
-                    <button key={att.id} onClick={() => setPreviewFile(att)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#F9FAFB', cursor: 'pointer', textAlign: 'left', width: '100%' }}>
-                      <span style={{ fontSize: 20 }} dangerouslySetInnerHTML={{ __html: icon }} />
-                      <div style={{ flex: 1 }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: '#0D2E5A' }}>{att.file_name}</div>
-                        <div style={{ fontSize: 11, color: '#9CA3AF' }}>{att.file_type.toUpperCase()}{size ? ` - ${size}` : ''}</div>
-                      </div>
-                      <span style={{ fontSize: 12, color: '#1B4F8A', fontWeight: 700 }}>View</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {previewFile && (
-            <FilePreviewModal
-              fileName={previewFile.file_name}
-              fileUrl={previewFile.file_url}
-              fileType={previewFile.file_type}
-              fileSize={previewFile.file_size}
-              onClose={() => setPreviewFile(null)}
-            />
-          )}
-        </CoursePlayerLayout>
-      );
-    }
-
-    // ── Original layout for upcoming / non-embed / no-video sessions ──
     return (
-      <div style={{ maxWidth: 800, margin: '0 auto' }}>
-        {/* Banner hero */}
-        {session.banner_url && (
-          <div style={{ marginBottom: 20, borderRadius: 14, overflow: 'hidden' }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={session.banner_url} alt={session.title} style={{ width: '100%', height: 'auto', maxHeight: 300, objectFit: 'cover', objectPosition: 'top', display: 'block' }} />
-          </div>
-        )}
-
-        <Link href="/training/live-sessions" style={{ fontSize: 13, color: '#6B7280', textDecoration: 'none', marginBottom: 16, display: 'inline-block' }}>
-          &larr; Back to Live Sessions
-        </Link>
-
-        {/* Badges */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
-          <span style={{ fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20,
-            background: effType === 'live' ? '#FEF2F2' : isUpcoming ? '#EFF6FF' : '#F3F4F6',
-            color: effType === 'live' ? '#DC2626' : isUpcoming ? '#1D4ED8' : '#6B7280' }}>
-            {effType === 'live' ? 'LIVE NOW' : isUpcoming ? 'UPCOMING' : 'RECORDED'}
-          </span>
-          {session.difficulty_level && session.difficulty_level !== 'All Levels' && (
-            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: '#F3F4F6', color: '#6B7280' }}>{session.difficulty_level}</span>
-          )}
-          {session.category && <span style={{ fontSize: 11, fontWeight: 600, color: '#6B7280' }}>{session.category}</span>}
-          {session.playlist && <span style={{ fontSize: 11, color: '#9CA3AF' }}>{session.playlist.name}</span>}
-          {session.is_featured && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 12, background: '#FEF3C7', color: '#B45309' }}>FEATURED</span>}
-        </div>
-
-        <h1 style={{ fontSize: 'clamp(20px,5vw,28px)', fontWeight: 800, color: NAVY, marginBottom: 8, lineHeight: 1.3 }}>{session.title}</h1>
-        {session.instructor_name && (
-          <div style={{ marginBottom: 10 }}>
-            <div style={{ fontSize: 14, color: '#374151' }}><span style={{ color: '#9CA3AF' }}>Trainer:</span> <strong>{session.instructor_name}</strong></div>
-            {session.instructor_title && <div style={{ fontSize: 13, color: '#6B7280' }}><span style={{ color: '#9CA3AF' }}>Title:</span> {session.instructor_title}</div>}
-          </div>
-        )}
-
-        {session.scheduled_datetime && (
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 14, color: '#374151' }}>
-              {fmtDate(session.scheduled_datetime)} at {fmtTime(session.scheduled_datetime)} ({session.timezone})
-            </div>
-            {localTz && localTz !== session.timezone && (
-              <div style={{ fontSize: 13, color: '#1B4F8A', marginTop: 2 }}>
-                Your local time: {new Date(session.scheduled_datetime).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: localTz })} ({localTz})
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Meta info */}
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
-          {session.duration_minutes && <span style={{ fontSize: 13, color: '#6B7280' }}>{session.duration_minutes} min</span>}
-          {session.max_attendees && <span style={{ fontSize: 13, color: '#6B7280' }}>Limited to {session.max_attendees} seats</span>}
-        </div>
-        {session.tags?.length > 0 && (
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 16 }}>
-            {session.tags.map(t => <span key={t} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: '#EFF6FF', color: '#1B4F8A', fontWeight: 600 }}>{t}</span>)}
-          </div>
-        )}
-
-        {/* Countdown */}
-        {isUpcoming && countdown && (
-          <div style={{ background: '#EFF6FF', border: '2px solid #3B82F6', borderRadius: 12, padding: '20px 24px', marginBottom: 24, textAlign: 'center' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: '#1D4ED8', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>Starts in</div>
-            <div style={{ fontSize: 'clamp(24px,6vw,36px)', fontWeight: 800, color: NAVY, fontFamily: 'monospace' }}>{countdown}</div>
-          </div>
-        )}
-
-        {/* Recorded — non-embed fallback */}
-        {isRecorded && session.youtube_url && !hasVideoPlayer && (
-          <div style={{ marginBottom: 24, textAlign: 'center' }}>
-            <a href={session.youtube_url} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '14px 32px', borderRadius: 10, background: '#DC2626', color: '#fff', fontWeight: 700, fontSize: 15, textDecoration: 'none', boxShadow: '0 4px 12px rgba(220,38,38,0.3)' }}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
-              Watch on YouTube
-            </a>
-          </div>
-        )}
-
-        {/* Registration */}
-        {isUpcoming && (
-          <div style={{ marginBottom: 24 }}>
-            {!registered ? (
-              <div style={{ background: '#F0F7FF', border: '1.5px solid #93C5FD', borderRadius: 12, padding: 20, marginBottom: 12 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#1B4F8A', marginBottom: 8 }}>Register to join this session</div>
-                <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>The join link will be available 30 minutes before the session starts.</div>
-                <button onClick={handleRegister} disabled={registering}
-                  style={{ padding: '12px 32px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 'clamp(13px,3.5vw,15px)', border: 'none', cursor: registering ? 'not-allowed' : 'pointer', opacity: registering ? 0.6 : 1, width: '100%', maxWidth: 320 }}>
-                  {registering ? 'Registering...' : 'Register for This Session'}
-                </button>
-                {regCount > 0 && <div style={{ marginTop: 10, fontSize: 12, color: '#6B7280' }}>{regCount} {regCount === 1 ? 'person' : 'people'} registered</div>}
-              </div>
-            ) : (
-              <div style={{ background: '#F0FFF4', border: '1.5px solid #86EFAC', borderRadius: 12, padding: 20, marginBottom: 12 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: '#166534', marginBottom: 8 }}>
-                  {joinLinkAvailable ? 'Session Starting Soon!' : "You're registered!"}
-                </div>
-                {countdown && <div style={{ fontSize: 13, color: '#1B4F8A', fontWeight: 600, marginBottom: 12 }}>Starts in: {countdown}</div>}
-                {session.live_url && (
-                  <a href={session.live_url} target="_blank" rel="noopener noreferrer"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 28px', borderRadius: 8, background: joinLinkAvailable ? '#DC2626' : GREEN, color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none', marginBottom: 8 }}>
-                    Join Session
-                  </a>
-                )}
-                {!joinLinkAvailable && (
-                  <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>Join link fully active 30 min before session</div>
-                )}
-                {regCount > 0 && <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 8 }}>{regCount} {regCount === 1 ? 'person' : 'people'} registered</div>}
-                <button onClick={handleCancelRegistration} disabled={cancelling}
-                  style={{ fontSize: 12, color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
-                  Cancel Registration
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Share + Calendar buttons */}
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 24 }}>
-          {session.scheduled_datetime && isUpcoming && (
-            <DetailCalendarDropdown title={session.title} desc={session.description || ''} liveUrl={session.live_url || ''} dt={session.scheduled_datetime} />
-          )}
-          <button onClick={copyLink}
-            style={{ padding: '10px 16px', borderRadius: 8, border: '1.5px solid #D1D5DB', background: '#fff', color: '#374151', fontWeight: 600, fontSize: 12, cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            {copied ? '\u2705 Copied!' : '\u{1F517} Copy Link'}
-          </button>
-          <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(typeof window !== 'undefined' ? window.location.href : '')}`}
-            target="_blank" rel="noopener noreferrer"
-            style={{ padding: '10px 16px', borderRadius: 8, background: '#0A66C2', color: '#fff', fontWeight: 600, fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            LinkedIn
-          </a>
-          <a href={`https://wa.me/?text=${encodeURIComponent(session.title + ' - ' + (typeof window !== 'undefined' ? window.location.href : ''))}`}
-            target="_blank" rel="noopener noreferrer"
-            style={{ padding: '10px 16px', borderRadius: 8, background: '#25D366', color: '#fff', fontWeight: 600, fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-            WhatsApp
-          </a>
-        </div>
-
-        {/* Password */}
-        {session.live_password && isUpcoming && (
-          <div style={{ background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#92400E' }}>Session Password: </span>
-            <span style={{ fontSize: 13, fontFamily: 'monospace', color: '#B45309' }}>{session.live_password}</span>
-          </div>
-        )}
-
-        {/* Prerequisites */}
-        {session.prerequisites && (
-          <div style={{ background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: '#92400E' }}>Prerequisites: </span>
-            <span style={{ fontSize: 13, color: '#374151' }}>{session.prerequisites}</span>
-          </div>
-        )}
-
-        {/* Description */}
-        {session.description && (
-          <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24, marginBottom: 24 }}>
-            <h3 style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 10 }}>About this session</h3>
-            <p style={{ fontSize: 14, color: '#374151', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{session.description}</p>
-          </div>
-        )}
-
+      <CoursePlayerLayout
+        title={session.title}
+        youtubeUrl={hasVideo ? session.youtube_url : undefined}
+        channelId={process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}
+        showLikeButton={session.show_like_button}
+        sessionTitle={session.title}
+        sessionDescription={session.description}
+        sessionUrl={typeof window !== 'undefined' ? window.location.href : ''}
+        nextSessionHref={nextSess?.href}
+        isWatched={isWatched}
+        onMarkComplete={handleMarkComplete}
+        videoId={hasVideo ? ytId! : undefined}
+        sessionId={session.id}
+        studentEmail={studentSession?.email}
+        studentRegId={studentSession?.registrationId}
+        bannerUrl={session.banner_url}
+        instructorName={session.instructor_name}
+        instructorTitle={session.instructor_title}
+        scheduledDatetime={session.scheduled_datetime}
+        timezone={session.timezone}
+        durationMinutes={session.duration_minutes}
+        difficultyLevel={session.difficulty_level}
+        tags={session.tags}
+        sessionType={effType}
+        liveUrl={session.live_url}
+        isLoggedIn={true}
+        sessions={playlistSessions}
+        currentSessionId={session.id}
+        backUrl="/training/live-sessions"
+        backLabel="Live Sessions"
+      >
         {/* Attachments */}
         {session.attachments.length > 0 && (
-          <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24 }}>
+          <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24, marginTop: 24 }}>
             <h3 style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 12 }}>Session Materials</h3>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {session.attachments.map(att => {
@@ -522,12 +320,13 @@ export default function LiveSessionDetailPage() {
             onClose={() => setPreviewFile(null)}
           />
         )}
-      </div>
+      </CoursePlayerLayout>
     );
   })();
 
-  // CoursePlayerLayout is a full-page layout — don't wrap in TrainingShell
-  if (session && getEffectiveType(session) === 'recorded' && session.youtube_embed && extractYouTubeId(session.youtube_url)) {
+  // CoursePlayerLayout is a full-page layout — bypass TrainingShell for all session detail views
+  // TrainingShell only used for loading/404 states
+  if (session) {
     return <>{content}</>;
   }
 

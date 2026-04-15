@@ -18,7 +18,7 @@ export interface SidebarSession {
 interface CoursePlayerLayoutProps {
   // Top bar
   title: string;
-  youtubeUrl: string;
+  youtubeUrl?: string;
   channelId?: string;
   showLikeButton?: boolean;
   sessionTitle: string;
@@ -27,8 +27,8 @@ interface CoursePlayerLayoutProps {
   nextSessionHref?: string;
   isWatched?: boolean;
   onMarkComplete?: () => void;
-  // Video
-  videoId: string;
+  // Video (optional — may not have embedded video)
+  videoId?: string;
   sessionId?: string;
   studentEmail?: string;
   studentRegId?: string;
@@ -41,6 +41,9 @@ interface CoursePlayerLayoutProps {
   durationMinutes?: number | null;
   difficultyLevel?: string;
   tags?: string[];
+  sessionType?: string;
+  liveUrl?: string;
+  isLoggedIn?: boolean;
   // Sidebar
   sessions: SidebarSession[];
   currentSessionId: string;
@@ -50,6 +53,8 @@ interface CoursePlayerLayoutProps {
   children?: React.ReactNode;
 }
 
+const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+
 export function CoursePlayerLayout({
   title, youtubeUrl, channelId, showLikeButton,
   sessionTitle, sessionDescription, sessionUrl,
@@ -57,11 +62,15 @@ export function CoursePlayerLayout({
   videoId, sessionId, studentEmail, studentRegId,
   bannerUrl, instructorName, instructorTitle,
   scheduledDatetime, timezone, durationMinutes, difficultyLevel, tags,
+  sessionType, liveUrl, isLoggedIn,
   sessions, currentSessionId, backUrl, backLabel,
   children,
 }: CoursePlayerLayoutProps) {
   const [isMobile, setIsMobile] = useState(false);
   const [videoOpen, setVideoOpen] = useState(false);
+
+  const hasVideo = !!videoId && !!youtubeUrl;
+  const isUpcoming = sessionType === 'upcoming' || sessionType === 'live';
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -81,7 +90,6 @@ export function CoursePlayerLayout({
       overflowY: 'auto',
       ...(isMobile ? {} : { position: 'sticky' as const, top: 52, height: 'calc(100vh - 52px)' }),
     }}>
-      {/* Back link */}
       <div style={{ padding: 16, borderBottom: '1px solid #f3f4f6' }}>
         <Link
           href={backUrl}
@@ -90,15 +98,11 @@ export function CoursePlayerLayout({
           ← {backLabel}
         </Link>
       </div>
-
-      {/* Sessions heading */}
       <div style={{ padding: '12px 16px 8px', borderBottom: '1px solid #f3f4f6' }}>
         <h3 style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>
           Sessions
         </h3>
       </div>
-
-      {/* Session list */}
       {sessions.map((session, index) => (
         <Link
           key={session.id}
@@ -127,18 +131,13 @@ export function CoursePlayerLayout({
               fontSize: 13,
               fontWeight: session.id === currentSessionId ? 600 : 400,
               color: session.id === currentSessionId ? '#1d4ed8' : '#374151',
-              lineHeight: 1.4,
-              overflow: 'hidden',
-              display: '-webkit-box',
-              WebkitLineClamp: 2,
-              WebkitBoxOrient: 'vertical' as const,
+              lineHeight: 1.4, overflow: 'hidden',
+              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const,
             }}>
               {session.title}
             </div>
             {session.duration_minutes && (
-              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>
-                {session.duration_minutes} min
-              </div>
+              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 3 }}>{session.duration_minutes} min</div>
             )}
           </div>
         </Link>
@@ -146,48 +145,87 @@ export function CoursePlayerLayout({
     </div>
   );
 
-  // Format helpers
   const fmtDate = (iso: string) => { try { return new Date(iso).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); } catch { return ''; } };
   const fmtTime = (iso: string) => { try { return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }); } catch { return ''; } };
+
+  // CTA for sessions without embedded video
+  const sessionCta = (() => {
+    if (hasVideo) return null; // handled by Watch Session button
+    if (isUpcoming && liveUrl) {
+      return (
+        <a href={liveUrl} target="_blank" rel="noopener noreferrer"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 24px', background: '#DC2626', color: '#fff', fontSize: 15, fontWeight: 600, borderRadius: 8, textDecoration: 'none', marginBottom: 24 }}>
+          Join Session →
+        </a>
+      );
+    }
+    if (isUpcoming && !liveUrl) {
+      return (
+        <Link href={isLoggedIn ? `/training/live-sessions/${currentSessionId}` : `/register?redirect=/training/live-sessions/${currentSessionId}`}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 24px', background: '#2EAA4A', color: '#fff', fontSize: 15, fontWeight: 600, borderRadius: 8, textDecoration: 'none', marginBottom: 24 }}>
+          {isLoggedIn ? 'Register for Session →' : 'Sign Up to Register →'}
+        </Link>
+      );
+    }
+    if (youtubeUrl) {
+      // Has youtube_url but youtube_embed is false
+      return (
+        <a href={youtubeUrl} target="_blank" rel="noopener noreferrer"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 24px', background: '#DC2626', color: '#fff', fontSize: 15, fontWeight: 600, borderRadius: 8, textDecoration: 'none', marginBottom: 24 }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M8 5v14l11-7z"/></svg>
+          Watch on YouTube
+        </a>
+      );
+    }
+    // No video at all
+    return (
+      <div style={{ padding: '16px 20px', background: '#F9FAFB', borderRadius: 10, border: '1px solid #E5E7EB', marginBottom: 24, textAlign: 'center' }}>
+        <div style={{ fontSize: 24, marginBottom: 8 }}>🎬</div>
+        <div style={{ fontSize: 14, fontWeight: 600, color: '#6B7280' }}>Recording Coming Soon</div>
+        <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 4 }}>Check back after the session is recorded.</div>
+      </div>
+    );
+  })();
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: '#f9fafb' }}>
       {/* Top bar */}
       <CourseTopBar
         title={title}
-        youtubeUrl={youtubeUrl}
+        youtubeUrl={youtubeUrl || ''}
         channelId={channelId}
-        showLikeButton={showLikeButton}
+        showLikeButton={hasVideo ? showLikeButton : false}
         sessionTitle={sessionTitle}
         sessionDescription={sessionDescription}
         sessionUrl={sessionUrl}
         nextSessionHref={nextSessionHref}
         isWatched={isWatched}
-        onMarkComplete={onMarkComplete}
+        onMarkComplete={hasVideo ? onMarkComplete : undefined}
       />
 
       {/* Body */}
       <div style={{ display: 'flex', flex: 1, flexDirection: isMobile ? 'column' : 'row' }}>
-        {/* Left sidebar */}
         {!isMobile && sidebar}
 
-        {/* Middle — main content area */}
+        {/* Middle content */}
         <div style={{ flex: videoOpen ? '0 0 60%' : 1, minWidth: 0 }}>
-          {/* ── Screen 1: Video NOT open — full session info ── */}
+          {/* Screen 1: Video NOT open */}
           {!videoOpen && (
             <div style={{ padding: '24px 32px', maxWidth: 860 }}>
-              {/* Watch Session button */}
-              <button
-                onClick={() => setVideoOpen(true)}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 8,
-                  padding: '12px 24px', background: '#2563eb', color: '#ffffff',
-                  fontSize: 15, fontWeight: 600, borderRadius: 8,
-                  border: 'none', cursor: 'pointer', marginBottom: 24,
-                }}
-              >
-                ▶ Watch Session
-              </button>
+              {/* Primary CTA */}
+              {hasVideo ? (
+                <button
+                  onClick={() => setVideoOpen(true)}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8,
+                    padding: '12px 24px', background: '#2563eb', color: '#ffffff',
+                    fontSize: 15, fontWeight: 600, borderRadius: 8,
+                    border: 'none', cursor: 'pointer', marginBottom: 24,
+                  }}
+                >
+                  ▶ Watch Session
+                </button>
+              ) : sessionCta}
 
               {/* Banner */}
               {bannerUrl && (
@@ -222,7 +260,7 @@ export function CoursePlayerLayout({
                 </div>
               )}
 
-              {/* Date, duration, difficulty */}
+              {/* Meta */}
               <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16, fontSize: 13, color: '#6b7280' }}>
                 {scheduledDatetime && (
                   <span>{fmtDate(scheduledDatetime)} at {fmtTime(scheduledDatetime)}{timezone ? ` (${timezone})` : ''}</span>
@@ -238,17 +276,16 @@ export function CoursePlayerLayout({
                 </div>
               )}
 
-              {/* Additional content (attachments, etc.) */}
               {children}
             </div>
           )}
 
-          {/* ── Screen 2: Video OPEN — video + session info below ── */}
-          {videoOpen && (
+          {/* Screen 2: Video OPEN */}
+          {videoOpen && hasVideo && (
             <>
               <div style={{ maxHeight: 'calc(100vh - 52px)', aspectRatio: '16/9' }}>
                 <YouTubePlayer
-                  videoId={videoId}
+                  videoId={videoId!}
                   title={title}
                   sessionId={sessionId}
                   studentEmail={studentEmail}
@@ -262,34 +299,29 @@ export function CoursePlayerLayout({
           )}
         </div>
 
-        {/* Right column — YouTube comments (only when video is open, desktop) */}
-        {videoOpen && !isMobile && (
+        {/* Right column — comments (video open, desktop) */}
+        {videoOpen && hasVideo && !isMobile && (
           <div style={{
             flex: '0 0 25%', minWidth: 280, maxWidth: 380,
-            background: '#ffffff',
-            borderLeft: '1px solid #e5e7eb',
-            overflowY: 'auto',
-            position: 'sticky', top: 52,
-            height: 'calc(100vh - 52px)',
-            padding: '16px',
+            background: '#ffffff', borderLeft: '1px solid #e5e7eb',
+            overflowY: 'auto', position: 'sticky', top: 52,
+            height: 'calc(100vh - 52px)', padding: 16,
           }}>
             <h3 style={{ fontSize: 14, fontWeight: 700, color: '#111827', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
               💬 Discussion
             </h3>
-            <YouTubeComments videoId={videoId} youtubeUrl={youtubeUrl} />
+            <YouTubeComments videoId={videoId!} youtubeUrl={youtubeUrl!} />
           </div>
         )}
 
-        {/* Mobile sidebar (below content) */}
         {isMobile && sidebar}
 
-        {/* Mobile comments (below sidebar) */}
-        {videoOpen && isMobile && (
+        {videoOpen && hasVideo && isMobile && (
           <div style={{ padding: 16, background: '#ffffff', borderTop: '1px solid #e5e7eb' }}>
             <h3 style={{ fontSize: 14, fontWeight: 700, color: '#111827', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
               💬 Discussion
             </h3>
-            <YouTubeComments videoId={videoId} youtubeUrl={youtubeUrl} />
+            <YouTubeComments videoId={videoId!} youtubeUrl={youtubeUrl!} />
           </div>
         )}
       </div>
