@@ -77,27 +77,36 @@ export function LiveSessionsContent({ studentEmail }: LiveSessionsContentProps) 
   const [watchedIds, setWatchedIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    Promise.all([
-      fetch('/api/training/live-sessions?type=upcoming').then(r => r.json()),
-      fetch('/api/training/live-sessions?type=recorded').then(r => r.json()),
-      fetch(`/api/training/watch-history?email=${encodeURIComponent(studentEmail)}`).then(r => r.json()),
-    ]).then(async ([upRes, recRes, watchRes]) => {
-      const all = [...(upRes.sessions ?? []), ...(recRes.sessions ?? [])];
-      setSessions(all);
-      const history = (watchRes.history ?? []) as { session_id: string }[];
-      setWatchedIds(new Set(history.map(h => h.session_id)));
-      const upcomingIds = all.filter(s => s.session_type === 'upcoming' || s.session_type === 'live').map(s => s.id);
-      if (upcomingIds.length > 0) {
-        try {
-          const r = await fetch('/api/training/live-sessions/registration-status-batch', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ sessionIds: upcomingIds, email: studentEmail }),
-          });
-          const d = await r.json();
-          setRegStatus(d.registrations ?? {});
-        } catch {}
+    if (!studentEmail) { setLoading(false); return; }
+    setLoading(true);
+    (async () => {
+      try {
+        const [upRes, recRes, watchRes] = await Promise.all([
+          fetch('/api/training/live-sessions?type=upcoming').then(r => r.json()),
+          fetch('/api/training/live-sessions?type=recorded').then(r => r.json()),
+          fetch(`/api/training/watch-history?email=${encodeURIComponent(studentEmail)}`).then(r => r.json()),
+        ]);
+        const all = [...(upRes.sessions ?? []), ...(recRes.sessions ?? [])];
+        setSessions(all);
+        const history = (watchRes.history ?? []) as { session_id: string }[];
+        setWatchedIds(new Set(history.map(h => h.session_id)));
+        const upcomingIds = all.filter(s => s.session_type === 'upcoming' || s.session_type === 'live').map(s => s.id);
+        if (upcomingIds.length > 0) {
+          try {
+            const r = await fetch('/api/training/live-sessions/registration-status-batch', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ sessionIds: upcomingIds, email: studentEmail }),
+            });
+            const d = await r.json();
+            setRegStatus(d.registrations ?? {});
+          } catch {}
+        }
+      } catch {
+        // Ensure sessions show even on partial failure
+      } finally {
+        setLoading(false);
       }
-    }).catch(() => {}).finally(() => setLoading(false));
+    })();
   }, [studentEmail]);
 
   const upcoming = sessions.filter(s => { const t = getEffectiveType(s); return t === 'upcoming' || t === 'live'; });

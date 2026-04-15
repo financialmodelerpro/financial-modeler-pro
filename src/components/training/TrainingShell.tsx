@@ -287,7 +287,7 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
             <NavLabel text="Training Sessions" />
             <NavItem icon={<Video size={16} />} label="Live Sessions" active={currentNav === 'live-sessions'}
               dot={hasLiveNow} dotColor="#EF4444"
-              badge={upcomingCount > 0 ? upcomingCount : undefined} badgeColor="#3B82F6"
+              badge={sessionsLoaded ? sessionsList.length : (upcomingCount > 0 ? upcomingCount : undefined)} badgeColor="#3B82F6"
               onClick={() => {
                 setSessionsExpanded(prev => !prev);
                 if (!sessionsLoaded) {
@@ -314,7 +314,10 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
                     <>
                       {upcoming.length > 0 && (
                         <>
-                          <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.25)', padding: '6px 12px 2px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Upcoming</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.25)', padding: '6px 12px 2px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                            <span style={{ color: '#EF4444' }}>●</span> Upcoming
+                            <span style={{ fontSize: 8, background: '#3B82F6', color: '#fff', padding: '1px 5px', borderRadius: 6, marginLeft: 'auto' }}>{upcoming.length}</span>
+                          </div>
                           {upcoming.map(s => (
                             <Link key={s.id} href={`/training/live-sessions/${s.id}`} onClick={() => setMobileSidebarOpen(false)}
                               style={{ display: 'block', padding: '6px 12px', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.6)', textDecoration: 'none', borderRadius: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -326,7 +329,10 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
                       )}
                       {recorded.length > 0 && (
                         <>
-                          <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.25)', padding: '6px 12px 2px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Recordings</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.25)', padding: '6px 12px 2px', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                            🎬 Recordings
+                            <span style={{ fontSize: 8, background: 'rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.5)', padding: '1px 5px', borderRadius: 6, marginLeft: 'auto' }}>{recorded.length}</span>
+                          </div>
                           {recorded.map(s => (
                             <Link key={s.id} href={`/training/live-sessions/${s.id}`} onClick={() => setMobileSidebarOpen(false)}
                               style={{ display: 'block', padding: '6px 12px', fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.6)', textDecoration: 'none', borderRadius: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
