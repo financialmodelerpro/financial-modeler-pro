@@ -182,7 +182,7 @@ export default function CourseWatchPage() {
         youtubeUrl={ytUrl || undefined}
         channelId={process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}
         sessionTitle={currentSession.title}
-        sessionDescription={`${course.title} — ${currentSession.title}`}
+        sessionDescription={liveLinks[tk]?.description || `${course.title} — ${currentSession.title}`}
         sessionUrl={typeof window !== 'undefined' ? window.location.href : ''}
         nextSessionHref={nextHref}
         isWatched={progressMap.get(sessionKey)?.passed}

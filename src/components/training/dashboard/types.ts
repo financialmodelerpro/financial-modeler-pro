@@ -2,7 +2,7 @@
 
 import { COURSES } from '@/src/config/courses';
 
-export interface LiveSessionLink { tabKey: string; sessionName: string; youtubeUrl: string; formUrl: string; videoDuration: number; isFinal: boolean; hasVideo: boolean; }
+export interface LiveSessionLink { tabKey: string; sessionName: string; description?: string; youtubeUrl: string; formUrl: string; videoDuration: number; isFinal: boolean; hasVideo: boolean; }
 export type LiveLinksMap = Record<string, LiveSessionLink>;
 
 export interface CourseDescription {

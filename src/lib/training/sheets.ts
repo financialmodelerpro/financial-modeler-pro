@@ -441,6 +441,7 @@ export interface CourseSession {
   course: string;
   num: number;
   sessionName: string;
+  description?: string;
   isFinal: boolean;
   formId: string;
   formUrl: string;
@@ -467,6 +468,7 @@ export async function getCourseDetails(course?: string): Promise<CourseSession[]
       course:        s.course        ?? '',
       num:           s.num           ?? 0,
       sessionName:   s.sessionName   ?? '',
+      description:   s.description   ?? '',
       isFinal:       s.isFinal       ?? false,
       formId:        s.formId        ?? '',
       formUrl:       s.formUrl       ?? '',
