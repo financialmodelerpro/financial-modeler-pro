@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 
 interface EngagementBarProps {
   youtubeUrl: string;
@@ -13,22 +13,6 @@ interface EngagementBarProps {
 export function EngagementBar({ youtubeUrl, channelId, showLike = true, sessionTitle, sessionDescription }: EngagementBarProps) {
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
-  const subRef = useRef<HTMLDivElement>(null);
-
-  // Load Google platform script for subscribe widget
-  useEffect(() => {
-    if (!channelId) return;
-    if (!document.querySelector('script[src="https://apis.google.com/js/platform.js"]')) {
-      const script = document.createElement('script');
-      script.src = 'https://apis.google.com/js/platform.js';
-      script.async = true;
-      document.head.appendChild(script);
-    } else {
-      const w = window as unknown as Record<string, unknown>;
-      const gapi = w.gapi as { ytsubscribe?: { go?: (el?: Element | null) => void } } | undefined;
-      gapi?.ytsubscribe?.go?.(subRef.current);
-    }
-  }, [channelId]);
 
   const pageUrl = typeof window !== 'undefined' ? window.location.href : '';
 
@@ -52,11 +36,33 @@ export function EngagementBar({ youtubeUrl, channelId, showLike = true, sessionT
   return (
     <>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12, alignItems: 'center' }}>
-        {/* Subscribe — red YouTube widget */}
+        {/* Subscribe — custom red button */}
         {channelId && (
-          <div ref={subRef} style={{ display: 'inline-flex', alignItems: 'center' }}>
-            <div className="g-ytsubscribe" data-channelid={channelId} data-layout="default" data-count="default" />
-          </div>
+          <a
+            href={`https://www.youtube.com/channel/${channelId}?sub_confirmation=1`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '6px 16px',
+              fontSize: 13,
+              fontWeight: 600,
+              color: '#ffffff',
+              background: '#FF0000',
+              border: 'none',
+              borderRadius: 6,
+              textDecoration: 'none',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+              transition: 'background 0.15s',
+            }}
+            onMouseEnter={e => (e.currentTarget.style.background = '#cc0000')}
+            onMouseLeave={e => (e.currentTarget.style.background = '#FF0000')}
+          >
+            🔔 Subscribe
+          </a>
         )}
 
         {/* Like */}
@@ -66,9 +72,15 @@ export function EngagementBar({ youtubeUrl, channelId, showLike = true, sessionT
           </a>
         )}
 
-        {/* Comment on YouTube */}
-        <a href={youtubeUrl} target="_blank" rel="noopener noreferrer" style={btn}>
-          💬 Comment on YouTube
+        {/* Ask a Question */}
+        <a
+          href={youtubeUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={btn}
+          title="Have a question or query? Ask it on YouTube — get a quick answer from our team"
+        >
+          💬 Ask a Question
         </a>
 
         {/* Share */}
