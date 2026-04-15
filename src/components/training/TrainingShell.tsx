@@ -360,21 +360,21 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
             <NavItem icon={<User size={16} />} label="Profile" href="/training/dashboard" />
             <NavItem icon={<Star size={16} />} label="Share Experience" href="/training/submit-testimonial" />
             {/* Follow Us */}
-            {!sidebarCollapsed && (
-              <div style={{ padding: '10px 12px 6px' }}>
+            <div style={{ padding: sidebarCollapsed ? '10px 4px 6px' : '10px 12px 6px' }}>
+              {!sidebarCollapsed && (
                 <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)', marginBottom: 8 }}>Follow Us</div>
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <a href="https://www.linkedin.com/showcase/financialmodelerpro/" target="_blank" rel="noopener noreferrer"
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '5px 8px', fontSize: 10, fontWeight: 600, borderRadius: 4, background: '#0077b5', color: '#fff', textDecoration: 'none' }}>
-                    LinkedIn
-                  </a>
-                  <a href={`https://www.youtube.com/channel/${process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}?sub_confirmation=1`} target="_blank" rel="noopener noreferrer"
-                    style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: '5px 8px', fontSize: 10, fontWeight: 600, borderRadius: 4, background: '#FF0000', color: '#fff', textDecoration: 'none' }}>
-                    YouTube
-                  </a>
-                </div>
+              )}
+              <div style={{ display: 'flex', gap: 4, flexDirection: sidebarCollapsed ? 'column' : 'row', alignItems: 'center' }}>
+                <a href="https://www.linkedin.com/showcase/financialmodelerpro/" target="_blank" rel="noopener noreferrer" title="LinkedIn"
+                  style={{ flex: sidebarCollapsed ? undefined : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: sidebarCollapsed ? '6px' : '5px 8px', fontSize: 10, fontWeight: 600, borderRadius: 4, background: '#0077b5', color: '#fff', textDecoration: 'none', width: sidebarCollapsed ? 28 : undefined, height: sidebarCollapsed ? 28 : undefined }}>
+                  {sidebarCollapsed ? 'in' : 'LinkedIn'}
+                </a>
+                <a href={`https://www.youtube.com/channel/${process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}?sub_confirmation=1`} target="_blank" rel="noopener noreferrer" title="YouTube"
+                  style={{ flex: sidebarCollapsed ? undefined : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, padding: sidebarCollapsed ? '6px' : '5px 8px', fontSize: 10, fontWeight: 600, borderRadius: 4, background: '#FF0000', color: '#fff', textDecoration: 'none', width: sidebarCollapsed ? 28 : undefined, height: sidebarCollapsed ? 28 : undefined }}>
+                  {sidebarCollapsed ? '▶' : 'YouTube'}
+                </a>
               </div>
-            )}
+            </div>
 
             <NavItem icon={<LogOut size={16} />} label="Sign Out" onClick={handleLogout} />
           </div>
