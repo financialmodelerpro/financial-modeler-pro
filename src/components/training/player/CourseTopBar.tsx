@@ -21,16 +21,17 @@ interface CourseTopBarProps {
 const iconBtnStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
-  justifyContent: 'center',
-  width: 36,
-  height: 36,
+  gap: 4,
+  padding: '4px 10px',
   background: 'transparent',
   border: 'none',
   borderRadius: 6,
   cursor: 'pointer',
-  fontSize: 18,
+  fontSize: 13,
+  fontWeight: 500,
   textDecoration: 'none',
-  color: '#ffffff',
+  color: 'rgba(255,255,255,0.8)',
+  whiteSpace: 'nowrap',
 };
 
 export function CourseTopBar({
@@ -68,7 +69,7 @@ export function CourseTopBar({
               title="Subscribe to our YouTube channel"
               style={iconBtnStyle}
             >
-              🔔
+              🔔 Subscribe
             </button>
           )}
 
@@ -80,7 +81,7 @@ export function CourseTopBar({
               title="Like this video on YouTube"
               style={iconBtnStyle}
             >
-              👍
+              👍 Like
             </a>
           )}
 
@@ -91,7 +92,7 @@ export function CourseTopBar({
             title="Ask a question on YouTube — get a quick answer"
             style={iconBtnStyle}
           >
-            💬
+            💬 Ask Question
           </a>
 
           <button
@@ -99,7 +100,7 @@ export function CourseTopBar({
             title="Share this session"
             style={iconBtnStyle}
           >
-            📤
+            📤 Share
           </button>
 
           {/* Divider */}

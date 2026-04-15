@@ -49,6 +49,7 @@ export function CoursePlayerLayout({
   children,
 }: CoursePlayerLayoutProps) {
   const [isMobile, setIsMobile] = useState(false);
+  const [videoOpen, setVideoOpen] = useState(false);
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -80,7 +81,7 @@ export function CoursePlayerLayout({
       {/* Sessions heading */}
       <div style={{ padding: '12px 16px 8px', borderBottom: '1px solid #f3f4f6' }}>
         <h3 style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>
-          Course Outline
+          Sessions
         </h3>
       </div>
 
@@ -156,18 +157,45 @@ export function CoursePlayerLayout({
         {/* Left sidebar — desktop only (mobile renders below video) */}
         {!isMobile && sidebar}
 
-        {/* Right — video + content */}
+        {/* Right — content + video on demand */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          <YouTubePlayer
-            videoId={videoId}
-            title={title}
-            sessionId={sessionId}
-            studentEmail={studentEmail}
-            studentRegId={studentRegId}
-          />
-
-          {/* Content area */}
+          {/* Content area (description, comments, etc.) */}
           <div style={{ padding: '24px 32px', maxWidth: 860 }}>
+            {/* Watch Session button — hidden once video is open */}
+            {!videoOpen && (
+              <button
+                onClick={() => setVideoOpen(true)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  padding: '12px 24px', background: '#2563eb', color: '#ffffff',
+                  fontSize: 15, fontWeight: 600, borderRadius: 8,
+                  border: 'none', cursor: 'pointer', marginBottom: 24,
+                }}
+              >
+                ▶ Watch Session
+              </button>
+            )}
+
+            {/* Video player — smooth reveal */}
+            <div style={{
+              maxHeight: videoOpen ? 'calc(100vh - 52px - 48px)' : 0,
+              overflow: 'hidden',
+              transition: 'max-height 0.4s ease',
+              marginBottom: videoOpen ? 24 : 0,
+            }}>
+              {videoOpen && (
+                <div style={{ maxHeight: 'calc(100vh - 52px - 48px)', aspectRatio: '16/9' }}>
+                  <YouTubePlayer
+                    videoId={videoId}
+                    title={title}
+                    sessionId={sessionId}
+                    studentEmail={studentEmail}
+                    studentRegId={studentRegId}
+                  />
+                </div>
+              )}
+            </div>
+
             {children}
           </div>
         </div>
