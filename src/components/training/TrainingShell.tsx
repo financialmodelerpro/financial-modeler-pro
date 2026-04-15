@@ -218,7 +218,7 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
       <div className="ts-mob-backdrop" onClick={() => setMobileSidebarOpen(false)} />
 
       {/* ── TOP NAV ──────────────────────────────────────────────────────────── */}
-      <div style={{ background: NAVY, padding: '0 20px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 150, boxShadow: '0 2px 12px rgba(0,0,0,0.2)' }}>
+      <div style={{ background: NAVY, padding: '0 20px', minHeight: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 150, boxShadow: '0 2px 12px rgba(0,0,0,0.2)', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
             className="ts-hamburger"
