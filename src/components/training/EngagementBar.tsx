@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { SubscribeModal } from './SubscribeModal';
 
 interface EngagementBarProps {
   youtubeUrl: string;
@@ -13,6 +14,7 @@ interface EngagementBarProps {
 export function EngagementBar({ youtubeUrl, channelId, showLike = true, sessionTitle, sessionDescription }: EngagementBarProps) {
   const [shareOpen, setShareOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showSubscribeModal, setShowSubscribeModal] = useState(false);
 
   const pageUrl = typeof window !== 'undefined' ? window.location.href : '';
 
@@ -36,12 +38,10 @@ export function EngagementBar({ youtubeUrl, channelId, showLike = true, sessionT
   return (
     <>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12, alignItems: 'center' }}>
-        {/* Subscribe — custom red button */}
+        {/* Subscribe — opens modal with YouTube widget */}
         {channelId && (
-          <a
-            href={`https://www.youtube.com/channel/${channelId}?sub_confirmation=1`}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            onClick={() => setShowSubscribeModal(true)}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
@@ -53,7 +53,6 @@ export function EngagementBar({ youtubeUrl, channelId, showLike = true, sessionT
               background: '#FF0000',
               border: 'none',
               borderRadius: 6,
-              textDecoration: 'none',
               cursor: 'pointer',
               whiteSpace: 'nowrap',
               transition: 'background 0.15s',
@@ -62,7 +61,7 @@ export function EngagementBar({ youtubeUrl, channelId, showLike = true, sessionT
             onMouseLeave={e => (e.currentTarget.style.background = '#FF0000')}
           >
             🔔 Subscribe
-          </a>
+          </button>
         )}
 
         {/* Like */}
@@ -148,6 +147,14 @@ export function EngagementBar({ youtubeUrl, channelId, showLike = true, sessionT
             </div>
           </div>
         </div>
+      )}
+
+      {/* Subscribe Modal */}
+      {showSubscribeModal && channelId && (
+        <SubscribeModal
+          channelId={channelId}
+          onClose={() => setShowSubscribeModal(false)}
+        />
       )}
     </>
   );
