@@ -17,6 +17,7 @@ interface CourseTopBarProps {
   nextSessionHref?: string;
   isWatched?: boolean;
   onMarkComplete?: () => void;
+  isCompleted?: boolean;
   assessmentUrl?: string;
   assessmentReady?: boolean;
 }
@@ -40,7 +41,7 @@ const iconBtnStyle: React.CSSProperties = {
 export function CourseTopBar({
   title, youtubeUrl, channelId, showLikeButton,
   sessionTitle, sessionDescription, sessionUrl,
-  nextSessionHref, isWatched, onMarkComplete,
+  nextSessionHref, isWatched, onMarkComplete, isCompleted,
   assessmentUrl, assessmentReady,
 }: CourseTopBarProps) {
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
@@ -117,32 +118,42 @@ export function CourseTopBar({
           {/* Divider */}
           <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
 
-          {/* Mark Complete */}
-          {onMarkComplete && (
+          {/* Step 1 — Mark Complete button (video ended, not yet complete) */}
+          {onMarkComplete && !isCompleted && (
             <button
-              onClick={isWatched ? undefined : handleMarkCompleteWithPopup}
+              onClick={handleMarkCompleteWithPopup}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6,
                 padding: '6px 14px', fontSize: 13, fontWeight: 600,
-                color: isWatched ? '#ffffff' : '#ffffff',
-                background: isWatched ? '#16a34a' : 'rgba(255,255,255,0.12)',
+                color: '#ffffff', background: '#16a34a',
                 border: 'none', borderRadius: 6,
-                cursor: isWatched ? 'default' : 'pointer',
-                whiteSpace: 'nowrap',
+                cursor: 'pointer', whiteSpace: 'nowrap',
               }}
             >
-              {isWatched ? '✓ Completed' : 'Mark Complete'}
+              ✓ Mark Complete
             </button>
           )}
 
-          {/* Assessment */}
+          {/* Step 2 — Completed indicator */}
+          {isCompleted && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', fontSize: 13, fontWeight: 600,
+              color: '#ffffff', background: '#16a34a',
+              borderRadius: 6, whiteSpace: 'nowrap',
+            }}>
+              ✓ Completed
+            </span>
+          )}
+
+          {/* Step 3 — Assessment button (after complete) */}
           {assessmentUrl && assessmentReady && (
             <Link
               href={assessmentUrl}
               style={{
                 display: 'inline-flex', alignItems: 'center', gap: 6,
                 padding: '6px 14px', fontSize: 13, fontWeight: 600,
-                color: '#ffffff', background: '#16a34a',
+                color: '#ffffff', background: '#2563eb',
                 border: 'none', borderRadius: 6,
                 textDecoration: 'none', whiteSpace: 'nowrap',
               }}
@@ -150,7 +161,9 @@ export function CourseTopBar({
               Take Assessment →
             </Link>
           )}
-          {assessmentUrl && !assessmentReady && (
+
+          {/* Assessment locked hint */}
+          {assessmentUrl && !assessmentReady && !isCompleted && (
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
               padding: '6px 14px', fontSize: 12, fontWeight: 500,

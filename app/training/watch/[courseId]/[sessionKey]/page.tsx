@@ -47,10 +47,28 @@ export default function CourseWatchPage() {
         map[raw.tabKey] = { ...raw, videoDuration: raw.videoDuration ?? 0 };
       }
       setLiveLinks(map);
-      setTimerBypassed(detailsJson.timerBypassed === true);
+      const bypassed = detailsJson.timerBypassed === true;
+      setTimerBypassed(bypassed);
 
       if (progressJson.success && progressJson.data) {
         setProgressMap(new Map((progressJson.data.sessions ?? []).map((s: SessionProgress) => [s.sessionId, s])));
+      }
+
+      // Immediate timer check with fresh bypass value (avoids race condition)
+      if (course && sess) {
+        const s = course.sessions.find(x => x.id === sessionKey);
+        if (s) {
+          const sessionTk = s.isFinal
+            ? `${course.shortTitle.toUpperCase()}_Final`
+            : `${course.shortTitle.toUpperCase()}_${s.id}`;
+          const dur = map[sessionTk]?.videoDuration ?? 0;
+          if (!dur || bypassed) {
+            setTimerComplete(true);
+          } else {
+            const status = getTimerStatus(sess.registrationId, sessionTk, dur, bypassed);
+            setTimerComplete(!status.locked);
+          }
+        }
       }
     }).catch(() => {}).finally(() => setLoading(false));
   }, [router, courseId]);
@@ -207,7 +225,8 @@ export default function CourseWatchPage() {
         sessionUrl={typeof window !== 'undefined' ? window.location.href : ''}
         nextSessionHref={nextHref}
         isWatched={markedComplete || progressMap.get(sessionKey)?.passed}
-        onMarkComplete={videoEnded && !markedComplete ? handleMarkComplete : undefined}
+        onMarkComplete={videoEnded ? (markedComplete ? undefined : handleMarkComplete) : undefined}
+        isCompleted={markedComplete || progressMap.get(sessionKey)?.passed === true}
         videoId={videoId || undefined}
         sessionId={sessionKey}
         studentEmail={studentSession?.email}

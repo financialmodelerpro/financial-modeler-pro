@@ -29,6 +29,7 @@ interface CoursePlayerLayoutProps {
   nextSessionHref?: string;
   isWatched?: boolean;
   onMarkComplete?: () => void;
+  isCompleted?: boolean;
   assessmentUrl?: string;
   assessmentReady?: boolean;
   onVideoPlaying?: () => void;
@@ -67,7 +68,7 @@ const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialm
 export function CoursePlayerLayout({
   title, youtubeUrl, channelId, showLikeButton,
   sessionTitle, sessionDescription, sessionUrl,
-  nextSessionHref, isWatched, onMarkComplete,
+  nextSessionHref, isWatched, onMarkComplete, isCompleted,
   assessmentUrl, assessmentReady, onVideoPlaying, onVideoEnded,
   videoId, sessionId, studentEmail, studentRegId,
   bannerUrl, instructorName, instructorTitle,
@@ -230,6 +231,7 @@ export function CoursePlayerLayout({
         nextSessionHref={nextSessionHref}
         isWatched={isWatched}
         onMarkComplete={hasVideo ? onMarkComplete : undefined}
+        isCompleted={isCompleted}
         assessmentUrl={assessmentUrl}
         assessmentReady={assessmentReady}
       />
