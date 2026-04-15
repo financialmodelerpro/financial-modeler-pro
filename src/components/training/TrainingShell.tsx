@@ -227,14 +227,14 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
           >
             &#9776;
           </button>
-          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', flexShrink: 0 }}>
+          <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', flexShrink: 0 }}>
             {logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={logoUrl} alt="Financial Modeler Pro" style={{ height: parseInt(logoHeightPx) || 36, width: 'auto', objectFit: 'contain' }} />
             ) : (
               <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', lineHeight: 1 }}>Financial Modeler Pro</div>
             )}
-            <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Training Hub</div>
+            <span style={{ fontSize: 9, fontWeight: 700, color: GREEN, background: 'rgba(46,170,74,0.15)', padding: '3px 8px', borderRadius: 4, letterSpacing: '0.06em', textTransform: 'uppercase' }}>Training Hub</span>
           </Link>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
