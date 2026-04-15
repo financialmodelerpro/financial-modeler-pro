@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { getTrainingSession } from '@/src/lib/training/training-session';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/components/training/player/CoursePlayerLayout';
+import { WelcomeModal } from '@/src/components/training/WelcomeModal';
 
 export interface DetailSession {
   id: string; title: string; description: string; youtube_url: string | null;
@@ -75,7 +76,7 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
   const nextSession = currentIndex >= 0 ? playlistSessions[currentIndex + 1] : null;
 
   // ── CoursePlayerLayout for all session types ──
-  return (
+  return (<>
     <CoursePlayerLayout
       title={session.title}
       youtubeUrl={hasVideo ? session.youtube_url! : undefined}
@@ -114,5 +115,7 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
         </div>
       )}
     </CoursePlayerLayout>
+    <WelcomeModal />
+  </>
   );
 }

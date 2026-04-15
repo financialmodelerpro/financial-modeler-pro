@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { getTrainingSession } from '@/src/lib/training/training-session';
 import { SessionCard, getEffectiveType, type LiveSessionData } from '@/src/components/sessions/SessionCard';
+import { WelcomeModal } from '@/src/components/training/WelcomeModal';
 
 export interface PublicSession {
   id: string; title: string; description: string; youtube_url: string | null;
@@ -240,6 +241,7 @@ export function SessionsClient({ sessions, hero }: { sessions: PublicSession[]; 
           )}
         </div>
       </section>
+      <WelcomeModal />
     </>
   );
 }

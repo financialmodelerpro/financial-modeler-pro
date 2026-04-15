@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training/training-session';
 import { useInactivityLogout } from '@/src/hooks/useInactivityLogout';
+import { WelcomeModal } from './WelcomeModal';
 
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
@@ -422,6 +423,7 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
         ))}
       </div>
       </>)}
+      <WelcomeModal />
     </div>
   );
 }
