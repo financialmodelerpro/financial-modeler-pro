@@ -91,6 +91,8 @@ export default function TrainingDashboardPage() {
   const [testimonialModal, setTestimonialModal]   = useState<'written' | 'video' | 'social' | null>(null);
   const [testimonialSubmitted, setTestimonialSubmitted] = useState(false);
   const [dashToast, setDashToast]                 = useState('');
+  const [courseShareOpen, setCourseShareOpen]     = useState(false);
+  const [courseShareCopied, setCourseShareCopied] = useState(false);
   // streak / gamification
   const [streak, setStreak]                       = useState(0);
   const [points, setPoints]                       = useState(0);
@@ -978,21 +980,11 @@ export default function TrainingDashboardPage() {
           {!loading && totalPassed >= 1 && !testimonialSubmitted && !shareBannerDismissed && (
             <div style={{ background: 'linear-gradient(90deg, #FFFBF0, #FEF3C7)', border: '1px solid #FDE68A', borderRadius: 10, padding: '10px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, color: '#92400E', fontWeight: 600 }}>
-                Enjoying your progress? Share with your network! <span style={{ fontWeight: 400, fontSize: 11 }}>Text auto-copied — paste (Ctrl+V) in LinkedIn.</span>
+                Enjoying your progress? Share with your network!
               </span>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <button onClick={() => {
-                  const txt = `I'm making progress on Financial Modeler Pro — free professional financial modeling certification!\n\n👉 https://learn.financialmodelerpro.com\n\n#FinancialModeling #FinancialModelerPro`;
-                  navigator.clipboard.writeText(txt).catch(() => {});
-                  window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank');
-                }}
-                  title="Auto-copies text — paste it (Ctrl+V) in LinkedIn"
-                  style={{ padding: '5px 12px', borderRadius: 6, background: '#0A66C2', color: '#fff', fontWeight: 700, fontSize: 11, border: 'none', cursor: 'pointer' }}>💼 LinkedIn</button>
-                <button onClick={() => {
-                  const txt = `I'm making progress on Financial Modeler Pro — free professional financial modeling certification!\n\n👉 https://learn.financialmodelerpro.com\n\n#FinancialModeling #FinancialModelerPro`;
-                  navigator.clipboard.writeText(txt).then(() => { setDashToast('Text copied!'); setTimeout(() => setDashToast(''), 2500); }).catch(() => {});
-                }}
-                  style={{ padding: '5px 12px', borderRadius: 6, background: '#F3F4F6', color: '#374151', fontWeight: 700, fontSize: 11, border: '1px solid #E5E7EB', cursor: 'pointer' }}>🔗 Copy Text</button>
+                <button onClick={() => setCourseShareOpen(true)}
+                  style={{ padding: '5px 14px', borderRadius: 6, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 11, border: 'none', cursor: 'pointer' }}>🎉 Share</button>
                 <button onClick={() => { setShareBannerDismissed(true); localStorage.setItem('fmp_share_banner_dismissed', 'true'); }}
                   style={{ background: 'none', border: 'none', color: '#92400E', fontSize: 16, cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}>&times;</button>
               </div>
@@ -1521,6 +1513,38 @@ export default function TrainingDashboardPage() {
           </button>
         ))}
       </div>
+
+      {/* ── Course Share Modal ────────────────────────────────────────────── */}
+      {courseShareOpen && (() => {
+        const courseTxt = `I'm making progress on Financial Modeler Pro — free professional financial modeling certification!\n\nBuilding institutional-grade financial models — completely free.\n\n👉 https://learn.financialmodelerpro.com\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
+        return (
+          <div onClick={() => { setCourseShareOpen(false); setCourseShareCopied(false); }}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: '#fff', borderRadius: 12, padding: 24, width: 480, maxWidth: 'calc(100vw - 32px)', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A' }}>Share Your Progress</div>
+                <button onClick={() => { setCourseShareOpen(false); setCourseShareCopied(false); }} style={{ background: 'none', border: 'none', fontSize: 18, color: '#6B7280', cursor: 'pointer', lineHeight: 1 }}>&#10005;</button>
+              </div>
+              <textarea readOnly value={courseTxt} rows={6}
+                style={{ width: '100%', padding: '10px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 12, fontFamily: 'Inter,sans-serif', resize: 'none', lineHeight: 1.6, boxSizing: 'border-box', marginBottom: 12, color: '#374151', background: '#F9FAFB' }} />
+              <div style={{ fontSize: 12, color: '#6B7280', background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8, padding: '10px 14px', marginBottom: 12, lineHeight: 1.5 }}>
+                💡 Click <strong>Share on LinkedIn</strong> — your text is auto-copied. Just <strong>paste it (Ctrl+V)</strong> in LinkedIn.
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => { navigator.clipboard.writeText(courseTxt).catch(() => {}); window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank'); }}
+                  style={{ flex: 1, padding: '10px 14px', background: '#0077b5', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                  💼 Share on LinkedIn
+                </button>
+                <button onClick={() => { navigator.clipboard.writeText(courseTxt).then(() => { setCourseShareCopied(true); setTimeout(() => setCourseShareCopied(false), 2500); }).catch(() => {}); }}
+                  style={{ flex: 1, padding: '10px 14px', background: courseShareCopied ? '#F0FDF4' : '#F3F4F6', color: courseShareCopied ? '#16A34A' : '#374151', border: `1px solid ${courseShareCopied ? '#86EFAC' : '#E5E7EB'}`, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                  {courseShareCopied ? '✓ Copied!' : '🔗 Copy Text'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Share Modal ─────────────────────────────────────────────────────── */}
       {shareModal && (
