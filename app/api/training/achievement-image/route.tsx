@@ -1,6 +1,7 @@
 import { ImageResponse } from 'next/og';
 import { NextRequest } from 'next/server';
 import { getServerClient } from '@/src/lib/shared/supabase';
+import sharp from 'sharp';
 
 export const runtime = 'nodejs';
 
@@ -47,32 +48,29 @@ export async function GET(req: NextRequest) {
 
     console.log('[achievement-image] logoUrl:', logoUrl || '(empty)', 'logoEnabled:', logoEnabled, 'iconUrl:', iconUrl || '(empty)', 'iconInHeader:', iconInHeader);
 
-    // Convert logo to base64 data URI (satori needs inline src, no SVG support)
-    if (logoEnabled && logoUrl) {
-      const res = await fetch(logoUrl, { cache: 'no-store' });
+    // Convert image to base64 data URI — SVG converted to PNG via sharp
+    async function fetchAsBase64(url: string): Promise<string> {
+      const res = await fetch(url, { cache: 'no-store' });
+      if (!res.ok) return '';
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.byteLength < 100) return '';
       const ct = res.headers.get('content-type') || '';
-      const isSvg = ct.includes('svg') || ct.includes('xml') || logoUrl.toLowerCase().endsWith('.svg');
-      if (res.ok && !isSvg) {
-        const buf = await res.arrayBuffer();
-        if (buf.byteLength > 100) {
-          const mime = ct.startsWith('image/') ? ct.split(';')[0] : 'image/png';
-          logoDataUri = `data:${mime};base64,${Buffer.from(buf).toString('base64')}`;
-        }
+      const isSvg = ct.includes('svg') || ct.includes('xml') || url.toLowerCase().endsWith('.svg');
+      if (isSvg) {
+        // Convert SVG to PNG using sharp
+        const pngBuf = await sharp(buf).resize({ height: 200 }).png().toBuffer();
+        return `data:image/png;base64,${pngBuf.toString('base64')}`;
       }
+      const mime = ct.startsWith('image/') ? ct.split(';')[0] : 'image/png';
+      return `data:${mime};base64,${buf.toString('base64')}`;
     }
 
-    // Convert icon to base64 if icon_in_header is enabled
+    if (logoEnabled && logoUrl) {
+      logoDataUri = await fetchAsBase64(logoUrl);
+      console.log('[achievement-image] logo result:', logoDataUri ? `${logoDataUri.length} chars` : 'empty');
+    }
     if (iconInHeader && iconUrl) {
-      const res = await fetch(iconUrl, { cache: 'no-store' });
-      const ct = res.headers.get('content-type') || '';
-      const isSvg = ct.includes('svg') || ct.includes('xml') || iconUrl.toLowerCase().endsWith('.svg');
-      if (res.ok && !isSvg) {
-        const buf = await res.arrayBuffer();
-        if (buf.byteLength > 100) {
-          const mime = ct.startsWith('image/') ? ct.split(';')[0] : 'image/png';
-          iconDataUri = `data:${mime};base64,${Buffer.from(buf).toString('base64')}`;
-        }
-      }
+      iconDataUri = await fetchAsBase64(iconUrl);
     }
   } catch (err) {
     console.error('[achievement-image] Header settings fetch error:', err);
