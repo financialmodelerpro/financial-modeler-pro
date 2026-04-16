@@ -133,6 +133,7 @@ export default function AssessmentPage() {
   const [result, setResult]         = useState<SubmitAssessmentResult | null>(null);
   const [errorMsg, setErrorMsg]     = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
+  const [studentName, setStudentName] = useState('');
 
   // Taking state
   const [answers, setAnswers]       = useState<Record<number, number>>({});
@@ -169,8 +170,9 @@ export default function AssessmentPage() {
     // Quick Supabase check — if already passed, block immediately (no Apps Script delay)
     try {
       const sbCheck = await fetch(`/api/training/progress?email=${encodeURIComponent(email)}&registrationId=${encodeURIComponent(regId)}`);
-      const sbData = await sbCheck.json() as { success: boolean; data?: { sessions: { sessionId: string; passed: boolean; score: number }[] } };
+      const sbData = await sbCheck.json() as { success: boolean; data?: { student?: { name?: string }; sessions: { sessionId: string; passed: boolean; score: number }[] } };
       if (sbData.success && sbData.data) {
+        if (sbData.data.student?.name) setStudentName(sbData.data.student.name);
         const sep = tabKey.indexOf('_');
         const sessId = sep >= 0 ? tabKey.slice(sep + 1) : tabKey;
         const finalId = tabKey.toUpperCase().startsWith('BVM') ? 'L7' : 'S18';
@@ -933,55 +935,42 @@ export default function AssessmentPage() {
           const courseName = courseId === 'bvm' ? 'Business Valuation Modeling' : '3-Statement Financial Modeling';
           const sess = getTrainingSession();
           const regIdVal = sess?.registrationId || '';
-          const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionName)}&score=${result.score}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}&regId=${encodeURIComponent(regIdVal)}`;
-          const LEARN = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
-          const shareMsg = `🏆 Passed ${sessionName} with ${result.score}% at Financial Modeler Pro!\n\nFree certification: https://learn.financialmodelerpro.com\n\n#FinancialModeling #FinancialModelerPro`;
-          const urls = {
-            linkedin: `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(shareMsg)}`,
-            whatsapp: `https://wa.me/?text=${encodeURIComponent(shareMsg)}`,
-            facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(LEARN)}&quote=${encodeURIComponent(shareMsg)}`,
-            twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMsg)}`,
-          };
+          const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionName)}&score=${result.score}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName)}&regId=${encodeURIComponent(regIdVal)}`;
+          const shareText = `🏆 I just passed "${sessionName}" with ${result.score}% in the ${courseName} program at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — completely free certification program.\n\n👉 https://learn.financialmodelerpro.com\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
           return (
             <div style={{ maxWidth: 780, margin: '0 auto 32px', padding: '0 24px' }}>
-              <div style={{ background: WHITE, borderRadius: 12, border: '1px solid #E5E7EB', padding: '24px 28px', textAlign: 'center' }}>
-                <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 6 }}>📅 Passed on {passDate}</div>
-                <div style={{ fontSize: 16, fontWeight: 700, color: NAVY, marginBottom: 16 }}>🎉 Share your achievement!</div>
+              <div style={{ background: WHITE, borderRadius: 12, border: '1px solid #E5E7EB', padding: '24px 28px' }}>
+                <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 6, textAlign: 'center' }}>📅 Passed on {passDate}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: NAVY, marginBottom: 16, textAlign: 'center' }}>🎉 Share your achievement!</div>
                 {/* Achievement card preview */}
                 <div style={{ marginBottom: 12 }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img src={cardImgUrl} alt="Your Achievement Card"
                     style={{ width: '100%', maxWidth: 600, borderRadius: 12, border: '1px solid #E5E7EB', display: 'block', margin: '0 auto' }} />
                 </div>
-                {/* Step 1 — download */}
-                <a href={cardImgUrl} download="FMP-Achievement.png"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 24px', background: '#1F3864', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', marginBottom: 8 }}>
-                  Step 1: Download Achievement Card
-                </a>
-                <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
-                  After downloading, attach the image when posting
+                {/* Download */}
+                <div style={{ textAlign: 'center', marginBottom: 16 }}>
+                  <a href={cardImgUrl} download="FMP-Achievement.png"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 24px', background: '#1F3864', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none' }}>
+                    ⬇️ Download Achievement Card
+                  </a>
                 </div>
-                {/* Step 2 — platforms */}
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
-                  <button onClick={() => window.open(urls.linkedin, '_blank')}
-                    style={{ padding: '10px 18px', background: '#0077b5', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-                    💼 LinkedIn
+                {/* Share text */}
+                <textarea readOnly value={shareText} rows={6}
+                  style={{ width: '100%', padding: '10px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 12, fontFamily: 'Inter,sans-serif', resize: 'none', lineHeight: 1.6, boxSizing: 'border-box', marginBottom: 12, color: '#374151', background: '#F9FAFB' }} />
+                {/* Instruction */}
+                <div style={{ fontSize: 12, color: '#6B7280', background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8, padding: '10px 14px', marginBottom: 12, lineHeight: 1.5 }}>
+                  💡 Click <strong>Share on LinkedIn</strong> — your text is auto-copied. Just <strong>paste it (Ctrl+V)</strong> in LinkedIn and attach the downloaded card.
+                </div>
+                {/* Buttons */}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => { navigator.clipboard.writeText(shareText).catch(() => {}); window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank'); }}
+                    style={{ flex: 1, padding: '10px 14px', background: '#0077b5', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    💼 Share on LinkedIn
                   </button>
-                  <button onClick={() => window.open(urls.whatsapp, '_blank')}
-                    style={{ padding: '10px 18px', background: '#25D366', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-                    💬 WhatsApp
-                  </button>
-                  <button onClick={() => window.open(urls.facebook, '_blank')}
-                    style={{ padding: '10px 18px', background: '#1877F2', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-                    📘 Facebook
-                  </button>
-                  <button onClick={() => window.open(urls.twitter, '_blank')}
-                    style={{ padding: '10px 18px', background: '#000', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-                    𝕏 Twitter/X
-                  </button>
-                  <button onClick={() => { navigator.clipboard.writeText(LEARN).then(() => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2500); }).catch(() => {}); }}
-                    style={{ padding: '10px 18px', background: linkCopied ? '#F0FDF4' : '#F9FAFB', color: linkCopied ? '#16A34A' : '#374151', border: `1px solid ${linkCopied ? '#86EFAC' : '#E5E7EB'}`, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-                    {linkCopied ? '✓ Copied!' : '🔗 Copy Link'}
+                  <button onClick={() => { navigator.clipboard.writeText(shareText).then(() => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2500); }).catch(() => {}); }}
+                    style={{ flex: 1, padding: '10px 14px', background: linkCopied ? '#F0FDF4' : '#F3F4F6', color: linkCopied ? '#16A34A' : '#374151', border: `1px solid ${linkCopied ? '#86EFAC' : '#E5E7EB'}`, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    {linkCopied ? '✓ Copied!' : '🔗 Copy Text'}
                   </button>
                 </div>
               </div>
