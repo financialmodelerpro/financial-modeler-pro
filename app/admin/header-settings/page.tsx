@@ -12,6 +12,7 @@ const KEYS = [
   'show_brand_name', 'brand_name', 'show_tagline', 'tagline',
   'icon_url', 'icon_as_favicon', 'icon_in_header', 'icon_size_px',
   'header_height_px', 'header_padding_top_px', 'header_padding_bottom_px',
+  'achievement_card_logo_width',
 ] as const;
 
 type Vals = Record<string, string>;
@@ -113,7 +114,7 @@ export default function HeaderSettingsPage() {
                 </div>
               )}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 12 }}>
               <div><label style={LS}>Width (px)</label><input type="number" style={IS} value={vals.logo_width_px ?? ''} onChange={e => set('logo_width_px', e.target.value)} placeholder="auto" /></div>
               <div><label style={LS}>Height (px)</label><input type="number" style={IS} value={vals.logo_height_px ?? ''} onChange={e => set('logo_height_px', e.target.value)} placeholder="36" /></div>
               <div>
@@ -122,6 +123,11 @@ export default function HeaderSettingsPage() {
                   <option value="left">Left</option><option value="center">Center</option><option value="right">Right</option>
                 </select>
               </div>
+            </div>
+            <div style={{ width: 200 }}>
+              <label style={LS}>Achievement Card Logo Width (px)</label>
+              <input type="number" style={IS} value={vals.achievement_card_logo_width ?? ''} onChange={e => set('achievement_card_logo_width', e.target.value)} placeholder="120" />
+              <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 4 }}>Controls logo size on the achievement share card image.</div>
             </div>
           </div>
 

@@ -20,6 +20,7 @@ export async function GET(req: NextRequest) {
   let brandName = 'Financial Modeler Pro';
   let iconDataUri = '';
   let iconInHeader = false;
+  let cardLogoWidth = 120;
 
   try {
     const sb = getServerClient();
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
       .from('cms_content')
       .select('section, key, value')
       .in('section', ['header_settings', 'branding', 'platform'])
-      .in('key', ['logo_url', 'logo_enabled', 'logo_height_px', 'show_brand_name', 'brand_name', 'icon_url', 'icon_in_header', 'icon_size_px']);
+      .in('key', ['logo_url', 'logo_enabled', 'logo_height_px', 'show_brand_name', 'brand_name', 'icon_url', 'icon_in_header', 'icon_size_px', 'achievement_card_logo_width']);
     const map: Record<string, string> = {};
     for (const r of (rows ?? []) as { section: string; key: string; value: string }[]) {
       // header_settings takes priority over branding/platform
@@ -42,6 +43,7 @@ export async function GET(req: NextRequest) {
     brandName = hs('brand_name') || 'Financial Modeler Pro';
     iconInHeader = hs('icon_in_header') === 'true';
     const iconUrl = hs('icon_url') || '';
+    cardLogoWidth = parseInt(hs('achievement_card_logo_width')) || 120;
 
     console.log('[achievement-image] logoUrl:', logoUrl || '(empty)', 'logoEnabled:', logoEnabled, 'iconUrl:', iconUrl || '(empty)', 'iconInHeader:', iconInHeader);
 
@@ -105,7 +107,7 @@ export async function GET(req: NextRequest) {
             {/* Logo image — same rule as Navbar: logoEnabled && logoUrl */}
             {logoDataUri ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoDataUri} alt={brandName} style={{ height: 48 }} />
+              <img src={logoDataUri} alt={brandName} style={{ width: cardLogoWidth, height: 'auto' }} />
             ) : !logoEnabled ? null : (
               /* No icon rendered and no logo image — show text brand like Navbar fallback */
               !iconDataUri ? (
