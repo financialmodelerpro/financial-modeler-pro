@@ -36,13 +36,17 @@ export interface SessionCardProps {
   timerBypassed?: boolean;
   /** Course ID for internal watch page link */
   courseId?: string;
+  /** Video has been marked complete (from certification_watch_history) */
+  isWatched?: boolean;
+  /** Video is in progress (from certification_watch_history) */
+  isInProgress?: boolean;
 }
 
 export function SessionCard({
   sessionTitle, sessionId, maxAttempts, questionCount, passingScore,
   idx, prog, locked, ytUrl, isFinal, passedCount, regularCount,
   tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
-  bvmLocked, watchLocked, timerBypassed, courseId,
+  bvmLocked, watchLocked, timerBypassed, courseId, isWatched, isInProgress,
 }: SessionCardProps) {
   const [notesOpen, setNotesOpen] = useState(false);
   const [noteText, setNoteText] = useState(noteContent);
@@ -195,11 +199,15 @@ export function SessionCard({
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#FEF2F2', color: '#DC2626', whiteSpace: 'nowrap' }}>
             No Attempts Left
           </span>
-        ) : attemptsLeft > 0 ? (
+        ) : isWatched && attemptsLeft > 0 ? (
           <Link href={`/training/assessment/${encodeURIComponent(tabKey)}`}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: '#2563EB', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
             📝 Take Assessment →
           </Link>
+        ) : isInProgress ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#FFFBEB', color: '#D97706', border: '1px solid #FDE68A', whiteSpace: 'nowrap' }}>
+            ▶ In Progress
+          </span>
         ) : null}
       </div>
 

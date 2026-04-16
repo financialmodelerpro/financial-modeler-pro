@@ -41,7 +41,8 @@ export default function CourseWatchPage() {
     Promise.all([
       fetch('/api/training/course-details').then(r => r.json()),
       fetch(`/api/training/progress?registrationId=${encodeURIComponent(sess.registrationId)}&email=${encodeURIComponent(sess.email)}`).then(r => r.json()),
-    ]).then(([detailsJson, progressJson]) => {
+      fetch(`/api/training/certification-watch?email=${encodeURIComponent(sess.email)}`).then(r => r.json()).catch(() => ({ history: [] })),
+    ]).then(([detailsJson, progressJson, watchJson]) => {
       const map: LiveLinksMap = {};
       for (const raw of detailsJson.sessions ?? []) {
         map[raw.tabKey] = { ...raw, videoDuration: raw.videoDuration ?? 0 };
@@ -67,6 +68,23 @@ export default function CourseWatchPage() {
           } else {
             const status = getTimerStatus(sess.registrationId, sessionTk, dur, bypassed);
             setTimerComplete(!status.locked);
+          }
+        }
+      }
+
+      // Restore certification watch history from DB
+      if (course) {
+        const currentSess = course.sessions.find(x => x.id === sessionKey);
+        if (currentSess) {
+          const watchTk = currentSess.isFinal
+            ? `${course.shortTitle.toUpperCase()}_Final`
+            : `${course.shortTitle.toUpperCase()}_${currentSess.id}`;
+          const watchRecord = (watchJson.history as { tab_key: string; status: string }[] ?? [])
+            .find((h: { tab_key: string }) => h.tab_key === watchTk);
+          if (watchRecord?.status === 'completed') {
+            setVideoEnded(true);
+            setMarkedComplete(true);
+            setTimerComplete(true);
           }
         }
       }
@@ -130,14 +148,23 @@ export default function CourseWatchPage() {
     }
   }, [studentSession, sessionKey]);
 
-  // Handle Mark Complete click — certification sessions don't use session_watch_history
-  // (session_watch_history requires live_sessions UUIDs, not course session IDs like S1/S2)
-  // Progress is tracked via the assessment system — Mark Complete just advances the UI
+  // Handle Mark Complete click — persists to certification_watch_history DB
   const handleMarkComplete = useCallback(() => {
     setMarkedComplete(true);
-  }, []);
+    if (!studentSession || !course) return;
+    const session = course.sessions.find(s => s.id === sessionKey);
+    if (!session) return;
+    const tk = session.isFinal
+      ? `${course.shortTitle.toUpperCase()}_Final`
+      : `${course.shortTitle.toUpperCase()}_${session.id}`;
+    fetch('/api/training/certification-watch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ student_email: studentSession.email, tab_key: tk, course_id: courseId, status: 'completed' }),
+    }).catch(() => {});
+  }, [studentSession, course, sessionKey, courseId]);
 
-  // Handle video play — start timer
+  // Handle video play — start timer + record in_progress
   const handlePlaying = useCallback(() => {
     if (!studentSession || !course) return;
     const session = course.sessions.find(s => s.id === sessionKey);
@@ -150,7 +177,15 @@ export default function CourseWatchPage() {
       startTimer(studentSession.registrationId, tk, dur);
       checkTimer();
     }
-  }, [studentSession, course, sessionKey, liveLinks, checkTimer]);
+    // Record in_progress (fire-and-forget, only if not already marked complete)
+    if (!markedComplete) {
+      fetch('/api/training/certification-watch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_email: studentSession.email, tab_key: tk, course_id: courseId, status: 'in_progress' }),
+      }).catch(() => {});
+    }
+  }, [studentSession, course, sessionKey, liveLinks, checkTimer, markedComplete, courseId]);
 
   if (!course) {
     return (

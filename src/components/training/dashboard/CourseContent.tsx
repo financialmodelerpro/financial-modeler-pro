@@ -36,9 +36,13 @@ export interface CourseContentProps {
   onSwitchTo3sfm?: () => void;
   /** Server-side timer bypass from training_settings DB */
   timerBypassed?: boolean;
+  /** Tab keys where video has been marked complete */
+  completedWatchKeys?: Set<string>;
+  /** Tab keys where video is in progress */
+  inProgressWatchKeys?: Set<string>;
 }
 
-export function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating, studentName, studentEmail, onShare, testimonialSubmitted, onOpenTestimonial, notes, onNoteSave, feedbackGiven, onFeedbackRequest, bvmLocked, sfmProgress = 0, sfmTotal = 0, onSwitchTo3sfm, timerBypassed }: CourseContentProps) {
+export function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating, studentName, studentEmail, onShare, testimonialSubmitted, onOpenTestimonial, notes, onNoteSave, feedbackGiven, onFeedbackRequest, bvmLocked, sfmProgress = 0, sfmTotal = 0, onSwitchTo3sfm, timerBypassed, completedWatchKeys, inProgressWatchKeys }: CourseContentProps) {
   const course = COURSES[courseId];
   if (!course) return null;
 
@@ -312,6 +316,8 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
               watchLocked={watchLocked}
               timerBypassed={timerBypassed}
               courseId={courseId}
+              isWatched={completedWatchKeys?.has(tk)}
+              isInProgress={inProgressWatchKeys?.has(tk)}
             />
           );
         })}

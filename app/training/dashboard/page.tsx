@@ -106,6 +106,9 @@ export default function TrainingDashboardPage() {
   const [profileDropdown, setProfileDropdown]     = useState(false);
   // timer bypass (server-side, from training_settings DB)
   const [timerBypassed, setTimerBypassed]         = useState(false);
+  // certification watch history (tracks video watch status per session)
+  const [certWatchCompleted, setCertWatchCompleted] = useState<Set<string>>(new Set());
+  const [certWatchInProgress, setCertWatchInProgress] = useState<Set<string>>(new Set());
   const [studentProfile, setStudentProfile]       = useState<{ job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; display_name?: string; avatar_url?: string } | null>(null);
   const [avatarUploading, setAvatarUploading]     = useState(false);
   // avatarPreview replaced by cropImageSrc + react-easy-crop
@@ -240,17 +243,28 @@ export default function TrainingDashboardPage() {
         try { const r = await p; return await r.json() as T; } catch { return fallback; }
       };
 
-      const [json, detailsJson, notesJson, profileJson] = await Promise.all([
+      const [json, detailsJson, notesJson, profileJson, certWatchJson] = await Promise.all([
         safeJson(fetch(`/api/training/progress?${progressParams}`), { success: false } as { success: boolean; fallback?: boolean; data?: ProgressData }),
         safeJson(fetch('/api/training/course-details'), {} as { sessions?: { tabKey: string; sessionName: string; youtubeUrl: string; formUrl: string; videoDuration: number; isFinal: boolean; hasVideo: boolean }[]; courses?: CourseDescsMap; timerBypassed?: boolean }),
         safeJson(fetch(`/api/training/notes?registrationId=${encodeURIComponent(sess.registrationId)}`), {} as { notes?: { session_key: string; content: string }[] }),
         safeJson(fetch(`/api/training/profile?registrationId=${encodeURIComponent(sess.registrationId)}`), {} as { profile?: { job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; streak_days?: number; total_points?: number; display_name?: string; avatar_url?: string } | null }),
+        safeJson(fetch(`/api/training/certification-watch?email=${encodeURIComponent(sess.email)}`), {} as { history?: { tab_key: string; status: string }[] }),
       ]);
 
       // Apply notes
       const notesMap: Record<string, string> = {};
       for (const n of notesJson.notes ?? []) notesMap[n.session_key] = n.content;
       setNotes(notesMap);
+
+      // Apply certification watch history
+      const completed = new Set<string>();
+      const inProg = new Set<string>();
+      for (const h of certWatchJson.history ?? []) {
+        if (h.status === 'completed') completed.add(h.tab_key);
+        else if (h.status === 'in_progress') inProg.add(h.tab_key);
+      }
+      setCertWatchCompleted(completed);
+      setCertWatchInProgress(inProg);
 
       // Apply profile + streak/points
       if (profileJson.profile) {
@@ -1430,6 +1444,8 @@ export default function TrainingDashboardPage() {
                 sfmTotal={sfmRegular.length}
                 onSwitchTo3sfm={() => navigateTo('course', '3sfm')}
                 timerBypassed={timerBypassed}
+                completedWatchKeys={certWatchCompleted}
+                inProgressWatchKeys={certWatchInProgress}
               />
 
               {/* Certificate cards in course view */}
