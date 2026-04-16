@@ -888,6 +888,8 @@ export default function AssessmentPage() {
               )}
               <button onClick={() => {
                 // Store submitted score so dashboard can optimistically update
+                const sep = tabKey.indexOf('_');
+                const sessId = sep >= 0 ? tabKey.slice(sep + 1) : tabKey;
                 try {
                   sessionStorage.setItem('fmp_last_submit', JSON.stringify({
                     tabKey,
@@ -895,6 +897,16 @@ export default function AssessmentPage() {
                     passed: result.passed,
                     attempts: result.attempts,
                   }));
+                  // Also store durable optimistic data that survives server fetch overwrite
+                  if (result.passed) {
+                    sessionStorage.setItem('fmp_optimistic_submit', JSON.stringify({
+                      sessionId: sessId,
+                      score: result.score,
+                      passed: true,
+                      attempts: result.attempts,
+                      at: Date.now(),
+                    }));
+                  }
                 } catch { /* ignore */ }
                 router.push(`/training/dashboard?course=${courseId}&refresh=1`);
               }} style={{

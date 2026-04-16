@@ -282,8 +282,30 @@ export default function TrainingDashboardPage() {
       if (detailsJson.courses) setCourseDescs(detailsJson.courses);
       setTimerBypassed(detailsJson.timerBypassed === true);
 
-      // Apply progress
+      // Apply progress — merge any optimistic submit that may not yet be reflected in Apps Script
       if (json.success && json.data) {
+        try {
+          const optimistic = sessionStorage.getItem('fmp_optimistic_submit');
+          if (optimistic) {
+            const opt = JSON.parse(optimistic) as { sessionId: string; score: number; passed: boolean; attempts: number; at: number };
+            // Only apply if recent (under 5 minutes) and server data doesn't yet reflect it
+            if (Date.now() - opt.at < 5 * 60 * 1000) {
+              const serverSess = json.data.sessions.find((s: SessionProgress) => s.sessionId === opt.sessionId);
+              if (serverSess && !serverSess.passed && opt.passed) {
+                serverSess.score = opt.score;
+                serverSess.passed = opt.passed;
+                serverSess.attempts = opt.attempts;
+                serverSess.completedAt = new Date(opt.at).toISOString();
+              } else if (!serverSess && opt.passed) {
+                json.data.sessions.push({ sessionId: opt.sessionId, score: opt.score, passed: opt.passed, attempts: opt.attempts, completedAt: new Date(opt.at).toISOString() });
+              }
+              // Clear once server reflects the pass
+              if (serverSess?.passed) sessionStorage.removeItem('fmp_optimistic_submit');
+            } else {
+              sessionStorage.removeItem('fmp_optimistic_submit');
+            }
+          }
+        } catch { /* ignore */ }
         setProgress(json.data);
         setLastUpdated(new Date());
         try { localStorage.setItem(CACHE_KEY, JSON.stringify({ data: json.data, at: Date.now() })); } catch { /* ignore */ }
