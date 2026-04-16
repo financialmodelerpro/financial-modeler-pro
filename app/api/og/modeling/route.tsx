@@ -1,7 +1,20 @@
 import { ImageResponse } from 'next/og';
+import { getCmsContent, cms, getAllPageSections } from '@/src/lib/shared/cms';
 
 /** GET /api/og/modeling — Modeling Hub OG banner (app.financialmodelerpro.com) */
 export async function GET() {
+  // Fetch hero content from CMS — same source as app/modeling/page.tsx
+  const [content, sections] = await Promise.all([
+    getCmsContent(),
+    getAllPageSections('modeling'),
+  ]);
+  const heroRaw = sections.find(s => s.section_type === 'hero');
+  const h = heroRaw?.visible !== false ? heroRaw?.content as Record<string, unknown> | undefined : undefined;
+
+  const badge    = (h?.badge as string)    || cms(content, 'modeling_hub', 'hero_badge',    '📐 Professional Modeling Platform');
+  const headline = ((h?.headline as string) || cms(content, 'modeling_hub', 'hero_headline', 'Build Institutional-Grade\nFinancial Models')).replace(/\n/g, ' ');
+  const sub      = (h?.subtitle as string) || cms(content, 'modeling_hub', 'hero_sub',      'Structured, guided workflows for every financial discipline — real estate, business valuation, LBO, FP&A, and more.');
+
   return new ImageResponse(
     (
       <div style={{
@@ -13,25 +26,21 @@ export async function GET() {
         <div style={{ position: 'absolute', bottom: -60, left: -60, width: 260, height: 260, borderRadius: '50%', background: 'rgba(255,255,255,0.02)', display: 'flex' }} />
 
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '0 80px', position: 'relative', textAlign: 'center' }}>
-          {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 36 }}>
             <div style={{ width: 52, height: 52, borderRadius: 14, background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 900, color: '#fff' }}>FMP</div>
             <span style={{ fontSize: 26, fontWeight: 800, color: '#ffffff' }}>Financial Modeler Pro</span>
           </div>
 
-          {/* Badge — blue like modeling hero */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 20px', borderRadius: 20, background: 'rgba(27,79,138,0.18)', border: '1px solid rgba(27,79,138,0.45)', marginBottom: 28 }}>
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#93C5FD', letterSpacing: '0.04em' }}>📐 Professional Modeling Platform</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: '#93C5FD', letterSpacing: '0.04em' }}>{badge}</span>
           </div>
 
-          {/* Headline — matches modeling hero */}
           <div style={{ fontSize: 52, fontWeight: 800, color: '#ffffff', lineHeight: 1.15, marginBottom: 20, maxWidth: 800, letterSpacing: '-0.02em' }}>
-            Build Institutional-Grade Financial Models
+            {headline}
           </div>
 
-          {/* Subline */}
           <div style={{ fontSize: 20, color: 'rgba(255,255,255,0.6)', lineHeight: 1.6, maxWidth: 680 }}>
-            Structured, guided workflows for every financial discipline — real estate, business valuation, LBO, FP&A, and more.
+            {sub}
           </div>
         </div>
 
