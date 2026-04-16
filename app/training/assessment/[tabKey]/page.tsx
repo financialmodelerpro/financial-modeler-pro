@@ -133,6 +133,7 @@ export default function AssessmentPage() {
   const [result, setResult]         = useState<SubmitAssessmentResult | null>(null);
   const [errorMsg, setErrorMsg]     = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
+  const [shareInstruction, setShareInstruction] = useState(false);
 
   // Taking state
   const [answers, setAnswers]       = useState<Record<number, number>>({});
@@ -916,8 +917,29 @@ export default function AssessmentPage() {
           const sess = getTrainingSession();
           const regIdVal = sess?.registrationId || '';
           const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionName)}&score=${result.score}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}&regId=${encodeURIComponent(regIdVal)}`;
-          const shareUrl = `${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training/assessment/${encodeURIComponent(tabKey)}?score=${result.score}&session=${encodeURIComponent(sessionName)}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}&regId=${encodeURIComponent(regIdVal)}`;
-          const shareText = `🏆 I just passed ${sessionName} with ${result.score}% on Financial Modeler Pro!\n\n${shareUrl}`;
+          const LEARN = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+          const shareMsg = `I just passed ${sessionName} with ${result.score}% in ${courseName} at Financial Modeler Pro!\n\nFree professional financial modeling certification: ${LEARN}\n\n#FinancialModeling #Finance #FinancialModelerPro`;
+
+          const handlePlatformShare = async (platform: string) => {
+            const link = document.createElement('a');
+            link.href = cardImgUrl;
+            link.download = 'FMP-Achievement.png';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            await new Promise(r => setTimeout(r, 800));
+            const urls: Record<string, string | null> = {
+              linkedin: 'https://www.linkedin.com/feed/?shareActive=true',
+              whatsapp: `https://wa.me/?text=${encodeURIComponent(shareMsg)}`,
+              facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(LEARN)}`,
+              twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMsg)}`,
+              instagram: null,
+            };
+            const url = urls[platform];
+            if (url) window.open(url, '_blank');
+            setShareInstruction(true);
+          };
+
           return (
             <div style={{ maxWidth: 780, margin: '0 auto 32px', padding: '0 24px' }}>
               <div style={{ background: WHITE, borderRadius: 12, border: '1px solid #E5E7EB', padding: '24px 28px', textAlign: 'center' }}>
@@ -926,34 +948,38 @@ export default function AssessmentPage() {
                 {/* Achievement card preview */}
                 <div style={{ marginBottom: 12 }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={cardImgUrl}
-                    alt="Your Achievement Card"
-                    style={{ width: '100%', maxWidth: 600, borderRadius: 12, border: '1px solid #E5E7EB', display: 'block', margin: '0 auto' }}
-                  />
+                  <img src={cardImgUrl} alt="Your Achievement Card"
+                    style={{ width: '100%', maxWidth: 600, borderRadius: 12, border: '1px solid #E5E7EB', display: 'block', margin: '0 auto' }} />
                 </div>
-                <div style={{ marginBottom: 16, textAlign: 'center' }}>
-                  <a href={cardImgUrl}
-                    download="FMP-Achievement.png"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 24px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 14, fontWeight: 600, color: '#374151', textDecoration: 'none' }}>
-                    Download Achievement Card
-                  </a>
-                </div>
-                <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
-                  <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`} target="_blank" rel="noopener noreferrer"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: '#0077b5', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none' }}>
+                {shareInstruction && (
+                  <div style={{ display: 'flex', gap: 10, padding: '12px 14px', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, marginBottom: 14, alignItems: 'flex-start', justifyContent: 'center', textAlign: 'left' }}>
+                    <span style={{ fontSize: 18, flexShrink: 0 }}>💡</span>
+                    <span style={{ fontSize: 12, color: '#15803D', lineHeight: 1.5 }}>Your achievement card has been downloaded. Now <strong>attach the image</strong> to your post for best results!</span>
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+                  <button onClick={() => handlePlatformShare('linkedin')}
+                    style={{ padding: '10px 18px', background: '#0077b5', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                     💼 LinkedIn
-                  </a>
-                  <a href={`https://wa.me/?text=${encodeURIComponent(shareText)}`} target="_blank" rel="noopener noreferrer"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: '#25D366', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none' }}>
+                  </button>
+                  <button onClick={() => handlePlatformShare('whatsapp')}
+                    style={{ padding: '10px 18px', background: '#25D366', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                     💬 WhatsApp
-                  </a>
-                  <a href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`} target="_blank" rel="noopener noreferrer"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: '#1877F2', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none' }}>
+                  </button>
+                  <button onClick={() => handlePlatformShare('facebook')}
+                    style={{ padding: '10px 18px', background: '#1877F2', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                     📘 Facebook
-                  </a>
-                  <button onClick={() => { navigator.clipboard.writeText(shareUrl).then(() => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2500); }).catch(() => {}); }}
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: linkCopied ? '#2EAA4A' : '#F3F4F6', color: linkCopied ? '#fff' : '#374151', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                  </button>
+                  <button onClick={() => handlePlatformShare('twitter')}
+                    style={{ padding: '10px 18px', background: '#000', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                    𝕏 Twitter/X
+                  </button>
+                  <button onClick={() => handlePlatformShare('instagram')}
+                    style={{ padding: '10px 18px', background: 'linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                    📸 Instagram
+                  </button>
+                  <button onClick={() => { navigator.clipboard.writeText(LEARN).then(() => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2500); }).catch(() => {}); }}
+                    style={{ padding: '10px 18px', background: linkCopied ? '#F0FDF4' : '#F9FAFB', color: linkCopied ? '#16A34A' : '#374151', border: `1px solid ${linkCopied ? '#86EFAC' : '#E5E7EB'}`, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                     {linkCopied ? '✓ Copied!' : '🔗 Copy Link'}
                   </button>
                 </div>

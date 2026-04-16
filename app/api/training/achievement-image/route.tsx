@@ -11,8 +11,8 @@ export async function GET(req: NextRequest) {
   const studentName = searchParams.get('name') || '';
   const regId       = searchParams.get('regId') || '';
 
-  // Fetch real logo from CMS
-  let logoUrl = '';
+  // Fetch real logo from CMS as base64 data URI (ImageResponse needs inline src)
+  let logoSrc = '';
   try {
     const sb = getServerClient();
     const { data } = await sb
@@ -21,7 +21,13 @@ export async function GET(req: NextRequest) {
       .eq('section', 'header_settings')
       .eq('key', 'logo_url')
       .maybeSingle();
-    logoUrl = data?.value || '';
+    const logoUrl = data?.value || '';
+    if (logoUrl) {
+      const logoRes = await fetch(logoUrl);
+      const buf = await logoRes.arrayBuffer();
+      const ct = logoRes.headers.get('content-type') || 'image/png';
+      logoSrc = `data:${ct};base64,${Buffer.from(buf).toString('base64')}`;
+    }
   } catch { /* use fallback */ }
 
   return new ImageResponse(
@@ -45,9 +51,9 @@ export async function GET(req: NextRequest) {
           borderBottom: '1px solid rgba(255,255,255,0.08)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            {logoUrl ? (
+            {logoSrc ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoUrl} alt="FMP" style={{ height: 40, width: 'auto' }} />
+              <img src={logoSrc} alt="FMP" style={{ height: 40, width: 'auto' }} />
             ) : (
               <div style={{
                 width: 44, height: 44, borderRadius: 10, background: '#2EAA4A',
@@ -55,7 +61,7 @@ export async function GET(req: NextRequest) {
                 fontSize: 16, fontWeight: 900, color: '#fff',
               }}>FMP</div>
             )}
-            {!logoUrl && (
+            {!logoSrc && (
               <span style={{ fontSize: 20, fontWeight: 800, color: '#ffffff', letterSpacing: '0.3px' }}>Financial Modeler Pro</span>
             )}
           </div>
