@@ -36,7 +36,7 @@
 | **CMS / Dynamic Nav** | ✅ Complete | `site_pages` table, admin editable |
 | **CMS — Dynamic Page Builder** | ✅ Complete | 21 section types, drag-and-drop, SEO, per-field visibility checkboxes, per-field width/alignment controls. **Home page** Option B (053-063, 067-068). **Training page** Option B (065-066): 9 sections. **Modeling page** Option B (070): 7 sections. **Modeling platform sub-pages** Option B (071-072): per-platform CMS via `modeling-{slug}` pattern, Real Estate has 7 sections including stats bar. Other pages use SectionRenderer + `_dynamic` markers. Smart editors: SmartColumnsEditor, SmartTeamEditor, FounderEditor, PaceMakersEditor, CardsEditor (benefits[]/cards[] smart detect), ProcessStepsEditor (steps[] in timeline). Universal ParagraphsEditor on all sections with per-paragraph alignment. TextImageEditor: body field, audience cards, side+bg image always visible, paragraphs. CmsParagraphs shared renderer for Text, CTA, Hero, Cards, List, TextImage sections. Admin modules page shows "Content Ready ✓" / "Setup Required" per platform with page builder links |
 | **CMS — Book a Meeting Page** | ✅ Complete | `/book-a-meeting` — professional redirect page with founder photo, title, qualifications, "What to expect" checklist, booking calendar button (opens new tab). All text editable from FounderEditor. Booking URL from `page_sections` team content |
-| **Email System** | ✅ Complete | Resend, 11 templates all using `baseLayoutBranded()` (async, DB-driven logo/signature/footer/color via email_branding table). No personal names in signatures |
+| **Email System** | ✅ Complete | Resend, 11 templates all using `baseLayoutBranded()`. All 3 remaining triggers migrated from Apps Script to Next.js: quizResult (submit-assessment), registrationConfirmation (confirm-email), lockedOut (submit-assessment when max attempts). `/api/email/send` bridge kept for backwards compat |
 | **Live Session Email Automation** | ✅ Complete | Auto-announcement on publish (or manual), 24h + 1h reminders (cron daily 6AM UTC — Hobby plan limit), recording-available email, 4 CMS-editable templates with placeholders, test send, admin Email Settings page |
 | **Apps Script Integration** | ✅ Complete | Register student, fetch registration ID, attendance |
 | **REFM Module 1 — Project Setup** | ✅ Complete | Timeline, Land & Area, Dev Costs, Financing |
@@ -52,6 +52,11 @@
 | **YouTube Player + Subscribe** | ✅ Complete | YT IFrame API player (replaces raw iframe), styled subscribe banner, like button (admin-toggleable via show_like_button), watch completion tracking (50 pts) |
 | **YouTube Comments Cache** | ✅ Complete | Server-side proxy fetches comments via YouTube Data API v3, caches in youtube_comments_cache table (24h TTL), empty state shows "Be the first to comment" CTA |
 | **Watch Progress Indicators** | ✅ Complete | Green "Watched" badge on live session cards, watch-history API, session_watch_history with status + watch_percentage columns |
+| **Training Hub — Certification Watch Tracking** | ✅ Complete | certification_watch_history table tracks video in_progress/completed. Gates "Take Assessment" on dashboard. Watch page writes on play + Mark Complete |
+| **Training Hub — Supabase Assessment Results** | ✅ Complete | training_assessment_results table (migration 090). Dual-write: Apps Script + Supabase. Progress route merges Supabase over Apps Script for instant dashboard updates |
+| **Training Hub — Achievement Card** | ✅ Complete | Dynamic OG image at `/api/training/achievement-image` (satori ImageResponse). Shows session, score, course, student name, reg ID, date. Logo from CMS (SVG→PNG via sharp). Admin-controlled logo height |
+| **Training Hub — Share System** | ✅ Complete | SessionCard: Share modal (textarea, LinkedIn auto-copy, Copy Text) + Card modal (preview + download). Assessment result page: same pattern. LinkedIn opens compose with auto-copied text |
+| **OG Social Previews** | ✅ Complete | Per-domain OG banners: `/api/og` (learn), `/api/og/modeling` (app), `/api/og/main` (main site). CMS-driven hero text, logo from header_settings (sharp SVG→PNG). Assessment layout.tsx with dynamic OG tags per session |
 | **BVM / FPA / other platforms** | ❌ Not Started | Config defined, no content |
 
 ---
@@ -69,10 +74,11 @@ DONE  -> show results (pass: question review + explanations; fail: retry screen 
 
 ### Key rules
 - **Never re-fetch questions during submission** — scoring is 100% client-side
-- `/api/training/submit-assessment` accepts pre-scored data only, forwards to Apps Script
+- `/api/training/submit-assessment` accepts pre-scored data, writes to both Apps Script AND Supabase `training_assessment_results` (dual-write). Also sends quiz result email + locked-out email from Next.js
+- `/api/training/progress` fetches from Apps Script, then merges Supabase results over the top (Supabase wins for any session it has data for — instant, no Apps Script delay)
 - `/api/training/questions` normalizes field names: `correctAnswer`, `answer`, `correctIndex` all mapped to `correctIndex`; `explanation` field passed through
 - Question Review shown **only on pass** (score >= 70%); fail screen shows "Keep Practicing!" + "Try Again"
-- After submission, dashboard receives optimistic update via sessionStorage + `?refresh=1` cache bust
+- After submission, dashboard receives update via sessionStorage `fmp_last_submit` + `?refresh=1` cache bust. Supabase provides instant accurate data on server side
 
 ### Shuffle settings (training_settings DB)
 | Key | Default | Purpose |

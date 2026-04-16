@@ -100,6 +100,12 @@
 | `plan_feature_access` | Admin toggles: plan_id + feature_id → is_included, override_text |
 | `newsletter_subscribers` | Email subscribers: email, name, source, is_active, subscribed_at |
 
+### Certification Watch & Assessment Results
+| Table | Purpose |
+|-------|---------|
+| `certification_watch_history` | Video watch status (in_progress/completed) for cert course sessions. Gates "Take Assessment" button on dashboard. student_email + tab_key UNIQUE |
+| `training_assessment_results` | Per-session assessment scores for Training Hub. Supabase as primary source (instant reads). email + tab_key UNIQUE. Dual-write with Apps Script |
+
 ### Email System
 | Table | Purpose |
 |-------|---------|
@@ -197,3 +203,6 @@
 | `085_nav_training_sessions_learn.sql` | Update site_pages href for training-sessions to learn subdomain absolute URL |
 | `086_session_notes.sql` | Create session_notes table (session_id FK, student_email, notes TEXT, UNIQUE constraint) |
 | `087_training_hub_settings.sql` | Seed cms_content training_hub/live_sessions_label = 'Live Sessions' |
+| `088_certification_watch_history.sql` | Create certification_watch_history table (student_email + tab_key UNIQUE, status in_progress/completed, started_at, completed_at) |
+| `089_sync_email_logo.sql` | Sync email_branding.logo_url from CMS header_settings logo_url |
+| `090_training_assessment_results.sql` | Create training_assessment_results table (email + tab_key UNIQUE, score, passed, attempts, is_final, completed_at). Supabase as primary source for instant dashboard progress |

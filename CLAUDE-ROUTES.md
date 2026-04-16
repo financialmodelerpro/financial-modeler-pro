@@ -93,13 +93,15 @@ app/training/watch/
 ### Training Hub (`learn.financialmodelerpro.com`)
 ```
 app/training/
+├── layout.tsx                   # OG metadata for learn. domain (metadataBase, og:image → /api/og)
 ├── page.tsx                     # CMS Option B (065-066), revalidate=0
 ├── CurriculumCard.tsx           # Course card component
 ├── TestimonialsCarousel.tsx     # Auto-scrolling testimonials with LinkedIn buttons
 ├── UpcomingSessionsPreview.tsx  # 3-column session preview cards
 ├── [courseId]/page.tsx
 ├── [courseId]/assessment/page.tsx
-├── assessment/[tabKey]/page.tsx
+├── assessment/[tabKey]/page.tsx   # Assessment quiz page with share section
+├── assessment/[tabKey]/layout.tsx # OG metadata with dynamic achievement image per session
 ├── certificate/page.tsx
 ├── certificates/page.tsx
 ├── confirm-email/page.tsx
@@ -118,6 +120,7 @@ app/training/
 ### Modeling Hub (`app.financialmodelerpro.com`)
 ```
 app/modeling/
+├── layout.tsx                   # OG metadata for app. domain (metadataBase, og:image → /api/og/modeling)
 ├── page.tsx                     # CMS Option B (070), revalidate=0
 ├── ComingSoon.tsx               # Coming soon page component (shared by signin/register)
 ├── [slug]/page.tsx              # CMS platform sub-pages (071-072), revalidate=0
@@ -189,7 +192,9 @@ app/api/training/
 ├── live-sessions/[id]/watched/    # POST: record watch, 50 points
 ├── live-sessions/registration-status-batch/ # POST: batch status
 ├── watch-history/                 # GET: student watch history (session_watch_history rows)
-└── youtube-comments/              # GET: cached YouTube comments (24h DB cache via youtube_comments_cache)
+├── youtube-comments/              # GET: cached YouTube comments (24h DB cache via youtube_comments_cache)
+├── certification-watch/           # GET/POST: certification video watch status (in_progress/completed)
+└── achievement-image/route.tsx    # GET: dynamic OG achievement card image (satori ImageResponse, sharp SVG→PNG logo)
 ```
 
 ### Admin
@@ -240,6 +245,9 @@ app/api/
 ├── public/training-sessions/      # GET: public list (no auth, no live_url/password)
 ├── public/training-sessions/[id]/ # GET: public detail (no auth, no live_url/password)
 ├── training/session-notes/        # GET+POST: per-student notes per session (upsert)
+├── og/route.tsx                   # GET: Training Hub OG banner (1200x630, CMS hero, logo)
+├── og/modeling/route.tsx          # GET: Modeling Hub OG banner (1200x630, CMS hero, logo)
+├── og/main/route.tsx              # GET: Main site OG banner (1200x630, CMS hero, logo)
 └── user/account/ + password/ + profile/
 ```
 

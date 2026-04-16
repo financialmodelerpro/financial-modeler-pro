@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-15** (docs updated session end)
+**Last updated: 2026-04-16** (docs updated session end — assessment routes, watch tracking, email migration, achievement cards, OG previews, share system, migrations 088-090)
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md) — Database tables, storage buckets, migrations log
@@ -318,3 +318,31 @@ All three marketing pages use **Option B**: each section fetched from `page_sect
 
 ### `/api/branding`
 - GET is public (no auth) — PATCH requires admin
+
+### Certification Watch Tracking
+- **Table**: `certification_watch_history` (migration 088)
+- **API**: `GET/POST /api/training/certification-watch`
+- **Watch page**: writes `in_progress` on video play, `completed` on Mark Complete
+- **Dashboard**: fetches watch history, passes `completedWatchKeys`/`inProgressWatchKeys` to SessionCard
+- **SessionCard**: "Take Assessment →" only when `isWatched=true`; StatusBadge shows "In Progress" amber badge
+
+### Training Assessment Results (Supabase Primary)
+- **Table**: `training_assessment_results` (migration 090) — `email + tab_key` UNIQUE
+- **Dual-write**: `submit-assessment` route writes to both Apps Script AND Supabase
+- **Progress merge**: `progress` route fetches Apps Script, then overlays Supabase data (Supabase wins)
+- **Tab key mapping**: `3SFM_S1` → sessionId `S1`; `3SFM_Final` → `S18`; `BVM_Final` → `L7`
+- **Emails**: submit-assessment sends quizResultTemplate + lockedOutTemplate directly from Next.js
+
+### Achievement Card & OG Previews
+- **Achievement image**: `GET /api/training/achievement-image` — satori ImageResponse, runtime=nodejs, sharp SVG→PNG
+- **Logo**: fetches from `cms_content.header_settings.logo_url` with branding/platform fallback, converts SVG→PNG via sharp
+- **Admin control**: `achievement_card_logo_height` setting in Admin → Header Settings
+- **OG banners**: `/api/og` (learn), `/api/og/modeling` (app), `/api/og/main` (main) — CMS hero text fetched live
+- **Per-domain layouts**: `training/layout.tsx`, `modeling/layout.tsx` with domain-specific metadata + `metadataBase`
+- **Assessment OG**: `assessment/[tabKey]/layout.tsx` generates metadata with session name + course from `COURSES` config
+
+### Share System
+- **SessionCard**: "Share" button → modal with textarea (pre-written text), LinkedIn (auto-copies text + opens compose), Copy Text
+- **SessionCard**: "Card" button → modal with achievement image preview + download PNG
+- **Assessment result page**: same share pattern (textarea + LinkedIn + Copy Text + card preview + download)
+- **Dashboard share banner**: "Enjoying your progress?" → modal with same textarea/LinkedIn/Copy pattern
