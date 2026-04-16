@@ -58,8 +58,6 @@ export function SessionCard({
   const [attachLoaded, setAttachLoaded] = useState(false);
   const [previewFile, setPreviewFile] = useState<{ file_name: string; file_url: string; file_type: string; file_size: number } | null>(null);
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [shareCopied, setShareCopied] = useState(false);
   const [showCardModal, setShowCardModal] = useState(false);
 
   // Sync incoming noteContent (loaded async)
@@ -203,10 +201,6 @@ export function SessionCard({
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#F0FFF4', color: '#15803D', border: '1px solid #BBF7D0', whiteSpace: 'nowrap' }}>
               ✓ {isFinal ? 'Exam Passed' : 'Assessment Done'}
             </span>
-            <button onClick={() => setShowShareModal(true)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: 'transparent', color: '#6B7280', border: '1px solid #E5E7EB', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              🎉 Share
-            </button>
             <button onClick={() => setShowCardModal(true)}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: 'transparent', color: '#6B7280', border: '1px solid #E5E7EB', cursor: 'pointer', whiteSpace: 'nowrap' }}>
               🏆 Card
@@ -253,72 +247,6 @@ export function SessionCard({
           onClose={() => setPreviewFile(null)}
         />
       )}
-
-      {/* Share achievement modal */}
-      {showShareModal && prog?.passed && (() => {
-        const passDate = prog.completedAt
-          ? new Date(prog.completedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-          : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-        const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName || '')}&regId=${encodeURIComponent(regId)}`;
-        const LEARN = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
-        const shareMsg = `🏆 Passed ${sessionTitle} with ${prog.score}% at Financial Modeler Pro!\n\nFree certification: https://learn.financialmodelerpro.com\n\n#FinancialModeling #FinancialModelerPro`;
-        const urls = {
-          linkedin: `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(shareMsg)}`,
-          whatsapp: `https://wa.me/?text=${encodeURIComponent(shareMsg)}`,
-          facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(LEARN)}&quote=${encodeURIComponent(shareMsg)}`,
-          twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMsg)}`,
-        };
-        return (
-          <div onClick={() => setShowShareModal(false)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-            <div onClick={e => e.stopPropagation()}
-              style={{ background: '#fff', borderRadius: 12, padding: 28, width: 420, maxWidth: 'calc(100vw - 32px)', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <div style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A' }}>Share Your Achievement</div>
-                <button onClick={() => setShowShareModal(false)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#6B7280', cursor: 'pointer', lineHeight: 1 }}>&#10005;</button>
-              </div>
-              <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 16, lineHeight: 1.5 }}>
-                Share that you passed <strong>{sessionTitle}</strong> with <strong>{prog.score}%</strong>!
-              </p>
-              {/* Step 1 — download card */}
-              <a href={cardImgUrl} download="FMP-Achievement.png"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 16px', background: '#1F3864', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', marginBottom: 8 }}>
-                Step 1: Download Achievement Card
-              </a>
-              <div style={{ fontSize: 12, color: '#6B7280', textAlign: 'center', marginBottom: 16 }}>
-                After downloading, attach the image when posting
-              </div>
-              {/* Step 2 — platform buttons */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <button onClick={() => window.open(urls.linkedin, '_blank')}
-                  style={{ padding: '12px 16px', background: '#0077b5', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', textAlign: 'center' }}>
-                  💼 Share on LinkedIn
-                </button>
-                <button onClick={() => window.open(urls.whatsapp, '_blank')}
-                  style={{ padding: '12px 16px', background: '#25D366', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', textAlign: 'center' }}>
-                  💬 Share on WhatsApp
-                </button>
-                <button onClick={() => window.open(urls.facebook, '_blank')}
-                  style={{ padding: '12px 16px', background: '#1877F2', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', textAlign: 'center' }}>
-                  📘 Share on Facebook
-                </button>
-                <button onClick={() => window.open(urls.twitter, '_blank')}
-                  style={{ padding: '12px 16px', background: '#000', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', textAlign: 'center' }}>
-                  𝕏 Share on Twitter/X
-                </button>
-                <button onClick={() => { navigator.clipboard.writeText(LEARN).then(() => { setShareCopied(true); setTimeout(() => setShareCopied(false), 2500); }).catch(() => {}); }}
-                  style={{ padding: '12px 16px', background: shareCopied ? '#F0FDF4' : '#F9FAFB', color: shareCopied ? '#16A34A' : '#374151', border: `1px solid ${shareCopied ? '#86EFAC' : '#E5E7EB'}`, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
-                  {shareCopied ? '✓ Copied!' : '🔗 Copy Link'}
-                </button>
-                <button onClick={() => setShowShareModal(false)}
-                  style={{ padding: '8px', background: 'none', border: 'none', color: '#9CA3AF', fontSize: 13, cursor: 'pointer' }}>
-                  Skip for now
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
 
       {/* Achievement card preview modal */}
       {showCardModal && prog?.passed && (() => {
