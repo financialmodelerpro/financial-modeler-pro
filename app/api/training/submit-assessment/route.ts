@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { submitAssessmentToAppsScript } from '@/src/lib/training/sheets';
+import { getServerClient } from '@/src/lib/shared/supabase';
 import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
 import { quizResultTemplate } from '@/src/lib/email/templates/quizResult';
 import { lockedOutTemplate } from '@/src/lib/email/templates/lockedOut';
@@ -74,6 +75,25 @@ export async function POST(req: NextRequest) {
     }
 
     console.log('[submit-assessment] Recorded successfully:', { tabKey, email, score, passed, attemptNo });
+
+    // Write to Supabase (primary source for dashboard — instant reads)
+    try {
+      const sb = getServerClient();
+      await sb.from('training_assessment_results').upsert({
+        email: email.trim().toLowerCase(),
+        reg_id: regId,
+        tab_key: tabKey,
+        course_id: tabKey.toUpperCase().startsWith('BVM') ? 'bvm' : '3sfm',
+        score: numScore,
+        passed: didPass,
+        attempts: attempt,
+        is_final: isFinal ?? false,
+        completed_at: new Date().toISOString(),
+      }, { onConflict: 'email,tab_key' });
+    } catch (sbErr) {
+      console.error('[submit-assessment] Supabase write failed:', sbErr);
+      // Non-fatal — Apps Script is the backup
+    }
 
     // Send quiz result email (fire-and-forget — don't block the response)
     const label = sessionName || tabKey;
