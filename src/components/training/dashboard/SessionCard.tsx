@@ -61,7 +61,6 @@ export function SessionCard({
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
   const [showCardModal, setShowCardModal] = useState(false);
-  const [shareInstruction, setShareInstruction] = useState(false);
 
   // Sync incoming noteContent (loaded async)
   useEffect(() => { setNoteText(noteContent); }, [noteContent]);
@@ -255,81 +254,63 @@ export function SessionCard({
         />
       )}
 
-      {/* Share achievement modal — two-step: download image then open platform */}
+      {/* Share achievement modal */}
       {showShareModal && prog?.passed && (() => {
         const passDate = prog.completedAt
           ? new Date(prog.completedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
           : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
         const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName || '')}&regId=${encodeURIComponent(regId)}`;
         const LEARN = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
-        const shareMsg = `I just passed ${sessionTitle} with ${prog.score}% in ${courseName || 'Financial Modeling'} at Financial Modeler Pro!\n\nFree professional financial modeling certification: ${LEARN}\n\n#FinancialModeling #Finance #FinancialModelerPro`;
-
-        const handlePlatformShare = async (platform: string) => {
-          // Step 1 — auto download image
-          const link = document.createElement('a');
-          link.href = cardImgUrl;
-          link.download = 'FMP-Achievement.png';
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          // Step 2 — open platform after brief delay
-          await new Promise(r => setTimeout(r, 800));
-          const urls: Record<string, string | null> = {
-            linkedin: 'https://www.linkedin.com/feed/?shareActive=true',
-            whatsapp: `https://wa.me/?text=${encodeURIComponent(shareMsg)}`,
-            facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(LEARN)}`,
-            twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMsg)}`,
-            instagram: null,
-          };
-          const url = urls[platform];
-          if (url) window.open(url, '_blank');
-          setShareInstruction(true);
+        const shareMsg = `I just passed "${sessionTitle}" with ${prog.score}% in the ${courseName || 'Financial Modeling'} program at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — Free certification program:\n${LEARN}\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
+        const urls = {
+          linkedin: `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(shareMsg)}`,
+          whatsapp: `https://wa.me/?text=${encodeURIComponent(shareMsg)}`,
+          facebook: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(LEARN)}&quote=${encodeURIComponent(shareMsg)}`,
+          twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareMsg)}`,
         };
-
         return (
-          <div onClick={() => { setShowShareModal(false); setShareInstruction(false); }}
+          <div onClick={() => setShowShareModal(false)}
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
             <div onClick={e => e.stopPropagation()}
               style={{ background: '#fff', borderRadius: 12, padding: 28, width: 420, maxWidth: 'calc(100vw - 32px)', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                 <div style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A' }}>Share Your Achievement</div>
-                <button onClick={() => { setShowShareModal(false); setShareInstruction(false); }} style={{ background: 'none', border: 'none', fontSize: 18, color: '#6B7280', cursor: 'pointer', lineHeight: 1 }}>&#10005;</button>
+                <button onClick={() => setShowShareModal(false)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#6B7280', cursor: 'pointer', lineHeight: 1 }}>&#10005;</button>
               </div>
               <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 16, lineHeight: 1.5 }}>
                 Share that you passed <strong>{sessionTitle}</strong> with <strong>{prog.score}%</strong>!
               </p>
-              {shareInstruction && (
-                <div style={{ display: 'flex', gap: 10, padding: '12px 14px', background: '#F0FDF4', border: '1px solid #BBF7D0', borderRadius: 8, marginBottom: 14, alignItems: 'flex-start' }}>
-                  <span style={{ fontSize: 18, flexShrink: 0 }}>💡</span>
-                  <span style={{ fontSize: 12, color: '#15803D', lineHeight: 1.5 }}>Your achievement card has been downloaded. Now <strong>attach the image</strong> to your post for best results!</span>
-                </div>
-              )}
+              {/* Step 1 — download card */}
+              <a href={cardImgUrl} download="FMP-Achievement.png"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 16px', background: '#1F3864', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', marginBottom: 8 }}>
+                Step 1: Download Achievement Card
+              </a>
+              <div style={{ fontSize: 12, color: '#6B7280', textAlign: 'center', marginBottom: 16 }}>
+                After downloading, attach the image when posting
+              </div>
+              {/* Step 2 — platform buttons */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <button onClick={() => handlePlatformShare('linkedin')}
+                <button onClick={() => window.open(urls.linkedin, '_blank')}
                   style={{ padding: '12px 16px', background: '#0077b5', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', textAlign: 'center' }}>
-                  💼 Share on LinkedIn <span style={{ fontSize: 11, opacity: 0.7 }}>(image downloads first)</span>
+                  💼 Share on LinkedIn
                 </button>
-                <button onClick={() => handlePlatformShare('whatsapp')}
+                <button onClick={() => window.open(urls.whatsapp, '_blank')}
                   style={{ padding: '12px 16px', background: '#25D366', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', textAlign: 'center' }}>
                   💬 Share on WhatsApp
                 </button>
-                <button onClick={() => handlePlatformShare('facebook')}
+                <button onClick={() => window.open(urls.facebook, '_blank')}
                   style={{ padding: '12px 16px', background: '#1877F2', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', textAlign: 'center' }}>
                   📘 Share on Facebook
                 </button>
-                <button onClick={() => handlePlatformShare('twitter')}
+                <button onClick={() => window.open(urls.twitter, '_blank')}
                   style={{ padding: '12px 16px', background: '#000', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', textAlign: 'center' }}>
                   𝕏 Share on Twitter/X
-                </button>
-                <button onClick={() => handlePlatformShare('instagram')}
-                  style={{ padding: '12px 16px', background: 'linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', textAlign: 'center' }}>
-                  📸 Share on Instagram <span style={{ fontSize: 11, opacity: 0.7 }}>(save &amp; post manually)</span>
                 </button>
                 <button onClick={() => { navigator.clipboard.writeText(LEARN).then(() => { setShareCopied(true); setTimeout(() => setShareCopied(false), 2500); }).catch(() => {}); }}
                   style={{ padding: '12px 16px', background: shareCopied ? '#F0FDF4' : '#F9FAFB', color: shareCopied ? '#16A34A' : '#374151', border: `1px solid ${shareCopied ? '#86EFAC' : '#E5E7EB'}`, borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
                   {shareCopied ? '✓ Copied!' : '🔗 Copy Link'}
                 </button>
-                <button onClick={() => { setShowShareModal(false); setShareInstruction(false); }}
+                <button onClick={() => setShowShareModal(false)}
                   style={{ padding: '8px', background: 'none', border: 'none', color: '#9CA3AF', fontSize: 13, cursor: 'pointer' }}>
                   Skip for now
                 </button>

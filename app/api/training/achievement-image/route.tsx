@@ -1,6 +1,5 @@
 import { ImageResponse } from 'next/og';
 import { NextRequest } from 'next/server';
-import { getServerClient } from '@/src/lib/shared/supabase';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -10,25 +9,6 @@ export async function GET(req: NextRequest) {
   const course      = searchParams.get('course') || '3-Statement Financial Modeling';
   const studentName = searchParams.get('name') || '';
   const regId       = searchParams.get('regId') || '';
-
-  // Fetch real logo from CMS as base64 data URI (ImageResponse needs inline src)
-  let logoSrc = '';
-  try {
-    const sb = getServerClient();
-    const { data } = await sb
-      .from('cms_content')
-      .select('value')
-      .eq('section', 'header_settings')
-      .eq('key', 'logo_url')
-      .maybeSingle();
-    const logoUrl = data?.value || '';
-    if (logoUrl) {
-      const logoRes = await fetch(logoUrl);
-      const buf = await logoRes.arrayBuffer();
-      const ct = logoRes.headers.get('content-type') || 'image/png';
-      logoSrc = `data:${ct};base64,${Buffer.from(buf).toString('base64')}`;
-    }
-  } catch { /* use fallback */ }
 
   return new ImageResponse(
     (
@@ -51,19 +31,15 @@ export async function GET(req: NextRequest) {
           borderBottom: '1px solid rgba(255,255,255,0.08)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            {logoSrc ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoSrc} alt="FMP" style={{ height: 40, width: 'auto' }} />
-            ) : (
-              <div style={{
-                width: 44, height: 44, borderRadius: 10, background: '#2EAA4A',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 16, fontWeight: 900, color: '#fff',
-              }}>FMP</div>
-            )}
-            {!logoSrc && (
+            <div style={{
+              width: 44, height: 44, borderRadius: 10, background: '#2EAA4A',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 22, fontWeight: 900, color: '#fff',
+            }}>📐</div>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
               <span style={{ fontSize: 20, fontWeight: 800, color: '#ffffff', letterSpacing: '0.3px' }}>Financial Modeler Pro</span>
-            )}
+              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', letterSpacing: '1px', textTransform: 'uppercase' as const }}>Certification Program</span>
+            </div>
           </div>
           <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.5px' }}>learn.financialmodelerpro.com</span>
         </div>
