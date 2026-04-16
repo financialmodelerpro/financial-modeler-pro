@@ -69,40 +69,39 @@ export async function GET() {
   return new ImageResponse(
     (
       <div style={{
-        width: 1200, height: 627, display: 'flex', flexDirection: 'column',
+        width: 2400, height: 1254, display: 'flex', flexDirection: 'column',
         background: 'linear-gradient(135deg, #0A1F3D 0%, #0D2E5A 50%, #0F3D6E 100%)',
         fontFamily: 'Arial, Helvetica, sans-serif', position: 'relative', overflow: 'hidden',
       }}>
-        <div style={{ position: 'absolute', top: -80, right: -80, width: 360, height: 360, borderRadius: '50%', background: 'rgba(255,255,255,0.03)', display: 'flex' }} />
-        <div style={{ position: 'absolute', bottom: -60, left: -60, width: 260, height: 260, borderRadius: '50%', background: 'rgba(255,255,255,0.02)', display: 'flex' }} />
+        <div style={{ position: 'absolute', top: -160, right: -160, width: 720, height: 720, borderRadius: '50%', background: 'rgba(255,255,255,0.03)', display: 'flex' }} />
+        <div style={{ position: 'absolute', bottom: -120, left: -120, width: 520, height: 520, borderRadius: '50%', background: 'rgba(255,255,255,0.02)', display: 'flex' }} />
 
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '0 80px', position: 'relative' }}>
-          {/* Logo — image only, no text fallback */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '0 160px', position: 'relative' }}>
           {logoDataUri && (
-            <div style={{ display: 'flex', marginBottom: 40 }}>
+            <div style={{ display: 'flex', marginBottom: 80 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={logoDataUri} alt="FMP" style={{ height: 52 }} />
+              <img src={logoDataUri} alt="FMP" style={{ height: 104 }} />
             </div>
           )}
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 24px', borderRadius: 24, background: 'rgba(46,170,74,0.18)', border: '1px solid rgba(46,170,74,0.45)', marginBottom: 32 }}>
-            <span style={{ fontSize: 16, fontWeight: 700, color: '#6EE589' }}>{badge}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 48px', borderRadius: 48, background: 'rgba(46,170,74,0.18)', border: '2px solid rgba(46,170,74,0.45)', marginBottom: 64 }}>
+            <span style={{ fontSize: 32, fontWeight: 700, color: '#6EE589' }}>{badge}</span>
           </div>
 
-          <div style={{ fontSize: 56, fontWeight: 800, color: '#ffffff', lineHeight: 1.12, marginBottom: 24, maxWidth: 820, textAlign: 'center', letterSpacing: '-0.02em' }}>
+          <div style={{ fontSize: 112, fontWeight: 800, color: '#ffffff', lineHeight: 1.12, marginBottom: 48, maxWidth: 1640, textAlign: 'center', letterSpacing: '-0.02em' }}>
             {headline}
           </div>
 
-          <div style={{ fontSize: 22, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6, maxWidth: 660, textAlign: 'center' }}>
+          <div style={{ fontSize: 44, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6, maxWidth: 1320, textAlign: 'center' }}>
             {sub}
           </div>
         </div>
 
-        <div style={{ padding: '20px 48px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'center' }}>
-          <span style={{ fontSize: 16, color: 'rgba(255,255,255,0.3)' }}>learn.financialmodelerpro.com</span>
+        <div style={{ padding: '40px 96px', borderTop: '2px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'center' }}>
+          <span style={{ fontSize: 32, color: 'rgba(255,255,255,0.3)' }}>learn.financialmodelerpro.com</span>
         </div>
       </div>
     ),
-    { width: 1200, height: 627 },
+    { width: 2400, height: 1254 },
   );
 }
