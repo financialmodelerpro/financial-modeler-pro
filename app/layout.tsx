@@ -27,7 +27,7 @@ export async function generateMetadata(): Promise<Metadata> {
     if (map.icon_as_favicon === 'true' && map.icon_url) iconUrl = map.icon_url;
   } catch { /* use defaults */ }
 
-  const ogImage = `${MAIN_URL}/api/og`;
+  const ogImage = `${MAIN_URL}/api/og/main`;
 
   const base: Metadata = {
     title: OG_TITLE,
