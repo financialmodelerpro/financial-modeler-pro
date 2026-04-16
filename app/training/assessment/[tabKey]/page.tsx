@@ -132,6 +132,7 @@ export default function AssessmentPage() {
   const [status, setStatus]         = useState<AttemptStatus | null>(null);
   const [result, setResult]         = useState<SubmitAssessmentResult | null>(null);
   const [errorMsg, setErrorMsg]     = useState('');
+  const [linkCopied, setLinkCopied] = useState(false);
 
   // Taking state
   const [answers, setAnswers]       = useState<Record<number, number>>({});
@@ -907,6 +908,40 @@ export default function AssessmentPage() {
             </div>
           </div>
         </div>
+
+        {/* Share achievement — only shown when student PASSES */}
+        {passed && (() => {
+          const passDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+          const courseName = courseId === 'bvm' ? 'Business Valuation Modeling' : '3-Statement Financial Modeling';
+          const shareUrl = `${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training/assessment/${encodeURIComponent(tabKey)}?score=${result.score}&session=${encodeURIComponent(sessionName)}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}`;
+          const shareText = `🏆 I just passed ${sessionName} with ${result.score}% on Financial Modeler Pro!\n\n${shareUrl}`;
+          return (
+            <div style={{ maxWidth: 780, margin: '0 auto 32px', padding: '0 24px' }}>
+              <div style={{ background: WHITE, borderRadius: 12, border: '1px solid #E5E7EB', padding: '24px 28px', textAlign: 'center' }}>
+                <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 6 }}>📅 Passed on {passDate}</div>
+                <div style={{ fontSize: 16, fontWeight: 700, color: NAVY, marginBottom: 16 }}>🎉 Share your achievement!</div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+                  <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`} target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: '#0077b5', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none' }}>
+                    💼 LinkedIn
+                  </a>
+                  <a href={`https://wa.me/?text=${encodeURIComponent(shareText)}`} target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: '#25D366', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none' }}>
+                    💬 WhatsApp
+                  </a>
+                  <a href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`} target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: '#1877F2', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none' }}>
+                    📘 Facebook
+                  </a>
+                  <button onClick={() => { navigator.clipboard.writeText(shareUrl).then(() => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2500); }).catch(() => {}); }}
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: linkCopied ? '#2EAA4A' : '#F3F4F6', color: linkCopied ? '#fff' : '#374151', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                    {linkCopied ? '✓ Copied!' : '🔗 Copy Link'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Per-question review — only shown when student PASSES */}
         {passed && Array.isArray(result.results) && result.results.length > 0 && (

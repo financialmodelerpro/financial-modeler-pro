@@ -318,6 +318,8 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
               courseId={courseId}
               isWatched={completedWatchKeys?.has(tk)}
               isInProgress={inProgressWatchKeys?.has(tk)}
+              onShareSuccess={(label) => onShare(label)}
+              courseName={course.title}
             />
           );
         })}

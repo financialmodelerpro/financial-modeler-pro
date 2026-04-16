@@ -40,13 +40,17 @@ export interface SessionCardProps {
   isWatched?: boolean;
   /** Video is in progress (from certification_watch_history) */
   isInProgress?: boolean;
+  /** Called when student clicks Share on a passed session */
+  onShareSuccess?: (label: string) => void;
+  /** Course name for share context */
+  courseName?: string;
 }
 
 export function SessionCard({
   sessionTitle, sessionId, maxAttempts, questionCount, passingScore,
   idx, prog, locked, ytUrl, isFinal, passedCount, regularCount,
   tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
-  bvmLocked, watchLocked, timerBypassed, courseId, isWatched, isInProgress,
+  bvmLocked, watchLocked, timerBypassed, courseId, isWatched, isInProgress, onShareSuccess, courseName,
 }: SessionCardProps) {
   const [notesOpen, setNotesOpen] = useState(false);
   const [noteText, setNoteText] = useState(noteContent);
@@ -192,9 +196,17 @@ export function SessionCard({
             🔒 {isFinal ? 'Final Exam Locked' : 'Locked'}
           </span>
         ) : prog?.passed ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#F0FFF4', color: '#15803D', border: '1px solid #BBF7D0', whiteSpace: 'nowrap' }}>
-            ✓ {isFinal ? 'Exam Passed' : 'Assessment Done'}
-          </span>
+          <>
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#F0FFF4', color: '#15803D', border: '1px solid #BBF7D0', whiteSpace: 'nowrap' }}>
+              ✓ {isFinal ? 'Exam Passed' : 'Assessment Done'}
+            </span>
+            {onShareSuccess && (
+              <button onClick={() => onShareSuccess(`passed ${sessionTitle} with ${prog.score}%${courseName ? ` in ${courseName}` : ''}`)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: 'transparent', color: '#6B7280', border: '1px solid #E5E7EB', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                🎉 Share
+              </button>
+            )}
+          </>
         ) : attemptsUsed >= maxAttempts ? (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#FEF2F2', color: '#DC2626', whiteSpace: 'nowrap' }}>
             No Attempts Left
