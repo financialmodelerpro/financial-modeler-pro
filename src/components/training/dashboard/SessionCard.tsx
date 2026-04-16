@@ -261,7 +261,7 @@ export function SessionCard({
           : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
         const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName || '')}&regId=${encodeURIComponent(regId)}`;
         const LEARN = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
-        const shareMsg = `🏆 Passed "${sessionTitle}" — ${prog.score}% score!\n\n${courseName || 'Financial Modeling'} at Financial Modeler Pro\n\nFree certification: ${LEARN}\n\n#FinancialModeling #Finance`;
+        const shareMsg = `🏆 Passed ${sessionTitle} with ${prog.score}% at Financial Modeler Pro!\n\nFree certification: https://learn.financialmodelerpro.com\n\n#FinancialModeling #FinancialModelerPro`;
         const urls = {
           linkedin: `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(shareMsg)}`,
           whatsapp: `https://wa.me/?text=${encodeURIComponent(shareMsg)}`,

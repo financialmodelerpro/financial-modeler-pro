@@ -935,7 +935,7 @@ export default function AssessmentPage() {
           const regIdVal = sess?.registrationId || '';
           const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionName)}&score=${result.score}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}&regId=${encodeURIComponent(regIdVal)}`;
           const LEARN = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
-          const shareMsg = `🏆 Passed "${sessionName}" — ${result.score}% score!\n\n${courseName} at Financial Modeler Pro\n\nFree certification: ${LEARN}\n\n#FinancialModeling #Finance`;
+          const shareMsg = `🏆 Passed ${sessionName} with ${result.score}% at Financial Modeler Pro!\n\nFree certification: https://learn.financialmodelerpro.com\n\n#FinancialModeling #FinancialModelerPro`;
           const urls = {
             linkedin: `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(shareMsg)}`,
             whatsapp: `https://wa.me/?text=${encodeURIComponent(shareMsg)}`,
