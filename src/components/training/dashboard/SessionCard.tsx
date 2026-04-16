@@ -40,8 +40,6 @@ export interface SessionCardProps {
   isWatched?: boolean;
   /** Video is in progress (from certification_watch_history) */
   isInProgress?: boolean;
-  /** Called when student clicks Share on a passed session */
-  onShareSuccess?: (label: string) => void;
   /** Course name for share context */
   courseName?: string;
 }
@@ -50,7 +48,7 @@ export function SessionCard({
   sessionTitle, sessionId, maxAttempts, questionCount, passingScore,
   idx, prog, locked, ytUrl, isFinal, passedCount, regularCount,
   tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
-  bvmLocked, watchLocked, timerBypassed, courseId, isWatched, isInProgress, onShareSuccess, courseName,
+  bvmLocked, watchLocked, timerBypassed, courseId, isWatched, isInProgress, courseName,
 }: SessionCardProps) {
   const [notesOpen, setNotesOpen] = useState(false);
   const [noteText, setNoteText] = useState(noteContent);
@@ -58,6 +56,8 @@ export function SessionCard({
   const [attachLoaded, setAttachLoaded] = useState(false);
   const [previewFile, setPreviewFile] = useState<{ file_name: string; file_url: string; file_type: string; file_size: number } | null>(null);
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
 
   // Sync incoming noteContent (loaded async)
   useEffect(() => { setNoteText(noteContent); }, [noteContent]);
@@ -200,12 +200,10 @@ export function SessionCard({
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#F0FFF4', color: '#15803D', border: '1px solid #BBF7D0', whiteSpace: 'nowrap' }}>
               ✓ {isFinal ? 'Exam Passed' : 'Assessment Done'}
             </span>
-            {onShareSuccess && (
-              <button onClick={() => onShareSuccess(`passed ${sessionTitle} with ${prog.score}%${courseName ? ` in ${courseName}` : ''}`)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: 'transparent', color: '#6B7280', border: '1px solid #E5E7EB', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                🎉 Share
-              </button>
-            )}
+            <button onClick={() => setShowShareModal(true)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: 'transparent', color: '#6B7280', border: '1px solid #E5E7EB', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              🎉 Share
+            </button>
           </>
         ) : attemptsUsed >= maxAttempts ? (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#FEF2F2', color: '#DC2626', whiteSpace: 'nowrap' }}>
@@ -248,6 +246,53 @@ export function SessionCard({
           onClose={() => setPreviewFile(null)}
         />
       )}
+
+      {/* Share achievement modal */}
+      {showShareModal && prog?.passed && (() => {
+        const LEARN = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+        const passDate = prog.completedAt
+          ? new Date(prog.completedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+          : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+        const achievementUrl = `${LEARN}/training/assessment/${encodeURIComponent(tabKey)}?score=${prog.score}&session=${encodeURIComponent(sessionTitle)}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}`;
+        const shareText = `I just passed ${sessionTitle} with ${prog.score}% on Financial Modeler Pro!\n\n${achievementUrl}`;
+        return (
+          <div onClick={() => setShowShareModal(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: '#fff', borderRadius: 12, padding: 28, width: 400, maxWidth: 'calc(100vw - 32px)', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A' }}>Share Your Achievement</div>
+                <button onClick={() => setShowShareModal(false)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#6B7280', cursor: 'pointer', lineHeight: 1 }}>&#10005;</button>
+              </div>
+              <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 20, lineHeight: 1.5 }}>
+                Share that you passed <strong>{sessionTitle}</strong> with <strong>{prog.score}%</strong>!
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(achievementUrl)}`} target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'block', padding: '10px 16px', background: '#0077b5', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}>
+                  💼 Share on LinkedIn
+                </a>
+                <a href={`https://wa.me/?text=${encodeURIComponent(shareText)}`} target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'block', padding: '10px 16px', background: '#25D366', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}>
+                  💬 Share on WhatsApp
+                </a>
+                <a href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(achievementUrl)}`} target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'block', padding: '10px 16px', background: '#1877F2', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}>
+                  📘 Share on Facebook
+                </a>
+                <button onClick={() => { navigator.clipboard.writeText(achievementUrl).then(() => { setShareCopied(true); setTimeout(() => setShareCopied(false), 2500); }).catch(() => {}); }}
+                  style={{ padding: '10px 16px', background: shareCopied ? '#2EAA4A' : '#F3F4F6', color: shareCopied ? '#fff' : '#374151', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                  {shareCopied ? '✓ Copied!' : '🔗 Copy Link'}
+                </button>
+                <button onClick={() => setShowShareModal(false)}
+                  style={{ padding: '8px', background: 'none', border: 'none', color: '#9CA3AF', fontSize: 13, cursor: 'pointer' }}>
+                  Skip for now
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Notes toggle */}
       {!locked && !isFinal && (
