@@ -13,36 +13,67 @@ export async function GET(req: NextRequest) {
   const studentName = searchParams.get('name') || '';
   const regId       = searchParams.get('regId') || '';
 
-  // Fetch logo from same source as header (cms_content.header_settings.logo_url)
-  // Satori only supports raster images (PNG/JPEG/WebP) — SVG will use text fallback
+  // Fetch header settings — same source and rules as NavbarServer + Navbar
   let logoDataUri = '';
+  let logoEnabled = true;
+  let showBrandName = true;
+  let brandName = 'Financial Modeler Pro';
+  let iconDataUri = '';
+  let iconInHeader = false;
+
   try {
     const sb = getServerClient();
-    const { data, error: sbErr } = await sb
+    const { data: rows } = await sb
       .from('cms_content')
-      .select('value')
-      .eq('section', 'header_settings')
-      .eq('key', 'logo_url')
-      .maybeSingle();
-    const logoUrl = data?.value || '';
-    console.log('[achievement-image] CMS logo_url:', logoUrl || '(empty)', sbErr ? `error: ${sbErr.message}` : '');
-    if (logoUrl) {
+      .select('section, key, value')
+      .in('section', ['header_settings', 'branding', 'platform'])
+      .in('key', ['logo_url', 'logo_enabled', 'logo_height_px', 'show_brand_name', 'brand_name', 'icon_url', 'icon_in_header', 'icon_size_px']);
+    const map: Record<string, string> = {};
+    for (const r of (rows ?? []) as { section: string; key: string; value: string }[]) {
+      // header_settings takes priority over branding/platform
+      const k = `${r.section}__${r.key}`;
+      map[k] = r.value;
+    }
+    const hs = (k: string) => map[`header_settings__${k}`] || '';
+    // Same fallback chain as NavbarServer line 34
+    const logoUrl = hs('logo_url') || map['branding__logo_url'] || map['platform__logo_url'] || '';
+    logoEnabled = hs('logo_enabled') !== 'false';
+    showBrandName = hs('show_brand_name') !== 'false';
+    brandName = hs('brand_name') || 'Financial Modeler Pro';
+    iconInHeader = hs('icon_in_header') === 'true';
+    const iconUrl = hs('icon_url') || '';
+
+    console.log('[achievement-image] logoUrl:', logoUrl || '(empty)', 'logoEnabled:', logoEnabled, 'iconUrl:', iconUrl || '(empty)', 'iconInHeader:', iconInHeader);
+
+    // Convert logo to base64 data URI (satori needs inline src, no SVG support)
+    if (logoEnabled && logoUrl) {
       const res = await fetch(logoUrl, { cache: 'no-store' });
-      const contentType = res.headers.get('content-type') || '';
-      const isSvg = contentType.includes('svg') || contentType.includes('xml') || logoUrl.toLowerCase().endsWith('.svg');
-      console.log('[achievement-image] Fetch status:', res.status, 'content-type:', contentType, 'isSvg:', isSvg);
+      const ct = res.headers.get('content-type') || '';
+      const isSvg = ct.includes('svg') || ct.includes('xml') || logoUrl.toLowerCase().endsWith('.svg');
       if (res.ok && !isSvg) {
         const buf = await res.arrayBuffer();
-        console.log('[achievement-image] Image buffer size:', buf.byteLength, 'bytes');
         if (buf.byteLength > 100) {
-          // Ensure we use a valid image MIME — some storage returns octet-stream
-          const mime = contentType.startsWith('image/') ? contentType.split(';')[0] : 'image/png';
+          const mime = ct.startsWith('image/') ? ct.split(';')[0] : 'image/png';
           logoDataUri = `data:${mime};base64,${Buffer.from(buf).toString('base64')}`;
         }
       }
     }
+
+    // Convert icon to base64 if icon_in_header is enabled
+    if (iconInHeader && iconUrl) {
+      const res = await fetch(iconUrl, { cache: 'no-store' });
+      const ct = res.headers.get('content-type') || '';
+      const isSvg = ct.includes('svg') || ct.includes('xml') || iconUrl.toLowerCase().endsWith('.svg');
+      if (res.ok && !isSvg) {
+        const buf = await res.arrayBuffer();
+        if (buf.byteLength > 100) {
+          const mime = ct.startsWith('image/') ? ct.split(';')[0] : 'image/png';
+          iconDataUri = `data:${mime};base64,${Buffer.from(buf).toString('base64')}`;
+        }
+      }
+    }
   } catch (err) {
-    console.error('[achievement-image] Logo fetch error:', err);
+    console.error('[achievement-image] Header settings fetch error:', err);
   }
 
   return new ImageResponse(
@@ -65,21 +96,33 @@ export async function GET(req: NextRequest) {
           padding: '28px 48px', position: 'relative',
           borderBottom: '1px solid rgba(255,255,255,0.08)',
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            {/* Icon — same rule as Navbar: iconInHeader && iconUrl */}
+            {iconDataUri && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={iconDataUri} alt="" style={{ width: 28, height: 28, flexShrink: 0 }} />
+            )}
+            {/* Logo image — same rule as Navbar: logoEnabled && logoUrl */}
             {logoDataUri ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoDataUri} alt="FMP" style={{ height: 48 }} />
-            ) : (
-              <div style={{
-                width: 48, height: 48, borderRadius: 12, background: '#2EAA4A',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 18, fontWeight: 900, color: '#fff', letterSpacing: '-0.5px',
-              }}>FMP</div>
+              <img src={logoDataUri} alt={brandName} style={{ height: 48 }} />
+            ) : !logoEnabled ? null : (
+              /* No icon rendered and no logo image — show text brand like Navbar fallback */
+              !iconDataUri ? (
+                <div style={{
+                  width: 48, height: 48, borderRadius: 12, background: '#2EAA4A',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 18, fontWeight: 900, color: '#fff', letterSpacing: '-0.5px',
+                }}>FMP</div>
+              ) : null
             )}
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: 22, fontWeight: 800, color: '#ffffff', letterSpacing: '0.3px' }}>Financial Modeler Pro</span>
-              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', letterSpacing: '1.2px', textTransform: 'uppercase' as const }}>Training Hub — Certification Program</span>
-            </div>
+            {/* Brand name — same rule as Navbar: showBrandName (or no logo to show) */}
+            {(showBrandName || (!logoDataUri && !iconDataUri)) && (
+              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                <span style={{ fontSize: 22, fontWeight: 800, color: '#ffffff', letterSpacing: '0.3px' }}>{brandName}</span>
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', letterSpacing: '1.2px', textTransform: 'uppercase' as const }}>Training Hub — Certification Program</span>
+              </div>
+            )}
           </div>
           <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.5px' }}>learn.financialmodelerpro.com</span>
         </div>
