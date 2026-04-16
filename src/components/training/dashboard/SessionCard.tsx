@@ -195,8 +195,8 @@ export function SessionCard({
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#FEF2F2', color: '#DC2626', whiteSpace: 'nowrap' }}>
             No Attempts Left
           </span>
-        ) : courseId ? (
-          <Link href={`/training/watch/${courseId}/${sessionId}`}
+        ) : attemptsLeft > 0 ? (
+          <Link href={`/training/assessment/${encodeURIComponent(tabKey)}`}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: '#2563EB', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
             📝 Take Assessment →
           </Link>
