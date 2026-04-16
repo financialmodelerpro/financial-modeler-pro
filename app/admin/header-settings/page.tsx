@@ -12,7 +12,7 @@ const KEYS = [
   'show_brand_name', 'brand_name', 'show_tagline', 'tagline',
   'icon_url', 'icon_as_favicon', 'icon_in_header', 'icon_size_px',
   'header_height_px', 'header_padding_top_px', 'header_padding_bottom_px',
-  'achievement_card_logo_width',
+  'achievement_card_logo_height',
 ] as const;
 
 type Vals = Record<string, string>;
@@ -125,9 +125,9 @@ export default function HeaderSettingsPage() {
               </div>
             </div>
             <div style={{ width: 200 }}>
-              <label style={LS}>Achievement Card Logo Width (px)</label>
-              <input type="number" style={IS} value={vals.achievement_card_logo_width ?? ''} onChange={e => set('achievement_card_logo_width', e.target.value)} placeholder="120" />
-              <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 4 }}>Controls logo width (px) on the achievement share card image. Default: 120</div>
+              <label style={LS}>Achievement Card Logo Height (px)</label>
+              <input type="number" style={IS} value={vals.achievement_card_logo_height ?? ''} onChange={e => set('achievement_card_logo_height', e.target.value)} placeholder="48" />
+              <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 4 }}>Logo height on the achievement share card. Width scales automatically. Default: 48</div>
             </div>
           </div>
 
