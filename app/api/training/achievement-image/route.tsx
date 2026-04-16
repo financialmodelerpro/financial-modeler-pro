@@ -1,8 +1,7 @@
 import { ImageResponse } from 'next/og';
+import { NextRequest } from 'next/server';
 
-export const runtime = 'edge';
-
-export async function GET(req: Request) {
+export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const session = searchParams.get('session') || 'Assessment Passed';
   const score   = searchParams.get('score') || '100';
