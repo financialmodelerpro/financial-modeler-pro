@@ -978,15 +978,21 @@ export default function TrainingDashboardPage() {
           {!loading && totalPassed >= 1 && !testimonialSubmitted && !shareBannerDismissed && (
             <div style={{ background: 'linear-gradient(90deg, #FFFBF0, #FEF3C7)', border: '1px solid #FDE68A', borderRadius: 10, padding: '10px 16px', marginBottom: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, color: '#92400E', fontWeight: 600 }}>
-                Enjoying your progress? Share with your network!
+                Enjoying your progress? Share with your network! <span style={{ fontWeight: 400, fontSize: 11 }}>Text auto-copied — paste (Ctrl+V) in LinkedIn.</span>
               </span>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <button onClick={() => setTestimonialModal('social')}
-                  style={{ padding: '5px 12px', borderRadius: 6, background: '#0A66C2', color: '#fff', fontWeight: 700, fontSize: 11, border: 'none', cursor: 'pointer' }}>LinkedIn</button>
-                <button onClick={() => setTestimonialModal('social')}
-                  style={{ padding: '5px 12px', borderRadius: 6, background: '#1DA1F2', color: '#fff', fontWeight: 700, fontSize: 11, border: 'none', cursor: 'pointer' }}>Twitter</button>
-                <button onClick={() => setTestimonialModal('social')}
-                  style={{ padding: '5px 12px', borderRadius: 6, background: '#25D366', color: '#fff', fontWeight: 700, fontSize: 11, border: 'none', cursor: 'pointer' }}>WhatsApp</button>
+                <button onClick={() => {
+                  const txt = `I'm making progress on Financial Modeler Pro — free professional financial modeling certification!\n\n👉 https://learn.financialmodelerpro.com\n\n#FinancialModeling #FinancialModelerPro`;
+                  navigator.clipboard.writeText(txt).catch(() => {});
+                  window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank');
+                }}
+                  title="Auto-copies text — paste it (Ctrl+V) in LinkedIn"
+                  style={{ padding: '5px 12px', borderRadius: 6, background: '#0A66C2', color: '#fff', fontWeight: 700, fontSize: 11, border: 'none', cursor: 'pointer' }}>💼 LinkedIn</button>
+                <button onClick={() => {
+                  const txt = `I'm making progress on Financial Modeler Pro — free professional financial modeling certification!\n\n👉 https://learn.financialmodelerpro.com\n\n#FinancialModeling #FinancialModelerPro`;
+                  navigator.clipboard.writeText(txt).then(() => { setDashToast('Text copied!'); setTimeout(() => setDashToast(''), 2500); }).catch(() => {});
+                }}
+                  style={{ padding: '5px 12px', borderRadius: 6, background: '#F3F4F6', color: '#374151', fontWeight: 700, fontSize: 11, border: '1px solid #E5E7EB', cursor: 'pointer' }}>🔗 Copy Text</button>
                 <button onClick={() => { setShareBannerDismissed(true); localStorage.setItem('fmp_share_banner_dismissed', 'true'); }}
                   style={{ background: 'none', border: 'none', color: '#92400E', fontSize: 16, cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}>&times;</button>
               </div>
