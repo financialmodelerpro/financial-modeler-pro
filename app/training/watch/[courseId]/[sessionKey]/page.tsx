@@ -189,7 +189,6 @@ export default function CourseWatchPage() {
     ? `${course.shortTitle.toUpperCase()}_Final`
     : `${course.shortTitle.toUpperCase()}_${currentSession.id}`;
   const ytUrl = liveLinks[tk]?.youtubeUrl || currentSession.youtubeUrl || '';
-  const formUrl = liveLinks[tk]?.formUrl || currentSession.quizFormUrl || '';
   const videoId = extractYouTubeId(ytUrl);
 
   // Build sidebar sessions
@@ -216,8 +215,8 @@ export default function CourseWatchPage() {
   const nextSession = nextIdx < course.sessions.length ? sidebarSessions[nextIdx] : null;
   const nextHref = nextSession && nextSession.href !== '#' ? nextSession.href : undefined;
 
-  // Assessment URL
-  const assessmentUrl = formUrl ? `/training/assessment/${encodeURIComponent(tk)}` : undefined;
+  // Assessment URL — always use the internal route (Apps Script formUrl is deprecated)
+  const assessmentUrl = `/training/assessment/${encodeURIComponent(tk)}`;
 
   return (
     <TrainingShell headerOnly>

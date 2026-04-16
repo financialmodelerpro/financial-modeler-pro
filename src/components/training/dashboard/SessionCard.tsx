@@ -16,7 +16,8 @@ export interface SessionCardProps {
   prog: SessionProgress | undefined;
   locked: boolean;
   ytUrl: string;
-  formUrl: string;
+  /** @deprecated — assessment uses internal /training/assessment route now */
+  formUrl?: string;
   isFinal: boolean;
   passedCount: number;
   regularCount: number;
@@ -39,7 +40,7 @@ export interface SessionCardProps {
 
 export function SessionCard({
   sessionTitle, sessionId, maxAttempts, questionCount, passingScore,
-  idx, prog, locked, ytUrl, formUrl, isFinal, passedCount, regularCount,
+  idx, prog, locked, ytUrl, isFinal, passedCount, regularCount,
   tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
   bvmLocked, watchLocked, timerBypassed, courseId,
 }: SessionCardProps) {
@@ -194,6 +195,11 @@ export function SessionCard({
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#FEF2F2', color: '#DC2626', whiteSpace: 'nowrap' }}>
             No Attempts Left
           </span>
+        ) : courseId ? (
+          <Link href={`/training/watch/${courseId}/${sessionId}`}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: '#2563EB', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+            📝 Take Assessment →
+          </Link>
         ) : null}
       </div>
 
