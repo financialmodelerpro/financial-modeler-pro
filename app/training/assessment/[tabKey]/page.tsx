@@ -93,7 +93,7 @@ function Spinner() {
   );
 }
 
-function NavBar({ isFinal, sessionName }: { isFinal: boolean; sessionName: string }) {
+function NavBar({ isFinal, sessionName, dashUrl }: { isFinal: boolean; sessionName: string; dashUrl: string }) {
   return (
     <nav style={{
       background: NAVY, color: WHITE, padding: '0 20px',
@@ -106,7 +106,7 @@ function NavBar({ isFinal, sessionName }: { isFinal: boolean; sessionName: strin
         <span style={{ fontSize: 13, fontWeight: 800, color: WHITE, whiteSpace: 'nowrap' }}>Financial Modeler Pro</span>
       </Link>
       <span style={{ color: '#475569', flexShrink: 0 }}>|</span>
-      <Link href="/training/dashboard" style={{ color: '#94A3B8', fontSize: 13, textDecoration: 'none', flexShrink: 0 }}>
+      <Link href={dashUrl} style={{ color: '#94A3B8', fontSize: 13, textDecoration: 'none', flexShrink: 0 }}>
         ← Dashboard
       </Link>
       <span style={{ color: '#475569', flexShrink: 0 }}>›</span>
@@ -123,6 +123,8 @@ export default function AssessmentPage() {
   const params  = useParams<{ tabKey: string }>();
   const router  = useRouter();
   const tabKey  = decodeURIComponent(params.tabKey ?? '');
+  const courseId = tabKey.toUpperCase().startsWith('BVM') ? 'bvm' : '3sfm';
+  const dashUrl = `/training/dashboard?course=${courseId}`;
 
   // Page state
   const [pageState, setPageState]   = useState<PageState>('loading');
@@ -412,7 +414,7 @@ export default function AssessmentPage() {
   if (pageState === 'loading') {
     return (
       <div style={{ minHeight: '100vh', background: LIGHT_BG }}>
-        <NavBar isFinal={false} sessionName="Loading…" />
+        <NavBar isFinal={false} sessionName="Loading…" dashUrl={dashUrl} />
         <Spinner />
       </div>
     );
@@ -423,7 +425,7 @@ export default function AssessmentPage() {
   if (pageState === 'blocked-passed') {
     return (
       <div style={{ minHeight: '100vh', background: LIGHT_BG }}>
-        <NavBar isFinal={isFinal} sessionName={sessionName} />
+        <NavBar isFinal={isFinal} sessionName={sessionName} dashUrl={dashUrl} />
         <div style={{ maxWidth: 560, margin: '80px auto', padding: '0 24px', textAlign: 'center' }}>
           <div style={{ fontSize: 64, marginBottom: 16 }}>🎉</div>
           <h1 style={{ fontSize: 26, fontWeight: 800, color: NAVY, marginBottom: 12 }}>
@@ -436,7 +438,7 @@ export default function AssessmentPage() {
           <p style={{ color: '#64748B', fontSize: 14, marginBottom: 32 }}>
             No need to retake — your progress is saved.
           </p>
-          <Link href="/training/dashboard" style={{
+          <Link href={dashUrl} style={{
             display: 'inline-block', background: NAVY, color: WHITE,
             padding: '12px 28px', borderRadius: 8, fontWeight: 700,
             textDecoration: 'none', fontSize: 15,
@@ -453,7 +455,7 @@ export default function AssessmentPage() {
   if (pageState === 'blocked-no-attempts') {
     return (
       <div style={{ minHeight: '100vh', background: LIGHT_BG }}>
-        <NavBar isFinal={isFinal} sessionName={sessionName} />
+        <NavBar isFinal={isFinal} sessionName={sessionName} dashUrl={dashUrl} />
         <div style={{ maxWidth: 560, margin: '80px auto', padding: '0 24px', textAlign: 'center' }}>
           <div style={{ fontSize: 64, marginBottom: 16 }}>🚫</div>
           <h1 style={{ fontSize: 26, fontWeight: 800, color: NAVY, marginBottom: 12 }}>
@@ -470,7 +472,7 @@ export default function AssessmentPage() {
           <p style={{ color: '#64748B', fontSize: 14, marginBottom: 32 }}>
             Please contact your instructor if you need additional attempts.
           </p>
-          <Link href="/training/dashboard" style={{
+          <Link href={dashUrl} style={{
             display: 'inline-block', background: NAVY, color: WHITE,
             padding: '12px 28px', borderRadius: 8, fontWeight: 700,
             textDecoration: 'none', fontSize: 15,
@@ -489,7 +491,7 @@ export default function AssessmentPage() {
     if (errorMsg && !questions) {
       return (
         <div style={{ minHeight: '100vh', background: LIGHT_BG }}>
-          <NavBar isFinal={false} sessionName={sessionName} />
+          <NavBar isFinal={false} sessionName={sessionName} dashUrl={dashUrl} />
           <div style={{ maxWidth: 520, margin: '80px auto', padding: '0 24px', textAlign: 'center' }}>
             <div style={{ fontSize: 48, marginBottom: 16 }}>⚠️</div>
             <h2 style={{ fontSize: 20, fontWeight: 800, color: NAVY, marginBottom: 12 }}>
@@ -509,7 +511,7 @@ export default function AssessmentPage() {
               Try Again
             </button>
             <br />
-            <Link href="/training/dashboard" style={{
+            <Link href={dashUrl} style={{
               fontSize: 14, color: '#64748B', textDecoration: 'underline',
             }}>
               ← Back to Dashboard
@@ -524,7 +526,7 @@ export default function AssessmentPage() {
     const isOnlyAttempt  = maxAttempts === 1;
     return (
       <div style={{ minHeight: '100vh', background: LIGHT_BG }}>
-        <NavBar isFinal={isFinal} sessionName={sessionName} />
+        <NavBar isFinal={isFinal} sessionName={sessionName} dashUrl={dashUrl} />
         <div style={{ maxWidth: 820, margin: '60px auto', padding: '0 24px' }}>
 
           {/* Error banner (non-fatal — questions loaded but submission failed) */}
@@ -626,7 +628,7 @@ export default function AssessmentPage() {
         onCut={e => e.preventDefault()}
         onContextMenu={e => e.preventDefault()}
       >
-        <NavBar isFinal={isFinal} sessionName={sessionName} />
+        <NavBar isFinal={isFinal} sessionName={sessionName} dashUrl={dashUrl} />
 
         {/* Progress + timer bar — sticky below navbar */}
         <div style={{
@@ -774,7 +776,7 @@ export default function AssessmentPage() {
   if (pageState === 'submitting') {
     return (
       <div style={{ minHeight: '100vh', background: LIGHT_BG }}>
-        <NavBar isFinal={isFinal} sessionName={sessionName} />
+        <NavBar isFinal={isFinal} sessionName={sessionName} dashUrl={dashUrl} />
         <div style={{ textAlign: 'center', paddingTop: 120 }}>
           <Spinner />
           <p style={{ color: '#64748B', marginTop: 16, fontSize: 15 }}>Submitting your answers…</p>
@@ -796,7 +798,7 @@ export default function AssessmentPage() {
         onCut={e => e.preventDefault()}
         onContextMenu={e => e.preventDefault()}
       >
-        <NavBar isFinal={isFinal} sessionName={sessionName} />
+        <NavBar isFinal={isFinal} sessionName={sessionName} dashUrl={dashUrl} />
 
         <div style={{ maxWidth: 780, margin: '60px auto 32px', padding: '0 24px', textAlign: 'center' }}>
           {/* Emoji */}
@@ -893,7 +895,7 @@ export default function AssessmentPage() {
                     attempts: result.attempts,
                   }));
                 } catch { /* ignore */ }
-                router.push('/training/dashboard?refresh=1');
+                router.push(`/training/dashboard?course=${courseId}&refresh=1`);
               }} style={{
                 display: 'block', width: '100%', background: NAVY, color: WHITE,
                 padding: '14px', borderRadius: 8, fontWeight: 700,
