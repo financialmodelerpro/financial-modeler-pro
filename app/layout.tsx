@@ -14,7 +14,6 @@ const OG_DESC   = 'Build institutional-grade financial models. Free professional
 
 export async function generateMetadata(): Promise<Metadata> {
   let iconUrl = '';
-  let logoUrl = '';
 
   try {
     const sb = getServerClient();
@@ -22,14 +21,13 @@ export async function generateMetadata(): Promise<Metadata> {
       .from('cms_content')
       .select('key, value')
       .eq('section', 'header_settings')
-      .in('key', ['icon_url', 'icon_as_favicon', 'logo_url']);
+      .in('key', ['icon_url', 'icon_as_favicon']);
     const map: Record<string, string> = {};
     for (const row of (data ?? []) as { key: string; value: string }[]) map[row.key] = row.value;
     if (map.icon_as_favicon === 'true' && map.icon_url) iconUrl = map.icon_url;
-    logoUrl = map.logo_url || '';
   } catch { /* use defaults */ }
 
-  const ogImage = logoUrl || `${MAIN_URL}/api/training/achievement-image?session=Financial+Modeler+Pro&score=100&course=Professional+Certification`;
+  const ogImage = `${MAIN_URL}/api/og`;
 
   const base: Metadata = {
     title: OG_TITLE,
@@ -40,7 +38,7 @@ export async function generateMetadata(): Promise<Metadata> {
       description: OG_DESC,
       siteName: 'Financial Modeler Pro',
       url: MAIN_URL,
-      images: [{ url: ogImage, width: 1200, height: 630, alt: 'Financial Modeler Pro' }],
+      images: [{ url: ogImage, width: 1200, height: 627, alt: 'Financial Modeler Pro — Free Financial Modeling Certification' }],
     },
     twitter: {
       card: 'summary_large_image',
