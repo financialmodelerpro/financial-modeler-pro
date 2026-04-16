@@ -125,7 +125,7 @@ export function SessionCard({
           </div>
         </div>
         <div style={{ flexShrink: 0 }}>
-          <StatusBadge locked={locked} prog={prog} />
+          <StatusBadge locked={locked} prog={prog} isWatched={isWatched} isInProgress={isInProgress} />
         </div>
       </div>
 
@@ -204,10 +204,6 @@ export function SessionCard({
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: '#2563EB', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
             📝 Take Assessment →
           </Link>
-        ) : isInProgress ? (
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#FFFBEB', color: '#D97706', border: '1px solid #FDE68A', whiteSpace: 'nowrap' }}>
-            ▶ In Progress
-          </span>
         ) : null}
       </div>
 
