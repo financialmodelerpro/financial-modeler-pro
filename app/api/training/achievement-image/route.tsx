@@ -25,14 +25,19 @@ export async function GET(req: NextRequest) {
       .maybeSingle();
     const logoUrl = data?.value || '';
     if (logoUrl) {
-      const res = await fetch(logoUrl);
-      const buf = await res.arrayBuffer();
-      const mime = logoUrl.endsWith('.png') ? 'image/png'
-        : logoUrl.endsWith('.svg') ? 'image/svg+xml'
-        : res.headers.get('content-type') || 'image/png';
-      logoBase64 = `data:${mime};base64,${Buffer.from(buf).toString('base64')}`;
+      // Satori cannot render SVG via <img> — skip SVG logos, use PNG/JPEG only
+      if (!logoUrl.toLowerCase().includes('.svg')) {
+        const res = await fetch(logoUrl, { cache: 'no-store' });
+        if (res.ok) {
+          const buf = await res.arrayBuffer();
+          const mime = res.headers.get('content-type') || 'image/png';
+          logoBase64 = `data:${mime};base64,${Buffer.from(buf).toString('base64')}`;
+        }
+      }
     }
-  } catch { /* fall back to text logo */ }
+  } catch (err) {
+    console.error('[achievement-image] Logo fetch failed:', err);
+  }
 
   return new ImageResponse(
     (

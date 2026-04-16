@@ -276,8 +276,9 @@ export default function CourseWatchPage() {
         currentSessionId={sessionKey}
         backUrl={`/training/dashboard?course=${courseId}`}
         backLabel={`← ${course.shortTitle}`}
-        assessmentUrl={markedComplete ? assessmentUrl : undefined}
-        assessmentReady={markedComplete}
+        assessmentUrl={markedComplete && !progressMap.get(sessionKey)?.passed ? assessmentUrl : undefined}
+        assessmentReady={markedComplete && !progressMap.get(sessionKey)?.passed}
+        assessmentPassed={progressMap.get(sessionKey)?.passed === true}
         onVideoPlaying={handlePlaying}
         onVideoEnded={handleVideoEnded}
         onVideoNearEnd={handleNearEnd}

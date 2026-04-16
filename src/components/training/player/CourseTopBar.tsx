@@ -20,6 +20,7 @@ interface CourseTopBarProps {
   isCompleted?: boolean;
   assessmentUrl?: string;
   assessmentReady?: boolean;
+  assessmentPassed?: boolean;
 }
 
 const iconBtnStyle: React.CSSProperties = {
@@ -42,7 +43,7 @@ export function CourseTopBar({
   title, youtubeUrl, channelId, showLikeButton,
   sessionTitle, sessionDescription, sessionUrl,
   nextSessionHref, isWatched, onMarkComplete, isCompleted,
-  assessmentUrl, assessmentReady,
+  assessmentUrl, assessmentReady, assessmentPassed,
 }: CourseTopBarProps) {
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -160,6 +161,18 @@ export function CourseTopBar({
             >
               Take Assessment →
             </Link>
+          )}
+
+          {/* Assessment already passed */}
+          {assessmentPassed && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', fontSize: 13, fontWeight: 600,
+              color: '#ffffff', background: '#15803D',
+              borderRadius: 6, whiteSpace: 'nowrap',
+            }}>
+              ✓ Assessment Done
+            </span>
           )}
 
           {/* Assessment locked hint */}

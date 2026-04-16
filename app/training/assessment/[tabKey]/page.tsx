@@ -166,6 +166,24 @@ export default function AssessmentPage() {
 
     const { email, registrationId: regId } = session;
 
+    // Quick Supabase check — if already passed, block immediately (no Apps Script delay)
+    try {
+      const sbCheck = await fetch(`/api/training/progress?email=${encodeURIComponent(email)}&registrationId=${encodeURIComponent(regId)}`);
+      const sbData = await sbCheck.json() as { success: boolean; data?: { sessions: { sessionId: string; passed: boolean; score: number }[] } };
+      if (sbData.success && sbData.data) {
+        const sep = tabKey.indexOf('_');
+        const sessId = sep >= 0 ? tabKey.slice(sep + 1) : tabKey;
+        const finalId = tabKey.toUpperCase().startsWith('BVM') ? 'L7' : 'S18';
+        const resolvedId = sessId === 'Final' ? finalId : sessId;
+        const match = sbData.data.sessions.find(s => s.sessionId === resolvedId);
+        if (match?.passed) {
+          setStatus({ passed: true, lastScore: match.score, attempts: 1, maxAttempts: 3, canAttempt: false } as AttemptStatus);
+          setPageState('blocked-passed');
+          return;
+        }
+      }
+    } catch { /* continue to normal load */ }
+
     // Determine course code from tabKey (e.g. "3SFM_S1" → "3sfm", "BVM_L2" → "bvm")
     const courseCode = tabKey.toUpperCase().startsWith('BVM') ? 'bvm' : '3sfm';
 
@@ -917,7 +935,7 @@ export default function AssessmentPage() {
           const regIdVal = sess?.registrationId || '';
           const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionName)}&score=${result.score}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}&regId=${encodeURIComponent(regIdVal)}`;
           const LEARN = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
-          const shareMsg = `🏆 I just passed "${sessionName}" with ${result.score}% in ${courseName} at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — completely free.\n\n🎓 Free Certification: ${LEARN}\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
+          const shareMsg = `🏆 Passed "${sessionName}" — ${result.score}% score!\n\n${courseName} at Financial Modeler Pro\n\nFree certification: ${LEARN}\n\n#FinancialModeling #Finance`;
           const urls = {
             linkedin: `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(shareMsg)}`,
             whatsapp: `https://wa.me/?text=${encodeURIComponent(shareMsg)}`,

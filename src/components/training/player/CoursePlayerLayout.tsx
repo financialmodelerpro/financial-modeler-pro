@@ -32,6 +32,7 @@ interface CoursePlayerLayoutProps {
   isCompleted?: boolean;
   assessmentUrl?: string;
   assessmentReady?: boolean;
+  assessmentPassed?: boolean;
   onVideoPlaying?: () => void;
   onVideoEnded?: () => void;
   onVideoNearEnd?: () => void;
@@ -70,7 +71,7 @@ export function CoursePlayerLayout({
   title, youtubeUrl, channelId, showLikeButton,
   sessionTitle, sessionDescription, sessionUrl,
   nextSessionHref, isWatched, onMarkComplete, isCompleted,
-  assessmentUrl, assessmentReady, onVideoPlaying, onVideoEnded, onVideoNearEnd,
+  assessmentUrl, assessmentReady, assessmentPassed, onVideoPlaying, onVideoEnded, onVideoNearEnd,
   videoId, sessionId, studentEmail, studentRegId,
   bannerUrl, instructorName, instructorTitle,
   scheduledDatetime, timezone, durationMinutes, difficultyLevel, tags,
@@ -235,6 +236,7 @@ export function CoursePlayerLayout({
         isCompleted={isCompleted}
         assessmentUrl={assessmentUrl}
         assessmentReady={assessmentReady}
+        assessmentPassed={assessmentPassed}
       />
 
       {/* Body */}
