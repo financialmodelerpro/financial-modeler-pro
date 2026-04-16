@@ -127,7 +127,7 @@ export default function HeaderSettingsPage() {
             <div style={{ width: 200 }}>
               <label style={LS}>Achievement Card Logo Width (px)</label>
               <input type="number" style={IS} value={vals.achievement_card_logo_width ?? ''} onChange={e => set('achievement_card_logo_width', e.target.value)} placeholder="120" />
-              <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 4 }}>Controls logo size on the achievement share card image.</div>
+              <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 4 }}>Controls logo width (px) on the achievement share card image. Default: 120</div>
             </div>
           </div>
 
