@@ -1,5 +1,8 @@
 import { ImageResponse } from 'next/og';
 import { NextRequest } from 'next/server';
+import { getServerClient } from '@/src/lib/shared/supabase';
+
+export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -9,6 +12,30 @@ export async function GET(req: NextRequest) {
   const course      = searchParams.get('course') || '3-Statement Financial Modeling';
   const studentName = searchParams.get('name') || '';
   const regId       = searchParams.get('regId') || '';
+
+  // Fetch logo from same source as header (cms_content.header_settings.logo_url)
+  // Satori only supports raster images (PNG/JPEG/WebP) — SVG will use text fallback
+  let logoDataUri = '';
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('cms_content')
+      .select('value')
+      .eq('section', 'header_settings')
+      .eq('key', 'logo_url')
+      .maybeSingle();
+    const logoUrl = data?.value || '';
+    if (logoUrl) {
+      const res = await fetch(logoUrl, { cache: 'no-store' });
+      const contentType = res.headers.get('content-type') || '';
+      // Only use raster images — SVG cannot be rendered by satori via <img>
+      const isSvg = contentType.includes('svg') || logoUrl.toLowerCase().endsWith('.svg');
+      if (res.ok && !isSvg) {
+        const buf = await res.arrayBuffer();
+        logoDataUri = `data:${contentType};base64,${Buffer.from(buf).toString('base64')}`;
+      }
+    }
+  } catch { /* text fallback */ }
 
   return new ImageResponse(
     (
@@ -31,15 +58,22 @@ export async function GET(req: NextRequest) {
           borderBottom: '1px solid rgba(255,255,255,0.08)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{
-              width: 48, height: 48, borderRadius: 12, background: '#2EAA4A',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 18, fontWeight: 900, color: '#fff', letterSpacing: '-0.5px',
-            }}>FMP</div>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: 22, fontWeight: 800, color: '#ffffff', letterSpacing: '0.3px' }}>Financial Modeler Pro</span>
-              <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', letterSpacing: '1.2px', textTransform: 'uppercase' as const }}>Certification Program</span>
-            </div>
+            {logoDataUri ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoDataUri} alt="FMP" style={{ height: 48, width: 'auto' }} />
+            ) : (
+              <>
+                <div style={{
+                  width: 48, height: 48, borderRadius: 12, background: '#2EAA4A',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 18, fontWeight: 900, color: '#fff', letterSpacing: '-0.5px',
+                }}>FMP</div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: 22, fontWeight: 800, color: '#ffffff', letterSpacing: '0.3px' }}>Financial Modeler Pro</span>
+                  <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', letterSpacing: '1.2px', textTransform: 'uppercase' as const }}>Certification Program</span>
+                </div>
+              </>
+            )}
           </div>
           <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.5px' }}>learn.financialmodelerpro.com</span>
         </div>
