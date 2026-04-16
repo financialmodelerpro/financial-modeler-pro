@@ -5,42 +5,24 @@ import sharp from 'sharp';
 
 export const runtime = 'nodejs';
 
-async function fetchAsBase64(url: string, label: string): Promise<string> {
+async function fetchAsBase64(url: string): Promise<string> {
   try {
     const res = await fetch(url, { cache: 'no-store' });
-    console.log(`[og/main] ${label} fetch: status=${res.status}`);
     if (!res.ok) return '';
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.byteLength < 50) return '';
     const ct = res.headers.get('content-type') || '';
     const isSvg = ct.includes('svg') || ct.includes('xml') || url.toLowerCase().endsWith('.svg');
     if (isSvg) {
-      try {
-        const pngBuf = await sharp(buf).resize({ height: 200 }).png().toBuffer();
-        return `data:image/png;base64,${pngBuf.toString('base64')}`;
-      } catch {
-        return `data:image/svg+xml;base64,${buf.toString('base64')}`;
-      }
+      try { return `data:image/png;base64,${(await sharp(buf).resize({ height: 200 }).png().toBuffer()).toString('base64')}`; }
+      catch { return `data:image/svg+xml;base64,${buf.toString('base64')}`; }
     }
     const mime = ct.startsWith('image/') ? ct.split(';')[0] : 'image/png';
     return `data:${mime};base64,${buf.toString('base64')}`;
   } catch { return ''; }
 }
 
-/** GET /api/og/main — Main site OG banner */
-export async function GET() {
-  const [content, sections] = await Promise.all([
-    getCmsContent(),
-    getAllPageSections('home'),
-  ]);
-  const heroRaw = sections.find(s => s.section_type === 'hero');
-  const h = heroRaw?.visible !== false ? heroRaw?.content as Record<string, unknown> | undefined : undefined;
-
-  const badge    = (h?.badge as string)    || cms(content, 'hero', 'badge_text',  '🚀 Now Live — Free to Use');
-  const headline = (h?.headline as string) || cms(content, 'hero', 'headline',    'Build Institutional-Grade Financial Models — Without Starting From Scratch');
-  const sub      = (h?.subtitle as string) || cms(content, 'hero', 'subheadline', 'Pre-built, structured financial models for real estate, valuation, and project finance — designed by corporate finance professionals.');
-
-  let logoDataUri = '';
+async function fetchLogo(): Promise<string> {
   try {
     const sb = getServerClient();
     const { data: rows } = await sb
@@ -52,45 +34,57 @@ export async function GET() {
     for (const r of (rows ?? []) as { section: string; key: string; value: string }[]) map[`${r.section}__${r.key}`] = r.value;
     const logoUrl = map['header_settings__logo_url'] || map['branding__logo_url'] || map['platform__logo_url'] || '';
     const logoEnabled = map['header_settings__logo_enabled'] !== 'false';
-    if (logoEnabled && logoUrl) logoDataUri = await fetchAsBase64(logoUrl, 'logo');
+    if (logoEnabled && logoUrl) return await fetchAsBase64(logoUrl);
   } catch { /* skip */ }
+  return '';
+}
+
+/** GET /api/og/main — Main site OG banner */
+export async function GET() {
+  const [content, sections, logoDataUri] = await Promise.all([
+    getCmsContent(),
+    getAllPageSections('home'),
+    fetchLogo(),
+  ]);
+  const heroRaw = sections.find(s => s.section_type === 'hero');
+  const h = heroRaw?.visible !== false ? heroRaw?.content as Record<string, unknown> | undefined : undefined;
+
+  const badge    = (h?.badge as string)    || cms(content, 'hero', 'badge_text',  '🚀 Now Live — Free to Use');
+  const headline = (h?.headline as string) || cms(content, 'hero', 'headline',    'Build Institutional-Grade Financial Models — Without Starting From Scratch');
+  const sub      = (h?.subtitle as string) || cms(content, 'hero', 'subheadline', 'Pre-built, structured financial models for real estate, valuation, and project finance — designed by corporate finance professionals.');
 
   return new ImageResponse(
     (
-      <div style={{
-        width: 2400, height: 1254, display: 'flex', flexDirection: 'column',
-        background: 'linear-gradient(180deg, #0D2E5A 0%, #0A2448 100%)',
-        fontFamily: 'Arial, Helvetica, sans-serif', position: 'relative', overflow: 'hidden',
-      }}>
+      <div style={{ width: 1200, height: 630, display: 'flex', flexDirection: 'column', background: 'linear-gradient(180deg, #0D2E5A 0%, #0A2448 100%)', fontFamily: 'Arial, Helvetica, sans-serif', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(45,107,168,0.25) 0%, transparent 65%)', display: 'flex' }} />
-        <div style={{ position: 'absolute', top: -160, right: -160, width: 720, height: 720, borderRadius: '50%', background: 'rgba(255,255,255,0.03)', display: 'flex' }} />
+        <div style={{ position: 'absolute', top: -80, right: -80, width: 360, height: 360, borderRadius: '50%', background: 'rgba(255,255,255,0.03)', display: 'flex' }} />
 
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '0 160px', position: 'relative' }}>
-          {logoDataUri && (
-            <div style={{ display: 'flex', marginBottom: 80 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '0 80px', position: 'relative' }}>
+          {logoDataUri ? (
+            <div style={{ display: 'flex', marginBottom: 36 }}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={logoDataUri} alt="FMP" style={{ height: 104 }} />
+              <img src={logoDataUri} alt="FMP" style={{ height: 56 }} />
             </div>
-          )}
+          ) : null}
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 48px', borderRadius: 48, background: 'rgba(46,170,74,0.18)', border: '2px solid rgba(46,170,74,0.45)', marginBottom: 64 }}>
-            <span style={{ fontSize: 32, fontWeight: 700, color: '#6EE589' }}>{badge}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 22px', borderRadius: 22, background: 'rgba(46,170,74,0.18)', border: '1px solid rgba(46,170,74,0.45)', marginBottom: 28 }}>
+            <span style={{ fontSize: 16, fontWeight: 700, color: '#6EE589' }}>{badge}</span>
           </div>
 
-          <div style={{ fontSize: 100, fontWeight: 800, color: '#ffffff', lineHeight: 1.12, marginBottom: 48, maxWidth: 1760, textAlign: 'center', letterSpacing: '-0.02em' }}>
+          <div style={{ fontSize: 48, fontWeight: 800, color: '#ffffff', lineHeight: 1.1, marginBottom: 20, maxWidth: 880, textAlign: 'center', letterSpacing: '-0.02em' }}>
             {headline}
           </div>
 
-          <div style={{ fontSize: 40, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6, maxWidth: 1440, textAlign: 'center' }}>
+          <div style={{ fontSize: 20, color: 'rgba(255,255,255,0.55)', lineHeight: 1.55, maxWidth: 720, textAlign: 'center' }}>
             {sub}
           </div>
         </div>
 
-        <div style={{ padding: '40px 96px', borderTop: '2px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'center' }}>
-          <span style={{ fontSize: 32, color: 'rgba(255,255,255,0.3)' }}>financialmodelerpro.com</span>
+        <div style={{ padding: '18px 48px', borderTop: '1px solid rgba(255,255,255,0.08)', display: 'flex', justifyContent: 'center' }}>
+          <span style={{ fontSize: 16, color: 'rgba(255,255,255,0.3)' }}>financialmodelerpro.com</span>
         </div>
       </div>
     ),
-    { width: 2400, height: 1254 },
+    { width: 1200, height: 630 },
   );
 }

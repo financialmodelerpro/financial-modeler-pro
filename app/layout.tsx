@@ -27,10 +27,12 @@ export async function generateMetadata(): Promise<Metadata> {
     if (map.icon_as_favicon === 'true' && map.icon_url) iconUrl = map.icon_url;
   } catch { /* use defaults */ }
 
+  // Use absolute URL — MAIN_URL from env, with hardcoded fallback for LinkedIn crawlers
   const ogImage = `${MAIN_URL}/api/og/main`;
 
   const base: Metadata = {
     metadataBase: new URL(MAIN_URL),
+    alternates: { canonical: MAIN_URL },
     title: OG_TITLE,
     description: OG_DESC,
     openGraph: {
@@ -39,7 +41,7 @@ export async function generateMetadata(): Promise<Metadata> {
       description: OG_DESC,
       siteName: 'Financial Modeler Pro',
       url: MAIN_URL,
-      images: [{ url: ogImage, width: 1200, height: 627, alt: 'Financial Modeler Pro — Free Financial Modeling Certification' }],
+      images: [{ url: ogImage, width: 1200, height: 630, alt: 'Financial Modeler Pro — Free Financial Modeling Certification' }],
     },
     twitter: {
       card: 'summary_large_image',

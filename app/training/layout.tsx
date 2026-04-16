@@ -14,7 +14,7 @@ export const metadata: Metadata = {
     description: OG_DESC,
     siteName: 'Financial Modeler Pro',
     url: LEARN_URL,
-    images: [{ url: `${LEARN_URL}/api/og`, width: 1200, height: 627, alt: OG_TITLE }],
+    images: [{ url: `${LEARN_URL}/api/og`, width: 1200, height: 630, alt: OG_TITLE }],
   },
   twitter: {
     card: 'summary_large_image',
