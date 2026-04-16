@@ -653,6 +653,7 @@ export default function TrainingDashboardPage() {
         .sidebar-avatar-btn:hover .avatar-hover-overlay { opacity: 1; }
         @media (max-width: 767px) {
           .dash-hamburger { display: flex !important; }
+          .dash-topnav { padding: 0 16px !important; }
           .dash-sidebar {
             position: fixed !important;
             left: ${mobileSidebarOpen ? '0' : '-260px'} !important;
@@ -691,7 +692,7 @@ export default function TrainingDashboardPage() {
       <div className="dash-mob-backdrop" onClick={() => setMobileSidebarOpen(false)} />
 
       {/* ── TOP NAV ──────────────────────────────────────────────────────────── */}
-      <div style={{ background: '#0D2E5A', padding: '0 20px', height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 150, boxShadow: '0 2px 12px rgba(0,0,0,0.2)' }}>
+      <div className="dash-topnav" style={{ background: 'rgba(13,46,90,0.97)', backdropFilter: 'blur(12px)', padding: '0 40px', minHeight: 64, boxSizing: 'border-box' as const, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 150, borderBottom: '1px solid rgba(255,255,255,0.08)', boxShadow: '0 2px 20px rgba(0,0,0,0.4)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
             className="dash-hamburger"
