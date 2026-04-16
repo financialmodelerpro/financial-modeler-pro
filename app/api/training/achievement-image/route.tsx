@@ -48,29 +48,44 @@ export async function GET(req: NextRequest) {
 
     console.log('[achievement-image] logoUrl:', logoUrl || '(empty)', 'logoEnabled:', logoEnabled, 'iconUrl:', iconUrl || '(empty)', 'iconInHeader:', iconInHeader);
 
-    // Convert image to base64 data URI — SVG converted to PNG via sharp
-    async function fetchAsBase64(url: string): Promise<string> {
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) return '';
-      const buf = Buffer.from(await res.arrayBuffer());
-      if (buf.byteLength < 100) return '';
-      const ct = res.headers.get('content-type') || '';
-      const isSvg = ct.includes('svg') || ct.includes('xml') || url.toLowerCase().endsWith('.svg');
-      if (isSvg) {
-        // Convert SVG to PNG using sharp
-        const pngBuf = await sharp(buf).resize({ height: 200 }).png().toBuffer();
-        return `data:image/png;base64,${pngBuf.toString('base64')}`;
+    // Convert image to base64 data URI for satori
+    async function fetchAsBase64(url: string, label: string): Promise<string> {
+      try {
+        const res = await fetch(url, { cache: 'no-store' });
+        console.log(`[achievement-image] ${label} fetch: status=${res.status} url=${url.substring(0, 80)}`);
+        if (!res.ok) return '';
+        const buf = Buffer.from(await res.arrayBuffer());
+        console.log(`[achievement-image] ${label} size: ${buf.byteLength} bytes`);
+        if (buf.byteLength < 50) return '';
+        const ct = res.headers.get('content-type') || '';
+        const isSvg = ct.includes('svg') || ct.includes('xml') || url.toLowerCase().endsWith('.svg');
+        console.log(`[achievement-image] ${label} type: ${ct} isSvg: ${isSvg}`);
+        if (isSvg) {
+          // Try sharp SVG→PNG conversion
+          try {
+            const pngBuf = await sharp(buf).resize({ height: 200 }).png().toBuffer();
+            console.log(`[achievement-image] ${label} sharp SVG→PNG: ${pngBuf.byteLength} bytes`);
+            return `data:image/png;base64,${pngBuf.toString('base64')}`;
+          } catch (sharpErr) {
+            console.error(`[achievement-image] ${label} sharp failed:`, sharpErr);
+            // Fallback: try raw SVG as data URI (works for simple SVGs)
+            return `data:image/svg+xml;base64,${buf.toString('base64')}`;
+          }
+        }
+        const mime = ct.startsWith('image/') ? ct.split(';')[0] : 'image/png';
+        return `data:${mime};base64,${buf.toString('base64')}`;
+      } catch (fetchErr) {
+        console.error(`[achievement-image] ${label} fetch error:`, fetchErr);
+        return '';
       }
-      const mime = ct.startsWith('image/') ? ct.split(';')[0] : 'image/png';
-      return `data:${mime};base64,${buf.toString('base64')}`;
     }
 
     if (logoEnabled && logoUrl) {
-      logoDataUri = await fetchAsBase64(logoUrl);
-      console.log('[achievement-image] logo result:', logoDataUri ? `${logoDataUri.length} chars` : 'empty');
+      logoDataUri = await fetchAsBase64(logoUrl, 'logo');
+      console.log('[achievement-image] logo result:', logoDataUri ? `${logoDataUri.length} chars` : 'EMPTY');
     }
     if (iconInHeader && iconUrl) {
-      iconDataUri = await fetchAsBase64(iconUrl);
+      iconDataUri = await fetchAsBase64(iconUrl, 'icon');
     }
   } catch (err) {
     console.error('[achievement-image] Header settings fetch error:', err);
@@ -105,7 +120,7 @@ export async function GET(req: NextRequest) {
             {/* Logo image — same rule as Navbar: logoEnabled && logoUrl */}
             {logoDataUri ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={logoDataUri} alt={brandName} style={{ height: cardLogoHeight, width: 'auto' }} />
+              <img src={logoDataUri} alt={brandName} style={{ height: cardLogoHeight }} />
             ) : !logoEnabled ? null : (
               /* No icon rendered and no logo image — show text brand like Navbar fallback */
               !iconDataUri ? (
