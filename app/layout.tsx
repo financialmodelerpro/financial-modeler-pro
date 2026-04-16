@@ -9,8 +9,8 @@ import { getServerClient } from '@/src/lib/shared/supabase';
 const inter = Inter({ subsets: ['latin'] });
 
 const MAIN_URL  = process.env.NEXT_PUBLIC_MAIN_URL  ?? 'https://financialmodelerpro.com';
-const OG_TITLE  = 'Financial Modeler Pro — Free Financial Modeling Certification';
-const OG_DESC   = 'Build institutional-grade financial models. Free professional certification program with 3-Statement Financial Modeling and Business Valuation courses.';
+const OG_TITLE  = 'Financial Modeler Pro — Professional Financial Modeling Platform';
+const OG_DESC   = 'Professional financial modeling platform with free certification, interactive modeling tools, and expert-led training. 3-Statement Financial Modeling, Business Valuation, and more.';
 
 export async function generateMetadata(): Promise<Metadata> {
   let iconUrl = '';
