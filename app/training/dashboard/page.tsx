@@ -930,6 +930,37 @@ export default function TrainingDashboardPage() {
               <SidebarItem icon={<Star size={16} />} label="Share Experience" onClick={() => { setTestimonialModal('written'); setMobileSidebarOpen(false); }} />
             )}
             <SidebarItem icon={<LogOut size={16} />} label="Sign Out" onClick={handleLogout} />
+
+            {/* Follow Us */}
+            {!sidebarCollapsed && (
+              <div style={{ padding: '12px 12px 4px', borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
+                  Follow Us
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <a href="https://www.linkedin.com/showcase/financialmodelerpro/" target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: '#0077b5', color: '#fff', borderRadius: 6, fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
+                    💼 Follow on LinkedIn
+                  </a>
+                  <a href={`https://www.youtube.com/channel/${process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}?sub_confirmation=1`} target="_blank" rel="noopener noreferrer"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: '#FF0000', color: '#fff', borderRadius: 6, fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
+                    ▶ Subscribe on YouTube
+                  </a>
+                </div>
+              </div>
+            )}
+            {sidebarCollapsed && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, padding: '10px 0', borderTop: '1px solid rgba(255,255,255,0.08)', marginTop: 8 }}>
+                <a href="https://www.linkedin.com/showcase/financialmodelerpro/" target="_blank" rel="noopener noreferrer" title="Follow on LinkedIn"
+                  style={{ width: 28, height: 28, borderRadius: 6, background: '#0077b5', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, textDecoration: 'none' }}>
+                  in
+                </a>
+                <a href={`https://www.youtube.com/channel/${process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}?sub_confirmation=1`} target="_blank" rel="noopener noreferrer" title="Subscribe on YouTube"
+                  style={{ width: 28, height: 28, borderRadius: 6, background: '#FF0000', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, textDecoration: 'none' }}>
+                  ▶
+                </a>
+              </div>
+            )}
           </div>
 
           {/* Collapse toggle */}
