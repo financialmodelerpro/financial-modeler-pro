@@ -261,11 +261,6 @@ export function SessionCard({
           : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
         const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName || '')}&regId=${encodeURIComponent(regId)}`;
         const shareText = `🏆 I just passed "${sessionTitle}" with ${prog.score}% in the ${courseName || 'Financial Modeling'} program at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — completely free certification program.\n\n👉 https://learn.financialmodelerpro.com\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
-        // LinkedIn ?text= has ~1300 char URL limit — use shorter version if needed
-        const liText = shareText.length > 400
-          ? `🏆 Passed "${sessionTitle}" with ${prog.score}% at Financial Modeler Pro!\n\nFree certification: https://learn.financialmodelerpro.com\n\n#FinancialModeling #FinancialModelerPro`
-          : shareText;
-        const linkedInUrl = `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(liText)}`;
         return (
           <div onClick={() => { setShowShareModal(false); setTextCopied(false); }}
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
@@ -281,13 +276,17 @@ export function SessionCard({
               {/* Share text */}
               <textarea readOnly value={shareText} rows={6}
                 style={{ width: '100%', padding: '10px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 12, fontFamily: 'Inter,sans-serif', resize: 'none', lineHeight: 1.6, boxSizing: 'border-box', marginBottom: 12, color: '#374151', background: '#F9FAFB' }} />
+              {/* Instruction */}
+              <div style={{ fontSize: 12, color: '#6B7280', background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8, padding: '10px 14px', marginBottom: 12, lineHeight: 1.5 }}>
+                💡 Click <strong>Share on LinkedIn</strong> below — your text is auto-copied. Just <strong>paste it (Ctrl+V)</strong> in LinkedIn and attach the downloaded card image.
+              </div>
               {/* Action buttons */}
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                 <a href={cardImgUrl} download="FMP-Achievement.png"
                   style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 14px', background: '#1F3864', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none', minWidth: 140 }}>
                   ⬇️ Download Card
                 </a>
-                <button onClick={() => window.open(linkedInUrl, '_blank')}
+                <button onClick={() => { navigator.clipboard.writeText(shareText).catch(() => {}); window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank'); }}
                   style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 14px', background: '#0077b5', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', minWidth: 140 }}>
                   💼 Share on LinkedIn
                 </button>
