@@ -1,9 +1,29 @@
 import { ImageResponse } from 'next/og';
+import { getServerClient } from '@/src/lib/shared/supabase';
 import { getCmsContent, cms, getAllPageSections } from '@/src/lib/shared/cms';
+import sharp from 'sharp';
+
+export const runtime = 'nodejs';
+
+async function fetchAsBase64(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) return '';
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.byteLength < 50) return '';
+    const ct = res.headers.get('content-type') || '';
+    const isSvg = ct.includes('svg') || ct.includes('xml') || url.toLowerCase().endsWith('.svg');
+    if (isSvg) {
+      try { return `data:image/png;base64,${(await sharp(buf).resize({ height: 200 }).png().toBuffer()).toString('base64')}`; }
+      catch { return `data:image/svg+xml;base64,${buf.toString('base64')}`; }
+    }
+    const mime = ct.startsWith('image/') ? ct.split(';')[0] : 'image/png';
+    return `data:${mime};base64,${buf.toString('base64')}`;
+  } catch { return ''; }
+}
 
 /** GET /api/og/modeling — Modeling Hub OG banner (app.financialmodelerpro.com) */
 export async function GET() {
-  // Fetch hero content from CMS — same source as app/modeling/page.tsx
   const [content, sections] = await Promise.all([
     getCmsContent(),
     getAllPageSections('modeling'),
@@ -14,6 +34,21 @@ export async function GET() {
   const badge    = (h?.badge as string)    || cms(content, 'modeling_hub', 'hero_badge',    '📐 Professional Modeling Platform');
   const headline = ((h?.headline as string) || cms(content, 'modeling_hub', 'hero_headline', 'Build Institutional-Grade\nFinancial Models')).replace(/\n/g, ' ');
   const sub      = (h?.subtitle as string) || cms(content, 'modeling_hub', 'hero_sub',      'Structured, guided workflows for every financial discipline — real estate, business valuation, LBO, FP&A, and more.');
+
+  // Fetch logo — same source as NavbarServer
+  let logoDataUri = '';
+  try {
+    const sb = getServerClient();
+    const { data: rows } = await sb
+      .from('cms_content')
+      .select('section, key, value')
+      .in('section', ['header_settings', 'branding', 'platform'])
+      .eq('key', 'logo_url');
+    const logoUrl = (rows ?? []).find(r => r.section === 'header_settings')?.value
+      || (rows ?? []).find(r => r.section === 'branding')?.value
+      || (rows ?? []).find(r => r.section === 'platform')?.value || '';
+    if (logoUrl) logoDataUri = await fetchAsBase64(logoUrl);
+  } catch { /* fallback */ }
 
   return new ImageResponse(
     (
@@ -26,9 +61,17 @@ export async function GET() {
         <div style={{ position: 'absolute', bottom: -60, left: -60, width: 260, height: 260, borderRadius: '50%', background: 'rgba(255,255,255,0.02)', display: 'flex' }} />
 
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '0 80px', position: 'relative', textAlign: 'center' }}>
+          {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 36 }}>
-            <div style={{ width: 52, height: 52, borderRadius: 14, background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 900, color: '#fff' }}>FMP</div>
-            <span style={{ fontSize: 26, fontWeight: 800, color: '#ffffff' }}>Financial Modeler Pro</span>
+            {logoDataUri ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoDataUri} alt="FMP" style={{ height: 52 }} />
+            ) : (
+              <>
+                <div style={{ width: 52, height: 52, borderRadius: 14, background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, fontWeight: 900, color: '#fff' }}>FMP</div>
+                <span style={{ fontSize: 26, fontWeight: 800, color: '#ffffff' }}>Financial Modeler Pro</span>
+              </>
+            )}
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 20px', borderRadius: 20, background: 'rgba(27,79,138,0.18)', border: '1px solid rgba(27,79,138,0.45)', marginBottom: 28 }}>
