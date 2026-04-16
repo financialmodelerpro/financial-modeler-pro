@@ -261,7 +261,11 @@ export function SessionCard({
           : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
         const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName || '')}&regId=${encodeURIComponent(regId)}`;
         const shareText = `🏆 I just passed "${sessionTitle}" with ${prog.score}% in the ${courseName || 'Financial Modeling'} program at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — completely free certification program.\n\n👉 https://learn.financialmodelerpro.com\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
-        const linkedInUrl = `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(shareText)}`;
+        // LinkedIn ?text= has ~1300 char URL limit — use shorter version if needed
+        const liText = shareText.length > 400
+          ? `🏆 Passed "${sessionTitle}" with ${prog.score}% at Financial Modeler Pro!\n\nFree certification: https://learn.financialmodelerpro.com\n\n#FinancialModeling #FinancialModelerPro`
+          : shareText;
+        const linkedInUrl = `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(liText)}`;
         return (
           <div onClick={() => { setShowShareModal(false); setTextCopied(false); }}
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
