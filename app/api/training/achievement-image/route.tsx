@@ -116,8 +116,8 @@ export async function GET(req: NextRequest) {
                 }}>FMP</div>
               ) : null
             )}
-            {/* Brand name — same rule as Navbar: showBrandName (or no logo to show) */}
-            {(showBrandName || (!logoDataUri && !iconDataUri)) && (
+            {/* Brand name — only when no logo image is showing */}
+            {!logoDataUri && (
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontSize: 22, fontWeight: 800, color: '#ffffff', letterSpacing: '0.3px' }}>{brandName}</span>
                 <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', letterSpacing: '1.2px', textTransform: 'uppercase' as const }}>Training Hub — Certification Program</span>
