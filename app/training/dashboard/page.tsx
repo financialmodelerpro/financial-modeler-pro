@@ -691,7 +691,7 @@ export default function TrainingDashboardPage() {
       <div className="dash-mob-backdrop" onClick={() => setMobileSidebarOpen(false)} />
 
       {/* ── TOP NAV ──────────────────────────────────────────────────────────── */}
-      <div style={{ background: '#0D2E5A', padding: '0 20px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 150, boxShadow: '0 2px 12px rgba(0,0,0,0.2)' }}>
+      <div style={{ background: '#0D2E5A', padding: '0 20px', height: 64, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 150, boxShadow: '0 2px 12px rgba(0,0,0,0.2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
             className="dash-hamburger"
@@ -768,8 +768,8 @@ export default function TrainingDashboardPage() {
           width: sidebarW, flexShrink: 0,
           background: '#0D2E5A',
           display: 'flex', flexDirection: 'column',
-          position: 'sticky', top: 56,
-          height: 'calc(100vh - 56px)',
+          position: 'sticky', top: 64,
+          height: 'calc(100vh - 64px)',
           overflowY: 'auto', overflowX: 'hidden',
           transition: 'width 0.3s ease',
           borderRight: '1px solid rgba(255,255,255,0.08)',
@@ -1388,7 +1388,7 @@ export default function TrainingDashboardPage() {
               {/* Sticky breadcrumb bar — appears on scroll */}
               {scrolledDown && (
                 <div style={{
-                  position: 'fixed', top: 56, left: sidebarW, right: 0, zIndex: 140,
+                  position: 'fixed', top: 64, left: sidebarW, right: 0, zIndex: 140,
                   background: 'rgba(255,255,255,0.95)', backdropFilter: 'blur(8px)',
                   borderBottom: '1px solid #E5E7EB', padding: '8px 24px',
                   display: 'flex', alignItems: 'center', gap: 12,
