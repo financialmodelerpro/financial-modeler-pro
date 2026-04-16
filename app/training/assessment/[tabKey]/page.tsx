@@ -920,6 +920,22 @@ export default function AssessmentPage() {
               <div style={{ background: WHITE, borderRadius: 12, border: '1px solid #E5E7EB', padding: '24px 28px', textAlign: 'center' }}>
                 <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 6 }}>📅 Passed on {passDate}</div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: NAVY, marginBottom: 16 }}>🎉 Share your achievement!</div>
+                {/* Achievement card preview */}
+                <div style={{ marginBottom: 12 }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={`/api/training/achievement-image?session=${encodeURIComponent(sessionName)}&score=${result.score}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}`}
+                    alt="Your Achievement Card"
+                    style={{ width: '100%', maxWidth: 600, borderRadius: 12, border: '1px solid #E5E7EB', display: 'block', margin: '0 auto' }}
+                  />
+                </div>
+                <div style={{ marginBottom: 16, textAlign: 'center' }}>
+                  <a href={`/api/training/achievement-image?session=${encodeURIComponent(sessionName)}&score=${result.score}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}`}
+                    download="FMP-Achievement.png"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 24px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 14, fontWeight: 600, color: '#374151', textDecoration: 'none' }}>
+                    Download Achievement Card
+                  </a>
+                </div>
                 <div style={{ display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
                   <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`} target="_blank" rel="noopener noreferrer"
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '10px 20px', background: '#0077b5', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none' }}>

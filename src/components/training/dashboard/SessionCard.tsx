@@ -264,9 +264,21 @@ export function SessionCard({
                 <div style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A' }}>Share Your Achievement</div>
                 <button onClick={() => setShowShareModal(false)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#6B7280', cursor: 'pointer', lineHeight: 1 }}>&#10005;</button>
               </div>
-              <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 20, lineHeight: 1.5 }}>
+              <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 16, lineHeight: 1.5 }}>
                 Share that you passed <strong>{sessionTitle}</strong> with <strong>{prog.score}%</strong>!
               </p>
+              {/* Achievement card preview */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}`}
+                alt="Your Achievement Card"
+                style={{ width: '100%', borderRadius: 8, border: '1px solid #E5E7EB', marginBottom: 8 }}
+              />
+              <a href={`/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}`}
+                download="FMP-Achievement.png"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '9px 16px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, fontWeight: 600, color: '#374151', textDecoration: 'none', marginBottom: 12 }}>
+                Download Achievement Card
+              </a>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(achievementUrl)}`} target="_blank" rel="noopener noreferrer"
                   style={{ display: 'block', padding: '10px 16px', background: '#0077b5', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}>
