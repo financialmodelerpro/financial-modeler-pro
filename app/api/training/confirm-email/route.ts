@@ -3,7 +3,7 @@
  *
  * 1. Verify the confirmation token
  * 2. Read pending registration data
- * 3. Call Apps Script to register (generates Registration ID + sends welcome email)
+ * 3. Call Apps Script to register (generates Registration ID)
  * 4. Store registration_id, city, country, email_confirmed in training_registrations_meta
  * 5. Store password in training_passwords
  * 6. Delete pending row
@@ -14,6 +14,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyConfirmationToken } from '@/src/lib/shared/emailConfirmation';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { registerStudent } from '@/src/lib/training/sheets';
+import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
+import { registrationConfirmationTemplate } from '@/src/lib/email/templates/registrationConfirmation';
 import bcrypt from 'bcryptjs';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
@@ -111,6 +113,14 @@ export async function GET(req: NextRequest) {
       registration_id: registrationId,
       password_hash:   pending.password_hash,
     }, { onConflict: 'registration_id' });
+
+    // Send registration welcome email with RegID (fire-and-forget)
+    const courseName = pending.course === 'bvm' ? 'Business Valuation Modeling'
+      : pending.course === 'both' ? '3-Statement Financial Modeling & Business Valuation Modeling'
+      : '3-Statement Financial Modeling';
+    registrationConfirmationTemplate({ name: pending.name, registrationId, courseName })
+      .then(({ subject, html, text }) => sendEmail({ to: email, subject, html, text, from: FROM.training }))
+      .catch(err => console.error('[confirm-email] Welcome email failed:', err));
   }
 
   // Clean up pending row

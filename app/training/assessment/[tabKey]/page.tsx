@@ -347,7 +347,11 @@ export default function AssessmentPage() {
     const canRetry    = !passed && attemptNo < maxAtt;
     const isFinalExam = questions.isFinal ?? false;
 
-    const submitPayload = { tabKey, regId, email, score, passed, isFinal: isFinalExam, attemptNo };
+    const sessionLabel = getSessionTitleFromTabKey(tabKey);
+    const submitPayload = {
+      tabKey, regId, email, score, passed, isFinal: isFinalExam, attemptNo,
+      maxAttempts: maxAtt, passingScore: passScore, sessionName: sessionLabel,
+    };
     console.log('[assessment] Client-side score:', { correctCount, total });
     console.log('[assessment] Submit payload:', JSON.stringify(submitPayload));
 
