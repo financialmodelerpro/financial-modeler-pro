@@ -1,5 +1,26 @@
 import { ImageResponse } from 'next/og';
+import { getServerClient } from '@/src/lib/shared/supabase';
 import { getCmsContent, cms, getAllPageSections } from '@/src/lib/shared/cms';
+import sharp from 'sharp';
+
+export const runtime = 'nodejs';
+
+async function fetchAsBase64(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, { cache: 'no-store' });
+    if (!res.ok) return '';
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.byteLength < 50) return '';
+    const ct = res.headers.get('content-type') || '';
+    const isSvg = ct.includes('svg') || ct.includes('xml') || url.toLowerCase().endsWith('.svg');
+    if (isSvg) {
+      try { return `data:image/png;base64,${(await sharp(buf).resize({ height: 200 }).png().toBuffer()).toString('base64')}`; }
+      catch { return `data:image/svg+xml;base64,${buf.toString('base64')}`; }
+    }
+    const mime = ct.startsWith('image/') ? ct.split(';')[0] : 'image/png';
+    return `data:${mime};base64,${buf.toString('base64')}`;
+  } catch { return ''; }
+}
 
 /** GET /api/og/main — Main site OG banner (financialmodelerpro.com) */
 export async function GET() {
@@ -14,6 +35,21 @@ export async function GET() {
   const headline = (h?.headline as string) || cms(content, 'hero', 'headline',    'Build Institutional-Grade Financial Models — Without Starting From Scratch');
   const sub      = (h?.subtitle as string) || cms(content, 'hero', 'subheadline', 'Pre-built, structured financial models for real estate, valuation, and project finance — designed by corporate finance professionals.');
 
+  let logoDataUri = '';
+  try {
+    const sb = getServerClient();
+    const { data: rows } = await sb
+      .from('cms_content')
+      .select('section, key, value')
+      .in('section', ['header_settings', 'branding', 'platform'])
+      .in('key', ['logo_url', 'logo_enabled']);
+    const map: Record<string, string> = {};
+    for (const r of (rows ?? []) as { section: string; key: string; value: string }[]) map[`${r.section}__${r.key}`] = r.value;
+    const logoUrl = map['header_settings__logo_url'] || map['branding__logo_url'] || map['platform__logo_url'] || '';
+    const logoEnabled = map['header_settings__logo_enabled'] !== 'false';
+    if (logoEnabled && logoUrl) logoDataUri = await fetchAsBase64(logoUrl);
+  } catch { /* fallback */ }
+
   return new ImageResponse(
     (
       <div style={{
@@ -25,26 +61,29 @@ export async function GET() {
         <div style={{ position: 'absolute', top: -80, right: -80, width: 360, height: 360, borderRadius: '50%', background: 'rgba(255,255,255,0.03)', display: 'flex' }} />
 
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flex: 1, padding: '0 80px', position: 'relative' }}>
-          {/* Logo */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 40 }}>
-            <div style={{ width: 56, height: 56, borderRadius: 14, background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 900, color: '#fff', letterSpacing: '-0.5px' }}>FMP</div>
-            <div style={{ display: 'flex', flexDirection: 'column' }}>
-              <span style={{ fontSize: 28, fontWeight: 800, color: '#ffffff' }}>Financial Modeler Pro</span>
-              <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)', letterSpacing: '1.5px', textTransform: 'uppercase' as const }}>Platform Hub</span>
-            </div>
+            {logoDataUri ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoDataUri} alt="FMP" style={{ height: 52 }} />
+            ) : (
+              <>
+                <div style={{ width: 56, height: 56, borderRadius: 14, background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, fontWeight: 900, color: '#fff', letterSpacing: '-0.5px' }}>FMP</div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span style={{ fontSize: 28, fontWeight: 800, color: '#ffffff' }}>Financial Modeler Pro</span>
+                  <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)', letterSpacing: '1.5px', textTransform: 'uppercase' as const }}>Platform Hub</span>
+                </div>
+              </>
+            )}
           </div>
 
-          {/* Badge */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 24px', borderRadius: 24, background: 'rgba(46,170,74,0.18)', border: '1px solid rgba(46,170,74,0.45)', marginBottom: 32 }}>
             <span style={{ fontSize: 16, fontWeight: 700, color: '#6EE589' }}>{badge}</span>
           </div>
 
-          {/* Headline */}
           <div style={{ fontSize: 50, fontWeight: 800, color: '#ffffff', lineHeight: 1.12, marginBottom: 24, maxWidth: 880, textAlign: 'center', letterSpacing: '-0.02em' }}>
             {headline}
           </div>
 
-          {/* Subline */}
           <div style={{ fontSize: 20, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6, maxWidth: 720, textAlign: 'center' }}>
             {sub}
           </div>
