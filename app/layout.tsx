@@ -30,6 +30,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const ogImage = `${MAIN_URL}/api/og/main`;
 
   const base: Metadata = {
+    metadataBase: new URL(MAIN_URL),
     title: OG_TITLE,
     description: OG_DESC,
     openGraph: {

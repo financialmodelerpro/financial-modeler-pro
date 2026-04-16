@@ -5,6 +5,7 @@ const OG_TITLE  = 'Financial Modeler Pro — Free Financial Modeling Certificati
 const OG_DESC   = 'Build institutional-grade financial models. Free certification program with 3-Statement Financial Modeling and Business Valuation courses. Start free — no credit card required.';
 
 export const metadata: Metadata = {
+  metadataBase: new URL(LEARN_URL),
   title: OG_TITLE,
   description: OG_DESC,
   openGraph: {

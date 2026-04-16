@@ -5,6 +5,7 @@ const OG_TITLE  = 'Financial Modeler Pro — Professional Modeling Hub';
 const OG_DESC   = 'Access professional financial modeling tools, templates and resources. Build institutional-grade models with expert guidance. Real Estate, Business Valuation, FP&A and more.';
 
 export const metadata: Metadata = {
+  metadataBase: new URL(APP_URL),
   title: OG_TITLE,
   description: OG_DESC,
   openGraph: {
