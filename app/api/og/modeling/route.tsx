@@ -42,9 +42,9 @@ async function fetchLogo(): Promise<string> {
 /** GET /api/og/modeling — Modeling Hub OG banner */
 export async function GET() {
   const [content, sections, logoDataUri] = await Promise.all([
-    getCmsContent(),
-    getAllPageSections('modeling'),
-    fetchLogo(),
+    getCmsContent().catch(() => ({} as Record<string, Record<string, string>>)),
+    getAllPageSections('modeling').catch(() => []),
+    fetchLogo().catch(() => ''),
   ]);
   const heroRaw = sections.find(s => s.section_type === 'hero');
   const h = heroRaw?.visible !== false ? heroRaw?.content as Record<string, unknown> | undefined : undefined;
