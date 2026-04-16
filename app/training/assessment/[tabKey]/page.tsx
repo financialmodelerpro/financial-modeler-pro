@@ -929,7 +929,7 @@ export default function AssessmentPage() {
           const regIdVal = sess?.registrationId || '';
           const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionName)}&score=${result.score}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}&regId=${encodeURIComponent(regIdVal)}`;
           const LEARN = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
-          const shareMsg = `I just passed "${sessionName}" with ${result.score}% in the ${courseName} program at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — Free certification program:\n${LEARN}\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
+          const shareMsg = `🏆 I just passed "${sessionName}" with ${result.score}% in ${courseName} at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — completely free.\n\n🎓 Free Certification: ${LEARN}\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
           const urls = {
             linkedin: `https://www.linkedin.com/feed/?shareActive=true&text=${encodeURIComponent(shareMsg)}`,
             whatsapp: `https://wa.me/?text=${encodeURIComponent(shareMsg)}`,
