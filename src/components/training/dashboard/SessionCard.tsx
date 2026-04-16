@@ -42,13 +42,15 @@ export interface SessionCardProps {
   isInProgress?: boolean;
   /** Course name for share context */
   courseName?: string;
+  /** Student name for achievement card */
+  studentName?: string;
 }
 
 export function SessionCard({
   sessionTitle, sessionId, maxAttempts, questionCount, passingScore,
   idx, prog, locked, ytUrl, isFinal, passedCount, regularCount,
   tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
-  bvmLocked, watchLocked, timerBypassed, courseId, isWatched, isInProgress, courseName,
+  bvmLocked, watchLocked, timerBypassed, courseId, isWatched, isInProgress, courseName, studentName,
 }: SessionCardProps) {
   const [notesOpen, setNotesOpen] = useState(false);
   const [noteText, setNoteText] = useState(noteContent);
@@ -58,6 +60,7 @@ export function SessionCard({
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showShareModal, setShowShareModal] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const [showCardModal, setShowCardModal] = useState(false);
 
   // Sync incoming noteContent (loaded async)
   useEffect(() => { setNoteText(noteContent); }, [noteContent]);
@@ -204,6 +207,10 @@ export function SessionCard({
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: 'transparent', color: '#6B7280', border: '1px solid #E5E7EB', cursor: 'pointer', whiteSpace: 'nowrap' }}>
               🎉 Share
             </button>
+            <button onClick={() => setShowCardModal(true)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: 'transparent', color: '#6B7280', border: '1px solid #E5E7EB', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              🏆 Card
+            </button>
           </>
         ) : attemptsUsed >= maxAttempts ? (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#FEF2F2', color: '#DC2626', whiteSpace: 'nowrap' }}>
@@ -253,7 +260,7 @@ export function SessionCard({
         const passDate = prog.completedAt
           ? new Date(prog.completedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
           : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
-        const achievementUrl = `${LEARN}/training/assessment/${encodeURIComponent(tabKey)}?score=${prog.score}&session=${encodeURIComponent(sessionTitle)}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}`;
+        const achievementUrl = `${LEARN}/training/assessment/${encodeURIComponent(tabKey)}?score=${prog.score}&session=${encodeURIComponent(sessionTitle)}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName || '')}&regId=${encodeURIComponent(regId)}`;
         const shareText = `I just passed ${sessionTitle} with ${prog.score}% on Financial Modeler Pro!\n\n${achievementUrl}`;
         return (
           <div onClick={() => setShowShareModal(false)}
@@ -264,21 +271,9 @@ export function SessionCard({
                 <div style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A' }}>Share Your Achievement</div>
                 <button onClick={() => setShowShareModal(false)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#6B7280', cursor: 'pointer', lineHeight: 1 }}>&#10005;</button>
               </div>
-              <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 16, lineHeight: 1.5 }}>
+              <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 20, lineHeight: 1.5 }}>
                 Share that you passed <strong>{sessionTitle}</strong> with <strong>{prog.score}%</strong>!
               </p>
-              {/* Achievement card preview */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={`/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}`}
-                alt="Your Achievement Card"
-                style={{ width: '100%', borderRadius: 8, border: '1px solid #E5E7EB', marginBottom: 8 }}
-              />
-              <a href={`/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}`}
-                download="FMP-Achievement.png"
-                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '9px 16px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 13, fontWeight: 600, color: '#374151', textDecoration: 'none', marginBottom: 12 }}>
-                Download Achievement Card
-              </a>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                 <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(achievementUrl)}`} target="_blank" rel="noopener noreferrer"
                   style={{ display: 'block', padding: '10px 16px', background: '#0077b5', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', textAlign: 'center' }}>
@@ -301,6 +296,36 @@ export function SessionCard({
                   Skip for now
                 </button>
               </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Achievement card preview modal */}
+      {showCardModal && prog?.passed && (() => {
+        const passDate = prog.completedAt
+          ? new Date(prog.completedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+          : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+        const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName || '')}&regId=${encodeURIComponent(regId)}`;
+        return (
+          <div onClick={() => setShowCardModal(false)}
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+            <div onClick={e => e.stopPropagation()}
+              style={{ background: '#fff', borderRadius: 12, padding: 24, width: 640, maxWidth: 'calc(100vw - 32px)', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                <div style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A' }}>Your Achievement Card</div>
+                <button onClick={() => setShowCardModal(false)} style={{ background: 'none', border: 'none', fontSize: 18, color: '#6B7280', cursor: 'pointer', lineHeight: 1 }}>&#10005;</button>
+              </div>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={cardImgUrl} alt="Achievement Card" style={{ width: '100%', borderRadius: 8, border: '1px solid #E5E7EB', marginBottom: 12 }} />
+              <a href={cardImgUrl} download="FMP-Achievement.png"
+                style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: '12px 16px', background: '#1F3864', color: '#fff', borderRadius: 8, fontSize: 14, fontWeight: 600, textDecoration: 'none', marginBottom: 8 }}>
+                Download Achievement Card
+              </a>
+              <button onClick={() => setShowCardModal(false)}
+                style={{ width: '100%', padding: '10px', background: 'none', border: 'none', color: '#9CA3AF', fontSize: 13, cursor: 'pointer' }}>
+                Close
+              </button>
             </div>
           </div>
         );

@@ -319,6 +319,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
               isWatched={completedWatchKeys?.has(tk)}
               isInProgress={inProgressWatchKeys?.has(tk)}
               courseName={course.title}
+              studentName={studentName}
             />
           );
         })}

@@ -1,12 +1,28 @@
 import { ImageResponse } from 'next/og';
 import { NextRequest } from 'next/server';
+import { getServerClient } from '@/src/lib/shared/supabase';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const session = searchParams.get('session') || 'Assessment Passed';
-  const score   = searchParams.get('score') || '100';
-  const date    = searchParams.get('date') || '';
-  const course  = searchParams.get('course') || '3-Statement Financial Modeling';
+  const session     = searchParams.get('session') || 'Assessment Passed';
+  const score       = searchParams.get('score') || '100';
+  const date        = searchParams.get('date') || '';
+  const course      = searchParams.get('course') || '3-Statement Financial Modeling';
+  const studentName = searchParams.get('name') || '';
+  const regId       = searchParams.get('regId') || '';
+
+  // Fetch real logo from CMS
+  let logoUrl = '';
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('cms_content')
+      .select('value')
+      .eq('section', 'header_settings')
+      .eq('key', 'logo_url')
+      .maybeSingle();
+    logoUrl = data?.value || '';
+  } catch { /* use fallback */ }
 
   return new ImageResponse(
     (
@@ -29,12 +45,19 @@ export async function GET(req: NextRequest) {
           borderBottom: '1px solid rgba(255,255,255,0.08)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <div style={{
-              width: 44, height: 44, borderRadius: 10, background: '#2EAA4A',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: 22, fontWeight: 900, color: '#fff',
-            }}>FMP</div>
-            <span style={{ fontSize: 20, fontWeight: 800, color: '#ffffff', letterSpacing: '0.3px' }}>Financial Modeler Pro</span>
+            {logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={logoUrl} alt="FMP" style={{ height: 40, width: 'auto' }} />
+            ) : (
+              <div style={{
+                width: 44, height: 44, borderRadius: 10, background: '#2EAA4A',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 16, fontWeight: 900, color: '#fff',
+              }}>FMP</div>
+            )}
+            {!logoUrl && (
+              <span style={{ fontSize: 20, fontWeight: 800, color: '#ffffff', letterSpacing: '0.3px' }}>Financial Modeler Pro</span>
+            )}
           </div>
           <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.5px' }}>learn.financialmodelerpro.com</span>
         </div>
@@ -56,18 +79,29 @@ export async function GET(req: NextRequest) {
               <span style={{ fontSize: 15, fontWeight: 800, color: '#C9A84C', letterSpacing: '1.5px', textTransform: 'uppercase' as const }}>Assessment Passed</span>
             </div>
 
-            <div style={{ fontSize: 36, fontWeight: 800, color: '#ffffff', lineHeight: 1.25, marginBottom: 14, maxWidth: 560 }}>
+            <div style={{ fontSize: 36, fontWeight: 800, color: '#ffffff', lineHeight: 1.25, marginBottom: 10, maxWidth: 560 }}>
               {session}
             </div>
 
-            <div style={{ fontSize: 18, color: 'rgba(255,255,255,0.55)', marginBottom: 24, lineHeight: 1.4 }}>
+            <div style={{ fontSize: 18, color: 'rgba(255,255,255,0.55)', marginBottom: 16, lineHeight: 1.4 }}>
               {course}
             </div>
+
+            {studentName && (
+              <div style={{ fontSize: 20, fontWeight: 700, color: 'rgba(255,255,255,0.8)', marginBottom: 16 }}>
+                {studentName}
+              </div>
+            )}
 
             <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
               {date && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>
                   <span>📅</span> <span>{date}</span>
+                </div>
+              )}
+              {regId && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>
+                  <span>🪪</span> <span>{regId}</span>
                 </div>
               )}
             </div>

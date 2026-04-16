@@ -913,7 +913,10 @@ export default function AssessmentPage() {
         {passed && (() => {
           const passDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
           const courseName = courseId === 'bvm' ? 'Business Valuation Modeling' : '3-Statement Financial Modeling';
-          const shareUrl = `${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training/assessment/${encodeURIComponent(tabKey)}?score=${result.score}&session=${encodeURIComponent(sessionName)}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}`;
+          const sess = getTrainingSession();
+          const regIdVal = sess?.registrationId || '';
+          const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionName)}&score=${result.score}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}&regId=${encodeURIComponent(regIdVal)}`;
+          const shareUrl = `${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training/assessment/${encodeURIComponent(tabKey)}?score=${result.score}&session=${encodeURIComponent(sessionName)}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}&regId=${encodeURIComponent(regIdVal)}`;
           const shareText = `🏆 I just passed ${sessionName} with ${result.score}% on Financial Modeler Pro!\n\n${shareUrl}`;
           return (
             <div style={{ maxWidth: 780, margin: '0 auto 32px', padding: '0 24px' }}>
@@ -924,13 +927,13 @@ export default function AssessmentPage() {
                 <div style={{ marginBottom: 12 }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={`/api/training/achievement-image?session=${encodeURIComponent(sessionName)}&score=${result.score}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}`}
+                    src={cardImgUrl}
                     alt="Your Achievement Card"
                     style={{ width: '100%', maxWidth: 600, borderRadius: 12, border: '1px solid #E5E7EB', display: 'block', margin: '0 auto' }}
                   />
                 </div>
                 <div style={{ marginBottom: 16, textAlign: 'center' }}>
-                  <a href={`/api/training/achievement-image?session=${encodeURIComponent(sessionName)}&score=${result.score}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}`}
+                  <a href={cardImgUrl}
                     download="FMP-Achievement.png"
                     style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 24px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, fontSize: 14, fontWeight: 600, color: '#374151', textDecoration: 'none' }}>
                     Download Achievement Card
