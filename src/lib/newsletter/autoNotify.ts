@@ -87,13 +87,20 @@ export async function sendAutoNewsletter(
 
     if (existing) return;
 
-    // 3. Get subscribers
+    // 3. Get subscribers (deduplicated by email when target is "all")
     const targetHub = setting.target_hub;
     let subQuery = sb.from('newsletter_subscribers').select('email, hub, unsubscribe_token').eq('status', 'active');
     if (targetHub !== 'all') subQuery = subQuery.eq('hub', targetHub);
-    const { data: subscribers } = await subQuery;
+    const { data: rawSubs } = await subQuery;
 
-    if (!subscribers || subscribers.length === 0) return;
+    // Deduplicate: one email per person
+    const seen = new Map<string, typeof rawSubs extends (infer T)[] | null ? T : never>();
+    for (const sub of (rawSubs ?? [])) {
+      if (!seen.has(sub.email)) seen.set(sub.email, sub);
+    }
+    const subscribers = Array.from(seen.values());
+
+    if (subscribers.length === 0) return;
 
     // 4. Generate email content
     const { subject, body } = generateEmail(eventType, contentData);

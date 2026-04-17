@@ -62,13 +62,13 @@ export function NewsletterSubscribeForm() {
           <div style={checkboxStyle(hubs.has('training'))}>
             {hubs.has('training') && <span style={{ color: '#fff', fontSize: 8, fontWeight: 800, lineHeight: 1 }}>✓</span>}
           </div>
-          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Training</span>
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Training Hub</span>
         </label>
         <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }} onClick={() => toggleHub('modeling')}>
           <div style={checkboxStyle(hubs.has('modeling'))}>
             {hubs.has('modeling') && <span style={{ color: '#fff', fontSize: 8, fontWeight: 800, lineHeight: 1 }}>✓</span>}
           </div>
-          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Modeling</span>
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Modeling Hub</span>
         </label>
       </div>
       <div style={{ display: 'flex', gap: 4 }}>
