@@ -8,6 +8,8 @@ import type { Area } from 'react-easy-crop';
 import {
   LayoutDashboard, BookOpen, Lock, Video, Award, Medal,
   FileText, User, LogOut, ChevronLeft, ChevronRight, ArrowLeft, Star,
+  Flame, Zap, Target, Rocket, Trophy, Timer, Footprints, Sparkles,
+  Eye, Download, X,
 } from 'lucide-react';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training/training-session';
 import { useInactivityLogout } from '@/src/hooks/useInactivityLogout';
@@ -32,16 +34,33 @@ import { ShareExperienceModal } from '@/src/components/shared/ShareExperienceMod
 import { LiveSessionsContent } from '@/src/components/training/dashboard/LiveSessionsContent';
 
 // ── Badge metadata ─────────────────────────────────────────────────────────────
-const BADGE_META: Record<string, { icon: string; label: string; desc: string }> = {
-  first_step:    { icon: '\u{1F463}', label: 'First Step',    desc: 'Passed your first session' },
-  on_fire:       { icon: '\u{1F525}', label: 'On Fire',       desc: 'Passed 3 sessions' },
-  unstoppable:   { icon: '\u{26A1}',  label: 'Unstoppable',   desc: '5-day streak' },
-  halfway:       { icon: '\u{1F3AF}', label: 'Halfway',       desc: 'Passed 9 sessions' },
-  almost_there:  { icon: '\u{1F680}', label: 'Almost There',  desc: 'Passed 15 sessions' },
-  certified:     { icon: '\u{1F3C6}', label: 'Certified',     desc: 'All sessions completed' },
-  perfect_score: { icon: '\u{1F4AF}', label: 'Perfect Score', desc: 'Scored 100% on a session' },
-  speed_runner:  { icon: '\u{26A1}',  label: 'Speed Runner',  desc: 'Completed quickly' },
+type LucideIcon = typeof Flame;
+interface BadgeMeta { Icon: LucideIcon; bg: string; fg: string; label: string; desc: string }
+const BADGE_META: Record<string, BadgeMeta> = {
+  first_step:    { Icon: Footprints, bg: '#DCFCE7', fg: '#16A34A', label: 'First Step',    desc: 'Passed your first session' },
+  on_fire:       { Icon: Flame,      bg: '#FFF7ED', fg: '#EA580C', label: 'On Fire',       desc: 'Passed 3 sessions' },
+  unstoppable:   { Icon: Zap,        bg: '#FEF9C3', fg: '#CA8A04', label: 'Unstoppable',   desc: '5-day streak' },
+  halfway:       { Icon: Target,     bg: '#DBEAFE', fg: '#2563EB', label: 'Halfway',       desc: 'Passed 9 sessions' },
+  almost_there:  { Icon: Rocket,     bg: '#F3E8FF', fg: '#9333EA', label: 'Almost There',  desc: 'Passed 15 sessions' },
+  certified:     { Icon: Trophy,     bg: '#FEF3C7', fg: '#B45309', label: 'Certified',     desc: 'All sessions completed' },
+  perfect_score: { Icon: Sparkles,   bg: '#D1FAE5', fg: '#059669', label: 'Perfect Score', desc: 'Scored 100% on a session' },
+  speed_runner:  { Icon: Timer,      bg: '#CFFAFE', fg: '#0891B2', label: 'Speed Runner',  desc: 'Completed quickly' },
 };
+
+function BadgeIcon({ meta, size = 48, locked }: { meta: BadgeMeta; size?: number; locked?: boolean }) {
+  const iconSize = Math.round(size * 0.5);
+  return (
+    <div style={{
+      width: size, height: size, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: locked ? '#F3F4F6' : meta.bg,
+      filter: locked ? 'grayscale(1)' : undefined,
+      opacity: locked ? 0.4 : 1,
+      margin: '0 auto',
+    }}>
+      <meta.Icon size={iconSize} color={locked ? '#9CA3AF' : meta.fg} strokeWidth={2.2} />
+    </div>
+  );
+}
 
 // ── Live session type ──────────────────────────────────────────────────────────
 interface LiveSession {
@@ -98,6 +117,7 @@ export default function TrainingDashboardPage() {
   const [points, setPoints]                       = useState(0);
   const [badges, setBadges]                       = useState<{ badge_key: string; earned_at: string }[]>([]);
   const [newBadgeToast, setNewBadgeToast]         = useState('');
+  const [badgePreview, setBadgePreview]           = useState<{ url: string; label: string } | null>(null);
   // notes
   const [notes, setNotes]                         = useState<Record<string, string>>({});
   // feedback
@@ -1308,6 +1328,7 @@ export default function TrainingDashboardPage() {
                     <div className="dash-badges-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
                       {certificates.map(cert => {
                         const badgeImgUrl = cert.badgeUrl || '';
+                        const courseLabel = cert.course === '3sfm' ? '3SFM' : cert.course.toUpperCase();
                         const learnUrl = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com') : '';
                         const verifyUrl = cert.certificateId ? `${learnUrl}/verify/${cert.certificateId}` : (cert.verificationUrl ?? '');
                         const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(verifyUrl)}`;
@@ -1316,20 +1337,26 @@ export default function TrainingDashboardPage() {
                             <div style={{ width: 80, height: 80, borderRadius: '50%', margin: '0 auto 10px', overflow: 'hidden', background: '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #C9A84C' }}>
                               {badgeImgUrl ? (
                                 // eslint-disable-next-line @next/next/no-img-element
-                                <img src={badgeImgUrl} alt={`${cert.course} Badge`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                <img src={badgeImgUrl} alt={`${courseLabel} Badge`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                               ) : (
                                 <span style={{ fontSize: 28, fontWeight: 800, color: '#C9A84C' }}>{cert.course.slice(0, 2).toUpperCase()}</span>
                               )}
                             </div>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: '#0D2E5A', marginBottom: 2 }}>{cert.course.toUpperCase()} Badge</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: '#0D2E5A', marginBottom: 2 }}>{courseLabel} Certified</div>
                             <div style={{ fontSize: 10, color: '#9CA3AF', marginBottom: 10 }}>
                               Earned {cert.issuedAt ? new Date(cert.issuedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : ''}
                             </div>
                             <div style={{ display: 'flex', gap: 6, justifyContent: 'center', flexWrap: 'wrap' }}>
                               {badgeImgUrl && (
+                                <button onClick={() => setBadgePreview({ url: badgeImgUrl, label: `${courseLabel} Badge` })}
+                                  style={{ padding: '5px 10px', borderRadius: 6, background: '#F3F4F6', color: '#374151', fontSize: 10, fontWeight: 700, border: '1px solid #E5E7EB', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                  <Eye size={11} /> Preview
+                                </button>
+                              )}
+                              {badgeImgUrl && (
                                 <a href={`/api/training/badges/download?certId=${encodeURIComponent(cert.certificateId)}`} target="_blank" rel="noopener noreferrer"
                                   style={{ padding: '5px 10px', borderRadius: 6, background: '#0D2E5A', color: '#fff', fontSize: 10, fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                                  <Award size={11} /> Download
+                                  <Download size={11} /> Download
                                 </a>
                               )}
                               <a href={linkedInUrl} target="_blank" rel="noopener noreferrer"
@@ -1356,7 +1383,7 @@ export default function TrainingDashboardPage() {
                         if (!meta) return null;
                         return (
                           <div key={b.badge_key} style={{ textAlign: 'center', padding: '14px 8px', borderRadius: 10, background: '#F9FAFB', border: '1px solid #F3F4F6' }}>
-                            <div style={{ fontSize: 32, marginBottom: 6 }}>{meta.icon}</div>
+                            <div style={{ marginBottom: 6 }}><BadgeIcon meta={meta} /></div>
                             <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 2 }}>{meta.label}</div>
                             <div style={{ fontSize: 10, color: '#9CA3AF' }}>{meta.desc}</div>
                             <div style={{ fontSize: 9, color: '#D1D5DB', marginTop: 4 }}>
@@ -1376,12 +1403,11 @@ export default function TrainingDashboardPage() {
                   {badges.length < Object.keys(BADGE_META).length && (
                     <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 8, background: '#F9FAFB', border: '1px solid #F3F4F6' }}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Locked Badges</div>
-                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                         {Object.entries(BADGE_META).filter(([key]) => !badges.some(b => b.badge_key === key)).map(([key, meta]) => (
-                          <span key={key} title={`${meta.label}: ${meta.desc}`}
-                            style={{ fontSize: 22, opacity: 0.3, cursor: 'default', filter: 'grayscale(1)' }}>
-                            {meta.icon}
-                          </span>
+                          <div key={key} title={`${meta.label}: ${meta.desc}`} style={{ cursor: 'default' }}>
+                            <BadgeIcon meta={meta} size={32} locked />
+                          </div>
                         ))}
                       </div>
                     </div>
@@ -1545,6 +1571,20 @@ export default function TrainingDashboardPage() {
           </div>
         );
       })()}
+
+      {/* ── Badge Preview Modal ──────────────────────────────────────────── */}
+      {badgePreview && (
+        <div onClick={() => setBadgePreview(null)} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, padding: 24, maxWidth: 480, width: '100%', position: 'relative', textAlign: 'center' }}>
+            <button onClick={() => setBadgePreview(null)} style={{ position: 'absolute', top: 12, right: 12, background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}>
+              <X size={20} />
+            </button>
+            <h3 style={{ fontSize: 16, fontWeight: 700, color: '#0D2E5A', marginBottom: 16 }}>{badgePreview.label}</h3>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={badgePreview.url} alt={badgePreview.label} style={{ width: '100%', maxWidth: 360, borderRadius: 12, border: '1px solid #E5E7EB' }} />
+          </div>
+        </div>
+      )}
 
       {/* ── Share Modal ─────────────────────────────────────────────────────── */}
       {shareModal && (
