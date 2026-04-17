@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { isHtml } from '@/src/lib/shared/htmlUtils';
 
 interface Props {
   label: string;
@@ -32,16 +33,19 @@ export function FounderExpand({ label, longBio, experience, philosophy, name, ph
               {longBio && (
                 <div style={{ marginBottom:32 }}>
                   <h3 style={{ fontSize:18, fontWeight:800, color:'#fff', marginBottom:16 }}>Background</h3>
-                  {longBio.split(/\n\n|\n/).filter(p => p.trim()).map((para, i) => (
-                    <p key={i} style={{ fontSize:14, color:'rgba(255,255,255,0.85)', lineHeight:1.8, marginBottom:16 }}>{para.trim()}</p>
-                  ))}
+                  {isHtml(longBio)
+                    ? <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: longBio }} style={{ fontSize:14, color:'rgba(255,255,255,0.85)', lineHeight:1.8 }} />
+                    : longBio.split(/\n\n|\n/).filter(p => p.trim()).map((para, i) => (
+                        <p key={i} style={{ fontSize:14, color:'rgba(255,255,255,0.85)', lineHeight:1.8, marginBottom:16 }}>{para.trim()}</p>
+                      ))
+                  }
                 </div>
               )}
               {philosophy && (
                 <div style={{ padding:24, background:'rgba(0,0,0,0.15)', borderRadius:10, marginBottom:32 }}>
                   <h3 style={{ fontSize:16, fontWeight:800, color:'#fff', marginBottom:12 }}>Modeling Philosophy</h3>
                   <blockquote style={{ borderLeft:'3px solid #1B4F8A', paddingLeft:20, margin:0, fontSize:15, color:'rgba(255,255,255,0.6)', lineHeight:1.8, fontStyle:'italic' }}>
-                    &ldquo;{philosophy}&rdquo;
+                    {isHtml(philosophy) ? <span dangerouslySetInnerHTML={{ __html: `&ldquo;${philosophy}&rdquo;` }} /> : <>&ldquo;{philosophy}&rdquo;</>}
                   </blockquote>
                   <div style={{ marginTop:12, fontSize:12, color:'rgba(255,255,255,0.35)' }}>- {name}</div>
                 </div>

@@ -3,11 +3,8 @@
  * Detects HTML and renders via dangerouslySetInnerHTML, or falls back to plain text paragraphs.
  */
 
-const HTML_RE = /<[a-z][\s\S]*?>/i;
-
-export function isHtml(text: string): boolean {
-  return HTML_RE.test(text);
-}
+import { isHtml } from '@/src/lib/shared/htmlUtils';
+export { isHtml };
 
 interface CmsTextProps {
   text: string;
