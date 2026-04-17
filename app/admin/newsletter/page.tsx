@@ -1,0 +1,454 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { RichTextEditor } from '@/src/components/admin/RichTextEditor';
+
+const NAVY = '#0D2E5A';
+
+interface Subscriber {
+  id: string;
+  email: string;
+  hub: string;
+  status: string;
+  subscribed_at: string;
+  unsubscribed_at: string | null;
+}
+
+interface Campaign {
+  id: string;
+  subject: string;
+  body: string;
+  target_hub: string;
+  status: string;
+  sent_count: number;
+  failed_count: number;
+  created_at: string;
+  sent_at: string | null;
+  created_by: string;
+}
+
+interface Stats {
+  totalActive: number;
+  trainingActive: number;
+  modelingActive: number;
+  unsubscribed: number;
+}
+
+// ── Stat Card ────────────────────────────────────────────────────────────────
+function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: '16px 20px', flex: '1 1 140px', minWidth: 120 }}>
+      <div style={{ fontSize: 24, fontWeight: 800, color }}>{value.toLocaleString()}</div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: '#9CA3AF', marginTop: 2 }}>{label}</div>
+    </div>
+  );
+}
+
+// ── Hub Badge ────────────────────────────────────────────────────────────────
+function HubBadge({ hub }: { hub: string }) {
+  const bg = hub === 'training' ? '#DCFCE7' : hub === 'modeling' ? '#DBEAFE' : '#F3F4F6';
+  const fg = hub === 'training' ? '#166534' : hub === 'modeling' ? '#1E40AF' : '#374151';
+  return <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: bg, color: fg }}>{hub}</span>;
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const isActive = status === 'active';
+  return (
+    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: isActive ? '#DCFCE7' : '#FEE2E2', color: isActive ? '#166534' : '#991B1B' }}>
+      {status}
+    </span>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+export default function AdminNewsletterPage() {
+  const [tab, setTab] = useState<'subscribers' | 'compose' | 'campaigns'>('subscribers');
+
+  return (
+    <div style={{ display: 'flex', minHeight: '100vh', background: '#F9FAFB' }}>
+      <CmsAdminNav />
+      <div style={{ flex: 1, padding: '32px 40px', maxWidth: 1100 }}>
+        <h1 style={{ fontSize: 22, fontWeight: 800, color: NAVY, marginBottom: 24 }}>Newsletter</h1>
+
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '2px solid #E5E7EB', paddingBottom: 0 }}>
+          {(['subscribers', 'compose', 'campaigns'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)} style={{
+              padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none',
+              background: tab === t ? '#fff' : 'transparent', color: tab === t ? NAVY : '#9CA3AF',
+              borderBottom: tab === t ? `2px solid ${NAVY}` : '2px solid transparent',
+              borderRadius: '8px 8px 0 0', marginBottom: -2, textTransform: 'capitalize',
+            }}>
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {tab === 'subscribers' && <SubscribersTab />}
+        {tab === 'compose' && <ComposeTab onSent={() => setTab('campaigns')} />}
+        {tab === 'campaigns' && <CampaignsTab />}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TAB 1: SUBSCRIBERS
+// ═══════════════════════════════════════════════════════════════════════════════
+function SubscribersTab() {
+  const [subscribers, setSubscribers] = useState<Subscriber[]>([]);
+  const [stats, setStats] = useState<Stats>({ totalActive: 0, trainingActive: 0, modelingActive: 0, unsubscribed: 0 });
+  const [hub, setHub] = useState('all');
+  const [status, setStatus] = useState('active');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const limit = 50;
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    const params = new URLSearchParams({ hub, status, search, page: String(page), limit: String(limit) });
+    const res = await fetch(`/api/admin/newsletter/subscribers?${params}`);
+    const data = await res.json();
+    setSubscribers(data.subscribers ?? []);
+    setTotal(data.total ?? 0);
+    setStats(data.stats ?? stats);
+    setLoading(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hub, status, search, page]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const totalPages = Math.ceil(total / limit);
+
+  const selectStyle: React.CSSProperties = { padding: '7px 12px', borderRadius: 6, border: '1px solid #E5E7EB', fontSize: 13, background: '#fff', color: '#374151' };
+
+  return (
+    <>
+      {/* Stats */}
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 20 }}>
+        <StatCard label="Total Active" value={stats.totalActive} color="#2EAA4A" />
+        <StatCard label="Training Hub" value={stats.trainingActive} color="#166534" />
+        <StatCard label="Modeling Hub" value={stats.modelingActive} color="#1E40AF" />
+        <StatCard label="Unsubscribed" value={stats.unsubscribed} color="#9CA3AF" />
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 16, flexWrap: 'wrap' }}>
+        <select value={hub} onChange={e => { setHub(e.target.value); setPage(1); }} style={selectStyle}>
+          <option value="all">All Hubs</option>
+          <option value="training">Training</option>
+          <option value="modeling">Modeling</option>
+        </select>
+        <select value={status} onChange={e => { setStatus(e.target.value); setPage(1); }} style={selectStyle}>
+          <option value="active">Active</option>
+          <option value="unsubscribed">Unsubscribed</option>
+          <option value="all">All Status</option>
+        </select>
+        <input
+          type="text"
+          placeholder="Search email..."
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1); }}
+          style={{ ...selectStyle, minWidth: 200 }}
+        />
+        <a
+          href={`/api/admin/newsletter/export?hub=${hub}&status=${status}`}
+          style={{ padding: '7px 14px', borderRadius: 6, background: NAVY, color: '#fff', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}
+        >
+          Export CSV
+        </a>
+        <span style={{ fontSize: 12, color: '#9CA3AF', marginLeft: 'auto' }}>{total} result{total !== 1 ? 's' : ''}</span>
+      </div>
+
+      {/* Table */}
+      <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
+              <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 600, color: '#6B7280' }}>Email</th>
+              <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 600, color: '#6B7280' }}>Hub</th>
+              <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 600, color: '#6B7280' }}>Status</th>
+              <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 600, color: '#6B7280' }}>Subscribed</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={4} style={{ padding: 24, textAlign: 'center', color: '#9CA3AF' }}>Loading...</td></tr>
+            ) : subscribers.length === 0 ? (
+              <tr><td colSpan={4} style={{ padding: 24, textAlign: 'center', color: '#9CA3AF' }}>No subscribers found.</td></tr>
+            ) : subscribers.map(s => (
+              <tr key={s.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                <td style={{ padding: '10px 16px', color: '#374151' }}>{s.email}</td>
+                <td style={{ padding: '10px 16px' }}><HubBadge hub={s.hub} /></td>
+                <td style={{ padding: '10px 16px' }}><StatusBadge status={s.status} /></td>
+                <td style={{ padding: '10px 16px', color: '#9CA3AF', fontSize: 12 }}>
+                  {new Date(s.subscribed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 8, marginTop: 16 }}>
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+            style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #E5E7EB', background: '#fff', cursor: page === 1 ? 'default' : 'pointer', opacity: page === 1 ? 0.4 : 1, fontSize: 12 }}>
+            Previous
+          </button>
+          <span style={{ padding: '6px 12px', fontSize: 12, color: '#6B7280' }}>Page {page} of {totalPages}</span>
+          <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+            style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #E5E7EB', background: '#fff', cursor: page === totalPages ? 'default' : 'pointer', opacity: page === totalPages ? 0.4 : 1, fontSize: 12 }}>
+            Next
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TAB 2: COMPOSE
+// ═══════════════════════════════════════════════════════════════════════════════
+function ComposeTab({ onSent }: { onSent: () => void }) {
+  const [subject, setSubject] = useState('');
+  const [body, setBody] = useState('');
+  const [targetHub, setTargetHub] = useState('all');
+  const [preview, setPreview] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [recipientCount, setRecipientCount] = useState<number | null>(null);
+  const [confirmSend, setConfirmSend] = useState(false);
+
+  // Fetch subscriber count for target
+  useEffect(() => {
+    const params = new URLSearchParams({ hub: targetHub, status: 'active' });
+    fetch(`/api/admin/newsletter/subscribers?${params}&limit=1`)
+      .then(r => r.json())
+      .then(d => setRecipientCount(d.stats?.totalActive ?? 0))
+      .catch(() => {});
+  }, [targetHub]);
+
+  const recipientLabel = targetHub === 'all'
+    ? recipientCount ?? '...'
+    : recipientCount !== null
+      ? (targetHub === 'training' ? recipientCount : recipientCount)
+      : '...';
+
+  // Re-fetch count properly per hub
+  useEffect(() => {
+    const params = new URLSearchParams({ hub: targetHub, status: 'active', limit: '1' });
+    fetch(`/api/admin/newsletter/subscribers?${params}`)
+      .then(r => r.json())
+      .then(d => {
+        if (targetHub === 'all') setRecipientCount(d.stats?.totalActive ?? 0);
+        else if (targetHub === 'training') setRecipientCount(d.stats?.trainingActive ?? 0);
+        else setRecipientCount(d.stats?.modelingActive ?? 0);
+      })
+      .catch(() => {});
+  }, [targetHub]);
+
+  async function handleSend() {
+    setSending(true);
+    try {
+      const res = await fetch('/api/admin/newsletter/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject, body, targetHub }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        onSent();
+      } else {
+        alert(data.error ?? 'Failed to send');
+      }
+    } catch {
+      alert('Failed to send newsletter');
+    } finally {
+      setSending(false);
+      setConfirmSend(false);
+    }
+  }
+
+  const selectStyle: React.CSSProperties = { padding: '8px 14px', borderRadius: 6, border: '1px solid #E5E7EB', fontSize: 13, background: '#fff', color: '#374151' };
+
+  return (
+    <div style={{ maxWidth: 800 }}>
+      {/* Subject */}
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 6 }}>Subject</label>
+        <input
+          type="text"
+          value={subject}
+          onChange={e => setSubject(e.target.value)}
+          placeholder="Newsletter subject line..."
+          style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid #E5E7EB', fontSize: 14, color: '#111827', boxSizing: 'border-box' }}
+        />
+      </div>
+
+      {/* Body */}
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 6 }}>Body</label>
+        <RichTextEditor value={body} onChange={setBody} />
+      </div>
+
+      {/* Target hub */}
+      <div style={{ marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: '#6B7280' }}>Send to:</label>
+        <select value={targetHub} onChange={e => setTargetHub(e.target.value)} style={selectStyle}>
+          <option value="all">All Subscribers</option>
+          <option value="training">Training Hub</option>
+          <option value="modeling">Modeling Hub</option>
+        </select>
+        <span style={{ fontSize: 12, color: '#9CA3AF' }}>
+          This will be sent to <strong style={{ color: '#374151' }}>{recipientLabel}</strong> subscriber{recipientCount !== 1 ? 's' : ''}
+        </span>
+      </div>
+
+      {/* Actions */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        <button onClick={() => setPreview(true)} disabled={!body}
+          style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>
+          Preview
+        </button>
+        <button
+          onClick={() => setConfirmSend(true)}
+          disabled={!subject.trim() || !body.trim() || sending}
+          style={{
+            padding: '10px 20px', borderRadius: 8, border: 'none', background: '#2EAA4A', color: '#fff',
+            fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: !subject.trim() || !body.trim() || sending ? 0.5 : 1,
+          }}
+        >
+          {sending ? 'Sending...' : 'Send Newsletter'}
+        </button>
+      </div>
+
+      {/* Preview modal */}
+      {preview && (
+        <div onClick={() => setPreview(false)} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, padding: 24, maxWidth: 640, width: '100%', maxHeight: '80vh', overflow: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: NAVY, margin: 0 }}>Email Preview</h3>
+              <button onClick={() => setPreview(false)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#6B7280' }}>✕</button>
+            </div>
+            <div style={{ padding: '12px 16px', background: '#F9FAFB', borderRadius: 8, marginBottom: 12 }}>
+              <div style={{ fontSize: 12, color: '#6B7280' }}>Subject:</div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>{subject || '(no subject)'}</div>
+            </div>
+            <div style={{ border: '1px solid #E5E7EB', borderRadius: 8, padding: 20 }} dangerouslySetInnerHTML={{ __html: body }} />
+          </div>
+        </div>
+      )}
+
+      {/* Confirm send dialog */}
+      {confirmSend && (
+        <div onClick={() => setConfirmSend(false)} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, padding: 28, maxWidth: 400, width: '100%', textAlign: 'center' }}>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: NAVY, marginBottom: 12 }}>Confirm Send</h3>
+            <p style={{ fontSize: 14, color: '#6B7280', marginBottom: 20 }}>
+              Send &quot;{subject}&quot; to <strong>{recipientLabel}</strong> subscriber{recipientCount !== 1 ? 's' : ''}?
+            </p>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button onClick={() => setConfirmSend(false)} style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>
+                Cancel
+              </button>
+              <button onClick={handleSend} disabled={sending} style={{ padding: '10px 20px', borderRadius: 8, border: 'none', background: '#DC2626', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}>
+                {sending ? 'Sending...' : 'Confirm Send'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TAB 3: CAMPAIGNS
+// ═══════════════════════════════════════════════════════════════════════════════
+function CampaignsTab() {
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [viewCampaign, setViewCampaign] = useState<Campaign | null>(null);
+
+  useEffect(() => {
+    fetch('/api/admin/newsletter/campaigns')
+      .then(r => r.json())
+      .then(d => { setCampaigns(d.campaigns ?? []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  const statusColor: Record<string, { bg: string; fg: string }> = {
+    draft: { bg: '#F3F4F6', fg: '#6B7280' },
+    sending: { bg: '#FEF3C7', fg: '#92400E' },
+    sent: { bg: '#DCFCE7', fg: '#166534' },
+    failed: { bg: '#FEE2E2', fg: '#991B1B' },
+  };
+
+  return (
+    <>
+      <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+          <thead>
+            <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
+              <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 600, color: '#6B7280' }}>Subject</th>
+              <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 600, color: '#6B7280' }}>Target</th>
+              <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 600, color: '#6B7280' }}>Status</th>
+              <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 600, color: '#6B7280' }}>Sent</th>
+              <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 600, color: '#6B7280' }}>Failed</th>
+              <th style={{ padding: '10px 16px', textAlign: 'left', fontWeight: 600, color: '#6B7280' }}>Date</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: '#9CA3AF' }}>Loading...</td></tr>
+            ) : campaigns.length === 0 ? (
+              <tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: '#9CA3AF' }}>No campaigns yet.</td></tr>
+            ) : campaigns.map(c => {
+              const sc = statusColor[c.status] ?? statusColor.draft;
+              return (
+                <tr key={c.id} onClick={() => setViewCampaign(c)} style={{ borderBottom: '1px solid #F3F4F6', cursor: 'pointer' }}>
+                  <td style={{ padding: '10px 16px', color: '#374151', fontWeight: 600, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.subject}</td>
+                  <td style={{ padding: '10px 16px' }}><HubBadge hub={c.target_hub} /></td>
+                  <td style={{ padding: '10px 16px' }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: sc.bg, color: sc.fg }}>{c.status}</span>
+                  </td>
+                  <td style={{ padding: '10px 16px', color: '#2EAA4A', fontWeight: 600 }}>{c.sent_count}</td>
+                  <td style={{ padding: '10px 16px', color: c.failed_count > 0 ? '#DC2626' : '#9CA3AF' }}>{c.failed_count}</td>
+                  <td style={{ padding: '10px 16px', color: '#9CA3AF', fontSize: 12 }}>
+                    {c.sent_at ? new Date(c.sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Campaign detail modal */}
+      {viewCampaign && (
+        <div onClick={() => setViewCampaign(null)} style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, padding: 24, maxWidth: 640, width: '100%', maxHeight: '80vh', overflow: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: NAVY, margin: 0 }}>Campaign Details</h3>
+              <button onClick={() => setViewCampaign(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#6B7280' }}>✕</button>
+            </div>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 16, fontSize: 12, color: '#6B7280' }}>
+              <span>Target: <HubBadge hub={viewCampaign.target_hub} /></span>
+              <span>Sent: <strong style={{ color: '#2EAA4A' }}>{viewCampaign.sent_count}</strong></span>
+              <span>Failed: <strong style={{ color: '#DC2626' }}>{viewCampaign.failed_count}</strong></span>
+              <span>By: {viewCampaign.created_by}</span>
+            </div>
+            <div style={{ padding: '12px 16px', background: '#F9FAFB', borderRadius: 8, marginBottom: 12 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>{viewCampaign.subject}</div>
+            </div>
+            <div style={{ border: '1px solid #E5E7EB', borderRadius: 8, padding: 20 }} dangerouslySetInnerHTML={{ __html: viewCampaign.body }} />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

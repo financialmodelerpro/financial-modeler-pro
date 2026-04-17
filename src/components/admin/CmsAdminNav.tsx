@@ -43,6 +43,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Communications',    href: '/admin/training-hub/communications',    icon: '✉️' },
   { label: 'Cohorts',           href: '/admin/training-hub/cohorts',           icon: '👥' },
   { label: 'Training Settings', href: '/admin/training-settings',              icon: '⚙️' },
+  { label: 'Newsletter',         href: '/admin/newsletter',                     icon: '📧' },
   { type: 'divider',            label: 'System' },
   { label: 'Audit Log',         href: '/admin/audit',                          icon: '📋' },
   { label: 'System Health',     href: '/admin/health',                         icon: '❤️' },
