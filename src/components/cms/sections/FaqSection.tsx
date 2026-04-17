@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 
+const HTML_RE = /<[a-z][\s\S]*>/i;
+
 interface Props {
   content: Record<string, unknown>;
   styles: Record<string, unknown>;
@@ -61,9 +63,14 @@ export function FaqSection({ content, styles }: Props) {
                   </span>
                 </button>
                 {isOpen && (
-                  <div style={{ padding: '0 20px 16px', fontSize: 14, color: '#6B7280', lineHeight: 1.7 }}>
-                    {item.answer}
-                  </div>
+                  HTML_RE.test(item.answer) ? (
+                    <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: item.answer }}
+                      style={{ padding: '0 20px 16px', fontSize: 14, color: '#6B7280', lineHeight: 1.7 }} />
+                  ) : (
+                    <div style={{ padding: '0 20px 16px', fontSize: 14, color: '#6B7280', lineHeight: 1.7 }}>
+                      {item.answer}
+                    </div>
+                  )
                 )}
               </div>
             );

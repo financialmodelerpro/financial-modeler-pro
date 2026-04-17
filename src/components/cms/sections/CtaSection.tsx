@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { CmsParagraphs } from './CmsParagraphs';
 
+const HTML_RE = /<[a-z][\s\S]*>/i;
+
 interface Props {
   content: Record<string, unknown>;
   styles: Record<string, unknown>;
@@ -33,7 +35,7 @@ export function CtaSection({ content, styles }: Props) {
           </h2>
         )}
         {v('subtitle') && subtitle && (
-          subtitle.includes('<p>') || subtitle.includes('<h') || subtitle.includes('<strong>') ? (
+          HTML_RE.test(subtitle) ? (
             <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: subtitle }}
               style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', marginBottom: 36, lineHeight: 1.6 }} />
           ) : (

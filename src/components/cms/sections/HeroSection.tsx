@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import { CmsParagraphs } from './CmsParagraphs';
 
+const HTML_RE = /<[a-z][\s\S]*>/i;
+
 interface Props {
   content: Record<string, unknown>;
   styles: Record<string, unknown>;
@@ -47,14 +49,16 @@ export function HeroSection({ content, styles }: Props) {
           </h1>
         )}
         {v('subtitle') && subtitle && (
-          <div style={{
-            fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.6)',
-            lineHeight: 1.7, maxWidth: 560, margin: '0 auto 36px',
-          }}>
-            {subtitle.split(/\n\n|\n/).filter(Boolean).map((para, i) => (
-              <p key={i} style={{ margin: '0 0 14px' }}>{para}</p>
-            ))}
-          </div>
+          HTML_RE.test(subtitle) ? (
+            <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: subtitle }}
+              style={{ fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.6)', lineHeight: 1.7, maxWidth: 560, margin: '0 auto 36px' }} />
+          ) : (
+            <div style={{ fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.6)', lineHeight: 1.7, maxWidth: 560, margin: '0 auto 36px' }}>
+              {subtitle.split(/\n\n|\n/).filter(Boolean).map((para, i) => (
+                <p key={i} style={{ margin: '0 0 14px' }}>{para}</p>
+              ))}
+            </div>
+          )
         )}
         <CmsParagraphs content={content} color="rgba(255,255,255,0.6)" />
         {(v('cta1') && cta1Text.trim() && cta1Url) || (v('cta2') && cta2Text.trim() && cta2Url) ? (

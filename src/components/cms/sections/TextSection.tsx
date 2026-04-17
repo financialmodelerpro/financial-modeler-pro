@@ -5,6 +5,10 @@ interface Props {
   styles: Record<string, unknown>;
 }
 
+function isHtml(text: string): boolean {
+  return /<[a-z][\s\S]*>/i.test(text);
+}
+
 export function TextSection({ content, styles }: Props) {
   const v = (k: string) => content[`${k}_visible`] !== false;
   const body    = content.body as string ?? '';
@@ -14,6 +18,7 @@ export function TextSection({ content, styles }: Props) {
   const align   = (styles.textAlign as string) ?? 'left';
   const py      = (styles.paddingY as string) ?? 'clamp(48px,7vw,80px)';
   const maxW    = (styles.maxWidth as string) ?? '800px';
+  const bodyAlign = (content.body_align as string) || align;
 
   return (
     <section style={{
@@ -31,11 +36,11 @@ export function TextSection({ content, styles }: Props) {
           </h2>
         )}
         {v('body') && body && (
-          body.includes('<p>') || body.includes('<h') || body.includes('<strong>') || body.includes('<ul>') ? (
+          isHtml(body) ? (
             <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: body }}
-              style={{ fontSize: 15, color, lineHeight: 1.7 }} />
+              style={{ fontSize: 15, color, lineHeight: 1.7, textAlign: bodyAlign as React.CSSProperties['textAlign'] }} />
           ) : (
-            <div style={{ fontSize: 15, color, lineHeight: 1.7 }}>
+            <div style={{ fontSize: 15, color, lineHeight: 1.7, textAlign: bodyAlign as React.CSSProperties['textAlign'] }}>
               {body.split(/\n\n|\n/).filter(Boolean).map((para, i) => (
                 <p key={i} style={{ margin: '0 0 14px' }}>{para}</p>
               ))}
