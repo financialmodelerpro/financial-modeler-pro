@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { DragDropContext, Droppable, Draggable, type DropResult } from '@hello-pangea/dnd';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { RichTextEditor } from '@/src/components/admin/RichTextEditor';
+import { RichTextarea } from '@/src/components/admin/RichTextarea';
 import { MediaPickerButton } from '@/src/components/admin/MediaPicker';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -94,7 +95,7 @@ const WIDTH_OPTIONS = ['100%', '80%', '70%', '60%', '50%', 'auto'] as const;
 const ALIGN_OPTIONS = ['left', 'center', 'right', 'justify'] as const;
 const MINI_SELECT: React.CSSProperties = { padding: '2px 4px', fontSize: 10, borderRadius: 4, border: '1px solid #D1D5DB', background: '#F9FAFB', cursor: 'pointer', outline: 'none' };
 
-function VF({ label, fieldKey, content, onChange, children, showLayout }: {
+function VF({ label, fieldKey, content, onChange, children, showLayout = true }: {
   label: string; fieldKey: string; content: Record<string, unknown>;
   onChange: (c: Record<string, unknown>) => void; children: React.ReactNode; showLayout?: boolean;
 }) {
@@ -176,10 +177,10 @@ function HeroEditor({ content, onChange }: { content: Record<string, unknown>; o
         <input style={IS} value={(content.headline as string) ?? ''} onChange={e => set('headline', e.target.value)} />
       </VF>
       <VF label="Subtitle" fieldKey="subtitle" content={content} onChange={onChange} showLayout>
-        <textarea style={TA} value={(content.subtitle as string) ?? ''} onChange={e => set('subtitle', e.target.value)} />
+        <RichTextarea value={(content.subtitle as string) ?? ''} onChange={v => set('subtitle', v)} />
       </VF>
       <VF label="Power Statement" fieldKey="powerStatement" content={content} onChange={onChange} showLayout>
-        <textarea style={{ ...TA, minHeight: 50 }} value={(content.powerStatement as string) ?? ''} onChange={e => set('powerStatement', e.target.value)} placeholder="Highlighted blockquote line" />
+        <RichTextarea value={(content.powerStatement as string) ?? ''} onChange={v => set('powerStatement', v)} minHeight={50} placeholder="Highlighted blockquote line" />
       </VF>
       <VF label="Soft CTA" fieldKey="softCta" content={content} onChange={onChange} showLayout>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -252,7 +253,7 @@ function TextEditor({ content, onChange }: { content: Record<string, unknown>; o
         <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
       </VF>
       <VF label="Body" fieldKey="body" content={content} onChange={onChange}>
-        <textarea style={{ ...TA, minHeight: 100 }} value={(content.body as string) ?? ''} onChange={e => set('body', e.target.value)} />
+        <RichTextarea value={(content.body as string) ?? ''} onChange={v => set('body', v)} minHeight={100} />
       </VF>
     </>
   );
@@ -315,7 +316,7 @@ function TextImageEditor({ content, onChange }: { content: Record<string, unknow
         <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
       </VF>
       <VF label="Body" fieldKey="body" content={content} onChange={onChange}>
-        <textarea style={{ ...TA, minHeight: 100 }} value={(content.body as string) ?? ''} onChange={e => set('body', e.target.value)} />
+        <RichTextarea value={(content.body as string) ?? ''} onChange={v => set('body', v)} minHeight={100} />
       </VF>
       {/* Audience cards (used by modeling hub "What is" section) */}
       {Array.isArray(content.audience) && (() => {
@@ -485,7 +486,7 @@ function CtaEditor({ content, onChange }: { content: Record<string, unknown>; on
         <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
       </VF>
       <VF label="Subtitle" fieldKey="subtitle" content={content} onChange={onChange}>
-        <textarea style={TA} value={(content.subtitle as string) ?? ''} onChange={e => set('subtitle', e.target.value)} />
+        <RichTextarea value={(content.subtitle as string) ?? ''} onChange={v => set('subtitle', v)} />
       </VF>
       <VF label="Button 1" fieldKey="buttonText" content={content} onChange={onChange}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -740,10 +741,10 @@ function PaceMakersEditor({ content, onChange }: { content: Record<string, unkno
         <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
       </VF>
       <VF label="Description" fieldKey="description" content={content} onChange={onChange}>
-        <textarea style={{ ...TA, minHeight: 80 }} value={(content.description as string) ?? ''} onChange={e => set('description', e.target.value)} />
+        <RichTextarea value={(content.description as string) ?? ''} onChange={v => set('description', v)} minHeight={80} />
       </VF>
       <VF label="Description 2 (optional)" fieldKey="description2" content={content} onChange={onChange}>
-        <textarea style={{ ...TA, minHeight: 60 }} value={(content.description2 as string) ?? ''} onChange={e => set('description2', e.target.value)} placeholder="Optional second paragraph" />
+        <RichTextarea value={(content.description2 as string) ?? ''} onChange={v => set('description2', v)} minHeight={60} placeholder="Optional second paragraph" />
       </VF>
       <VF label="CTA Button" fieldKey="cta_text" content={content} onChange={onChange}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -833,7 +834,7 @@ function FaqEditor({ content, onChange }: { content: Record<string, unknown>; on
             <div style={{ flex: 1 }}><label style={LS}>Question</label><input style={IS} value={item.question} onChange={e => { const n = [...items]; n[i] = { ...n[i], question: e.target.value }; setItems(n); }} /></div>
             <button onClick={() => setItems(items.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11 }}>X</button>
           </div>
-          <label style={LS}>Answer</label><textarea style={{ ...TA, minHeight: 50 }} value={item.answer} onChange={e => { const n = [...items]; n[i] = { ...n[i], answer: e.target.value }; setItems(n); }} />
+          <label style={LS}>Answer</label><RichTextarea value={item.answer} onChange={v => { const n = [...items]; n[i] = { ...n[i], answer: v }; setItems(n); }} minHeight={50} />
         </div>
       ))}
       <button onClick={() => setItems([...items, { question: 'New question?', answer: 'Answer here.' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add FAQ</button>
@@ -1041,7 +1042,7 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
         <div style={{ fontSize:10, color:'#9CA3AF', marginTop:3 }}>Separate with |</div>
       </VF>
       <VF label="Short Bio" fieldKey="bio" content={content} onChange={onChange}>
-        <textarea style={{ ...TA, minHeight: 60 }} value={(content.bio as string) ?? ''} onChange={e => set('bio', e.target.value)} />
+        <RichTextarea value={(content.bio as string) ?? ''} onChange={v => set('bio', v)} minHeight={60} />
       </VF>
       <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
         <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
@@ -1104,10 +1105,10 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
           Show &quot;Read Full Profile&quot; link on home
         </label>
         <VF label="Long Bio" fieldKey="long_bio" content={content} onChange={onChange}>
-          <textarea style={{ ...TA, minHeight: 80 }} value={(content.long_bio as string) ?? ''} onChange={e => set('long_bio', e.target.value)} placeholder="Full background (paragraphs separated by blank lines)" />
+          <RichTextarea value={(content.long_bio as string) ?? ''} onChange={v => set('long_bio', v)} minHeight={80} placeholder="Full background (paragraphs separated by blank lines)" />
         </VF>
         <VF label="Philosophy Quote" fieldKey="philosophy" content={content} onChange={onChange}>
-          <textarea style={{ ...TA, minHeight: 50 }} value={(content.philosophy as string) ?? ''} onChange={e => set('philosophy', e.target.value)} />
+          <RichTextarea value={(content.philosophy as string) ?? ''} onChange={v => set('philosophy', v)} minHeight={50} />
         </VF>
         {/* Projects */}
         {(() => {
@@ -1253,7 +1254,7 @@ function CountdownEditor({ content, onChange }: { content: Record<string, unknow
         <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
       </VF>
       <VF label="Subtitle" fieldKey="subtitle" content={content} onChange={onChange}>
-        <textarea style={TA} value={(content.subtitle as string) ?? ''} onChange={e => set('subtitle', e.target.value)} />
+        <RichTextarea value={(content.subtitle as string) ?? ''} onChange={v => set('subtitle', v)} />
       </VF>
       <label style={{ ...LS, marginTop: 10 }}>Target Date & Time</label><input style={IS} type="datetime-local" value={(content.targetDate as string) ?? ''} onChange={e => set('targetDate', e.target.value)} />
       <VF label="CTA Button" fieldKey="ctaText" content={content} onChange={onChange}>
@@ -1321,7 +1322,7 @@ function ParagraphsEditor({ content, onChange }: { content: Record<string, unkno
       {paragraphs.map((para, i) => (
         <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'start' }}>
           <span style={{ color: '#9CA3AF', fontSize: 11, flexShrink: 0, marginTop: 8 }}>{i + 1}.</span>
-          <textarea style={{ ...TA, flex: 1, minHeight: 50 }} value={para.text} onChange={e => { const n = [...paragraphs]; n[i] = { ...n[i], text: e.target.value }; setParagraphs(n); }} />
+          <div style={{ flex: 1 }}><RichTextarea value={para.text} onChange={v => { const n = [...paragraphs]; n[i] = { ...n[i], text: v }; setParagraphs(n); }} minHeight={50} /></div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0, marginTop: 4 }}>
             <AlignPicker value={para.align} onChange={v => { const n = [...paragraphs]; n[i] = { ...n[i], align: v }; setParagraphs(n); }} />
             <button onClick={() => setParagraphs(paragraphs.filter((_, j) => j !== i))} style={{ padding: '3px 6px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 10 }}>X</button>
