@@ -201,7 +201,7 @@ export function SessionCard({
         ) : prog?.passed ? (
           <>
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#F0FFF4', color: '#15803D', border: '1px solid #BBF7D0', whiteSpace: 'nowrap' }}>
-              ✓ {isFinal ? 'Exam Passed' : 'Assessment Done'}
+              ✓ {isFinal ? 'Final Exam Passed' : 'Assessment Passed'}
             </span>
             <button onClick={() => setShowShareModal(true)}
               style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: 'transparent', color: '#6B7280', border: '1px solid #E5E7EB', cursor: 'pointer', whiteSpace: 'nowrap' }}>

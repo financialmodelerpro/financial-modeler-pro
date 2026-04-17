@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
       expires_at: expiresAt,
     });
 
-    const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'}/reset-password?token=${plainToken}`;
+    const resetUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/reset-password?token=${plainToken}`;
 
     if (process.env.NODE_ENV !== 'production') {
       console.log('[forgot-password] Reset URL:', resetUrl);

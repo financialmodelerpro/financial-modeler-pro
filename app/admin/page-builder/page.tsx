@@ -47,7 +47,7 @@ export default function PageBuilderListPage() {
     ]},
     { key: 'contact', label: 'Contact Page', desc: 'Hero + Text + Embed', sections: [
       { type: 'hero', content: { badge: 'Contact', headline: 'Get in Touch', subtitle: 'We would love to hear from you.' } },
-      { type: 'text', content: { heading: 'Contact Information', body: 'Email us at hello@example.com or use the form below.' } },
+      { type: 'text', content: { heading: 'Contact Information', body: 'Use the form below to get in touch.' } },
       { type: 'embed', content: { heading: 'Send a Message', html: '<!-- Paste your contact form embed code here -->' } },
     ]},
   ];

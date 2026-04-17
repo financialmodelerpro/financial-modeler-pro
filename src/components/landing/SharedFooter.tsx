@@ -60,7 +60,6 @@ export function SharedFooter({
                 ['Modeling Hub',    '/modeling'],
                 ['Training Hub',    '/training'],
                 ['Articles',        '/articles'],
-                ['Launch Platform', '/login'],
               ] as [string, string][]).map(([label, href]) => (
                 <Link key={href} href={href} style={{ display: 'block', fontSize: 13, color: 'rgba(255,255,255,0.5)', textDecoration: 'none', marginBottom: 8 }}>
                   {label}
@@ -76,10 +75,9 @@ export function SharedFooter({
                 Company
               </div>
               {([
-                ['About FMP',  '/about'],
+                ['About Us',   '/about'],
                 ['Founder',    '/about/ahmad-din'],
                 ['Pricing',    '/pricing'],
-                ['Sign In',    '/login'],
               ] as [string, string][]).map(([label, href]) => (
                 <Link key={href} href={href} style={{ display: 'block', fontSize: 13, color: 'rgba(255,255,255,0.5)', textDecoration: 'none', marginBottom: 8 }}>
                   {label}

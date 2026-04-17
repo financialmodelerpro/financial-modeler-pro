@@ -263,7 +263,7 @@ export function CoursePlayerLayout({
       return (
         <Link href={isLoggedIn ? `/training/live-sessions/${currentSessionId}` : `/register?redirect=/training/live-sessions/${currentSessionId}`}
           style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 24px', background: '#2EAA4A', color: '#fff', fontSize: 15, fontWeight: 600, borderRadius: 8, textDecoration: 'none', marginBottom: 24 }}>
-          {isLoggedIn ? 'Register for Session →' : 'Sign Up to Register →'}
+          {isLoggedIn ? 'Register for Session →' : 'Register Free →'}
         </Link>
       );
     }

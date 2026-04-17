@@ -14,7 +14,7 @@ function p(scr: number) { return scr / SCALE; }
 // ── Sample data ───────────────────────────────────────────────────────────────
 const TODAY = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
 const SAMPLE = {
-  name: 'Ahmed Al-Rashidi', id: 'FMP-2024-001', email: 'ahmed@example.com',
+  name: 'Ahmed Al-Rashidi', id: 'FMP-2026-001', email: 'ahmed@example.com',
   course: 'Building a 3-Statement Financial Model', courseShort: '3SFM',
   enrolled: '15 January 2024',
   sessions: [

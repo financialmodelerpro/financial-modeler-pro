@@ -34,7 +34,7 @@ async function emailShell(bannerText: string, body: string): Promise<string> {
   const logoBlock = b.logo_url
     ? `<img src="${b.logo_url}" alt="${b.logo_alt}" width="${b.logo_width}" style="display:block;margin:0 auto;max-width:100%;height:auto;" />`
     : `<span style="font-size:22px;font-weight:700;color:#ffffff;">Financial Modeler Pro</span>
-       <div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:4px;letter-spacing:0.8px;text-transform:uppercase;">Training & Certification Platform</div>`;
+       <div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:4px;letter-spacing:0.8px;text-transform:uppercase;">Structured Modeling. Real-World Finance.</div>`;
 
   return `<!DOCTYPE html>
 <html><head><meta charset="UTF-8"></head>

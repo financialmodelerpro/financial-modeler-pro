@@ -250,7 +250,7 @@ export function Navbar({
               background: '#1B4F8A', color: '#fff', border: 'none', cursor: 'pointer',
             }}
           >
-            Sign In / Sign Up
+            Sign In / Register
             <span style={{ fontSize: 10, opacity: 0.7 }}>{dropdownOpen ? '▲' : '▼'}</span>
           </button>
 

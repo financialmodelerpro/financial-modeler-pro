@@ -51,7 +51,7 @@ export async function baseLayoutBranded(content: string): Promise<string> {
   const logoBlock = b.logo_url
     ? `<img src="${b.logo_url}" alt="${b.logo_alt}" width="${b.logo_width}" style="display:block;margin:0 auto;max-width:100%;height:auto;" />`
     : `<span style="font-size:22px;font-weight:700;color:#ffffff;letter-spacing:0.5px;">Financial Modeler Pro</span>
-       <div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:4px;letter-spacing:0.8px;text-transform:uppercase;">Professional Financial Modeling Platform</div>`;
+       <div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:4px;letter-spacing:0.8px;text-transform:uppercase;">Structured Modeling. Real-World Finance.</div>`;
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -103,7 +103,7 @@ export function baseLayout(content: string): string {
                 Financial Modeler Pro
               </span>
               <div style="font-size:11px;color:rgba(255,255,255,0.55);margin-top:4px;letter-spacing:0.8px;text-transform:uppercase;">
-                Professional Financial Modeling Platform
+                Structured Modeling. Real-World Finance.
               </div>
             </td>
           </tr>

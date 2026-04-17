@@ -474,7 +474,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
           title = '🎓 Share Your Certificate';
           body = 'Congratulations! Add your certificate to LinkedIn to showcase your skills.';
           actionUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(courseCert.certifierUrl)}`;
-          action = 'in Add to LinkedIn';
+          action = 'Add to LinkedIn';
         } else {
           title = '📈 Keep Going';
           body = 'Complete the remaining sessions to unlock your certificate.';

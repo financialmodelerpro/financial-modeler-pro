@@ -11,7 +11,7 @@ export async function deviceVerificationTemplate({ code, expiryMinutes = 10 }: D
 }> {
   const html = await baseLayoutBranded(`
     ${h1('New Device Sign-In')}
-    ${p('We noticed a sign-in attempt from a new or unrecognised device. Enter the code below to verify it\'s you.')}
+    ${p('We noticed a sign-in attempt from a new or unrecognized device. Enter the code below to verify it\'s you.')}
     <div style="text-align:center;margin:28px 0;">
       <div style="display:inline-block;background:#F8FAFC;border:2px solid #E2E8F0;border-radius:10px;padding:20px 40px;">
         <div style="font-size:11px;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;color:#64748B;margin-bottom:8px;">Verification Code</div>
