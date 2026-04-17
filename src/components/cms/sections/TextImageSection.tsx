@@ -59,9 +59,11 @@ export function TextImageSection({ content, styles }: Props) {
           style={{ fontSize: 15, color: textColor, lineHeight: 1.75 }} />
       )}
       {v('body') && body && (
-        <p style={{ fontSize: 15, color: textColor, lineHeight: 1.75, margin: html ? '16px 0 0' : 0 }}>
-          {body}
-        </p>
+        <div style={{ fontSize: 15, color: textColor, lineHeight: 1.75, margin: html ? '16px 0 0' : 0 }}>
+          {body.split(/\n\n|\n/).filter(Boolean).map((para, i) => (
+            <p key={i} style={{ margin: '0 0 14px' }}>{para}</p>
+          ))}
+        </div>
       )}
       <CmsParagraphs content={content} color={textColor} />
     </div>
