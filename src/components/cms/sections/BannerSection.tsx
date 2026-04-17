@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { isHtml } from './renderCmsText';
 
 interface Props {
   content: Record<string, unknown>;
@@ -21,7 +22,7 @@ export function BannerSection({ content, styles }: Props) {
       fontSize: 14, fontWeight: 600, color: textColor, lineHeight: 1.4,
       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
     }}>
-      {text}
+      {isHtml(text) ? <span dangerouslySetInnerHTML={{ __html: text }} /> : text}
       {url && <span style={{ fontSize: 16 }}>&rarr;</span>}
     </div>
   );

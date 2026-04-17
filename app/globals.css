@@ -1149,9 +1149,10 @@ thead th:first-child { border-radius: 0; }
 .fmp-rich-text li { margin-bottom: 6px; }
 .fmp-rich-text a { color: #1B4F8A; text-decoration: underline; }
 .fmp-rich-text a:hover { color: #0D2E5A; }
-.fmp-rich-text strong { font-weight: 700; }
-.fmp-rich-text em { font-style: italic; }
+.fmp-rich-text strong, .fmp-rich-text b { font-weight: 700; }
+.fmp-rich-text em, .fmp-rich-text i { font-style: italic; }
 .fmp-rich-text u { text-decoration: underline; }
+.fmp-rich-text s { text-decoration: line-through; }
 .fmp-rich-text blockquote { border-left: 3px solid #E5E7EB; padding-left: 16px; margin: 16px 0; color: #6B7280; font-style: italic; }
 .fmp-rich-text hr { border: none; border-top: 1px solid #E5E7EB; margin: 24px 0; }
 

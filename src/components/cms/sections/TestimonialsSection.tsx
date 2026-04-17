@@ -1,3 +1,5 @@
+import { isHtml } from './renderCmsText';
+
 interface Props {
   content: Record<string, unknown>;
   styles: Record<string, unknown>;
@@ -43,7 +45,7 @@ export function TestimonialsSection({ content, styles }: Props) {
               display: 'flex', flexDirection: 'column', gap: 16,
             }}>
               <div style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.7, fontStyle: 'italic', flex: 1 }}>
-                &ldquo;{t.quote}&rdquo;
+                {isHtml(t.quote) ? <span dangerouslySetInnerHTML={{ __html: `&ldquo;${t.quote}&rdquo;` }} /> : <>&ldquo;{t.quote}&rdquo;</>}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 {t.photo ? (

@@ -1,4 +1,5 @@
 import { CmsParagraphs } from './CmsParagraphs';
+import { isHtml } from './renderCmsText';
 
 interface Props {
   content: Record<string, unknown>;
@@ -48,9 +49,14 @@ export function CardsSection({ content, styles }: Props) {
               <div style={{ fontSize: 14, fontWeight: 700, color: '#0D2E5A', marginBottom: 8 }}>
                 {card.title}
               </div>
-              <div style={{ fontSize: 12.5, color: '#6B7280', lineHeight: 1.6 }}>
-                {card.description}
-              </div>
+              {isHtml(card.description) ? (
+                <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: card.description }}
+                  style={{ fontSize: 12.5, color: '#6B7280', lineHeight: 1.6 }} />
+              ) : (
+                <div style={{ fontSize: 12.5, color: '#6B7280', lineHeight: 1.6 }}>
+                  {card.description}
+                </div>
+              )}
             </div>
           ))}
         </div>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { isHtml } from './renderCmsText';
 
 interface Props {
   content: Record<string, unknown>;
@@ -58,9 +59,14 @@ export function CountdownSection({ content, styles }: Props) {
           </h2>
         )}
         {v('subtitle') && subtitle && (
-          <p style={{ fontSize: 'clamp(14px,2vw,17px)', color: 'rgba(255,255,255,0.6)', marginBottom: 36, lineHeight: 1.6 }}>
-            {subtitle}
-          </p>
+          isHtml(subtitle) ? (
+            <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: subtitle }}
+              style={{ fontSize: 'clamp(14px,2vw,17px)', color: 'rgba(255,255,255,0.6)', marginBottom: 36, lineHeight: 1.6 }} />
+          ) : (
+            <p style={{ fontSize: 'clamp(14px,2vw,17px)', color: 'rgba(255,255,255,0.6)', marginBottom: 36, lineHeight: 1.6 }}>
+              {subtitle}
+            </p>
+          )
         )}
         {remaining.expired ? (
           <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>{expiredText}</p>

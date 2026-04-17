@@ -1,4 +1,5 @@
 import { CmsParagraphs } from './CmsParagraphs';
+import { isHtml } from './renderCmsText';
 
 interface Props {
   content: Record<string, unknown>;
@@ -53,7 +54,7 @@ export function ListSection({ content, styles }: Props) {
                     </div>
                   )}
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', marginBottom: 6 }}>{item.title}</div>
-                  <div style={{ fontSize: 11.5, color: '#6B7280', lineHeight: 1.5 }}>{item.description}</div>
+                  <div style={{ fontSize: 11.5, color: '#6B7280', lineHeight: 1.5 }}>{isHtml(item.description) ? <span className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: item.description }} /> : item.description}</div>
                 </div>
                 {i < items.length - 1 && (
                   <div style={{ fontSize: 20, color: '#2EAA4A', fontWeight: 700, marginTop: 16, padding: '0 4px', flexShrink: 0 }}>→</div>
@@ -68,7 +69,7 @@ export function ListSection({ content, styles }: Props) {
                 {item.icon && <span style={{ fontSize: 24, flexShrink: 0 }}>{item.icon}</span>}
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#0D2E5A', marginBottom: 4 }}>{item.title}</div>
-                  <div style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.6 }}>{item.description}</div>
+                  <div style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.6 }}>{isHtml(item.description) ? <span className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: item.description }} /> : item.description}</div>
                 </div>
               </div>
             ))}

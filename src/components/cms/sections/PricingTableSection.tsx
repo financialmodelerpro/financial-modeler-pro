@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { isHtml } from './renderCmsText';
 
 interface Props {
   content: Record<string, unknown>;
@@ -65,14 +66,16 @@ export function PricingTableSection({ content, styles }: Props) {
                 {tier.period && <span style={{ fontSize: 14, fontWeight: 500, color: '#9CA3AF' }}>/{tier.period}</span>}
               </div>
               {tier.description && (
-                <div style={{ fontSize: 13, color: '#6B7280', marginTop: 8, lineHeight: 1.5 }}>{tier.description}</div>
+                isHtml(tier.description)
+                  ? <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: tier.description }} style={{ fontSize: 13, color: '#6B7280', marginTop: 8, lineHeight: 1.5 }} />
+                  : <div style={{ fontSize: 13, color: '#6B7280', marginTop: 8, lineHeight: 1.5 }}>{tier.description}</div>
               )}
               <div style={{ margin: '20px 0', borderTop: '1px solid #F3F4F6' }} />
               <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24 }}>
                 {tier.features.map((f, j) => (
                   <div key={j} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: '#374151' }}>
                     <span style={{ color: '#2EAA4A', fontWeight: 700, flexShrink: 0 }}>&#10003;</span>
-                    {f}
+                    {isHtml(f) ? <span dangerouslySetInnerHTML={{ __html: f }} /> : f}
                   </div>
                 ))}
               </div>

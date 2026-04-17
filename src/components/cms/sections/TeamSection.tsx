@@ -1,3 +1,5 @@
+import { isHtml } from './renderCmsText';
+
 interface Props {
   content: Record<string, unknown>;
   styles: Record<string, unknown>;
@@ -47,7 +49,7 @@ export function TeamSection({ content, styles }: Props) {
               )}
               <div style={{ fontSize: 16, fontWeight: 700, color: textColor || '#0D2E5A', marginBottom: 4 }}>{m.name}</div>
               {m.role && <div style={{ fontSize: 13, color: '#2EAA4A', fontWeight: 600, marginBottom: 8 }}>{m.role}</div>}
-              {m.bio && <div style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.6 }}>{m.bio}</div>}
+              {m.bio && (isHtml(m.bio) ? <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: m.bio }} style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.6 }} /> : <div style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.6 }}>{m.bio}</div>)}
             </div>
           ))}
         </div>

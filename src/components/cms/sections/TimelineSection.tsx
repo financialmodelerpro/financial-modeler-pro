@@ -1,3 +1,5 @@
+import { isHtml } from './renderCmsText';
+
 interface Props {
   content: Record<string, unknown>;
   styles: Record<string, unknown>;
@@ -54,9 +56,14 @@ export function TimelineSection({ content, styles }: Props) {
                 {item.title}
               </div>
               {item.description && (
-                <div style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.6 }}>
-                  {item.description}
-                </div>
+                isHtml(item.description) ? (
+                  <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: item.description }}
+                    style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.6 }} />
+                ) : (
+                  <div style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.6 }}>
+                    {item.description}
+                  </div>
+                )
               )}
             </div>
           ))}
