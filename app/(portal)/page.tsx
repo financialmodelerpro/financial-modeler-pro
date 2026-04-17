@@ -292,7 +292,7 @@ export default async function LandingPage() {
             <div style={fw('subtitle')}>
               <InlineEdit
                 tag="p" section="hero" fieldKey="subheadline" value={heroSub} isAdmin={isAdmin} darkBg
-                style={{ animation:'hero-fade-up 550ms ease-out 200ms both', fontSize:'clamp(1rem,2vw,1.2rem)', color:'rgba(255,255,255,0.75)', lineHeight:1.65, maxWidth:800, margin:'0 auto 26px', display:'block' } as React.CSSProperties}
+                style={{ animation:'hero-fade-up 550ms ease-out 200ms both', fontSize:'clamp(1rem,2vw,1.2rem)', color:'rgba(255,255,255,0.75)', lineHeight:1.65, maxWidth:960, margin:'0 auto 26px', display:'block' } as React.CSSProperties}
               />
             </div>
             {cfAt('subtitle')}
@@ -318,7 +318,7 @@ export default async function LandingPage() {
             {/* Power statement */}
             {h?.powerStatement_visible !== false && heroPowerStatement && (
               <div style={fw('powerStatement')}>
-                <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 300ms both', borderBottom:'3px solid #1ABC9C', maxWidth:700, margin:'16px auto 26px', textAlign:'center', paddingBottom:16 }}>
+                <div className="ha" style={{ animation:'hero-fade-up 550ms ease-out 300ms both', borderBottom:'3px solid #1ABC9C', maxWidth:920, margin:'16px auto 26px', textAlign:'center', paddingBottom:16 }}>
                   <InlineEdit
                     tag="p" section="hero" fieldKey="power_statement" value={heroPowerStatement} isAdmin={isAdmin} darkBg
                     style={{ fontSize:'clamp(0.95rem,1.8vw,1.05rem)', fontWeight:600, color:'rgba(255,255,255,0.9)', margin:0, lineHeight:1.55 }}
