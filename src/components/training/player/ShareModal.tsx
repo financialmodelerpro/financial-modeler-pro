@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 
 interface ShareModalProps {
   sessionTitle: string;
@@ -11,11 +11,23 @@ interface ShareModalProps {
 
 export function ShareModal({ sessionTitle, sessionDescription, sessionUrl, onClose }: ShareModalProps) {
   const [copied, setCopied] = useState(false);
+  const [linkedInCopied, setLinkedInCopied] = useState(false);
+  const textRef = useRef<HTMLTextAreaElement>(null);
+
+  const shareText = `I'm learning ${sessionTitle} on Financial Modeler Pro — a 100% free professional certification program.\n\nStart your free certification: ${sessionUrl}`;
 
   function copyLink() {
     navigator.clipboard.writeText(sessionUrl).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  function handleLinkedIn() {
+    navigator.clipboard.writeText(shareText).then(() => {
+      setLinkedInCopied(true);
+      setTimeout(() => { setLinkedInCopied(false); onClose(); }, 1500);
+      window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank', 'noopener,noreferrer');
     });
   }
 
@@ -42,9 +54,19 @@ export function ShareModal({ sessionTitle, sessionDescription, sessionUrl, onClo
           )}
         </div>
 
-        <div style={{ background: '#F9FAFB', borderRadius: 8, padding: '10px 14px', marginBottom: 20, fontSize: 13, color: '#374151', wordBreak: 'break-all', border: '1px solid #E5E7EB' }}>
-          {sessionUrl}
-        </div>
+        {/* Share text preview */}
+        <textarea
+          ref={textRef}
+          readOnly
+          value={shareText}
+          style={{
+            width: '100%', minHeight: 80, padding: '10px 14px', borderRadius: 8,
+            background: '#F9FAFB', border: '1px solid #E5E7EB', fontSize: 12,
+            color: '#374151', lineHeight: 1.5, resize: 'none', fontFamily: 'inherit',
+            boxSizing: 'border-box', marginBottom: 16,
+          }}
+          onFocus={e => e.target.select()}
+        />
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <button onClick={copyLink} style={{
@@ -55,17 +77,20 @@ export function ShareModal({ sessionTitle, sessionDescription, sessionUrl, onClo
             {copied ? '✓ Link Copied!' : '🔗 Copy Link'}
           </button>
 
-          <a
-            href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(sessionUrl)}`}
-            target="_blank" rel="noopener noreferrer"
-            onClick={onClose}
-            style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 10, background: '#0A66C2', color: '#fff', fontWeight: 600, fontSize: 14, textDecoration: 'none', width: '100%', boxSizing: 'border-box' }}
+          <button
+            onClick={handleLinkedIn}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 10,
+              background: linkedInCopied ? '#DCFCE7' : '#0A66C2', color: linkedInCopied ? '#166534' : '#fff',
+              border: linkedInCopied ? '1px solid #86EFAC' : 'none',
+              fontWeight: 600, fontSize: 14, width: '100%', cursor: 'pointer', boxSizing: 'border-box',
+            }}
           >
-            LinkedIn
-          </a>
+            {linkedInCopied ? '✓ Copied! Opening LinkedIn...' : '🔗 LinkedIn — copies text, opens feed'}
+          </button>
 
           <a
-            href={`https://wa.me/?text=${encodeURIComponent(sessionTitle + ' - ' + sessionUrl)}`}
+            href={`https://wa.me/?text=${encodeURIComponent(shareText)}`}
             target="_blank" rel="noopener noreferrer"
             onClick={onClose}
             style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', borderRadius: 10, background: '#25D366', color: '#fff', fontWeight: 600, fontSize: 14, textDecoration: 'none', width: '100%', boxSizing: 'border-box' }}

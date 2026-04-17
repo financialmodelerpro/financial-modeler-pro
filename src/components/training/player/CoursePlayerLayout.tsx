@@ -11,8 +11,9 @@ import { FollowPopup } from '@/src/components/shared/FollowPopup';
 
 const STORAGE_KEY = 'fmp_support_banner_dismissed';
 
-function SupportBanner({ youtubeUrl, channelId }: { youtubeUrl: string; channelId?: string }) {
+function SupportBanner({ youtubeUrl, channelId, sessionUrl }: { youtubeUrl: string; channelId?: string; sessionUrl: string }) {
   const [dismissed, setDismissed] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
 
   useEffect(() => {
     if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(STORAGE_KEY)) setDismissed(true);
@@ -29,7 +30,15 @@ function SupportBanner({ youtubeUrl, channelId }: { youtubeUrl: string; channelI
     fontSize: 11, fontWeight: 600, textDecoration: 'none',
     border: '1px solid #E5E7EB', background: '#fff', color: '#374151',
     whiteSpace: 'nowrap',
+    cursor: 'pointer',
   };
+
+  function handleShareCopy() {
+    navigator.clipboard.writeText(sessionUrl).then(() => {
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    });
+  }
 
   return (
     <div style={{
@@ -59,9 +68,9 @@ function SupportBanner({ youtubeUrl, channelId }: { youtubeUrl: string; channelI
         <a href={commentLink} target="_blank" rel="noopener noreferrer" style={pillStyle}>
           <MessageCircle size={12} /> Comment
         </a>
-        <a href={youtubeUrl} target="_blank" rel="noopener noreferrer" style={pillStyle}>
-          <Share2 size={12} /> Share
-        </a>
+        <button onClick={handleShareCopy} style={{ ...pillStyle, ...(shareCopied ? { background: '#DCFCE7', borderColor: '#86EFAC', color: '#166534' } : {}) }}>
+          <Share2 size={12} /> {shareCopied ? 'Copied!' : 'Share'}
+        </button>
       </div>
     </div>
   );
@@ -459,7 +468,7 @@ export function CoursePlayerLayout({
             overflowY: 'auto', position: 'sticky', top: 108,
             height: 'calc(100vh - 108px)', padding: 16,
           }}>
-            <SupportBanner youtubeUrl={youtubeUrl!} channelId={channelId} />
+            <SupportBanner youtubeUrl={youtubeUrl!} channelId={channelId} sessionUrl={sessionUrl} />
             <h3 style={{ fontSize: 14, fontWeight: 700, color: '#111827', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
               💬 Discussion
             </h3>
@@ -471,7 +480,7 @@ export function CoursePlayerLayout({
 
         {videoOpen && hasVideo && isMobile && (
           <div style={{ padding: 16, background: '#ffffff', borderTop: '1px solid #e5e7eb' }}>
-            <SupportBanner youtubeUrl={youtubeUrl!} channelId={channelId} />
+            <SupportBanner youtubeUrl={youtubeUrl!} channelId={channelId} sessionUrl={sessionUrl} />
             <h3 style={{ fontSize: 14, fontWeight: 700, color: '#111827', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
               💬 Discussion
             </h3>
