@@ -46,7 +46,7 @@ export default function ExportModal({
     {
       key: 'pdf_basic',
       icon: '📄',
-      label: 'PDF — Basic Report',
+      label: 'PDF - Basic Report',
       description: 'Summary financials, project overview',
       featureKey:   'pdf_basic',
       requiredPlan: 'free',
@@ -56,7 +56,7 @@ export default function ExportModal({
     {
       key: 'pdf_full',
       icon: '📋',
-      label: 'PDF — Full Report',
+      label: 'PDF - Full Report',
       description: 'All modules, schedules, charts',
       featureKey:   'pdf_full',
       requiredPlan: 'professional',
@@ -66,7 +66,7 @@ export default function ExportModal({
     {
       key: 'pdf_whitelabel',
       icon: '🏷️',
-      label: 'PDF — White-Label',
+      label: 'PDF - White-Label',
       description: 'Branded report with client logo',
       featureKey:   'pdf_whitelabel',
       requiredPlan: 'enterprise',
@@ -74,7 +74,7 @@ export default function ExportModal({
     {
       key: 'excel_static',
       icon: '📊',
-      label: 'Excel — Static',
+      label: 'Excel - Static',
       description: 'Pre-calculated values, formatted',
       featureKey:   'excel_static',
       requiredPlan: 'professional',
@@ -84,7 +84,7 @@ export default function ExportModal({
     {
       key: 'excel_formula',
       icon: '⚡',
-      label: 'Excel — Formula Model',
+      label: 'Excel - Formula Model',
       description: 'Live formulas, full auditability',
       featureKey:   'excel_formula',
       requiredPlan: 'enterprise',

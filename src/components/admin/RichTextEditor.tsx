@@ -12,7 +12,7 @@ import { useEffect, useRef } from 'react';
 interface Props {
   value: string;
   onChange: (html: string) => void;
-  /** Compact mode — smaller min-height, no heading buttons */
+  /** Compact mode - smaller min-height, no heading buttons */
   compact?: boolean;
 }
 

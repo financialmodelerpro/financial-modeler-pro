@@ -16,7 +16,7 @@ export interface WhiteLabelResult {
 
 /**
  * Single source of truth for white-label display values.
- * All UI components must import from this hook — never read
+ * All UI components must import from this hook - never read
  * whiteLabel config directly in components.
  */
 export function useWhiteLabel(): WhiteLabelResult {
@@ -50,7 +50,7 @@ export function useWhiteLabel(): WhiteLabelResult {
 
   // Footer
   const footerText = isWhiteLabel
-    ? `© ${wl.clientName} — Powered by Financial Modeler Pro`
+    ? `© ${wl.clientName} - Powered by Financial Modeler Pro`
     : effective.footerText;
 
   // Colour

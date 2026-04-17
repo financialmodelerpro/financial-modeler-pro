@@ -8,7 +8,7 @@ async function checkAdmin() {
   return !!(session?.user && (session.user as { role?: string }).role === 'admin');
 }
 
-/** GET — return single template by key */
+/** GET - return single template by key */
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ key: string }> },
@@ -21,7 +21,7 @@ export async function GET(
   return NextResponse.json({ template: data });
 }
 
-/** PATCH — update template */
+/** PATCH - update template */
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ key: string }> },

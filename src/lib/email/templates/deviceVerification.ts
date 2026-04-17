@@ -24,7 +24,7 @@ export async function deviceVerificationTemplate({ code, expiryMinutes = 10 }: D
   `);
 
   return {
-    subject: 'New device sign-in — verification code',
+    subject: 'New device sign-in - verification code',
     html,
   };
 }

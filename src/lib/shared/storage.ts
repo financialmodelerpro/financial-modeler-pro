@@ -1,5 +1,5 @@
 /**
- * storage.ts — localStorage helpers ported from legacy projects.js
+ * storage.ts - localStorage helpers ported from legacy projects.js
  */
 
 const STORAGE_KEY = 'refm_v2';

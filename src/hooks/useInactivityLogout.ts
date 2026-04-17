@@ -4,9 +4,9 @@ import { useRouter } from 'next/navigation';
 const INACTIVITY_MS = 60 * 60 * 1000; // 1 hour
 
 interface Options {
-  /** API route to POST for logout — used when onLogout is not provided */
+  /** API route to POST for logout - used when onLogout is not provided */
   logoutUrl?: string;
-  /** Custom async logout function — takes priority over logoutUrl */
+  /** Custom async logout function - takes priority over logoutUrl */
   onLogout?: () => Promise<void>;
   /** Where to navigate after logout */
   redirectUrl: string;

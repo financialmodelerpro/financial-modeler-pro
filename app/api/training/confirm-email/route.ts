@@ -44,13 +44,13 @@ export async function GET(req: NextRequest) {
     .maybeSingle();
 
   if (!pending) {
-    // Existing student confirming email (no pending row) — mark confirmed and redirect to signin
-    console.log('[confirm-email] No pending row for', email, '— marking existing meta row confirmed');
+    // Existing student confirming email (no pending row) - mark confirmed and redirect to signin
+    console.log('[confirm-email] No pending row for', email, '- marking existing meta row confirmed');
     await sb
       .from('training_registrations_meta')
       .update({ email_confirmed: true, confirmed_at: new Date().toISOString() })
       .eq('email', email)
-      .is('email_confirmed', false); // only update if currently false — don't touch already-confirmed
+      .is('email_confirmed', false); // only update if currently false - don't touch already-confirmed
     return NextResponse.redirect(`${LEARN_URL}/signin?confirmed=true`);
   }
 
@@ -66,7 +66,7 @@ export async function GET(req: NextRequest) {
       errorLower.includes('exists');
 
     if (isDuplicate) {
-      // Already in Sheets — look up existing regId
+      // Already in Sheets - look up existing regId
       const { data: meta } = await sb
         .from('training_registrations_meta')
         .select('registration_id')

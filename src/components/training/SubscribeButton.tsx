@@ -19,7 +19,7 @@ export function SubscribeButton({ channelId }: SubscribeButtonProps) {
       script.async = true;
       document.head.appendChild(script);
     } else {
-      // Script already loaded — re-render widgets
+      // Script already loaded - re-render widgets
       const w = window as unknown as Record<string, unknown>;
       const gapi = w.gapi as { ytsubscribe?: { go?: (el?: Element | null) => void } } | undefined;
       gapi?.ytsubscribe?.go?.(containerRef.current);

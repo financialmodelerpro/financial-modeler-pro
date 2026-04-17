@@ -106,7 +106,7 @@ export default function WhiteLabelPage() {
                 onChange={(e) => e.target.value && handleScopeChange(e.target.value)}
                 style={{ padding: '7px 10px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 6, background: '#fff', fontFamily: 'Inter,sans-serif', minWidth: 240 }}
               >
-                <option value="">— Pick a user —</option>
+                <option value="">- Pick a user -</option>
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>
                     {u.name ?? u.email} {u.subscription_plan !== 'free' ? `(${u.subscription_plan})` : ''}
@@ -116,7 +116,7 @@ export default function WhiteLabelPage() {
             </div>
             {wlScope !== 'global' && (
               <div style={{ marginTop: 10, fontSize: 11, color: '#92400E', background: '#FEF3C7', padding: '5px 12px', borderRadius: 6, display: 'inline-block' }}>
-                ⚠️ Editing branding for: <strong>{users.find((u) => u.id === wlScope)?.email ?? wlScope}</strong> — overrides global for this user only
+                ⚠️ Editing branding for: <strong>{users.find((u) => u.id === wlScope)?.email ?? wlScope}</strong> - overrides global for this user only
               </div>
             )}
           </div>

@@ -3,7 +3,7 @@
 // Dedicated register page served at app.financialmodelerpro.com/register.
 // We cannot export ModelingSignInInner from the signin page file (Next.js
 // App Router rejects named function exports from page modules). This standalone
-// page shows only the signup form — no tab switcher needed.
+// page shows only the signup form - no tab switcher needed.
 
 import React, { useState, useRef, Suspense } from 'react';
 import { useRouter } from 'next/navigation';

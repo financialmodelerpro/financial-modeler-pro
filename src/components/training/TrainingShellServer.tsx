@@ -1,5 +1,5 @@
 /**
- * TrainingShellServer — server component wrapper around TrainingShell.
+ * TrainingShellServer - server component wrapper around TrainingShell.
  * Fetches logo from CMS and passes to the client component.
  */
 import { getCmsContent, cms } from '@/src/lib/shared/cms';

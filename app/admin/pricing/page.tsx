@@ -274,7 +274,7 @@ export default function AdminPricingPage() {
     }));
     setFeatures(prev => [...prev, ...copied]);
     setCopyFromPlan('');
-    showToast('Features copied — click Save to persist', 'success');
+    showToast('Features copied - click Save to persist', 'success');
   }
 
   // ── Module access ────────────────────────────────────────────────────────────
@@ -573,7 +573,7 @@ export default function AdminPricingPage() {
                 <>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
                     <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1B3A6B', margin: 0 }}>
-                      {plans.find(p => p.id === featPlanId)?.name} — Features
+                      {plans.find(p => p.id === featPlanId)?.name} - Features
                     </h2>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <select value={copyFromPlan} onChange={e => setCopyFromPlan(e.target.value)}
@@ -679,7 +679,7 @@ export default function AdminPricingPage() {
               ) : (
                 <>
                   <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1B3A6B', marginBottom: 20 }}>
-                    {plans.find(p => p.id === modPlanId)?.name} — Module Access
+                    {plans.find(p => p.id === modPlanId)?.name} - Module Access
                   </h2>
                   <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 20 }}>Toggle which modules are included in this plan. Changes save immediately.</p>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -751,7 +751,7 @@ export default function AdminPricingPage() {
             {platLoading ? <div style={{ textAlign: 'center', padding: 40, color: '#6B7280' }}>Loading...</div> : (
               <>
                 {/* Plan Cards */}
-                <h2 style={{ fontSize: 16, fontWeight: 800, color: '#1B3A6B', marginBottom: 16 }}>Platform Plans — Real Estate</h2>
+                <h2 style={{ fontSize: 16, fontWeight: 800, color: '#1B3A6B', marginBottom: 16 }}>Platform Plans - Real Estate</h2>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12, marginBottom: 32 }}>
                   {platPlans.filter(p => p.platform_slug === 'real-estate').map(plan => (
                     <button key={plan.id} onClick={() => selectPlatPlan(plan)} style={{

@@ -1,2 +1,2 @@
-// module2-revenue.ts — placeholder
+// module2-revenue.ts - placeholder
 export {};

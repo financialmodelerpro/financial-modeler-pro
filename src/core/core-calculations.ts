@@ -1,7 +1,7 @@
 /**
  * core-calculations.ts
  * Pure calculation functions extracted from refm-platform.js Module 1.
- * No React state — all inputs passed explicitly as parameters.
+ * No React state - all inputs passed explicitly as parameters.
  */
 
 import {

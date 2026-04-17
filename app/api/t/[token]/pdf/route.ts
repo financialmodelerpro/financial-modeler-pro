@@ -41,7 +41,7 @@ export async function GET(
   }
 
   // Fetch progress + certificate data from single source of truth in parallel.
-  // student_certificates is the canonical store — no Apps Script or external cert lookup.
+  // student_certificates is the canonical store - no Apps Script or external cert lookup.
   const [progressResult, { data: certRow }] = await Promise.all([
     getStudentProgress(link.email, link.registration_id),
     sb
@@ -67,7 +67,7 @@ export async function GET(
   const issuedAt  = certRow?.issued_at ?? certRow?.issued_date ?? '';
   const hasCert   = !!certId;
 
-  // QR encodes the same verificationUrl as the issued PDF — deterministic, no new generation logic.
+  // QR encodes the same verificationUrl as the issued PDF - deterministic, no new generation logic.
   const qrSrc = verifyUrl
     ? `${QR_API}/?size=120x120&data=${encodeURIComponent(verifyUrl)}`
     : '';
@@ -114,7 +114,7 @@ export async function GET(
       </tr>`;
   })() : '';
 
-  // Verify / QR section — only rendered when certificate exists
+  // Verify / QR section - only rendered when certificate exists
   const verifySection = hasCert && verifyUrl ? `
   <!-- Verify Certificate -->
   <div style="margin:0 36px 20px;border:1.5px solid #1B4F8A;border-radius:8px;padding:16px 20px;display:flex;align-items:flex-start;gap:20px;background:#F0F7FF;">
@@ -137,7 +137,7 @@ export async function GET(
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Transcript -${student.name} — ${course.title}</title>
+<title>Transcript -${student.name} - ${course.title}</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: 'Helvetica Neue', Arial, sans-serif; background: #fff; color: #111827; font-size: 13px; }
@@ -238,7 +238,7 @@ export async function GET(
       <div style="font-size:11px;font-weight:800;color:#0D2E5A;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:12px;">Certification Status</div>
       ${[
         ['Status',           hasCert ? 'CERTIFIED' : allComplete ? 'PROCESSING' : 'NOT EARNED'],
-        ['Certificate ID',   certId || '—'],
+        ['Certificate ID',   certId || '-'],
         ['Completion Date',  hasCert ? fmtDate(issuedAt) : '-'],
       ].map(([l, v]) => `
         <div style="display:flex;justify-content:space-between;margin-bottom:6px;">

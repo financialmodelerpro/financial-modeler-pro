@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/public/training-sessions?type=upcoming|recorded&category=...&limit=...
- * Public — no auth required. Returns published sessions without sensitive data.
+ * Public - no auth required. Returns published sessions without sensitive data.
  */
 export async function GET(req: NextRequest) {
   const type     = req.nextUrl.searchParams.get('type');
@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ sessions: [], error: queryErr.message });
     }
 
-    // Get registration counts (non-blocking — if table doesn't exist, skip)
+    // Get registration counts (non-blocking - if table doesn't exist, skip)
     const sessionIds = (data ?? []).map(s => s.id);
     let regCounts: Record<string, number> = {};
     if (sessionIds.length > 0) {

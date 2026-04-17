@@ -1,5 +1,5 @@
 /**
- * certifier.ts — DEPRECATED
+ * certifier.ts - DEPRECATED
  * Certifier.io integration has been replaced with the internal certificate system.
  * This file is kept as a stub to avoid import errors during the transition.
  * All certificate generation now happens via certificateEngine.ts + Supabase storage.

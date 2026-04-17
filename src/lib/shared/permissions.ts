@@ -1,9 +1,9 @@
 /**
- * permissions.ts — Server-side permission resolution.
+ * permissions.ts - Server-side permission resolution.
  *
  * Two-level lookup:
- *   1. user_permissions  — per-user overrides set by admin
- *   2. plan_permissions  — plan-level defaults
+ *   1. user_permissions  - per-user overrides set by admin
+ *   2. plan_permissions  - plan-level defaults
  *   3. Default: false
  *
  * Import in API routes only. Never import in client components.

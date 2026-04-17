@@ -1,5 +1,5 @@
 /**
- * training-session.ts — Client-side localStorage helper for training auth.
+ * training-session.ts - Client-side localStorage helper for training auth.
  * SSR-safe: all localStorage access is guarded by typeof window checks.
  *
  * Session expires after 24 hours.

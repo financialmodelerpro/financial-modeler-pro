@@ -36,7 +36,7 @@ export async function PATCH(req: NextRequest) {
 
     const sb = getServerClient();
 
-    // Update the specific row — never touch other rows
+    // Update the specific row - never touch other rows
     const { data: updated } = await sb
       .from('cms_content')
       .update({ value: value ?? '' })
@@ -47,7 +47,7 @@ export async function PATCH(req: NextRequest) {
 
     if (updated) return NextResponse.json({ row: updated });
 
-    // Row does not exist yet — insert it
+    // Row does not exist yet - insert it
     const { data: inserted, error: insertError } = await sb
       .from('cms_content')
       .insert({ section, key, value: value ?? '' })

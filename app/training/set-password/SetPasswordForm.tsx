@@ -139,7 +139,7 @@ function SetPasswordForm() {
     );
   }
 
-  // ── Step 1 — Identity ─────────────────────────────────────────────────────
+  // ── Step 1 - Identity ─────────────────────────────────────────────────────
   if (step === 'identity') {
     return (
       <>
@@ -202,7 +202,7 @@ function SetPasswordForm() {
     );
   }
 
-  // ── Step 2 — Code + New Password ──────────────────────────────────────────
+  // ── Step 2 - Code + New Password ──────────────────────────────────────────
   return (
     <>
       <div style={{ textAlign: 'center', marginBottom: 24 }}>

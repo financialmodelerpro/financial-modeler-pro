@@ -1,4 +1,4 @@
-// deck.types.ts — Presentation deck / Module 11 types
+// deck.types.ts - Presentation deck / Module 11 types
 
 export type SlideType =
   | 'cover' | 'summary' | 'assumptions' | 'land-area'

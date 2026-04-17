@@ -40,7 +40,7 @@ async function fetchLogo(): Promise<string> {
   return '';
 }
 
-/** GET /api/og/main — Main site OG banner */
+/** GET /api/og/main - Main site OG banner */
 export async function GET() {
   const [content, sections, logoDataUri, fonts] = await Promise.all([
     getCmsContent().catch(() => ({} as Record<string, Record<string, string>>)),
@@ -51,9 +51,9 @@ export async function GET() {
   const heroRaw = sections.find(s => s.section_type === 'hero');
   const h = heroRaw?.visible !== false ? heroRaw?.content as Record<string, unknown> | undefined : undefined;
 
-  const badge    = (h?.badge as string)    || cms(content, 'hero', 'badge_text',  '🚀 Now Live — Free to Use');
-  const headline = (h?.headline as string) || cms(content, 'hero', 'headline',    'Build Institutional-Grade Financial Models — Without Starting From Scratch');
-  const sub      = (h?.subtitle as string) || cms(content, 'hero', 'subheadline', 'Pre-built, structured financial models for real estate, valuation, and project finance — designed by corporate finance professionals.');
+  const badge    = (h?.badge as string)    || cms(content, 'hero', 'badge_text',  '🚀 Now Live - Free to Use');
+  const headline = (h?.headline as string) || cms(content, 'hero', 'headline',    'Build Institutional-Grade Financial Models - Without Starting From Scratch');
+  const sub      = (h?.subtitle as string) || cms(content, 'hero', 'subheadline', 'Pre-built, structured financial models for real estate, valuation, and project finance - designed by corporate finance professionals.');
 
   return new ImageResponse(
     (

@@ -18,7 +18,7 @@ interface OverviewData {
 }
 
 const stat = (v: number | null, suffix = '') =>
-  v === null || v === undefined ? '—' : `${v}${suffix}`;
+  v === null || v === undefined ? '-' : `${v}${suffix}`;
 
 function StatCard({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -63,7 +63,7 @@ export default function TrainingHubOverviewPage() {
 
   const fmt = (iso: string) => {
     try { return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); }
-    catch { return iso ?? '—'; }
+    catch { return iso ?? '-'; }
   };
 
   return (
@@ -182,19 +182,19 @@ export default function TrainingHubOverviewPage() {
             data.recentRegistrations.map(s => (
               <div key={s.registrationId} style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 2fr 80px 100px 80px', padding: '11px 20px', borderBottom: '1px solid #F3F4F6', alignItems: 'center', fontSize: 12 }}>
                 <div style={{ fontFamily: 'monospace', color: '#6B7280', fontSize: 11 }}>{s.registrationId}</div>
-                <div style={{ fontWeight: 600, color: '#1B3A6B' }}>{s.name || '—'}</div>
+                <div style={{ fontWeight: 600, color: '#1B3A6B' }}>{s.name || '-'}</div>
                 <div style={{ color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.email}</div>
                 <div>
                   <span style={{ background: s.course === '3SFM' ? '#EFF6FF' : '#F0FDF4', color: s.course === '3SFM' ? '#1D4ED8' : '#166534', borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>
                     {s.course}
                   </span>
                 </div>
-                <div style={{ color: '#6B7280' }}>{s.registeredAt ? fmt(s.registeredAt) : '—'}</div>
+                <div style={{ color: '#6B7280' }}>{s.registeredAt ? fmt(s.registeredAt) : '-'}</div>
                 <div>
                   {s.certificateIssued ? (
                     <span style={{ background: '#DCFCE7', color: '#166534', borderRadius: 20, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>Yes</span>
                   ) : (
-                    <span style={{ color: '#D1D5DB', fontSize: 11 }}>—</span>
+                    <span style={{ color: '#D1D5DB', fontSize: 11 }}>-</span>
                   )}
                 </div>
               </div>

@@ -8,15 +8,15 @@ export function StatusBadge({ locked, prog, isWatched, isInProgress }: { locked:
       🔒 Locked
     </span>
   );
-  // Check passed first — a passed session must always show Passed regardless of attempts count
+  // Check passed first - a passed session must always show Passed regardless of attempts count
   if (prog?.passed) return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#F0FFF4', color: '#15803D', border: '1px solid #BBF7D0', whiteSpace: 'nowrap' }}>
-      ✓ Passed — {prog.score}%
+      ✓ Passed - {prog.score}%
     </span>
   );
   if (prog && prog.attempts > 0) return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA', whiteSpace: 'nowrap' }}>
-      Attempted — {prog.score}%
+      Attempted - {prog.score}%
     </span>
   );
   if (isWatched || isInProgress) return (

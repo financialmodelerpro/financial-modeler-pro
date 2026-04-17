@@ -1,5 +1,5 @@
 /**
- * courses.ts — Static course/session configuration
+ * courses.ts - Static course/session configuration
  * This is the single source of truth for course structure.
  * YouTube URLs and quiz form URLs are filled in as content is ready.
  */
@@ -23,7 +23,7 @@ export interface CourseConfig {
   sessions: Session[];
 }
 
-// ── 3SFM — 3-Statement Financial Modeling ────────────────────────────────────
+// ── 3SFM - 3-Statement Financial Modeling ────────────────────────────────────
 
 const SFM_SESSIONS: Session[] = [
   { id: 'S1',  title: 'Session 1: Introduction & Framework Overview',             youtubeUrl: 'https://youtu.be/JiitBxI1DD0', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
@@ -46,15 +46,15 @@ const SFM_SESSIONS: Session[] = [
   { id: 'S18', title: 'Session 18: 3SFM Final Certification Exam',                youtubeUrl: '', quizFormUrl: '', questionCount: 50, passingScore: 70, maxAttempts: 1, isFinal: true  },
 ];
 
-// ── BVM — Business Valuation Modeling ────────────────────────────────────────
+// ── BVM - Business Valuation Modeling ────────────────────────────────────────
 
 const BVM_SESSIONS: Session[] = [
   { id: 'L1', title: 'Lesson 1: DCF Valuation Overview & Framework',              youtubeUrl: 'https://youtu.be/lRdrLAHqPto', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'L2', title: 'Lesson 2: DCF Valuation Model in Excel — FCFF and FCFE',   youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'L3', title: 'Lesson 3: Rolling WACC Explained — FCFF vs FCFE Reconciliation', youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'L2', title: 'Lesson 2: DCF Valuation Model in Excel - FCFF and FCFE',   youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'L3', title: 'Lesson 3: Rolling WACC Explained - FCFF vs FCFE Reconciliation', youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
   { id: 'L4', title: 'Lesson 4: Comps Valuation Overview & Framework',            youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'L5', title: 'Lesson 5: Comps Valuation Model in Excel — Comps Multiples', youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
-  { id: 'L6', title: 'Lesson 6: Final Business Valuation — Football Field Chart', youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'L5', title: 'Lesson 5: Comps Valuation Model in Excel - Comps Multiples', youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
+  { id: 'L6', title: 'Lesson 6: Final Business Valuation - Football Field Chart', youtubeUrl: '', quizFormUrl: '', questionCount: 10, passingScore: 70, maxAttempts: 3, isFinal: false },
   { id: 'L7', title: 'Lesson 7: BVM Final Certification Exam',                    youtubeUrl: '', quizFormUrl: '', questionCount: 30, passingScore: 70, maxAttempts: 1, isFinal: true  },
 ];
 
@@ -65,7 +65,7 @@ export const COURSES: Record<string, CourseConfig> = {
     id: '3sfm',
     title: '3-Statement Financial Modeling',
     shortTitle: '3SFM',
-    description: 'Master the complete 3-statement financial model from scratch — Income Statement, Balance Sheet, and Cash Flow Statement — with professional Excel techniques.',
+    description: 'Master the complete 3-statement financial model from scratch - Income Statement, Balance Sheet, and Cash Flow Statement - with professional Excel techniques.',
     sessions: SFM_SESSIONS,
   },
   'bvm': {

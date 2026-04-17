@@ -285,7 +285,7 @@ function LogoField({ label, imageValue, emojiValue, onUpload, onClear }: LogoFie
             )}
           </div>
           <span style={{ fontSize: 11, color: '#9CA3AF' }}>
-            PNG, JPEG, WebP, SVG — max 2 MB
+            PNG, JPEG, WebP, SVG - max 2 MB
           </span>
         </div>
       </div>
@@ -385,11 +385,11 @@ export default function BrandingAdminPage() {
         const data = (await res.json()) as { config: BrandingConfig | null };
         if (!cancelled) {
           // Merge loaded config on top of DEFAULT so any new BrandingConfig fields
-          // are always initialised — prevents undefined fields being dropped on save
+          // are always initialised - prevents undefined fields being dropped on save
           setConfig({ ...DEFAULT, ...(data.config ?? {}) });
         }
       } catch {
-        // Non-fatal — use default config
+        // Non-fatal - use default config
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -485,7 +485,7 @@ export default function BrandingAdminPage() {
           </div>
         ) : (
           <>
-            {/* ── Section 1 — Portal Identity ─────────────────────────────── */}
+            {/* ── Section 1 - Portal Identity ─────────────────────────────── */}
             <section style={S.card}>
               <div style={S.sectionTitle}>
                 <span>🏷️</span> Portal Identity
@@ -548,7 +548,7 @@ export default function BrandingAdminPage() {
               </div>
             </section>
 
-            {/* ── Section 2 — Logos ───────────────────────────────────────── */}
+            {/* ── Section 2 - Logos ───────────────────────────────────────── */}
             <section style={S.card}>
               <div style={S.sectionTitle}>
                 <span>🖼️</span> Logos
@@ -572,7 +572,7 @@ export default function BrandingAdminPage() {
               </div>
             </section>
 
-            {/* ── Section 3 — Brand Colors ─────────────────────────────────── */}
+            {/* ── Section 3 - Brand Colors ─────────────────────────────────── */}
             <section style={S.card}>
               <div style={S.sectionTitle}>
                 <span>🎨</span> Brand Colors
@@ -612,7 +612,7 @@ export default function BrandingAdminPage() {
               </div>
             </section>
 
-            {/* ── Section 4 — White-Label ──────────────────────────────────── */}
+            {/* ── Section 4 - White-Label ──────────────────────────────────── */}
             <section style={S.card}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

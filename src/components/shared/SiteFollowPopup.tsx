@@ -2,7 +2,7 @@
 
 import { FollowPopup } from './FollowPopup';
 
-/** Site-wide popup — appears after 60s, once per session */
+/** Site-wide popup - appears after 60s, once per session */
 export function SiteFollowPopup() {
   return (
     <FollowPopup

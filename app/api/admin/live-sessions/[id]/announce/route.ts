@@ -9,7 +9,7 @@ async function checkAdmin() {
   return !!(session?.user && (session.user as { role?: string }).role === 'admin');
 }
 
-/** POST — manually send announcement for a session */
+/** POST - manually send announcement for a session */
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },

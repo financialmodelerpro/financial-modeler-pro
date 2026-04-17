@@ -88,7 +88,7 @@ export default function Module1Timeline({
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-3)' }}>
 
-        {/* Left column — Identity */}
+        {/* Left column - Identity */}
         <div className="module-card" style={{ padding: 'var(--sp-3)' }}>
           <h3 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--sp-2)', marginTop: 0 }}>
             Project Identity
@@ -99,7 +99,7 @@ export default function Module1Timeline({
               <label style={{ ...labelStyle, marginBottom: 0 }}>Project Name</label>
               {showAiButtons && (
                 <button
-                  onClick={() => {/* AI assist — coming soon */}}
+                  onClick={() => {/* AI assist - coming soon */}}
                   style={{
                     display: 'inline-flex', alignItems: 'center', gap: 4,
                     fontSize: 10, fontWeight: 700, padding: '3px 8px',
@@ -221,7 +221,7 @@ export default function Module1Timeline({
           </div>
         </div>
 
-        {/* Right column — Model & Timeline */}
+        {/* Right column - Model & Timeline */}
         <div className="module-card" style={{ padding: 'var(--sp-3)' }}>
           <h3 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--sp-2)', marginTop: 0 }}>
             Model Structure

@@ -648,7 +648,7 @@ export default function AdminCourseLessonsPage() {
           </div>
         </div>
 
-        {/* Settings toggles — Timer bypass + Shuffle questions/options */}
+        {/* Settings toggles - Timer bypass + Shuffle questions/options */}
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
           {/* Timer bypass */}
           <button
@@ -663,7 +663,7 @@ export default function AdminCourseLessonsPage() {
                 setTimerBypassed(next);
               } catch { /* ignore */ }
             }}
-            title={timerBypassed ? 'Timer bypass ON — countdown disabled for all students' : 'Bypass video timer for all students (disables countdown)'}
+            title={timerBypassed ? 'Timer bypass ON - countdown disabled for all students' : 'Bypass video timer for all students (disables countdown)'}
             style={{
               display: 'flex', alignItems: 'center', gap: 6,
               padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
@@ -846,7 +846,7 @@ export default function AdminCourseLessonsPage() {
                           <div style={{ fontSize: 14, fontWeight: 600, color: '#1B3A6B', marginBottom: 4 }}>{l.title}</div>
                           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
                             <span style={{ fontSize: 12, color: displayDuration > 0 ? '#374151' : '#D1D5DB' }}>
-                              ⏱ {displayDuration > 0 ? `${displayDuration} min` : '— min'}
+                              ⏱ {displayDuration > 0 ? `${displayDuration} min` : '- min'}
                               {!l.duration_minutes && link?.videoDuration ? <span style={{ fontSize: 10, color: '#9CA3AF' }}> (from registry)</span> : null}
                             </span>
                             {displayYtUrl ? (
@@ -858,7 +858,7 @@ export default function AdminCourseLessonsPage() {
                             ) : (
                               <span style={{ fontSize: 12, color: '#D1D5DB' }}>No video</span>
                             )}
-                            {/* Form URL hidden from UI — stored in Apps Script Form Registry only */}
+                            {/* Form URL hidden from UI - stored in Apps Script Form Registry only */}
                           </div>
                         </div>
                         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
@@ -1151,11 +1151,11 @@ export default function AdminCourseLessonsPage() {
               <textarea value={lessonForm.description} onChange={e => setLessonForm(p => ({ ...p, description: e.target.value }))} rows={2} style={{ ...inputStyle, resize: 'vertical' }} />
             </div>
             <div style={{ marginBottom: 16 }}>
-              <label style={labelStyle}>Download File URL <span style={{ fontSize: 10, fontWeight: 400, color: '#9CA3AF', textTransform: 'none' }}>(optional — Excel, PDF, etc.)</span></label>
+              <label style={labelStyle}>Download File URL <span style={{ fontSize: 10, fontWeight: 400, color: '#9CA3AF', textTransform: 'none' }}>(optional - Excel, PDF, etc.)</span></label>
               <input value={lessonForm.file_url} onChange={e => setLessonForm(p => ({ ...p, file_url: e.target.value }))} placeholder="https://… (leave blank if no file)" style={inputStyle} />
               {lessonForm.file_url && (
                 <div style={{ marginTop: 4, fontSize: 11, color: '#1A7A30' }}>
-                  📎 File set — students will see a download button on this lesson
+                  📎 File set - students will see a download button on this lesson
                 </div>
               )}
             </div>
@@ -1277,7 +1277,7 @@ export default function AdminCourseLessonsPage() {
 
             {/* Video Duration */}
             <div style={{ marginBottom: 16 }}>
-              <label style={labelStyle}>Video Duration (minutes) <span style={{ fontSize: 10, fontWeight: 400, color: '#9CA3AF', textTransform: 'none' }}>— 0 = no lock</span></label>
+              <label style={labelStyle}>Video Duration (minutes) <span style={{ fontSize: 10, fontWeight: 400, color: '#9CA3AF', textTransform: 'none' }}>- 0 = no lock</span></label>
               <input
                 type="number"
                 min={0}
@@ -1292,7 +1292,7 @@ export default function AdminCourseLessonsPage() {
               )}
             </div>
 
-            {/* Form URL removed from UI — stored silently in Apps Script Form Registry */}
+            {/* Form URL removed from UI - stored silently in Apps Script Form Registry */}
 
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setShowSessionModal(false)} style={ghostBtn}>Cancel</button>

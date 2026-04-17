@@ -1,5 +1,5 @@
 /**
- * appsScript.ts — re-exports certificate-specific Apps Script functions.
+ * appsScript.ts - re-exports certificate-specific Apps Script functions.
  * All actual API logic lives in sheets.ts (single source of truth for Apps Script calls).
  */
 

@@ -16,7 +16,7 @@ export async function passwordResetTemplate({ resetUrl, expiresMinutes = 60 }: P
       ${button('Reset My Password', resetUrl)}
     </div>
 
-    ${p('This link expires in <strong>' + expiresMinutes + ' minutes</strong>. If you did not request a password reset, you can safely ignore this email — your password will remain unchanged.')}
+    ${p('This link expires in <strong>' + expiresMinutes + ' minutes</strong>. If you did not request a password reset, you can safely ignore this email - your password will remain unchanged.')}
     ${divider()}
     <p style="margin:0;font-size:12px;color:#64748B;word-break:break-all;">
       If the button above does not work, copy and paste this URL into your browser:<br />
@@ -24,7 +24,7 @@ export async function passwordResetTemplate({ resetUrl, expiresMinutes = 60 }: P
     </p>
   `);
 
-  const text = `Financial Modeler Pro — Password Reset\n\nWe received a request to reset your password.\n\nReset link (expires in ${expiresMinutes} minutes):\n${resetUrl}\n\nIf you did not request this, ignore this email.`;
+  const text = `Financial Modeler Pro - Password Reset\n\nWe received a request to reset your password.\n\nReset link (expires in ${expiresMinutes} minutes):\n${resetUrl}\n\nIf you did not request this, ignore this email.`;
 
   return { subject, html, text };
 }

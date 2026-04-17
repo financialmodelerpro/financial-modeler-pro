@@ -149,7 +149,7 @@ export default function AssessmentPage() {
   // Update browser tab title when session name is known (FIX 1)
   useEffect(() => {
     if (questions?.sessionName) {
-      document.title = `Assessment | ${questions.sessionName} — Financial Modeler Pro`;
+      document.title = `Assessment | ${questions.sessionName} - Financial Modeler Pro`;
     }
   }, [questions?.sessionName]);
 
@@ -167,7 +167,7 @@ export default function AssessmentPage() {
 
     const { email, registrationId: regId } = session;
 
-    // Quick Supabase check — if already passed, block immediately (no Apps Script delay)
+    // Quick Supabase check - if already passed, block immediately (no Apps Script delay)
     try {
       const sbCheck = await fetch(`/api/training/progress?email=${encodeURIComponent(email)}&registrationId=${encodeURIComponent(regId)}`);
       const sbData = await sbCheck.json() as { success: boolean; data?: { student?: { name?: string }; sessions: { sessionId: string; passed: boolean; score: number }[] } };
@@ -209,7 +209,7 @@ export default function AssessmentPage() {
     const statusData  = await statusRes.json()    as { success: boolean; data?: AttemptStatus; error?: string };
     const questData   = await questionsRes.json() as { success: boolean; data?: AssessmentQuestionsData; error?: string };
 
-    // ── Check attempt status FIRST — takes priority over question-load errors ──
+    // ── Check attempt status FIRST - takes priority over question-load errors ──
     if (statusData.success && statusData.data) {
       const s = statusData.data;
       setStatus(s);
@@ -226,7 +226,7 @@ export default function AssessmentPage() {
 
     // ── Now check if questions loaded ────────────────────────────────────────
     if (!questData.success || !questData.data) {
-      // Apps Script may reject getQuestions if student already passed — treat gracefully
+      // Apps Script may reject getQuestions if student already passed - treat gracefully
       const errLower = (questData.error ?? '').toLowerCase();
       if (errLower.includes('passed') || errLower.includes('already')) {
         setPageState('blocked-passed');
@@ -328,10 +328,10 @@ export default function AssessmentPage() {
       return;
     }
 
-    // ── Step 1: Score CLIENT-SIDE — compare answers to stored correctIndex ──
+    // ── Step 1: Score CLIENT-SIDE - compare answers to stored correctIndex ──
     const total = questions.questions.length;
     let correctCount = 0;
-    console.log('[assessment] Scoring — first 3 questions correctIndex:', questions.questions.slice(0, 3).map(q => q.correctIndex));
+    console.log('[assessment] Scoring - first 3 questions correctIndex:', questions.questions.slice(0, 3).map(q => q.correctIndex));
     const results: QuestionResult[] = questions.questions.map((q, i) => {
       // Student's picked index (in current display order)
       const picked = answers[i] ?? -1;
@@ -389,10 +389,10 @@ export default function AssessmentPage() {
       console.log('[assessment] Submit response:', resData);
     } catch (err) {
       console.error('[assessment] Submit to Apps Script failed:', err);
-      // Non-fatal — show results anyway, score is calculated locally
+      // Non-fatal - show results anyway, score is calculated locally
     }
 
-    // ── Step 3: Show results — NEVER re-fetch questions ──
+    // ── Step 3: Show results - NEVER re-fetch questions ──
     clearSavedAnswers(tabKey);
     setResult({
       tabKey,
@@ -454,10 +454,10 @@ export default function AssessmentPage() {
           </h1>
           <p style={{ color: '#475569', marginBottom: 8 }}>
             You passed <strong>{sessionName}</strong> with a score of{' '}
-            <strong style={{ color: GREEN }}>{status?.lastScore ?? '—'}%</strong>.
+            <strong style={{ color: GREEN }}>{status?.lastScore ?? '-'}%</strong>.
           </p>
           <p style={{ color: '#64748B', fontSize: 14, marginBottom: 32 }}>
-            No need to retake — your progress is saved.
+            No need to retake - your progress is saved.
           </p>
           <Link href={dashUrl} style={{
             display: 'inline-block', background: NAVY, color: WHITE,
@@ -550,7 +550,7 @@ export default function AssessmentPage() {
         <NavBar isFinal={isFinal} sessionName={sessionName} dashUrl={dashUrl} />
         <div style={{ maxWidth: 820, margin: '60px auto', padding: '0 24px' }}>
 
-          {/* Error banner (non-fatal — questions loaded but submission failed) */}
+          {/* Error banner (non-fatal - questions loaded but submission failed) */}
           {errorMsg && (
             <div style={{
               background: '#FEF2F2', border: '1px solid #FCA5A5', borderRadius: 8,
@@ -568,7 +568,7 @@ export default function AssessmentPage() {
             {/* Header */}
             <div style={{ background: NAVY, padding: '28px 32px' }}>
               <div style={{ fontSize: 13, color: '#94A3B8', marginBottom: 4 }}>
-                {questions?.course} — Assessment
+                {questions?.course} - Assessment
               </div>
               <h1 style={{ fontSize: 24, fontWeight: 800, color: WHITE, margin: 0 }}>
                 {isFinal ? '🏆' : '📝'} {sessionName}
@@ -595,7 +595,7 @@ export default function AssessmentPage() {
               {/* Final / only-attempt warning */}
               {isOnlyAttempt && (
                 <div style={{ background: '#FFF8E1', border: '1px solid #FDE68A', borderRadius: 8, padding: '12px 16px', marginBottom: 24, fontSize: 13, color: '#92400E', fontWeight: 600 }}>
-                  ⚠️ {isFinal ? 'This is the Final Exam — ' : ''}You have only 1 attempt. There is no retry once submitted.
+                  ⚠️ {isFinal ? 'This is the Final Exam - ' : ''}You have only 1 attempt. There is no retry once submitted.
                 </div>
               )}
 
@@ -605,7 +605,7 @@ export default function AssessmentPage() {
                   background: '#F1F5F9', borderRadius: 8, padding: '12px 16px',
                   marginBottom: 24, fontSize: 13, color: '#475569',
                 }}>
-                  Previous attempt: <strong>{status.lastScore ?? '—'}%</strong>
+                  Previous attempt: <strong>{status.lastScore ?? '-'}%</strong>
                   {status.lastCompletedAt && ` on ${new Date(status.lastCompletedAt).toLocaleDateString()}`}
                 </div>
               )}
@@ -614,8 +614,8 @@ export default function AssessmentPage() {
               <ul style={{ color: '#475569', fontSize: 14, lineHeight: 1.7, paddingLeft: 20, marginBottom: 32 }}>
                 <li>Select one answer per question.</li>
                 <li>You can navigate between questions before submitting.</li>
-                {effectiveTimeLimit ? <li>You have <strong>{effectiveTimeLimit} minutes</strong> total. Timer starts when you begin — assessment auto-submits when time runs out.</li> : null}
-                <li>Your answers are saved as you go — refreshing is safe.</li>
+                {effectiveTimeLimit ? <li>You have <strong>{effectiveTimeLimit} minutes</strong> total. Timer starts when you begin - assessment auto-submits when time runs out.</li> : null}
+                <li>Your answers are saved as you go - refreshing is safe.</li>
               </ul>
 
               <button
@@ -651,7 +651,7 @@ export default function AssessmentPage() {
       >
         <NavBar isFinal={isFinal} sessionName={sessionName} dashUrl={dashUrl} />
 
-        {/* Progress + timer bar — sticky below navbar */}
+        {/* Progress + timer bar - sticky below navbar */}
         <div style={{
           position: 'sticky', top: 0, zIndex: 10,
           background: WHITE, borderBottom: `1px solid ${BORDER}`,
@@ -676,7 +676,7 @@ export default function AssessmentPage() {
           )}
         </div>
 
-        {/* Scrollable content — wider container, bottom padding clears sticky nav bar */}
+        {/* Scrollable content - wider container, bottom padding clears sticky nav bar */}
         <div style={{ maxWidth: 1120, margin: '40px auto', padding: '0 24px 96px' }}>
           {/* Question navigator */}
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 28 }}>
@@ -695,7 +695,7 @@ export default function AssessmentPage() {
             ))}
           </div>
 
-          {/* Question card — copy/select disabled to prevent cheating */}
+          {/* Question card - copy/select disabled to prevent cheating */}
           <div style={{
             background: WHITE, borderRadius: 12, border: `1px solid ${BORDER}`,
             boxShadow: '0 2px 8px rgba(0,0,0,0.06)', padding: 32,
@@ -842,7 +842,7 @@ export default function AssessmentPage() {
             </p>
             {!passed && (
               <p style={{ fontSize: 14, color: '#64748B', marginBottom: 28 }}>
-                You scored <strong style={{ color: '#DC2626' }}>{result.score}%</strong> — passing score is {passingScore}%.
+                You scored <strong style={{ color: '#DC2626' }}>{result.score}%</strong> - passing score is {passingScore}%.
               </p>
             )}
 
@@ -883,7 +883,7 @@ export default function AssessmentPage() {
                 ? `✓ Passed on attempt ${result.attempts} of ${result.maxAttempts}`
                 : (result.maxAttempts - result.attempts) > 0
                   ? `${result.maxAttempts - result.attempts} attempt${result.maxAttempts - result.attempts === 1 ? '' : 's'} remaining`
-                  : 'No attempts remaining — please contact your instructor.'}
+                  : 'No attempts remaining - please contact your instructor.'}
             </div>
 
             {/* Feedback */}
@@ -929,14 +929,14 @@ export default function AssessmentPage() {
           </div>
         </div>
 
-        {/* Share achievement — only shown when student PASSES */}
+        {/* Share achievement - only shown when student PASSES */}
         {passed && (() => {
           const passDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
           const courseName = courseId === 'bvm' ? 'Business Valuation Modeling' : '3-Statement Financial Modeling';
           const sess = getTrainingSession();
           const regIdVal = sess?.registrationId || '';
           const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionName)}&score=${result.score}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName)}&regId=${encodeURIComponent(regIdVal)}`;
-          const shareText = `🏆 I just passed "${sessionName}" with ${result.score}% in the ${courseName} program at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — completely free certification program.\n\n👉 https://learn.financialmodelerpro.com\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
+          const shareText = `🏆 I just passed "${sessionName}" with ${result.score}% in the ${courseName} program at Financial Modeler Pro!\n\nBuilding institutional-grade financial models - completely free certification program.\n\n👉 https://learn.financialmodelerpro.com\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
           return (
             <div style={{ maxWidth: 780, margin: '0 auto 32px', padding: '0 24px' }}>
               <div style={{ background: WHITE, borderRadius: 12, border: '1px solid #E5E7EB', padding: '24px 28px' }}>
@@ -960,7 +960,7 @@ export default function AssessmentPage() {
                   style={{ width: '100%', padding: '10px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 12, fontFamily: 'Inter,sans-serif', resize: 'none', lineHeight: 1.6, boxSizing: 'border-box', marginBottom: 12, color: '#374151', background: '#F9FAFB' }} />
                 {/* Instruction */}
                 <div style={{ fontSize: 12, color: '#6B7280', background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8, padding: '10px 14px', marginBottom: 12, lineHeight: 1.5 }}>
-                  💡 Click <strong>Share on LinkedIn</strong> — your text is auto-copied. Just <strong>paste it (Ctrl+V)</strong> in LinkedIn and attach the downloaded card.
+                  💡 Click <strong>Share on LinkedIn</strong> - your text is auto-copied. Just <strong>paste it (Ctrl+V)</strong> in LinkedIn and attach the downloaded card.
                 </div>
                 {/* Buttons */}
                 <div style={{ display: 'flex', gap: 8 }}>
@@ -978,7 +978,7 @@ export default function AssessmentPage() {
           );
         })()}
 
-        {/* Per-question review — only shown when student PASSES */}
+        {/* Per-question review - only shown when student PASSES */}
         {passed && Array.isArray(result.results) && result.results.length > 0 && (
           <div style={{ maxWidth: 900, margin: '0 auto 60px', padding: '0 24px' }}>
             <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, marginBottom: 16 }}>
@@ -1018,7 +1018,7 @@ export default function AssessmentPage() {
                       </p>
                     </div>
 
-                    {/* Options — only rendered if the API returned them */}
+                    {/* Options - only rendered if the API returned them */}
                     {options.length > 0 && (
                       <div style={{ padding: '14px 20px', display: 'flex', flexDirection: 'column', gap: 8, userSelect: 'none', WebkitUserSelect: 'none' } as React.CSSProperties}>
                         {options.map((opt, oi) => {

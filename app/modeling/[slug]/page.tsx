@@ -30,7 +30,7 @@ export async function generateMetadata({
     return { title: 'Platform Not Found | Financial Modeler Pro' };
   }
   return {
-    title: `${platform.name} | Modeling Hub — Financial Modeler Pro`,
+    title: `${platform.name} | Modeling Hub - Financial Modeler Pro`,
     description: platform.description,
   };
 }
@@ -70,7 +70,7 @@ export default async function PlatformDetailPage({
   const platform = getPlatform(slug);
   if (!platform) notFound();
 
-  // Respect admin visibility — hidden platforms return 404
+  // Respect admin visibility - hidden platforms return 404
   const dbModules = await getModules();
   const dbEntry = dbModules.find((m) => m.slug === slug);
   if (!dbEntry) notFound();
@@ -113,7 +113,7 @@ export default async function PlatformDetailPage({
     const heroHeadline  = (h?.headline as string)           || displayName;
     const heroSubtitle  = (h?.subtitle as string)           || platform.tagline;
     const heroBadge     = (h?.badge as string)              || platform.shortName;
-    const heroStatusBdg = (h?.status_badge as string)       || '✓ LIVE — Available Now';
+    const heroStatusBdg = (h?.status_badge as string)       || '✓ LIVE - Available Now';
     const heroCta1Text  = (h?.cta_primary_text as string)   || 'Launch Platform →';
     const heroCta1Url   = (h?.cta_primary_url as string)    || '/signin';
     const heroCta2Text  = (h?.cta_secondary_text as string) || '← Back to Modeling Hub';
@@ -147,11 +147,11 @@ export default async function PlatformDetailPage({
 
     const mc = fc(moduleRaw);
     const moduleGuideHead = (mc?.heading as string)    || 'Step-by-Step Module Guide';
-    const moduleGuideSub  = (mc?.subheading as string) || 'Build your model module by module — each unlocks when you complete the previous step.';
+    const moduleGuideSub  = (mc?.subheading as string) || 'Build your model module by module - each unlocks when you complete the previous step.';
 
     const cc = fc(ctaRaw);
     const ctaHead    = (cc?.heading as string)           || 'Ready to build your model?';
-    const ctaDesc    = (cc?.description as string)       || 'Start with Module 1 — free, structured, and ready to use right now.';
+    const ctaDesc    = (cc?.description as string)       || 'Start with Module 1 - free, structured, and ready to use right now.';
     const ctaText    = (cc?.cta_text as string)          || 'Launch Platform Free →';
     const ctaUrl     = (cc?.cta_url as string)           || '/register';
 

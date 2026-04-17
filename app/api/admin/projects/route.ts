@@ -10,7 +10,7 @@ async function guard() {
   return { error: null, status: 200, session };
 }
 
-// GET /api/admin/projects — all projects with owner info
+// GET /api/admin/projects - all projects with owner info
 export async function GET() {
   const { error, status } = await guard();
   if (error) return NextResponse.json({ error }, { status });
@@ -25,7 +25,7 @@ export async function GET() {
   return NextResponse.json({ projects: data ?? [] });
 }
 
-// DELETE /api/admin/projects — archive or hard-delete a project
+// DELETE /api/admin/projects - archive or hard-delete a project
 export async function DELETE(req: NextRequest) {
   const { error, status, session } = await guard();
   if (error || !session) return NextResponse.json({ error }, { status });

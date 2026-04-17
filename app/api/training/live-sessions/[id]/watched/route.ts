@@ -26,7 +26,7 @@ export async function POST(
       .insert({ session_id: id, student_email: email, student_reg_id: regId, points_awarded: 50 });
 
     if (insertErr) {
-      // Duplicate — already watched
+      // Duplicate - already watched
       if (insertErr.code === '23505') {
         return NextResponse.json({ success: true, pointsAwarded: 0, alreadyWatched: true });
       }

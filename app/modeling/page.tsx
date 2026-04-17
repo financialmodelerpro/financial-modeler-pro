@@ -10,7 +10,7 @@ import { SharedFooter } from '@/src/components/landing/SharedFooter';
 export const revalidate = 0;
 
 export const metadata: Metadata = {
-  title: 'Modeling Hub — Professional Financial Modeling Platforms | Financial Modeler Pro',
+  title: 'Modeling Hub - Professional Financial Modeling Platforms | Financial Modeler Pro',
   description: 'Build institutional-grade financial models across real estate, business valuation, FP&A, LBO, and more. Free to use, built by finance professionals.',
 };
 
@@ -72,7 +72,7 @@ export default async function ModelingHubPage() {
   const h = fc(heroRaw);
   const heroBadge    = (h?.badge as string)              || cms(content, 'modeling_hub', 'hero_badge',    '📐 Professional Modeling Platform');
   const heroHeadline = (h?.headline as string)           || cms(content, 'modeling_hub', 'hero_headline', 'Build Institutional-Grade\nFinancial Models');
-  const heroSub      = (h?.subtitle as string)           || cms(content, 'modeling_hub', 'hero_sub',      'Structured, guided workflows for every financial discipline — real estate, business valuation, LBO, FP&A, and more. Built by practitioners. Free to use.');
+  const heroSub      = (h?.subtitle as string)           || cms(content, 'modeling_hub', 'hero_sub',      'Structured, guided workflows for every financial discipline - real estate, business valuation, LBO, FP&A, and more. Built by practitioners. Free to use.');
   const ctaPrimary   = (h?.cta_primary_text as string)   || cms(content, 'modeling_hub', 'cta_primary',   'Register Free →');
   const ctaPriUrl    = (h?.cta_primary_url as string)    || '/register';
   const ctaSecondary = (h?.cta_secondary_text as string) || cms(content, 'modeling_hub', 'cta_secondary', 'Login to Dashboard →');
@@ -87,7 +87,7 @@ export default async function ModelingHubPage() {
   const mc = fc(modulesRaw);
   const modulesBadge = (mc?.badge as string)       || 'The Platforms';
   const modulesHead  = (mc?.heading as string)     || '10+ Professional Modeling Platforms';
-  const modulesDesc  = (mc?.description as string) || 'Live now and launching soon — one platform for every financial modeling discipline.';
+  const modulesDesc  = (mc?.description as string) || 'Live now and launching soon - one platform for every financial modeling discipline.';
 
   const wc = fc(whyRaw);
   const whyHead  = (wc?.heading as string) || 'Why Modeling Hub?';
@@ -106,7 +106,7 @@ export default async function ModelingHubPage() {
 
   const bc = fc(bottomCtaRaw);
   const bottomH2      = (bc?.heading as string)     || cms(content, 'modeling_hub', 'bottom_cta_heading', 'Ready to build your first model?');
-  const bottomSub     = (bc?.description as string) || 'Join financial professionals around the world building institutional-grade models — completely free.';
+  const bottomSub     = (bc?.description as string) || 'Join financial professionals around the world building institutional-grade models - completely free.';
   const bottomCtaText = (bc?.cta_text as string)    || 'Launch Platform Free →';
   const bottomCtaUrl  = (bc?.cta_url as string)     || '/register';
 
@@ -115,7 +115,7 @@ export default async function ModelingHubPage() {
     : cms(content, 'cta', 'section_visible', 'true') !== 'false';
 
   const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
-  const footerFounder   = cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder');
+  const footerFounder   = cms(content, 'footer', 'founder_line', 'Ahmad Din - CEO & Founder');
   const footerCopyright = cms(content, 'footer', 'copyright',    `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
 
   return (
@@ -132,7 +132,7 @@ export default async function ModelingHubPage() {
       <NavbarServer />
       <div style={{ height: 64 }} />
 
-      {/* ── Section 1 — Hero ──────────────────────────────────────────────── */}
+      {/* ── Section 1 - Hero ──────────────────────────────────────────────── */}
       {!hidden(heroRaw) && (
         <section style={{
           background: 'linear-gradient(135deg, #0A1F3D 0%, #0D2E5A 50%, #0F3D6E 100%)',
@@ -189,7 +189,7 @@ export default async function ModelingHubPage() {
         </section>
       )}
 
-      {/* ── Section 2 — What is Modeling Hub ─────────────────────────────── */}
+      {/* ── Section 2 - What is Modeling Hub ─────────────────────────────── */}
       {!hidden(audienceRaw) && (
         <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
           <div style={{ maxWidth: 1000, margin: '0 auto' }}>
@@ -229,7 +229,7 @@ export default async function ModelingHubPage() {
         </section>
       )}
 
-      {/* ── Section 3 — Platforms Grid ────────────────────────────────────── */}
+      {/* ── Section 3 - Platforms Grid ────────────────────────────────────── */}
       {!hidden(modulesRaw) && (
         <section style={{ background: '#F5F7FA', padding: 'clamp(48px,7vw,80px) 40px' }}>
           <div style={{ maxWidth: 1100, margin: '0 auto' }}>
@@ -285,7 +285,7 @@ export default async function ModelingHubPage() {
         </section>
       )}
 
-      {/* ── Section 4 — Why Modeling Hub ──────────────────────────────────── */}
+      {/* ── Section 4 - Why Modeling Hub ──────────────────────────────────── */}
       {!hidden(whyRaw) && (
         <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
           <div style={{ maxWidth: 1000, margin: '0 auto' }}>
@@ -316,7 +316,7 @@ export default async function ModelingHubPage() {
         </section>
       )}
 
-      {/* ── Section 5 — Testimonials ─────────────────────────────────────── */}
+      {/* ── Section 5 - Testimonials ─────────────────────────────────────── */}
       {!hidden(testimRaw) && testimonials.length > 0 && (
         <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
           <div style={{ maxWidth: 1100, margin: '0 auto' }}>
@@ -357,7 +357,7 @@ export default async function ModelingHubPage() {
         </section>
       )}
 
-      {/* ── Section 6 — Submit Testimonial CTA ────────────────────────────── */}
+      {/* ── Section 6 - Submit Testimonial CTA ────────────────────────────── */}
       {!hidden(submitCtaRaw) && (
         <section style={{ background: '#EEF2FF', padding: 'clamp(28px,4vw,48px) 40px', textAlign: 'center', borderTop: '1px solid #C7D2FE', borderBottom: '1px solid #C7D2FE' }}>
           <div style={{ maxWidth: 540, margin: '0 auto' }}>
@@ -377,7 +377,7 @@ export default async function ModelingHubPage() {
         </section>
       )}
 
-      {/* ── Section 7 — Bottom CTA ────────────────────────────────────────── */}
+      {/* ── Section 7 - Bottom CTA ────────────────────────────────────────── */}
       {bottomCtaVisible && (
         <section style={{ background: '#1B4F8A', padding: 'clamp(48px,7vw,80px) 40px', textAlign: 'center' }}>
           <div style={{ maxWidth: 600, margin: '0 auto' }}>

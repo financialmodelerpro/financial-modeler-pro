@@ -9,7 +9,7 @@ import { getServerClient } from '@/src/lib/shared/supabase';
 const inter = Inter({ subsets: ['latin'] });
 
 const MAIN_URL  = process.env.NEXT_PUBLIC_MAIN_URL  ?? 'https://financialmodelerpro.com';
-const OG_TITLE  = 'Financial Modeler Pro — Professional Financial Modeling Platform';
+const OG_TITLE  = 'Financial Modeler Pro - Professional Financial Modeling Platform';
 const OG_DESC   = 'Professional financial modeling platform with free certification, interactive modeling tools, and expert-led training. 3-Statement Financial Modeling, Business Valuation, and more.';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -27,7 +27,7 @@ export async function generateMetadata(): Promise<Metadata> {
     if (map.icon_as_favicon === 'true' && map.icon_url) iconUrl = map.icon_url;
   } catch { /* use defaults */ }
 
-  // Use absolute URL — MAIN_URL from env, with hardcoded fallback for LinkedIn crawlers
+  // Use absolute URL - MAIN_URL from env, with hardcoded fallback for LinkedIn crawlers
   const ogImage = `${MAIN_URL}/api/og/main`;
 
   const base: Metadata = {
@@ -41,7 +41,7 @@ export async function generateMetadata(): Promise<Metadata> {
       description: OG_DESC,
       siteName: 'Financial Modeler Pro',
       url: MAIN_URL,
-      images: [{ url: ogImage, width: 1200, height: 630, alt: 'Financial Modeler Pro — Free Financial Modeling Certification' }],
+      images: [{ url: ogImage, width: 1200, height: 630, alt: 'Financial Modeler Pro - Free Financial Modeling Certification' }],
     },
     twitter: {
       card: 'summary_large_image',

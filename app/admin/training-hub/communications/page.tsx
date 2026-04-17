@@ -23,7 +23,7 @@ type GroupType = 'neverStarted' | 'stalled' | 'almostDone' | 'custom';
 const GROUP_META: Record<GroupType, { label: string; color: string; bg: string; icon: string; desc: string }> = {
   neverStarted: { label: 'Never Started',  color: '#DC2626', bg: '#FEE2E2', icon: '🚫', desc: "Enrolled but haven't begun any sessions" },
   stalled:      { label: 'Stalled',        color: '#92400E', bg: '#FEF3C7', icon: '⏸️', desc: 'Started but not progressing or completed' },
-  almostDone:   { label: 'Almost Done',    color: '#065F46', bg: '#D1FAE5', icon: '🏁', desc: '≥80% complete — nudge them to finish' },
+  almostDone:   { label: 'Almost Done',    color: '#065F46', bg: '#D1FAE5', icon: '🏁', desc: '≥80% complete - nudge them to finish' },
   custom:       { label: 'Custom List',    color: '#1B4F8A', bg: '#EFF6FF', icon: '✏️', desc: 'Manually entered comma-separated emails' },
 };
 
@@ -113,7 +113,7 @@ export default function CommunicationsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          campaignName: campaignName || `${GROUP_META[selectedGroup].label} — ${new Date().toLocaleDateString()}`,
+          campaignName: campaignName || `${GROUP_META[selectedGroup].label} - ${new Date().toLocaleDateString()}`,
           subject,
           message,
           emailType: selectedGroup,
@@ -232,7 +232,7 @@ export default function CommunicationsPage() {
 
               {sendResult && (
                 <div style={{ background: '#F0FFF4', border: '1px solid #86EFAC', borderRadius: 8, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#15803D' }}>
-                  ✅ Campaign sent — <strong>{sendResult.sent}</strong> delivered{sendResult.failed > 0 ? `, ${sendResult.failed} failed` : ''}
+                  ✅ Campaign sent - <strong>{sendResult.sent}</strong> delivered{sendResult.failed > 0 ? `, ${sendResult.failed} failed` : ''}
                 </div>
               )}
               {sendError && (
@@ -245,14 +245,14 @@ export default function CommunicationsPage() {
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>Campaign Name (optional)</label>
                   <input value={campaignName} onChange={e => setCampaignName(e.target.value)}
-                    placeholder={`${GROUP_META[selectedGroup].label} — ${new Date().toLocaleDateString()}`}
+                    placeholder={`${GROUP_META[selectedGroup].label} - ${new Date().toLocaleDateString()}`}
                     style={{ width: '100%', padding: '9px 12px', border: '1px solid #E5E7EB', borderRadius: 7, fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
                 </div>
 
                 <div>
                   <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', display: 'block', marginBottom: 4 }}>Subject *</label>
                   <input value={subject} onChange={e => setSubject(e.target.value)}
-                    placeholder="e.g. Don't miss out — your training awaits"
+                    placeholder="e.g. Don't miss out - your training awaits"
                     style={{ width: '100%', padding: '9px 12px', border: '1px solid #E5E7EB', borderRadius: 7, fontSize: 13, outline: 'none', boxSizing: 'border-box' }} />
                 </div>
 
@@ -320,7 +320,7 @@ export default function CommunicationsPage() {
                         </span>
                       </td>
                       <td style={{ padding: '10px 14px', fontSize: 12, color: '#374151' }}>{log.recipient_email}</td>
-                      <td style={{ padding: '10px 14px', fontSize: 12, color: '#374151', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{log.subject ?? '—'}</td>
+                      <td style={{ padding: '10px 14px', fontSize: 12, color: '#374151', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{log.subject ?? '-'}</td>
                       <td style={{ padding: '10px 14px', fontSize: 11, color: '#6B7280', whiteSpace: 'nowrap' }}>
                         {new Date(log.sent_at).toLocaleString()}
                       </td>
@@ -376,7 +376,7 @@ export default function CommunicationsPage() {
                 <div style={{ marginBottom: 24 }}>
                   <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Default Share Message</label>
                   <textarea style={{ width: '100%', padding: '10px 14px', border: '1.5px solid #D1D5DB', borderRadius: 8, fontSize: 14, resize: 'vertical', minHeight: 120, fontFamily: 'inherit', boxSizing: 'border-box' }}
-                    value={shareMsg || 'I just {action} at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — Free certification program: https://financialmodelerpro.com/training\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro'}
+                    value={shareMsg || 'I just {action} at Financial Modeler Pro!\n\nBuilding institutional-grade financial models - Free certification program: https://financialmodelerpro.com/training\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro'}
                     onChange={e => setShareMsg(e.target.value)} />
                   <p style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>Supports {'{action}'} and {'{course}'} placeholders.</p>
                 </div>

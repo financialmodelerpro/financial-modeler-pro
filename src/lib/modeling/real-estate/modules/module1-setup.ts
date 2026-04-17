@@ -1,6 +1,6 @@
 /**
  * module1-setup.ts
- * Module 1 — Project Setup & Financial Structure
+ * Module 1 - Project Setup & Financial Structure
  * Default cost data, factory helpers, and downstream-facing interface.
  */
 
@@ -14,7 +14,7 @@ export { formatNumber, formatCurrency };
 
 /**
  * Returns the 12 default cost items for any asset (residential / hospitality / retail).
- * The land value (id=1) is stored as 0 by default — callers must update it
+ * The land value (id=1) is stored as 0 by default - callers must update it
  * from the land aggregates after initialization.
  */
 export function getDefaultCosts(constructionPeriods: number): CostItem[] {
@@ -185,7 +185,7 @@ export function createEmptyCostItem(id: number, constructionPeriods: number): Co
 }
 
 /**
- * Module1Exports — documents what Module 1 exposes for downstream modules
+ * Module1Exports - documents what Module 1 exposes for downstream modules
  * (Module 2 Revenue, Module 3 OpEx, Module 4 Returns, etc.)
  */
 export interface Module1Exports {

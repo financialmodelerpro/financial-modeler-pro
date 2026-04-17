@@ -39,7 +39,7 @@ export function CertificateImageCard({ cert }: CertificateImageCardProps) {
       .finally(() => setLoading(false));
   }, [cert.certificateId, cert.email]);
 
-  // Derive values — prefer internal data, fall back to legacy certifierUrl
+  // Derive values - prefer internal data, fall back to legacy certifierUrl
   const certId      = supaData?.certificate_id ?? cert.certificateId ?? '';
   const certPdfUrl  = supaData?.cert_pdf_url ?? cert.certPdfUrl ?? cert.certifierUrl ?? '';
   const badgeUrl    = supaData?.badge_url ?? cert.badgeUrl ?? '';
@@ -106,7 +106,7 @@ export function CertificateImageCard({ cert }: CertificateImageCardProps) {
             </div>
           )}
           <div style={{ fontSize: 12, color: '#6B7280' }}>
-            Issued: {issuedAt ? new Date(issuedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '—'}
+            Issued: {issuedAt ? new Date(issuedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '-'}
           </div>
         </div>
 

@@ -1,7 +1,7 @@
 // v-founder-fix-final
 /**
  * FMP Public Landing Page
- * Server Component — all CMS text is inline-editable for admins.
+ * Server Component - all CMS text is inline-editable for admins.
  */
 import type { Metadata } from 'next';
 import { getServerSession } from 'next-auth';
@@ -30,7 +30,7 @@ export const revalidate = 0;
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
 
 export const metadata: Metadata = {
-  title: 'Financial Modeler Pro — The Professional Hub for Financial Modeling',
+  title: 'Financial Modeler Pro - The Professional Hub for Financial Modeling',
   description: 'Professional-grade financial modeling across all disciplines.',
   openGraph: {
     title: 'Financial Modeler Pro',
@@ -103,9 +103,9 @@ export default async function LandingPage() {
   const pm = cmsPM?.content as Record<string, unknown> | undefined;
 
   // ── Hero (CMS page_sections → cms_content → hardcoded fallback) ────────
-  const heroBadge          = (h?.badge as string)          || cms(content, 'hero', 'badge_text',       '🚀 Now Live — Free to Use');
-  const heroHeadline       = (h?.headline as string)       || cms(content, 'hero', 'headline',         'Build Institutional-Grade Financial Models — Without Starting From Scratch');
-  const heroSub            = (h?.subtitle as string)       || cms(content, 'hero', 'subheadline',      'Pre-built, structured financial models for real estate, valuation, and project finance — designed by corporate finance professionals for real-world use.');
+  const heroBadge          = (h?.badge as string)          || cms(content, 'hero', 'badge_text',       '🚀 Now Live - Free to Use');
+  const heroHeadline       = (h?.headline as string)       || cms(content, 'hero', 'headline',         'Build Institutional-Grade Financial Models - Without Starting From Scratch');
+  const heroSub            = (h?.subtitle as string)       || cms(content, 'hero', 'subheadline',      'Pre-built, structured financial models for real estate, valuation, and project finance - designed by corporate finance professionals for real-world use.');
   const heroPowerStatement = (h?.powerStatement as string) || cms(content, 'hero', 'power_statement',  'No more rebuilding models. No more broken Excel files. No more wasted hours.');
   const heroSoftCta        = (h?.softCta as string)        || cms(content, 'hero', 'soft_cta',         'Explore the platform');
   const heroTrustLine      = (h?.trustLine as string)      || cms(content, 'hero', 'trust_line',       'Designed by Investment & Corporate Finance Experts  |  12+ Years Experience  |  Used Across KSA & Pakistan');
@@ -133,7 +133,7 @@ export default async function LandingPage() {
       { value: cms(content,'stats','stat1_value','12+'),  label: cms(content,'stats','stat1_label','Years of Experience'),       order: 1 },
       { value: cms(content,'stats','stat2_value','10+'),  label: cms(content,'stats','stat2_label','Modeling Platforms'),         order: 2 },
       { value: cms(content,'stats','stat3_value','20+'),  label: cms(content,'stats','stat3_label','Currencies Supported'),       order: 3 },
-      { value: cms(content,'stats','stat4_value','100%'), label: cms(content,'stats','stat4_label','Free Training — No Paywall'), order: 4 },
+      { value: cms(content,'stats','stat4_value','100%'), label: cms(content,'stats','stat4_label','Free Training - No Paywall'), order: 4 },
     ];
   }
   const statsStyles = cmsStats?.styles as Record<string, string> | undefined;
@@ -141,7 +141,7 @@ export default async function LandingPage() {
   // ── Text+Image sections (What is FMP, Mission, Vision) from CMS ────────
   const cmsTextImageSections = homePageSections.filter(s => s.section_type === 'text_image').sort((a, b) => a.display_order - b.display_order);
 
-  // ── About (fallback styles only — text now comes from CMS text_image sections) ──
+  // ── About (fallback styles only - text now comes from CMS text_image sections) ──
 
   // ── Pillars (CMS page_sections → cms_content → hardcoded fallback) ──────
   const cmsPillarsRaw = homePageSections.find(s => s.section_type === 'columns' && (s.content as Record<string,unknown>)?.heading?.toString().includes('Two Platforms'));
@@ -149,12 +149,12 @@ export default async function LandingPage() {
   const cmsPillars = cmsPillarsRaw?.visible !== false ? cmsPillarsRaw : undefined;
   const pc = cmsPillars?.content as Record<string, unknown> | undefined;
   const pillarsH2        = (pc?.heading as string)    || cms(content, 'pillars', 'heading',       'Two Platforms. One Destination.');
-  const pillarsSub       = (pc?.subheading as string) || cms(content, 'pillars', 'subheading',    'Modeling + Training — everything a financial professional needs in one place.');
+  const pillarsSub       = (pc?.subheading as string) || cms(content, 'pillars', 'subheading',    'Modeling + Training - everything a financial professional needs in one place.');
   const pillarsCols = (pc?.columns as { id: string; title: string; description: string; borderColor: string; borderSideColor: string; accentColor: string; shadowColor: string; features: string[]; ctaText: string; ctaUrl: string; icon: string }[]) ?? [];
   const modelTitle       = pillarsCols[0]?.title       || cms(content, 'pillars', 'model_title',   'Modeling Platform');
-  const modelDesc        = pillarsCols[0]?.description || cms(content, 'pillars', 'model_desc',    'Structured workflows that take you from project setup to investor-ready reports. All outputs link — change one assumption, everything updates.');
+  const modelDesc        = pillarsCols[0]?.description || cms(content, 'pillars', 'model_desc',    'Structured workflows that take you from project setup to investor-ready reports. All outputs link - change one assumption, everything updates.');
   const trainingTitle    = pillarsCols[1]?.title       || cms(content, 'pillars', 'training_title','Training Hub');
-  const trainingDesc     = pillarsCols[1]?.description || cms(content, 'pillars', 'training_desc', 'Free video courses taught by finance professionals. Learn the methodology behind the model — from first principles to advanced deal structuring.');
+  const trainingDesc     = pillarsCols[1]?.description || cms(content, 'pillars', 'training_desc', 'Free video courses taught by finance professionals. Learn the methodology behind the model - from first principles to advanced deal structuring.');
 
   // ── Articles section ──────────────────────────────────────────────────────
   const cmsArticlesRow = homePageSections.find(s => s.section_type === 'cards' && (s.content as Record<string,unknown>)?._dynamic === 'articles');
@@ -176,7 +176,7 @@ export default async function LandingPage() {
   const pricingHidden = cmsPricingRow?.visible === false;
   const pricingBadge = cms(content, 'pricing', 'badge',     'Pricing');
   const pricingH2    = cms(content, 'pricing', 'heading',   'Simple, Transparent Pricing');
-  const pricingSub   = cms(content, 'pricing', 'subheading','Join the beta — currently free for all users.');
+  const pricingSub   = cms(content, 'pricing', 'subheading','Join the beta - currently free for all users.');
 
   // ── CTA ───────────────────────────────────────────────────────────────────
   const cmsCtaRow = homePageSections.find(s => s.section_type === 'cta');
@@ -207,7 +207,7 @@ export default async function LandingPage() {
 
   // ── Footer ────────────────────────────────────────────────────────────────
   const footerCompany          = cms(content, 'footer', 'company_line',         'Financial Modeler Pro is a product of PaceMakers Business Consultants');
-  const footerFounder          = cms(content, 'footer', 'founder_line',         'Ahmad Din — CEO & Founder');
+  const footerFounder          = cms(content, 'footer', 'founder_line',         'Ahmad Din - CEO & Founder');
   const footerCopyright        = cms(content, 'footer', 'copyright',            `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
   const footerHeight           = cms(content, 'footer', 'height',               'standard') as 'compact' | 'standard' | 'large';
   const footerPaddingTop       = cms(content, 'footer', 'padding_top',          '40');
@@ -396,11 +396,11 @@ export default async function LandingPage() {
               <div>
                 <div style={{ fontSize:12, fontWeight:700, color:'#1B4F8A', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>The Platform</div>
                 <h2 style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1B3A6B', marginBottom:20, lineHeight:1.2 }}>What is Financial Modeler Pro?</h2>
-                <p style={{ fontSize:15, color:'#4B5563', lineHeight:1.75, marginBottom:20 }}>Financial Modeler Pro is a professional hub for financial modeling across all disciplines — built for analysts, developers, and investors. It replaces complex spreadsheets with a structured, guided workflow that produces audit-ready models in a fraction of the time.</p>
-                <p style={{ fontSize:15, color:'#6B7280', lineHeight:1.75 }}>Every assumption is traceable. Every output is formatted for investor presentation. And every model can be exported to a formula-linked Excel workbook or a clean investor PDF — ready to share on day one.</p>
+                <p style={{ fontSize:15, color:'#4B5563', lineHeight:1.75, marginBottom:20 }}>Financial Modeler Pro is a professional hub for financial modeling across all disciplines - built for analysts, developers, and investors. It replaces complex spreadsheets with a structured, guided workflow that produces audit-ready models in a fraction of the time.</p>
+                <p style={{ fontSize:15, color:'#6B7280', lineHeight:1.75 }}>Every assumption is traceable. Every output is formatted for investor presentation. And every model can be exported to a formula-linked Excel workbook or a clean investor PDF - ready to share on day one.</p>
               </div>
               <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-                {['Multi-discipline modeling — real estate, valuation, FP&A, LBO, and more','Structured workflows — from assumptions to investor-ready outputs','Monthly or annual modeling with full period control','Formula-linked Excel export + investor PDF reports','White-label ready for advisory firms and consultants','100% free training on every financial modeling topic'].map(text=>(
+                {['Multi-discipline modeling - real estate, valuation, FP&A, LBO, and more','Structured workflows - from assumptions to investor-ready outputs','Monthly or annual modeling with full period control','Formula-linked Excel export + investor PDF reports','White-label ready for advisory firms and consultants','100% free training on every financial modeling topic'].map(text=>(
                   <div key={text} style={{ display:'flex', alignItems:'flex-start', gap:12 }}>
                     <span style={{ width:22, height:22, borderRadius:'50%', flexShrink:0, background:'#E8F0FB', border:'1px solid #C7D9F2', display:'flex', alignItems:'center', justifyContent:'center', fontSize:11, fontWeight:700, color:'#1B4F8A', marginTop:1 }}>✓</span>
                     <span style={{ fontSize:14, color:'#4B5563', lineHeight:1.55 }}>{text}</span>
@@ -582,7 +582,7 @@ export default async function LandingPage() {
         const pmLogoW = (pm?.logo_width as string) || '180px';
         const pmBadge = (pm?.badge as string) || 'The Firm Behind the Platform';
         const pmHead  = (pm?.heading as string) || 'Powered by PaceMakers Business Consultants';
-        const pmDesc  = (pm?.description as string) || 'Financial Modeler Pro is a product of PaceMakers — a corporate finance advisory firm with 12+ years of experience delivering institutional-grade financial solutions across KSA and Pakistan.';
+        const pmDesc  = (pm?.description as string) || 'Financial Modeler Pro is a product of PaceMakers - a corporate finance advisory firm with 12+ years of experience delivering institutional-grade financial solutions across KSA and Pakistan.';
         const pmCta   = (pm?.cta_text as string) || 'Visit PaceMakers →';
         const pmUrl   = (pm?.cta_url as string) || 'https://www.pacemakersglobal.com';
         const pmSvcs  = (pm?.services as { id: string; text: string }[]) ?? [

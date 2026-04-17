@@ -31,12 +31,12 @@ export async function generateMetadata(
   const pageUrl = `${LEARN_URL}/training/assessment/${tabKey}`;
 
   return {
-    title: `${session} — Passed! | Financial Modeler Pro`,
+    title: `${session} - Passed! | Financial Modeler Pro`,
     description: `I just passed ${session} on the ${course} program at Financial Modeler Pro!`,
     openGraph: {
       type: 'article',
-      title: `${session} — Passed!`,
-      description: `${course} | Financial Modeler Pro — Free Professional Certification`,
+      title: `${session} - Passed!`,
+      description: `${course} | Financial Modeler Pro - Free Professional Certification`,
       siteName: 'Financial Modeler Pro',
       url: pageUrl,
       images: [{
@@ -49,7 +49,7 @@ export async function generateMetadata(
     },
     twitter: {
       card: 'summary_large_image',
-      title: `${session} — Passed!`,
+      title: `${session} - Passed!`,
       description: `${course} | Financial Modeler Pro`,
       images: [{ url: imageUrl, alt: `Achievement: ${session}` }],
     },

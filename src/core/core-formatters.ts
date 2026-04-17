@@ -23,10 +23,10 @@ export function formatFinancialNumber(
   currency?: string,
 ): { text: string; color: string } {
   if (num === null || num === undefined || isNaN(num as number)) {
-    return { text: '—', color: '#6B7280' };
+    return { text: '-', color: '#6B7280' };
   }
   if (num === 0) {
-    return { text: '—', color: '#6B7280' };
+    return { text: '-', color: '#6B7280' };
   }
   const abs      = Math.abs(Math.round(num));
   const formatted = abs.toLocaleString('en-US');

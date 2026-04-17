@@ -74,9 +74,9 @@ const D: Settings = {
   passedBg: '#D1FAE5', passedColor: '#065F46',
   failedBg: '#FEE2E2', failedColor: '#991B1B',
   colNum: '#', colSession: 'Session Name', colScore: 'Score', colStatus: 'Status', colAttempts: 'Attempts',
-  bannerCompleteTitle: '✓ OFFICIAL TRANSCRIPT — Course Complete',
+  bannerCompleteTitle: '✓ OFFICIAL TRANSCRIPT - Course Complete',
   bannerCompleteSub:   'All requirements fulfilled. Certificate issued as of [date].',
-  bannerProgressTitle: 'PROGRESS TRANSCRIPT — Course in Progress',
+  bannerProgressTitle: 'PROGRESS TRANSCRIPT - Course in Progress',
   bannerProgressSub:   'This transcript reflects current progress as of [date]. A final transcript will be issued upon course completion.',
   footerBgColor: '#0D2E5A',
   footerLeftText: 'Issue Date: [date]', footerLeftVisible: true,
@@ -279,7 +279,7 @@ function BodyPreview({ cfg }: { cfg: Settings }) {
         </div>
         {/* Failed badge preview */}
         <div style={{ display:'flex', borderBottom:'1px solid #E5E7EB', padding:`${px(4)}px 0` }}>
-          <div style={{ width:px(28),paddingLeft:px(6) }}><span style={{ fontSize:px(8),color:'#9CA3AF' }}>—</span></div>
+          <div style={{ width:px(28),paddingLeft:px(6) }}><span style={{ fontSize:px(8),color:'#9CA3AF' }}>-</span></div>
           <div style={{ flex:1,paddingLeft:px(6) }}><span style={{ fontSize:px(8),color:'#9CA3AF',fontStyle:'italic' }}>Failed attempt (badge preview)</span></div>
           <div style={{ width:px(46),textAlign:'center' }}><span style={{ fontSize:px(8.5),fontWeight:800 }}>55%</span></div>
           <div style={{ width:px(76),paddingLeft:px(4) }}><span style={{ background:cfg.failedBg,borderRadius:px(3),padding:`${px(2)}px ${px(5)}px`,fontSize:px(7.5),fontWeight:800,color:cfg.failedColor }}>FAILED</span></div>
@@ -289,7 +289,7 @@ function BodyPreview({ cfg }: { cfg: Settings }) {
       {/* Summary */}
       <div style={{ display:'flex', gap:px(12), padding:`${px(10)}px ${px(36)}px ${px(10)}px` }}>
         <div style={{ flex:1, border:'1.5px solid #1B4F8A', borderRadius:px(6), padding:px(10) }}>
-          <div style={{ fontSize:px(8.5),fontWeight:800,color:'#0D2E5A',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:px(10) }}>Academic Summary — {SAMPLE.courseShort}</div>
+          <div style={{ fontSize:px(8.5),fontWeight:800,color:'#0D2E5A',textTransform:'uppercase',letterSpacing:'0.5px',marginBottom:px(10) }}>Academic Summary - {SAMPLE.courseShort}</div>
           {[['Sessions Passed','6 of 6'],['Average Score','88%'],['Final Exam','89%'],['Overall Result','PASSED']].map(([l,v])=>(
             <div key={l} style={{ display:'flex',justifyContent:'space-between',marginBottom:px(4) }}>
               <span style={{ fontSize:px(8),color:'#6B7280' }}>{l}</span>
@@ -307,7 +307,7 @@ function BodyPreview({ cfg }: { cfg: Settings }) {
           ))}
         </div>
       </div>
-      {/* Verify Certificate section — mirrors actual transcript output */}
+      {/* Verify Certificate section - mirrors actual transcript output */}
       <div style={{ margin:`0 ${px(36)}px ${px(14)}px`, border:'1.5px solid #1B4F8A', borderRadius:px(6), padding:`${px(10)}px ${px(14)}px`, display:'flex', alignItems:'center', gap:px(14), background:'#F0F7FF' }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
@@ -575,10 +575,10 @@ export default function TranscriptEditorPage() {
             </div>
 
             <Sep label="Status Banners" />
-            <F label="Complete — Title" value={cfg.bannerCompleteTitle} onChange={v=>set('bannerCompleteTitle',v)} />
-            <F label="Complete — Subtitle ([date])" value={cfg.bannerCompleteSub} onChange={v=>set('bannerCompleteSub',v)} multi />
-            <F label="In Progress — Title" value={cfg.bannerProgressTitle} onChange={v=>set('bannerProgressTitle',v)} />
-            <F label="In Progress — Subtitle ([date])" value={cfg.bannerProgressSub} onChange={v=>set('bannerProgressSub',v)} multi />
+            <F label="Complete - Title" value={cfg.bannerCompleteTitle} onChange={v=>set('bannerCompleteTitle',v)} />
+            <F label="Complete - Subtitle ([date])" value={cfg.bannerCompleteSub} onChange={v=>set('bannerCompleteSub',v)} multi />
+            <F label="In Progress - Title" value={cfg.bannerProgressTitle} onChange={v=>set('bannerProgressTitle',v)} />
+            <F label="In Progress - Subtitle ([date])" value={cfg.bannerProgressSub} onChange={v=>set('bannerProgressSub',v)} multi />
 
             <Sep label="Footer" />
             <C label="Footer Background" value={cfg.footerBgColor} onChange={v=>set('footerBgColor',v)} />
@@ -604,7 +604,7 @@ export default function TranscriptEditorPage() {
           {/* ── Right: live preview ── */}
           <div style={{ flex:1, overflowY:'auto', padding:24, background:'#E5E7EB', display:'flex', justifyContent:'center' }}>
             <div>
-              <div style={{ fontSize:11, color:'#6B7280', fontWeight:600, textAlign:'center', marginBottom:8 }}>Live Preview — {Math.round(SCALE*100)}% scale · Drag elements in header</div>
+              <div style={{ fontSize:11, color:'#6B7280', fontWeight:600, textAlign:'center', marginBottom:8 }}>Live Preview - {Math.round(SCALE*100)}% scale · Drag elements in header</div>
               <div style={{ boxShadow:'0 4px 24px rgba(0,0,0,0.15)', borderRadius:4, overflow:'hidden' }}>
                 <div style={{ width:PW, background:'#fff', fontFamily:'Helvetica, Arial, sans-serif', fontSize:px(9), color:'#111827' }}>
                   <HeaderCanvas cfg={cfg} selected={selected} onSelect={setSelected} onMove={moveElem} />

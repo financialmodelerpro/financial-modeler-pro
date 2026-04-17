@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/lib/shared/supabase';
 
-// GET — merge manual testimonials + student_testimonials
+// GET - merge manual testimonials + student_testimonials
 export async function GET() {
   try {
     const sb = getServerClient();
@@ -68,7 +68,7 @@ export async function GET() {
   }
 }
 
-// PATCH — update status, is_featured, hub, or show_on_landing, routes via source
+// PATCH - update status, is_featured, hub, or show_on_landing, routes via source
 export async function PATCH(req: NextRequest) {
   try {
     const { id, source, status, is_featured, hub, show_on_landing } = await req.json() as Record<string, string | boolean | undefined>;
@@ -103,7 +103,7 @@ export async function PATCH(req: NextRequest) {
   }
 }
 
-// DELETE — routes to correct table via ?source=
+// DELETE - routes to correct table via ?source=
 export async function DELETE(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);

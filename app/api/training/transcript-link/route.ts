@@ -34,7 +34,7 @@ function getAppUrl(req: NextRequest): string {
   return `${proto}://${host}`;
 }
 
-// ── GET — fetch existing link for this student + course ───────────────────────
+// ── GET - fetch existing link for this student + course ───────────────────────
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const regId    = searchParams.get('regId')?.trim();
@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// ── POST — create or return existing link ─────────────────────────────────────
+// ── POST - create or return existing link ─────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json() as { regId?: string; email?: string; courseId?: string };
@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-// ── DELETE — revoke a link ────────────────────────────────────────────────────
+// ── DELETE - revoke a link ────────────────────────────────────────────────────
 export async function DELETE(req: NextRequest) {
   try {
     const { token } = await req.json() as { token?: string };

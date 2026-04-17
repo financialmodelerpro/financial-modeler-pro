@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/training/attachments?tabKey=3SFM_S1
- * Public — returns visible attachments for a session.
+ * Public - returns visible attachments for a session.
  */
 export async function GET(req: NextRequest) {
   const tabKey = req.nextUrl.searchParams.get('tabKey');

@@ -224,7 +224,7 @@ export default function AdminContactPage() {
                         <td style={{ padding:'12px 14px', fontSize:12, color:'#1B4F8A' }}>
                           <a href={`mailto:${s.email}`} style={{ color:'#1B4F8A', textDecoration:'none' }}>{s.email}</a>
                         </td>
-                        <td style={{ padding:'12px 14px', fontSize:13, color:'#374151' }}>{s.subject || '—'}</td>
+                        <td style={{ padding:'12px 14px', fontSize:13, color:'#374151' }}>{s.subject || '-'}</td>
                         <td style={{ padding:'12px 14px', fontSize:13, color:'#374151', maxWidth:240 }}>
                           <span title={s.message}>{s.message.slice(0, 80)}{s.message.length > 80 ? '…' : ''}</span>
                         </td>

@@ -156,7 +156,7 @@ export default function AdminMediaPage() {
           >
             <span style={{ fontSize: 28 }}>📂</span>
             <div style={{ fontSize: 13, color: '#6B7280', marginTop: 6 }}>
-              Click to upload to <strong>{bucket}</strong> — JPG, PNG, GIF, WebP, SVG, PDF (max 10 MB)
+              Click to upload to <strong>{bucket}</strong> - JPG, PNG, GIF, WebP, SVG, PDF (max 10 MB)
             </div>
           </div>
 

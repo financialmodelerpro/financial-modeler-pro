@@ -313,7 +313,7 @@ function CostTable({
                         fontFamily: 'Inter, sans-serif',
                       }}
                     >
-                      {mode === 'include' ? '⟳ Incl. Dev Fee' : '— Excl. Dev Fee'}
+                      {mode === 'include' ? '⟳ Incl. Dev Fee' : '- Excl. Dev Fee'}
                     </button>
                   ))}
                 </div>
@@ -426,7 +426,7 @@ function CostTable({
           <tr style={{ background: 'var(--color-input-bg)' }}>
             <td colSpan={!readOnly ? 9 : 8} style={{ padding: '8px 12px' }}>
               <div style={{ fontSize: '10px', fontWeight: 700, color: 'var(--color-muted)', marginBottom: '6px' }}>
-                Manual Phasing (%) — Sum: <span style={{ color: Math.abs(manualSum - 100) < 0.1 ? 'var(--color-green-dark)' : 'var(--color-negative)', fontWeight: 700 }}>{manualSum.toFixed(1)}%</span> {Math.abs(manualSum - 100) < 0.1 ? '✓' : '(must = 100%)'}
+                Manual Phasing (%) - Sum: <span style={{ color: Math.abs(manualSum - 100) < 0.1 ? 'var(--color-green-dark)' : 'var(--color-negative)', fontWeight: 700 }}>{manualSum.toFixed(1)}%</span> {Math.abs(manualSum - 100) < 0.1 ? '✓' : '(must = 100%)'}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
                 {Array.from({ length: cost.endPeriod - cost.startPeriod + 1 }, (_, i) => (
@@ -456,7 +456,7 @@ function CostTable({
                     color: v > 0 ? 'var(--color-primary)' : 'var(--color-muted)',
                     fontWeight: v > 0 ? 600 : 400,
                   }}>
-                    {getPeriodLabel(i, projectStart, modelType)}: {v > 0 ? formatNumber(v) : '—'}
+                    {getPeriodLabel(i, projectStart, modelType)}: {v > 0 ? formatNumber(v) : '-'}
                   </div>
                 ))}
               </div>
@@ -468,9 +468,9 @@ function CostTable({
   };
 
   const stageHeaders: Record<number, string> = {
-    1: '▸ Stage 1 — Direct Base Costs',
-    2: '▸ Stage 2 — Shared Project Costs',
-    3: '▸ Stage 3 — Derived Costs',
+    1: '▸ Stage 1 - Direct Base Costs',
+    2: '▸ Stage 2 - Shared Project Costs',
+    3: '▸ Stage 3 - Derived Costs',
   };
   const renderStageSection = (stageNum: number, stageCosts: CostItem[]) => (
     <React.Fragment key={stageNum}>
@@ -507,7 +507,7 @@ function CostTable({
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
           <div style={{ width: '4px', height: '20px', borderRadius: '2px', background: accentColor }} />
           <h3 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--color-heading)', margin: 0 }}>
-            {assetLabel} — Development Costs
+            {assetLabel} - Development Costs
           </h3>
           <span style={{ fontSize: '11px', fontWeight: 700, color: accentColor }}>
             {formatCurrency(grandTotal, currency)}
@@ -565,7 +565,7 @@ function CostTable({
                   <td style={{ fontWeight: 700, textAlign: 'right', color: 'var(--color-gold-dark)' }}>
                     {formatNumber(total)}
                   </td>
-                  {/* Start period — editable */}
+                  {/* Start period - editable */}
                   <td style={{ minWidth: 60 }}>
                     <input
                       className="input-assumption"
@@ -583,7 +583,7 @@ function CostTable({
                       disabled={readOnly}
                     />
                   </td>
-                  {/* End period — editable */}
+                  {/* End period - editable */}
                   <td style={{ minWidth: 60 }}>
                     <input
                       className="input-assumption"
@@ -601,7 +601,7 @@ function CostTable({
                       disabled={readOnly}
                     />
                   </td>
-                  {/* Phasing — always Even for Land Cash */}
+                  {/* Phasing - always Even for Land Cash */}
                   <td style={{ minWidth: 90, textAlign: 'center', fontSize: '11px', color: 'var(--color-gold-dark)', fontStyle: 'italic' }}>
                     Even
                   </td>
@@ -639,7 +639,7 @@ function CostTable({
               }}>
                 <div style={{ fontSize: '10px', color: 'var(--color-muted)', fontWeight: 700 }}>{periodLabels[i]}</div>
                 <div style={{ fontWeight: 600, color: v > 0 ? 'var(--color-primary)' : 'var(--color-muted)' }}>
-                  {v > 0 ? formatNumber(v) : '—'}
+                  {v > 0 ? formatNumber(v) : '-'}
                 </div>
               </div>
             ))}
@@ -682,7 +682,7 @@ export default function Module1Costs({
 
   const getStage = (cost: CostItem) => costStage[cost.id] || (cost.id <= 4 ? 1 : cost.id <= 8 ? 2 : 3);
 
-  // ── TPDC by stage — mirrors legacy getUnifiedCostTotal ──
+  // ── TPDC by stage - mirrors legacy getUnifiedCostTotal ──
   // Includes locked rows (Land Cash) in stage 1, in-kind land virtual item in stage 1 and TPDC.
   const getStageTotal = (stage: number): number => {
     const activeAssetsList = [
@@ -692,7 +692,7 @@ export default function Module1Costs({
     ];
     const totalAllocPct = activeAssetsList.reduce((s, a) => s + a.allocPct, 0);
 
-    // Collect unique cost names for this stage (including locked rows — Land Cash defaults to stage 1)
+    // Collect unique cost names for this stage (including locked rows - Land Cash defaults to stage 1)
     const seen = new Set<string>();
     const names: string[] = [];
     activeAssetsList.forEach(({ costs }) => {
@@ -762,7 +762,7 @@ export default function Module1Costs({
       costs.forEach(c => { if (!seen.has(c.name)) { seen.add(c.name); names.push(c.name); } });
     });
 
-    // getAssetDist: mirrors legacy — applies proportioning for same-for-all locked rows
+    // getAssetDist: mirrors legacy - applies proportioning for same-for-all locked rows
     const getAssetDist = (costName: string, assetType: string): number[] => {
       const cost = (costsMap[assetType] || []).find(c => c.name === costName);
       if (!cost) return Array(constructionPeriods + 1).fill(0);
@@ -911,9 +911,9 @@ export default function Module1Costs({
       {/* TPDC KPI Cards */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 'var(--sp-1)', marginBottom: 'var(--sp-2)' }}>
         {[
-          { label: 'Stage 1 — Direct',   value: tpdc1,     color: 'var(--color-navy)' },
-          { label: 'Stage 2 — Shared',   value: tpdc2,     color: 'var(--color-navy-mid)' },
-          { label: 'Stage 3 — Derived',  value: tpdc3,     color: 'var(--color-navy-dark)' },
+          { label: 'Stage 1 - Direct',   value: tpdc1,     color: 'var(--color-navy)' },
+          { label: 'Stage 2 - Shared',   value: tpdc2,     color: 'var(--color-navy-mid)' },
+          { label: 'Stage 3 - Derived',  value: tpdc3,     color: 'var(--color-navy-dark)' },
           { label: 'TPDC Total',         value: tpdcTotal, color: 'var(--color-gold-dark)' },
         ].map((kpi, i) => (
           <div key={i} className="kpi-card">
@@ -1092,7 +1092,7 @@ export default function Module1Costs({
       <div className="module-card" style={{ padding: 'var(--sp-3)', marginTop: 'var(--sp-2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--sp-2)' }}>
           <h3 style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>
-            Combined Cost Summary — By Period
+            Combined Cost Summary - By Period
           </h3>
           <div style={{ display: 'flex', gap: '6px' }}>
             {[
@@ -1125,7 +1125,7 @@ export default function Module1Costs({
               <tr>
                 <th style={{ textAlign: 'left', minWidth: 180 }}>Cost Item</th>
                 <th style={{ textAlign: 'right', minWidth: 100 }}>Total</th>
-                {/* P0 column — amber (pre-construction) */}
+                {/* P0 column - amber (pre-construction) */}
                 <th style={{
                   textAlign: 'right', minWidth: 75,
                   background: PHASE_COLOR.preBg, color: PHASE_COLOR.pre,
@@ -1147,7 +1147,7 @@ export default function Module1Costs({
               </tr>
             </thead>
             <tbody>
-              {/* Land In-Kind virtual row — P0 only */}
+              {/* Land In-Kind virtual row - P0 only */}
               {(() => {
                 const inkTotal =
                   activeCostFilter === 'residential' ? residentialLandValue * (inKindPercent / 100) :
@@ -1157,12 +1157,12 @@ export default function Module1Costs({
                 if (inkTotal <= 0) return null;
                 return (
                   <tr style={{ background: 'var(--color-input-bg)' }}>
-                    <td style={{ fontWeight: 600, fontSize: '12px', color: 'var(--color-gold-dark)' }}>Land (In-Kind) — P0</td>
+                    <td style={{ fontWeight: 600, fontSize: '12px', color: 'var(--color-gold-dark)' }}>Land (In-Kind) - P0</td>
                     <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--color-gold-dark)' }}>{formatNumber(inkTotal)}</td>
                     {/* P0 column */}
                     <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--color-gold-dark)' }}>({formatNumber(inkTotal)})</td>
                     {periodLabels.map((_, i) => (
-                      <td key={i} style={{ textAlign: 'right', color: 'var(--color-muted)' }}>—</td>
+                      <td key={i} style={{ textAlign: 'right', color: 'var(--color-muted)' }}>-</td>
                     ))}
                   </tr>
                 );
@@ -1171,14 +1171,14 @@ export default function Module1Costs({
                 <tr key={ri}>
                   <td style={{ fontSize: '12px' }}>{row.name}</td>
                   <td style={{ textAlign: 'right', fontWeight: 600 }}>{formatNumber(row.total)}</td>
-                  {/* P0 — index 0 */}
+                  {/* P0 - index 0 */}
                   <td style={{ textAlign: 'right', color: row.periods[0] > 0 ? 'var(--color-gold-dark)' : 'var(--color-muted)', fontWeight: row.periods[0] > 0 ? 600 : 400 }}>
-                    {row.periods[0] > 0 ? formatNumber(row.periods[0]) : '—'}
+                    {row.periods[0] > 0 ? formatNumber(row.periods[0]) : '-'}
                   </td>
-                  {/* P1..Pmax — index 1..N */}
+                  {/* P1..Pmax - index 1..N */}
                   {row.periods.slice(1).map((v, i) => (
                     <td key={i} style={{ textAlign: 'right', color: v > 0 ? 'var(--color-body)' : 'var(--color-muted)' }}>
-                      {v > 0 ? formatNumber(v) : '—'}
+                      {v > 0 ? formatNumber(v) : '-'}
                     </td>
                   ))}
                 </tr>
@@ -1190,10 +1190,10 @@ export default function Module1Costs({
                 <td style={{ textAlign: 'right', fontWeight: 700 }}>{formatNumber(combinedPeriodTotals.reduce((s, v) => s + v, 0))}</td>
                 {/* P0 total */}
                 <td style={{ textAlign: 'right', fontWeight: 700, color: 'var(--color-gold-dark)' }}>
-                  {combinedPeriodTotals[0] > 0 ? formatNumber(combinedPeriodTotals[0]) : '—'}
+                  {combinedPeriodTotals[0] > 0 ? formatNumber(combinedPeriodTotals[0]) : '-'}
                 </td>
                 {combinedPeriodTotals.slice(1).map((v, i) => (
-                  <td key={i} style={{ textAlign: 'right', fontWeight: 700 }}>{v > 0 ? formatNumber(v) : '—'}</td>
+                  <td key={i} style={{ textAlign: 'right', fontWeight: 700 }}>{v > 0 ? formatNumber(v) : '-'}</td>
                 ))}
               </tr>
             </tfoot>
@@ -1205,10 +1205,10 @@ export default function Module1Costs({
       {activeAssets.length > 0 && (
         <div className="module-card" style={{ padding: 'var(--sp-3)', marginTop: 'var(--sp-2)' }}>
           <h3 style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '4px', marginTop: 0 }}>
-            CAPEX Summary — Excluding Land
+            CAPEX Summary - Excluding Land
           </h3>
           <p style={{ fontSize: '11px', color: 'var(--color-muted)', marginBottom: 'var(--sp-2)', marginTop: 0 }}>
-            Development costs only — excludes Land Cash and Land In-Kind
+            Development costs only - excludes Land Cash and Land In-Kind
           </p>
           <div style={{ overflowX: 'auto' }}>
             <table className="table-standard" style={{ minWidth: `${200 + (maxPeriods + 1) * 80}px` }}>
@@ -1230,7 +1230,7 @@ export default function Module1Costs({
                       <td style={{ fontWeight: 600, fontSize: '12px' }}>{row.label}</td>
                       {row.periods.slice(0, maxPeriods + 1).map((v, i) => (
                         <td key={i} style={{ textAlign: 'right', color: v > 0 ? 'var(--color-body)' : 'var(--color-muted)' }}>
-                          {v > 0 ? formatNumber(v) : '—'}
+                          {v > 0 ? formatNumber(v) : '-'}
                         </td>
                       ))}
                       <td style={{ textAlign: 'right', fontWeight: 700 }}>{formatNumber(rowTotal)}</td>
@@ -1242,7 +1242,7 @@ export default function Module1Costs({
                 <tr>
                   <td style={{ fontWeight: 700 }}>TOTAL</td>
                   {capexTotalsExclAllLand.slice(0, maxPeriods + 1).map((v, i) => (
-                    <td key={i} style={{ textAlign: 'right', fontWeight: 700 }}>{v > 0 ? formatNumber(v) : '—'}</td>
+                    <td key={i} style={{ textAlign: 'right', fontWeight: 700 }}>{v > 0 ? formatNumber(v) : '-'}</td>
                   ))}
                   <td style={{ textAlign: 'right', fontWeight: 700 }}>{formatNumber(capexTotalsExclAllLand.reduce((s, v) => s + v, 0))}</td>
                 </tr>
@@ -1256,7 +1256,7 @@ export default function Module1Costs({
       {activeAssets.length > 0 && (
         <div className="module-card" style={{ padding: 'var(--sp-3)', marginTop: 'var(--sp-2)' }}>
           <h3 style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--sp-2)', marginTop: 0 }}>
-            CAPEX Summary — Excl. Land In-Kind
+            CAPEX Summary - Excl. Land In-Kind
           </h3>
           <div style={{ overflowX: 'auto' }}>
             <table className="table-standard" style={{ minWidth: `${200 + (maxPeriods + 1) * 80}px` }}>
@@ -1278,7 +1278,7 @@ export default function Module1Costs({
                       <td style={{ fontWeight: 600, fontSize: '12px' }}>{row.label}</td>
                       {row.periods.slice(0, maxPeriods + 1).map((v, i) => (
                         <td key={i} style={{ textAlign: 'right', color: v > 0 ? 'var(--color-body)' : 'var(--color-muted)' }}>
-                          {v > 0 ? formatNumber(v) : '—'}
+                          {v > 0 ? formatNumber(v) : '-'}
                         </td>
                       ))}
                       <td style={{ textAlign: 'right', fontWeight: 700 }}>{formatNumber(rowTotal)}</td>
@@ -1290,7 +1290,7 @@ export default function Module1Costs({
                 <tr>
                   <td style={{ fontWeight: 700 }}>TOTAL</td>
                   {capexTotalsExclLand.slice(0, maxPeriods + 1).map((v, i) => (
-                    <td key={i} style={{ textAlign: 'right', fontWeight: 700 }}>{v > 0 ? formatNumber(v) : '—'}</td>
+                    <td key={i} style={{ textAlign: 'right', fontWeight: 700 }}>{v > 0 ? formatNumber(v) : '-'}</td>
                   ))}
                   <td style={{ textAlign: 'right', fontWeight: 700 }}>{formatNumber(capexTotalsExclLand.reduce((s, v) => s + v, 0))}</td>
                 </tr>
@@ -1304,7 +1304,7 @@ export default function Module1Costs({
       {activeAssets.length > 0 && inKindPercent > 0 && (
         <div className="module-card" style={{ padding: 'var(--sp-3)', marginTop: 'var(--sp-2)' }}>
           <h3 style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--sp-2)', marginTop: 0 }}>
-            CAPEX Summary — Incl. Land In-Kind
+            CAPEX Summary - Incl. Land In-Kind
           </h3>
           <p style={{ fontSize: '11px', color: 'var(--color-muted)', marginBottom: 'var(--sp-2)', marginTop: 0 }}>
             In-Kind land value ({inKindPercent.toFixed(1)}%) added at Period 0 per asset
@@ -1329,7 +1329,7 @@ export default function Module1Costs({
                       <td style={{ fontWeight: 600, fontSize: '12px' }}>{row.label}</td>
                       {row.periods.slice(0, maxPeriods + 1).map((v, i) => (
                         <td key={i} style={{ textAlign: 'right', color: v > 0 ? 'var(--color-body)' : 'var(--color-muted)' }}>
-                          {v > 0 ? formatNumber(v) : '—'}
+                          {v > 0 ? formatNumber(v) : '-'}
                         </td>
                       ))}
                       <td style={{ textAlign: 'right', fontWeight: 700 }}>{formatNumber(rowTotal)}</td>
@@ -1341,7 +1341,7 @@ export default function Module1Costs({
                 <tr>
                   <td style={{ fontWeight: 700 }}>TOTAL</td>
                   {capexTotalsInclLand.slice(0, maxPeriods + 1).map((v, i) => (
-                    <td key={i} style={{ textAlign: 'right', fontWeight: 700 }}>{v > 0 ? formatNumber(v) : '—'}</td>
+                    <td key={i} style={{ textAlign: 'right', fontWeight: 700 }}>{v > 0 ? formatNumber(v) : '-'}</td>
                   ))}
                   <td style={{ textAlign: 'right', fontWeight: 700 }}>{formatNumber(capexTotalsInclLand.reduce((s, v) => s + v, 0))}</td>
                 </tr>

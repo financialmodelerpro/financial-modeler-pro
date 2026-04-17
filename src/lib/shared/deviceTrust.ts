@@ -7,7 +7,7 @@ export const COOKIE_MAX_AGE = 60 * 60 * 24 * TRUST_DAYS;
 
 /**
  * Check if a device token (from cookie) is trusted for this identifier + hub.
- * Call from API routes — pass the raw cookie value from the request.
+ * Call from API routes - pass the raw cookie value from the request.
  */
 export async function isDeviceTrusted(
   deviceToken: string | undefined,

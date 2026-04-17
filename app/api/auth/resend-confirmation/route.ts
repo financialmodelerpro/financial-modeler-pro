@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       await sendEmail({ to: email, subject, html, from: FROM.noreply }).catch(() => null);
     }
 
-    // Always return success — don't reveal whether email exists
+    // Always return success - don't reveal whether email exists
     return NextResponse.json({ success: true });
   } catch {
     return NextResponse.json({ success: true }); // fail silently

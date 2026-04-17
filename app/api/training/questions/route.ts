@@ -19,7 +19,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: false, error: result.error ?? 'Failed to load questions' });
   }
 
-  // Normalize question fields — handle both nested `data` and flat root shapes
+  // Normalize question fields - handle both nested `data` and flat root shapes
   const raw    = result as unknown as Record<string, unknown>;
   const nested = result.data;
   const rawQs  = nested?.questions ?? (Array.isArray(raw.questions) ? raw.questions : []);

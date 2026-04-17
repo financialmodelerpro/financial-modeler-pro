@@ -9,12 +9,12 @@ interface RegistrationConfirmationData {
 }
 
 export async function registrationConfirmationTemplate({ name, registrationId, courseName }: RegistrationConfirmationData) {
-  const subject = `Welcome to ${courseName} — Your Registration is Confirmed`;
+  const subject = `Welcome to ${courseName} - Your Registration is Confirmed`;
 
   const html = await baseLayoutBranded(`
     ${h1('Registration Confirmed!')}
     ${p(`Hi <strong>${name}</strong>,`)}
-    ${p(`Welcome to <strong>Financial Modeler Pro Training</strong>! You are now enrolled in <strong>${courseName}</strong>. Save your Registration ID — you will need it to sign in.`)}
+    ${p(`Welcome to <strong>Financial Modeler Pro Training</strong>! You are now enrolled in <strong>${courseName}</strong>. Save your Registration ID - you will need it to sign in.`)}
 
     <div style="background:#F0F6FF;border-left:4px solid #2E75B6;border-radius:6px;padding:20px 24px;margin:24px 0;">
       <div style="font-size:12px;color:#64748B;text-transform:uppercase;letter-spacing:0.8px;margin-bottom:6px;">Your Registration ID</div>
@@ -31,7 +31,7 @@ export async function registrationConfirmationTemplate({ name, registrationId, c
     ${p('If you have any questions, our support team is here to help.', 'font-size:13px;color:#64748B;')}
   `);
 
-  const text = `Welcome to Financial Modeler Pro Training!\n\nHi ${name},\n\nYou are now enrolled in ${courseName}.\n\nYour Registration ID: ${registrationId}\n\nSign in at: ${LEARN_URL}/signin\n\nKeep this ID safe — you need it to access your courses.`;
+  const text = `Welcome to Financial Modeler Pro Training!\n\nHi ${name},\n\nYou are now enrolled in ${courseName}.\n\nYour Registration ID: ${registrationId}\n\nSign in at: ${LEARN_URL}/signin\n\nKeep this ID safe - you need it to access your courses.`;
 
   return { subject, html, text };
 }

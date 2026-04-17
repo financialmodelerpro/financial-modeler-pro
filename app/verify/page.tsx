@@ -58,7 +58,7 @@ export default function VerifyLandingPage() {
 
       <SharedFooter
         company="Financial Modeler Pro is a product of PaceMakers Business Consultants"
-        founder="Ahmad Din — CEO & Founder"
+        founder="Ahmad Din - CEO & Founder"
         copyright={`${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`}
       />
     </div>

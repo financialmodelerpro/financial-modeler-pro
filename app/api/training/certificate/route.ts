@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCertificatesByEmail, getCertificateByRegId } from '@/src/lib/training/sheets';
 
-// Public endpoint — no auth required
+// Public endpoint - no auth required
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);

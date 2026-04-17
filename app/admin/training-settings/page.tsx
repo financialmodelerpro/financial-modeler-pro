@@ -99,7 +99,7 @@ export default function TrainingSettingsPage() {
                 Google Apps Script Web App URL
               </div>
               <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
-                Deploy your Apps Script project as a Web App and paste the URL below. This replaces the <code style={{ background: '#F3F4F6', padding: '1px 5px', borderRadius: 3 }}>APPS_SCRIPT_URL</code> environment variable — no Vercel re-deploy needed.
+                Deploy your Apps Script project as a Web App and paste the URL below. This replaces the <code style={{ background: '#F3F4F6', padding: '1px 5px', borderRadius: 3 }}>APPS_SCRIPT_URL</code> environment variable - no Vercel re-deploy needed.
               </div>
 
               <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
@@ -134,12 +134,12 @@ export default function TrainingSettingsPage() {
                   {testResult === 'ok' ? (
                     <>
                       <span style={{ color: '#1A7A30', fontSize: 16 }}>✅</span>
-                      <span style={{ color: '#1A7A30', fontWeight: 600 }}>Connection successful — Apps Script is reachable.</span>
+                      <span style={{ color: '#1A7A30', fontWeight: 600 }}>Connection successful - Apps Script is reachable.</span>
                     </>
                   ) : (
                     <>
                       <span style={{ color: '#DC2626', fontSize: 16 }}>❌</span>
-                      <span style={{ color: '#DC2626', fontWeight: 600 }}>Connection failed — check the URL or deployment permissions.</span>
+                      <span style={{ color: '#DC2626', fontWeight: 600 }}>Connection failed - check the URL or deployment permissions.</span>
                     </>
                   )}
                 </div>
@@ -153,7 +153,7 @@ export default function TrainingSettingsPage() {
               )}
               {!savedUrl && (
                 <div style={{ marginTop: 12, fontSize: 11, color: '#F59E0B', fontWeight: 600 }}>
-                  ⚠️ No URL saved — training registration and progress features are disabled.
+                  ⚠️ No URL saved - training registration and progress features are disabled.
                 </div>
               )}
             </div>
@@ -164,7 +164,7 @@ export default function TrainingSettingsPage() {
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B', marginBottom: 4 }}>Transcript Settings &amp; Editor</div>
                 <div style={{ fontSize: 12, color: '#6B7280' }}>
-                  Customise header text, footer, logo, and layout — with a live A4 preview where you can drag the logo to reposition it.
+                  Customise header text, footer, logo, and layout - with a live A4 preview where you can drag the logo to reposition it.
                 </div>
               </div>
               <a href="/admin/transcript-editor"

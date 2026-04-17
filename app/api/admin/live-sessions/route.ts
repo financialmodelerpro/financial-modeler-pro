@@ -11,7 +11,7 @@ async function checkAdmin() {
   return !!(session?.user && (session.user as { role?: string }).role === 'admin');
 }
 
-/** GET — list all sessions (admin sees unpublished too) */
+/** GET - list all sessions (admin sees unpublished too) */
 export async function GET() {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const sb = getServerClient();
@@ -19,7 +19,7 @@ export async function GET() {
   return NextResponse.json({ sessions: data ?? [] });
 }
 
-/** PUT — upload banner image */
+/** PUT - upload banner image */
 export async function PUT(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   try {
@@ -38,7 +38,7 @@ export async function PUT(req: NextRequest) {
   } catch (e) { return NextResponse.json({ error: String(e) }, { status: 500 }); }
 }
 
-/** POST — create session */
+/** POST - create session */
 export async function POST(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const body = await req.json() as Record<string, unknown>;

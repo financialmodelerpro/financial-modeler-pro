@@ -90,7 +90,7 @@ export async function PATCH(req: NextRequest) {
     const { error: updateError } = await sb.from('users').update(updates).eq('id', id);
     if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
 
-    // Write audit log entries — one per changed field
+    // Write audit log entries - one per changed field
     const auditBase = { adminId, targetUserId: id, reason: reason ?? null };
 
     if (role) {

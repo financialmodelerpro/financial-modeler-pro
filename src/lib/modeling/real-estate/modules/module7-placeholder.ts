@@ -1,2 +1,2 @@
-// module7-placeholder.ts — placeholder
+// module7-placeholder.ts - placeholder
 export {};

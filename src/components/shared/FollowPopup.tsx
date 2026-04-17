@@ -34,7 +34,7 @@ export function FollowButtonsInline({ compact }: { compact?: boolean }) {
   return <FollowButtons compact={compact} />;
 }
 
-/** Bottom-right toast popup — configurable heading, auto-dismiss, sessionStorage dedup */
+/** Bottom-right toast popup - configurable heading, auto-dismiss, sessionStorage dedup */
 export function FollowPopup({
   heading = 'Stay Connected',
   subtext = 'Follow us for new sessions and training content.',

@@ -1,2 +1,2 @@
-// agent-contextual.ts — placeholder
+// agent-contextual.ts - placeholder
 export {};

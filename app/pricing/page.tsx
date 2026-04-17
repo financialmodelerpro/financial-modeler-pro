@@ -10,7 +10,7 @@ import { CouponInput } from './CouponInput';
 export const revalidate = 0;
 
 export const metadata: Metadata = {
-  title: 'Pricing — Financial Modeler Pro',
+  title: 'Pricing - Financial Modeler Pro',
   description: 'Simple, transparent pricing for financial modeling professionals. Start free, upgrade when ready.',
 };
 
@@ -120,7 +120,7 @@ export default async function PricingPage() {
         <div style={{ maxWidth: 800, margin: '0 auto', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 28, flexShrink: 0 }}>🎓</span>
           <div style={{ flex: 1, minWidth: 200 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: '#15803D', marginBottom: 2 }}>Training Hub — Always 100% Free</div>
+            <div style={{ fontSize: 14, fontWeight: 800, color: '#15803D', marginBottom: 2 }}>Training Hub - Always 100% Free</div>
             <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.5 }}>All courses, certificates, and live sessions are completely free. No credit card required.</div>
           </div>
           <a href={`${LEARN_URL}/training`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#15803D', color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 20px', borderRadius: 7, textDecoration: 'none', flexShrink: 0 }}>

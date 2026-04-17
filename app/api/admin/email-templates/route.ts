@@ -8,7 +8,7 @@ async function checkAdmin() {
   return !!(session?.user && (session.user as { role?: string }).role === 'admin');
 }
 
-/** GET — return all templates + branding */
+/** GET - return all templates + branding */
 export async function GET() {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const sb = getServerClient();

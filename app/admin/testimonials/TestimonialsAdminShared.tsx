@@ -56,7 +56,7 @@ function buildShareText(t: Testimonial) {
   const quote = t.text.slice(0, 220) + (t.text.length > 220 ? '…' : '');
   const who   = [t.name, t.role, t.company].filter(Boolean).join(' · ');
   const course = t.course_name ? ` (${t.course_name})` : '';
-  return `"${quote}" — ${who}${course}`;
+  return `"${quote}" - ${who}${course}`;
 }
 
 function ShareButtons({ t, onCopied }: { t: Testimonial; onCopied: () => void }) {
@@ -270,7 +270,7 @@ export default function AdminTestimonialsPage({ defaultHub = 'all' }: SharedProp
                   return (
                     <tr key={t.id} style={{ borderBottom: '1px solid #F3F4F6', background: i % 2 === 0 ? '#fff' : '#FAFBFF' }}>
 
-                      {/* Hub — read-only badge */}
+                      {/* Hub - read-only badge */}
                       <td style={{ padding: '12px 14px', whiteSpace: 'nowrap' }}>
                         <span style={{ fontSize: 11, fontWeight: 700, padding: '3px 10px', borderRadius: 20, background: hub.bg, color: hub.color }}>
                           {hub.label}
@@ -315,7 +315,7 @@ export default function AdminTestimonialsPage({ defaultHub = 'all' }: SharedProp
                           Array.from({ length: 5 }).map((_, idx) => (
                             <span key={idx} style={{ fontSize: 12, color: idx < t.rating! ? '#F59E0B' : '#E5E7EB' }}>★</span>
                           ))
-                        ) : <span style={{ color: '#E5E7EB', fontSize: 11 }}>—</span>}
+                        ) : <span style={{ color: '#E5E7EB', fontSize: 11 }}>-</span>}
                       </td>
 
                       {/* Status */}
@@ -340,7 +340,7 @@ export default function AdminTestimonialsPage({ defaultHub = 'all' }: SharedProp
                       <td style={{ padding: '12px 14px' }}>
                         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', minWidth: 130 }}>
                           <button onClick={() => toggleLanding(t.id, t.source, t.show_on_landing ?? false)}
-                            title={t.show_on_landing ? 'Visible on site — click to hide' : 'Hidden — click to show'}
+                            title={t.show_on_landing ? 'Visible on site - click to hide' : 'Hidden - click to show'}
                             style={{ fontSize: 10, fontWeight: 700, background: t.show_on_landing ? '#F0FFF4' : '#F3F4F6', color: t.show_on_landing ? '#1A7A30' : '#6B7280', border: `1px solid ${t.show_on_landing ? '#A3D9AE' : '#E5E7EB'}`, borderRadius: 5, padding: '4px 9px', cursor: 'pointer', whiteSpace: 'nowrap' }}>
                             {t.show_on_landing ? '👁 Visible' : '🚫 Hidden'}
                           </button>

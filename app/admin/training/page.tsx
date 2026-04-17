@@ -136,7 +136,7 @@ export default function AdminTrainingPage() {
                 <div style={{ width: 30, height: 30, borderRadius: 8, background: k.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{k.icon}</div>
                 <span style={{ fontSize: 11, fontWeight: 600, color: '#6B7280' }}>{k.label}</span>
               </div>
-              <div style={{ fontSize: 28, fontWeight: 800, color: k.color }}>{k.value ?? '—'}</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: k.color }}>{k.value ?? '-'}</div>
             </div>
           ))}
         </div>

@@ -5,7 +5,7 @@ import { registrationConfirmationTemplate } from '@/src/lib/email/templates/live
 
 export const dynamic = 'force-dynamic';
 
-/** POST — register for session */
+/** POST - register for session */
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -50,7 +50,7 @@ export async function POST(
   return NextResponse.json({ success: true, registered: true });
 }
 
-/** DELETE — cancel registration */
+/** DELETE - cancel registration */
 export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -64,7 +64,7 @@ export async function DELETE(
   return NextResponse.json({ success: true });
 }
 
-/** GET — registration status for a student */
+/** GET - registration status for a student */
 export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },

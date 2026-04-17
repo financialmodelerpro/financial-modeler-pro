@@ -285,7 +285,7 @@ function LoginInner() {
                 {emailNotConfirmed && (
                   <div style={{ marginTop: 8 }}>
                     {resendStatus === 'sent'
-                      ? <span style={{ color: '#15803D', fontWeight: 600 }}>✅ Confirmation email sent — check your inbox.</span>
+                      ? <span style={{ color: '#15803D', fontWeight: 600 }}>✅ Confirmation email sent - check your inbox.</span>
                       : resendStatus === 'error'
                       ? <span>Failed to send. Please try again.</span>
                       : (

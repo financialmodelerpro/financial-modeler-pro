@@ -113,7 +113,7 @@ export default function CourseWatchPage() {
     return () => clearInterval(id);
   }, [loading, checkTimer]);
 
-  // Restore video-ended state from DB (progressMap) — session already passed = already complete
+  // Restore video-ended state from DB (progressMap) - session already passed = already complete
   useEffect(() => {
     if (!progressMap.size) return;
     const prog = progressMap.get(sessionKey);
@@ -133,12 +133,12 @@ export default function CourseWatchPage() {
     }
   }, [studentSession, sessionKey]);
 
-  // Handle near end (20s before video ends) — show Mark Complete early
+  // Handle near end (20s before video ends) - show Mark Complete early
   const handleNearEnd = useCallback(() => {
     setVideoEnded(true);
   }, []);
 
-  // Handle video ended — also show Mark Complete button
+  // Handle video ended - also show Mark Complete button
   const handleVideoEnded = useCallback(() => {
     setVideoEnded(true);
     setTimerComplete(true);
@@ -148,7 +148,7 @@ export default function CourseWatchPage() {
     }
   }, [studentSession, sessionKey]);
 
-  // Handle Mark Complete click — persists to certification_watch_history DB
+  // Handle Mark Complete click - persists to certification_watch_history DB
   const handleMarkComplete = useCallback(() => {
     setMarkedComplete(true);
     if (!studentSession || !course) return;
@@ -164,7 +164,7 @@ export default function CourseWatchPage() {
     }).catch(() => {});
   }, [studentSession, course, sessionKey, courseId]);
 
-  // Handle video play — start timer + record in_progress
+  // Handle video play - start timer + record in_progress
   const handlePlaying = useCallback(() => {
     if (!studentSession || !course) return;
     const session = course.sessions.find(s => s.id === sessionKey);
@@ -250,7 +250,7 @@ export default function CourseWatchPage() {
   const nextSession = nextIdx < course.sessions.length ? sidebarSessions[nextIdx] : null;
   const nextHref = nextSession && nextSession.href !== '#' ? nextSession.href : undefined;
 
-  // Assessment URL — always use the internal route (Apps Script formUrl is deprecated)
+  // Assessment URL - always use the internal route (Apps Script formUrl is deprecated)
   const assessmentUrl = `/training/assessment/${encodeURIComponent(tk)}`;
 
   return (
@@ -260,7 +260,7 @@ export default function CourseWatchPage() {
         youtubeUrl={ytUrl || undefined}
         channelId={process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}
         sessionTitle={currentSession.title}
-        sessionDescription={liveLinks[tk]?.description || `${course.title} — ${currentSession.title}`}
+        sessionDescription={liveLinks[tk]?.description || `${course.title} - ${currentSession.title}`}
         sessionUrl={typeof window !== 'undefined' ? window.location.href : ''}
         nextSessionHref={nextHref}
         isWatched={markedComplete || progressMap.get(sessionKey)?.passed}

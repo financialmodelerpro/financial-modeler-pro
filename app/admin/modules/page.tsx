@@ -151,8 +151,8 @@ export default function AdminModulesPage() {
             </div>
             <div style={{ fontSize: 12, color: '#6B7280' }}>
               {comingSoon
-                ? 'Coming Soon mode is ON — signin and register pages show a coming soon message. Admins can bypass via ?bypass=true.'
-                : 'Modeling Hub is LIVE — signin and register pages work normally.'}
+                ? 'Coming Soon mode is ON - signin and register pages show a coming soon message. Admins can bypass via ?bypass=true.'
+                : 'Modeling Hub is LIVE - signin and register pages work normally.'}
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

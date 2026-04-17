@@ -268,7 +268,7 @@ export default function AssessmentPage() {
                     <span style={{ fontSize: 32 }}>🏆</span>
                     <div>
                       <div style={{ fontSize: 16, fontWeight: 800, color: '#065F46', marginBottom: 4 }}>
-                        Congratulations — You are Certified!
+                        Congratulations - You are Certified!
                       </div>
                       <div style={{ fontSize: 13, color: '#047857' }}>
                         Certificate #{certificate.certificate_number} · Issued {formatDate(certificate.issued_at)}

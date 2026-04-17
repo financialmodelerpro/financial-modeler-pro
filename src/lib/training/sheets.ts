@@ -1,5 +1,5 @@
 /**
- * sheets.ts — Server-side only. Never import this from client components.
+ * sheets.ts - Server-side only. Never import this from client components.
  * All functions proxy to the Google Apps Script Web App via APPS_SCRIPT_URL.
  *
  * URL resolution order:
@@ -89,7 +89,7 @@ async function callScript<T>(params: Record<string, string>): Promise<ScriptResp
     const res = await fetch(url.toString(), {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
-      // No caching — always fresh data from Sheets
+      // No caching - always fresh data from Sheets
       cache: 'no-store',
     });
     if (!res.ok) {
@@ -241,9 +241,9 @@ function normalizeProgressObject(
   }
 
   // Derive the `course` value used by getEnrolledCourses() in the dashboard:
-  //   'both'  — student enrolled in 3sfm AND bvm
-  //   'bvm'   — bvm only
-  //   '3sfm'  — 3sfm only (default)
+  //   'both'  - student enrolled in 3sfm AND bvm
+  //   'bvm'   - bvm only
+  //   '3sfm'  - 3sfm only (default)
   const enrolled = Array.isArray(studentRaw.enrolledCourses)
     ? (studentRaw.enrolledCourses as string[]).map(c => c.toLowerCase())
     : [];
@@ -269,7 +269,7 @@ function normalizeProgressObject(
 }
 
 /**
- * Shape C: Apps Script returns the sheet row as flat columns —
+ * Shape C: Apps Script returns the sheet row as flat columns -
  *   3SFM: S1%, S2%, …, S17%, Final Exam %, Sessions Passed, Avg Score
  *   BVM:  L1%, L2%, …, L6%,  Final Exam %, Lessons Passed, Avg Score, Final Passed, Cert Issued
  */
@@ -283,7 +283,7 @@ function normalizeFlatSheetProgress(
   const sessions: SessionProgress[] = [];
 
   if (!hasBVM) {
-    // 3SFM — S1 … S17
+    // 3SFM - S1 … S17
     for (let i = 1; i <= 17; i++) {
       const raw = root[`S${i}%`];
       if (raw === undefined || raw === null || raw === '') continue;
@@ -297,7 +297,7 @@ function normalizeFlatSheetProgress(
       sessions.push({ sessionId: 'S18', passed: score >= PASSING_SCORE_PCT, score, attempts: score > 0 ? 1 : 0, completedAt: null });
     }
   } else {
-    // BVM — L1 … L6
+    // BVM - L1 … L6
     for (let i = 1; i <= 6; i++) {
       const raw = root[`L${i}%`];
       if (raw === undefined || raw === null || raw === '') continue;
@@ -395,7 +395,7 @@ export async function getStudentProgress(
     };
   }
 
-  // Shape C: flat sheet columns — S1%, S2%, …, Final Exam %  (or L1%, L2%, …)
+  // Shape C: flat sheet columns - S1%, S2%, …, Final Exam %  (or L1%, L2%, …)
   if (typeof root['S1%'] !== 'undefined' || typeof root['L1%'] !== 'undefined' || typeof root['Final Exam %'] !== 'undefined') {
     return normalizeFlatSheetProgress(root, email, regId);
   }
@@ -461,7 +461,7 @@ export async function getCourseDetails(course?: string): Promise<CourseSession[]
     const res = raw as unknown as { success: boolean; sessions?: Partial<CourseSession>[] };
     if (!res.success) return [];
     const sessions = Array.isArray(res.sessions) ? res.sessions : [];
-    // V8 Apps Script no longer exposes form columns — normalize absent fields to safe defaults
+    // V8 Apps Script no longer exposes form columns - normalize absent fields to safe defaults
     // so that callers don't need to guard against undefined
     return sessions.map(s => ({
       tabKey:        s.tabKey        ?? '',
@@ -599,7 +599,7 @@ function mapRawStudent(r: RawStudentEntry): StudentSummary {
       }
     }
   } else {
-    // No progress object on the record — use top-level flat fields
+    // No progress object on the record - use top-level flat fields
     sessionsPassedCount = r.sessionsPassedCount;
     totalSessions       = r.totalSessions;
   }
@@ -718,7 +718,7 @@ export interface AssessmentQuestion {
   questionId:    string;
   q:             string;
   options:       string[];
-  correctIndex?: number;   // 0-based index of correct answer — used for local scoring (V8 architecture)
+  correctIndex?: number;   // 0-based index of correct answer - used for local scoring (V8 architecture)
   correctAnswer?: number;  // Apps Script may use this field name instead of correctIndex
   explanation?:  string;   // Explanation text shown in question review after submission
   points?:       number;
@@ -835,21 +835,21 @@ export async function submitAssessmentToAppsScript(
 
 /**
  * Raw shape returned by Apps Script V8 `getPendingCertificates` action.
- * Field names differ from our internal `PendingCertificate` type — see mapRawPendingCert().
+ * Field names differ from our internal `PendingCertificate` type - see mapRawPendingCert().
  */
 interface AppsScriptRawPendingCert {
   registrationId:    string;
   email:             string;
-  // Student name — V8 uses `fullName`, legacy may use `studentName`
+  // Student name - V8 uses `fullName`, legacy may use `studentName`
   fullName?:         string;
   studentName?:      string;
-  // Course identifier — V8 uses `course`, legacy uses `courseCode`
+  // Course identifier - V8 uses `course`, legacy uses `courseCode`
   course?:           string;
   courseCode?:       string;
   courseName?:       string;
   courseSubheading?: string;
   courseDescription?: string;
-  // Scores — V8 uses `finalExamScore` / `avgSessionScore`, legacy uses `finalScore` / `avgScore`
+  // Scores - V8 uses `finalExamScore` / `avgSessionScore`, legacy uses `finalScore` / `avgScore`
   finalExamScore?:   number;
   finalScore?:       number;
   avgSessionScore?:  number;
@@ -875,7 +875,7 @@ export interface PendingCertificate {
   avgScore:          number;
   grade:             string;        // 'Distinction' | 'Merit' | 'Pass'
   completionDate:    string;
-  // Optional — populated after partial issuance
+  // Optional - populated after partial issuance
   certificateId?:    string;
   issueDate?:        string;
   verificationUrl?:  string;
@@ -909,14 +909,14 @@ export async function getPendingCertificates(): Promise<PendingCertificate[]> {
   const envUrl      = process.env.APPS_SCRIPT_URL;
   const resolvedUrl = await getAppsScriptUrl();
   console.log('[getPendingCertificates] APPS_SCRIPT_URL env var set?', !!envUrl);
-  console.log('[getPendingCertificates] resolved Apps Script URL:', resolvedUrl || '(empty — not configured)');
+  console.log('[getPendingCertificates] resolved Apps Script URL:', resolvedUrl || '(empty - not configured)');
 
   if (resolvedUrl) {
     const debugUrl = new URL(resolvedUrl);
     debugUrl.searchParams.set('action', 'getPendingCertificates');
     console.log('[getPendingCertificates] fetching URL:', debugUrl.toString());
   } else {
-    console.log('[getPendingCertificates] fetching URL: SKIPPED — no URL configured');
+    console.log('[getPendingCertificates] fetching URL: SKIPPED - no URL configured');
   }
   // ───────────────────────────────────────────────────────────────────────────
 

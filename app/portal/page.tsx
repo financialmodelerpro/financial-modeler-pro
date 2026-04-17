@@ -19,7 +19,7 @@ const PLATFORM_ROUTES: Record<string, string> = {
 const SIDEBAR_W  = 260;
 const SIDEBAR_W_COLLAPSED = 60;
 
-// ── Sidebar nav items (placeholder — content decided later) ───────────────────
+// ── Sidebar nav items (placeholder - content decided later) ───────────────────
 
 interface NavItem {
   id: string;
@@ -237,7 +237,7 @@ export default function AppHubPage() {
         position: 'sticky', top: 0, zIndex: 150,
         boxShadow: '0 2px 12px rgba(0,0,0,0.2)',
       }}>
-        {/* Left — hamburger + logo */}
+        {/* Left - hamburger + logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
             className="hub-hamburger"
@@ -255,7 +255,7 @@ export default function AppHubPage() {
           </a>
         </div>
 
-        {/* Right — profile dropdown */}
+        {/* Right - profile dropdown */}
         <div ref={profileRef} style={{ position: 'relative' }}>
           <button
             onClick={() => setProfileDropdown(v => !v)}
@@ -362,7 +362,7 @@ export default function AppHubPage() {
                       window.location.href = item.href;
                     }
                     if (item.id !== 'dashboard' && !item.href) {
-                      // placeholder — do nothing yet
+                      // placeholder - do nothing yet
                     }
                   }}
                 >

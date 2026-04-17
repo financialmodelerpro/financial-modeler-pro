@@ -1,7 +1,7 @@
 /**
  * /api/user/profile
- * GET  — current user's profile + project count
- * PATCH — update name or email (email requires current password)
+ * GET  - current user's profile + project count
+ * PATCH - update name or email (email requires current password)
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';

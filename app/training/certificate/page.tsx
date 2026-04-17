@@ -1,5 +1,5 @@
 /**
- * /training/certificate — Public shareable certificate page.
+ * /training/certificate - Public shareable certificate page.
  * No auth required. URL: /training/certificate?regId=FMP-2026-0001&course=3sfm
  */
 import type { Metadata } from 'next';
@@ -52,7 +52,7 @@ async function fetchLayout(): Promise<CertLayout> {
   }
 }
 
-// ── Cached lookup — shared between generateMetadata and the page ──────────────
+// ── Cached lookup - shared between generateMetadata and the page ──────────────
 
 const fetchCertificate = cache(async (
   regId: string,
@@ -102,7 +102,7 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
     };
   }
 
-  const title       = `${cert.studentName} — ${courseLabel(cert.course)} Certificate | Financial Modeler Pro`;
+  const title       = `${cert.studentName} - ${courseLabel(cert.course)} Certificate | Financial Modeler Pro`;
   const description = `${cert.studentName} earned the ${courseLabel(cert.course)} certificate from Financial Modeler Pro on ${formatDateFull(cert.issuedAt)}. Verified by Financial Modeler Pro.`;
 
   return {
@@ -135,14 +135,14 @@ function GoldRule() {
 export default async function CertificatePage({ searchParams }: Props) {
   const { regId = '', course = '' } = await searchParams;
 
-  // ── Not Found — missing params ──
+  // ── Not Found - missing params ──
   if (!regId || !course) {
     return <NotFoundView reason="invalid" />;
   }
 
   const cert = await fetchCertificate(regId, course);
 
-  // ── Not Found — no certificate ──
+  // ── Not Found - no certificate ──
   if (!cert) {
     return <NotFoundView reason="notfound" />;
   }
@@ -171,7 +171,7 @@ export default async function CertificatePage({ searchParams }: Props) {
 
         {/* ── Responsive scaler wrapper ─────────────────────────────── */}
         <div style={{ overflowX: 'auto', marginBottom: 20 }}>
-          {/* ── Certificate card — 680×960 with absolute positioning ── */}
+          {/* ── Certificate card - 680×960 with absolute positioning ── */}
           <div style={{
             position: 'relative',
             width:  680,
@@ -184,14 +184,14 @@ export default async function CertificatePage({ searchParams }: Props) {
             overflow: 'hidden',
           }}>
 
-            {/* Gold top stripe — fixed */}
+            {/* Gold top stripe - fixed */}
             <div style={{
               position: 'absolute', top: 0, left: 0, right: 0, height: 6,
               background: 'linear-gradient(90deg, #C9A84C 0%, #E8C96E 50%, #C9A84C 100%)',
               zIndex: 2,
             }} />
 
-            {/* Gold bottom stripe — fixed */}
+            {/* Gold bottom stripe - fixed */}
             <div style={{
               position: 'absolute', bottom: 0, left: 0, right: 0, height: 4,
               background: 'linear-gradient(90deg, #C9A84C 0%, #E8C96E 50%, #C9A84C 100%)',

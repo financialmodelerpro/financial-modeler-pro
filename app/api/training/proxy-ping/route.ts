@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
       signal: AbortSignal.timeout(8000),
       cache: 'no-store',
     });
-    // Apps Script returns 200 even for unknown actions — any 2xx means reachable
+    // Apps Script returns 200 even for unknown actions - any 2xx means reachable
     if (res.ok) return NextResponse.json({ ok: true });
     return NextResponse.json({ ok: false, status: res.status }, { status: 502 });
   } catch (err) {

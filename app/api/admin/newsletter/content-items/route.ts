@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
       .select('id, title, description, scheduled_datetime, timezone, platform, live_url')
       .order('scheduled_datetime', { ascending: false })
       .limit(20);
-    return NextResponse.json({ items: (data ?? []).map(s => ({ id: s.id, label: `${s.title} — ${fmtDate(s.scheduled_datetime)}`, data: s })) });
+    return NextResponse.json({ items: (data ?? []).map(s => ({ id: s.id, label: `${s.title} - ${fmtDate(s.scheduled_datetime)}`, data: s })) });
   }
 
   if (type === 'live_recording') {
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
       .not('recording_url', 'is', null)
       .order('scheduled_datetime', { ascending: false })
       .limit(20);
-    return NextResponse.json({ items: (data ?? []).map(s => ({ id: s.id, label: `${s.title} — ${fmtDate(s.scheduled_datetime)}`, data: s })) });
+    return NextResponse.json({ items: (data ?? []).map(s => ({ id: s.id, label: `${s.title} - ${fmtDate(s.scheduled_datetime)}`, data: s })) });
   }
 
   if (type === 'article') {
@@ -35,7 +35,7 @@ export async function GET(req: NextRequest) {
       .eq('status', 'published')
       .order('created_at', { ascending: false })
       .limit(20);
-    return NextResponse.json({ items: (data ?? []).map(a => ({ id: a.id, label: `${a.title} — ${fmtDate(a.created_at)}`, data: a })) });
+    return NextResponse.json({ items: (data ?? []).map(a => ({ id: a.id, label: `${a.title} - ${fmtDate(a.created_at)}`, data: a })) });
   }
 
   if (type === 'certification_update') {

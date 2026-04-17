@@ -9,7 +9,7 @@ interface NewsletterData {
   unsubscribeToken: string;
 }
 
-/** Newsletter-specific branded layout — overrides signature + footer for newsletter context. */
+/** Newsletter-specific branded layout - overrides signature + footer for newsletter context. */
 async function baseLayoutNewsletter(content: string): Promise<string> {
   const b = await getEmailBranding();
   const logoBlock = b.logo_url

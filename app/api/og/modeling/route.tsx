@@ -40,7 +40,7 @@ async function fetchLogo(): Promise<string> {
   return '';
 }
 
-/** GET /api/og/modeling — Modeling Hub OG banner */
+/** GET /api/og/modeling - Modeling Hub OG banner */
 export async function GET() {
   const [content, sections, logoDataUri, fonts] = await Promise.all([
     getCmsContent().catch(() => ({} as Record<string, Record<string, string>>)),
@@ -53,7 +53,7 @@ export async function GET() {
 
   const badge    = (h?.badge as string)    || cms(content, 'modeling_hub', 'hero_badge',    '📐 Professional Modeling Platform');
   const headline = ((h?.headline as string) || cms(content, 'modeling_hub', 'hero_headline', 'Build Institutional-Grade\nFinancial Models')).replace(/\n/g, ' ');
-  const sub      = (h?.subtitle as string) || cms(content, 'modeling_hub', 'hero_sub',      'Structured, guided workflows for every financial discipline — real estate, business valuation, LBO, FP&A, and more.');
+  const sub      = (h?.subtitle as string) || cms(content, 'modeling_hub', 'hero_sub',      'Structured, guided workflows for every financial discipline - real estate, business valuation, LBO, FP&A, and more.');
 
   return new ImageResponse(
     (

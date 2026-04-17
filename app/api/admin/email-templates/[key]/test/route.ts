@@ -8,7 +8,7 @@ async function checkAdmin() {
   return !!(session?.user && (session.user as { role?: string }).role === 'admin');
 }
 
-/** POST — send test email to admin */
+/** POST - send test email to admin */
 export async function POST(
   _req: NextRequest,
   { params }: { params: Promise<{ key: string }> },

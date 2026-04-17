@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/public/training-sessions/[id]
- * Public — returns single session detail without sensitive data.
+ * Public - returns single session detail without sensitive data.
  * NEVER exposes live_url or live_password.
  */
 export async function GET(

@@ -109,7 +109,7 @@ function TrainingSignInInner() {
       }
 
       if (json.requiresDeviceVerification && json.email && json.registrationId) {
-        // ALWAYS use the resolved email from the server — never the raw identifier input.
+        // ALWAYS use the resolved email from the server - never the raw identifier input.
         // This ensures OTP send and verify use the exact same email key.
         const resolvedEmail = json.email.toLowerCase();
         console.log('[signin] Device verification required. Resolved email:', resolvedEmail, 'RegID:', json.registrationId);
@@ -200,7 +200,7 @@ function TrainingSignInInner() {
         setVerifyingDev(false);
         return;
       }
-      // Device verified — set session and redirect
+      // Device verified - set session and redirect
       setTrainingSession(verifyEmail, deviceRegId);
       router.push('/training/dashboard');
     } catch {
@@ -379,7 +379,7 @@ function TrainingSignInInner() {
                     {emailNotConfirmed && (
                       <div style={{ marginTop: 8, textAlign: 'center' }}>
                         {resendConfirmStatus === 'sent' ? (
-                          <span style={{ fontSize: 12, color: '#15803D', fontWeight: 600 }}>✅ Confirmation email sent — check your inbox.</span>
+                          <span style={{ fontSize: 12, color: '#15803D', fontWeight: 600 }}>✅ Confirmation email sent - check your inbox.</span>
                         ) : resendConfirmStatus === 'error' ? (
                           <span style={{ fontSize: 12, color: '#DC2626' }}>Failed to send. Please try again.</span>
                         ) : (

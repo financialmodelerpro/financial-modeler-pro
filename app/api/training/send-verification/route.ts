@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
       const { subject, html, text } = await otpVerificationTemplate({ code, expiresMinutes: 10 });
       await sendEmail({ to: email, subject, html, text, from: FROM.training });
     } catch {
-      // Email sending failed — code still generated; UI will show error
+      // Email sending failed - code still generated; UI will show error
     }
 
     return NextResponse.json({ success: true });

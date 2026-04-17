@@ -4,7 +4,7 @@
  * Body: { email }
  * Checks training_pending_registrations (new unconfirmed) and
  * training_registrations_meta (confirmed=false edge case).
- * Always returns 200 — don't reveal whether email exists.
+ * Always returns 200 - don't reveal whether email exists.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
         .maybeSingle();
 
       if (meta && meta.email_confirmed !== true) {
-        // email_confirmed is false OR null (pre-027 users who may have been missed) — resend
+        // email_confirmed is false OR null (pre-027 users who may have been missed) - resend
         shouldSend = true;
       }
     }

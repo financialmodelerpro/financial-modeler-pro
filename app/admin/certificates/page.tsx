@@ -50,7 +50,7 @@ const TEMPLATE_ACCEPT: Record<keyof TemplateStatus, string> = {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function formatDate(raw: string | null | undefined): string {
-  if (!raw) return '—';
+  if (!raw) return '-';
   try {
     return new Date(raw).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   } catch { return raw; }
@@ -194,7 +194,7 @@ export default function AdminCertificatesPage() {
             setTemplateStatus(prev => ({ ...prev, [type]: true }));
             setTemplateUrls(prev => ({ ...prev, [type]: `${publicUrl}?t=${Date.now()}` }));
           }
-        } catch { /* network error — skip */ }
+        } catch { /* network error - skip */ }
       }
     }
     void checkTemplates();
@@ -217,7 +217,7 @@ export default function AdminCertificatesPage() {
         showToast(`Sync failed: ${json.error ?? 'Unknown error'}`);
       }
     } catch {
-      showToast('Sync failed — network error');
+      showToast('Sync failed - network error');
     }
     setSyncing(false);
   }
@@ -238,7 +238,7 @@ export default function AdminCertificatesPage() {
         showToast(`Upload failed: ${json.error ?? 'unknown error'}`);
       }
     } catch {
-      showToast('Upload failed — network error');
+      showToast('Upload failed - network error');
     }
     setUploading(null);
   }
@@ -261,7 +261,7 @@ export default function AdminCertificatesPage() {
         showToast(`Remove failed: ${json.error ?? 'unknown error'}`);
       }
     } catch {
-      showToast('Remove failed — network error');
+      showToast('Remove failed - network error');
     }
     setDeleting(null);
   }
@@ -500,7 +500,7 @@ export default function AdminCertificatesPage() {
                       </td>
                       <td style={{ padding: '12px 16px', fontWeight: 600, color: '#1F2937' }}>{cert.full_name}</td>
                       <td style={{ padding: '12px 16px', color: '#4B5563' }}>{cert.course}</td>
-                      <td style={{ padding: '12px 16px', color: '#4B5563' }}>{cert.grade ?? '—'}</td>
+                      <td style={{ padding: '12px 16px', color: '#4B5563' }}>{cert.grade ?? '-'}</td>
                       <td style={{ padding: '12px 16px', color: '#4B5563', whiteSpace: 'nowrap' }}>
                         {formatDate(cert.issued_at ?? cert.issued_date)}
                       </td>

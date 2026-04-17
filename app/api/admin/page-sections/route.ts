@@ -8,7 +8,7 @@ async function checkAdmin() {
   return !!(session?.user && (session.user as { role?: string }).role === 'admin');
 }
 
-// ── GET — list sections for a page (or list all pages) ───────────────────────
+// ── GET - list sections for a page (or list all pages) ───────────────────────
 
 export async function GET(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ page, sections: sections ?? [] });
 }
 
-// ── POST — create a new section (or a new page) ─────────────────────────────
+// ── POST - create a new section (or a new page) ─────────────────────────────
 
 export async function POST(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -105,7 +105,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ section: data });
 }
 
-// ── PATCH — update a section or page ─────────────────────────────────────────
+// ── PATCH - update a section or page ─────────────────────────────────────────
 
 export async function PATCH(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -157,7 +157,7 @@ export async function PATCH(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-// ── DELETE — remove a section or page ────────────────────────────────────────
+// ── DELETE - remove a section or page ────────────────────────────────────────
 
 export async function DELETE(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });

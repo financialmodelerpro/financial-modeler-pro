@@ -107,7 +107,7 @@ export default function StudentsPage() {
       body: JSON.stringify({ email: s.email }),
     });
     setAL(`resend_${s.registrationId}`, false);
-    showToast(res.ok ? `Registration ID resent to ${s.email}` : 'Resend failed — check email or Apps Script');
+    showToast(res.ok ? `Registration ID resent to ${s.email}` : 'Resend failed - check email or Apps Script');
   };
 
   const handleViewProgress = async (s: AdminStudent) => {
@@ -141,7 +141,7 @@ export default function StudentsPage() {
 
   const fmt = (iso: string) => {
     try { return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); }
-    catch { return iso ?? '—'; }
+    catch { return iso ?? '-'; }
   };
 
   return (
@@ -215,7 +215,7 @@ export default function StudentsPage() {
             ))
           ) : !dataAvailable ? (
             <div style={{ padding: '48px 20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>
-              {appsConfigured ? 'Student data unavailable — update your Apps Script to support listStudents.' : 'Connect your Apps Script to view students.'}
+              {appsConfigured ? 'Student data unavailable - update your Apps Script to support listStudents.' : 'Connect your Apps Script to view students.'}
             </div>
           ) : filtered.length === 0 ? (
             <div style={{ padding: '48px 20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>
@@ -230,29 +230,29 @@ export default function StudentsPage() {
               return (
                 <div key={s.registrationId} style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 2fr 70px 80px 80px 80px 80px 160px', padding: '11px 20px', borderBottom: '1px solid #F3F4F6', alignItems: 'center', fontSize: 12, background: s.isBlocked ? '#FFF5F5' : '#fff' }}>
                   <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#6B7280' }}>{s.registrationId}</div>
-                  <div style={{ fontWeight: 600, color: '#1B3A6B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name || '—'}</div>
+                  <div style={{ fontWeight: 600, color: '#1B3A6B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name || '-'}</div>
                   <div style={{ color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>{s.email}</div>
                   <div>
                     <span style={{ background: s.course === '3SFM' ? '#EFF6FF' : '#F0FDF4', color: s.course === '3SFM' ? '#1D4ED8' : '#166534', borderRadius: 20, padding: '2px 7px', fontSize: 10, fontWeight: 700 }}>{s.course}</span>
                   </div>
                   {/* Sessions: passCount / (total - 1) to exclude final exam */}
-                  <div style={{ color: '#6B7280' }}>{passCount !== null && total !== null ? `${passCount} / ${total > 1 ? total - 1 : total}` : '—'}</div>
+                  <div style={{ color: '#6B7280' }}>{passCount !== null && total !== null ? `${passCount} / ${total > 1 ? total - 1 : total}` : '-'}</div>
                   {/* Final: use finalExamStatus for accurate not_started vs attempted vs passed */}
                   <div>
                     {!s.finalExamStatus || s.finalExamStatus === 'not_started'
-                      ? <span style={{ color: '#9CA3AF' }}>—</span>
+                      ? <span style={{ color: '#9CA3AF' }}>-</span>
                       : s.finalExamStatus === 'passed'   ? badge('Passed',   '#166534', '#DCFCE7')
                       : s.finalExamStatus === 'attempted' ? badge('Attempted', '#92400E', '#FEF3C7')
                       : s.finalExamStatus === 'locked'    ? badge('Locked',   '#DC2626', '#FEF2F2')
-                      : <span style={{ color: '#9CA3AF' }}>—</span>}
+                      : <span style={{ color: '#9CA3AF' }}>-</span>}
                   </div>
                   <div>
-                    {s.certificateIssued === undefined ? <span style={{ color: '#D1D5DB' }}>—</span>
+                    {s.certificateIssued === undefined ? <span style={{ color: '#D1D5DB' }}>-</span>
                       : s.certificateIssued ? badge('Yes', '#166534', '#DCFCE7')
                       : badge('No', '#6B7280', '#F3F4F6')}
                   </div>
                   {/* Joined: registeredAt comes from enrolledDate in the Apps Script response */}
-                  <div style={{ color: '#6B7280', fontSize: 11 }}>{s.registeredAt ? fmt(s.registeredAt) : '—'}</div>
+                  <div style={{ color: '#6B7280', fontSize: 11 }}>{s.registeredAt ? fmt(s.registeredAt) : '-'}</div>
                   <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                     <button
                       onClick={() => handleViewProgress(s)}
@@ -361,14 +361,14 @@ export default function StudentsPage() {
                         </div>
                         {sessions.map(sess => {
                           const st = getStatus(sess);
-                          const scoreDisplay = sess.score != null && sess.score > 0 ? `${sess.score}%` : '—';
+                          const scoreDisplay = sess.score != null && sess.score > 0 ? `${sess.score}%` : '-';
                           return (
                             <div key={sess.sessionId} style={{ display: 'grid', gridTemplateColumns: '80px 80px 80px 80px 1fr', padding: '9px 14px', borderBottom: '1px solid #F3F4F6', fontSize: 12, alignItems: 'center', background: sess.passed ? '#F0FDF4' : '#fff' }}>
                               <div style={{ fontWeight: 700, color: '#1B3A6B' }}>{sess.sessionId}</div>
                               <div style={{ color: '#374151' }}>{scoreDisplay}</div>
                               <div style={{ color: '#6B7280' }}>{sess.attempts ?? 0}</div>
                               <div>{badge(st.text, st.color, st.bg)}</div>
-                              <div style={{ color: '#9CA3AF', fontSize: 11 }}>{sess.completedAt ? new Date(sess.completedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</div>
+                              <div style={{ color: '#9CA3AF', fontSize: 11 }}>{sess.completedAt ? new Date(sess.completedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '-'}</div>
                             </div>
                           );
                         })}
@@ -390,7 +390,7 @@ export default function StudentsPage() {
                       <div style={{ background: '#F4F7FC', borderRadius: 8, padding: '10px 16px', fontSize: 12 }}>
                         <div style={{ color: '#6B7280', fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Certificate</div>
                         <div style={{ fontWeight: 800, color: progress.certificateIssued ? '#166534' : '#6B7280', marginTop: 4 }}>
-                          {progress.certificateIssued ? '🏆 Issued' : '—'}
+                          {progress.certificateIssued ? '🏆 Issued' : '-'}
                         </div>
                       </div>
                       {hasBoth ? (
@@ -485,7 +485,7 @@ export default function StudentsPage() {
                           onClick={async () => {
                             const studentName = progressStudent?.name || progressStudent?.registrationId || '';
                             const sessionLabel = resetSession.includes('S18') || resetSession.includes('L7') ? 'Final Exam' : resetSession;
-                            if (!confirm(`Reset attempts for ${studentName} — ${sessionLabel}?\n\nThis will clear their score and allow them to retake from attempt 1. This cannot be undone.`)) return;
+                            if (!confirm(`Reset attempts for ${studentName} - ${sessionLabel}?\n\nThis will clear their score and allow them to retake from attempt 1. This cannot be undone.`)) return;
                             setResetting(true);
                             try {
                               const res = await fetch('/api/admin/reset-attempts', {
@@ -495,7 +495,7 @@ export default function StudentsPage() {
                               });
                               const d = await res.json() as { success: boolean; error?: string };
                               if (d.success) {
-                                setToast(`Attempts reset for ${studentName} — ${sessionLabel}`);
+                                setToast(`Attempts reset for ${studentName} - ${sessionLabel}`);
                                 setTimeout(() => setToast(''), 3000);
                                 // Refresh progress
                                 if (progressStudent) {

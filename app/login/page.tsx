@@ -27,7 +27,7 @@ function LoginInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const rawCallback  = searchParams.get('callbackUrl') ?? '/admin/dashboard';
-  // Sanitize: never redirect back to the login page itself — breaks infinite loop
+  // Sanitize: never redirect back to the login page itself - breaks infinite loop
   const callbackUrl  = (rawCallback.startsWith('/admin/login') || rawCallback.startsWith('/login')) ? '/admin/dashboard' : rawCallback;
 
   const [email,    setEmail]    = useState('');
@@ -123,7 +123,7 @@ function LoginInner() {
         return;
       }
 
-      // Device is now trusted — retry signIn
+      // Device is now trusted - retry signIn
       const result = await signIn('credentials', {
         email:    deviceEmail,
         password,
@@ -281,7 +281,7 @@ function LoginInner() {
               {emailNotConfirmed && (
                 <div style={{ marginTop: 8 }}>
                   {resendStatus === 'sent'
-                    ? <span style={{ color: '#15803D', fontWeight: 600 }}>✅ Confirmation email sent — check your inbox.</span>
+                    ? <span style={{ color: '#15803D', fontWeight: 600 }}>✅ Confirmation email sent - check your inbox.</span>
                     : resendStatus === 'error'
                     ? <span>Failed to send. Please try again.</span>
                     : (

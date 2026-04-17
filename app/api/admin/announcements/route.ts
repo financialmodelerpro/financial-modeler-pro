@@ -10,7 +10,7 @@ async function guard() {
   return { error: null, status: 200, session };
 }
 
-// GET — list all announcements
+// GET - list all announcements
 export async function GET() {
   const { error, status } = await guard();
   if (error) return NextResponse.json({ error }, { status });
@@ -24,7 +24,7 @@ export async function GET() {
   return NextResponse.json({ announcements: data ?? [] });
 }
 
-// POST — create announcement
+// POST - create announcement
 export async function POST(req: NextRequest) {
   const { error, status, session } = await guard();
   if (error || !session) return NextResponse.json({ error }, { status });
@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ announcement: data });
 }
 
-// PATCH — update (toggle active, edit fields)
+// PATCH - update (toggle active, edit fields)
 export async function PATCH(req: NextRequest) {
   const { error, status } = await guard();
   if (error) return NextResponse.json({ error }, { status });
@@ -67,7 +67,7 @@ export async function PATCH(req: NextRequest) {
   return NextResponse.json({ announcement: data });
 }
 
-// DELETE — remove announcement
+// DELETE - remove announcement
 export async function DELETE(req: NextRequest) {
   const { error, status } = await guard();
   if (error) return NextResponse.json({ error }, { status });

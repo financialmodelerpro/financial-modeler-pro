@@ -19,7 +19,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const article  = await getArticleBySlug(slug);
   if (!article) return { title: 'Article Not Found' };
   return {
-    title:       article.seo_title       ?? `${article.title} — Financial Modeler Pro`,
+    title:       article.seo_title       ?? `${article.title} - Financial Modeler Pro`,
     description: article.seo_description ?? '',
     openGraph: {
       title:       article.seo_title ?? article.title,
@@ -40,7 +40,7 @@ export default async function ArticleDetailPage({ params }: Props) {
     ? new Date(article.published_at).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
     : '';
 
-  // Sanitize HTML — inline, since DOMPurify may not be available server-side without setup
+  // Sanitize HTML - inline, since DOMPurify may not be available server-side without setup
   // We trust admin-entered content; body comes from our own Supabase
   const safeBody = article.body;
 

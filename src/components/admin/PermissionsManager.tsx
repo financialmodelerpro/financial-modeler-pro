@@ -54,7 +54,7 @@ function Toggle({
     <button
       onClick={() => !disabled && !saving && onChange(!checked)}
       disabled={disabled || saving}
-      title={checked ? 'Enabled — click to disable' : 'Disabled — click to enable'}
+      title={checked ? 'Enabled - click to disable' : 'Disabled - click to enable'}
       style={{
         width: 36, height: 20, borderRadius: 10, border: 'none', cursor: disabled ? 'default' : 'pointer',
         background: saving ? '#d1d5db' : checked ? '#22c55e' : '#d1d5db',
@@ -127,7 +127,7 @@ export default function PermissionsManager({ users, initialTab = 'plans' }: { us
     });
     setSaving((s) => ({ ...s, [key]: false }));
     if (res.ok) showToast(`${plan} / ${featureKey} → ${enabled ? 'enabled' : 'disabled'}`);
-    else        showToast('Save failed — check console');
+    else        showToast('Save failed - check console');
   };
 
   // Toggle a user override
@@ -313,7 +313,7 @@ export default function PermissionsManager({ users, initialTab = 'plans' }: { us
                 fontFamily: 'Inter,sans-serif', minWidth: 280, outline: 'none',
               }}
             >
-              <option value="">— choose a user —</option>
+              <option value="">- choose a user -</option>
               {users.map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.name ?? u.email} ({u.subscription_plan})
@@ -443,7 +443,7 @@ export default function PermissionsManager({ users, initialTab = 'plans' }: { us
                                     Remove
                                   </button>
                                 ) : (
-                                  <span style={{ color: 'var(--color-grey-light)', fontSize: 16 }}>—</span>
+                                  <span style={{ color: 'var(--color-grey-light)', fontSize: 16 }}>-</span>
                                 )}
                               </td>
                             </tr>

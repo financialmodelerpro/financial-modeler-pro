@@ -8,7 +8,7 @@ async function checkAdmin() {
   return session?.user && (session.user as { role?: string }).role === 'admin';
 }
 
-/** GET — all features for a platform + access rows */
+/** GET - all features for a platform + access rows */
 export async function GET(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const slug = req.nextUrl.searchParams.get('platform') ?? 'real-estate';
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ features: features ?? [], access: access ?? [] });
 }
 
-/** POST — create new platform feature */
+/** POST - create new platform feature */
 export async function POST(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
   }
 }
 
-/** PATCH — bulk update feature access for a plan */
+/** PATCH - bulk update feature access for a plan */
 export async function PATCH(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {

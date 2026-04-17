@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
       const { subject, html } = await confirmEmailTemplate({ confirmUrl, hub: 'modeling' });
       await sendEmail({ to: email, subject, html, from: FROM.noreply }).catch(() => null);
       return NextResponse.json({
-        message: 'Account pending confirmation. We\'ve resent the confirmation email — please check your inbox.',
+        message: 'Account pending confirmation. We\'ve resent the confirmation email - please check your inbox.',
       }, { status: 200 });
     }
     return NextResponse.json({ error: 'An account with that email already exists' }, { status: 409 });

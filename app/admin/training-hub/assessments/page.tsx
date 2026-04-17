@@ -16,7 +16,7 @@ interface AssessmentData {
 }
 
 function Stars({ v }: { v: number | null }) {
-  if (v == null) return <span style={{ color: '#9CA3AF' }}>—</span>;
+  if (v == null) return <span style={{ color: '#9CA3AF' }}>-</span>;
   return (
     <span title={`${v}/5`}>
       {Array.from({ length: 5 }).map((_, i) => (
@@ -82,7 +82,7 @@ export default function AssessmentsPage() {
                 {data!.problemSessions.length} session{data!.problemSessions.length > 1 ? 's' : ''} need attention:
               </span>
               <span style={{ fontSize: 13, color: '#DC2626', marginLeft: 6 }}>
-                {data!.problemSessions.map(s => s.label).join(', ')} — pass rate &lt;60%
+                {data!.problemSessions.map(s => s.label).join(', ')} - pass rate &lt;60%
               </span>
             </div>
           </div>
@@ -126,12 +126,12 @@ export default function AssessmentsPage() {
                           <div style={{ height: '100%', borderRadius: 3, background: s.base === 0 ? '#E5E7EB' : rowColor(s.passRate, s.base), width: `${s.passRate}%` }} />
                         </div>
                         <span style={{ fontSize: 12, fontWeight: 700, color: rowColor(s.passRate, s.base) }}>
-                          {s.base === 0 ? '—' : `${s.passRate}%`}
+                          {s.base === 0 ? '-' : `${s.passRate}%`}
                         </span>
                       </div>
                     </td>
                     <td style={{ padding: '11px 14px', fontSize: 12, color: '#374151' }}>
-                      {s.base === 0 ? '—' : `${s.passed} / ${s.base}`}
+                      {s.base === 0 ? '-' : `${s.passed} / ${s.base}`}
                     </td>
                     <td style={{ padding: '11px 14px' }}><Stars v={s.avgFeedback} /></td>
                     <td style={{ padding: '11px 14px', fontSize: 12, color: '#6B7280' }}>{s.feedbackCount}</td>
@@ -156,7 +156,7 @@ export default function AssessmentsPage() {
             <div style={{ background: '#fff', borderRadius: 16, width: '100%', maxWidth: 560, maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.25)', padding: '28px 28px 24px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 18 }}>
                 <div style={{ fontSize: 17, fontWeight: 800, color: '#1B3A6B' }}>
-                  {modal.isFinal ? '🏆 ' : '📋 '}Session {modal.label} — Details
+                  {modal.isFinal ? '🏆 ' : '📋 '}Session {modal.label} - Details
                 </div>
                 <button onClick={() => setModal(null)} style={{ fontSize: 20, background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}>✕</button>
               </div>
@@ -164,8 +164,8 @@ export default function AssessmentsPage() {
               {/* Stats row */}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 20 }}>
                 {[
-                  { label: 'Pass Rate', value: modal.base === 0 ? '—' : `${modal.passRate}%`, color: rowColor(modal.passRate, modal.base) },
-                  { label: 'Feedback', value: modal.avgFeedback != null ? `${modal.avgFeedback}/5` : '—', color: '#F59E0B' },
+                  { label: 'Pass Rate', value: modal.base === 0 ? '-' : `${modal.passRate}%`, color: rowColor(modal.passRate, modal.base) },
+                  { label: 'Feedback', value: modal.avgFeedback != null ? `${modal.avgFeedback}/5` : '-', color: '#F59E0B' },
                   { label: 'Responses', value: String(modal.feedbackCount), color: '#1B4F8A' },
                 ].map(s => (
                   <div key={s.label} style={{ textAlign: 'center', padding: '12px', background: '#F9FAFB', borderRadius: 8 }}>

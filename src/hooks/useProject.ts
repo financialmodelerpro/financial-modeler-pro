@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * useProject — Supabase-backed project save/load hook
+ * useProject - Supabase-backed project save/load hook
  *
  * - Auto-saves dirty state to Supabase every 30 seconds
  * - saveNow() triggers an immediate save (e.g. manual save button)
@@ -47,7 +47,7 @@ export function useProject(): UseProjectReturn {
   const flushToSupabase = useCallback(async () => {
     if (!dirtyRef.current) return;
 
-    // If session has expired, don't attempt to save — show error instead
+    // If session has expired, don't attempt to save - show error instead
     if (!isAuthenticated || sessionStatus === 'unauthenticated') {
       setSaveStatus('error');
       return;
@@ -65,7 +65,7 @@ export function useProject(): UseProjectReturn {
       });
 
       if (res.status === 401) {
-        // Session expired mid-edit — re-queue and mark error so UI can warn
+        // Session expired mid-edit - re-queue and mark error so UI can warn
         dirtyRef.current = { id, data };
         setSaveStatus('error');
         return;

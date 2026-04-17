@@ -12,7 +12,7 @@ const FALLBACK_MODULES: Module[] = [
   { id:'3',  name:'FP&A Modeling',                  slug:'fpa-modeling',       description:'Annual budgets, rolling forecasts, budget vs actual variance analysis, and department P&L.',               icon:'📊', status:'coming_soon', display_order:3,  launch_date:null },
   { id:'4',  name:'Equity Research',                slug:'equity-research',    description:'Financial model templates, initiation of coverage reports, earnings models, and sector-specific models.',  icon:'📈', status:'coming_soon', display_order:4,  launch_date:null },
   { id:'5',  name:'Project Finance',                slug:'project-finance',    description:'Infrastructure PPP, power and energy models, concession modeling, DSCR analysis, and debt sculpting.',   icon:'🏦', status:'coming_soon', display_order:5,  launch_date:null },
-  { id:'6',  name:'LBO Modeling',                   slug:'lbo-modeling',       description:'Full leveraged buyout models — sources and uses, debt schedule, management equity, returns waterfall.',   icon:'🔄', status:'coming_soon', display_order:6,  launch_date:null },
+  { id:'6',  name:'LBO Modeling',                   slug:'lbo-modeling',       description:'Full leveraged buyout models - sources and uses, debt schedule, management equity, returns waterfall.',   icon:'🔄', status:'coming_soon', display_order:6,  launch_date:null },
   { id:'7',  name:'Corporate Finance',              slug:'corporate-finance',  description:'M&A models, merger consequences, accretion/dilution analysis, synergy modeling, fairness opinions.',      icon:'🌍', status:'coming_soon', display_order:7,  launch_date:null },
   { id:'8',  name:'Energy & Utilities',             slug:'energy-utilities',   description:'Solar, wind, oil and gas, utility rate models, carbon credits, and power purchase agreements.',           icon:'⚡', status:'coming_soon', display_order:8,  launch_date:null },
   { id:'9',  name:'Startup & Venture',              slug:'startup-venture',    description:'SaaS unit economics, runway and burn analysis, cap table modeling, cohort analysis, VC returns.',         icon:'🚀', status:'coming_soon', display_order:9,  launch_date:null },
@@ -20,8 +20,8 @@ const FALLBACK_MODULES: Module[] = [
 ];
 
 export const metadata: Metadata = {
-  title: 'About — Financial Modeler Pro',
-  description: 'Learn about Financial Modeler Pro — the professional financial modeling platform built for developers, analysts, and investors across all disciplines.',
+  title: 'About - Financial Modeler Pro',
+  description: 'Learn about Financial Modeler Pro - the professional financial modeling platform built for developers, analysts, and investors across all disciplines.',
 };
 
 export default async function AboutPage() {
@@ -39,7 +39,7 @@ export default async function AboutPage() {
         <div style={{ height: 64 }} />
 
         {sections.map((section) => {
-          // Section 5: dynamic modules grid — render inline instead of via SectionRenderer
+          // Section 5: dynamic modules grid - render inline instead of via SectionRenderer
           if ((section.content as Record<string, unknown>)?._dynamic === 'modules') {
             const bg = (section.styles as Record<string, string>)?.bgColor ?? '#0A2248';
             return (
@@ -48,7 +48,7 @@ export default async function AboutPage() {
                   <div style={{ textAlign: 'center', marginBottom: 48 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: '#4A90D9', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 14 }}>Our Platforms</div>
                     <h2 style={{ fontSize: 'clamp(22px,3vw,32px)', fontWeight: 800, color: '#fff', marginBottom: 12 }}>10+ Professional Modeling Platforms</h2>
-                    <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)' }}>Live now and launching soon — one destination for every financial modeling discipline.</p>
+                    <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)' }}>Live now and launching soon - one destination for every financial modeling discipline.</p>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16 }}>
                     {platformModules.map((mod) => (
@@ -106,7 +106,7 @@ export default async function AboutPage() {
           <div>
             <h2 style={{ fontSize: 26, fontWeight: 800, color: '#fff', marginBottom: 16 }}>Our Mission</h2>
             <p style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.55)', lineHeight: 1.75, marginBottom: 16 }}>
-              To make professional-grade financial modeling accessible to every developer, analyst, and investor — regardless of their spreadsheet skill level.
+              To make professional-grade financial modeling accessible to every developer, analyst, and investor - regardless of their spreadsheet skill level.
             </p>
             <p style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.45)', lineHeight: 1.75 }}>
               We believe that the quality of a financial model shouldn&apos;t be limited by the tools available. Financial Modeler Pro provides the structure, the logic, and the output formats that deal-makers actually need.
@@ -166,7 +166,7 @@ export default async function AboutPage() {
       <section style={{ padding: '80px 40px', maxWidth: 700, margin: '0 auto', textAlign: 'center' }}>
         <h2 style={{ fontSize: 26, fontWeight: 800, color: '#fff', marginBottom: 16 }}>Built by a Practitioner</h2>
         <p style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.5)', lineHeight: 1.75, marginBottom: 32 }}>
-          Financial Modeler Pro was founded by Ahmad Din — a corporate finance and transaction advisory professional with 12+ years of experience structuring deals across KSA, Pakistan, and international markets. Every feature is designed around how deals actually get done.
+          Financial Modeler Pro was founded by Ahmad Din - a corporate finance and transaction advisory professional with 12+ years of experience structuring deals across KSA, Pakistan, and international markets. Every feature is designed around how deals actually get done.
         </p>
         <Link href="/about/ahmad-din" style={{
           display: 'inline-flex', alignItems: 'center', gap: 8,
@@ -183,7 +183,7 @@ export default async function AboutPage() {
           <div style={{ textAlign: 'center', marginBottom: 48 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: '#4A90D9', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 14 }}>Our Platforms</div>
             <h2 style={{ fontSize: 'clamp(22px,3vw,32px)', fontWeight: 800, color: '#fff', marginBottom: 12 }}>10+ Professional Modeling Platforms</h2>
-            <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)' }}>Live now and launching soon — one destination for every financial modeling discipline.</p>
+            <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)' }}>Live now and launching soon - one destination for every financial modeling discipline.</p>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16 }}>
             {(modules.length > 0 ? modules : FALLBACK_MODULES).map((mod) => (

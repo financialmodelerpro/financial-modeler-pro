@@ -41,7 +41,7 @@ export async function POST(
   if (target === '3sfm') filteredStudents = filteredStudents.filter(s => (s.course ?? '').toUpperCase().includes('3SFM'));
   if (target === 'bvm') filteredStudents = filteredStudents.filter(s => (s.course ?? '').toUpperCase().includes('BVM'));
 
-  // Preview mode — send only to admin
+  // Preview mode - send only to admin
   if (body.preview) {
     filteredStudents = [{ name: 'Admin Preview', email: 'meetahmadch@gmail.com', registrationId: 'PREVIEW', course: '', registeredAt: '' }];
   }

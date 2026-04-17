@@ -93,7 +93,7 @@ export default function RbacModal({ rbacSelectedRole, setRbacSelectedRole, onApp
             className="rbac-apply-btn"
             onClick={() => onApply(rbacSelectedRole)}
           >
-            Apply Role — {ROLE_META[rbacSelectedRole]?.label}
+            Apply Role - {ROLE_META[rbacSelectedRole]?.label}
           </button>
         </div>
       </div>

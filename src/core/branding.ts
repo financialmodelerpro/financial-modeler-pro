@@ -9,8 +9,8 @@ export const DEFAULT_BRANDING: BrandingConfig = {
   platformName:       'Financial Modeler Pro',
   portalTitle:        'Welcome to Financial Modeler Pro',
   portalSubtitle:     'FINANCIAL MODELING HUB',
-  portalDescription:  'A professional suite of financial modeling and planning tools — built for real estate developers, corporate finance teams, and FP&A professionals. Select a platform below to begin.',
-  footerText:         'Powered by Financial Modeler Pro — PaceMakers Advisory',
+  portalDescription:  'A professional suite of financial modeling and planning tools - built for real estate developers, corporate finance teams, and FP&A professionals. Select a platform below to begin.',
+  footerText:         'Powered by Financial Modeler Pro - PaceMakers Advisory',
 
   portalLogoType:     'emoji',
   portalLogoEmoji:    '💼',
@@ -82,7 +82,7 @@ export const PLATFORM_REGISTRY: PlatformEntry[] = [
   },
 ];
 
-// ── Subscription (stub — replace with real session lookup) ───────────────────
+// ── Subscription (stub - replace with real session lookup) ───────────────────
 export const USER_SUBSCRIPTION: UserSubscription = {
   userId:    'user_001',
   plan:      'Professional',
@@ -108,7 +108,7 @@ export function loadBranding(): BrandingConfig {
   return { ...DEFAULT_BRANDING };
 }
 
-// ── Fetch branding from Supabase (async — for enterprise/remote config) ───────
+// ── Fetch branding from Supabase (async - for enterprise/remote config) ───────
 export async function fetchRemoteBranding(): Promise<BrandingConfig | null> {
   if (typeof window === 'undefined') return null;
   try {
@@ -180,7 +180,7 @@ export function hasAccess(platformId: string): boolean {
   return USER_SUBSCRIPTION.platforms.includes(platformId);
 }
 
-/** Feature-level access gate — enterprise-only features return false for lower plans. */
+/** Feature-level access gate - enterprise-only features return false for lower plans. */
 export function canAccessFeature(feature: 'white_label', plan: string): boolean {
   const enterpriseOnly: string[] = ['white_label'];
   if (enterpriseOnly.includes(feature)) return plan === 'enterprise';

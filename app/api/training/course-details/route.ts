@@ -32,7 +32,7 @@ function tabKeyToLesson(tabKey: string): { courseId: string; displayOrder: numbe
 }
 
 /**
- * Convert (category, displayOrder) → tabKey — reverse of tabKeyToLesson.
+ * Convert (category, displayOrder) → tabKey - reverse of tabKeyToLesson.
  * Used to build the fallback map from the lessons table.
  */
 function lessonToTabKey(category: string, displayOrder: number): string | null {

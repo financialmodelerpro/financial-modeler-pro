@@ -1,5 +1,5 @@
 /**
- * DELETE /api/user/account — permanently delete the authenticated user's account.
+ * DELETE /api/user/account - permanently delete the authenticated user's account.
  * Requires { confirmText: 'DELETE' } in the request body.
  */
 import { NextRequest, NextResponse } from 'next/server';
@@ -19,7 +19,7 @@ export async function DELETE(req: NextRequest) {
   const db = getServerClient();
   const userId = session.user.id;
 
-  // Delete user — cascade will handle related rows (projects, permissions, etc.)
+  // Delete user - cascade will handle related rows (projects, permissions, etc.)
   const { error: dbErr } = await db.from('users').delete().eq('id', userId);
   if (dbErr) return NextResponse.json({ error: dbErr.message }, { status: 500 });
 

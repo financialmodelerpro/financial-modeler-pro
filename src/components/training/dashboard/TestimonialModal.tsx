@@ -108,7 +108,7 @@ export function TestimonialModal({ mode, studentName, studentEmail, regId, cours
                 placeholder="This course completely transformed how I build financial models..."
                 style={{ width: '100%', padding: '9px 11px', border: '1px solid #D1D5DB', borderRadius: 7, fontSize: 13, fontFamily: 'Inter,sans-serif', resize: 'vertical', lineHeight: 1.6, boxSizing: 'border-box', color: '#374151' }} />
               <div style={{ fontSize: 10, color: content.length < 50 && content.length > 0 ? '#DC2626' : '#9CA3AF', marginTop: 3 }}>
-                {content.length}/500{content.length < 50 && content.length > 0 ? ` — ${50 - content.length} more required` : ''}
+                {content.length}/500{content.length < 50 && content.length > 0 ? ` - ${50 - content.length} more required` : ''}
               </div>
             </div>
           </>
@@ -117,8 +117,8 @@ export function TestimonialModal({ mode, studentName, studentEmail, regId, cours
         {mode === 'video' && (
           <>
             <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, padding: '11px 14px', marginBottom: 14, fontSize: 12, color: '#1E40AF', lineHeight: 1.7 }}>
-              <strong>Option 1 — Loom (free &amp; easy):</strong> Record at loom.com, paste share link below.<br />
-              <strong>Option 2 — YouTube:</strong> Upload as Unlisted, paste the YouTube URL below.
+              <strong>Option 1 - Loom (free &amp; easy):</strong> Record at loom.com, paste share link below.<br />
+              <strong>Option 2 - YouTube:</strong> Upload as Unlisted, paste the YouTube URL below.
             </div>
             <div style={{ marginBottom: 14 }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', marginBottom: 4 }}>VIDEO URL <span style={{ color: '#DC2626' }}>*</span></div>

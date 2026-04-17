@@ -13,7 +13,7 @@ function badRequest(msg: string) {
   return NextResponse.json({ error: msg }, { status: 400 });
 }
 
-// ── GET /api/projects — list projects or fetch a single project by ?id= ───────
+// ── GET /api/projects - list projects or fetch a single project by ?id= ───────
 export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return unauthorized();
@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
   const id = req.nextUrl.searchParams.get('id');
 
   if (id) {
-    // Single project fetch — verify ownership
+    // Single project fetch - verify ownership
     const { data, error } = await serverClient
       .from('projects')
       .select('id, name, platform, module_data, created_at, updated_at, user_id')
@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ projects: data });
 }
 
-// ── POST /api/projects — create a new project ─────────────────────────────────
+// ── POST /api/projects - create a new project ─────────────────────────────────
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return unauthorized();
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ project: data }, { status: 201 });
 }
 
-// ── PUT /api/projects — update module_data for a project ──────────────────────
+// ── PUT /api/projects - update module_data for a project ──────────────────────
 export async function PUT(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return unauthorized();
@@ -129,7 +129,7 @@ export async function PUT(req: NextRequest) {
   return NextResponse.json({ project: data });
 }
 
-// ── DELETE /api/projects — soft-delete (archive) a project ────────────────────
+// ── DELETE /api/projects - soft-delete (archive) a project ────────────────────
 export async function DELETE(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session) return unauthorized();

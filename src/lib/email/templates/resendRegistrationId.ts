@@ -30,7 +30,7 @@ export async function resendRegistrationIdTemplate({ name, registrationId }: Res
     ${p('If you did not request this, please contact our support team immediately.', 'font-size:13px;color:#64748B;')}
   `);
 
-  const text = `Financial Modeler Pro — Your Registration ID\n\n${name ? `Hi ${name},\n\n` : ''}Your Registration ID is: ${registrationId}\n\nSign in at: ${LEARN_URL}/signin`;
+  const text = `Financial Modeler Pro - Your Registration ID\n\n${name ? `Hi ${name},\n\n` : ''}Your Registration ID is: ${registrationId}\n\nSign in at: ${LEARN_URL}/signin`;
 
   return { subject, html, text };
 }

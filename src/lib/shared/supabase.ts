@@ -1,11 +1,11 @@
 /**
- * supabase.ts — Supabase client instances (lazy)
+ * supabase.ts - Supabase client instances (lazy)
  *
- * serverClient  → uses SERVICE_ROLE_KEY (bypasses RLS) — API routes only
- * browserClient → uses ANON_KEY (respects RLS) — safe for frontend
+ * serverClient  → uses SERVICE_ROLE_KEY (bypasses RLS) - API routes only
+ * browserClient → uses ANON_KEY (respects RLS) - safe for frontend
  *
  * Clients are created lazily so a missing .env.local does not crash the
- * module at import time — errors surface only when a client is actually used.
+ * module at import time - errors surface only when a client is actually used.
  */
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
@@ -28,7 +28,7 @@ export function getServerClient(): SupabaseClient {
   return _serverClient;
 }
 
-// Convenience proxy — same API as the old `serverClient` export
+// Convenience proxy - same API as the old `serverClient` export
 export const serverClient = new Proxy({} as SupabaseClient, {
   get(_target, prop) {
     return (getServerClient() as unknown as Record<string | symbol, unknown>)[prop];

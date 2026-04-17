@@ -1,2 +1,2 @@
-// export-excel-formula.ts — placeholder
+// export-excel-formula.ts - placeholder
 export {};

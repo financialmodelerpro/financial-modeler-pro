@@ -1,6 +1,6 @@
 /**
  * Application-wide constants.
- * Single source of truth — update here, picks up everywhere.
+ * Single source of truth - update here, picks up everywhere.
  */
 
 // ── Contact ────────────────────────────────────────────────────────────────────

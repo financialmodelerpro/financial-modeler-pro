@@ -53,7 +53,7 @@ export async function DELETE(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-/* ── POST /api/admin/media — multipart upload ─── */
+/* ── POST /api/admin/media - multipart upload ─── */
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

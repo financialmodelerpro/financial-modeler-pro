@@ -44,10 +44,10 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const name   = cert.full_name ?? 'Student';
   const course = cert.course ?? 'Course';
   return {
-    title:       `${name} — ${course} Certificate | Financial Modeler Pro`,
+    title:       `${name} - ${course} Certificate | Financial Modeler Pro`,
     description: `Verify the ${course} certificate issued to ${name} by Financial Modeler Pro.`,
     openGraph: {
-      title:       `${name} — Verified Certificate`,
+      title:       `${name} - Verified Certificate`,
       description: `${course} certificate issued by Financial Modeler Pro`,
       images:      cert.cert_pdf_url ? [{ url: cert.cert_pdf_url }] : [],
     },
@@ -78,7 +78,7 @@ async function fetchCert(
 }
 
 function formatDate(raw: string | null | undefined): string {
-  if (!raw) return '—';
+  if (!raw) return '-';
   try {
     return new Date(raw).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
   } catch { return raw; }
@@ -157,7 +157,7 @@ export default async function VerifyPage({ params }: PageProps) {
       {/* Main Card */}
       <div style={{ maxWidth: 760, margin: '32px auto', borderRadius: 12, boxShadow: '0 4px 32px rgba(0,0,0,0.12)', overflow: 'hidden', background: '#fff' }}>
 
-        {/* Top — navy header */}
+        {/* Top - navy header */}
         <div style={{ background: '#0D2E5A', padding: '28px 36px', display: 'flex', alignItems: 'flex-start', gap: 28 }}>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
@@ -192,11 +192,11 @@ export default async function VerifyPage({ params }: PageProps) {
           )}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px' }}>
             {[
-              { label: 'Student Name',    value: cert.full_name ?? '—' },
-              { label: 'Registration ID', value: cert.registration_id ?? '—' },
-              { label: 'Course',          value: cert.course ?? '—' },
+              { label: 'Student Name',    value: cert.full_name ?? '-' },
+              { label: 'Registration ID', value: cert.registration_id ?? '-' },
+              { label: 'Course',          value: cert.course ?? '-' },
               { label: 'Issue Date',      value: formatDate(issueDate) },
-              { label: 'Grade',           value: cert.grade ?? '—' },
+              { label: 'Grade',           value: cert.grade ?? '-' },
               { label: 'Certificate ID',  value: certId, mono: true },
             ].map(({ label, value, mono }) => (
               <div key={label} style={{ borderBottom: '1px solid #F3F4F6', paddingBottom: 10 }}>

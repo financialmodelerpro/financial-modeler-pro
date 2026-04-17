@@ -14,7 +14,7 @@ export function ShareModal({ sessionTitle, sessionDescription, sessionUrl, onClo
   const [linkedInCopied, setLinkedInCopied] = useState(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
 
-  const shareText = `I'm learning ${sessionTitle} on Financial Modeler Pro — a 100% free professional certification program.\n\nStart your free certification: ${sessionUrl}`;
+  const shareText = `I'm learning ${sessionTitle} on Financial Modeler Pro - a 100% free professional certification program.\n\nStart your free certification: ${sessionUrl}`;
 
   function copyLink() {
     navigator.clipboard.writeText(sessionUrl).then(() => {
@@ -86,7 +86,7 @@ export function ShareModal({ sessionTitle, sessionDescription, sessionUrl, onClo
               fontWeight: 600, fontSize: 14, width: '100%', cursor: 'pointer', boxSizing: 'border-box',
             }}
           >
-            {linkedInCopied ? '✓ Copied! Opening LinkedIn...' : '🔗 LinkedIn — copies text, opens feed'}
+            {linkedInCopied ? '✓ Copied! Opening LinkedIn...' : '🔗 LinkedIn - copies text, opens feed'}
           </button>
 
           <a

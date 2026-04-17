@@ -24,7 +24,7 @@ export default function PageBuilderListPage() {
   const [toast, setToast]       = useState('');
 
   const PAGE_TEMPLATES: { key: string; label: string; desc: string; sections: { type: string; content: Record<string, unknown> }[] }[] = [
-    { key: 'blank', label: 'Blank', desc: 'Empty page — start from scratch', sections: [] },
+    { key: 'blank', label: 'Blank', desc: 'Empty page - start from scratch', sections: [] },
     { key: 'landing', label: 'Landing Page', desc: 'Hero + Features + Testimonials + CTA', sections: [
       { type: 'hero', content: { badge: '', headline: 'Welcome', subtitle: 'Your message here.', cta1Text: 'Get Started', cta1Url: '/register', cta2Text: 'Learn More', cta2Url: '#features' } },
       { type: 'cards', content: { heading: 'Features', badge: 'Why Choose Us', cards: [{ icon: '🚀', title: 'Fast', description: 'Lightning fast performance.' }, { icon: '🔒', title: 'Secure', description: 'Enterprise-grade security.' }, { icon: '📊', title: 'Powerful', description: 'Advanced analytics tools.' }] } },

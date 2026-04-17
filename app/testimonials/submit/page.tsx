@@ -1,11 +1,11 @@
 /**
- * /testimonials/submit — Public testimonial submission page
+ * /testimonials/submit - Public testimonial submission page
  */
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { TestimonialSubmitForm } from './TestimonialSubmitForm';
 
 export const metadata = {
-  title: 'Share Your Experience — Financial Modeler Pro',
+  title: 'Share Your Experience - Financial Modeler Pro',
   description: 'Submit a testimonial for Financial Modeler Pro.',
 };
 

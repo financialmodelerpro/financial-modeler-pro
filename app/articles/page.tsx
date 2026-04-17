@@ -9,7 +9,7 @@ import { ArticlesGrid, NewsletterForm } from './ArticlesClient';
 export const revalidate = 0;
 
 export const metadata: Metadata = {
-  title: 'Articles & Insights — Financial Modeler Pro',
+  title: 'Articles & Insights - Financial Modeler Pro',
   description: 'Real estate financial modeling guides, tutorials, and industry insights from the Financial Modeler Pro team.',
 };
 

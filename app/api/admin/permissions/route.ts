@@ -1,9 +1,9 @@
 /**
  * Admin Permissions API
  *
- * GET    /api/admin/permissions          — full feature × plan matrix + user overrides for a user
- * PATCH  /api/admin/permissions/plan     — update a plan permission toggle
- * PATCH  /api/admin/permissions/user     — set/delete a user-level override
+ * GET    /api/admin/permissions          - full feature × plan matrix + user overrides for a user
+ * PATCH  /api/admin/permissions/plan     - update a plan permission toggle
+ * PATCH  /api/admin/permissions/user     - set/delete a user-level override
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -121,5 +121,5 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  return NextResponse.json({ error: 'Invalid type — use plan or user' }, { status: 400 });
+  return NextResponse.json({ error: 'Invalid type - use plan or user' }, { status: 400 });
 }

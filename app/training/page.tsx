@@ -13,7 +13,7 @@ import { UpcomingSessionsPreview } from './UpcomingSessionsPreview';
 export const revalidate = 0;
 
 export const metadata: Metadata = {
-  title: 'Training Hub — Free Financial Modeling Certification | Financial Modeler Pro',
+  title: 'Training Hub - Free Financial Modeling Certification | Financial Modeler Pro',
   description: 'Get certified in financial modeling for free. Professional certification backed by real practitioner training. Verified certificates with unique IDs.',
 };
 
@@ -30,7 +30,7 @@ const STEPS = [
 const BENEFITS = [
   { icon: '🎓', title: 'Verifiable Certificate', desc: 'Each certificate has a unique ID that employers can verify instantly online.' },
   { icon: '💼', title: 'LinkedIn Badge',          desc: 'Add your certificate directly to your LinkedIn profile with one click.' },
-  { icon: '📊', title: 'Proof of Competence',     desc: 'Demonstrate real, assessed financial modeling skills — not just course completion.' },
+  { icon: '📊', title: 'Proof of Competence',     desc: 'Demonstrate real, assessed financial modeling skills - not just course completion.' },
   { icon: '🆓', title: 'Always Free',             desc: 'No fees, no subscriptions, no paywalls. Every course and certificate is 100% free.' },
 ];
 
@@ -104,7 +104,7 @@ export default async function TrainingPage() {
   // ── CMS values with fallbacks ────────────────────────────────────────────
   const h = fc(heroRaw);
   const heroBadge    = (h?.badge as string)    || cms(content, 'training_page', 'hero_badge',    '🎓 Free Certification Program');
-  const heroHeadline = (h?.headline as string) || cms(content, 'training_page', 'hero_headline', 'Get Certified in Financial Modeling — Free');
+  const heroHeadline = (h?.headline as string) || cms(content, 'training_page', 'hero_headline', 'Get Certified in Financial Modeling - Free');
   const heroSub      = (h?.subtitle as string) || cms(content, 'training_page', 'hero_sub',      'Professional certification backed by real practitioner training. 100% free. Always.');
   const ctaPrimary   = (h?.cta_primary_text as string) || (h?.cta1Text as string) || cms(content, 'training_page', 'cta_primary',   'Register Free →');
   const ctaPriUrl    = (h?.cta_primary_url as string)  || (h?.cta1Url as string)  || '/register';
@@ -148,7 +148,7 @@ export default async function TrainingPage() {
 
   const bc2 = fc(bottomCtaRaw);
   const bottomH2       = (bc2?.heading as string)     || cms(content, 'training_page', 'bottom_cta_heading', 'Ready to get certified?');
-  const bottomSub      = (bc2?.description as string) || cms(content, 'training_page', 'bottom_cta_sub',     'Join hundreds of finance professionals building verified skills — completely free.');
+  const bottomSub      = (bc2?.description as string) || cms(content, 'training_page', 'bottom_cta_sub',     'Join hundreds of finance professionals building verified skills - completely free.');
   const bottomCtaText  = (bc2?.cta_text as string)    || 'Register Free →';
   const bottomCtaUrl   = (bc2?.cta_url as string)     || '/register';
   const bottomLoginH   = (bc2?.login_hint as string)  || 'Already registered?';
@@ -161,7 +161,7 @@ export default async function TrainingPage() {
     : cms(content, 'cta', 'section_visible', 'true') !== 'false';
 
   const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
-  const footerFounder   = cms(content, 'footer', 'founder_line', 'Ahmad Din — CEO & Founder');
+  const footerFounder   = cms(content, 'footer', 'founder_line', 'Ahmad Din - CEO & Founder');
   const footerCopyright = cms(content, 'footer', 'copyright',    `${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`);
 
   return (
@@ -169,7 +169,7 @@ export default async function TrainingPage() {
       <NavbarServer />
       <div style={{ height: 64 }} />
 
-      {/* ── Section 1 — Hero ──────────────────────────────────────────────── */}
+      {/* ── Section 1 - Hero ──────────────────────────────────────────────── */}
       {!hidden(heroRaw) && (
         <section style={{
           background: 'linear-gradient(135deg, #0A1F3D 0%, #0D2E5A 50%, #0F3D6E 100%)',
@@ -226,7 +226,7 @@ export default async function TrainingPage() {
         </section>
       )}
 
-      {/* ── Section 2 — Course Cards ──────────────────────────────────────── */}
+      {/* ── Section 2 - Course Cards ──────────────────────────────────────── */}
       {!hidden(coursesRaw) && (
         <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
           <div style={{ maxWidth: 1000, margin: '0 auto' }}>
@@ -263,7 +263,7 @@ export default async function TrainingPage() {
         </section>
       )}
 
-      {/* ── Section 3 — How It Works ──────────────────────────────────────── */}
+      {/* ── Section 3 - How It Works ──────────────────────────────────────── */}
       {!hidden(stepsRaw) && (
         <section style={{ background: '#F5F7FA', padding: 'clamp(48px,7vw,80px) 40px' }}>
           <div style={{ maxWidth: 1000, margin: '0 auto' }}>
@@ -318,7 +318,7 @@ export default async function TrainingPage() {
         </section>
       )}
 
-      {/* ── Section 4 — Why Get Certified ────────────────────────────────── */}
+      {/* ── Section 4 - Why Get Certified ────────────────────────────────── */}
       {!hidden(benefitsRaw) && (
         <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
           <div style={{ maxWidth: 1000, margin: '0 auto' }}>
@@ -352,7 +352,7 @@ export default async function TrainingPage() {
         </section>
       )}
 
-      {/* ── Section 5 — Certificate Verification ────────────────────────── */}
+      {/* ── Section 5 - Certificate Verification ────────────────────────── */}
       {!hidden(certRaw) && (
         <section style={{ background: certBg, padding: 'clamp(40px,6vw,64px) 40px', textAlign: 'center' }}>
           <div style={{ maxWidth: 640, margin: '0 auto' }}>
@@ -390,10 +390,10 @@ export default async function TrainingPage() {
         </section>
       )}
 
-      {/* ── Section 6 — Upcoming Sessions ─────────────────────────────────── */}
+      {/* ── Section 6 - Upcoming Sessions ─────────────────────────────────── */}
       {!hidden(sessionsRaw) && <UpcomingSessionsPreview />}
 
-      {/* ── Section 7 — Testimonials ──────────────────────────────────────── */}
+      {/* ── Section 7 - Testimonials ──────────────────────────────────────── */}
       {!hidden(testimRaw) && (
         <TestimonialsCarousel
           testimonials={testimonials}
@@ -402,7 +402,7 @@ export default async function TrainingPage() {
         />
       )}
 
-      {/* ── Section 8 — Submit Testimonial CTA ────────────────────────────── */}
+      {/* ── Section 8 - Submit Testimonial CTA ────────────────────────────── */}
       {!hidden(submitCtaRaw) && (
         <section style={{ background: '#F0F4FF', padding: 'clamp(32px,5vw,56px) 40px', textAlign: 'center', borderTop: '1px solid #E0E7F8', borderBottom: '1px solid #E0E7F8' }}>
           <div style={{ maxWidth: 560, margin: '0 auto' }}>
@@ -422,7 +422,7 @@ export default async function TrainingPage() {
         </section>
       )}
 
-      {/* ── Section 9 — Bottom CTA ────────────────────────────────────────── */}
+      {/* ── Section 9 - Bottom CTA ────────────────────────────────────────── */}
       {bottomCtaVisible && (
         <section style={{ background: '#2EAA4A', padding: 'clamp(48px,7vw,80px) 40px', textAlign: 'center' }}>
           <div style={{ maxWidth: 600, margin: '0 auto' }}>

@@ -17,7 +17,7 @@ function AdminProtected({ children }: { children: React.ReactNode }) {
 
 function AdminGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  // Login page must never run the auth hook — it has no session by definition
+  // Login page must never run the auth hook - it has no session by definition
   if (pathname === '/admin/login') return <>{children}</>;
   return <AdminProtected>{children}</AdminProtected>;
 }

@@ -389,7 +389,7 @@ function ComposeTab({ onSent }: { onSent: () => void }) {
         <div style={{ marginBottom: 16 }}>
           <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 6 }}>Select content:</label>
           <select value={selectedItemId} onChange={e => setSelectedItemId(e.target.value)} style={{ ...selectStyle, width: '100%' }}>
-            <option value="">— Choose —</option>
+            <option value="">- Choose -</option>
             {contentItems.map(i => <option key={i.id} value={i.id}>{i.label}</option>)}
           </select>
         </div>
@@ -552,7 +552,7 @@ function CampaignsTab() {
                   <td style={{ padding: '10px 16px', color: '#2EAA4A', fontWeight: 600 }}>{c.sent_count}</td>
                   <td style={{ padding: '10px 16px', color: c.failed_count > 0 ? '#DC2626' : '#9CA3AF' }}>{c.failed_count}</td>
                   <td style={{ padding: '10px 16px', color: '#9CA3AF', fontSize: 12 }}>
-                    {c.sent_at ? new Date(c.sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                    {c.sent_at ? new Date(c.sent_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '-'}
                   </td>
                 </tr>
               );

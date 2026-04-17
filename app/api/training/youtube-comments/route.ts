@@ -3,8 +3,8 @@ import { getServerClient } from '@/src/lib/shared/supabase';
 
 export const dynamic = 'force-dynamic';
 
-const CACHE_TTL_MS          = 24 * 60 * 60 * 1000; // 24 hours — successful fetches
-const NEGATIVE_CACHE_TTL_MS =  1 * 60 * 60 * 1000; //  1 hour  — failed fetches
+const CACHE_TTL_MS          = 24 * 60 * 60 * 1000; // 24 hours - successful fetches
+const NEGATIVE_CACHE_TTL_MS =  1 * 60 * 60 * 1000; //  1 hour  - failed fetches
 
 interface CachedComment {
   id: string;
@@ -35,7 +35,7 @@ async function writeNegativeCache(videoId: string) {
       video_id: videoId,
       comments: [],
       fetched_at: new Date().toISOString(),
-      comment_count: -1, // sentinel — distinguishes error from genuinely 0 comments
+      comment_count: -1, // sentinel - distinguishes error from genuinely 0 comments
     }, { onConflict: 'video_id' });
   } catch (e) {
     console.error('[youtube-comments] failed to write negative cache:', e);
@@ -65,12 +65,12 @@ export async function GET(req: NextRequest) {
     const age = Date.now() - new Date(cached.fetched_at).getTime();
     const isNegative = cached.comment_count === -1;
 
-    // Negative cache hit — still within 1h TTL
+    // Negative cache hit - still within 1h TTL
     if (isNegative && age < NEGATIVE_CACHE_TTL_MS) {
       return json({ comments: [], cached: true, status: 'cached_error', errorType: 'api_error' });
     }
 
-    // Positive cache hit — still within 24h TTL
+    // Positive cache hit - still within 24h TTL
     if (!isNegative && age < CACHE_TTL_MS) {
       const comments = (cached.comments as CachedComment[]) ?? [];
       return json({
@@ -105,7 +105,7 @@ export async function GET(req: NextRequest) {
         } else if (res.status === 403) {
           errorType = 'quota_exceeded';
         }
-      } catch { /* body wasn't JSON — use generic api_error */ }
+      } catch { /* body wasn't JSON - use generic api_error */ }
 
       console.error(`[youtube-comments] YouTube API ${res.status} for videoId=${videoId} (${errorType})`);
       await writeNegativeCache(videoId);
@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
     const data = await res.json();
 
     if (!data.items) {
-      // 200 but no items — genuinely zero comments
+      // 200 but no items - genuinely zero comments
       await sb.from('youtube_comments_cache').upsert({
         video_id: videoId,
         comments: [],

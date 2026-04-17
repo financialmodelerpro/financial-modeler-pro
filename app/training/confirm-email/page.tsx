@@ -14,7 +14,7 @@ function ConfirmEmailInner() {
   useEffect(() => {
     if (error) { setStatus('error'); return; }
     if (!token) { setStatus('error'); return; }
-    // Redirect to API route — it handles everything and redirects back
+    // Redirect to API route - it handles everything and redirects back
     window.location.href = `/api/training/confirm-email?token=${encodeURIComponent(token)}`;
   }, [token, error]);
 

@@ -5,11 +5,11 @@
  * Body: { identifier, password, secondField? }
  *
  * Returns:
- *   { success: true, email, registrationId }           — fully authenticated
- *   { requiresDeviceVerification: true, email, registrationId } — new device
- *   { needsBoth: true, provide }                        — lookup needs both fields
- *   { needsPasswordSetup: true }                        — no password set
- *   { success: false, error }                           — auth failure
+ *   { success: true, email, registrationId }           - fully authenticated
+ *   { requiresDeviceVerification: true, email, registrationId } - new device
+ *   { needsBoth: true, provide }                        - lookup needs both fields
+ *   { needsPasswordSetup: true }                        - no password set
+ *   { success: false, error }                           - auth failure
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
       email = rawIdentifier.toLowerCase();
 
       // Block students who registered but haven't confirmed their email yet.
-      // But first check if they already have a confirmed meta row — a stale pending row
+      // But first check if they already have a confirmed meta row - a stale pending row
       // can exist if a student tried to re-register after already being confirmed.
       const { data: pending } = await sb
         .from('training_pending_registrations')
@@ -59,14 +59,14 @@ export async function POST(req: NextRequest) {
         .eq('email', email)
         .maybeSingle();
       if (pending) {
-        // Check if they're already confirmed in meta — stale pending row
+        // Check if they're already confirmed in meta - stale pending row
         const { data: metaConfirmed } = await sb
           .from('training_registrations_meta')
           .select('email_confirmed')
           .eq('email', email)
           .maybeSingle();
         if (metaConfirmed?.email_confirmed !== false) {
-          // email_confirmed is true or null (pre-027 student) — treat as confirmed, clean up stale row
+          // email_confirmed is true or null (pre-027 student) - treat as confirmed, clean up stale row
           await sb.from('training_pending_registrations').delete().eq('email', email);
         } else {
           return NextResponse.json({
@@ -164,7 +164,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Authentication error. Please try again.' }, { status: 500 });
     }
 
-    // Block if email_confirmed explicitly false (edge case — null means pre-027 confirmed user)
+    // Block if email_confirmed explicitly false (edge case - null means pre-027 confirmed user)
     const { data: metaRow } = await sb
       .from('training_registrations_meta')
       .select('email_confirmed')
@@ -179,7 +179,7 @@ export async function POST(req: NextRequest) {
       }, { status: 200 });
     }
 
-    // Device trust check — use email as identifier (matches how trustDevice stores it)
+    // Device trust check - use email as identifier (matches how trustDevice stores it)
     const deviceCookie = req.cookies.get('fmp-trusted-device')?.value;
     const trusted = await isDeviceTrusted(deviceCookie, email, 'training');
 
@@ -192,7 +192,7 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Fully authenticated — set session cookie
+    // Fully authenticated - set session cookie
     const response = NextResponse.json({ success: true, email, registrationId: regId });
     response.cookies.set(
       'training_session',

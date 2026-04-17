@@ -5,7 +5,7 @@ import { getStudentProgress } from '@/src/lib/training/sheets';
 import { COURSES } from '@/src/config/courses';
 import type { Metadata } from 'next';
 
-// Always server-render fresh — CMS settings and student progress must be current
+// Always server-render fresh - CMS settings and student progress must be current
 export const dynamic = 'force-dynamic';
 
 // ── CMS transcript settings ───────────────────────────────────────────────────
@@ -37,9 +37,9 @@ const TX_DEFAULTS: TxSettings = {
   tableHeaderColor: '#1B4F8A', studentStripBg: '#EBF3FC',
   passedBg: '#D1FAE5', passedColor: '#065F46',
   failedBg: '#FEE2E2', failedColor: '#991B1B',
-  bannerCompleteTitle: '✓ OFFICIAL TRANSCRIPT — Course Complete',
+  bannerCompleteTitle: '✓ OFFICIAL TRANSCRIPT - Course Complete',
   bannerCompleteSub:   'All requirements fulfilled. Certificate issued as of [date].',
-  bannerProgressTitle: 'PROGRESS TRANSCRIPT — Course in Progress',
+  bannerProgressTitle: 'PROGRESS TRANSCRIPT - Course in Progress',
   bannerProgressSub:   'This transcript reflects current progress as of [date].',
   footerBgColor: '#0D2E5A',
   footerLeftText: 'Issue Date: [date]', footerLeftVisible: true,
@@ -99,7 +99,7 @@ interface CertData {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function fmtDate(d?: string | null) {
-  if (!d) return '—';
+  if (!d) return '-';
   try { return new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }); }
   catch { return d; }
 }
@@ -114,7 +114,7 @@ export async function generateMetadata(
   { params }: { params: Promise<{ token: string }> },
 ): Promise<Metadata> {
   return {
-    title: 'Verified Transcript — Financial Modeler Pro',
+    title: 'Verified Transcript - Financial Modeler Pro',
     description: 'Official academic transcript issued by Financial Modeler Pro Training Hub.',
   };
 }
@@ -146,7 +146,7 @@ export default async function PublicTranscriptPage(
   if (!course) notFound();
 
   // Fetch progress + cert data in parallel.
-  // Certificate data comes exclusively from student_certificates — single source of truth.
+  // Certificate data comes exclusively from student_certificates - single source of truth.
   const [progressResult, { data: certRow }] = await Promise.all([
     getStudentProgress(link.email, link.registration_id),
     sb
@@ -166,7 +166,7 @@ export default async function PublicTranscriptPage(
     progMap.set(s.sessionId, { sessionId: s.sessionId, passed: s.passed, score: s.score, attempts: s.attempts });
   }
 
-  // Build cert object from Supabase — never from Apps Script or any external source
+  // Build cert object from Supabase - never from Apps Script or any external source
   const cert: CertData | null = certRow?.certificate_id
     ? {
         certificateId:   certRow.certificate_id,
@@ -176,7 +176,7 @@ export default async function PublicTranscriptPage(
       }
     : null;
 
-  // QR encodes the same verificationUrl stored in the DB — identical to the one
+  // QR encodes the same verificationUrl stored in the DB - identical to the one
   // embedded in the issued PDF (deterministic: same URL → same QR image).
   const verifyUrl = cert?.verificationUrl ?? '';
   const qrSrc     = verifyUrl
@@ -301,7 +301,7 @@ export default async function PublicTranscriptPage(
                         <td style={{ padding: '7px 10px', fontSize: 11, color: C.muted, whiteSpace: 'nowrap' }}>{sess.id}</td>
                         <td style={{ padding: '7px 10px', fontSize: 12, color: C.text }}>{sess.title}</td>
                         <td style={{ padding: '7px 10px', fontSize: 12, fontWeight: 700, color: C.text, textAlign: 'center' }}>
-                          {prog && prog.attempts > 0 ? `${prog.score}%` : '—'}
+                          {prog && prog.attempts > 0 ? `${prog.score}%` : '-'}
                         </td>
                         <td style={{ padding: '7px 10px', textAlign: 'center' }}>
                           {prog?.passed
@@ -329,7 +329,7 @@ export default async function PublicTranscriptPage(
                           </div>
                         </td>
                         <td style={{ padding: '8px 10px', fontSize: 12, fontWeight: 700, color: C.text, textAlign: 'center' }}>
-                          {fp && fp.attempts > 0 ? `${fp.score}%` : '—'}
+                          {fp && fp.attempts > 0 ? `${fp.score}%` : '-'}
                         </td>
                         <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                           {!passedCount && !fp?.attempts
@@ -357,12 +357,12 @@ export default async function PublicTranscriptPage(
             {/* Academic summary */}
             <div style={{ flex: 1, minWidth: 240, border: `1.5px solid ${C.navy2}`, borderRadius: 8, padding: '14px 16px' }}>
               <div style={{ fontSize: 11, fontWeight: 800, color: C.navy, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 }}>
-                Academic Summary — {course.shortTitle}
+                Academic Summary - {course.shortTitle}
               </div>
               {[
                 ['Sessions Passed',   `${passedCount} of ${regularSessions.length}`],
-                ['Average Score',     avgScore !== null ? `${avgScore}%` : '—'],
-                ['Final Exam Score',  finalProg?.passed ? `${finalProg.score}%` : finalProg?.attempts ? `${finalProg.score}% (failed)` : '—'],
+                ['Average Score',     avgScore !== null ? `${avgScore}%` : '-'],
+                ['Final Exam Score',  finalProg?.passed ? `${finalProg.score}%` : finalProg?.attempts ? `${finalProg.score}% (failed)` : '-'],
                 ['Overall Result',    allComplete ? 'PASSED' : 'IN PROGRESS'],
               ].map(([l, v]) => (
                 <div key={l} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -372,15 +372,15 @@ export default async function PublicTranscriptPage(
               ))}
             </div>
 
-            {/* Certification status — sourced from student_certificates */}
+            {/* Certification status - sourced from student_certificates */}
             <div style={{ flex: 1, minWidth: 240, border: `1.5px solid ${cert ? C.green : C.border}`, borderRadius: 8, padding: '14px 16px' }}>
               <div style={{ fontSize: 11, fontWeight: 800, color: C.navy, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 12 }}>
                 Certification Status
               </div>
               {[
                 ['Status',           cert ? 'CERTIFIED' : allComplete ? 'PROCESSING' : 'NOT EARNED'],
-                ['Certificate ID',   cert?.certificateId ?? '—'],
-                ['Completion Date',  cert ? fmtDate(cert.issuedAt) : '—'],
+                ['Certificate ID',   cert?.certificateId ?? '-'],
+                ['Completion Date',  cert ? fmtDate(cert.issuedAt) : '-'],
               ].map(([l, v]) => (
                 <div key={l} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                   <span style={{ fontSize: 11, color: C.muted }}>{l}</span>
@@ -404,7 +404,7 @@ export default async function PublicTranscriptPage(
             </div>
           </div>
 
-          {/* ── Verify Certificate section — only when certificate issued ── */}
+          {/* ── Verify Certificate section - only when certificate issued ── */}
           {cert && verifyUrl ? (
             <div style={{
               margin: '0 36px 20px',
@@ -417,7 +417,7 @@ export default async function PublicTranscriptPage(
               flexWrap: 'wrap',
               background: '#F0F7FF',
             }}>
-              {/* QR — same verificationUrl → same QR as embedded in the issued certificate PDF */}
+              {/* QR - same verificationUrl → same QR as embedded in the issued certificate PDF */}
               <div style={{ flexShrink: 0 }}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img

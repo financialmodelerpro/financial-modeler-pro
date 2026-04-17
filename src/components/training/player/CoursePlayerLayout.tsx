@@ -53,7 +53,7 @@ function SupportBanner({ youtubeUrl, channelId, sessionUrl }: { youtubeUrl: stri
         <X size={14} />
       </button>
       <div style={{ fontSize: 12, color: '#92400E', lineHeight: 1.5, marginBottom: 10, paddingRight: 16 }}>
-        This certification is completely free — and we&apos;d love to keep it that way. A quick like, comment, or subscribe on YouTube goes a long way.
+        This certification is completely free - and we&apos;d love to keep it that way. A quick like, comment, or subscribe on YouTube goes a long way.
       </div>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
         {subscribeLink && (
@@ -104,7 +104,7 @@ interface CoursePlayerLayoutProps {
   onVideoPlaying?: () => void;
   onVideoEnded?: () => void;
   onVideoNearEnd?: () => void;
-  // Video (optional — may not have embedded video)
+  // Video (optional - may not have embedded video)
   videoId?: string;
   sessionId?: string;
   studentEmail?: string;
@@ -156,7 +156,7 @@ export function CoursePlayerLayout({
   const hasVideo = !!videoId && !!youtubeUrl;
   const isUpcoming = sessionType === 'upcoming' || sessionType === 'live';
 
-  // 60s video popup — once per session, skip if post-complete popup was shown
+  // 60s video popup - once per session, skip if post-complete popup was shown
   useEffect(() => {
     if (!videoOpen) return;
     if (typeof sessionStorage !== 'undefined' && (sessionStorage.getItem('fmp_video_popup_shown') || sessionStorage.getItem('fmp_complete_popup_shown'))) return;
@@ -313,7 +313,7 @@ export function CoursePlayerLayout({
 
         {/* Middle content */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Screen 1: Video NOT open — full session info */}
+          {/* Screen 1: Video NOT open - full session info */}
           {!videoOpen && (
             <div style={{ padding: '24px 32px', maxWidth: 860 }}>
               {/* Primary CTA at top */}
@@ -460,7 +460,7 @@ export function CoursePlayerLayout({
           )}
         </div>
 
-        {/* Right column — comments (video open, desktop) */}
+        {/* Right column - comments (video open, desktop) */}
         {videoOpen && hasVideo && !isMobile && (
           <div style={{
             flex: '0 0 25%', minWidth: 280, maxWidth: 380,

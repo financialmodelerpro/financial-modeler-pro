@@ -20,7 +20,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const result = await getCourseWithLessons(courseId);
   if (!result) return { title: 'Course Not Found' };
   return {
-    title: `${result.course.title} — Financial Modeler Pro Training`,
+    title: `${result.course.title} - Financial Modeler Pro Training`,
     description: result.course.description,
   };
 }

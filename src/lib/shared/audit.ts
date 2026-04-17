@@ -1,5 +1,5 @@
 /**
- * audit.ts — Server-side helper to write admin audit log entries.
+ * audit.ts - Server-side helper to write admin audit log entries.
  * Import in API routes only (uses service-role Supabase client).
  */
 

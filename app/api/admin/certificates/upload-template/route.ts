@@ -1,7 +1,7 @@
 /**
  * POST /api/admin/certificates/upload-template
  * Uploads a certificate template (PDF) or badge template (PNG) to Supabase storage.
- * Body: FormData — file, type ('3sfm-cert' | 'bvm-cert' | '3sfm-badge' | 'bvm-badge')
+ * Body: FormData - file, type ('3sfm-cert' | 'bvm-cert' | '3sfm-badge' | 'bvm-badge')
  */
 
 import { NextRequest, NextResponse } from 'next/server';

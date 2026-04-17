@@ -227,7 +227,7 @@ export default function Module1Financing({
         <div style={{ marginTop: 'var(--sp-3)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
             <div style={{ padding: '7px 14px', borderRadius: 'var(--radius-sm)', fontWeight: 700, fontSize: '12px', background: titleBg, color: 'white' }}>{titleLabel}</div>
-            <span style={{ fontSize: '11px', color: 'var(--color-muted)' }}>Period-wise drawdowns follow cost phasing — construction periods only</span>
+            <span style={{ fontSize: '11px', color: 'var(--color-muted)' }}>Period-wise drawdowns follow cost phasing - construction periods only</span>
           </div>
           <div style={{ overflowX: 'auto', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
             <table style={{ borderCollapse: 'collapse', fontSize: 'var(--font-meta)', width: '100%', minWidth: `${Math.max(600, (numP + 2) * 100)}px` }}>
@@ -254,14 +254,14 @@ export default function Module1Financing({
                       <React.Fragment key={line.name}>
                         <tr style={{ background: 'var(--color-grey-pale)', borderTop: '2px solid var(--color-grey-light)' }}>
                           <td style={{ padding: '9px 12px', fontWeight: 700, color: 'var(--color-primary)', position: 'sticky', left: 0, background: 'var(--color-grey-pale)', zIndex: 1 }}>{line.name}</td>
-                          <td style={{ padding: '9px 8px', textAlign: 'right', fontWeight: 700, color: 'var(--color-primary)' }}>{combTotal > 0 ? formatNumber(combTotal) : '—'}</td>
-                          {combDist.map((v, i) => <td key={i} style={{ padding: '9px 7px', textAlign: 'right', fontWeight: 700, color: 'var(--color-primary)' }}>{v > 0 ? formatNumber(v) : '—'}</td>)}
+                          <td style={{ padding: '9px 8px', textAlign: 'right', fontWeight: 700, color: 'var(--color-primary)' }}>{combTotal > 0 ? formatNumber(combTotal) : '-'}</td>
+                          {combDist.map((v, i) => <td key={i} style={{ padding: '9px 7px', textAlign: 'right', fontWeight: 700, color: 'var(--color-primary)' }}>{v > 0 ? formatNumber(v) : '-'}</td>)}
                         </tr>
                         {subRows.map(({ a, dist, total }) => (
                           <tr key={a} style={{ background: ASSET_BG[a] }}>
                             <td style={{ padding: '5px 12px 5px 26px', fontSize: 'var(--font-meta)', fontWeight: 500, color: ASSET_COLOR[a], position: 'sticky', left: 0, background: ASSET_BG[a], zIndex: 1 }}>↳ {ASSET_LABEL[a]}</td>
                             <td style={{ padding: '5px 8px', textAlign: 'right', fontSize: 'var(--font-meta)', fontWeight: 600, color: ASSET_COLOR[a] }}>{formatNumber(total)}</td>
-                            {(dist || Array(numP).fill(0)).map((v, i) => <td key={i} style={{ padding: '5px 7px', textAlign: 'right', fontSize: 'var(--font-meta)', color: ASSET_COLOR[a], borderBottom: '1px solid var(--color-grey-light)' }}>{v > 0 ? formatNumber(v) : '—'}</td>)}
+                            {(dist || Array(numP).fill(0)).map((v, i) => <td key={i} style={{ padding: '5px 7px', textAlign: 'right', fontSize: 'var(--font-meta)', color: ASSET_COLOR[a], borderBottom: '1px solid var(--color-grey-light)' }}>{v > 0 ? formatNumber(v) : '-'}</td>)}
                           </tr>
                         ))}
                       </React.Fragment>
@@ -275,7 +275,7 @@ export default function Module1Financing({
                       <tr key={line.name} style={{ background: rowBg }}>
                         <td style={{ padding: '9px 12px', fontWeight: 700, color: 'var(--color-body)', position: 'sticky', left: 0, background: rowBg, zIndex: 1 }}>{line.name}</td>
                         <td style={{ padding: '9px 8px', textAlign: 'right', fontWeight: 700 }}>{formatNumber(total)}</td>
-                        {dist.map((v, i) => <td key={i} style={{ padding: '9px 7px', textAlign: 'right', fontWeight: 600, borderBottom: '1px solid var(--color-grey-light)' }}>{v > 0 ? formatNumber(v) : '—'}</td>)}
+                        {dist.map((v, i) => <td key={i} style={{ padding: '9px 7px', textAlign: 'right', fontWeight: 600, borderBottom: '1px solid var(--color-grey-light)' }}>{v > 0 ? formatNumber(v) : '-'}</td>)}
                       </tr>
                     );
                   }
@@ -285,7 +285,7 @@ export default function Module1Financing({
                 <tr style={{ background: PD_DEEP, color: 'white', borderTop: '3px solid var(--color-green-dark)' }}>
                   <td style={{ padding: '10px 12px', fontWeight: 700, position: 'sticky', left: 0, background: PD_DEEP, color: 'white' }}>GRAND TOTAL</td>
                   <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700, color: 'white' }}>{formatNumber(filtGrandTotal)}</td>
-                  {filtGrandDist.map((v, i) => <td key={i} style={{ padding: '10px 7px', textAlign: 'right', fontWeight: 700, color: 'white' }}>{v > 0 ? formatNumber(v) : '—'}</td>)}
+                  {filtGrandDist.map((v, i) => <td key={i} style={{ padding: '10px 7px', textAlign: 'right', fontWeight: 700, color: 'white' }}>{v > 0 ? formatNumber(v) : '-'}</td>)}
                 </tr>
               </tfoot>
             </table>
@@ -324,7 +324,7 @@ export default function Module1Financing({
                     <tr key={a} style={{ background: ASSET_BG[a] }}>
                       <td style={{ padding: '8px 12px', fontWeight: 600, color: ASSET_COLOR[a], position: 'sticky', left: 0, background: ASSET_BG[a], zIndex: 1 }}>{ASSET_LABEL[a]}</td>
                       <td style={{ padding: '8px 8px', textAlign: 'right', fontWeight: 700, color: ASSET_COLOR[a] }}>{formatNumber(total)}</td>
-                      {(dist || Array(numP).fill(0)).map((v, i) => <td key={i} style={{ padding: '8px 7px', textAlign: 'right', color: ASSET_COLOR[a], borderBottom: '1px solid var(--color-grey-light)' }}>{v > 0 ? formatNumber(v) : '—'}</td>)}
+                      {(dist || Array(numP).fill(0)).map((v, i) => <td key={i} style={{ padding: '8px 7px', textAlign: 'right', color: ASSET_COLOR[a], borderBottom: '1px solid var(--color-grey-light)' }}>{v > 0 ? formatNumber(v) : '-'}</td>)}
                     </tr>
                   );
                 })}
@@ -333,7 +333,7 @@ export default function Module1Financing({
                 <tr style={{ background: PD_DEEP, color: 'white', borderTop: '3px solid var(--color-green-dark)' }}>
                   <td style={{ padding: '10px 12px', fontWeight: 700, position: 'sticky', left: 0, background: PD_DEEP, color: 'white' }}>TOTAL</td>
                   <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700, color: 'white' }}>{formatNumber(filtGrandTotal)}</td>
-                  {filtGrandDist.map((v, i) => <td key={i} style={{ padding: '10px 7px', textAlign: 'right', fontWeight: 700, color: 'white' }}>{v > 0 ? formatNumber(v) : '—'}</td>)}
+                  {filtGrandDist.map((v, i) => <td key={i} style={{ padding: '10px 7px', textAlign: 'right', fontWeight: 700, color: 'white' }}>{v > 0 ? formatNumber(v) : '-'}</td>)}
                 </tr>
               </tfoot>
             </table>
@@ -366,7 +366,7 @@ export default function Module1Financing({
         <div style={{ marginBottom: 'var(--sp-3)' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '12px', flexWrap: 'wrap', gap: '10px' }}>
             <div>
-              <h4 style={{ fontWeight: 700, fontSize: '14px', color: 'var(--color-heading)', margin: '0 0 4px' }}>Development Costs — All Assets by Line Item</h4>
+              <h4 style={{ fontWeight: 700, fontSize: '14px', color: 'var(--color-heading)', margin: '0 0 4px' }}>Development Costs - All Assets by Line Item</h4>
               <p style={{ fontSize: '11px', color: 'var(--color-muted)', margin: 0 }}>Linked from Combined Cost Summary · Excluding Land In-Kind · Source of all financing calculations</p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -438,8 +438,8 @@ export default function Module1Financing({
                           <tr key={a} style={{ background: ASSET_BG[a] }}>
                             <td style={{ padding: '5px 12px 5px 26px', fontSize: 'var(--font-meta)', fontWeight: 500, color: ASSET_COLOR[a], position: 'sticky', left: 0, background: ASSET_BG[a], zIndex: 1 }}>↳ {ASSET_LABEL[a]}</td>
                             <td style={{ padding: '5px 10px', textAlign: 'right', fontSize: 'var(--font-meta)', fontWeight: 600, color: ASSET_COLOR[a] }}>{formatNumber(at)}</td>
-                            <td style={{ padding: '5px 10px', textAlign: 'center', fontSize: 'var(--font-meta)', color: ASSET_COLOR[a] }}>—</td>
-                            <td style={{ padding: '5px 10px', textAlign: 'center', fontSize: 'var(--font-meta)', color: ASSET_COLOR[a] }}>—</td>
+                            <td style={{ padding: '5px 10px', textAlign: 'center', fontSize: 'var(--font-meta)', color: ASSET_COLOR[a] }}>-</td>
+                            <td style={{ padding: '5px 10px', textAlign: 'center', fontSize: 'var(--font-meta)', color: ASSET_COLOR[a] }}>-</td>
                             <td style={{ padding: '5px 10px', textAlign: 'right', fontSize: 'var(--font-meta)', color: 'var(--color-negative)' }}>{formatNumber(at * dPct / 100)}</td>
                             <td style={{ padding: '5px 10px', textAlign: 'right', fontSize: 'var(--font-meta)', color: 'var(--color-green-dark)' }}>{formatNumber(at * ePct / 100)}</td>
                           </tr>
@@ -455,8 +455,8 @@ export default function Module1Financing({
                   <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700 }}>
                     {formatNumber(fsFilter === 'combined' ? fsGrandTotal : (fsAssetTotals[fsFilter] || 0))}
                   </td>
-                  <td style={{ padding: '10px 10px', textAlign: 'center', fontWeight: 700 }}>—</td>
-                  <td style={{ padding: '10px 10px', textAlign: 'center', fontWeight: 700 }}>—</td>
+                  <td style={{ padding: '10px 10px', textAlign: 'center', fontWeight: 700 }}>-</td>
+                  <td style={{ padding: '10px 10px', textAlign: 'center', fontWeight: 700 }}>-</td>
                   <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700, color: 'var(--color-negative)' }}>
                     {formatNumber(fsFilter === 'combined' ? allDebt : fsLines.reduce((s, l) => s + (l.assetDists[fsFilter]?.reduce((a, b) => a + b, 0) || 0) * getLineDebtPct(l.name) / 100, 0))}
                   </td>
@@ -541,7 +541,7 @@ export default function Module1Financing({
                     {row.label}
                   </td>
                   <td style={{ textAlign: 'right', fontWeight: 700, color: rowColors[row.style] }}>
-                    {row.isBalance ? '—' : (rowTotal !== null ? formatNumber(Math.abs(rowTotal)) : '—')}
+                    {row.isBalance ? '-' : (rowTotal !== null ? formatNumber(Math.abs(rowTotal)) : '-')}
                   </td>
                   {Array.from({ length: totalPeriods + 1 }, (_, i) => {
                     const v = row.data[i] || 0;
@@ -552,7 +552,7 @@ export default function Module1Financing({
                         fontWeight: isTotalRow ? 700 : 400,
                         borderLeft: i === constructionPeriods + 1 ? '2px solid var(--color-border)' : undefined,
                       }}>
-                        {v !== 0 ? formatNumber(Math.abs(v)) : row.isBalance ? '0' : '—'}
+                        {v !== 0 ? formatNumber(Math.abs(v)) : row.isBalance ? '0' : '-'}
                       </td>
                     );
                   })}
@@ -592,7 +592,7 @@ export default function Module1Financing({
     return (
       <>
         {renderSchedTable(
-          `🏦 Debt Schedule${label ? ` — ${label}` : ''}`,
+          `🏦 Debt Schedule${label ? ` - ${label}` : ''}`,
           SCHEDULE_TITLE_BG.debt,
           repNote,
           [
@@ -606,7 +606,7 @@ export default function Module1Financing({
           ]
         )}
         {renderSchedTable(
-          `💰 Equity Schedule${label ? ` — ${label}` : ''}`,
+          `💰 Equity Schedule${label ? ` - ${label}` : ''}`,
           SCHEDULE_TITLE_BG.equity,
           'Equity drawn same period as costs incurred',
           [
@@ -616,7 +616,7 @@ export default function Module1Financing({
           ]
         )}
         {renderSchedTable(
-          `📈 Finance Cost Schedule${label ? ` — ${label}` : ''}`,
+          `📈 Finance Cost Schedule${label ? ` - ${label}` : ''}`,
           'var(--color-gold-dark)',
           `${interestRate}% p.a. → ${(periodicRate * 100).toFixed(4)}% per ${modelType === 'monthly' ? 'month' : 'year'} on Opening Debt Balance`,
           [
@@ -693,7 +693,7 @@ export default function Module1Financing({
           ))}
         </div>
         {renderSchedTable(
-          '🏦 Debt Schedule — Full Project',
+          '🏦 Debt Schedule - Full Project',
           SCHEDULE_TITLE_BG.debt,
           repNote,
           [
@@ -705,7 +705,7 @@ export default function Module1Financing({
           ]
         )}
         {renderSchedTable(
-          '💰 Equity Schedule — Full Project',
+          '💰 Equity Schedule - Full Project',
           SCHEDULE_TITLE_BG.equity,
           'Equity drawn same period as costs incurred',
           [
@@ -715,7 +715,7 @@ export default function Module1Financing({
           ]
         )}
         {renderSchedTable(
-          '📈 Finance Cost Schedule — Full Project',
+          '📈 Finance Cost Schedule - Full Project',
           'var(--color-gold-dark)',
           `${interestRate}% p.a. → ${(periodicRate * 100).toFixed(4)}% per ${modelType === 'monthly' ? 'month' : 'year'} on Opening Debt Balance`,
           [
@@ -779,7 +779,7 @@ export default function Module1Financing({
       {/* Inputs */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
 
-        {/* Left — Structure */}
+        {/* Left - Structure */}
         <div className="module-card" style={{ padding: 'var(--sp-3)' }}>
           <h3 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--sp-2)', marginTop: 0 }}>
             Financing Structure
@@ -869,7 +869,7 @@ export default function Module1Financing({
           </div>
         </div>
 
-        {/* Right — Repayment */}
+        {/* Right - Repayment */}
         <div className="module-card" style={{ padding: 'var(--sp-3)' }}>
           <h3 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--sp-2)', marginTop: 0 }}>
             Repayment Terms
@@ -893,7 +893,7 @@ export default function Module1Financing({
                 background: 'rgba(201,168,76,0.10)', border: '1px solid rgba(146,64,14,0.2)',
                 borderRadius: 'var(--radius-sm)', fontSize: '11px', color: 'var(--color-gold-dark)', lineHeight: '1.5',
               }}>
-                ⚠️ <strong>Pending Module 5 link</strong> — Once Financial Statements are finalized (Module 5),
+                ⚠️ <strong>Pending Module 5 link</strong> - Once Financial Statements are finalized (Module 5),
                 Cash Sweep will automatically pull available cash from the period cash flow to repay debt
                 as fast as liquidity allows. Currently showing fixed schedule as a placeholder.
               </div>
@@ -970,7 +970,7 @@ export default function Module1Financing({
           ) : (
             /* Schedules view */
             <div>
-              {/* Filter context banner — only when a specific asset is selected */}
+              {/* Filter context banner - only when a specific asset is selected */}
               {fsFilter !== 'combined' && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 'var(--sp-2)', padding: '8px 16px', borderRadius: 'var(--radius-sm)', fontSize: '13px', fontWeight: 600, background: 'var(--color-grey-pale)', color: 'var(--color-primary)', border: '1px solid var(--color-grey-light)' }}>
                   <span>🔍 Filtered:</span>
@@ -1039,7 +1039,7 @@ export default function Module1Financing({
       {/* ── Combined financing summary across all assets ── */}
       <div className="module-card" style={{ padding: 'var(--sp-3)', marginTop: 'var(--sp-2)' }}>
         <h3 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--sp-2)', marginTop: 0 }}>
-          Combined Financing Summary — All Assets
+          Combined Financing Summary - All Assets
         </h3>
         <div style={{ overflowX: 'auto' }}>
           <table className="table-standard">

@@ -9,7 +9,7 @@ import { lockedOutTemplate } from '@/src/lib/email/templates/lockedOut';
  * POST /api/training/submit-assessment
  *
  * Accepts a PRE-SCORED result from the client and records it in Apps Script.
- * Scoring is done entirely client-side — this endpoint does NOT re-fetch
+ * Scoring is done entirely client-side - this endpoint does NOT re-fetch
  * questions or re-score. It only forwards the score to Apps Script for storage.
  *
  * Also sends quiz result email (and locked-out email if max attempts reached).
@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
 
     if (!recordRes.success) {
       console.error('[submit-assessment] Apps Script record failed:', recordRes.error, { tabKey, email });
-      // Return success anyway — the score was calculated correctly client-side
+      // Return success anyway - the score was calculated correctly client-side
       // The student should see their result even if the write-back fails
       return NextResponse.json({
         success: true,
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
 
     console.log('[submit-assessment] Recorded successfully:', { tabKey, email, score, passed, attemptNo });
 
-    // Write to Supabase (primary source for dashboard — instant reads)
+    // Write to Supabase (primary source for dashboard - instant reads)
     try {
       const sb = getServerClient();
       await sb.from('training_assessment_results').upsert({
@@ -92,10 +92,10 @@ export async function POST(req: NextRequest) {
       }, { onConflict: 'email,tab_key' });
     } catch (sbErr) {
       console.error('[submit-assessment] Supabase write failed:', sbErr);
-      // Non-fatal — Apps Script is the backup
+      // Non-fatal - Apps Script is the backup
     }
 
-    // Send quiz result email (fire-and-forget — don't block the response)
+    // Send quiz result email (fire-and-forget - don't block the response)
     const label = sessionName || tabKey;
     const passMark = passingScore ?? 70;
     const maxAtt = maxAttempts ?? (isFinal ? 1 : 3);

@@ -119,7 +119,7 @@ export function CmsAdminNav({ active: activeProp, badges }: Props) {
         }
       `}</style>
 
-      {/* Mobile hamburger button — fixed top-left */}
+      {/* Mobile hamburger button - fixed top-left */}
       <button
         className="admin-hamburger"
         onClick={() => setMobileOpen(true)}

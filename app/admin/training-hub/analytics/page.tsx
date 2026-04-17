@@ -93,14 +93,14 @@ export default function AnalyticsPage() {
           <div style={{ textAlign: 'center', padding: 80, color: '#6B7280', fontSize: 14 }}>Loading analytics…</div>
         ) : (
           <>
-            {/* SECTION A — Overview Stats */}
+            {/* SECTION A - Overview Stats */}
             <div style={{ display: 'flex', gap: 16, marginBottom: 28, flexWrap: 'wrap' }}>
               <StatCard label="Total Students" value={data?.overview.total ?? 0} sub={`3SFM: ${data?.overview.sfmEnrolled ?? 0} · BVM: ${data?.overview.bvmEnrolled ?? 0}`} />
               <StatCard label="Active This Week" value={data?.overview.activeWeek ?? 0} color="#2EAA4A" />
               <StatCard label="Completion Rate" value={`${data?.overview.completionRate ?? 0}%`} color="#1B4F8A" sub={`${data?.overview.certified ?? 0} students certified`} />
             </div>
 
-            {/* SECTION B — Registration Trends */}
+            {/* SECTION B - Registration Trends */}
             <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '24px 28px', marginBottom: 24 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B', marginBottom: 16 }}>Registration Trends</div>
               {(data?.trends.length ?? 0) === 0 ? (
@@ -120,7 +120,7 @@ export default function AnalyticsPage() {
               )}
             </div>
 
-            {/* SECTION C — Session Completion */}
+            {/* SECTION C - Session Completion */}
             <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '24px 28px', marginBottom: 24 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B', marginBottom: 4 }}>3SFM Session Completion Rates</div>
               <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 16 }}>% of enrolled students who passed each session. Green &gt;70%, Yellow 50–70%, Red &lt;50%.</div>
@@ -139,7 +139,7 @@ export default function AnalyticsPage() {
               </ResponsiveContainer>
             </div>
 
-            {/* SECTION D — Assessment Performance Table */}
+            {/* SECTION D - Assessment Performance Table */}
             <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, overflow: 'hidden', marginBottom: 24 }}>
               <div style={{ padding: '20px 24px 12px', fontSize: 15, fontWeight: 700, color: '#1B3A6B' }}>Assessment Performance</div>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -183,7 +183,7 @@ export default function AnalyticsPage() {
               </table>
             </div>
 
-            {/* SECTION E + F — Geo + Funnel in 2 columns */}
+            {/* SECTION E + F - Geo + Funnel in 2 columns */}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }}>
 
               {/* Geo */}

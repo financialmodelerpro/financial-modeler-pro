@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
 
       const response = NextResponse.json({ success: true });
 
-      // Trust device if requested — always use email as identifier (consistent with isDeviceTrusted)
+      // Trust device if requested - always use email as identifier (consistent with isDeviceTrusted)
       if (body.trustDevice && email) {
         const token = await trustDevice(email.toLowerCase(), 'training');
         response.headers.append(

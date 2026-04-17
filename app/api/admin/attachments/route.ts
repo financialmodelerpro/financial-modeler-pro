@@ -29,7 +29,7 @@ export async function GET(req: NextRequest) {
 }
 
 /**
- * POST /api/admin/attachments — upload a file
+ * POST /api/admin/attachments - upload a file
  * Body: FormData with file, tabKey, course
  */
 export async function POST(req: NextRequest) {
@@ -88,7 +88,7 @@ export async function POST(req: NextRequest) {
 }
 
 /**
- * PATCH /api/admin/attachments — toggle visibility
+ * PATCH /api/admin/attachments - toggle visibility
  * Body: { id, is_visible }
  */
 export async function PATCH(req: NextRequest) {
@@ -108,7 +108,7 @@ export async function PATCH(req: NextRequest) {
 }
 
 /**
- * DELETE /api/admin/attachments — delete attachment
+ * DELETE /api/admin/attachments - delete attachment
  * Body: { id }
  */
 export async function DELETE(req: NextRequest) {

@@ -115,7 +115,7 @@ export async function POST(req: NextRequest) {
         sent = body.recipients.length;
       }
     } else {
-      // No Apps Script configured — just log
+      // No Apps Script configured - just log
       sent = body.recipients.length;
     }
 

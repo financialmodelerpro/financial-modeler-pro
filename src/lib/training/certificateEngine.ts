@@ -27,7 +27,7 @@ interface PdfLayoutField {
   width?: number;      // field box width in editor (1240×877) space
 }
 
-// Coordinates are stored in PDF points — no editor-to-PDF scaling needed.
+// Coordinates are stored in PDF points - no editor-to-PDF scaling needed.
 
 interface PdfLayout {
   studentName?:   PdfLayoutField;
@@ -104,7 +104,7 @@ export async function generateCertificatePdf(data: {
 
   let pdfDoc: PDFDocument;
   if (templateError || !templateFile) {
-    // No template — create blank white A4 PDF
+    // No template - create blank white A4 PDF
     pdfDoc = await PDFDocument.create();
     pdfDoc.addPage([841.89, 595.28]); // A4 landscape
   } else {
@@ -115,7 +115,7 @@ export async function generateCertificatePdf(data: {
   const page = pdfDoc.getPages()[0];
   const { width, height } = page.getSize();
 
-  // Coordinates are already in PDF points — scale is 1:1
+  // Coordinates are already in PDF points - scale is 1:1
   const scaleX = 1;
   const scaleY = 1;
 
@@ -302,7 +302,7 @@ export async function renderBadgeWithText(
   function makeTextDiv(f: BadgeTextField, text: string) {
     const renderSize = Math.round(f.fontSize * SCALE);
     const top = bh - f.y - renderSize;
-    // Satori uses flexbox for alignment — justifyContent for horizontal
+    // Satori uses flexbox for alignment - justifyContent for horizontal
     const justify = f.textAlign === 'left' ? 'flex-start' : f.textAlign === 'right' ? 'flex-end' : 'center';
     return {
       type: 'div',
@@ -490,7 +490,7 @@ export async function processPendingCertificates(): Promise<{
         });
         await sendEmail({ to: cert.email, subject, html, from: FROM.training });
       } catch (emailErr) {
-        // Non-fatal — log but don't fail the whole cert
+        // Non-fatal - log but don't fail the whole cert
         console.error(`[certEngine] Email failed for ${cert.email}:`, emailErr);
       }
 

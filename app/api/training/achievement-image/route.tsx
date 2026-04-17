@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
 
   const fonts = await loadOgFonts().catch(() => []);
 
-  // Fetch header settings — same source and rules as NavbarServer + Navbar
+  // Fetch header settings - same source and rules as NavbarServer + Navbar
   let logoDataUri = '';
   let logoEnabled = true;
   let showBrandName = true;
@@ -115,17 +115,17 @@ export async function GET(req: NextRequest) {
           borderBottom: '1px solid rgba(255,255,255,0.08)',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            {/* Icon — same rule as Navbar: iconInHeader && iconUrl */}
+            {/* Icon - same rule as Navbar: iconInHeader && iconUrl */}
             {iconDataUri && (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={iconDataUri} alt="" style={{ width: 28, height: 28, flexShrink: 0 }} />
             )}
-            {/* Logo image — same rule as Navbar: logoEnabled && logoUrl */}
+            {/* Logo image - same rule as Navbar: logoEnabled && logoUrl */}
             {logoDataUri ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={logoDataUri} alt={brandName} style={{ height: cardLogoHeight }} />
             ) : !logoEnabled ? null : (
-              /* No icon rendered and no logo image — show text brand like Navbar fallback */
+              /* No icon rendered and no logo image - show text brand like Navbar fallback */
               !iconDataUri ? (
                 <div style={{
                   width: 48, height: 48, borderRadius: 12, background: '#2EAA4A',
@@ -134,11 +134,11 @@ export async function GET(req: NextRequest) {
                 }}>FMP</div>
               ) : null
             )}
-            {/* Brand name — only when no logo image is showing */}
+            {/* Brand name - only when no logo image is showing */}
             {!logoDataUri && (
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <span style={{ fontSize: 22, fontWeight: 800, color: '#ffffff', letterSpacing: '0.3px' }}>{brandName}</span>
-                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', letterSpacing: '1.2px', textTransform: 'uppercase' as const }}>Training Hub — Certification Program</span>
+                <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', letterSpacing: '1.2px', textTransform: 'uppercase' as const }}>Training Hub - Certification Program</span>
               </div>
             )}
           </div>
@@ -150,7 +150,7 @@ export async function GET(req: NextRequest) {
           display: 'flex', flex: 1, alignItems: 'center', padding: '0 48px',
           gap: 56, position: 'relative',
         }}>
-          {/* Left — achievement info */}
+          {/* Left - achievement info */}
           <div style={{ display: 'flex', flexDirection: 'column', flex: 1, paddingRight: 20 }}>
             <div style={{
               display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20,
@@ -190,7 +190,7 @@ export async function GET(req: NextRequest) {
             </div>
           </div>
 
-          {/* Right — score display */}
+          {/* Right - score display */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
             <div style={{
               width: 200, height: 200, borderRadius: '50%',

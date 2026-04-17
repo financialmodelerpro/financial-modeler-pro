@@ -25,7 +25,7 @@ interface PdfField {
   width?: number; // field box width in editor (1240×877) space
 }
 
-// Coordinates are stored in PDF points — no editor-to-PDF scaling needed.
+// Coordinates are stored in PDF points - no editor-to-PDF scaling needed.
 
 interface PdfLayout {
   studentName?:   PdfField;
@@ -85,7 +85,7 @@ function fontAscent(family?: string): number {
 // ── Route handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  // Auth guard — admin only
+  // Auth guard - admin only
   const session = await getServerSession(authOptions);
   if (!session?.user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -120,7 +120,7 @@ export async function POST(req: NextRequest) {
     const page = pdfDoc.getPages()[0];
     const { width, height } = page.getSize();
 
-    // Coordinates are already in PDF points — scale is 1:1
+    // Coordinates are already in PDF points - scale is 1:1
     const scaleX = 1;
     const scaleY = 1;
 
@@ -191,7 +191,7 @@ export async function POST(req: NextRequest) {
           });
         }
       } catch {
-        // QR is optional — skip silently
+        // QR is optional - skip silently
       }
     }
 

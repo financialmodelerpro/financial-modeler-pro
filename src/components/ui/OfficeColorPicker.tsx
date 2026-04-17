@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * OfficeColorPicker — Microsoft Office-style colour picker dropdown.
+ * OfficeColorPicker - Microsoft Office-style colour picker dropdown.
  * Usage: <OfficeColorPicker value="#1B4F8A" onChange={(hex) => …} label="Primary" />
  */
 
@@ -63,8 +63,8 @@ const STANDARD_COLORS: { hex: string; name: string }[] = [
   { hex: '#7030A0', name: 'Purple'      },
 ];
 
-const CELL = 18;   // px — cell size
-const GAP  = 2;    // px — gap between cells
+const CELL = 18;   // px - cell size
+const GAP  = 2;    // px - gap between cells
 
 // ── Swatch cell ───────────────────────────────────────────────────────────────
 function Swatch({
@@ -168,7 +168,7 @@ function Dropdown({ value, pos, onPick, onClose }: DropdownProps) {
               <Swatch
                 key={ci}
                 hex={cell.hex}
-                label={`${cell.colName} — ${cell.label}`}
+                label={`${cell.colName} - ${cell.label}`}
                 selected={value.toLowerCase() === cell.hex.toLowerCase()}
                 onClick={() => onPick(cell.hex)}
               />

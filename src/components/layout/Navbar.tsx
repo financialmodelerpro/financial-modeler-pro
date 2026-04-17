@@ -44,7 +44,7 @@ interface NavbarProps {
   headerHeightPx?: string;
   headerPaddingTopPx?: string;
   headerPaddingBottomPx?: string;
-  // Deprecated — kept for backward compat
+  // Deprecated - kept for backward compat
   logoWidthInches?: string;
   logoHeightInches?: string;
 }

@@ -1,10 +1,10 @@
 'use client';
 
 /**
- * useSubscription — Dynamic permission hook backed by a Zustand store.
+ * useSubscription - Dynamic permission hook backed by a Zustand store.
  *
  * On first mount it calls /api/permissions once and caches the result.
- * All canAccess() calls hit the in-memory cache — zero DB calls per render.
+ * All canAccess() calls hit the in-memory cache - zero DB calls per render.
  *
  * The store refreshes automatically when the session plan changes
  * (call useSubscriptionStore.getState().refresh() after a plan upgrade).
@@ -94,7 +94,7 @@ export function useSubscription() {
   const { plan, status, permissions, loaded, loading, timedOut, load, projectCount } =
     useSubscriptionStore();
 
-  // Trigger load on first mount — idempotent (store guards against re-runs)
+  // Trigger load on first mount - idempotent (store guards against re-runs)
   useEffect(() => {
     load();
   }, [load]);

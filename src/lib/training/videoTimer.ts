@@ -36,7 +36,7 @@ export const ADMIN_BYPASS_KEY = 'fmp_admin_bypass_timer';
 
 /**
  * Get current timer status for a session (second-level precision).
- * @param timerBypassed — server-side bypass flag from training_settings DB
+ * @param timerBypassed - server-side bypass flag from training_settings DB
  */
 export function getTimerStatus(regId: string, tabKey: string, durationMinutes: number, timerBypassed?: boolean): TimerStatus {
   if (!durationMinutes || durationMinutes === 0)

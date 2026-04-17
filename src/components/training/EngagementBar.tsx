@@ -38,7 +38,7 @@ export function EngagementBar({ youtubeUrl, channelId, showLike = true, sessionT
   return (
     <>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12, alignItems: 'center' }}>
-        {/* Subscribe — opens modal with YouTube widget */}
+        {/* Subscribe - opens modal with YouTube widget */}
         {channelId && (
           <button
             onClick={() => setShowSubscribeModal(true)}
@@ -77,7 +77,7 @@ export function EngagementBar({ youtubeUrl, channelId, showLike = true, sessionT
           target="_blank"
           rel="noopener noreferrer"
           style={btn}
-          title="Have a question or query? Ask it on YouTube — get a quick answer from our team"
+          title="Have a question or query? Ask it on YouTube - get a quick answer from our team"
         >
           💬 Ask a Question
         </a>

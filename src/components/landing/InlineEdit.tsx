@@ -208,7 +208,7 @@ export function InlineEdit({
       padding: '2px 10px', borderRadius: 10,
       zIndex: 300, pointerEvents: 'none', whiteSpace: 'nowrap',
     }}>
-      {status === 'saved' ? '✓ Saved' : '✗ Failed — try again'}
+      {status === 'saved' ? '✓ Saved' : '✗ Failed - try again'}
     </div>
   ) : null;
 

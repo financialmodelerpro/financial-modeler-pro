@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
 }
 
 function htmlPage(title: string, body: string) {
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} — Financial Modeler Pro</title></head>
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title} - Financial Modeler Pro</title></head>
 <body style="font-family:Inter,-apple-system,sans-serif;background:#f9fafb;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;">
 <div style="background:#fff;border-radius:16px;padding:40px;max-width:420px;text-align:center;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
 <h1 style="font-size:22px;color:#0D2E5A;margin:0 0 12px;">${title}</h1>

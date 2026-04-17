@@ -29,7 +29,7 @@ export interface CourseContentProps {
   onNoteSave: (sessionKey: string, content: string) => void;
   feedbackGiven: Set<string>;
   onFeedbackRequest: (sessionKey: string, sessionTitle: string) => void;
-  /** BVM course-level lock — show content but lock Watch + Assessment buttons */
+  /** BVM course-level lock - show content but lock Watch + Assessment buttons */
   bvmLocked?: boolean;
   sfmProgress?: number;
   sfmTotal?: number;
@@ -120,12 +120,12 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
   const hasAny = passedCount > 0;
   const isOfficial = finalPassed;
 
-  // "About This Course" — courses API keys by category (e.g. '3SFM', 'BVM')
+  // "About This Course" - courses API keys by category (e.g. '3SFM', 'BVM')
   const desc = courseDescs[course.shortTitle] ?? courseDescs[course.shortTitle.toLowerCase()];
 
   return (
     <div>
-      {/* BVM prerequisite banner — gold/amber, dismissible */}
+      {/* BVM prerequisite banner - gold/amber, dismissible */}
       {bvmLocked && !dismissedBanners.has('bvm_lock') && (
         <div style={{ background: '#FFF8E1', border: '1px solid #FDE68A', borderRadius: 10, padding: '12px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -214,8 +214,8 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
       <div className="dash-stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20, opacity: bvmLocked ? 0.55 : 1, transition: 'opacity 0.2s' }}>
         {[
           { label: 'Sessions Passed', value: `${allPassedCount} / ${course.sessions.length}`, icon: '📊', color: '#1B4F8A' },
-          { label: 'Avg Score', value: avgScore !== null ? `${avgScore}%` : '—', icon: '📈', color: '#059669' },
-          { label: 'Best Score', value: bestEntry ? `${bestEntry.score}% (${bestEntry.label})` : '—', icon: '⭐', color: '#C9A84C' },
+          { label: 'Avg Score', value: avgScore !== null ? `${avgScore}%` : '-', icon: '📈', color: '#059669' },
+          { label: 'Best Score', value: bestEntry ? `${bestEntry.score}% (${bestEntry.label})` : '-', icon: '⭐', color: '#C9A84C' },
           { label: 'Certificate', value: certStatus, icon: '🏆', color: certColor },
         ].map(card => (
           <div key={card.label} style={{ background: '#fff', borderRadius: 10, padding: '16px 18px', border: '1px solid #E5E7EB', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
@@ -262,7 +262,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
           // NOTE: Watch button shows for ALL sessions including finals if youtubeUrl exists.
           // Final sessions use '_Final' suffix to match the Apps Script tabKey convention
           // (Apps Script Form Registry stores the final row as e.g. '3SFM_Final', not '3SFM_S18').
-          // Do NOT revert this to session.id — that was the root cause of Session 18 never showing.
+          // Do NOT revert this to session.id - that was the root cause of Session 18 never showing.
           const tk = isFinalRow
             ? `${course.shortTitle.toUpperCase()}_Final`
             : `${course.shortTitle.toUpperCase()}_${session.id}`;
@@ -328,7 +328,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
       {/* ── Exam Prep Mode ───────────────────────────────────────────────── */}
       {allRegularPassed && !finalPassed && finalSession && (progressMap.get(finalSession.id)?.attempts ?? 0) === 0 && (
         <div style={{ background: 'linear-gradient(135deg,#EFF6FF,#DBEAFE)', border: '1px solid #93C5FD', borderRadius: 12, padding: '18px 22px', marginBottom: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 800, color: '#1E3A8A', marginBottom: 8 }}>🎯 Exam Prep Mode — You are ready for the Final Exam!</div>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#1E3A8A', marginBottom: 8 }}>🎯 Exam Prep Mode - You are ready for the Final Exam!</div>
           <div style={{ fontSize: 12, color: '#1E40AF', marginBottom: 12 }}>Review your weakest sessions before sitting the final:</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             {regularSessions
@@ -358,7 +358,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
             <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
               <Link href={`/training/assessment/${encodeURIComponent(`${course.shortTitle.toUpperCase()}_${finalSession.id}`)}`}
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '9px 20px', borderRadius: 8, background: '#1E3A8A', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 700 }}>
-                🏆 I&apos;m Ready — Take Final Exam →
+                🏆 I&apos;m Ready - Take Final Exam →
               </Link>
             </div>
           )}
@@ -453,13 +453,13 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
         let actionUrl = '';
         if (passedCount === 0) {
           title = '🚀 Start Your Journey';
-          body = `Begin with Session 1 of ${course.shortTitle} — watch the video then take the assessment.`;
+          body = `Begin with Session 1 of ${course.shortTitle} - watch the video then take the assessment.`;
           const s = regularSessions[0];
           const tk = s ? `${course.shortTitle.toUpperCase()}_${s.id}` : '';
           actionUrl = liveLinks[tk]?.youtubeUrl || s?.youtubeUrl || '';
           action = '▶ Watch Session 1';
         } else if (!allRegularPassed && nextUnpassed) {
-          title = `📌 Continue — Session ${nextIdx + 1}`;
+          title = `📌 Continue - Session ${nextIdx + 1}`;
           body = `You have completed ${passedCount} of ${regularSessions.length} sessions. Keep the momentum!`;
           const tk = `${course.shortTitle.toUpperCase()}_${nextUnpassed.id}`;
           actionUrl = liveLinks[tk]?.youtubeUrl || nextUnpassed.youtubeUrl || '';
@@ -500,7 +500,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
         );
       })()}
 
-      {/* Certificate Card — locked state when bvmLocked */}
+      {/* Certificate Card - locked state when bvmLocked */}
       {bvmLocked && (
         <div style={{ border: '2px dashed #D1D5DB', borderRadius: 12, padding: '24px', background: '#FAFAFA', textAlign: 'center', opacity: 0.6 }}>
           <div style={{ fontSize: 28, marginBottom: 10 }}>🔒</div>
@@ -577,7 +577,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
           <div style={{ fontSize: 28, marginBottom: 10 }}>🎓</div>
           <div style={{ fontSize: 14, fontWeight: 700, color: '#374151', marginBottom: 4 }}>Certificate Not Yet Earned</div>
           <div style={{ fontSize: 13, color: '#9CA3AF' }}>
-            {passedCount} of {regularSessions.length} sessions passed — complete all sessions and pass the Final Exam.
+            {passedCount} of {regularSessions.length} sessions passed - complete all sessions and pass the Final Exam.
           </div>
         </div>
         )

@@ -110,7 +110,7 @@ export default function ProjectsBrowser() {
                     {p.name}
                   </td>
                   <td style={{ textAlign: 'left' }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-heading)' }}>{p.users?.name ?? '—'}</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-heading)' }}>{p.users?.name ?? '-'}</div>
                     <div style={{ fontSize: 11, color: 'var(--color-meta)' }}>{p.users?.email ?? p.user_id}</div>
                   </td>
                   <td>

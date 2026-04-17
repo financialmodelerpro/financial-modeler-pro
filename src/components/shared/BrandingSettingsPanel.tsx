@@ -311,11 +311,11 @@ export default function BrandingSettingsPanel({
         <div style={{ flex: 1, overflowY: 'auto', padding: '28px 32px' }}>
 
           {/* ══════════════════════════════════════════
-              TAB 1 — PORTAL IDENTITY
+              TAB 1 - PORTAL IDENTITY
           ══════════════════════════════════════════ */}
           {tab === 'portal' && (
             <div>
-              <SectionBanner color="#EFF6FF" border="#BFDBFE" text="Customise everything shown on the portal hub — header text, welcome message, footer, and the portal logo." />
+              <SectionBanner color="#EFF6FF" border="#BFDBFE" text="Customise everything shown on the portal hub - header text, welcome message, footer, and the portal logo." />
 
               <FieldGroup label="Portal Title" hint="Shown in the portal header bar">
                 <input style={FI} value={draft.portalTitle}
@@ -359,28 +359,28 @@ export default function BrandingSettingsPanel({
                     : draft.portalLogoEmoji || '💼'}
                 </div>
                 <div>
-                  <div style={{ fontWeight: 700, color: 'white', fontSize: 13 }}>{draft.portalTitle || '—'}</div>
-                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{draft.portalSubtitle || '—'}</div>
+                  <div style={{ fontWeight: 700, color: 'white', fontSize: 13 }}>{draft.portalTitle || '-'}</div>
+                  <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{draft.portalSubtitle || '-'}</div>
                 </div>
               </div>
               <div style={{ background: 'var(--color-grey-white)', border: '1px solid var(--color-grey-light)', borderRadius: 10, padding: '16px 18px', borderLeft: `4px solid ${previewHeaderBg}`, marginBottom: 10 }}>
-                <div style={{ fontWeight: 700, color: 'var(--color-navy-darkest)', fontSize: 14, marginBottom: 4 }}>Welcome to {draft.portalTitle || '—'}</div>
-                <div style={{ fontSize: 12, color: 'var(--color-grey-mid)', lineHeight: 1.6 }}>{draft.portalDescription || '—'}</div>
+                <div style={{ fontWeight: 700, color: 'var(--color-navy-darkest)', fontSize: 14, marginBottom: 4 }}>Welcome to {draft.portalTitle || '-'}</div>
+                <div style={{ fontSize: 12, color: 'var(--color-grey-mid)', lineHeight: 1.6 }}>{draft.portalDescription || '-'}</div>
               </div>
               <div style={{ background: 'var(--color-grey-pale)', border: '1px solid var(--color-grey-light)', borderRadius: 10, padding: '10px 18px', textAlign: 'center', fontSize: 11, color: 'var(--color-muted)' }}>
-                <strong style={{ color: 'var(--color-grey-dark)' }}>{draft.portalTitle || '—'}</strong>
-                {' · '}{draft.footerText || '—'}
+                <strong style={{ color: 'var(--color-grey-dark)' }}>{draft.portalTitle || '-'}</strong>
+                {' · '}{draft.footerText || '-'}
                 {' · '}<span style={{ color: 'var(--color-green-dark)', fontWeight: 600 }}>{USER_SUBSCRIPTION.platforms.length} Platform Active</span>
               </div>
             </div>
           )}
 
           {/* ══════════════════════════════════════════
-              TAB 2 — PLATFORM TOOLBAR
+              TAB 2 - PLATFORM TOOLBAR
           ══════════════════════════════════════════ */}
           {tab === 'toolbar' && (
             <div>
-              <SectionBanner color="#EFF6FF" border="#BFDBFE" text="Controls the name and logo shown inside the REFM platform toolbar — separate from the portal header." />
+              <SectionBanner color="#EFF6FF" border="#BFDBFE" text="Controls the name and logo shown inside the REFM platform toolbar - separate from the portal header." />
 
               <FieldGroup label="Platform Name" hint="Shown in the platform toolbar (all-caps)">
                 <input style={FI} value={draft.platformName || ''}
@@ -435,7 +435,7 @@ export default function BrandingSettingsPanel({
           )}
 
           {/* ══════════════════════════════════════════
-              TAB 3 — COLOUR PALETTE
+              TAB 3 - COLOUR PALETTE
           ══════════════════════════════════════════ */}
           {tab === 'colors' && (
             <div>
@@ -509,7 +509,7 @@ export default function BrandingSettingsPanel({
               {/* ── PRESET THEMES (secondary, below custom) ── */}
               <SectionTitle badge="PRESETS" badgeColor="#EFF6FF" badgeText="#1E40AF">Quick-Start Themes</SectionTitle>
               <p style={{ fontSize: 12, color: 'var(--color-grey-mid)', marginBottom: 16, marginTop: -8 }}>
-                Click any theme to load it into the pickers above — you can then fine-tune the colours freely.
+                Click any theme to load it into the pickers above - you can then fine-tune the colours freely.
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10 }}>
                 {COLOR_THEMES.map((theme) => {
@@ -538,7 +538,7 @@ export default function BrandingSettingsPanel({
           )}
 
           {/* ══════════════════════════════════════════
-              TAB 4 — PLATFORM CARDS
+              TAB 4 - PLATFORM CARDS
           ══════════════════════════════════════════ */}
           {tab === 'cards' && (() => {
             const draftPlatforms = (draft.platforms && draft.platforms.length)

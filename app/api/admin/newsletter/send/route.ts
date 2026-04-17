@@ -10,7 +10,7 @@ const FROM = process.env.EMAIL_FROM_NOREPLY ?? 'noreply@financialmodelerpro.com'
 
 interface Sub { email: string; hub: string; unsubscribe_token: string }
 
-/** Deduplicate subscribers by email — one email per person, prefer matching hub token. */
+/** Deduplicate subscribers by email - one email per person, prefer matching hub token. */
 function deduplicateByEmail(subscribers: Sub[], preferHub?: string): Sub[] {
   const map = new Map<string, Sub>();
   for (const sub of subscribers) {
@@ -62,7 +62,7 @@ export async function POST(req: NextRequest) {
         if (targetHub !== 'all') query = query.eq('hub', targetHub);
         const { data: rawSubs } = await query;
 
-        // Deduplicate when sending to "all" — one email per person
+        // Deduplicate when sending to "all" - one email per person
         const subscribers = targetHub === 'all'
           ? deduplicateByEmail(rawSubs ?? [])
           : (rawSubs ?? []);

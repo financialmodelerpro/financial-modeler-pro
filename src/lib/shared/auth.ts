@@ -33,7 +33,7 @@ export const authOptions: AuthOptions = {
         const valid = await verifyPassword(credentials.password, user.password_hash);
         if (!valid) return null;
 
-        // Admin: skip email confirmation and device verification — return immediately
+        // Admin: skip email confirmation and device verification - return immediately
         if (user.role === 'admin') {
           return {
             id:                  user.id,
@@ -50,7 +50,7 @@ export const authOptions: AuthOptions = {
           throw new Error('EmailNotConfirmed');
         }
 
-        // Check device trust via next/headers cookies() — reliable in App Router context
+        // Check device trust via next/headers cookies() - reliable in App Router context
         const cookieStore = await cookies();
         const deviceToken = cookieStore.get(DEVICE_COOKIE_NAME)?.value ?? null;
 

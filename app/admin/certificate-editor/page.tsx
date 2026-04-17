@@ -47,7 +47,7 @@ const DISPLAY_W       = 900;   // fixed display width in px
 const MIN_W           = 30;    // minimum field width (in PDF points)
 const RESIZE_HANDLE_W = 12;    // resize grip width in unscaled px
 
-// A4 landscape in PDF points — used as default before any template loads
+// A4 landscape in PDF points - used as default before any template loads
 const A4_W = 841.89;
 const A4_H = 595.28;
 
@@ -126,7 +126,7 @@ export default function CertificateEditorPage() {
   const [isResizing, setIsResizing] = useState(false);
   const [showGuides, setShowGuides] = useState(true);
 
-  // Refs — prevent stale closures in window event listeners
+  // Refs - prevent stale closures in window event listeners
   const canvasRef       = useRef<HTMLDivElement>(null);
   const draggingKeyRef  = useRef<PdfFieldKey | null>(null);
   const dragOffsetRef   = useRef({ x: 0, y: 0 });
@@ -170,7 +170,7 @@ export default function CertificateEditorPage() {
 
     async function loadTemplate() {
       try {
-        // HEAD check — does the template exist?
+        // HEAD check - does the template exist?
         const headRes = await fetch(bust, { method: 'HEAD' });
         if (!headRes.ok) {
           setTemplateBg(null);
@@ -194,7 +194,7 @@ export default function CertificateEditorPage() {
           pdfHeight: height,
         });
       } catch {
-        // Template unreadable — fall back to A4 defaults
+        // Template unreadable - fall back to A4 defaults
         setTemplateBg(null);
         setCanvasSize(DEFAULT_CANVAS);
       }
@@ -202,7 +202,7 @@ export default function CertificateEditorPage() {
     void loadTemplate();
   }, [course]);
 
-  // ── Global mouse handlers — shared by drag-move AND drag-resize ──
+  // ── Global mouse handlers - shared by drag-move AND drag-resize ──
   useEffect(() => {
     function onMouseMove(e: MouseEvent) {
       if (!canvasRef.current) return;
@@ -487,7 +487,7 @@ export default function CertificateEditorPage() {
               </span>
             </div>
 
-            {/* Canvas — width fixed at DISPLAY_W, height auto from PDF ratio */}
+            {/* Canvas - width fixed at DISPLAY_W, height auto from PDF ratio */}
             <div
               ref={canvasRef}
               style={{
@@ -504,7 +504,7 @@ export default function CertificateEditorPage() {
                 cursor:          isResizing ? 'ew-resize' : (activeKey ? 'grabbing' : 'default'),
               }}
             >
-              {/* PDF background — rendered at exact PDF-point size then CSS-scaled.
+              {/* PDF background - rendered at exact PDF-point size then CSS-scaled.
                   Height matches the page exactly; any plugin toolbar lives below
                   the page content and is clipped by the canvas overflow:hidden. */}
               {templateBg ? (
@@ -572,7 +572,7 @@ export default function CertificateEditorPage() {
                 </div>
               )}
 
-              {/* Field markers — unscaled PDF-point coordinate space */}
+              {/* Field markers - unscaled PDF-point coordinate space */}
               <div style={{
                 position: 'absolute', top: 0, left: 0,
                 width: canvasSize.pdfWidth, height: canvasSize.pdfHeight,
@@ -623,7 +623,7 @@ export default function CertificateEditorPage() {
                           style={{ width: '100%', height: '100%', objectFit: 'fill', pointerEvents: 'none' }}
                         />
                       ) : (
-                        /* Sample text — top-left aligned to match pdf-lib drawText origin */
+                        /* Sample text - top-left aligned to match pdf-lib drawText origin */
                         <div style={{
                           padding:      '0',
                           width:        '100%',
@@ -666,7 +666,7 @@ export default function CertificateEditorPage() {
                         )}
                       </div>
 
-                      {/* Resize handle — right edge (text fields only) */}
+                      {/* Resize handle - right edge (text fields only) */}
                       {!isQr && (
                         <div
                           onMouseDown={e => handleResizerMouseDown(e, key)}
@@ -778,7 +778,7 @@ export default function CertificateEditorPage() {
                     ) : (
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
 
-                        {/* X / Y / SIZE / WIDTH — 2×2 grid with steppers */}
+                        {/* X / Y / SIZE / WIDTH - 2×2 grid with steppers */}
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
                           {([
                             { f: 'x',        label: 'X',     step: 1, min: 0 },
@@ -883,7 +883,7 @@ export default function CertificateEditorPage() {
                   </div>
                 );
               })}
-              {/* ── Removed fields — add back ── */}
+              {/* ── Removed fields - add back ── */}
               {ALL_FIELD_KEYS.filter(k => !pdfLayout[k]).map(key => (
                 <div key={key} style={{
                   marginBottom: 8, padding: '8px 10px',

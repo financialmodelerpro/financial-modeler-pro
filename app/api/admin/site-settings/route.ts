@@ -8,7 +8,7 @@ async function checkAdmin() {
   return !!(session?.user && (session.user as { role?: string }).role === 'admin');
 }
 
-/** GET — fetch all site settings (or a single key via ?key=header) */
+/** GET - fetch all site settings (or a single key via ?key=header) */
 export async function GET(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const sb = getServerClient();
@@ -23,7 +23,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ settings: data ?? [] });
 }
 
-/** PATCH — update a single setting by key */
+/** PATCH - update a single setting by key */
 export async function PATCH(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const sb = getServerClient();
@@ -43,7 +43,7 @@ export async function PATCH(req: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-/** POST — upload file (logo, favicon) to cms-assets bucket */
+/** POST - upload file (logo, favicon) to cms-assets bucket */
 export async function POST(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const sb = getServerClient();

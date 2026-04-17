@@ -1304,7 +1304,7 @@ export default function LiveSessionsPage() {
                     <input type="radio" name="yt_embed" checked={!form.youtube_embed} onChange={() => setForm(f => ({ ...f, youtube_embed: false }))} style={{ marginTop: 2 }} />
                     <div>
                       <div style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>Open on YouTube (recommended)</div>
-                      <div style={{ fontSize: 11, color: '#9CA3AF' }}>Students watch on YouTube — helps with channel views and monetization</div>
+                      <div style={{ fontSize: 11, color: '#9CA3AF' }}>Students watch on YouTube - helps with channel views and monetization</div>
                     </div>
                   </label>
                   <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }}>

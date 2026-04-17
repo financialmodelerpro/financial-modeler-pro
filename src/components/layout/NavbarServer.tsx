@@ -1,5 +1,5 @@
 /**
- * NavbarServer — server component wrapper around Navbar.
+ * NavbarServer - server component wrapper around Navbar.
  * Fetches nav pages from DB + header settings from cms_content.
  * All pages should use this instead of importing <Navbar /> directly.
  */

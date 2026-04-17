@@ -21,7 +21,7 @@ async function getAllConfirmedStudents(sb: ReturnType<typeof getServerClient>) {
   return (data ?? []).map(r => ({ email: r.email, name: r.name ?? '' }));
 }
 
-/** PATCH — update session */
+/** PATCH - update session */
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -128,7 +128,7 @@ export async function PATCH(
   return NextResponse.json({ ok: true, emailResult });
 }
 
-/** DELETE — delete session + attachments */
+/** DELETE - delete session + attachments */
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },

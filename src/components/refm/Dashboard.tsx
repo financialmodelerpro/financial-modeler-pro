@@ -36,25 +36,25 @@ export default function Dashboard({
   const kpis = [
     {
       label: 'Total Land Area',
-      value: totalLandArea > 0 ? `${formatNumber(totalLandArea)} sqm` : '—',
+      value: totalLandArea > 0 ? `${formatNumber(totalLandArea)} sqm` : '-',
       sub: 'Net Developable Area',
       color: 'var(--color-navy)',
     },
     {
       label: 'Land Value',
-      value: totalLandValue > 0 ? formatCurrency(totalLandValue, currency) : '—',
+      value: totalLandValue > 0 ? formatCurrency(totalLandValue, currency) : '-',
       sub: 'Total land acquisition cost',
       color: 'var(--color-green-dark)',
     },
     {
       label: 'Total GFA',
-      value: totalProjectGFA > 0 ? `${formatNumber(totalProjectGFA)} sqm` : '—',
+      value: totalProjectGFA > 0 ? `${formatNumber(totalProjectGFA)} sqm` : '-',
       sub: 'Gross Floor Area',
       color: '#7C2D12',
     },
     {
       label: 'Total CapEx',
-      value: totalCapex > 0 ? formatCurrency(totalCapex, currency) : '—',
+      value: totalCapex > 0 ? formatCurrency(totalCapex, currency) : '-',
       sub: `${formatCurrency(totalDebt, currency)} debt / ${formatCurrency(totalEquity, currency)} equity`,
       color: 'var(--color-navy)',
     },
@@ -83,7 +83,7 @@ export default function Dashboard({
           Dashboard
         </h1>
         <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-body)', marginTop: '6px' }}>
-          Portfolio overview — {projectName} · {projectType}
+          Portfolio overview - {projectName} · {projectType}
         </p>
       </div>
 
@@ -112,7 +112,7 @@ export default function Dashboard({
           onClick={() => setActiveModule('module1')}>
           <div style={{ fontSize: '2rem', marginBottom: '0.75rem' }}>🧱</div>
           <h3 style={{ fontSize: 'var(--font-section)', fontWeight: 'var(--fw-bold)', color: 'var(--color-heading)', margin: '0 0 6px' }}>
-            Module 1 — Project Setup
+            Module 1 - Project Setup
           </h3>
           <p style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', margin: 0 }}>
             Timeline, land & area, development costs, financing structure.
@@ -133,7 +133,7 @@ export default function Dashboard({
             Projects
           </h3>
           <p style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', margin: 0 }}>
-            Manage your portfolio — create, save, and load project versions.
+            Manage your portfolio - create, save, and load project versions.
           </p>
           <div style={{ marginTop: 'var(--sp-2)' }}>
             <span style={{
@@ -182,7 +182,7 @@ export default function Dashboard({
                 color: m.done ? 'var(--color-body)' : 'var(--color-muted)',
                 fontWeight: m.done ? 'var(--fw-semibold)' : 'var(--fw-normal)',
               }}>
-                Module {m.num} — {m.label}
+                Module {m.num} - {m.label}
               </span>
             </div>
           ))}

@@ -1,2 +1,2 @@
-// module5-statements.ts — placeholder
+// module5-statements.ts - placeholder
 export {};

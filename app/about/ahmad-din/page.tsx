@@ -10,9 +10,9 @@ export const revalidate = 0;
 export async function generateMetadata(): Promise<Metadata> {
   const founder = await getFounderProfile();
   const name  = cms(founder, 'bio', 'name',  'Ahmad Din');
-  const title = cms(founder, 'bio', 'title', 'Founder & Lead Instructor — Financial Modeler Pro');
+  const title = cms(founder, 'bio', 'title', 'Founder & Lead Instructor - Financial Modeler Pro');
   return {
-    title: `${name} — ${title}`,
+    title: `${name} - ${title}`,
     description: cms(founder, 'bio', 'short_bio', 'Corporate finance specialist and founder of Financial Modeler Pro.'),
   };
 }
@@ -189,7 +189,7 @@ export default async function FounderPage() {
             <blockquote style={{ borderLeft: '3px solid #1B4F8A', paddingLeft: 24, margin: 0, fontSize: 16, color: 'rgba(255,255,255,0.6)', lineHeight: 1.8, fontStyle: 'italic' }}>
               &ldquo;{philosophy}&rdquo;
             </blockquote>
-            <div style={{ marginTop: 16, fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>— {name}</div>
+            <div style={{ marginTop: 16, fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>- {name}</div>
           </div>
         </section>
       )}
@@ -204,7 +204,7 @@ export default async function FounderPage() {
 
       <SharedFooter
         company="Financial Modeler Pro is a product of PaceMakers Business Consultants"
-        founder="Ahmad Din — CEO & Founder"
+        founder="Ahmad Din - CEO & Founder"
         copyright={`${new Date().getFullYear()} Financial Modeler Pro. All rights reserved.`}
       />
     </div>

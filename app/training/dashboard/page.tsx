@@ -243,7 +243,7 @@ export default function TrainingDashboardPage() {
           if (Date.now() - cached.at < CACHE_TTL) {
             setProgress(cached.data);
             setLoading(false);
-            cacheHit = true; // Don't re-set loading=true — show cached data while fetching
+            cacheHit = true; // Don't re-set loading=true - show cached data while fetching
           }
         }
       } catch { /* ignore */ }
@@ -260,7 +260,7 @@ export default function TrainingDashboardPage() {
       const progressParams = new URLSearchParams({ email: sess.email, registrationId: sess.registrationId });
       if (forceRefresh) progressParams.set('refresh', '1');
 
-      // Fetch all data in parallel — each with individual error handling so one failure doesn't block others
+      // Fetch all data in parallel - each with individual error handling so one failure doesn't block others
       const safeJson = async <T,>(p: Promise<Response>, fallback: T): Promise<T> => {
         try { const r = await p; return await r.json() as T; } catch { return fallback; }
       };
@@ -304,12 +304,12 @@ export default function TrainingDashboardPage() {
       if (detailsJson.courses) setCourseDescs(detailsJson.courses);
       setTimerBypassed(detailsJson.timerBypassed === true);
 
-      // Apply progress (Supabase-merged data from server — instant and accurate)
+      // Apply progress (Supabase-merged data from server - instant and accurate)
       if (json.success && json.data) {
         setProgress(json.data);
         setLastUpdated(new Date());
         try { localStorage.setItem(CACHE_KEY, JSON.stringify({ data: json.data, at: Date.now() })); } catch { /* ignore */ }
-        // Fire activity (streak/badges) — fire-and-forget
+        // Fire activity (streak/badges) - fire-and-forget
         const sessionsPassed = json.data.sessions.filter(s => s.passed).length;
         const hasPerfect = json.data.sessions.some(s => s.passed && s.score === 100);
         fetch('/api/training/activity', {
@@ -454,7 +454,7 @@ export default function TrainingDashboardPage() {
   function getCroppedBlob(imageSrc: string, pixelCrop: Area): Promise<Blob> {
     return new Promise((resolve, reject) => {
       const img = new Image();
-      // Do NOT set crossOrigin on blob: URLs — causes CORS failure in some browsers
+      // Do NOT set crossOrigin on blob: URLs - causes CORS failure in some browsers
       if (!imageSrc.startsWith('blob:')) img.crossOrigin = 'anonymous';
       img.onload = () => {
         const canvas = document.createElement('canvas');
@@ -549,7 +549,7 @@ export default function TrainingDashboardPage() {
   const bvmUnlocked     = allRegularSessionsPassed('3sfm', progressMap) &&
     (sfmFinalSession ? progressMap.get(sfmFinalSession.id)?.passed === true : false);
 
-  // 3SFM stats (for BVM locked state) — includes final exam
+  // 3SFM stats (for BVM locked state) - includes final exam
   const sfmRegular    = COURSES['3sfm']?.sessions ?? [];
   const sfmPassedCount = sfmRegular.filter(s => progressMap.get(s.id)?.passed).length;
 
@@ -558,7 +558,7 @@ export default function TrainingDashboardPage() {
   const initials = studentName.split(' ').map((w: string) => w[0] ?? '').filter(Boolean).join('').toUpperCase().slice(0, 2) || 'ST';
   const avatarUrl = studentProfile?.avatar_url || '';
 
-  // Overall progress — includes final exam
+  // Overall progress - includes final exam
   const totalSessions = enrolledCourses.reduce((s, cId) => s + (COURSES[cId]?.sessions.length ?? 0), 0);
   const totalPassed   = enrolledCourses.reduce((s, cId) => {
     const c = COURSES[cId]; if (!c) return s;
@@ -1449,13 +1449,13 @@ export default function TrainingDashboardPage() {
           {/* ════════════════════════════════════════════════════════════════════ */}
           {!loading && progress && activeView === 'course' && (
             <>
-              {/* Back to overview — inline */}
+              {/* Back to overview - inline */}
               <button onClick={() => navigateTo('overview')}
                 style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 6, background: 'none', border: '1px solid #D1D5DB', color: '#6B7280', fontSize: 12, fontWeight: 600, cursor: 'pointer', marginBottom: 16 }}>
                 <ArrowLeft size={14} /> Back to Dashboard
               </button>
 
-              {/* Sticky breadcrumb bar — appears on scroll */}
+              {/* Sticky breadcrumb bar - appears on scroll */}
               {scrolledDown && (
                 <div style={{
                   position: 'fixed', top: 64, left: sidebarW, right: 0, zIndex: 140,
@@ -1542,7 +1542,7 @@ export default function TrainingDashboardPage() {
 
       {/* ── Course Share Modal ────────────────────────────────────────────── */}
       {courseShareOpen && (() => {
-        const courseTxt = `I'm making progress on Financial Modeler Pro — free professional financial modeling certification!\n\nBuilding institutional-grade financial models — completely free.\n\n👉 https://learn.financialmodelerpro.com\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
+        const courseTxt = `I'm making progress on Financial Modeler Pro - free professional financial modeling certification!\n\nBuilding institutional-grade financial models - completely free.\n\n👉 https://learn.financialmodelerpro.com\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
         return (
           <div onClick={() => { setCourseShareOpen(false); setCourseShareCopied(false); }}
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
@@ -1555,7 +1555,7 @@ export default function TrainingDashboardPage() {
               <textarea readOnly value={courseTxt} rows={6}
                 style={{ width: '100%', padding: '10px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 12, fontFamily: 'Inter,sans-serif', resize: 'none', lineHeight: 1.6, boxSizing: 'border-box', marginBottom: 12, color: '#374151', background: '#F9FAFB' }} />
               <div style={{ fontSize: 12, color: '#6B7280', background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8, padding: '10px 14px', marginBottom: 12, lineHeight: 1.5 }}>
-                💡 Click <strong>Share on LinkedIn</strong> — your text is auto-copied. Just <strong>paste it (Ctrl+V)</strong> in LinkedIn.
+                💡 Click <strong>Share on LinkedIn</strong> - your text is auto-copied. Just <strong>paste it (Ctrl+V)</strong> in LinkedIn.
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button onClick={() => { navigator.clipboard.writeText(courseTxt).catch(() => {}); window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank'); }}

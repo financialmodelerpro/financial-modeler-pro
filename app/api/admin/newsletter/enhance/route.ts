@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
       max_tokens: 2048,
       messages: [{
         role: 'user',
-        content: `Rewrite this newsletter email HTML to be more engaging, professional, and concise. Keep all the key information and links. Use clean HTML formatting (h2, p, strong, a tags). Do not add subject lines or unsubscribe text — just the body content. Brand: Financial Modeler Pro — professional financial modeling training and tools platform.\n\nCurrent content:\n${content}\n\nReturn ONLY the enhanced HTML, no explanation.`,
+        content: `Rewrite this newsletter email HTML to be more engaging, professional, and concise. Keep all the key information and links. Use clean HTML formatting (h2, p, strong, a tags). Do not add subject lines or unsubscribe text - just the body content. Brand: Financial Modeler Pro - professional financial modeling training and tools platform.\n\nCurrent content:\n${content}\n\nReturn ONLY the enhanced HTML, no explanation.`,
       }],
     });
 

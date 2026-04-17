@@ -113,7 +113,7 @@ export default function CertificatesPage() {
 
   const fmt = (iso: string) => {
     try { return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); }
-    catch { return iso ?? '—'; }
+    catch { return iso ?? '-'; }
   };
 
   return (
@@ -199,7 +199,7 @@ export default function CertificatesPage() {
             ))
           ) : !data?.dataAvailable ? (
             <div style={{ padding: '48px 20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>
-              {data?.appsScriptConfigured ? 'Certificate data unavailable — update your Apps Script to support listCertificates.' : 'Connect your Apps Script to view certificates.'}
+              {data?.appsScriptConfigured ? 'Certificate data unavailable - update your Apps Script to support listCertificates.' : 'Connect your Apps Script to view certificates.'}
             </div>
           ) : filtered.length === 0 ? (
             <div style={{ padding: '48px 20px', textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>
@@ -211,12 +211,12 @@ export default function CertificatesPage() {
               return (
                 <div key={cert.certificateId} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1.5fr 2fr 70px 110px 80px 140px', padding: '11px 20px', borderBottom: '1px solid #F3F4F6', alignItems: 'center', fontSize: 12, background: cert.isRevoked ? '#FFF5F5' : '#fff' }}>
                   <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cert.certificateId}</div>
-                  <div style={{ fontWeight: 600, color: '#1B3A6B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cert.studentName || '—'}</div>
+                  <div style={{ fontWeight: 600, color: '#1B3A6B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cert.studentName || '-'}</div>
                   <div style={{ color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>{cert.email}</div>
                   <div>
                     <span style={{ background: cert.course === '3SFM' ? '#EFF6FF' : '#F0FDF4', color: cert.course === '3SFM' ? '#1D4ED8' : '#166534', borderRadius: 20, padding: '2px 7px', fontSize: 10, fontWeight: 700 }}>{cert.course}</span>
                   </div>
-                  <div style={{ color: '#6B7280', fontSize: 11 }}>{cert.issuedAt ? fmt(cert.issuedAt) : '—'}</div>
+                  <div style={{ color: '#6B7280', fontSize: 11 }}>{cert.issuedAt ? fmt(cert.issuedAt) : '-'}</div>
                   <div>
                     {cert.isRevoked
                       ? <span style={{ background: '#FEF2F2', color: '#DC2626', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700 }}>Revoked</span>

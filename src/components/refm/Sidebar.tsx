@@ -95,7 +95,7 @@ export default function Sidebar({
           const isOverviewDisabled = mod.key === 'overview' && !activeProjectId;
           const isFeatureLocked = subLoaded && !!mod.featureKey && !canAccess(mod.featureKey);
 
-          // Feature lock overrides "coming soon" disabled — user sees upgrade CTA instead
+          // Feature lock overrides "coming soon" disabled - user sees upgrade CTA instead
           const isDisabled = isFeatureLocked
             ? false
             : isDisabledByPermission || isDisabledByConfig || isOverviewDisabled;

@@ -6,8 +6,8 @@ import { getAllPageSections, getFounderProfile, cms } from '@/src/lib/shared/cms
 export const revalidate = 60;
 
 export const metadata: Metadata = {
-  title: 'Book a Meeting — Financial Modeler Pro',
-  description: 'Schedule a call with Ahmad Din — Corporate Finance & Financial Modeling Expert.',
+  title: 'Book a Meeting - Financial Modeler Pro',
+  description: 'Schedule a call with Ahmad Din - Corporate Finance & Financial Modeling Expert.',
 };
 
 export default async function BookAMeetingPage() {

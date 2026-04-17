@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
 
   const cleanEmail = email.trim().toLowerCase();
   const cleanRegId = registrationId.trim();
-  // `refresh=1` busts cache — dashboard calls this after assessment submission
+  // `refresh=1` busts cache - dashboard calls this after assessment submission
   const refresh    = req.nextUrl.searchParams.get('refresh') === '1';
   const cacheKey   = `${cleanEmail}:${cleanRegId}`;
 
@@ -63,7 +63,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── Fetch progress — always return 200, never hard-error ────────────────────
+  // ── Fetch progress - always return 200, never hard-error ────────────────────
   try {
     const debug  = req.nextUrl.searchParams.get('debug') === '1';
     const result = await getStudentProgress(cleanEmail, cleanRegId);
@@ -116,7 +116,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ success: true, data: result.data });
     }
 
-    // Apps Script returned success:false or data was empty — serve empty progress
+    // Apps Script returned success:false or data was empty - serve empty progress
     console.warn('[training/progress] Apps Script returned:', result.success, result.error);
     return NextResponse.json({
       success: true,

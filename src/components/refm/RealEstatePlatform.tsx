@@ -99,17 +99,17 @@ export const sidebarModules = [
   { key: 'dashboard', icon: '📊', label: 'Dashboard',                  featureKey: null,        requiredPlan: null,           badge: null,   badgeClass: '' },
   { key: 'projects',  icon: '🏗️', label: 'Projects',                   featureKey: null,        requiredPlan: null,           badge: null,   badgeClass: '' },
   { key: 'overview',  icon: '📋', label: 'Overview',                   featureKey: null,        requiredPlan: null,           badge: null,   badgeClass: '',       disabledReason: 'Select a project first' },
-  { key: 'module1',   icon: '🧱', label: 'Module 1 — Setup',           featureKey: 'module_1',  requiredPlan: 'free',         badge: '✓',    badgeClass: 'badge-done' },
-  { key: 'module2',   icon: '💰', label: 'Module 2 — Revenue',         featureKey: 'module_2',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module3',   icon: '📉', label: 'Module 3 — OpEx',            featureKey: 'module_3',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module4',   icon: '📈', label: 'Module 4 — Returns',         featureKey: 'module_4',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module5',   icon: '📑', label: 'Module 5 — Financials',      featureKey: 'module_5',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module6',   icon: '📊', label: 'Module 6 — Reports',         featureKey: 'module_6',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module7',   icon: '🔀', label: 'Module 7 — Scenarios',       featureKey: 'module_7',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module8',   icon: '🏙️', label: 'Module 8 — Portfolio',       featureKey: 'module_8',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module9',   icon: '📡', label: 'Module 9 — Market Data',     featureKey: 'module_9',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module10',  icon: '🤝', label: 'Module 10 — Collaborate',    featureKey: 'module_10', requiredPlan: 'professional', disabled: true,  badge: null, badgeClass: '', disabledReason: 'Requires Professional plan' },
-  { key: 'module11',  icon: '🔌', label: 'Module 11 — API Access',     featureKey: 'module_11', requiredPlan: 'enterprise',   disabled: true,  badge: null, badgeClass: '', disabledReason: 'Requires Enterprise plan' },
+  { key: 'module1',   icon: '🧱', label: 'Module 1 - Setup',           featureKey: 'module_1',  requiredPlan: 'free',         badge: '✓',    badgeClass: 'badge-done' },
+  { key: 'module2',   icon: '💰', label: 'Module 2 - Revenue',         featureKey: 'module_2',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
+  { key: 'module3',   icon: '📉', label: 'Module 3 - OpEx',            featureKey: 'module_3',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
+  { key: 'module4',   icon: '📈', label: 'Module 4 - Returns',         featureKey: 'module_4',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
+  { key: 'module5',   icon: '📑', label: 'Module 5 - Financials',      featureKey: 'module_5',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
+  { key: 'module6',   icon: '📊', label: 'Module 6 - Reports',         featureKey: 'module_6',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
+  { key: 'module7',   icon: '🔀', label: 'Module 7 - Scenarios',       featureKey: 'module_7',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
+  { key: 'module8',   icon: '🏙️', label: 'Module 8 - Portfolio',       featureKey: 'module_8',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
+  { key: 'module9',   icon: '📡', label: 'Module 9 - Market Data',     featureKey: 'module_9',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
+  { key: 'module10',  icon: '🤝', label: 'Module 10 - Collaborate',    featureKey: 'module_10', requiredPlan: 'professional', disabled: true,  badge: null, badgeClass: '', disabledReason: 'Requires Professional plan' },
+  { key: 'module11',  icon: '🔌', label: 'Module 11 - API Access',     featureKey: 'module_11', requiredPlan: 'enterprise',   disabled: true,  badge: null, badgeClass: '', disabledReason: 'Requires Enterprise plan' },
 ] as const;
 
 export const m1Tabs = [
@@ -389,7 +389,7 @@ export default function RealEstatePlatform() {
       case 'percent_cash_land':     return (cost.value / 100) * a.cashLandValue;
       case 'percent_inkind_land':   return (cost.value / 100) * a.inKindLandValue;
       case 'percent_base': {
-        // Fix 2: Restore selectedIds mechanism — base = only explicitly checked items.
+        // Fix 2: Restore selectedIds mechanism - base = only explicitly checked items.
         const base = (cost.selectedIds ?? [])
           .filter(sid => sid !== cost.id)
           .map(sid => (costsArr ?? []).find(c => c.id === sid))
@@ -470,7 +470,7 @@ export default function RealEstatePlatform() {
     return assets.reduce((sum, a) => sum + calculateItemTotal(cost, a), 0);
   }, [showResidential, showHospitality, showRetail, calculateItemTotal]);
 
-  // ── Fix 6: calcItemTotalV14 — developer fee circular reference formula ──
+  // ── Fix 6: calcItemTotalV14 - developer fee circular reference formula ──
   // When devFeeMode='include' and method='percent_base': total = base * rate / (1 - rate)
   const calcItemTotalV14 = useCallback((cost: CostItem, assetType: string, costsArr?: CostItem[]): number => {
     if (cost.method === 'percent_base' && costDevFeeMode[cost.id] === 'include') {
@@ -487,7 +487,7 @@ export default function RealEstatePlatform() {
     return calculateItemTotal(cost, assetType, costsArr);
   }, [calculateItemTotal, costDevFeeMode, residentialCosts, hospitalityCosts, retailCosts]);
 
-  // ── Fix 7: allocateToAssets — proportion of project-scope cost for an asset ──
+  // ── Fix 7: allocateToAssets - proportion of project-scope cost for an asset ──
   const allocateToAssets = useCallback((cost: CostItem, assetType: string): number => {
     const scope = costScope[cost.id] ?? (cost.id <= 4 ? 'asset' : 'project');
     if (scope === 'asset') return 1;
@@ -515,7 +515,7 @@ export default function RealEstatePlatform() {
       residentialGFA, hospitalityGFA, retailGFA,
       residentialCosts, hospitalityCosts, retailCosts, calculateItemTotal]);
 
-  // ── Fix 7: getAssetDirectCost — total cost for an asset using calcItemTotalV14 ──
+  // ── Fix 7: getAssetDirectCost - total cost for an asset using calcItemTotalV14 ──
   const getAssetDirectCost = useCallback((assetType: string): number => {
     const costs = assetType === 'residential' ? residentialCosts
       : assetType === 'hospitality' ? hospitalityCosts : retailCosts;
@@ -582,7 +582,7 @@ export default function RealEstatePlatform() {
       return calculateItemTotal(cost, assetType, costs);
     };
 
-    // Fix 4: Include ALL costs (land cash, locked rows) — no canDelete filter.
+    // Fix 4: Include ALL costs (land cash, locked rows) - no canDelete filter.
     const lineItems = costs.map(c => {
       const total     = getProportionedTotal(c);
       const debtPct   = getLineDebtPct(c.name);
@@ -604,7 +604,7 @@ export default function RealEstatePlatform() {
     const debtAdd   = new Array(totalPeriods + 1).fill(0);
     const equityAdd = new Array(totalPeriods + 1).fill(0);
 
-    // Fix 4 + Fix 3: dist[i] maps directly to debtAdd[i] — period 0 at index 0.
+    // Fix 4 + Fix 3: dist[i] maps directly to debtAdd[i] - period 0 at index 0.
     // All costs included; same-for-all locked rows are proportioned above.
     costs.forEach(cost => {
       const d       = getProportionedDist(cost);
@@ -617,7 +617,7 @@ export default function RealEstatePlatform() {
       });
     });
 
-    // Build running debt balance — two-phase approach:
+    // Build running debt balance - two-phase approach:
     // Phase 1 (P0..constructionPeriods): accumulate drawdowns + capitalized interest → no repayment
     // Phase 2 (ops): repay based on the ACTUAL closing balance at end of construction
     //   (= initial debt + all capitalized interest, not just the initial drawn debt)
@@ -626,7 +626,7 @@ export default function RealEstatePlatform() {
     const debtClose = new Array(totalPeriods + 1).fill(0);
     const interest  = new Array(totalPeriods + 1).fill(0);
 
-    // Phase 1 — construction (no repayment yet)
+    // Phase 1 - construction (no repayment yet)
     let debtBal = 0;
     for (let p = 0; p <= constructionPeriods; p++) {
       debtOpen[p] = debtBal;
@@ -644,7 +644,7 @@ export default function RealEstatePlatform() {
     // This correctly includes all capitalized interest rolled into the loan
     const repPerPeriod = repaymentPeriods > 0 ? debtClose[constructionPeriods] / repaymentPeriods : 0;
 
-    // Phase 2 — operations (repay + charge interest on declining balance)
+    // Phase 2 - operations (repay + charge interest on declining balance)
     for (let p = constructionPeriods + 1; p <= totalPeriods; p++) {
       debtOpen[p] = debtBal;
       const opIdx     = p - constructionPeriods;
@@ -846,7 +846,7 @@ export default function RealEstatePlatform() {
     }
   }, [handleLoadVersion]);
 
-  // ── Computed totals for financing — derived from finRes/finHosp/finRet lineItems ──
+  // ── Computed totals for financing - derived from finRes/finHosp/finRet lineItems ──
   const _allFins = [
     ...(showResidential && finRes  ? [finRes]  : []),
     ...(showHospitality && finHosp ? [finHosp] : []),
@@ -1202,14 +1202,14 @@ export default function RealEstatePlatform() {
           </div>
         );
 
-      // ── Module 8 — Portfolio (partial access on Free) ──────────────────────
+      // ── Module 8 - Portfolio (partial access on Free) ──────────────────────
       case 'module8': {
         const hasFullM8 = canAccess('module_8_full');
         return (
           <div className="module-view" style={{ position: 'relative' }}>
             <div style={{ padding: 'var(--sp-3)', opacity: hasFullM8 ? 1 : 0.5 }}>
               <h2 style={{ fontSize: 'var(--font-section)', fontWeight: 700, color: 'var(--color-heading)', marginBottom: 8 }}>
-                Module 8 — Portfolio Dashboard
+                Module 8 - Portfolio Dashboard
               </h2>
               <p style={{ color: 'var(--color-meta)', fontSize: 13 }}>Coming soon.</p>
             </div>
@@ -1240,31 +1240,31 @@ export default function RealEstatePlatform() {
         );
       }
 
-      // ── Module 9 — Market Data (basic KPIs only on Free) ────────────────────
+      // ── Module 9 - Market Data (basic KPIs only on Free) ────────────────────
       case 'module9': {
         const hasFullM9 = canAccess('module_9_full');
         return (
           <div className="module-view" style={{ padding: 'var(--sp-3)' }}>
             <h2 style={{ fontSize: 'var(--font-section)', fontWeight: 700, color: 'var(--color-heading)', marginBottom: 16 }}>
-              Module 9 — Market Data
+              Module 9 - Market Data
             </h2>
-            {/* Basic KPIs — visible on all plans */}
+            {/* Basic KPIs - visible on all plans */}
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 24 }}>
               {['GDV', 'Total Cost', 'Dev Margin'].map(k => (
                 <div key={k} className="kpi-card" style={{ minWidth: 160 }}>
                   <div className="kpi-label">{k}</div>
-                  <div className="kpi-value">—</div>
+                  <div className="kpi-value">-</div>
                   <div className="kpi-sub">Coming soon</div>
                 </div>
               ))}
             </div>
-            {/* Advanced metrics — locked for Free */}
+            {/* Advanced metrics - locked for Free */}
             <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden' }}>
               <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', opacity: 0.35, pointerEvents: 'none' }}>
                 {['Cap Rate', 'IRR', 'Equity Multiple', 'DSCR', 'NPV'].map(k => (
                   <div key={k} className="kpi-card" style={{ minWidth: 160 }}>
                     <div className="kpi-label">{k}</div>
-                    <div className="kpi-value">—</div>
+                    <div className="kpi-value">-</div>
                   </div>
                 ))}
               </div>

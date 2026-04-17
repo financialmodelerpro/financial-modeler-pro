@@ -103,7 +103,7 @@ export function CourseTopBar({
             href={`${youtubeUrl}${youtubeUrl.includes('?') ? '&' : '?'}lc=`}
             target="_blank"
             rel="noopener noreferrer"
-            title="Ask a question on YouTube — get a quick answer"
+            title="Ask a question on YouTube - get a quick answer"
             style={iconBtnStyle}
           >
             <MessageCircle size={14} /> Ask Question
@@ -120,7 +120,7 @@ export function CourseTopBar({
           {/* Divider */}
           <div style={{ width: 1, height: 24, background: 'rgba(255,255,255,0.15)', margin: '0 8px' }} />
 
-          {/* Step 1 — Mark Complete button (video ended, not yet complete) */}
+          {/* Step 1 - Mark Complete button (video ended, not yet complete) */}
           {onMarkComplete && !isCompleted && (
             <button
               onClick={handleMarkCompleteWithPopup}
@@ -136,7 +136,7 @@ export function CourseTopBar({
             </button>
           )}
 
-          {/* Step 2 — Completed indicator */}
+          {/* Step 2 - Completed indicator */}
           {isCompleted && (
             <span style={{
               display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -148,7 +148,7 @@ export function CourseTopBar({
             </span>
           )}
 
-          {/* Step 3 — Assessment button (after complete) */}
+          {/* Step 3 - Assessment button (after complete) */}
           {assessmentUrl && assessmentReady && (
             <Link
               href={assessmentUrl}

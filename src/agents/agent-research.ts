@@ -1,2 +1,2 @@
-// agent-research.ts — placeholder
+// agent-research.ts - placeholder
 export {};

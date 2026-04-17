@@ -75,7 +75,7 @@ export default function AuditLogViewer() {
     <div style={{ fontFamily: 'Inter,sans-serif' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <span style={{ fontSize: 12, color: 'var(--color-meta)' }}>
-          {total} total entries — showing {offset + 1}–{Math.min(offset + LIMIT, total)}
+          {total} total entries - showing {offset + 1}-{Math.min(offset + LIMIT, total)}
         </span>
         <button onClick={() => load(0)} style={{ padding: '5px 14px', fontSize: 12, fontWeight: 600, borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)', background: 'var(--color-grey-white)', cursor: 'pointer', fontFamily: 'Inter,sans-serif' }}>
           ↻ Refresh

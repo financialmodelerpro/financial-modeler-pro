@@ -11,7 +11,7 @@ interface LockedOutData {
 }
 
 export async function lockedOutTemplate({ name, sessionName, reason, attemptsUsed, maxAttempts }: LockedOutData) {
-  const subject = `Access Restricted — ${sessionName}`;
+  const subject = `Access Restricted - ${sessionName}`;
 
   const html = await baseLayoutBranded(`
     ${h1('Session Access Restricted')}
@@ -38,7 +38,7 @@ export async function lockedOutTemplate({ name, sessionName, reason, attemptsUse
     </p>
   `);
 
-  const text = `Financial Modeler Pro — Session Access Restricted\n\n${name ? `Hi ${name},\n\n` : ''}Your access to ${sessionName} has been temporarily restricted.\n\n${reason ?? ''}\n\nContact support: ${SUPPORT_EMAIL}`;
+  const text = `Financial Modeler Pro - Session Access Restricted\n\n${name ? `Hi ${name},\n\n` : ''}Your access to ${sessionName} has been temporarily restricted.\n\n${reason ?? ''}\n\nContact support: ${SUPPORT_EMAIL}`;
 
   return { subject, html, text };
 }

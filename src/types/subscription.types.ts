@@ -1,4 +1,4 @@
-// ── Feature keys — single source of truth ────────────────────────────────────
+// ── Feature keys - single source of truth ────────────────────────────────────
 export type FeatureKey =
   // Individual module access
   | 'module_1' | 'module_2' | 'module_3' | 'module_4'  | 'module_5'

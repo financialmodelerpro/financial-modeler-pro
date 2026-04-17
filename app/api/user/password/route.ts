@@ -1,5 +1,5 @@
 /**
- * PATCH /api/user/password — change password (requires current password)
+ * PATCH /api/user/password - change password (requires current password)
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';

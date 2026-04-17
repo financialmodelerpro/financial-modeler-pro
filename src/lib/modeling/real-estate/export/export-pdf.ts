@@ -1,2 +1,2 @@
-// export-pdf.ts — placeholder
+// export-pdf.ts - placeholder
 export {};

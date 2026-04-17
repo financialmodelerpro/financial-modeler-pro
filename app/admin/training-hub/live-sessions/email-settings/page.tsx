@@ -211,7 +211,7 @@ export default function EmailSettingsPage() {
                       Available placeholders: {PLACEHOLDERS}
                     </div>
                     <div style={{ fontSize: 10, color: '#9CA3AF' }}>
-                      Conditional blocks: {'{{#key}}...content...{{/key}}'} — shown only if key has a value
+                      Conditional blocks: {'{{#key}}...content...{{/key}}'} - shown only if key has a value
                     </div>
                   </div>
 

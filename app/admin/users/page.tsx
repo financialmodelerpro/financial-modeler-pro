@@ -209,7 +209,7 @@ export default function AdminUsersPage() {
                     <td style={{ padding: '12px 16px', fontSize: 13, color: '#374151' }}>{u.email}</td>
 
                     {/* Name */}
-                    <td style={{ padding: '12px 16px', fontSize: 13, color: '#374151' }}>{u.name ?? '—'}</td>
+                    <td style={{ padding: '12px 16px', fontSize: 13, color: '#374151' }}>{u.name ?? '-'}</td>
 
                     {/* Role dropdown */}
                     <td style={{ padding: '12px 16px' }}>

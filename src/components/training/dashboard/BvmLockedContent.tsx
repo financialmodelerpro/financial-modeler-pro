@@ -12,7 +12,7 @@ export function BvmLockedContent({ sfmProgress, sfmTotal, onContinue }: BvmLocke
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '80px 24px', minHeight: 400 }}>
       <div style={{ fontSize: 64, marginBottom: 20 }}>🔒</div>
       <h2 style={{ fontSize: 'clamp(18px,3vw,24px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 12 }}>
-        Business Valuation Modeling — Locked
+        Business Valuation Modeling - Locked
       </h2>
       <p style={{ fontSize: 14, color: '#6B7280', maxWidth: 420, lineHeight: 1.6, marginBottom: 28 }}>
         Complete the 3-Statement Financial Modeling course to unlock Business Valuation Methods.

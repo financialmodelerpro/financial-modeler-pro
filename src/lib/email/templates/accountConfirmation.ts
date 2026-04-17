@@ -9,12 +9,12 @@ interface AccountConfirmationData {
 }
 
 export async function accountConfirmationTemplate({ name, email, confirmUrl }: AccountConfirmationData) {
-  const subject = 'Welcome to Financial Modeler Pro — Confirm Your Account';
+  const subject = 'Welcome to Financial Modeler Pro - Confirm Your Account';
 
   const html = await baseLayoutBranded(`
     ${h1(`Welcome, ${name}!`)}
     ${p(`Your Financial Modeler Pro account has been created for <strong>${email}</strong>.`)}
-    ${p('You now have access to the Modeling Hub — professional financial modeling tools built for real-world transactions.')}
+    ${p('You now have access to the Modeling Hub - professional financial modeling tools built for real-world transactions.')}
 
     ${confirmUrl ? `
     <div style="background:#F0F6FF;border-radius:8px;padding:20px 24px;margin:20px 0;">

@@ -14,8 +14,8 @@ interface QuizResultData {
 
 export async function quizResultTemplate({ name, sessionName, score, passMark, passed, attemptsUsed, maxAttempts }: QuizResultData) {
   const subject = passed
-    ? `✓ Passed: ${sessionName} — Score ${score}%`
-    : `Result: ${sessionName} — Score ${score}%`;
+    ? `✓ Passed: ${sessionName} - Score ${score}%`
+    : `Result: ${sessionName} - Score ${score}%`;
 
   const scoreColor  = passed ? '#2EAA4A' : '#EF4444';
   const scoreBg     = passed ? '#F0FDF4' : '#FEF2F2';
@@ -43,10 +43,10 @@ export async function quizResultTemplate({ name, sessionName, score, passMark, p
     </div>
 
     ${divider()}
-    ${p('Keep up the great work — every session brings you closer to your certificate.', 'font-size:13px;color:#64748B;')}
+    ${p('Keep up the great work - every session brings you closer to your certificate.', 'font-size:13px;color:#64748B;')}
   `);
 
-  const text = `Financial Modeler Pro — Quiz Result\n\n${name ? `Hi ${name},\n\n` : ''}Result for ${sessionName}: ${statusLabel}\nScore: ${score}% (Pass mark: ${passMark}%)\n\nDashboard: ${APP_URL}/training/dashboard`;
+  const text = `Financial Modeler Pro - Quiz Result\n\n${name ? `Hi ${name},\n\n` : ''}Result for ${sessionName}: ${statusLabel}\nScore: ${score}% (Pass mark: ${passMark}%)\n\nDashboard: ${APP_URL}/training/dashboard`;
 
   return { subject, html, text };
 }

@@ -407,7 +407,7 @@ function TextImageEditor({ content, onChange }: { content: Record<string, unknow
         )}
       </div>
 
-      {/* Side image — always visible */}
+      {/* Side image - always visible */}
       <div style={{ marginTop: 10, padding: 10, background: '#F0FFF4', borderRadius: 8, border: '1px solid #BBF7D0' }}>
         <div style={{ fontSize: 11, fontWeight: 800, color: '#15803D', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Side Image <span style={{ fontWeight: 400, textTransform: 'none', color: '#6B7280' }}>(shown beside text content)</span></div>
         <div style={{ display: 'flex', gap: 6 }}>
@@ -1630,7 +1630,7 @@ export default function PageBuilderEditorPage() {
                                 {TYPE_LABELS[section.section_type] ?? section.section_type}
                               </div>
                               <div style={{ fontSize: 10, color: '#9CA3AF', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                                {(section.content.heading as string) || (section.content.headline as string) || (section.content.body as string)?.slice(0, 40) || '—'}
+                                {(section.content.heading as string) || (section.content.headline as string) || (section.content.body as string)?.slice(0, 40) || '-'}
                               </div>
                             </div>
                             <button onClick={e => { e.stopPropagation(); toggleVisibility(section.id); }} title={section.visible ? 'Hide' : 'Show'}

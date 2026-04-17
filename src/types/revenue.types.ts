@@ -1,5 +1,5 @@
-// revenue.types.ts — Module 2: Revenue & Sales Projections
-// Placeholder — will be populated when Module 2 is built
+// revenue.types.ts - Module 2: Revenue & Sales Projections
+// Placeholder - will be populated when Module 2 is built
 
 export type SalesPhasing = 'even' | 'front-loaded' | 'back-loaded' | 'manual';
 

@@ -14,7 +14,7 @@ interface ShareModalProps {
 export function ShareModal({ label, certUrl, cmsTitle, cmsMessageTemplate, onClose, onCopyDone }: ShareModalProps) {
   const pageUrl  = `${process.env.NEXT_PUBLIC_LEARN_URL || 'https://learn.financialmodelerpro.com'}/training`;
   const shareUrl = certUrl || pageUrl;
-  const defaultMsg = `I just ${label} at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — Free certification program: ${pageUrl}${certUrl ? `\n\nVerify certificate: ${certUrl}` : ''}\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
+  const defaultMsg = `I just ${label} at Financial Modeler Pro!\n\nBuilding institutional-grade financial models - Free certification program: ${pageUrl}${certUrl ? `\n\nVerify certificate: ${certUrl}` : ''}\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
   const resolvedMsg = cmsMessageTemplate
     ? cmsMessageTemplate.replace('{action}', label) + (certUrl ? `\n\nVerify certificate: ${certUrl}` : '')
     : defaultMsg;

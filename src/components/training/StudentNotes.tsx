@@ -99,7 +99,7 @@ export function StudentNotes({ sessionId, studentEmail }: StudentNotesProps) {
         }}
       />
       <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6 }}>
-        Your private notes — only visible to you
+        Your private notes - only visible to you
       </div>
     </div>
   );

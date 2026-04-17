@@ -1,5 +1,5 @@
 /**
- * /contact — Public contact page
+ * /contact - Public contact page
  */
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
@@ -11,7 +11,7 @@ import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
 export const revalidate = 0;
 
 export const metadata = {
-  title: 'Contact Us — Financial Modeler Pro',
+  title: 'Contact Us - Financial Modeler Pro',
   description: 'Get in touch with the Financial Modeler Pro team.',
 };
 
@@ -70,7 +70,7 @@ export default async function ContactPage() {
     <section style={{ padding: '56px 40px 80px' }}>
       <div style={{ maxWidth: 1000, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 40, alignItems: 'start' }}>
 
-        {/* Left — Contact info */}
+        {/* Left - Contact info */}
         <div>
           <h2 style={{ fontSize: 20, fontWeight: 800, color: '#1B3A6B', marginBottom: 24 }}>Contact Information</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -117,7 +117,7 @@ export default async function ContactPage() {
           </div>
         </div>
 
-        {/* Right — Contact form */}
+        {/* Right - Contact form */}
         <div style={{ background: '#fff', borderRadius: 16, padding: '36px 32px', border: '1px solid #E5E7EB', boxShadow: '0 4px 24px rgba(0,0,0,0.06)' }}>
           <h2 style={{ fontSize: 20, fontWeight: 800, color: '#1B3A6B', marginBottom: 24 }}>Send a Message</h2>
           <ContactForm />

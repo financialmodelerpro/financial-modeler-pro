@@ -19,9 +19,9 @@ interface FieldDef { section: string; key: string; label: string; multiline?: bo
 const FIELDS_BASIC: FieldDef[] = [
   { section: 'bio', key: 'name',         label: 'Full Name',        placeholder: 'Ahmad Din' },
   { section: 'bio', key: 'title',        label: 'Title / Role',     placeholder: 'Founder & Lead Instructor' },
-  { section: 'bio', key: 'organisation', label: 'Organisation',     placeholder: 'CEO & Founder — Financial Modeler Pro | PaceMakers Business Consultants' },
+  { section: 'bio', key: 'organisation', label: 'Organisation',     placeholder: 'CEO & Founder - Financial Modeler Pro | PaceMakers Business Consultants' },
   { section: 'bio', key: 'location',     label: 'Location',         placeholder: 'Lahore, Pakistan' },
-  // photo_url is managed exclusively by the Upload widget below — omitting here prevents
+  // photo_url is managed exclusively by the Upload widget below - omitting here prevents
   // saveTab() from overwriting the base64 value with whatever appears in a text input.
 ];
 
@@ -246,7 +246,7 @@ export default function AdminFounderPage() {
                 })}
               </div>
 
-              {/* Photo Upload — only shown on Basic Info tab */}
+              {/* Photo Upload - only shown on Basic Info tab */}
               {activeTab === 'basic' && (
                 <div style={{ marginTop: 24, padding: 20, background: '#F4F7FC', border: '1px solid #E8F0FB', borderRadius: 10 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12 }}>Upload Profile Photo</div>

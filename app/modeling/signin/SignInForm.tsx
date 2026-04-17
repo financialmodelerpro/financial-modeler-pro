@@ -165,7 +165,7 @@ function ModelingSignInInner() {
       setVerifyingOtp(false);
       return;
     }
-    // Device verified — now complete sign in (device is now trusted so it will pass)
+    // Device verified - now complete sign in (device is now trusted so it will pass)
     const result = await signIn('credentials', { email: deviceEmail, password, redirect: false });
     setVerifyingOtp(false);
     if (result?.error) { setDeviceError('Sign in failed. Please go back and try again.'); return; }
@@ -299,7 +299,7 @@ function ModelingSignInInner() {
                   {showResendConfirm && (
                     <div style={{ marginTop: 8, textAlign: 'center' }}>
                       {resendConfirmStatus === 'sent' ? (
-                        <span style={{ fontSize: 12, color: '#15803D', fontWeight: 600 }}>✅ Confirmation email sent — check your inbox.</span>
+                        <span style={{ fontSize: 12, color: '#15803D', fontWeight: 600 }}>✅ Confirmation email sent - check your inbox.</span>
                       ) : resendConfirmStatus === 'error' ? (
                         <span style={{ fontSize: 12, color: '#DC2626' }}>Failed to send. Please try again.</span>
                       ) : (

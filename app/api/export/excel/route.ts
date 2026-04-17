@@ -100,7 +100,7 @@ interface ExportPayload {
 }
 
 // ── Colour constants ──────────────────────────────────────────────────────────
-const NAVY   = '1B4F8A';   // primary navy — uniform across all table headers
+const NAVY   = '1B4F8A';   // primary navy - uniform across all table headers
 const WHITE  = 'FFFFFF';
 const YELLOW = 'FEF3C7';
 const YELLOW_TEXT = '92400E';
@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
   const totalPeriods = d.constructionPeriods + d.operationsPeriods;
 
   // ════════════════════════════════════════════════════════
-  // SHEET 1 — INPUTS
+  // SHEET 1 - INPUTS
   // ════════════════════════════════════════════════════════
   const ws1 = wb.addWorksheet('📋 Inputs', { properties: { tabColor: { argb: NAVY } } });
   ws1.columns = [
@@ -308,7 +308,7 @@ export async function POST(req: NextRequest) {
   sectionHeader(ws1, 'DEVELOPMENT COSTS');
 
   const renderCostSection = (costs: CostItem[], label: string) => {
-    sectionHeader(ws1, `${label} — DEVELOPMENT COSTS`, 7, GREEN);
+    sectionHeader(ws1, `${label} - DEVELOPMENT COSTS`, 7, GREEN);
     subHeader(ws1, ['Cost Item', 'Method', 'Input Value', 'Total Cost', 'Start Period', 'End Period', 'Phasing']);
     let grandTotal = 0;
     costs.forEach((cost, i) => {
@@ -369,7 +369,7 @@ export async function POST(req: NextRequest) {
   });
 
   // ════════════════════════════════════════════════════════
-  // SHEET 2 — OUTPUTS (Cost + Financing Schedules)
+  // SHEET 2 - OUTPUTS (Cost + Financing Schedules)
   // ════════════════════════════════════════════════════════
   const maxPer = Math.min(totalPeriods, 30);
   const ws2 = wb.addWorksheet('📊 Schedules', { properties: { tabColor: { argb: GREEN } } });
@@ -388,7 +388,7 @@ export async function POST(req: NextRequest) {
   };
 
   // Title row
-  const h1 = ws2.addRow(['📊 OUTPUT SCHEDULES — DEVELOPMENT COST & FINANCING']);
+  const h1 = ws2.addRow(['📊 OUTPUT SCHEDULES - DEVELOPMENT COST & FINANCING']);
   h1.height = 26;
   styleCell(h1.getCell(1), { bold: true, sz: 13, fg: NAVY, color: WHITE, halign: 'center' });
   ws2.mergeCells(h1.number, 1, h1.number, maxPer + 2);
@@ -402,7 +402,7 @@ export async function POST(req: NextRequest) {
   // ── Financing summary per asset ──
   const renderFinancingSchedule = (fin: FinancingResult, assetLabel: string) => {
     // Section header
-    const sh = ws2.addRow([`${assetLabel.toUpperCase()} — FINANCING SCHEDULE (${d.currency})`]);
+    const sh = ws2.addRow([`${assetLabel.toUpperCase()} - FINANCING SCHEDULE (${d.currency})`]);
     sh.height = 20;
     styleCell(sh.getCell(1), { bold: true, sz: 11, fg: GREEN, color: WHITE, halign: 'center' });
     ws2.mergeCells(sh.number, 1, sh.number, maxPer + 2);

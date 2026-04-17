@@ -1,2 +1,2 @@
-// core-validators.ts — placeholder
+// core-validators.ts - placeholder
 export {};

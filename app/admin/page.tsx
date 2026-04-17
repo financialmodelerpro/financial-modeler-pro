@@ -45,7 +45,7 @@ export default function AdminLandingPage() {
             Welcome
           </h1>
           <p style={{ fontSize: 14, color: '#6B7280', margin: '0 0 8px', lineHeight: 1.6 }}>
-            Restricted access — authorized personnel only.
+            Restricted access - authorized personnel only.
           </p>
           <p style={{ fontSize: 13, color: '#9CA3AF', margin: '0 0 36px' }}>
             Please sign in to access the administration dashboard.

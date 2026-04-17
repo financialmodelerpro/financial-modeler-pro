@@ -153,7 +153,7 @@ export default function SettingsPage() {
       if (!res.ok) { showToast(j.error ?? 'Failed to save', 'error'); return; }
       setProfile(p => p ? { ...p, email: emailVal } : p);
       setEmailPassword('');
-      showToast('Email updated — please sign in again to see it reflected', 'success');
+      showToast('Email updated - please sign in again to see it reflected', 'success');
     } finally { setSavingEmail(false); }
   }
 

@@ -16,7 +16,7 @@ export function TestimonialsCarousel({ testimonials, heading, subheading }: Prop
 
   return (
     <section style={{ background: '#F5F7FA', padding: 'clamp(48px,7vw,80px) 0', overflow: 'hidden' }}>
-      {/* Heading — full width centred */}
+      {/* Heading - full width centred */}
       <div style={{ textAlign: 'center', marginBottom: 44, padding: '0 40px' }}>
         <div style={{
           fontSize: 12, fontWeight: 700, color: '#2EAA4A',
@@ -104,7 +104,7 @@ function courseBadge(t: Testimonial) {
 
 function Card({ t }: { t: Testimonial }) {
   const initials = t.name.split(' ').map(w => w[0] ?? '').join('').toUpperCase().slice(0, 2) || '?';
-  // Strip "· 3SFM" / "· BVM" suffix from role — shown separately as badge
+  // Strip "· 3SFM" / "· BVM" suffix from role - shown separately as badge
   const cleanRole = (t.role ?? '').replace(/[\s·]+(?:3SFM|BVM|SFM)[\s·]*/gi, '').trim().replace(/[·\s]+$/, '').trim();
   const subtitle = [cleanRole, t.company].filter(Boolean).join(' · ');
 

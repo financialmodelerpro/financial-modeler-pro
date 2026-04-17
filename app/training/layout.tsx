@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
-const OG_TITLE  = 'Financial Modeler Pro — Free Financial Modeling Certification';
-const OG_DESC   = 'Build institutional-grade financial models. Free certification program with 3-Statement Financial Modeling and Business Valuation courses. Start free — no credit card required.';
+const OG_TITLE  = 'Financial Modeler Pro - Free Financial Modeling Certification';
+const OG_DESC   = 'Build institutional-grade financial models. Free certification program with 3-Statement Financial Modeling and Business Valuation courses. Start free - no credit card required.';
 
 export const metadata: Metadata = {
   metadataBase: new URL(LEARN_URL),

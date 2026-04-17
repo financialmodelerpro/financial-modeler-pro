@@ -174,7 +174,7 @@ export function ShareExperienceModal({
         <div style={{ padding: '20px 24px 24px' }}>
 
           {/* ════════════════════════════════════════════════════════════════ */}
-          {/* TAB 1 — Written Review                                         */}
+          {/* TAB 1 - Written Review                                         */}
           {/* ════════════════════════════════════════════════════════════════ */}
           {tab === 'written' && (
             <div>
@@ -241,7 +241,7 @@ export function ShareExperienceModal({
           )}
 
           {/* ════════════════════════════════════════════════════════════════ */}
-          {/* TAB 2 — Video Testimonial                                      */}
+          {/* TAB 2 - Video Testimonial                                      */}
           {/* ════════════════════════════════════════════════════════════════ */}
           {tab === 'video' && (
             <div>
@@ -320,7 +320,7 @@ export function ShareExperienceModal({
           )}
 
           {/* ════════════════════════════════════════════════════════════════ */}
-          {/* TAB 3 — Social Share                                           */}
+          {/* TAB 3 - Social Share                                           */}
           {/* ════════════════════════════════════════════════════════════════ */}
           {tab === 'social' && (
             <div>

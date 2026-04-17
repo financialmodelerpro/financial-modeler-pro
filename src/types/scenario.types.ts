@@ -1,4 +1,4 @@
-// scenario.types.ts — Scenario analysis types
+// scenario.types.ts - Scenario analysis types
 
 export type ScenarioType = 'base' | 'upside' | 'downside' | 'stress';
 

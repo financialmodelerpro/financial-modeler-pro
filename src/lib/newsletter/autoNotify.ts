@@ -56,7 +56,7 @@ function generateEmail(eventType: string, data: ContentData): { subject: string;
 }
 
 /**
- * Send an auto newsletter notification. Fire-and-forget — never throws.
+ * Send an auto newsletter notification. Fire-and-forget - never throws.
  * Call with `void sendAutoNewsletter(...)` to avoid blocking the parent operation.
  */
 export async function sendAutoNewsletter(

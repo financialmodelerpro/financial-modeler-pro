@@ -17,7 +17,7 @@ export default function BrandingThemeApplier() {
   const setBranding = useBrandingStore((s) => s.setBranding);
 
   // On first client render, load from localStorage and push into the store.
-  // This runs only once (empty dep array) and is safe — no SSR involvement.
+  // This runs only once (empty dep array) and is safe - no SSR involvement.
   useEffect(() => {
     const saved = loadBranding();
     setBranding(saved);

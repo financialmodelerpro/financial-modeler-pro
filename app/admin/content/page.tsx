@@ -37,7 +37,7 @@ export default function AdminContentPage() {
         const map: Record<string, string> = {};
         for (const row of j.rows ?? []) map[`${row.section}__${row.key}`] = row.value;
 
-        // Init stat items — try JSON array first, fall back to individual keys
+        // Init stat items - try JSON array first, fall back to individual keys
         const statsJson = map['stats__stats_bar_items'] ?? '';
         let parsed: StatRow[] | null = null;
         if (statsJson) {
@@ -227,7 +227,7 @@ export default function AdminContentPage() {
       const res  = await fetch('/api/admin/media', { method: 'POST', body: fd });
       const data = await res.json() as { url?: string; error?: string };
       if (!res.ok || !data.url) throw new Error(data.error ?? 'Upload failed');
-      // Store the public URL — never the base64 DataURL
+      // Store the public URL - never the base64 DataURL
       set('branding', 'logo_url', data.url);
       await fetch('/api/admin/content', {
         method: 'PATCH',
@@ -320,7 +320,7 @@ export default function AdminContentPage() {
             {tab === 'branding' && (
               <div>
                 <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 24, padding: '10px 14px', background: '#F5F3FF', border: '1px solid #DDD6FE', borderRadius: 7 }}>
-                  🎨 Header logo — appears in the navigation bar on <strong>all public pages</strong>. Upload PNG, SVG, or JPG (max 2 MB). Leave blank to use the default text logo.
+                  🎨 Header logo - appears in the navigation bar on <strong>all public pages</strong>. Upload PNG, SVG, or JPG (max 2 MB). Leave blank to use the default text logo.
                 </p>
 
                 {/* Current logo preview */}
@@ -351,7 +351,7 @@ export default function AdminContentPage() {
                         Clear Logo
                       </button>
                     )}
-                    <span style={{ fontSize: 11, color: '#9CA3AF' }}>PNG, SVG, JPG — max 2 MB</span>
+                    <span style={{ fontSize: 11, color: '#9CA3AF' }}>PNG, SVG, JPG - max 2 MB</span>
                   </div>
                   <input ref={logoUploadRef} type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" style={{ display: 'none' }} onChange={handleLogoFile} />
                 </div>
@@ -477,7 +477,7 @@ export default function AdminContentPage() {
               );
             })()}
 
-            {/* Obsolete tabs (hero, stats, about, pillars, cta) removed — migrated to Page Builder */}
+            {/* Obsolete tabs (hero, stats, about, pillars, cta) removed - migrated to Page Builder */}
 
             {/* ── Landing: Footer ── */}
             {tab === 'footer' && (

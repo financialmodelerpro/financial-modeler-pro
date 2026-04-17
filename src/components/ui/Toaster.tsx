@@ -77,10 +77,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** Hook — call from any component to show a toast. */
+/** Hook - call from any component to show a toast. */
 export function useToast(): ToastContext {
   return useContext(ToastCtx);
 }
 
-/** Convenience alias for the provider — render once in layout. */
+/** Convenience alias for the provider - render once in layout. */
 export function Toaster() { return null; } // placeholder; actual rendering is in ToastProvider

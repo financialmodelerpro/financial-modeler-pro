@@ -40,9 +40,9 @@ async function fetchLogo(): Promise<string> {
   return '';
 }
 
-/** GET /api/og — Training Hub OG banner */
+/** GET /api/og - Training Hub OG banner */
 export async function GET() {
-  // All fetches wrapped — route always returns a valid image
+  // All fetches wrapped - route always returns a valid image
   const [content, sections, logoDataUri, fonts] = await Promise.all([
     getCmsContent().catch(() => ({} as Record<string, Record<string, string>>)),
     getAllPageSections('training').catch(() => []),
@@ -53,7 +53,7 @@ export async function GET() {
   const h = heroRaw?.visible !== false ? heroRaw?.content as Record<string, unknown> | undefined : undefined;
 
   const badge    = (h?.badge as string)    || cms(content, 'training_page', 'hero_badge',    '🎓 Free Certification Program');
-  const headline = (h?.headline as string) || cms(content, 'training_page', 'hero_headline', 'Get Certified in Financial Modeling — Free');
+  const headline = (h?.headline as string) || cms(content, 'training_page', 'hero_headline', 'Get Certified in Financial Modeling - Free');
   const sub      = (h?.subtitle as string) || cms(content, 'training_page', 'hero_sub',      'Professional certification backed by real practitioner training. 100% free. Always.');
 
   return new ImageResponse(

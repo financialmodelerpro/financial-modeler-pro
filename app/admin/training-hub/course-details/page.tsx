@@ -135,7 +135,7 @@ export default function CourseDetailsAdminPage() {
                 color:      activeTab === tab ? '#fff'    : '#1B4F8A',
               }}
             >
-              {tab === '3sfm' ? '3SFM — 3-Statement FM' : 'BVM — Business Valuation'}
+              {tab === '3sfm' ? '3SFM - 3-Statement FM' : 'BVM - Business Valuation'}
             </button>
           ))}
         </div>

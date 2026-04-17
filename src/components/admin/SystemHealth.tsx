@@ -52,7 +52,7 @@ export default function SystemHealth() {
       results.push({ name: 'Permissions API', status: 'error', detail: String(e) });
     }
 
-    // 3. Environment variables — server-side check (avoids Next.js static inlining limitation)
+    // 3. Environment variables - server-side check (avoids Next.js static inlining limitation)
     try {
       const res = await fetch('/api/admin/env-check');
       if (res.ok) {
@@ -61,7 +61,7 @@ export default function SystemHealth() {
           results.push({
             name:   c.label,
             status: c.present ? 'ok' : c.required ? 'error' : 'warn',
-            detail: c.present ? 'Present' : c.required ? 'MISSING — required' : 'Not set (optional)',
+            detail: c.present ? 'Present' : c.required ? 'MISSING - required' : 'Not set (optional)',
           });
         }
       } else {

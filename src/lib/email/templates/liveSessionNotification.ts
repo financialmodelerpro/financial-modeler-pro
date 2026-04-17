@@ -60,7 +60,7 @@ async function emailShell(bannerText: string, body: string): Promise<string> {
 }
 
 /**
- * Announcement or reminder email — links to session page (not direct join link).
+ * Announcement or reminder email - links to session page (not direct join link).
  */
 export async function liveSessionNotificationTemplate(p: NotificationParams): Promise<{ subject: string; html: string }> {
   const subject = p.isReminder
@@ -98,7 +98,7 @@ export async function liveSessionNotificationTemplate(p: NotificationParams): Pr
 }
 
 /**
- * Registration confirmation email — sent when student registers for a session.
+ * Registration confirmation email - sent when student registers for a session.
  */
 export async function registrationConfirmationTemplate(p: ConfirmationParams): Promise<{ subject: string; html: string }> {
   const subject = `You're registered: ${p.sessionTitle} - ${p.sessionDate}`;

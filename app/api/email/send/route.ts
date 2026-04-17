@@ -6,10 +6,10 @@
  * Auth: Bearer token via RESEND_WEBHOOK_SECRET env var (optional but recommended).
  *
  * Body:
- *   template  — one of: otpVerification | registrationConfirmation | resendRegistrationId |
+ *   template  - one of: otpVerification | registrationConfirmation | resendRegistrationId |
  *               quizResult | certificateIssued | lockedOut | passwordReset | accountConfirmation
- *   to        — recipient email address
- *   data      — template-specific payload (see each template file for fields)
+ *   to        - recipient email address
+ *   data      - template-specific payload (see each template file for fields)
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
 
   let result: { subject: string; html: string; text: string };
 
-  // data is untrusted JSON — cast via unknown so templates can validate at runtime
+  // data is untrusted JSON - cast via unknown so templates can validate at runtime
   const d = data as unknown;
 
   try {

@@ -64,7 +64,7 @@ const fmtPct = (n: number) => `${n.toFixed(1)}%`;
 function REFMReport({ d }: { d: ExportPayload }) {
   const exportedAt = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
 
-  return React.createElement(Document, { title: `${d.projectLabel} — REFM Report` },
+  return React.createElement(Document, { title: `${d.projectLabel} - REFM Report` },
 
     // ── Cover Page ──
     React.createElement(Page, { size: 'A4', style: s.page },
@@ -72,13 +72,13 @@ function REFMReport({ d }: { d: ExportPayload }) {
         React.createElement(Text, { style: { fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 24, fontFamily: 'Helvetica-Bold', letterSpacing: 2 } }, 'REAL ESTATE FINANCIAL MODELING PLATFORM'),
         React.createElement(Text, { style: s.coverTitle }, d.projectLabel),
         React.createElement(Text, { style: s.coverSub }, d.versionLabel),
-        React.createElement(Text, { style: s.coverSub }, `Module 1 — Project Setup & Financial Structure`),
+        React.createElement(Text, { style: s.coverSub }, `Module 1 - Project Setup & Financial Structure`),
         React.createElement(Text, { style: s.coverMeta }, `Exported: ${exportedAt}`),
         React.createElement(Text, { style: s.coverMeta }, `Project Type: ${d.projectType}  ·  Country: ${d.country}  ·  Currency: ${d.currency}`),
         React.createElement(Text, { style: s.coverMeta }, `Model: ${d.modelType}  ·  Construction: ${d.constructionPeriods} ${d.modelType === 'monthly' ? 'months' : 'years'}  ·  Operations: ${d.operationsPeriods} ${d.modelType === 'monthly' ? 'months' : 'years'}`),
       ),
       React.createElement(View, { style: s.footer },
-        React.createElement(Text, { style: s.footerText }, 'REFM Pro — Confidential'),
+        React.createElement(Text, { style: s.footerText }, 'REFM Pro - Confidential'),
         React.createElement(Text, { style: s.footerText }, exportedAt),
       ),
     ),
@@ -87,7 +87,7 @@ function REFMReport({ d }: { d: ExportPayload }) {
     React.createElement(Page, { size: 'A4', style: s.page },
       React.createElement(View, { style: s.header },
         React.createElement(Text, { style: s.headerLeft }, `${d.projectLabel}  ›  ${d.versionLabel}`),
-        React.createElement(Text, { style: s.headerRight }, 'Module 1 — Project Setup'),
+        React.createElement(Text, { style: s.headerRight }, 'Module 1 - Project Setup'),
       ),
 
       // KPI grid
@@ -146,7 +146,7 @@ function REFMReport({ d }: { d: ExportPayload }) {
       ),
 
       React.createElement(View, { style: s.footer },
-        React.createElement(Text, { style: s.footerText }, 'REFM Pro — Confidential'),
+        React.createElement(Text, { style: s.footerText }, 'REFM Pro - Confidential'),
         React.createElement(Text, { render: ({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`, style: s.footerText }),
       ),
     ),
@@ -176,7 +176,7 @@ function REFMReport({ d }: { d: ExportPayload }) {
             React.createElement(Text, { style: s.cellR }, fmtPct(a.pct)),
             React.createElement(Text, { style: s.cellR }, fmt(a.gfa)),
             React.createElement(Text, { style: s.cellR }, fmt(a.bua)),
-            React.createElement(Text, { style: s.cellR }, '—'),
+            React.createElement(Text, { style: s.cellR }, '-'),
             React.createElement(Text, { style: s.cellR }, `${d.currency} ${fmt(a.lv)}`),
           )
         ),
@@ -191,7 +191,7 @@ function REFMReport({ d }: { d: ExportPayload }) {
         .filter(s => s.show)
         .map(({ costs, label }) =>
           React.createElement(View, { key: label, style: s.section },
-            React.createElement(Text, { style: s.greenTitle }, `${d.costInputMode === 'same-for-all' ? 'ALL ASSETS (SHARED)' : label} — DEVELOPMENT COSTS`),
+            React.createElement(Text, { style: s.greenTitle }, `${d.costInputMode === 'same-for-all' ? 'ALL ASSETS (SHARED)' : label} - DEVELOPMENT COSTS`),
             React.createElement(View, { style: { ...s.row, backgroundColor: '#1B4F8A' } },
               ...['Cost Item', 'Method', 'Input Value'].map(h =>
                 React.createElement(Text, { key: h, style: { ...s.cellR, color: '#FFFFFF', fontFamily: 'Helvetica-Bold' } }, h)
@@ -213,7 +213,7 @@ function REFMReport({ d }: { d: ExportPayload }) {
         ),
 
       React.createElement(View, { style: s.footer },
-        React.createElement(Text, { style: s.footerText }, 'REFM Pro — Confidential'),
+        React.createElement(Text, { style: s.footerText }, 'REFM Pro - Confidential'),
         React.createElement(Text, { render: ({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`, style: s.footerText }),
       ),
     ),
@@ -248,7 +248,7 @@ function REFMReport({ d }: { d: ExportPayload }) {
         { fin: d.finRet,  label: 'RETAIL' },
       ].filter(x => x.fin != null).map(({ fin, label }) =>
         React.createElement(View, { key: label, style: s.section },
-          React.createElement(Text, { style: s.greenTitle }, `${label} — FINANCING SUMMARY`),
+          React.createElement(Text, { style: s.greenTitle }, `${label} - FINANCING SUMMARY`),
           React.createElement(View, { style: { ...s.row, backgroundColor: '#1B6E50' } },
             ...['Cost Line', 'Total', 'Debt', 'Equity', 'Debt %'].map(h =>
               React.createElement(Text, { key: h, style: { ...s.cellR, color: '#FFFFFF', fontFamily: 'Helvetica-Bold' } }, h)
@@ -290,7 +290,7 @@ function REFMReport({ d }: { d: ExportPayload }) {
       ),
 
       React.createElement(View, { style: s.footer },
-        React.createElement(Text, { style: s.footerText }, 'REFM Pro — Confidential'),
+        React.createElement(Text, { style: s.footerText }, 'REFM Pro - Confidential'),
         React.createElement(Text, { render: ({ pageNumber, totalPages }) => `Page ${pageNumber} of ${totalPages}`, style: s.footerText }),
       ),
     ),

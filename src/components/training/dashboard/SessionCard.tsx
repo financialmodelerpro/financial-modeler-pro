@@ -16,7 +16,7 @@ export interface SessionCardProps {
   prog: SessionProgress | undefined;
   locked: boolean;
   ytUrl: string;
-  /** @deprecated — assessment uses internal /training/assessment route now */
+  /** @deprecated - assessment uses internal /training/assessment route now */
   formUrl?: string;
   isFinal: boolean;
   passedCount: number;
@@ -28,11 +28,11 @@ export interface SessionCardProps {
   onNoteSave: (sessionKey: string, content: string) => void;
   feedbackGiven: boolean;
   onFeedbackRequest: (sessionKey: string, sessionTitle: string) => void;
-  /** When true the entire BVM course is locked — show course content but lock Watch + Assessment buttons */
+  /** When true the entire BVM course is locked - show course content but lock Watch + Assessment buttons */
   bvmLocked?: boolean;
   /** Watch Video is locked until the previous session assessment is passed (independent of assessment lock) */
   watchLocked?: boolean;
-  /** Server-side timer bypass — admin toggled in course manager, stored in training_settings DB */
+  /** Server-side timer bypass - admin toggled in course manager, stored in training_settings DB */
   timerBypassed?: boolean;
   /** Course ID for internal watch page link */
   courseId?: string;
@@ -121,7 +121,7 @@ export function SessionCard({
             </div>
             {isFinal && locked && (
               <div style={{ fontSize: 11, color: '#DC2626', marginTop: 3, fontWeight: 600 }}>
-                {passedCount} of {regularCount} sessions passed — complete all to unlock
+                {passedCount} of {regularCount} sessions passed - complete all to unlock
               </div>
             )}
             {isFinal && !locked && (
@@ -139,7 +139,7 @@ export function SessionCard({
       {/* Row 2: score + attempts */}
       {!locked && (
         <div style={{ display: 'flex', gap: 20, fontSize: 12, color: '#6B7280', marginBottom: 10, paddingLeft: 38, flexWrap: 'wrap' }}>
-          <span>Score: <strong style={{ color: '#374151' }}>{attemptsUsed > 0 ? `${prog!.score}%` : '—'}</strong></span>
+          <span>Score: <strong style={{ color: '#374151' }}>{attemptsUsed > 0 ? `${prog!.score}%` : '-'}</strong></span>
           <span>Attempts: <strong style={{ color: '#374151' }}>{attemptsUsed} / {maxAttempts}</strong></span>
           {attemptsLeft < maxAttempts && attemptsLeft > 0 && !prog?.passed && (
             <span style={{ color: '#F59E0B', fontWeight: 600 }}>{attemptsLeft} attempt{attemptsLeft === 1 ? '' : 's'} left</span>
@@ -260,7 +260,7 @@ export function SessionCard({
           ? new Date(prog.completedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
           : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
         const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName || '')}&regId=${encodeURIComponent(regId)}`;
-        const shareText = `🏆 I just passed "${sessionTitle}" with ${prog.score}% in the ${courseName || 'Financial Modeling'} program at Financial Modeler Pro!\n\nBuilding institutional-grade financial models — completely free certification program.\n\n👉 https://learn.financialmodelerpro.com\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
+        const shareText = `🏆 I just passed "${sessionTitle}" with ${prog.score}% in the ${courseName || 'Financial Modeling'} program at Financial Modeler Pro!\n\nBuilding institutional-grade financial models - completely free certification program.\n\n👉 https://learn.financialmodelerpro.com\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
         return (
           <div onClick={() => { setShowShareModal(false); setTextCopied(false); }}
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
@@ -278,7 +278,7 @@ export function SessionCard({
                 style={{ width: '100%', padding: '10px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 12, fontFamily: 'Inter,sans-serif', resize: 'none', lineHeight: 1.6, boxSizing: 'border-box', marginBottom: 12, color: '#374151', background: '#F9FAFB' }} />
               {/* Instruction */}
               <div style={{ fontSize: 12, color: '#6B7280', background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8, padding: '10px 14px', marginBottom: 12, lineHeight: 1.5 }}>
-                💡 Click <strong>Share on LinkedIn</strong> below — your text is auto-copied. Just <strong>paste it (Ctrl+V)</strong> in LinkedIn and attach the downloaded card image.
+                💡 Click <strong>Share on LinkedIn</strong> below - your text is auto-copied. Just <strong>paste it (Ctrl+V)</strong> in LinkedIn and attach the downloaded card image.
               </div>
               {/* Action buttons */}
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

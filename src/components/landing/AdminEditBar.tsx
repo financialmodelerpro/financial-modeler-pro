@@ -30,7 +30,7 @@ export function AdminEditBar() {
     }}>
       <span style={{ fontSize: 14 }}>{editMode ? '✏️' : '👁️'}</span>
       <span style={{ fontWeight: 700 }}>
-        {editMode ? 'Edit Mode — hover any text to see editable fields, click to edit' : 'View Mode — editing paused'}
+        {editMode ? 'Edit Mode - hover any text to see editable fields, click to edit' : 'View Mode - editing paused'}
       </span>
       <div style={{ flex: 1 }} />
       <Link

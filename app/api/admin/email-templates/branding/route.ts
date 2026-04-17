@@ -8,7 +8,7 @@ async function checkAdmin() {
   return !!(session?.user && (session.user as { role?: string }).role === 'admin');
 }
 
-/** GET — return email_branding row */
+/** GET - return email_branding row */
 export async function GET() {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const sb = getServerClient();
@@ -16,7 +16,7 @@ export async function GET() {
   return NextResponse.json({ branding: data });
 }
 
-/** PATCH — upsert email_branding */
+/** PATCH - upsert email_branding */
 export async function PATCH(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const sb = getServerClient();

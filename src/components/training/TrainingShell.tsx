@@ -18,7 +18,7 @@ interface TrainingShellProps {
   children: ReactNode;
   /** Currently active nav key for sidebar highlight */
   activeNav?: 'dashboard' | 'live-sessions' | 'certificates';
-  /** When true, show only the top header bar — no sidebar, no footer */
+  /** When true, show only the top header bar - no sidebar, no footer */
   headerOnly?: boolean;
   /** CMS logo URL */
   logoUrl?: string;
@@ -316,7 +316,7 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
                 }
               }}
             />
-            {/* Accordion — session list */}
+            {/* Accordion - session list */}
             {sessionsExpanded && !sidebarCollapsed && (
               <div style={{ padding: '0 8px 4px' }}>
                 {!sessionsLoaded && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.3)', padding: '6px 12px' }}>Loading...</div>}

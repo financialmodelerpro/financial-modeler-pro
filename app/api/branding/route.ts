@@ -6,7 +6,7 @@ import type { BrandingConfig } from '@/src/types/branding.types';
 
 /**
  * GET /api/branding?scope=<userId|global>
- * Public — no auth required. Returns branding config for a given scope.
+ * Public - no auth required. Returns branding config for a given scope.
  */
 export async function GET(req: NextRequest) {
   try {
@@ -49,11 +49,11 @@ export async function PATCH(req: NextRequest) {
   const scope  = body.scope ?? 'global';
 
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    // No Supabase configured — silently accept (localStorage-only mode)
+    // No Supabase configured - silently accept (localStorage-only mode)
     return NextResponse.json({ ok: true });
   }
 
-  // Read the existing config first, then merge — never wipe fields that aren't in the incoming payload
+  // Read the existing config first, then merge - never wipe fields that aren't in the incoming payload
   let existingConfig: Record<string, unknown> = {};
   try {
     const { data: existing } = await serverClient
@@ -65,7 +65,7 @@ export async function PATCH(req: NextRequest) {
       existingConfig = existing.config as Record<string, unknown>;
     }
   } catch {
-    // Non-fatal — proceed with empty existing config
+    // Non-fatal - proceed with empty existing config
   }
 
   const mergedConfig = { ...existingConfig, ...(config as unknown as Record<string, unknown>) };

@@ -31,7 +31,7 @@ const s = StyleSheet.create({
     backgroundColor: C.white, paddingBottom: 36,
   },
 
-  /* Header — bg overridden at runtime via settings.headerBgColor */
+  /* Header - bg overridden at runtime via settings.headerBgColor */
   header: {
     paddingHorizontal: 36, paddingTop: 14, paddingBottom: 12,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start',
@@ -53,7 +53,7 @@ const s = StyleSheet.create({
   },
   hBadgeText: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: 'rgba(255,255,255,0.8)' },
 
-  /* Student info strip — bg overridden at runtime via settings.studentStripBg */
+  /* Student info strip - bg overridden at runtime via settings.studentStripBg */
   studentStrip: {
     paddingHorizontal: 36, paddingVertical: 7,
     flexDirection: 'row',
@@ -138,7 +138,7 @@ const s = StyleSheet.create({
   sumValGold:  { fontSize: 8, fontFamily: 'Helvetica-Bold', color: '#B45309' },
   sumValRed:   { fontSize: 8, fontFamily: 'Helvetica-Bold', color: C.red },
 
-  /* Footer — bg overridden at runtime via settings.headerBgColor */
+  /* Footer - bg overridden at runtime via settings.headerBgColor */
   footer: {
     position: 'absolute' as const, bottom: 0, left: 0, right: 0,
     paddingHorizontal: 36, paddingVertical: 7,
@@ -430,7 +430,7 @@ function CourseSummaryBoxes({
         </View>
         <View style={s.sumRow}>
           <Text style={s.sumLabel}>Certificate ID</Text>
-          <Text style={[s.sumVal, { fontFamily: 'Courier' }]}>{cert?.certificateId ?? '—'}</Text>
+          <Text style={[s.sumVal, { fontFamily: 'Courier' }]}>{cert?.certificateId ?? '-'}</Text>
         </View>
         <View style={[s.sumRow, { marginBottom: 0 }]}>
           <Text style={s.sumLabel}>Completion Date</Text>
@@ -474,7 +474,7 @@ function TranscriptDocument({
     <Document title={`FMP Transcript -${registrationId}`} author="Financial Modeler Pro">
       <Page size="A4" style={s.page}>
 
-        {/* ── Header — absolute canvas ──────────────────────────────── */}
+        {/* ── Header - absolute canvas ──────────────────────────────── */}
         <View style={{ backgroundColor: settings.headerBgColor, height: settings.headerHeight, position: 'relative' }}>
           {settings.logoVisible && settings.logoUrl && logoBase64 && (
             <Image style={{ position: 'absolute', left: settings.logoX, top: settings.logoY, width: settings.logoWidth, height: settings.logoHeight }} src={logoBase64} />
@@ -521,7 +521,7 @@ function TranscriptDocument({
             </View>
             <View style={s.infoRow}>
               <Text style={s.infoLabel}>Enrollment Date</Text>
-              <Text style={s.infoValue}>{fmtDate(enrolledDate) || '—'}</Text>
+              <Text style={s.infoValue}>{fmtDate(enrolledDate) || '-'}</Text>
             </View>
             <View style={s.infoRow}>
               <Text style={s.infoLabel}>Issue Date</Text>
@@ -564,7 +564,7 @@ function TranscriptDocument({
           certBorderColor={certs.has(courseId) ? C.green : C.border}
         />
 
-        {/* ── Verify Certificate — QR + link (compact) ─────────────────── */}
+        {/* ── Verify Certificate - QR + link (compact) ─────────────────── */}
         {(() => {
           const cert = certs.get(courseId);
           const qrB64 = qrBase64Map.get(courseId);
@@ -627,7 +627,7 @@ export async function GET(req: NextRequest) {
   const email      = searchParams.get('email')?.trim().toLowerCase() ?? '';
   const courseParam = searchParams.get('course')?.trim().toLowerCase() ?? '';
 
-  // ── Preview mode — bypasses Apps Script, uses sample data ────────────────
+  // ── Preview mode - bypasses Apps Script, uses sample data ────────────────
   if (searchParams.get('preview') === 'true') {
     const settings  = await loadTranscriptSettings();
     const logoBase64 = (settings.logoVisible && settings.logoUrl)

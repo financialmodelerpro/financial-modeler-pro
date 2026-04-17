@@ -43,7 +43,7 @@ export function FounderExpand({ label, longBio, experience, philosophy, name, ph
                   <blockquote style={{ borderLeft:'3px solid #1B4F8A', paddingLeft:20, margin:0, fontSize:15, color:'rgba(255,255,255,0.6)', lineHeight:1.8, fontStyle:'italic' }}>
                     &ldquo;{philosophy}&rdquo;
                   </blockquote>
-                  <div style={{ marginTop:12, fontSize:12, color:'rgba(255,255,255,0.35)' }}>— {name}</div>
+                  <div style={{ marginTop:12, fontSize:12, color:'rgba(255,255,255,0.35)' }}>- {name}</div>
                 </div>
               )}
             </div>

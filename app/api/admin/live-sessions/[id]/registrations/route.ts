@@ -8,7 +8,7 @@ async function checkAdmin() {
   return !!(session?.user && (session.user as { role?: string }).role === 'admin');
 }
 
-/** GET — list all registrations for a session */
+/** GET - list all registrations for a session */
 export async function GET(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -26,7 +26,7 @@ export async function GET(
   return NextResponse.json({ registrations: data ?? [], total: count ?? 0, attended });
 }
 
-/** PATCH — mark student(s) as attended */
+/** PATCH - mark student(s) as attended */
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },

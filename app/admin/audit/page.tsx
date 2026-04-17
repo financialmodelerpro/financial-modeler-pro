@@ -21,7 +21,7 @@ export default function AuditPage() {
       <main style={{ flex: 1, padding: 40, overflowY: 'auto' }}>
         <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>📋 Audit Log</h1>
         <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 32 }}>
-          Complete record of every admin action — who changed what and when.
+          Complete record of every admin action - who changed what and when.
         </p>
         <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: 24 }}>
           <AuditLogViewer />

@@ -327,7 +327,7 @@ export default function LiveSessionDetailPage() {
     );
   })();
 
-  // Session loaded — show with headerOnly (no sidebar/footer, just the Training Hub header)
+  // Session loaded - show with headerOnly (no sidebar/footer, just the Training Hub header)
   if (session) {
     return (
       <TrainingShell activeNav="live-sessions" headerOnly>
@@ -336,7 +336,7 @@ export default function LiveSessionDetailPage() {
     );
   }
 
-  // Loading/404 — show with full sidebar
+  // Loading/404 - show with full sidebar
   return (
     <TrainingShell activeNav="live-sessions">
       {content}

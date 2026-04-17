@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
 
 /**
  * GET /api/training/live-sessions?type=upcoming|recorded&playlist_id=...
- * Public — returns published sessions with playlist info.
+ * Public - returns published sessions with playlist info.
  */
 export async function GET(req: NextRequest) {
   const type       = req.nextUrl.searchParams.get('type');

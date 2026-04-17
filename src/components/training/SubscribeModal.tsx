@@ -49,7 +49,7 @@ export function SubscribeModal({ channelId, onClose }: SubscribeModalProps) {
         </a>
 
         <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 12 }}>
-          Opens YouTube — takes 2 seconds to subscribe
+          Opens YouTube - takes 2 seconds to subscribe
         </div>
       </div>
     </>

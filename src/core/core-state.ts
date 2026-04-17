@@ -11,10 +11,10 @@ export const ROLES = {
 };
 
 export const ROLE_META: Record<Role, RoleMeta> = {
-  admin:    { label: 'Admin',    icon: '👑', color: '#ef4444', bg: 'rgba(220,38,38,0.18)',    dotColor: '#ef4444',  desc: 'Full platform access — manage projects, versions, branding, and all inputs' },
+  admin:    { label: 'Admin',    icon: '👑', color: '#ef4444', bg: 'rgba(220,38,38,0.18)',    dotColor: '#ef4444',  desc: 'Full platform access - manage projects, versions, branding, and all inputs' },
   analyst:  { label: 'Analyst',  icon: '📊', color: '#3b82f6', bg: 'rgba(59,130,246,0.18)',   dotColor: '#60a5fa',  desc: 'Create projects, edit all model inputs, and save new versions' },
-  reviewer: { label: 'Reviewer', icon: '🔍', color: '#f59e0b', bg: 'rgba(245,158,11,0.18)',   dotColor: '#fbbf24',  desc: 'View models and reports, add comments — cannot edit inputs or settings' },
-  viewer:   { label: 'Viewer',   icon: '👁️', color: '#6b7280', bg: 'rgba(107,114,128,0.18)', dotColor: '#9ca3af',  desc: 'Read-only access to dashboard and reports only — no editing' },
+  reviewer: { label: 'Reviewer', icon: '🔍', color: '#f59e0b', bg: 'rgba(245,158,11,0.18)',   dotColor: '#fbbf24',  desc: 'View models and reports, add comments - cannot edit inputs or settings' },
+  viewer:   { label: 'Viewer',   icon: '👁️', color: '#6b7280', bg: 'rgba(107,114,128,0.18)', dotColor: '#9ca3af',  desc: 'Read-only access to dashboard and reports only - no editing' },
 };
 
 export const MODULE_VISIBILITY: Record<Role, ModuleKey[]> = {

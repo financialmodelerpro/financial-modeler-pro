@@ -1,2 +1,2 @@
-// export-excel-static.ts — placeholder
+// export-excel-static.ts - placeholder
 export {};

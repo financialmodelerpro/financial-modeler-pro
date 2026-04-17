@@ -1,2 +1,2 @@
-// module6-reports.ts — placeholder
+// module6-reports.ts - placeholder
 export {};

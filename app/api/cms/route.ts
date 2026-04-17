@@ -5,7 +5,7 @@ import { getServerClient } from '@/src/lib/shared/supabase';
  * Public CMS content read endpoint.
  * GET /api/cms?section=training&keys=share_achievement_title,share_default_message
  * Returns a map of "section__key" → value.
- * Results are cached for 10 minutes — share text rarely changes.
+ * Results are cached for 10 minutes - share text rarely changes.
  */
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);

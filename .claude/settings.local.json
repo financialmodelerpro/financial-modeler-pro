@@ -84,7 +84,18 @@
       "Bash(mkdir -p \"D:/FMP/financial-modeler-pro/app/api/admin/live-sessions/[id]/registrations\")",
       "Bash(taskkill //F //IM node.exe)",
       "Bash(gh api:*)",
-      "Bash(npm ls:*)"
+      "Bash(npm ls:*)",
+      "Bash(npm search:*)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(grep \"YOUTUBE\" .env)",
+      "Bash(grep \"YOUTUBE\" .env.development)",
+      "Bash(grep \"YOUTUBE\" .env.production)",
+      "Read(//d/tmp/**)",
+      "Bash(unzip -o inter.zip -d inter_fonts)",
+      "Bash(file *.ttf)",
+      "Bash(.*undefined)",
+      "Bash(null)",
+      "Bash(\\\\\\\\[object\" | head -10)"
     ]
   }
 }
