@@ -16,7 +16,7 @@ export function CmsParagraphs({ content, color }: { content: Record<string, unkn
   return (
     <>
       {paragraphs.map((para, i) => (
-        <p key={i} style={{ fontSize: 15, color: color ?? 'inherit', lineHeight: 1.75, marginTop: 12, textAlign: para.align as React.CSSProperties['textAlign'] }}>
+        <p key={i} style={{ fontSize: 15, color: color ?? 'inherit', lineHeight: 1.75, margin: '0 0 14px', textAlign: para.align as React.CSSProperties['textAlign'] }}>
           {para.text}
         </p>
       ))}

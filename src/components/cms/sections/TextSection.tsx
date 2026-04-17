@@ -31,9 +31,11 @@ export function TextSection({ content, styles }: Props) {
           </h2>
         )}
         {v('body') && body && (
-          <p style={{ fontSize: 15, color, lineHeight: 1.7 }}>
-            {body}
-          </p>
+          <div style={{ fontSize: 15, color, lineHeight: 1.7 }}>
+            {body.split(/\n\n|\n/).filter(Boolean).map((para, i) => (
+              <p key={i} style={{ margin: '0 0 14px' }}>{para}</p>
+            ))}
+          </div>
         )}
         <CmsParagraphs content={content} color={color} />
       </div>
