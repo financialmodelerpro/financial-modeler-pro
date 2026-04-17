@@ -917,8 +917,8 @@ export default function TrainingDashboardPage() {
             <SidebarItem
               icon={<Video size={16} />}
               label="Live Sessions"
-              active={false}
-              onClick={() => { setMobileSidebarOpen(false); router.push('/training/live-sessions'); }}
+              active={activeView === 'live-sessions'}
+              onClick={() => { setMobileSidebarOpen(false); navigateTo('live-sessions'); }}
               dot={hasLiveNow}
               dotColor="#EF4444"
               badge={upcomingCount > 0 ? upcomingCount : undefined}
