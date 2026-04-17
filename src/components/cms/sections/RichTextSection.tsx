@@ -35,11 +35,25 @@ export function RichTextSection({ content, styles }: Props) {
         )}
         {v('html') && html && (
           <div
+            className="fmp-rich-text"
             dangerouslySetInnerHTML={{ __html: html }}
-            style={{ fontSize: 15, color: '#374151', lineHeight: 1.7 }}
           />
         )}
       </div>
+      <style>{`
+        .fmp-rich-text { font-size: 15px; color: #374151; line-height: 1.7; }
+        .fmp-rich-text h2 { font-size: 22px; font-weight: 800; color: #0D2E5A; margin: 32px 0 12px; }
+        .fmp-rich-text h3 { font-size: 18px; font-weight: 700; color: #1B3A6B; margin: 28px 0 10px; }
+        .fmp-rich-text h4 { font-size: 16px; font-weight: 700; color: #374151; margin: 20px 0 8px; }
+        .fmp-rich-text p { margin: 0 0 14px; }
+        .fmp-rich-text ul, .fmp-rich-text ol { margin: 0 0 16px; padding-left: 24px; }
+        .fmp-rich-text li { margin-bottom: 6px; }
+        .fmp-rich-text a { color: #1B4F8A; text-decoration: underline; }
+        .fmp-rich-text a:hover { color: #0D2E5A; }
+        .fmp-rich-text strong { font-weight: 700; color: #111827; }
+        .fmp-rich-text blockquote { border-left: 3px solid #E5E7EB; padding-left: 16px; margin: 16px 0; color: #6B7280; font-style: italic; }
+        .fmp-rich-text hr { border: none; border-top: 1px solid #E5E7EB; margin: 24px 0; }
+      `}</style>
     </section>
   );
 }
