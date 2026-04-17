@@ -27,10 +27,17 @@ import { NavbarServer } from '@/src/components/layout/NavbarServer';
 
 export const revalidate = 0;
 
+const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
+
 export const metadata: Metadata = {
   title: 'Financial Modeler Pro — The Professional Hub for Financial Modeling',
   description: 'Professional-grade financial modeling across all disciplines.',
-  openGraph: { title: 'Financial Modeler Pro', description: 'Structured Modeling. Real-World Finance.', type: 'website' },
+  openGraph: {
+    title: 'Financial Modeler Pro',
+    description: 'Structured Modeling. Real-World Finance.',
+    type: 'website',
+    images: [{ url: `${MAIN_URL}/api/og/main`, width: 1200, height: 630 }],
+  },
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
