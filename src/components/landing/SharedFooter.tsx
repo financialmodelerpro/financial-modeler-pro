@@ -119,6 +119,9 @@ export function SharedFooter({
                 Privacy Policy
               </Link>
             )}
+            <Link href="/terms-of-service" style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', textDecoration: 'none' }}>
+              Terms of Service
+            </Link>
             {showConfidentiality && (
               <Link href="/confidentiality" style={{ fontSize: 12, color: 'rgba(255,255,255,0.3)', textDecoration: 'none' }}>
                 Confidentiality &amp; Terms
