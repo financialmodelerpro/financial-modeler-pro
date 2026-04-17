@@ -87,30 +87,30 @@ export function SharedFooter({
               ))}
             </div>
           )}
-        </div>
 
-        {/* Follow Us + Newsletter */}
-        <div style={{ display: 'flex', gap: 40, flexWrap: 'wrap', marginBottom: 24 }}>
+          {/* Stay Updated (newsletter form) */}
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
-              Follow Us
-            </div>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <a href="https://www.linkedin.com/showcase/financialmodelerpro/" target="_blank" rel="noopener noreferrer"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, background: '#0077b5', color: '#fff', textDecoration: 'none' }}>
-                LinkedIn
-              </a>
-              <a href={`https://www.youtube.com/channel/${process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}?sub_confirmation=1`} target="_blank" rel="noopener noreferrer"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, background: '#FF0000', color: '#fff', textDecoration: 'none' }}>
-                YouTube
-              </a>
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 14 }}>
               Stay Updated
             </div>
             <NewsletterSubscribeForm />
+          </div>
+        </div>
+
+        {/* Follow Us */}
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 12 }}>
+            Follow Us
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <a href="https://www.linkedin.com/showcase/financialmodelerpro/" target="_blank" rel="noopener noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, background: '#0077b5', color: '#fff', textDecoration: 'none' }}>
+              LinkedIn
+            </a>
+            <a href={`https://www.youtube.com/channel/${process.env.NEXT_PUBLIC_YOUTUBE_CHANNEL_ID ?? ''}?sub_confirmation=1`} target="_blank" rel="noopener noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, background: '#FF0000', color: '#fff', textDecoration: 'none' }}>
+              YouTube
+            </a>
           </div>
         </div>
 
