@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { ExternalLink } from 'lucide-react';
 
 interface Comment {
   id: string;
@@ -33,6 +34,7 @@ function relativeTime(iso: string): string {
 }
 
 const NAVY = '#0D2E5A';
+const MAX_RESULTS = 10; // matches API maxResults
 
 export function YouTubeComments({ videoId, youtubeUrl }: YouTubeCommentsProps) {
   const [comments, setComments] = useState<Comment[]>([]);
@@ -59,7 +61,7 @@ export function YouTubeComments({ videoId, youtubeUrl }: YouTubeCommentsProps) {
   if (status === 'loading') {
     return (
       <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24 }}>
-        <h3 style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 16 }}>What others are saying</h3>
+        <h3 style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 16 }}>Discussion</h3>
         {[1, 2, 3].map(i => (
           <div key={i} style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
             <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#E5E7EB', flexShrink: 0 }} />
@@ -94,24 +96,34 @@ export function YouTubeComments({ videoId, youtubeUrl }: YouTubeCommentsProps) {
   // ── No comments ─────────────────────────────────────────────────────────
   if (comments.length === 0) {
     return (
-      <div style={{ padding: '16px 0', fontSize: 13, color: '#9CA3AF' }}>
-        No comments yet. Be the first to comment on{' '}
+      <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24, textAlign: 'center' }}>
+        <div style={{ fontSize: 14, fontWeight: 700, color: '#111827', marginBottom: 12 }}>Discussion</div>
+        <div style={{ fontSize: 13, color: '#9CA3AF', marginBottom: 16 }}>No comments yet on this session.</div>
         <a
           href={ytCommentsLink}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ color: '#1B4F8A', fontWeight: 600, textDecoration: 'none' }}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            padding: '8px 16px', borderRadius: 8,
+            background: '#FAFAFA', border: '1px solid #E5E7EB',
+            color: '#DC2626', fontSize: 13, fontWeight: 600, textDecoration: 'none',
+          }}
         >
-          YouTube &rarr;
+          Be the first to comment on YouTube <ExternalLink size={13} />
         </a>
       </div>
     );
   }
 
   // ── Comments list ───────────────────────────────────────────────────────
+  const hasMore = comments.length >= MAX_RESULTS;
+
   return (
     <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24 }}>
-      <h3 style={{ fontSize: 18, fontWeight: 700, color: '#111827', marginBottom: 16 }}>What others are saying</h3>
+      <h3 style={{ fontSize: 14, fontWeight: 700, color: '#111827', marginBottom: 16 }}>
+        Discussion ({comments.length}{hasMore ? '+' : ''} comment{comments.length !== 1 ? 's' : ''})
+      </h3>
 
       {comments.map(c => {
         const isExpanded = expanded.has(c.id);
@@ -166,6 +178,46 @@ export function YouTubeComments({ videoId, youtubeUrl }: YouTubeCommentsProps) {
         );
       })}
 
+      {/* View all on YouTube (when maxResults hit) */}
+      {hasMore && (
+        <a
+          href={ytCommentsLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ display: 'block', textAlign: 'center', fontSize: 12, fontWeight: 600, color: '#1B4F8A', textDecoration: 'none', marginBottom: 12 }}
+        >
+          View all comments on YouTube &rarr;
+        </a>
+      )}
+
+      {/* Leave a Comment link */}
+      <a
+        href={ytCommentsLink}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ display: 'block', textAlign: 'center', fontSize: 12, fontWeight: 600, color: '#6B7280', textDecoration: 'none', marginBottom: 16 }}
+      >
+        Leave a Comment &rarr;
+      </a>
+
+      {/* Join the Discussion CTA */}
+      <div style={{ borderTop: '1px solid #F3F4F6', paddingTop: 16, textAlign: 'center' }}>
+        <a
+          href={ytCommentsLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 8,
+            padding: '10px 20px', borderRadius: 8,
+            background: '#FAFAFA', border: '1px solid #E5E7EB',
+            color: '#DC2626', fontSize: 13, fontWeight: 600, textDecoration: 'none',
+          }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="#DC2626"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+          Join the Discussion on YouTube
+          <ExternalLink size={13} />
+        </a>
+      </div>
     </div>
   );
 }

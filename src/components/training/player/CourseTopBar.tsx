@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
+import { Bell, ThumbsUp, MessageCircle, Share2 } from 'lucide-react';
 import { SubscribeModal } from '../SubscribeModal';
 import { ShareModal } from './ShareModal';
 import { FollowPopup } from '@/src/components/shared/FollowPopup';
@@ -80,9 +81,9 @@ export function CourseTopBar({
             <button
               onClick={() => setShowSubscribeModal(true)}
               title="Subscribe to our YouTube channel"
-              style={iconBtnStyle}
+              style={{ ...iconBtnStyle, background: 'rgba(255,0,0,0.12)', color: '#FF4444', fontWeight: 600 }}
             >
-              🔔 Subscribe
+              <Bell size={14} /> Subscribe
             </button>
           )}
 
@@ -91,21 +92,21 @@ export function CourseTopBar({
               href={youtubeUrl}
               target="_blank"
               rel="noopener noreferrer"
-              title="Like this video on YouTube"
+              title="Like on YouTube"
               style={iconBtnStyle}
             >
-              👍 Like
+              <ThumbsUp size={14} /> Like
             </a>
           )}
 
           <a
-            href={youtubeUrl}
+            href={`${youtubeUrl}#comments`}
             target="_blank"
             rel="noopener noreferrer"
             title="Ask a question on YouTube — get a quick answer"
             style={iconBtnStyle}
           >
-            💬 Ask Question
+            <MessageCircle size={14} /> Ask Question
           </a>
 
           <button
@@ -113,7 +114,7 @@ export function CourseTopBar({
             title="Share this session"
             style={iconBtnStyle}
           >
-            📤 Share
+            <Share2 size={14} /> Share
           </button>
 
           {/* Divider */}
