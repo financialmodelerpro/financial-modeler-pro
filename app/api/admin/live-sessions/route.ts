@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
+import { sendAutoNewsletter } from '@/src/lib/newsletter/autoNotify';
+
+const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
 async function checkAdmin() {
   const session = await getServerSession(authOptions);
@@ -64,5 +67,17 @@ export async function POST(req: NextRequest) {
     registration_url:   body.registration_url ?? '',
   }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (data && data.is_published) {
+    const dt = data.scheduled_datetime ? new Date(data.scheduled_datetime) : null;
+    void sendAutoNewsletter('live_session_scheduled', data.id, {
+      title: data.title, description: data.description ?? '',
+      url: data.live_url || `${LEARN_URL}/training/dashboard?tab=live-sessions`,
+      date: dt?.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) ?? '',
+      extra: {
+        time: dt?.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) ?? '',
+        platform: 'YouTube',
+      },
+    });
+  }
   return NextResponse.json({ session: data });
 }

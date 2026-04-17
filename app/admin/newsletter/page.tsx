@@ -26,6 +26,9 @@ interface Campaign {
   created_at: string;
   sent_at: string | null;
   created_by: string;
+  campaign_type?: string;
+  source_type?: string;
+  source_id?: string;
 }
 
 interface Stats {
@@ -63,7 +66,9 @@ function StatusBadge({ status }: { status: string }) {
 
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function AdminNewsletterPage() {
-  const [tab, setTab] = useState<'subscribers' | 'compose' | 'campaigns'>('subscribers');
+  const [tab, setTab] = useState<'subscribers' | 'compose' | 'campaigns' | 'auto'>('subscribers');
+
+  const tabLabels: Record<string, string> = { subscribers: 'Subscribers', compose: 'Compose', campaigns: 'Campaigns', auto: 'Auto Notifications' };
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', background: '#F9FAFB' }}>
@@ -73,14 +78,14 @@ export default function AdminNewsletterPage() {
 
         {/* Tabs */}
         <div style={{ display: 'flex', gap: 4, marginBottom: 24, borderBottom: '2px solid #E5E7EB', paddingBottom: 0 }}>
-          {(['subscribers', 'compose', 'campaigns'] as const).map(t => (
+          {(['subscribers', 'compose', 'campaigns', 'auto'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)} style={{
               padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', border: 'none',
               background: tab === t ? '#fff' : 'transparent', color: tab === t ? NAVY : '#9CA3AF',
               borderBottom: tab === t ? `2px solid ${NAVY}` : '2px solid transparent',
-              borderRadius: '8px 8px 0 0', marginBottom: -2, textTransform: 'capitalize',
+              borderRadius: '8px 8px 0 0', marginBottom: -2,
             }}>
-              {t}
+              {tabLabels[t]}
             </button>
           ))}
         </div>
@@ -88,6 +93,7 @@ export default function AdminNewsletterPage() {
         {tab === 'subscribers' && <SubscribersTab />}
         {tab === 'compose' && <ComposeTab onSent={() => setTab('campaigns')} />}
         {tab === 'campaigns' && <CampaignsTab />}
+        {tab === 'auto' && <AutoNotificationsTab />}
       </div>
     </div>
   );
@@ -535,7 +541,10 @@ function CampaignsTab() {
               const sc = statusColor[c.status] ?? statusColor.draft;
               return (
                 <tr key={c.id} onClick={() => setViewCampaign(c)} style={{ borderBottom: '1px solid #F3F4F6', cursor: 'pointer' }}>
-                  <td style={{ padding: '10px 16px', color: '#374151', fontWeight: 600, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.subject}</td>
+                  <td style={{ padding: '10px 16px', color: '#374151', fontWeight: 600, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {c.campaign_type === 'auto' && <span style={{ fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 6, background: '#EDE9FE', color: '#7C3AED', marginRight: 6, verticalAlign: 'middle' }}>AUTO</span>}
+                    {c.subject}
+                  </td>
                   <td style={{ padding: '10px 16px' }}><HubBadge hub={c.target_hub} /></td>
                   <td style={{ padding: '10px 16px' }}>
                     <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: sc.bg, color: sc.fg }}>{c.status}</span>
@@ -574,5 +583,85 @@ function CampaignsTab() {
         </div>
       )}
     </>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TAB 4: AUTO NOTIFICATIONS
+// ═══════════════════════════════════════════════════════════════════════════════
+const EVENT_LABELS: Record<string, { label: string; desc: string }> = {
+  article_published:       { label: 'Article Published',       desc: 'Sends when a new article is published' },
+  live_session_scheduled:  { label: 'Live Session Scheduled',  desc: 'Sends when a live session is published' },
+  live_session_recording:  { label: 'Recording Available',     desc: 'Sends when a session becomes recorded' },
+  new_course_session:      { label: 'New Course Session',      desc: 'Sends when a new course session is added' },
+  platform_launch:         { label: 'Platform Launch',         desc: 'Sends when a new platform launches' },
+  new_modeling_module:     { label: 'New Modeling Module',      desc: 'Sends when a new module is added' },
+};
+
+interface AutoSetting { id: string; event_type: string; enabled: boolean; target_hub: string }
+
+function AutoNotificationsTab() {
+  const [settings, setSettings] = useState<AutoSetting[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [toggling, setToggling] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch('/api/admin/newsletter/auto-settings')
+      .then(r => r.json())
+      .then(d => { setSettings(d.settings ?? []); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, []);
+
+  async function toggle(eventType: string, enabled: boolean) {
+    setToggling(eventType);
+    try {
+      await fetch('/api/admin/newsletter/auto-settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ event_type: eventType, enabled }),
+      });
+      setSettings(prev => prev.map(s => s.event_type === eventType ? { ...s, enabled } : s));
+    } catch { /* ignore */ }
+    setToggling(null);
+  }
+
+  if (loading) return <div style={{ padding: 24, color: '#9CA3AF' }}>Loading...</div>;
+
+  return (
+    <div>
+      <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 20 }}>
+        When enabled, newsletter emails are sent automatically to subscribers when content is published. Each event can only trigger one email per content item (no duplicates).
+      </p>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {settings.map(s => {
+          const meta = EVENT_LABELS[s.event_type] ?? { label: s.event_type, desc: '' };
+          return (
+            <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px', background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB' }}>
+              {/* Toggle */}
+              <button
+                onClick={() => toggle(s.event_type, !s.enabled)}
+                disabled={toggling === s.event_type}
+                style={{
+                  width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', position: 'relative', flexShrink: 0,
+                  background: s.enabled ? '#2EAA4A' : '#D1D5DB', transition: 'background 0.2s',
+                }}
+              >
+                <div style={{
+                  width: 18, height: 18, borderRadius: '50%', background: '#fff', position: 'absolute', top: 3,
+                  left: s.enabled ? 23 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                }} />
+              </button>
+              {/* Info */}
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>{meta.label}</div>
+                <div style={{ fontSize: 12, color: '#9CA3AF' }}>{meta.desc}</div>
+              </div>
+              {/* Hub badge */}
+              <HubBadge hub={s.target_hub} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

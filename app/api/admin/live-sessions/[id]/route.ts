@@ -3,6 +3,9 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { sendTemplatedEmail, buildSessionPlaceholders } from '@/src/lib/email/sendTemplatedEmail';
+import { sendAutoNewsletter } from '@/src/lib/newsletter/autoNotify';
+
+const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
 async function checkAdmin() {
   const session = await getServerSession(authOptions);
@@ -97,6 +100,28 @@ export async function PATCH(
         });
       }
       await sb.from('live_sessions').update({ recording_email_sent: true }).eq('id', id);
+    }
+  }
+
+  // ── Newsletter auto-notifications ─────────────────────────────────────────
+  if (before && !before.is_published && body.is_published === true) {
+    const { data: sess } = await sb.from('live_sessions').select('*').eq('id', id).single();
+    if (sess) {
+      const dt = sess.scheduled_datetime ? new Date(sess.scheduled_datetime) : null;
+      void sendAutoNewsletter('live_session_scheduled', id, {
+        title: sess.title, description: sess.description ?? '',
+        url: sess.live_url || `${LEARN_URL}/training/dashboard?tab=live-sessions`,
+        date: dt?.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) ?? '',
+        extra: { time: dt?.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) ?? '', platform: 'YouTube' },
+      });
+    }
+  }
+  if (before && before.session_type !== 'recorded' && body.session_type === 'recorded') {
+    const { data: sess } = await sb.from('live_sessions').select('title, youtube_url').eq('id', id).single();
+    if (sess) {
+      void sendAutoNewsletter('live_session_recording', id, {
+        title: sess.title, url: sess.youtube_url ?? '',
+      });
     }
   }
 

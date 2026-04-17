@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
+import { sendAutoNewsletter } from '@/src/lib/newsletter/autoNotify';
+
+const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
 
 async function checkAdmin() {
   const session = await getServerSession(authOptions);
@@ -34,6 +37,11 @@ export async function POST(req: NextRequest) {
     if (status === 'published') insert.published_at = new Date().toISOString();
     const { data, error } = await sb.from('articles').insert(insert).select().single();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (data && status === 'published') {
+      void sendAutoNewsletter('article_published', data.id, {
+        title: data.title, description: data.seo_description ?? '', url: `${MAIN_URL}/articles/${data.slug}`,
+      });
+    }
     return NextResponse.json({ article: data });
   } catch (e) {
     return NextResponse.json({ error: 'Failed to create article' }, { status: 500 });
@@ -53,6 +61,14 @@ export async function PATCH(req: NextRequest) {
     const sb = getServerClient();
     const { error } = await sb.from('articles').update(update).eq('id', id);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (fields.status === 'published') {
+      const { data: art } = await sb.from('articles').select('id, title, slug, seo_description').eq('id', id).single();
+      if (art) {
+        void sendAutoNewsletter('article_published', art.id, {
+          title: art.title, description: art.seo_description ?? '', url: `${MAIN_URL}/articles/${art.slug}`,
+        });
+      }
+    }
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: 'Failed to update article' }, { status: 500 });
