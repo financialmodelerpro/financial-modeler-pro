@@ -592,17 +592,17 @@ export default function TrainingDashboardPage() {
   function getCourseStats(courseId: string) {
     const c = COURSES[courseId];
     if (!c) return { total: 0, passed: 0, pct: 0, avgScore: 0, bestScore: 0, bestSession: '' };
-    const regular = c.sessions.filter(s => !s.isFinal);
-    const passed = regular.filter(s => progressMap.get(s.id)?.passed).length;
-    const scores = regular.map(s => progressMap.get(s.id)?.score ?? 0).filter(sc => sc > 0);
+    const all = c.sessions;
+    const passed = all.filter(s => progressMap.get(s.id)?.passed).length;
+    const scores = all.map(s => progressMap.get(s.id)?.score ?? 0).filter(sc => sc > 0);
     const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
     let bestScore = 0;
     let bestSession = '';
-    for (const s of regular) {
+    for (const s of all) {
       const sc = progressMap.get(s.id)?.score ?? 0;
       if (sc > bestScore) { bestScore = sc; bestSession = s.id; }
     }
-    return { total: regular.length, passed, pct: regular.length > 0 ? Math.round((passed / regular.length) * 100) : 0, avgScore, bestScore, bestSession };
+    return { total: all.length, passed, pct: all.length > 0 ? Math.round((passed / all.length) * 100) : 0, avgScore, bestScore, bestSession };
   }
 
   // ── Sidebar nav item helper ────────────────────────────────────────────────
