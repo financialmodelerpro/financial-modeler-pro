@@ -33,11 +33,16 @@ export function CtaSection({ content, styles }: Props) {
           </h2>
         )}
         {v('subtitle') && subtitle && (
-          <div style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', marginBottom: 36, lineHeight: 1.6 }}>
-            {subtitle.split(/\n\n|\n/).filter(Boolean).map((para, i) => (
-              <p key={i} style={{ margin: '0 0 14px' }}>{para}</p>
-            ))}
-          </div>
+          subtitle.includes('<p>') || subtitle.includes('<h') || subtitle.includes('<strong>') ? (
+            <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: subtitle }}
+              style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', marginBottom: 36, lineHeight: 1.6 }} />
+          ) : (
+            <div style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', marginBottom: 36, lineHeight: 1.6 }}>
+              {subtitle.split(/\n\n|\n/).filter(Boolean).map((para, i) => (
+                <p key={i} style={{ margin: '0 0 14px' }}>{para}</p>
+              ))}
+            </div>
+          )
         )}
         <CmsParagraphs content={content} color="rgba(255,255,255,0.8)" />
         {((v('buttonText') && buttonText.trim() && buttonUrl) || (v('button2Text') && button2Text.trim() && button2Url)) && (

@@ -252,7 +252,7 @@ function TextEditor({ content, onChange }: { content: Record<string, unknown>; o
         <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
       </VF>
       <VF label="Body" fieldKey="body" content={content} onChange={onChange}>
-        <textarea style={{ ...TA, minHeight: 100 }} value={(content.body as string) ?? ''} onChange={e => set('body', e.target.value)} />
+        <RichTextEditor value={(content.body as string) ?? ''} onChange={v => set('body', v)} compact />
       </VF>
     </>
   );
@@ -320,7 +320,7 @@ function TextImageEditor({ content, onChange }: { content: Record<string, unknow
       {/* Body text field (used by modeling hub "What is" section) */}
       {content.body !== undefined && (
         <VF label="Description" fieldKey="body" content={content} onChange={onChange}>
-          <textarea style={{ ...TA, minHeight: 80 }} value={(content.body as string) ?? ''} onChange={e => set('body', e.target.value)} />
+          <RichTextEditor value={(content.body as string) ?? ''} onChange={v => set('body', v)} compact />
         </VF>
       )}
       {/* Audience cards (used by modeling hub "What is" section) */}
@@ -491,7 +491,7 @@ function CtaEditor({ content, onChange }: { content: Record<string, unknown>; on
         <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
       </VF>
       <VF label="Subtitle" fieldKey="subtitle" content={content} onChange={onChange}>
-        <textarea style={TA} value={(content.subtitle as string) ?? ''} onChange={e => set('subtitle', e.target.value)} />
+        <RichTextEditor value={(content.subtitle as string) ?? ''} onChange={v => set('subtitle', v)} compact />
       </VF>
       <VF label="Button 1" fieldKey="buttonText" content={content} onChange={onChange}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -746,10 +746,10 @@ function PaceMakersEditor({ content, onChange }: { content: Record<string, unkno
         <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
       </VF>
       <VF label="Description" fieldKey="description" content={content} onChange={onChange}>
-        <textarea style={{ ...TA, minHeight: 80 }} value={(content.description as string) ?? ''} onChange={e => set('description', e.target.value)} />
+        <RichTextEditor value={(content.description as string) ?? ''} onChange={v => set('description', v)} compact />
       </VF>
       <VF label="Description 2 (optional)" fieldKey="description2" content={content} onChange={onChange}>
-        <textarea style={{ ...TA, minHeight: 60 }} value={(content.description2 as string) ?? ''} onChange={e => set('description2', e.target.value)} placeholder="Optional second paragraph" />
+        <RichTextEditor value={(content.description2 as string) ?? ''} onChange={v => set('description2', v)} compact />
       </VF>
       <VF label="CTA Button" fieldKey="cta_text" content={content} onChange={onChange}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -839,7 +839,7 @@ function FaqEditor({ content, onChange }: { content: Record<string, unknown>; on
             <div style={{ flex: 1 }}><label style={LS}>Question</label><input style={IS} value={item.question} onChange={e => { const n = [...items]; n[i] = { ...n[i], question: e.target.value }; setItems(n); }} /></div>
             <button onClick={() => setItems(items.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11 }}>X</button>
           </div>
-          <label style={LS}>Answer</label><textarea style={{ ...TA, minHeight: 50 }} value={item.answer} onChange={e => { const n = [...items]; n[i] = { ...n[i], answer: e.target.value }; setItems(n); }} />
+          <label style={LS}>Answer</label><RichTextEditor value={item.answer} onChange={v => { const n = [...items]; n[i] = { ...n[i], answer: v }; setItems(n); }} compact />
         </div>
       ))}
       <button onClick={() => setItems([...items, { question: 'New question?', answer: 'Answer here.' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add FAQ</button>
@@ -1047,7 +1047,7 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
         <div style={{ fontSize:10, color:'#9CA3AF', marginTop:3 }}>Separate with |</div>
       </VF>
       <VF label="Short Bio" fieldKey="bio" content={content} onChange={onChange}>
-        <textarea style={{ ...TA, minHeight:60 }} value={(content.bio as string) ?? ''} onChange={e => set('bio', e.target.value)} />
+        <RichTextEditor value={(content.bio as string) ?? ''} onChange={v => set('bio', v)} compact />
       </VF>
       <VF label="Badge" fieldKey="badge" content={content} onChange={onChange}>
         <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
@@ -1110,10 +1110,10 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
           Show &quot;Read Full Profile&quot; link on home
         </label>
         <VF label="Long Bio" fieldKey="long_bio" content={content} onChange={onChange}>
-          <textarea style={{ ...TA, minHeight:80 }} value={(content.long_bio as string) ?? ''} onChange={e => set('long_bio', e.target.value)} placeholder="Full background (paragraphs separated by blank lines)" />
+          <RichTextEditor value={(content.long_bio as string) ?? ''} onChange={v => set('long_bio', v)} />
         </VF>
         <VF label="Philosophy Quote" fieldKey="philosophy" content={content} onChange={onChange}>
-          <textarea style={{ ...TA, minHeight:50 }} value={(content.philosophy as string) ?? ''} onChange={e => set('philosophy', e.target.value)} />
+          <RichTextEditor value={(content.philosophy as string) ?? ''} onChange={v => set('philosophy', v)} compact />
         </VF>
         {/* Projects */}
         {(() => {
