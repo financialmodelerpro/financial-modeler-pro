@@ -211,37 +211,113 @@ function SubscribersTab() {
   );
 }
 
+// ── Announcement types ──────────────────────────────────────────────────────
+const ANNOUNCE_TYPES = [
+  { value: 'custom',               label: 'Custom Announcement' },
+  { value: 'live_session',         label: 'Live Session Announcement' },
+  { value: 'live_recording',       label: 'Recording Available' },
+  { value: 'article',              label: 'New Article Published' },
+  { value: 'platform_update',      label: 'Platform Update' },
+  { value: 'certification_update', label: 'Certification Milestone' },
+] as const;
+
+const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
+const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+
+interface ContentItem { id: string; label: string; data: Record<string, unknown> }
+
+function generateContent(type: string, item: ContentItem): { subject: string; body: string; hub: string } {
+  const d = item.data;
+  if (type === 'live_session') {
+    const title = (d.title as string) || '';
+    const desc = (d.description as string) || '';
+    const dt = d.scheduled_datetime ? new Date(d.scheduled_datetime as string) : null;
+    const date = dt ? dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }) : '';
+    const time = dt ? dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
+    const tz = (d.timezone as string) || '';
+    const platform = (d.platform as string) || 'YouTube';
+    const url = (d.live_url as string) || '';
+    return {
+      subject: `Live Session: ${title}`,
+      hub: 'training',
+      body: `<h2>${title}</h2>${desc ? `<p>${desc}</p>` : ''}<p><strong>Date:</strong> ${date}</p><p><strong>Time:</strong> ${time}${tz ? ` (${tz})` : ''}</p><p><strong>Platform:</strong> ${platform}</p>${url ? `<p><a href="${url}" style="color:#1B4F8A;font-weight:600;">Join Session &rarr;</a></p>` : ''}`,
+    };
+  }
+  if (type === 'live_recording') {
+    const title = (d.title as string) || '';
+    const desc = (d.description as string) || '';
+    const url = (d.recording_url as string) || '';
+    return {
+      subject: `Recording Available: ${title}`,
+      hub: 'training',
+      body: `<h2>Recording Now Available</h2><p>The recording for <strong>${title}</strong> is now available.</p>${desc ? `<p>${desc}</p>` : ''}${url ? `<p><a href="${url}" style="color:#1B4F8A;font-weight:600;">Watch Recording &rarr;</a></p>` : ''}`,
+    };
+  }
+  if (type === 'article') {
+    const title = (d.title as string) || '';
+    const excerpt = (d.excerpt as string) || '';
+    const slug = (d.slug as string) || '';
+    return {
+      subject: `New Article: ${title}`,
+      hub: 'all',
+      body: `<h2>${title}</h2>${excerpt ? `<p>${excerpt}</p>` : ''}<p><a href="${MAIN_URL}/articles/${slug}" style="color:#1B4F8A;font-weight:600;">Read Full Article &rarr;</a></p>`,
+    };
+  }
+  if (type === 'certification_update') {
+    const students = (d.totalStudents as number) ?? 0;
+    const certified = (d.totalCertified as number) ?? 0;
+    return {
+      subject: 'Certification Program Milestone',
+      hub: 'training',
+      body: `<h2>Certification Program Update</h2><p>Our free certification program continues to grow:</p><ul><li><strong>${students.toLocaleString()}</strong> students enrolled</li><li><strong>${certified.toLocaleString()}</strong> certifications issued</li></ul><p>Start your free certification today at <a href="${LEARN_URL}" style="color:#1B4F8A;font-weight:600;">learn.financialmodelerpro.com</a></p>`,
+    };
+  }
+  return { subject: '', body: '', hub: 'all' };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // TAB 2: COMPOSE
 // ═══════════════════════════════════════════════════════════════════════════════
 function ComposeTab({ onSent }: { onSent: () => void }) {
+  const [announceType, setAnnounceType] = useState('custom');
+  const [contentItems, setContentItems] = useState<ContentItem[]>([]);
+  const [selectedItemId, setSelectedItemId] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
   const [targetHub, setTargetHub] = useState('all');
   const [preview, setPreview] = useState(false);
   const [sending, setSending] = useState(false);
+  const [enhancing, setEnhancing] = useState(false);
   const [recipientCount, setRecipientCount] = useState<number | null>(null);
   const [confirmSend, setConfirmSend] = useState(false);
 
-  // Fetch subscriber count for target
+  // Fetch content items when type changes
   useEffect(() => {
-    const params = new URLSearchParams({ hub: targetHub, status: 'active' });
-    fetch(`/api/admin/newsletter/subscribers?${params}&limit=1`)
+    if (announceType === 'custom' || announceType === 'platform_update') {
+      setContentItems([]);
+      setSelectedItemId('');
+      return;
+    }
+    fetch(`/api/admin/newsletter/content-items?type=${announceType}`)
       .then(r => r.json())
-      .then(d => setRecipientCount(d.stats?.totalActive ?? 0))
-      .catch(() => {});
-  }, [targetHub]);
+      .then(d => setContentItems(d.items ?? []))
+      .catch(() => setContentItems([]));
+  }, [announceType]);
 
-  const recipientLabel = targetHub === 'all'
-    ? recipientCount ?? '...'
-    : recipientCount !== null
-      ? (targetHub === 'training' ? recipientCount : recipientCount)
-      : '...';
-
-  // Re-fetch count properly per hub
+  // Auto-populate on item selection
   useEffect(() => {
-    const params = new URLSearchParams({ hub: targetHub, status: 'active', limit: '1' });
-    fetch(`/api/admin/newsletter/subscribers?${params}`)
+    if (!selectedItemId || announceType === 'custom' || announceType === 'platform_update') return;
+    const item = contentItems.find(i => i.id === selectedItemId);
+    if (!item) return;
+    const gen = generateContent(announceType, item);
+    setSubject(gen.subject);
+    setBody(gen.body);
+    setTargetHub(gen.hub);
+  }, [selectedItemId, announceType, contentItems]);
+
+  // Fetch subscriber count
+  useEffect(() => {
+    fetch(`/api/admin/newsletter/subscribers?hub=${targetHub}&status=active&limit=1`)
       .then(r => r.json())
       .then(d => {
         if (targetHub === 'all') setRecipientCount(d.stats?.totalActive ?? 0);
@@ -250,6 +326,25 @@ function ComposeTab({ onSent }: { onSent: () => void }) {
       })
       .catch(() => {});
   }, [targetHub]);
+
+  async function handleEnhance() {
+    if (!body.trim()) return;
+    setEnhancing(true);
+    try {
+      const res = await fetch('/api/admin/newsletter/enhance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: body }),
+      });
+      const data = await res.json();
+      if (data.enhanced) setBody(data.enhanced);
+      else alert(data.error ?? 'Enhancement failed');
+    } catch {
+      alert('AI enhancement failed');
+    } finally {
+      setEnhancing(false);
+    }
+  }
 
   async function handleSend() {
     setSending(true);
@@ -260,11 +355,8 @@ function ComposeTab({ onSent }: { onSent: () => void }) {
         body: JSON.stringify({ subject, body, targetHub }),
       });
       const data = await res.json();
-      if (data.ok) {
-        onSent();
-      } else {
-        alert(data.error ?? 'Failed to send');
-      }
+      if (data.ok) onSent();
+      else alert(data.error ?? 'Failed to send');
     } catch {
       alert('Failed to send newsletter');
     } finally {
@@ -274,9 +366,29 @@ function ComposeTab({ onSent }: { onSent: () => void }) {
   }
 
   const selectStyle: React.CSSProperties = { padding: '8px 14px', borderRadius: 6, border: '1px solid #E5E7EB', fontSize: 13, background: '#fff', color: '#374151' };
+  const needsItemSelect = announceType !== 'custom' && announceType !== 'platform_update';
 
   return (
     <div style={{ maxWidth: 800 }}>
+      {/* Announcement type */}
+      <div style={{ marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <label style={{ fontSize: 12, fontWeight: 600, color: '#6B7280' }}>Type:</label>
+        <select value={announceType} onChange={e => { setAnnounceType(e.target.value); setSelectedItemId(''); setSubject(''); setBody(''); }} style={selectStyle}>
+          {ANNOUNCE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+      </div>
+
+      {/* Content item selector */}
+      {needsItemSelect && (
+        <div style={{ marginBottom: 16 }}>
+          <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 6 }}>Select content:</label>
+          <select value={selectedItemId} onChange={e => setSelectedItemId(e.target.value)} style={{ ...selectStyle, width: '100%' }}>
+            <option value="">— Choose —</option>
+            {contentItems.map(i => <option key={i.id} value={i.id}>{i.label}</option>)}
+          </select>
+        </div>
+      )}
+
       {/* Subject */}
       <div style={{ marginBottom: 16 }}>
         <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 6 }}>Subject</label>
@@ -291,7 +403,19 @@ function ComposeTab({ onSent }: { onSent: () => void }) {
 
       {/* Body */}
       <div style={{ marginBottom: 16 }}>
-        <label style={{ display: 'block', fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 6 }}>Body</label>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: '#6B7280' }}>Body</label>
+          <button
+            onClick={handleEnhance}
+            disabled={!body.trim() || enhancing}
+            style={{
+              padding: '4px 12px', borderRadius: 6, border: '1px solid #E5E7EB', background: enhancing ? '#F3F4F6' : '#FFFBF0',
+              fontSize: 12, fontWeight: 600, color: enhancing ? '#9CA3AF' : '#92400E', cursor: 'pointer',
+            }}
+          >
+            {enhancing ? 'Enhancing...' : '✨ Enhance with AI'}
+          </button>
+        </div>
         <RichTextEditor value={body} onChange={setBody} />
       </div>
 
@@ -304,7 +428,7 @@ function ComposeTab({ onSent }: { onSent: () => void }) {
           <option value="modeling">Modeling Hub</option>
         </select>
         <span style={{ fontSize: 12, color: '#9CA3AF' }}>
-          This will be sent to <strong style={{ color: '#374151' }}>{recipientLabel}</strong> subscriber{recipientCount !== 1 ? 's' : ''}
+          This will be sent to <strong style={{ color: '#374151' }}>{recipientCount ?? '...'}</strong> subscriber{recipientCount !== 1 ? 's' : ''}
         </span>
       </div>
 
@@ -349,7 +473,7 @@ function ComposeTab({ onSent }: { onSent: () => void }) {
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 16, padding: 28, maxWidth: 400, width: '100%', textAlign: 'center' }}>
             <h3 style={{ fontSize: 18, fontWeight: 700, color: NAVY, marginBottom: 12 }}>Confirm Send</h3>
             <p style={{ fontSize: 14, color: '#6B7280', marginBottom: 20 }}>
-              Send &quot;{subject}&quot; to <strong>{recipientLabel}</strong> subscriber{recipientCount !== 1 ? 's' : ''}?
+              Send &quot;{subject}&quot; to <strong>{recipientCount ?? '...'}</strong> subscriber{recipientCount !== 1 ? 's' : ''}?
             </p>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
               <button onClick={() => setConfirmSend(false)} style={{ padding: '10px 20px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', fontSize: 13, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>
