@@ -1,4 +1,4 @@
-// v-founder-fix-final
+// v-founder-profile-update
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getFounderProfile, cms, getAllPageSections } from '@/src/lib/shared/cms';
@@ -13,7 +13,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const title = cms(founder, 'bio', 'title', 'Founder & Lead Instructor — Financial Modeler Pro');
   return {
     title: `${name} — ${title}`,
-    description: cms(founder, 'bio', 'short_bio', 'Real estate finance professional and founder of Financial Modeler Pro.'),
+    description: cms(founder, 'bio', 'short_bio', 'Corporate finance specialist and founder of Financial Modeler Pro.'),
   };
 }
 
@@ -32,18 +32,25 @@ export default async function FounderPage() {
   const quals      = (fc?.qualifications as string) || '';
   const _photoRaw  = cms(founder, 'bio', 'photo_url',  '');
   const photoUrl   = (fc?.photo_url as string)      || (_photoRaw.startsWith('data:') || _photoRaw.startsWith('http') ? _photoRaw : _photoRaw ? `data:image/jpeg;base64,${_photoRaw}` : '');
-  const shortBio   = (fc?.bio as string)            || cms(founder, 'bio', 'short_bio',  'Real estate finance professional with 15+ years of deal structuring, development financing, and financial modeling experience across GCC and international markets.');
+  const shortBio   = (fc?.bio as string)            || cms(founder, 'bio', 'short_bio',  '');
   const linkedin   = (fc?.cta_secondary_url as string) || (fc?.linkedin_url as string) || cms(founder, 'bio', 'linkedin_url', '');
-  const philosophy = (fc?.philosophy as string)     || cms(founder, 'philosophy', 'text', 'A good financial model is not just a calculation — it\'s a communication tool. Every assumption should be visible, every output should be traceable, and the final product should be something you\'d be proud to present to a board or an investor committee without reformatting.');
+  const philosophy = (fc?.philosophy as string)     || cms(founder, 'philosophy', 'text', '');
 
-  // Long bio: split by \n\n first, then \n — handles both DB-stored newlines and literal \n
-  const longBioRaw = (fc?.long_bio as string) || cms(founder, 'bio', 'long_bio', 'Ahmad Din has spent over 15 years at the intersection of real estate development and structured finance.');
+  const longBioRaw = (fc?.long_bio as string) || cms(founder, 'bio', 'long_bio', '');
   const longBio = longBioRaw.split(/\n\n|\n/).map(p => p.trim()).filter(Boolean);
 
-  // Credentials: unified list — shows as ✓ on home card, numbered on about page
-  const expItems = (fc?.credentials as string[]) ?? [];
+  const whyFmpRaw = (fc?.why_fmp as string) || '';
+  const whyFmp = whyFmpRaw.split(/\n\n|\n/).map(p => p.trim()).filter(Boolean);
 
-  const projects = (fc?.projects as { id: string; title: string; description: string; sector: string; value: string }[]) ?? [];
+  const expItems      = (fc?.credentials as string[]) ?? [];
+  const expertise     = (fc?.expertise as string[]) ?? [];
+  const industryFocus = (fc?.industry_focus as string[]) ?? [];
+  const marketFocus   = (fc?.market_focus as string) || '';
+  const personal      = (fc?.personal as string) || '';
+  const projects      = (fc?.projects as { id: string; title: string; description: string; sector: string; value: string }[]) ?? [];
+
+  const sectionHeading: React.CSSProperties = { fontSize: 22, fontWeight: 800, color: '#fff', marginBottom: 24 };
+  const sectionPadding = '0 40px 72px';
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
@@ -87,31 +94,78 @@ export default async function FounderPage() {
 
       {/* Background */}
       {longBio.length > 0 && (
-        <section style={{ padding: '72px 40px', maxWidth: 800, margin: '0 auto' }}>
-          <h2 style={{ fontSize: 22, fontWeight: 800, color: '#fff', marginBottom: 24 }}>Background</h2>
+        <section style={{ padding: '72px 40px 48px', maxWidth: 800, margin: '0 auto' }}>
+          <h2 style={sectionHeading}>Background</h2>
           {longBio.map((para, i) => (
             <p key={i} style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.85)', lineHeight: 1.8, marginBottom: 16 }}>{para}</p>
           ))}
         </section>
       )}
 
-      {/* Experience */}
-      <section style={{ padding: '0 40px 72px', maxWidth: 800, margin: '0 auto' }}>
-        <h2 style={{ fontSize: 22, fontWeight: 800, color: '#fff', marginBottom: 24 }}>Experience &amp; Background</h2>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {expItems.map((item, i) => (
-            <div key={i} style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-              <span style={{ background: '#1ABC9C', color: '#fff', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
-              <p style={{ color: 'rgba(255,255,255,0.85)', lineHeight: 1.6, margin: 0 }}>{item}</p>
-            </div>
+      {/* Why Financial Modeler Pro */}
+      {whyFmp.length > 0 && (
+        <section style={{ padding: sectionPadding, maxWidth: 800, margin: '0 auto' }}>
+          <h2 style={sectionHeading}>Why Financial Modeler Pro</h2>
+          {whyFmp.map((para, i) => (
+            <p key={i} style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.85)', lineHeight: 1.8, marginBottom: 16 }}>{para}</p>
           ))}
-        </div>
-      </section>
+        </section>
+      )}
+
+      {/* Experience & Background */}
+      {expItems.length > 0 && (
+        <section style={{ padding: sectionPadding, maxWidth: 800, margin: '0 auto' }}>
+          <h2 style={sectionHeading}>Experience &amp; Background</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {expItems.map((item, i) => (
+              <div key={i} style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+                <span style={{ background: '#1ABC9C', color: '#fff', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
+                <p style={{ color: 'rgba(255,255,255,0.85)', lineHeight: 1.6, margin: 0 }}>{item}</p>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Expertise Areas */}
+      {expertise.length > 0 && (
+        <section style={{ padding: sectionPadding, maxWidth: 800, margin: '0 auto' }}>
+          <h2 style={sectionHeading}>Expertise Areas</h2>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {expertise.map((item, i) => (
+              <span key={i} style={{ padding: '8px 16px', borderRadius: 8, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', fontSize: 13, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>{item}</span>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Industry Focus */}
+      {industryFocus.length > 0 && (
+        <section style={{ padding: sectionPadding, maxWidth: 800, margin: '0 auto' }}>
+          <h2 style={sectionHeading}>Industry Focus</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
+            {industryFocus.map((item, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10 }}>
+                <span style={{ color: '#4A90D9', fontWeight: 700, fontSize: 12, flexShrink: 0 }}>●</span>
+                <span style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>{item}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* Market Focus */}
+      {marketFocus && (
+        <section style={{ padding: sectionPadding, maxWidth: 800, margin: '0 auto' }}>
+          <h2 style={sectionHeading}>Market Focus</h2>
+          <p style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.85)', lineHeight: 1.8 }}>{marketFocus}</p>
+        </section>
+      )}
 
       {/* Projects */}
       {projects.length > 0 && (
-        <section style={{ padding: '0 40px 72px', maxWidth: 800, margin: '0 auto' }}>
-          <h2 style={{ fontSize: 22, fontWeight: 800, color: '#fff', marginBottom: 24 }}>Notable Projects</h2>
+        <section style={{ padding: sectionPadding, maxWidth: 800, margin: '0 auto' }}>
+          <h2 style={sectionHeading}>Notable Projects</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {projects.map(p => (
               <div key={p.id} style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10, padding: '20px 24px' }}>
@@ -128,15 +182,25 @@ export default async function FounderPage() {
       )}
 
       {/* Philosophy */}
-      <section style={{ padding: '64px 40px', background: 'rgba(0,0,0,0.2)', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-        <div style={{ maxWidth: 800, margin: '0 auto' }}>
-          <h2 style={{ fontSize: 22, fontWeight: 800, color: '#fff', marginBottom: 20 }}>Modeling Philosophy</h2>
-          <blockquote style={{ borderLeft: '3px solid #1B4F8A', paddingLeft: 24, margin: 0, fontSize: 16, color: 'rgba(255,255,255,0.6)', lineHeight: 1.8, fontStyle: 'italic' }}>
-            &ldquo;{philosophy}&rdquo;
-          </blockquote>
-          <div style={{ marginTop: 16, fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>— {name}</div>
-        </div>
-      </section>
+      {philosophy && (
+        <section style={{ padding: '64px 40px', background: 'rgba(0,0,0,0.2)', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+          <div style={{ maxWidth: 800, margin: '0 auto' }}>
+            <h2 style={{ fontSize: 22, fontWeight: 800, color: '#fff', marginBottom: 20 }}>Modeling Philosophy</h2>
+            <blockquote style={{ borderLeft: '3px solid #1B4F8A', paddingLeft: 24, margin: 0, fontSize: 16, color: 'rgba(255,255,255,0.6)', lineHeight: 1.8, fontStyle: 'italic' }}>
+              &ldquo;{philosophy}&rdquo;
+            </blockquote>
+            <div style={{ marginTop: 16, fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>— {name}</div>
+          </div>
+        </section>
+      )}
+
+      {/* Personal */}
+      {personal && (
+        <section style={{ padding: '48px 40px 72px', maxWidth: 800, margin: '0 auto' }}>
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: 'rgba(255,255,255,0.5)', marginBottom: 12 }}>Personal</h2>
+          <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)', lineHeight: 1.7 }}>{personal}</p>
+        </section>
+      )}
 
       <SharedFooter
         company="Financial Modeler Pro is a product of PaceMakers Business Consultants"
