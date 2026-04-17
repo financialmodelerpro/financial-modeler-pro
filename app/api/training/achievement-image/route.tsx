@@ -1,6 +1,7 @@
 import { ImageResponse } from 'next/og';
 import { NextRequest } from 'next/server';
 import { getServerClient } from '@/src/lib/shared/supabase';
+import { loadOgFonts } from '@/src/lib/shared/ogFonts';
 import sharp from 'sharp';
 
 export const runtime = 'nodejs';
@@ -13,6 +14,8 @@ export async function GET(req: NextRequest) {
   const course      = searchParams.get('course') || '3-Statement Financial Modeling';
   const studentName = searchParams.get('name') || '';
   const regId       = searchParams.get('regId') || '';
+
+  const fonts = await loadOgFonts().catch(() => []);
 
   // Fetch header settings — same source and rules as NavbarServer + Navbar
   let logoDataUri = '';
@@ -95,7 +98,7 @@ export async function GET(req: NextRequest) {
     (
       <div style={{
         width: '100%', height: '100%', display: 'flex', flexDirection: 'column',
-        background: '#0D2E5A', fontFamily: 'Arial, sans-serif', position: 'relative',
+        background: '#0D2E5A', fontFamily: 'Inter, Arial, sans-serif', position: 'relative',
         overflow: 'hidden',
       }}>
         {/* Background gradient overlay */}
@@ -222,6 +225,6 @@ export async function GET(req: NextRequest) {
         </div>
       </div>
     ),
-    { width: 1200, height: 630 },
+    { width: 1200, height: 630, fonts },
   );
 }

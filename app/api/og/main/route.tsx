@@ -1,6 +1,7 @@
 import { ImageResponse } from 'next/og';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { getCmsContent, cms, getAllPageSections } from '@/src/lib/shared/cms';
+import { loadOgFonts } from '@/src/lib/shared/ogFonts';
 import sharp from 'sharp';
 
 export const runtime = 'nodejs';
@@ -41,10 +42,11 @@ async function fetchLogo(): Promise<string> {
 
 /** GET /api/og/main — Main site OG banner */
 export async function GET() {
-  const [content, sections, logoDataUri] = await Promise.all([
+  const [content, sections, logoDataUri, fonts] = await Promise.all([
     getCmsContent().catch(() => ({} as Record<string, Record<string, string>>)),
     getAllPageSections('home').catch(() => []),
     fetchLogo().catch(() => ''),
+    loadOgFonts().catch(() => []),
   ]);
   const heroRaw = sections.find(s => s.section_type === 'hero');
   const h = heroRaw?.visible !== false ? heroRaw?.content as Record<string, unknown> | undefined : undefined;
@@ -55,7 +57,7 @@ export async function GET() {
 
   return new ImageResponse(
     (
-      <div style={{ width: 1200, height: 630, display: 'flex', flexDirection: 'column', background: 'linear-gradient(180deg, #0D2E5A 0%, #0A2448 100%)', fontFamily: 'Arial, Helvetica, sans-serif', position: 'relative', overflow: 'hidden' }}>
+      <div style={{ width: 1200, height: 630, display: 'flex', flexDirection: 'column', background: 'linear-gradient(180deg, #0D2E5A 0%, #0A2448 100%)', fontFamily: 'Inter, Arial, Helvetica, sans-serif', position: 'relative', overflow: 'hidden' }}>
         <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse 80% 50% at 50% 0%, rgba(45,107,168,0.25) 0%, transparent 65%)', display: 'flex' }} />
         <div style={{ position: 'absolute', top: -80, right: -80, width: 360, height: 360, borderRadius: '50%', background: 'rgba(255,255,255,0.03)', display: 'flex' }} />
 
@@ -85,6 +87,6 @@ export async function GET() {
         </div>
       </div>
     ),
-    { width: 1200, height: 630 },
+    { width: 1200, height: 630, fonts },
   );
 }
