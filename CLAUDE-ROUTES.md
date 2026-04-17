@@ -20,13 +20,11 @@ app/
 ├── articles/page.tsx
 ├── articles/[slug]/page.tsx
 ├── book-a-meeting/page.tsx      # Professional booking redirect page (reads booking_url from CMS)
-├── confidentiality/page.tsx
 ├── contact/page.tsx
 ├── forgot-password/page.tsx
 ├── login/page.tsx               # Full admin login UI (200 response, no redirect)
 ├── portal/page.tsx              # Authenticated app hub (all platforms grid)
 ├── pricing/page.tsx
-├── privacy-policy/page.tsx
 ├── reset-password/page.tsx
 ├── settings/page.tsx
 ├── t/[token]/page.tsx
@@ -70,6 +68,7 @@ app/admin/
 │   + cohorts/ + communications/ + course-details/ + students/
 ├── training-settings/page.tsx
 ├── transcript-editor/page.tsx
+├── newsletter/page.tsx           # Newsletter admin: 4 tabs (Subscribers, Compose, Campaigns, Auto Notifications)
 ├── users/page.tsx
 └── whitelabel/page.tsx
 ```
@@ -220,6 +219,14 @@ app/api/admin/
 ├── live-sessions/[id]/          # PATCH/DELETE
 ├── live-sessions/[id]/notify/   # POST: send emails via Resend
 ├── live-sessions/[id]/registrations/ # GET/PATCH
+├── newsletter/subscribers/       # GET: paginated subscriber list with stats
+├── newsletter/export/           # GET: CSV download
+├── newsletter/send/             # POST: create campaign + fire-and-forget send
+├── newsletter/campaigns/        # GET: campaign history
+├── newsletter/content-items/    # GET: items from live_sessions/articles for compose auto-populate
+├── newsletter/enhance/          # POST: AI rewrite via Anthropic API
+├── newsletter/auto-settings/    # GET/PATCH: auto-notification toggles
+├── generate-images/             # POST: satori+sharp generate mission/vision PNGs → Supabase
 ├── page-sections/               # CRUD for page_sections + cms_pages
 ├── reset-attempts/              # POST: reset via Apps Script
 ├── training-settings/ users/ whitelabel/
@@ -245,6 +252,8 @@ app/api/
 ├── public/training-sessions/      # GET: public list (no auth, no live_url/password)
 ├── public/training-sessions/[id]/ # GET: public detail (no auth, no live_url/password)
 ├── training/session-notes/        # GET+POST: per-student notes per session (upsert)
+├── newsletter/subscribe/          # POST: hub-segmented subscribe (public, rate-limited)
+├── newsletter/unsubscribe/        # GET: per-hub unsubscribe via token (HTML response)
 ├── og/route.tsx                   # GET: Training Hub OG banner (1200x630, CMS hero, logo)
 ├── og/modeling/route.tsx          # GET: Modeling Hub OG banner (1200x630, CMS hero, logo)
 ├── og/main/route.tsx              # GET: Main site OG banner (1200x630, CMS hero, logo)
@@ -260,6 +269,7 @@ src/components/
 │   ├── AnnouncementsManager.tsx  AuditLogViewer.tsx  CmsAdminNav.tsx
 │   ├── PermissionsManager.tsx  ProjectsBrowser.tsx
 │   ├── RichTextEditor.tsx       # Tiptap: headings, alignment, images, links
+│   ├── RichTextarea.tsx         # Contenteditable div with floating selection toolbar (B, I, U, Size, Color)
 │   └── SystemHealth.tsx
 ├── cms/
 │   ├── SectionRenderer.tsx      # Maps section_type -> component
@@ -268,7 +278,8 @@ src/components/
 │       Testimonials, PricingTable, Video, Banner, Spacer, Embed, Team, Timeline, LogoGrid, Countdown,
 │       CmsParagraphs)
 │       All sections support per-field visibility (content.fieldName_visible !== false)
-│       CmsParagraphs: shared paragraph renderer supporting string[] and {text,align}[] formats
+│       CmsParagraphs: shared paragraph renderer supporting string[] and {text,align}[] formats, HTML-aware
+│       renderCmsText.tsx: shared isHtml() + CmsText utility for all renderers
 │       TextImage: checklist items, background image with padding/position/fit/overlay controls, body field, audience cards
 ├── sessions/
 │   └── SessionCard.tsx              # Universal live session card (variant: student|public, compact mode, watched badge)
@@ -288,6 +299,8 @@ src/components/
 │   ├── BrandingSettingsPanel.tsx  BrandingThemeApplier.tsx
 │   ├── PhoneInput.tsx  SessionProviderWrapper.tsx  UpgradePrompt.tsx
 │   └── ShareExperienceModal.tsx     # 3-tab testimonial modal for both hubs
+├── newsletter/
+│   └── NewsletterSubscribeForm.tsx   # Hub checkboxes + email input, shown in SharedFooter
 ├── shared/
 │   ├── FollowPopup.tsx              # Reusable LinkedIn+YouTube follow popup (bottom-right toast)
 │   └── SiteFollowPopup.tsx          # Site-wide 60s popup wrapper
@@ -327,14 +340,17 @@ src/lib/
 │   └── templates/ (_base, accountConfirmation, certificateIssued, confirmEmail,
 │       deviceVerification, lockedOut, otpVerification, passwordReset,
 │       liveSessionNotification, quizResult, registrationConfirmation, resendRegistrationId)
+│       newsletter.ts — custom baseLayoutNewsletter() with "Structured Modeling. Real-World Finance." signature
 │       ALL template functions are async (use baseLayoutBranded) — callers must await
+├── newsletter/
+│   └── autoNotify.ts            # sendAutoNewsletter() — fire-and-forget, duplicate prevention, per-event-type toggle
 ├── modeling/real-estate/
 │   ├── export/ (excel-formula, excel-static, pdf)
 │   └── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))
 ├── shared/
 │   ├── audit.ts  auth.ts  captcha.ts  cms.ts (getAllPageSections, getPageSections, getTestimonialsForPage)  deviceTrust.ts
-│   ├── emailConfirmation.ts  modelingComingSoon.ts  password.ts  permissions.ts
-│   ├── storage.ts  supabase.ts  urls.ts
+│   ├── emailConfirmation.ts  htmlUtils.ts(isHtml detection)  modelingComingSoon.ts  ogFonts.ts(Inter font loader)
+│   ├── password.ts  permissions.ts  storage.ts  supabase.ts  urls.ts
 └── training/
     ├── appsScript.ts  certificateEngine.ts  certificateLayout.ts  certifier.ts(deprecated)
     ├── sheets.ts  training-session.ts  videoTimer.ts

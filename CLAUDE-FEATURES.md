@@ -57,6 +57,15 @@
 | **Training Hub — Achievement Card** | ✅ Complete | Dynamic OG image at `/api/training/achievement-image` (satori ImageResponse). Shows session, score, course, student name, reg ID, date. Logo from CMS (SVG→PNG via sharp). Admin-controlled logo height |
 | **Training Hub — Share System** | ✅ Complete | SessionCard: Share modal (textarea, LinkedIn auto-copy, Copy Text) + Card modal (preview + download). Assessment result page: same pattern. LinkedIn opens compose with auto-copied text |
 | **OG Social Previews** | ✅ Complete | Per-domain OG banners: `/api/og` (learn), `/api/og/modeling` (app), `/api/og/main` (main site). CMS-driven hero text, logo from header_settings (sharp SVG→PNG). Assessment layout.tsx with dynamic OG tags per session |
+| **Newsletter System** | ✅ Complete | Hub-segmented subscribers, admin compose (type selector + AI enhance), auto-notifications on publish, campaign history, unsubscribe per-hub |
+| **Newsletter — Auto Notifications** | ✅ Complete | Triggers on article publish, live session publish/recording. Admin toggle per event type. Duplicate prevention via unique index |
+| **Legal Pages** | ✅ Complete | Privacy Policy, Terms of Service, Confidentiality & Terms (published), Refund Policy (draft). CMS-editable via Page Builder. Full PMBC legal entity details |
+| **Founder Profile — Comprehensive** | ✅ Complete | Full career bio (Dallah, ACWA Power, PPP), Why FMP mission story, expertise/industry/market/personal sections |
+| **YouTube Engagement CTAs** | ✅ Complete | Subscribe/Like/Comment/Share on watch page, SupportBanner, comment count + Join Discussion CTA, motivational messaging |
+| **Progress Badge Visual Upgrade** | ✅ Complete | Lucide-react icons in colored circles, certificate badge preview/download modal |
+| **OG Image Font Loading** | ✅ Complete | Inter fonts (Regular/Bold/ExtraBold) loaded for satori, sharper LinkedIn previews |
+| **CMS Rich Text Rendering** | ✅ Complete | Universal HTML detection in all section renderers, RichTextarea admin editor with floating toolbar, global .fmp-rich-text CSS |
+| **Website Audit Fixes** | ✅ Complete | Em dashes → hyphens, footer cleanup, auth terminology, email taglines unified, legal pages linked |
 | **BVM / FPA / other platforms** | ❌ Not Started | Config defined, no content |
 
 ---

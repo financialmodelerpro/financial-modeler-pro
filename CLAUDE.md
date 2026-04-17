@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-16** (docs updated session end — assessment routes, watch tracking, email migration, achievement cards, OG previews, share system, migrations 088-090)
+**Last updated: 2026-04-18** (docs updated session end — newsletter system, auto-notifications, legal pages, founder profile update, YouTube engagement, badge visual upgrade, OG font loading, website audit fixes, CMS rich text rendering, migrations 091-096)
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md) — Database tables, storage buckets, migrations log
@@ -346,3 +346,51 @@ All three marketing pages use **Option B**: each section fetched from `page_sect
 - **SessionCard**: "Card" button → modal with achievement image preview + download PNG
 - **Assessment result page**: same share pattern (textarea + LinkedIn + Copy Text + card preview + download)
 - **Dashboard share banner**: "Enjoying your progress?" → modal with same textarea/LinkedIn/Copy pattern
+- **ShareModal** (watch page): motivational share text with Training Hub URL, LinkedIn auto-copy + open feed, WhatsApp pre-fill
+
+### Newsletter System (migrations 091-092)
+- **Tables**: `newsletter_subscribers` (email+hub UNIQUE, per-hub unsubscribe_token), `newsletter_campaigns` (subject, body, target_hub, status, sent/failed counts, campaign_type auto/manual, source_type/source_id)
+- **Auto settings**: `newsletter_auto_settings` (event_type UNIQUE, enabled, target_hub) — 6 event types seeded disabled
+- **Subscribe form**: `src/components/newsletter/NewsletterSubscribeForm.tsx` — hub checkboxes (Training/Modeling), shown in SharedFooter 4th column
+- **Unsubscribe**: `GET /api/newsletter/unsubscribe?token=` — per-hub, HTML response page
+- **Admin**: `/admin/newsletter` — 4 tabs (Subscribers, Compose, Campaigns, Auto Notifications)
+- **Compose**: type selector (live session, recording, article, certification, custom), auto-populate from DB, AI Enhance via Anthropic API, Tiptap editor
+- **Auto-notify**: `src/lib/newsletter/autoNotify.ts` — `sendAutoNewsletter()` fire-and-forget, duplicate prevention via unique index, triggered from article publish + live session publish/recording
+- **Email template**: `src/lib/email/templates/newsletter.ts` — custom `baseLayoutNewsletter()` with "Structured Modeling. Real-World Finance." signature
+- **Deduplication**: when sending to "all", deduplicates by email (one email per person)
+
+### Legal Pages (migration 093)
+- **Pages**: privacy-policy, terms-of-service, confidentiality, refund-policy (draft)
+- **CMS**: all 4 as `cms_pages` + `page_sections` (rich_text type), editable in Page Builder
+- **Rendering**: served by `app/(cms)/[slug]/page.tsx` dynamic route (old hardcoded routes deleted)
+- **Footer**: Privacy Policy, Terms of Service, Confidentiality & Terms links in bottom row
+
+### Founder Profile (migration 094)
+- **New fields**: `why_fmp` (mission story), `expertise[]` (10 items), `industry_focus[]` (6 items), `market_focus`, `personal`
+- **Updated fields**: `bio`, `credentials[]` (10 items), `long_bio` (full career narrative), `philosophy`
+- **About page**: renders all new sections (Why FMP, Expertise as tag pills, Industry as grid cards, Market Focus, Personal)
+
+### YouTube Engagement (watch page)
+- **CourseTopBar**: lucide-react icons (Bell, ThumbsUp, MessageCircle, Share2), Subscribe has red accent
+- **YouTubeComments**: comment count in header, "Join the Discussion" CTA, "Leave a Comment" link, "View all on YouTube" when 10+ comments
+- **SupportBanner**: warm amber card above comments, Subscribe/Like/Comment/Share pills, dismissible via sessionStorage
+- **Comment deep links**: use `?lc=` parameter instead of `#comments` for reliable YouTube scroll
+
+### Badge Visual Upgrade
+- **Progress badges**: emoji replaced with styled lucide-react icons in 48px colored circles (Footprints, Flame, Zap, Target, Rocket, Trophy, Sparkles, Timer)
+- **Certificate badges**: Preview (Eye icon) modal + Download button on dashboard
+- **Locked badges**: grayscale icon circles at 32px
+
+### OG Image Font Loading
+- **Fonts**: `src/assets/fonts/` — Inter-Regular.ttf, Inter-Bold.ttf, Inter-ExtraBold.ttf
+- **Loader**: `src/lib/shared/ogFonts.ts` — `loadOgFonts()` with in-memory cache
+- **Applied to**: `/api/og`, `/api/og/main`, `/api/og/modeling`, `/api/training/achievement-image`
+
+### CMS Rich Text Rendering
+- **RichTextarea**: `src/components/admin/RichTextarea.tsx` — contenteditable div with floating selection toolbar (B, I, U, Size, Color)
+- **HTML detection**: `src/lib/shared/htmlUtils.ts` — shared `isHtml()` regex used by all renderers
+- **renderCmsText.tsx**: shared `CmsText` component + `isHtml` re-export for section renderers
+- **Global CSS**: `.fmp-rich-text` class in `globals.css` — headings, paragraphs, lists, links, blockquotes, b/i/u/s tags
+- **All section renderers**: HTML detection → `dangerouslySetInnerHTML` with `fmp-rich-text` class
+- **Portal page**: PaceMakers, Two Platforms, Founder card, FounderExpand all use isHtml() detection
+- **VF component**: `showLayout` defaults to `true` — all Page Builder fields get Width % + Alignment dropdowns

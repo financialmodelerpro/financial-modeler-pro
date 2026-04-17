@@ -98,7 +98,10 @@
 | `coupon_codes` | Discount codes: percentage/fixed, applicable plans/platforms, max uses, expiry |
 | `platform_features` | Per-platform features: key, text, category (modules/projects/exports/support/team), display_order |
 | `plan_feature_access` | Admin toggles: plan_id + feature_id → is_included, override_text |
-| `newsletter_subscribers` | Email subscribers: email, name, source, is_active, subscribed_at |
+| `newsletter_subscribers` | Hub-segmented: email+hub UNIQUE, status (active/unsubscribed), unsubscribe_token UUID, source |
+| `newsletter_campaigns` | Email campaigns: subject, body, target_hub, status, sent_count, failed_count, campaign_type (manual/auto), source_type, source_id |
+| `newsletter_auto_settings` | Auto-notification toggles: event_type UNIQUE, enabled, target_hub |
+| `newsletter_subscribers_legacy` | Renamed old table (migration 091 preserved data) |
 
 ### Certification Watch & Assessment Results
 | Table | Purpose |
@@ -206,3 +209,9 @@
 | `088_certification_watch_history.sql` | Create certification_watch_history table (student_email + tab_key UNIQUE, status in_progress/completed, started_at, completed_at) |
 | `089_sync_email_logo.sql` | Sync email_branding.logo_url from CMS header_settings logo_url |
 | `090_training_assessment_results.sql` | Create training_assessment_results table (email + tab_key UNIQUE, score, passed, attempts, is_final, completed_at). Supabase as primary source for instant dashboard progress |
+| `091_newsletter_system.sql` | Newsletter: drop+recreate newsletter_subscribers with hub segmentation (email+hub UNIQUE), create newsletter_campaigns, migrate legacy subscribers to training hub |
+| `092_newsletter_auto_notify.sql` | Auto-notifications: newsletter_auto_settings table (6 event types), campaign_type/source_type/source_id on campaigns, unique index for duplicate prevention |
+| `093_legal_pages.sql` | Legal pages: 4 cms_pages (privacy-policy, terms-of-service, confidentiality, refund-policy) + page_sections with full legal content (rich_text type) |
+| `094_founder_profile_update.sql` | Update founder team section: new bio, 10 credentials, full career long_bio, why_fmp, expertise[], industry_focus[], market_focus, personal |
+| `095_home_text_sections_update.sql` | Update home text_image sections: What is FMP (new body + items, maxWidth 1200px), Our Mission, Our Vision |
+| `096_cleanup_text_image_html.sql` | Remove stale html field from text_image sections that also have body (prevents duplicate rendering) |
