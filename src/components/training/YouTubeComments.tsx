@@ -42,7 +42,7 @@ export function YouTubeComments({ videoId, youtubeUrl }: YouTubeCommentsProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const ytLink = youtubeUrl || `https://www.youtube.com/watch?v=${videoId}`;
-  const ytCommentsLink = `${ytLink}${ytLink.includes('#') ? '' : '#comments'}`;
+  const ytCommentsLink = `${ytLink}${ytLink.includes('?') ? '&' : '?'}lc=`;
 
   useEffect(() => {
     fetch(`/api/training/youtube-comments?videoId=${videoId}`)

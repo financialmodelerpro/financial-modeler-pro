@@ -100,7 +100,7 @@ export function CourseTopBar({
           )}
 
           <a
-            href={`${youtubeUrl}#comments`}
+            href={`${youtubeUrl}${youtubeUrl.includes('?') ? '&' : '?'}lc=`}
             target="_blank"
             rel="noopener noreferrer"
             title="Ask a question on YouTube — get a quick answer"

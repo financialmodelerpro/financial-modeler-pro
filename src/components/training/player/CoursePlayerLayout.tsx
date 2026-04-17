@@ -2,11 +2,70 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { Bell, ThumbsUp, MessageCircle, Share2, X } from 'lucide-react';
 import { YouTubePlayer } from '../YouTubePlayer';
 import { YouTubeComments } from '../YouTubeComments';
 import { StudentNotes } from '../StudentNotes';
 import { CourseTopBar } from './CourseTopBar';
 import { FollowPopup } from '@/src/components/shared/FollowPopup';
+
+const STORAGE_KEY = 'fmp_support_banner_dismissed';
+
+function SupportBanner({ youtubeUrl, channelId }: { youtubeUrl: string; channelId?: string }) {
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(STORAGE_KEY)) setDismissed(true);
+  }, []);
+
+  if (dismissed) return null;
+
+  const commentLink = `${youtubeUrl}${youtubeUrl.includes('?') ? '&' : '?'}lc=`;
+  const subscribeLink = channelId ? `https://www.youtube.com/channel/${channelId}?sub_confirmation=1` : null;
+
+  const pillStyle: React.CSSProperties = {
+    display: 'inline-flex', alignItems: 'center', gap: 5,
+    padding: '5px 12px', borderRadius: 20,
+    fontSize: 11, fontWeight: 600, textDecoration: 'none',
+    border: '1px solid #E5E7EB', background: '#fff', color: '#374151',
+    whiteSpace: 'nowrap',
+  };
+
+  return (
+    <div style={{
+      background: '#FFFBF0', border: '1px solid #FDE68A', borderRadius: 10,
+      padding: '14px 16px', marginBottom: 12, position: 'relative',
+    }}>
+      <button
+        onClick={() => { setDismissed(true); if (typeof sessionStorage !== 'undefined') sessionStorage.setItem(STORAGE_KEY, '1'); }}
+        style={{ position: 'absolute', top: 8, right: 8, background: 'none', border: 'none', cursor: 'pointer', color: '#9CA3AF', padding: 2 }}
+        title="Dismiss"
+      >
+        <X size={14} />
+      </button>
+      <div style={{ fontSize: 12, color: '#92400E', lineHeight: 1.5, marginBottom: 10, paddingRight: 16 }}>
+        This certification is completely free — and we&apos;d love to keep it that way. A quick like, comment, or subscribe on YouTube goes a long way.
+      </div>
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {subscribeLink && (
+          <a href={subscribeLink} target="_blank" rel="noopener noreferrer"
+            style={{ ...pillStyle, background: '#FEF2F2', borderColor: '#FECACA', color: '#DC2626' }}>
+            <Bell size={12} /> Subscribe
+          </a>
+        )}
+        <a href={youtubeUrl} target="_blank" rel="noopener noreferrer" style={pillStyle}>
+          <ThumbsUp size={12} /> Like
+        </a>
+        <a href={commentLink} target="_blank" rel="noopener noreferrer" style={pillStyle}>
+          <MessageCircle size={12} /> Comment
+        </a>
+        <a href={youtubeUrl} target="_blank" rel="noopener noreferrer" style={pillStyle}>
+          <Share2 size={12} /> Share
+        </a>
+      </div>
+    </div>
+  );
+}
 
 export interface SidebarSession {
   id: string;
@@ -400,6 +459,7 @@ export function CoursePlayerLayout({
             overflowY: 'auto', position: 'sticky', top: 108,
             height: 'calc(100vh - 108px)', padding: 16,
           }}>
+            <SupportBanner youtubeUrl={youtubeUrl!} channelId={channelId} />
             <h3 style={{ fontSize: 14, fontWeight: 700, color: '#111827', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
               💬 Discussion
             </h3>
@@ -411,6 +471,7 @@ export function CoursePlayerLayout({
 
         {videoOpen && hasVideo && isMobile && (
           <div style={{ padding: 16, background: '#ffffff', borderTop: '1px solid #e5e7eb' }}>
+            <SupportBanner youtubeUrl={youtubeUrl!} channelId={channelId} />
             <h3 style={{ fontSize: 14, fontWeight: 700, color: '#111827', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 6 }}>
               💬 Discussion
             </h3>
