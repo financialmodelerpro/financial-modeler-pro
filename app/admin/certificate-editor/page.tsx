@@ -85,7 +85,7 @@ const SAMPLE_TEXT: Record<PdfFieldKey, string> = {
 const SAMPLE_QR_URL =
   'https://api.qrserver.com/v1/create-qr-code/' +
   '?size=300x300&data=' +
-  encodeURIComponent('https://financialmodelerpro.com/verify/FMP-3SFM-2026-XXXX');
+  encodeURIComponent('https://financialmodelerpro.com/verify/FMP-3SFM-2026-0001');
 
 const FONT_OPTIONS = [
   { value: 'Helvetica',   label: 'Helvetica' },

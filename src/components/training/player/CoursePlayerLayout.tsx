@@ -346,18 +346,18 @@ export function CoursePlayerLayout({
               <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
                 {sessionType && (
                   <span style={{
-                    fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20,
+                    fontSize: 11, fontWeight: 800, padding: '3px 10px', borderRadius: 20, textTransform: 'uppercase',
                     background: sessionType === 'live' ? '#FEF2F2' : isUpcoming ? '#EFF6FF' : '#F3F4F6',
                     color: sessionType === 'live' ? '#DC2626' : isUpcoming ? '#1D4ED8' : '#6B7280',
                   }}>
-                    {sessionType === 'live' ? 'LIVE NOW' : isUpcoming ? 'UPCOMING' : 'RECORDED'}
+                    {sessionType === 'live' ? 'Live Now' : isUpcoming ? 'Upcoming' : 'Recorded'}
                   </span>
                 )}
                 {difficultyLevel && difficultyLevel !== 'All Levels' && (
                   <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 12, background: '#F3F4F6', color: '#6B7280' }}>{difficultyLevel}</span>
                 )}
                 {category && <span style={{ fontSize: 11, fontWeight: 600, color: '#6B7280' }}>{category}</span>}
-                {isFeatured && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 12, background: '#FEF3C7', color: '#B45309' }}>FEATURED</span>}
+                {isFeatured && <span style={{ fontSize: 10, fontWeight: 800, padding: '2px 8px', borderRadius: 12, background: '#FEF3C7', color: '#B45309', textTransform: 'uppercase' }}>Featured</span>}
               </div>
 
               {/* Instructor */}

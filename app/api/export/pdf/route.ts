@@ -301,11 +301,7 @@ function REFMReport({ d }: { d: ExportPayload }) {
 export async function POST(req: NextRequest) {
   const d: ExportPayload = await req.json();
 
-  // ── White-label cover placeholder ────────────────────────────────────────────
-  // TODO: When white-label is enabled, read clientName / clientLogo from the
-  // branding_config table (server-side) and apply them to the PDF cover page.
-  // For now the cover uses the standard REFM Pro branding.
-  // ─────────────────────────────────────────────────────────────────────────────
+
 
   // renderToBuffer is simpler than stream for server routes
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

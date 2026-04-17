@@ -140,11 +140,7 @@ const PCT1 = '0.0%';
 export async function POST(req: NextRequest) {
   const d: ExportPayload = await req.json();
 
-  // ── White-label cover placeholder ────────────────────────────────────────────
-  // TODO: When white-label is enabled, read clientName / clientLogo from the
-  // branding_config table (server-side) and apply them to the cover tab here.
-  // For now the workbook uses the standard REFM Pro branding.
-  // ─────────────────────────────────────────────────────────────────────────────
+
 
   const wb = new ExcelJS.Workbook();
   wb.creator  = 'REFM Pro';
