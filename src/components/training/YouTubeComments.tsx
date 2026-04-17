@@ -11,6 +11,8 @@ interface Comment {
   publishedAt: string;
 }
 
+type Status = 'ok' | 'empty' | 'error' | 'cached_error';
+
 interface YouTubeCommentsProps {
   videoId: string;
   youtubeUrl: string;
@@ -34,18 +36,27 @@ const NAVY = '#0D2E5A';
 
 export function YouTubeComments({ videoId, youtubeUrl }: YouTubeCommentsProps) {
   const [comments, setComments] = useState<Comment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<Status | 'loading'>('loading');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  const ytLink = youtubeUrl || `https://www.youtube.com/watch?v=${videoId}`;
+  const ytCommentsLink = `${ytLink}${ytLink.includes('#') ? '' : '#comments'}`;
 
   useEffect(() => {
     fetch(`/api/training/youtube-comments?videoId=${videoId}`)
       .then(r => r.json())
-      .then(d => setComments(d.comments ?? []))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+      .then(d => {
+        setComments(d.comments ?? []);
+        setStatus((d.status as Status) ?? ((d.comments?.length ?? 0) > 0 ? 'ok' : 'empty'));
+      })
+      .catch(() => {
+        setComments([]);
+        setStatus('error');
+      });
   }, [videoId]);
 
-  if (loading) {
+  // ── Loading skeleton ────────────────────────────────────────────────────
+  if (status === 'loading') {
     return (
       <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24 }}>
         <h3 style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 16 }}>What others are saying</h3>
@@ -63,12 +74,41 @@ export function YouTubeComments({ videoId, youtubeUrl }: YouTubeCommentsProps) {
     );
   }
 
-  if (comments.length === 0) {
+  // ── Error / unavailable ─────────────────────────────────────────────────
+  if (status === 'error' || status === 'cached_error') {
     return (
-      <div style={{ padding: '16px 0', fontSize: 13, color: '#9CA3AF' }}>No comments yet.</div>
+      <div style={{ padding: '16px 0', fontSize: 13, color: '#9CA3AF' }}>
+        Comments unavailable right now.{' '}
+        <a
+          href={ytCommentsLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: '#1B4F8A', fontWeight: 600, textDecoration: 'none' }}
+        >
+          View on YouTube &rarr;
+        </a>
+      </div>
     );
   }
 
+  // ── No comments ─────────────────────────────────────────────────────────
+  if (comments.length === 0) {
+    return (
+      <div style={{ padding: '16px 0', fontSize: 13, color: '#9CA3AF' }}>
+        No comments yet. Be the first to comment on{' '}
+        <a
+          href={ytCommentsLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: '#1B4F8A', fontWeight: 600, textDecoration: 'none' }}
+        >
+          YouTube &rarr;
+        </a>
+      </div>
+    );
+  }
+
+  // ── Comments list ───────────────────────────────────────────────────────
   return (
     <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24 }}>
       <h3 style={{ fontSize: 18, fontWeight: 700, color: '#111827', marginBottom: 16 }}>What others are saying</h3>
