@@ -50,34 +50,28 @@ export function NewsletterSubscribeForm() {
   }
 
   const checkboxStyle = (checked: boolean): React.CSSProperties => ({
-    width: 16, height: 16, borderRadius: 4, border: `2px solid ${checked ? '#2EAA4A' : 'rgba(255,255,255,0.3)'}`,
+    width: 14, height: 14, borderRadius: 3, border: `2px solid ${checked ? '#2EAA4A' : 'rgba(255,255,255,0.3)'}`,
     background: checked ? '#2EAA4A' : 'transparent', display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
     cursor: 'pointer', flexShrink: 0, transition: 'all 0.15s',
   });
 
   return (
-    <form onSubmit={handleSubmit} style={{ maxWidth: 340 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }} onClick={() => toggleHub('training')}>
+    <form onSubmit={handleSubmit} style={{ maxWidth: 280 }}>
+      <div style={{ display: 'flex', gap: 14, marginBottom: 8 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }} onClick={() => toggleHub('training')}>
           <div style={checkboxStyle(hubs.has('training'))}>
-            {hubs.has('training') && <span style={{ color: '#fff', fontSize: 10, fontWeight: 800, lineHeight: 1 }}>✓</span>}
+            {hubs.has('training') && <span style={{ color: '#fff', fontSize: 8, fontWeight: 800, lineHeight: 1 }}>✓</span>}
           </div>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>Training Hub</div>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>Courses &amp; Certification Updates</div>
-          </div>
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Training</span>
         </label>
-        <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, cursor: 'pointer' }} onClick={() => toggleHub('modeling')}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }} onClick={() => toggleHub('modeling')}>
           <div style={checkboxStyle(hubs.has('modeling'))}>
-            {hubs.has('modeling') && <span style={{ color: '#fff', fontSize: 10, fontWeight: 800, lineHeight: 1 }}>✓</span>}
+            {hubs.has('modeling') && <span style={{ color: '#fff', fontSize: 8, fontWeight: 800, lineHeight: 1 }}>✓</span>}
           </div>
-          <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.7)' }}>Modeling Hub</div>
-            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>Modeling Tools &amp; Platform Updates</div>
-          </div>
+          <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)' }}>Modeling</span>
         </label>
       </div>
-      <div style={{ display: 'flex', gap: 6 }}>
+      <div style={{ display: 'flex', gap: 4 }}>
         <input
           type="email"
           required
@@ -85,16 +79,16 @@ export function NewsletterSubscribeForm() {
           onChange={e => setEmail(e.target.value)}
           placeholder="Your email"
           style={{
-            flex: 1, padding: '8px 12px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.15)',
-            background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 13, outline: 'none',
+            flex: 1, padding: '6px 10px', borderRadius: 5, border: '1px solid rgba(255,255,255,0.15)',
+            background: 'rgba(255,255,255,0.06)', color: '#fff', fontSize: 12, outline: 'none', minWidth: 0,
           }}
         />
         <button
           type="submit"
           disabled={state === 'loading' || hubs.size === 0}
           style={{
-            padding: '8px 16px', borderRadius: 6, border: 'none', cursor: 'pointer',
-            background: '#2EAA4A', color: '#fff', fontSize: 12, fontWeight: 700,
+            padding: '6px 12px', borderRadius: 5, border: 'none', cursor: 'pointer',
+            background: '#2EAA4A', color: '#fff', fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
             opacity: state === 'loading' || hubs.size === 0 ? 0.5 : 1,
           }}
         >

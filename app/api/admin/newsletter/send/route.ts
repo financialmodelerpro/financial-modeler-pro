@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
+import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { Resend } from 'resend';
 import { newsletterTemplate } from '@/src/lib/email/templates/newsletter';
@@ -8,7 +9,7 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = process.env.EMAIL_FROM_NOREPLY ?? 'noreply@financialmodelerpro.com';
 
 export async function POST(req: NextRequest) {
-  const session = await getServerSession();
+  const session = await getServerSession(authOptions);
   const adminEmail = (session?.user as { email?: string; role?: string } | undefined);
   if (adminEmail?.role !== 'admin') {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
