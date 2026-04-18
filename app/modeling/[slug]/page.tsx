@@ -6,6 +6,23 @@ import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { PLATFORMS, getPlatform } from '@/src/config/platforms';
 import type { PlatformModule } from '@/src/config/platforms';
 import { getModules, getAllPageSections } from '@/src/lib/shared/cms';
+import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
+
+// Per-field width + alignment style from admin VF keys.
+function fw(record: Record<string, unknown> | undefined, key: string): React.CSSProperties {
+  const align = record?.[`${key}_align`] as string | undefined;
+  const width = record?.[`${key}_width`] as string | undefined;
+  const style: React.CSSProperties = {};
+  if (align) style.textAlign = align as React.CSSProperties['textAlign'];
+  if (width && width !== 'auto' && width !== '100%' && width !== '100') {
+    style.maxWidth = width.endsWith('%') ? width : `${width}%`;
+    style.marginLeft = 'auto';
+    style.marginRight = 'auto';
+  } else if (width === 'auto') {
+    style.maxWidth = 'none';
+  }
+  return style;
+}
 
 export const revalidate = 0;
 
@@ -174,60 +191,78 @@ export default async function PlatformDetailPage({
                 <span style={{ color: 'rgba(255,255,255,0.85)' }}>{heroHeadline}</span>
               </div>
 
-              <div style={{
-                display: 'inline-flex', alignItems: 'center', gap: 7,
-                background: platform.bgColor, borderRadius: 6,
-                padding: '4px 12px', fontSize: 11, fontWeight: 800,
-                color: platform.color, letterSpacing: '0.08em',
-                textTransform: 'uppercase', marginBottom: 20,
-              }}>
-                {dbEntry.icon || platform.icon} {heroBadge}
-              </div>
-
-              <h1 style={{
-                fontSize: 'clamp(26px,4.5vw,48px)', fontWeight: 800,
-                color: '#fff', lineHeight: 1.15, marginBottom: 16,
-                letterSpacing: '-0.02em',
-              }}>
-                {heroHeadline}
-              </h1>
-
-              <p style={{
-                fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.75)',
-                lineHeight: 1.65, marginBottom: 28, maxWidth: 620,
-              }}>
-                {heroSubtitle}
-              </p>
-
-              <div style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                background: 'rgba(255,255,255,0.15)', borderRadius: 6,
-                padding: '6px 14px', fontSize: 12, fontWeight: 700,
-                color: '#fff', marginBottom: 32,
-              }}>
-                {heroStatusBdg}
-              </div>
-
-              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
-                <a href={`${APP_URL}${heroCta1Url}`} style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 8,
-                  background: '#fff', color: platform.color,
-                  fontWeight: 700, fontSize: 15, padding: '13px 32px',
-                  borderRadius: 8, textDecoration: 'none',
-                  boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
+              {cmsVisible(h ?? {}, 'badge') && (
+                <div style={{
+                  ...fw(h, 'badge'),
+                  display: 'inline-flex', alignItems: 'center', gap: 7,
+                  background: platform.bgColor, borderRadius: 6,
+                  padding: '4px 12px', fontSize: 11, fontWeight: 800,
+                  color: platform.color, letterSpacing: '0.08em',
+                  textTransform: 'uppercase', marginBottom: 20,
                 }}>
-                  {heroCta1Text}
-                </a>
-                <Link href={heroCta2Url} style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 8,
-                  background: 'transparent', color: '#fff',
-                  fontWeight: 700, fontSize: 15, padding: '13px 32px',
-                  borderRadius: 8, textDecoration: 'none',
-                  border: '2px solid rgba(255,255,255,0.4)',
+                  {dbEntry.icon || platform.icon} {heroBadge}
+                </div>
+              )}
+
+              {cmsVisible(h ?? {}, 'headline') && (
+                <h1 style={{
+                  fontSize: 'clamp(26px,4.5vw,48px)', fontWeight: 800,
+                  color: '#fff', lineHeight: 1.15, marginBottom: 16,
+                  letterSpacing: '-0.02em',
+                  ...fw(h, 'headline'),
                 }}>
-                  {heroCta2Text}
-                </Link>
-              </div>
+                  {heroHeadline}
+                </h1>
+              )}
+
+              <CmsField
+                content={h ?? { subtitle: heroSubtitle }}
+                field="subtitle"
+                as="p"
+                style={{
+                  fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.75)',
+                  lineHeight: 1.65, marginBottom: 28, maxWidth: 620,
+                }}
+              />
+
+              {cmsVisible(h ?? {}, 'status_badge') && heroStatusBdg && (
+                <div style={{
+                  ...fw(h, 'status_badge'),
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  background: 'rgba(255,255,255,0.15)', borderRadius: 6,
+                  padding: '6px 14px', fontSize: 12, fontWeight: 700,
+                  color: '#fff', marginBottom: 32,
+                }}>
+                  {heroStatusBdg}
+                </div>
+              )}
+
+              {(cmsVisible(h ?? {}, 'cta_primary') || cmsVisible(h ?? {}, 'cta_secondary')) && (
+                <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                  {cmsVisible(h ?? {}, 'cta_primary') && heroCta1Text && heroCta1Url && (
+                    <a href={`${APP_URL}${heroCta1Url}`} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 8,
+                      background: '#fff', color: platform.color,
+                      fontWeight: 700, fontSize: 15, padding: '13px 32px',
+                      borderRadius: 8, textDecoration: 'none',
+                      boxShadow: '0 4px 20px rgba(0,0,0,0.2)',
+                    }}>
+                      {heroCta1Text}
+                    </a>
+                  )}
+                  {cmsVisible(h ?? {}, 'cta_secondary') && heroCta2Text && heroCta2Url && (
+                    <Link href={heroCta2Url} style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 8,
+                      background: 'transparent', color: '#fff',
+                      fontWeight: 700, fontSize: 15, padding: '13px 32px',
+                      borderRadius: 8, textDecoration: 'none',
+                      border: '2px solid rgba(255,255,255,0.4)',
+                    }}>
+                      {heroCta2Text}
+                    </Link>
+                  )}
+                </div>
+              )}
             </div>
           </section>
         )}
@@ -250,15 +285,20 @@ export default async function PlatformDetailPage({
         {!hidden(textImgRaw) && (
           <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
             <div style={{ maxWidth: 1000, margin: '0 auto' }}>
-              <h2 style={{ fontSize: 'clamp(20px,3vw,30px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 20 }}>
-                {whatCoversHead}
-              </h2>
+              {cmsVisible(tc ?? {}, 'heading') && (
+                <h2 style={{ ...fw(tc, 'heading'), fontSize: 'clamp(20px,3vw,30px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 20 }}>
+                  {whatCoversHead}
+                </h2>
+              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: whatCoversImg ? 'repeat(auto-fit,minmax(300px,1fr))' : '1fr', gap: 40, alignItems: 'start' }}>
                 <div style={{ order: whatCoversImgPos === 'left' ? 1 : 0 }}>
-                  <p style={{ fontSize: 15, color: '#374151', lineHeight: 1.8, marginBottom: 0, maxWidth: whatCoversImg ? undefined : 760 }}>
-                    {whatCoversBody}
-                  </p>
+                  <CmsField
+                    content={tc ?? { body: whatCoversBody }}
+                    field="body"
+                    as="div"
+                    style={{ fontSize: 15, color: '#374151', lineHeight: 1.8, maxWidth: whatCoversImg ? undefined : 760 }}
+                  />
                   {whatCoversParagraphs.map((para, i) => (
                     <p key={i} style={{ fontSize: 15, color: '#374151', lineHeight: 1.8, marginTop: 16, textAlign: para.align as React.CSSProperties['textAlign'] }}>
                       {para.text}
@@ -287,9 +327,11 @@ export default async function PlatformDetailPage({
                 {/* Who Is It For */}
                 {!hidden(whoRaw) && (
                   <div>
-                    <h3 style={{ fontSize: 14, fontWeight: 800, color: '#0D2E5A', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>
-                      {whoHead}
-                    </h3>
+                    {cmsVisible(wc ?? {}, 'heading') && (
+                      <h3 style={{ ...fw(wc, 'heading'), fontSize: 14, fontWeight: 800, color: '#0D2E5A', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>
+                        {whoHead}
+                      </h3>
+                    )}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                       {whoItems.map((who) => (
                         <div key={who} style={{
@@ -309,9 +351,11 @@ export default async function PlatformDetailPage({
                 {/* What You Get */}
                 {!hidden(whatRaw) && (
                   <div>
-                    <h3 style={{ fontSize: 14, fontWeight: 800, color: '#0D2E5A', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>
-                      {getHead}
-                    </h3>
+                    {cmsVisible(gc ?? {}, 'heading') && (
+                      <h3 style={{ ...fw(gc, 'heading'), fontSize: 14, fontWeight: 800, color: '#0D2E5A', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 16 }}>
+                        {getHead}
+                      </h3>
+                    )}
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                       {getItems.map((item) => (
                         <div key={item} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
@@ -338,12 +382,17 @@ export default async function PlatformDetailPage({
           <section style={{ background: '#F5F7FA', padding: 'clamp(48px,7vw,80px) 40px' }}>
             <div style={{ maxWidth: 1000, margin: '0 auto' }}>
               <div style={{ marginBottom: 40 }}>
-                <h2 style={{ fontSize: 'clamp(20px,3vw,30px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 8 }}>
-                  {moduleGuideHead}
-                </h2>
-                <p style={{ fontSize: 15, color: '#6B7280', maxWidth: 600 }}>
-                  {moduleGuideSub}
-                </p>
+                {cmsVisible(mc ?? {}, 'heading') && (
+                  <h2 style={{ ...fw(mc, 'heading'), fontSize: 'clamp(20px,3vw,30px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 8 }}>
+                    {moduleGuideHead}
+                  </h2>
+                )}
+                <CmsField
+                  content={mc ?? { subheading: moduleGuideSub }}
+                  field="subheading"
+                  as="p"
+                  style={{ fontSize: 15, color: '#6B7280', maxWidth: 600 }}
+                />
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -414,24 +463,32 @@ export default async function PlatformDetailPage({
             textAlign: 'center',
           }}>
             <div style={{ maxWidth: 600, margin: '0 auto' }}>
-              <h2 style={{
-                fontSize: 'clamp(22px,4vw,36px)', fontWeight: 800,
-                color: '#fff', marginBottom: 12, lineHeight: 1.2,
-              }}>
-                {ctaHead}
-              </h2>
-              <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}>
-                {ctaDesc}
-              </p>
-              <a href={`${APP_URL}${ctaUrl}`} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                background: '#fff', color: platform.color,
-                fontWeight: 800, fontSize: 16, padding: '14px 40px',
-                borderRadius: 8, textDecoration: 'none',
-                boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-              }}>
-                {ctaText}
-              </a>
+              {cmsVisible(cc ?? {}, 'heading') && (
+                <h2 style={{
+                  ...fw(cc, 'heading'),
+                  fontSize: 'clamp(22px,4vw,36px)', fontWeight: 800,
+                  color: '#fff', marginBottom: 12, lineHeight: 1.2,
+                }}>
+                  {ctaHead}
+                </h2>
+              )}
+              <CmsField
+                content={cc ?? { description: ctaDesc }}
+                field="description"
+                as="p"
+                style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}
+              />
+              {cmsVisible(cc ?? {}, 'cta_text') && ctaText && ctaUrl && (
+                <a href={`${APP_URL}${ctaUrl}`} style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8,
+                  background: '#fff', color: platform.color,
+                  fontWeight: 800, fontSize: 16, padding: '14px 40px',
+                  borderRadius: 8, textDecoration: 'none',
+                  boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                }}>
+                  {ctaText}
+                </a>
+              )}
             </div>
           </section>
         )}

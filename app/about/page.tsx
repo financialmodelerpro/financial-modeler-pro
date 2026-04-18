@@ -3,6 +3,23 @@ import Link from 'next/link';
 import { getModules, getPageSections, type Module } from '@/src/lib/shared/cms';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
+import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
+
+// Per-field width + alignment style from admin VF keys.
+function fwOf(record: Record<string, unknown> | undefined, key: string): React.CSSProperties {
+  const align = record?.[`${key}_align`] as string | undefined;
+  const width = record?.[`${key}_width`] as string | undefined;
+  const style: React.CSSProperties = {};
+  if (align) style.textAlign = align as React.CSSProperties['textAlign'];
+  if (width && width !== 'auto' && width !== '100%' && width !== '100') {
+    style.maxWidth = width.endsWith('%') ? width : `${width}%`;
+    style.marginLeft = 'auto';
+    style.marginRight = 'auto';
+  } else if (width === 'auto') {
+    style.maxWidth = 'none';
+  }
+  return style;
+}
 
 export const revalidate = 3600; // revalidate every hour
 
@@ -42,13 +59,21 @@ export default async function AboutPage() {
           // Section 5: dynamic modules grid - render inline instead of via SectionRenderer
           if ((section.content as Record<string, unknown>)?._dynamic === 'modules') {
             const bg = (section.styles as Record<string, string>)?.bgColor ?? '#0A2248';
+            const modContent = section.content as Record<string, unknown>;
+            const modBadge   = (modContent.badge as string)       || 'Our Platforms';
+            const modHead    = (modContent.heading as string)     || '10+ Professional Modeling Platforms';
+            const modDesc    = (modContent.description as string) || 'Live now and launching soon - one destination for every financial modeling discipline.';
             return (
               <section key={section.id} style={{ padding: '80px 40px', background: bg }}>
                 <div style={{ maxWidth: 1100, margin: '0 auto' }}>
                   <div style={{ textAlign: 'center', marginBottom: 48 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#4A90D9', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 14 }}>Our Platforms</div>
-                    <h2 style={{ fontSize: 'clamp(22px,3vw,32px)', fontWeight: 800, color: '#fff', marginBottom: 12 }}>10+ Professional Modeling Platforms</h2>
-                    <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)' }}>Live now and launching soon - one destination for every financial modeling discipline.</p>
+                    {cmsVisible(modContent, 'badge') && (
+                      <div style={{ ...fwOf(modContent, 'badge'), fontSize: 12, fontWeight: 700, color: '#4A90D9', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 14 }}>{modBadge}</div>
+                    )}
+                    {cmsVisible(modContent, 'heading') && (
+                      <h2 style={{ ...fwOf(modContent, 'heading'), fontSize: 'clamp(22px,3vw,32px)', fontWeight: 800, color: '#fff', marginBottom: 12 }}>{modHead}</h2>
+                    )}
+                    <CmsField content={modContent} field="description" as="p" style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)' }} fallback={modDesc} />
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 16 }}>
                     {platformModules.map((mod) => (

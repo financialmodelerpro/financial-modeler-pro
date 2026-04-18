@@ -6,11 +6,30 @@ import { COURSES } from '@/src/config/courses';
 import { getCmsContent, cms, getTestimonialsForPage, getAllPageSections } from '@/src/lib/shared/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { getServerClient } from '@/src/lib/shared/supabase';
+import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
 import { CurriculumCard, type CourseDescription } from './CurriculumCard';
 import { TestimonialsCarousel } from './TestimonialsCarousel';
 import { UpcomingSessionsPreview } from './UpcomingSessionsPreview';
 
 export const revalidate = 0;
+
+// Per-field width + alignment style from admin VF keys (e.g. h.subtitle_align,
+// h.subtitle_width). Returns a React.CSSProperties patch to merge into the
+// field's existing inline style.
+function fw(record: Record<string, unknown> | undefined, key: string): React.CSSProperties {
+  const align = record?.[`${key}_align`] as string | undefined;
+  const width = record?.[`${key}_width`] as string | undefined;
+  const style: React.CSSProperties = {};
+  if (align) style.textAlign = align as React.CSSProperties['textAlign'];
+  if (width && width !== 'auto' && width !== '100%' && width !== '100') {
+    style.maxWidth = width.endsWith('%') ? width : `${width}%`;
+    style.marginLeft = 'auto';
+    style.marginRight = 'auto';
+  } else if (width === 'auto') {
+    style.maxWidth = 'none';
+  }
+  return style;
+}
 
 export const metadata: Metadata = {
   title: 'Training Hub - Free Financial Modeling Certification | Financial Modeler Pro',
@@ -178,49 +197,64 @@ export default async function TrainingPage() {
           color: '#fff',
         }}>
           <div style={{ maxWidth: 720, margin: '0 auto' }}>
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: 7,
-              background: 'rgba(46,170,74,0.18)', border: '1px solid rgba(46,170,74,0.45)',
-              borderRadius: 20, padding: '5px 16px', fontSize: 12,
-              color: '#6EE589', fontWeight: 700, marginBottom: 24, letterSpacing: '0.04em',
-            }}>
-              {heroBadge}
-            </div>
-
-            <h1 style={{
-              fontSize: 'clamp(28px,5vw,52px)', fontWeight: 800, color: '#fff',
-              lineHeight: 1.15, marginBottom: 20, letterSpacing: '-0.02em',
-            }}>
-              {heroHeadline}
-            </h1>
-
-            <p style={{
-              fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.6)',
-              lineHeight: 1.7, marginBottom: 36, maxWidth: 560, margin: '0 auto 36px',
-            }}>
-              {heroSub}
-            </p>
-
-            <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-              <Link href={ctaPriUrl} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                background: '#2EAA4A', color: '#fff',
-                fontWeight: 700, fontSize: 15, padding: '13px 32px',
-                borderRadius: 8, textDecoration: 'none',
-                boxShadow: '0 4px 20px rgba(46,170,74,0.4)',
+            {cmsVisible(h ?? {}, 'badge') && (
+              <div style={{
+                ...fw(h, 'badge'),
+                display: 'inline-flex', alignItems: 'center', gap: 7,
+                background: 'rgba(46,170,74,0.18)', border: '1px solid rgba(46,170,74,0.45)',
+                borderRadius: 20, padding: '5px 16px', fontSize: 12,
+                color: '#6EE589', fontWeight: 700, marginBottom: 24, letterSpacing: '0.04em',
               }}>
-                {ctaPrimary}
-              </Link>
-              <Link href={ctaSecUrl} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                background: 'transparent', color: '#fff',
-                fontWeight: 700, fontSize: 15, padding: '13px 32px',
-                borderRadius: 8, textDecoration: 'none',
-                border: '2px solid rgba(255,255,255,0.35)',
+                {heroBadge}
+              </div>
+            )}
+
+            {cmsVisible(h ?? {}, 'headline') && (
+              <h1 style={{
+                fontSize: 'clamp(28px,5vw,52px)', fontWeight: 800, color: '#fff',
+                lineHeight: 1.15, marginBottom: 20, letterSpacing: '-0.02em',
+                ...fw(h, 'headline'),
               }}>
-                {ctaSecondary}
-              </Link>
-            </div>
+                {heroHeadline}
+              </h1>
+            )}
+
+            <CmsField
+              content={h ?? { subtitle: heroSub }}
+              field="subtitle"
+              as="p"
+              style={{
+                fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.6)',
+                lineHeight: 1.7, marginBottom: 36, maxWidth: 560, margin: '0 auto 36px',
+              }}
+            />
+
+            {(cmsVisible(h ?? {}, 'cta_primary') && ctaPrimary.trim() && ctaPriUrl) || (cmsVisible(h ?? {}, 'cta_secondary') && ctaSecondary.trim() && ctaSecUrl) ? (
+              <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
+                {cmsVisible(h ?? {}, 'cta_primary') && ctaPrimary.trim() && ctaPriUrl && (
+                  <Link href={ctaPriUrl} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8,
+                    background: '#2EAA4A', color: '#fff',
+                    fontWeight: 700, fontSize: 15, padding: '13px 32px',
+                    borderRadius: 8, textDecoration: 'none',
+                    boxShadow: '0 4px 20px rgba(46,170,74,0.4)',
+                  }}>
+                    {ctaPrimary}
+                  </Link>
+                )}
+                {cmsVisible(h ?? {}, 'cta_secondary') && ctaSecondary.trim() && ctaSecUrl && (
+                  <Link href={ctaSecUrl} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8,
+                    background: 'transparent', color: '#fff',
+                    fontWeight: 700, fontSize: 15, padding: '13px 32px',
+                    borderRadius: 8, textDecoration: 'none',
+                    border: '2px solid rgba(255,255,255,0.35)',
+                  }}>
+                    {ctaSecondary}
+                  </Link>
+                )}
+              </div>
+            ) : null}
 
           </div>
         </section>
@@ -231,12 +265,16 @@ export default async function TrainingPage() {
         <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
           <div style={{ maxWidth: 1000, margin: '0 auto' }}>
             <div style={{ textAlign: 'center', marginBottom: 48 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#2EAA4A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
-                {coursesBadge}
-              </div>
-              <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', margin: 0 }}>
-                {coursesHead}
-              </h2>
+              {cmsVisible(cc ?? {}, 'badge') && (
+                <div style={{ ...fw(cc, 'badge'), fontSize: 12, fontWeight: 700, color: '#2EAA4A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
+                  {coursesBadge}
+                </div>
+              )}
+              {cmsVisible(cc ?? {}, 'heading') && (
+                <h2 style={{ ...fw(cc, 'heading'), fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', margin: 0 }}>
+                  {coursesHead}
+                </h2>
+              )}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 28 }}>
@@ -268,12 +306,16 @@ export default async function TrainingPage() {
         <section style={{ background: '#F5F7FA', padding: 'clamp(48px,7vw,80px) 40px' }}>
           <div style={{ maxWidth: 1000, margin: '0 auto' }}>
             <div style={{ textAlign: 'center', marginBottom: 52 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#2EAA4A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
-                {stepsBadge}
-              </div>
-              <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', margin: 0 }}>
-                {stepsHead}
-              </h2>
+              {cmsVisible(sc ?? {}, 'badge') && (
+                <div style={{ ...fw(sc, 'badge'), fontSize: 12, fontWeight: 700, color: '#2EAA4A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
+                  {stepsBadge}
+                </div>
+              )}
+              {cmsVisible(sc ?? {}, 'heading') && (
+                <h2 style={{ ...fw(sc, 'heading'), fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', margin: 0 }}>
+                  {stepsHead}
+                </h2>
+              )}
             </div>
 
             <div style={{
@@ -323,12 +365,16 @@ export default async function TrainingPage() {
         <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
           <div style={{ maxWidth: 1000, margin: '0 auto' }}>
             <div style={{ textAlign: 'center', marginBottom: 48 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#2EAA4A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
-                {benefitsBadge}
-              </div>
-              <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', margin: 0 }}>
-                {benefitsHead}
-              </h2>
+              {cmsVisible(bc ?? {}, 'badge') && (
+                <div style={{ ...fw(bc, 'badge'), fontSize: 12, fontWeight: 700, color: '#2EAA4A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
+                  {benefitsBadge}
+                </div>
+              )}
+              {cmsVisible(bc ?? {}, 'heading') && (
+                <h2 style={{ ...fw(bc, 'heading'), fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', margin: 0 }}>
+                  {benefitsHead}
+                </h2>
+              )}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 24 }}>
@@ -356,36 +402,45 @@ export default async function TrainingPage() {
       {!hidden(certRaw) && (
         <section style={{ background: certBg, padding: 'clamp(40px,6vw,64px) 40px', textAlign: 'center' }}>
           <div style={{ maxWidth: 640, margin: '0 auto' }}>
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: 10,
-              background: '#fff', border: '1px solid #BBF7D0',
-              borderRadius: 10, padding: '10px 20px', marginBottom: 24,
-              boxShadow: '0 2px 8px rgba(46,170,74,0.1)',
-            }}>
-              <span style={{ fontSize: 20 }}>{certIcon}</span>
-              <span style={{ fontSize: 15, fontWeight: 800, color: '#15803D' }}>
-                {certBadge}
-              </span>
-            </div>
+            {cmsVisible(vc ?? {}, 'badge_text') && (
+              <div style={{
+                display: 'inline-flex', alignItems: 'center', gap: 10,
+                background: '#fff', border: '1px solid #BBF7D0',
+                borderRadius: 10, padding: '10px 20px', marginBottom: 24,
+                boxShadow: '0 2px 8px rgba(46,170,74,0.1)',
+              }}>
+                <span style={{ fontSize: 20 }}>{certIcon}</span>
+                <span style={{ fontSize: 15, fontWeight: 800, color: '#15803D' }}>
+                  {certBadge}
+                </span>
+              </div>
+            )}
 
-            <h2 style={{ fontSize: 'clamp(18px,3vw,26px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 14 }}>
-              {certHead}
-            </h2>
-            <p style={{ fontSize: 14, color: '#374151', lineHeight: 1.7, marginBottom: 24 }}>
-              {certDesc}
-            </p>
-            <Link
-              href={certCtaUrl}
-              style={{
-                display: 'inline-flex', alignItems: 'center', gap: 6,
-                color: '#15803D', fontWeight: 700, fontSize: 13,
-                textDecoration: 'none', border: '1.5px solid #2EAA4A',
-                padding: '9px 20px', borderRadius: 7,
-                background: '#fff',
-              }}
-            >
-              {certCtaText}
-            </Link>
+            {cmsVisible(vc ?? {}, 'heading') && (
+              <h2 style={{ ...fw(vc, 'heading'), fontSize: 'clamp(18px,3vw,26px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 14 }}>
+                {certHead}
+              </h2>
+            )}
+            <CmsField
+              content={vc ?? { description: certDesc }}
+              field="description"
+              as="p"
+              style={{ fontSize: 14, color: '#374151', lineHeight: 1.7, marginBottom: 24 }}
+            />
+            {cmsVisible(vc ?? {}, 'cta_text') && certCtaText && certCtaUrl && (
+              <Link
+                href={certCtaUrl}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  color: '#15803D', fontWeight: 700, fontSize: 13,
+                  textDecoration: 'none', border: '1.5px solid #2EAA4A',
+                  padding: '9px 20px', borderRadius: 7,
+                  background: '#fff',
+                }}
+              >
+                {certCtaText}
+              </Link>
+            )}
           </div>
         </section>
       )}
@@ -406,18 +461,27 @@ export default async function TrainingPage() {
       {!hidden(submitCtaRaw) && (
         <section style={{ background: '#F0F4FF', padding: 'clamp(32px,5vw,56px) 40px', textAlign: 'center', borderTop: '1px solid #E0E7F8', borderBottom: '1px solid #E0E7F8' }}>
           <div style={{ maxWidth: 560, margin: '0 auto' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#4F46E5', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
-              {submitBadge}
-            </div>
-            <h2 style={{ fontSize: 'clamp(18px,3vw,26px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 10 }}>
-              {submitHead}
-            </h2>
-            <p style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.7, marginBottom: 24 }}>
-              {submitDesc}
-            </p>
-            <Link href={submitCtaUrl} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14, padding: '12px 28px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 16px rgba(27,79,138,0.25)' }}>
-              {submitCtaText}
-            </Link>
+            {cmsVisible(sc2 ?? {}, 'badge') && (
+              <div style={{ ...fw(sc2, 'badge'), fontSize: 11, fontWeight: 700, color: '#4F46E5', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
+                {submitBadge}
+              </div>
+            )}
+            {cmsVisible(sc2 ?? {}, 'heading') && (
+              <h2 style={{ ...fw(sc2, 'heading'), fontSize: 'clamp(18px,3vw,26px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 10 }}>
+                {submitHead}
+              </h2>
+            )}
+            <CmsField
+              content={sc2 ?? { description: submitDesc }}
+              field="description"
+              as="p"
+              style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.7, marginBottom: 24 }}
+            />
+            {cmsVisible(sc2 ?? {}, 'cta_text') && submitCtaText && submitCtaUrl && (
+              <Link href={submitCtaUrl} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14, padding: '12px 28px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 16px rgba(27,79,138,0.25)' }}>
+                {submitCtaText}
+              </Link>
+            )}
           </div>
         </section>
       )}
@@ -426,21 +490,30 @@ export default async function TrainingPage() {
       {bottomCtaVisible && (
         <section style={{ background: '#2EAA4A', padding: 'clamp(48px,7vw,80px) 40px', textAlign: 'center' }}>
           <div style={{ maxWidth: 600, margin: '0 auto' }}>
-            <h2 style={{ fontSize: 'clamp(22px,4vw,38px)', fontWeight: 800, color: '#fff', marginBottom: 12, lineHeight: 1.2 }}>
-              {bottomH2}
-            </h2>
-            <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', marginBottom: 36, lineHeight: 1.6 }}>
-              {bottomSub}
-            </p>
-            <Link href={bottomCtaUrl} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1A7A30', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
-              {bottomCtaText}
-            </Link>
-            <p style={{ marginTop: 20, fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>
-              {bottomLoginH}{' '}
-              <Link href={bottomLoginU} style={{ color: '#fff', fontWeight: 700, textDecoration: 'underline' }}>
-                {bottomLoginT}
+            {cmsVisible(bc2 ?? {}, 'heading') && (
+              <h2 style={{ ...fw(bc2, 'heading'), fontSize: 'clamp(22px,4vw,38px)', fontWeight: 800, color: '#fff', marginBottom: 12, lineHeight: 1.2 }}>
+                {bottomH2}
+              </h2>
+            )}
+            <CmsField
+              content={bc2 ?? { description: bottomSub }}
+              field="description"
+              as="p"
+              style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', marginBottom: 36, lineHeight: 1.6 }}
+            />
+            {cmsVisible(bc2 ?? {}, 'cta_text') && bottomCtaText && bottomCtaUrl && (
+              <Link href={bottomCtaUrl} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1A7A30', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
+                {bottomCtaText}
               </Link>
-            </p>
+            )}
+            {cmsVisible(bc2 ?? {}, 'login_text') && bottomLoginT && bottomLoginU && (
+              <p style={{ marginTop: 20, fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>
+                {bottomLoginH}{' '}
+                <Link href={bottomLoginU} style={{ color: '#fff', fontWeight: 700, textDecoration: 'underline' }}>
+                  {bottomLoginT}
+                </Link>
+              </p>
+            )}
           </div>
         </section>
       )}

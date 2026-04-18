@@ -2,6 +2,23 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { getAllPageSections, getFounderProfile, cms } from '@/src/lib/shared/cms';
+import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
+
+// Per-field width + alignment style from admin VF keys.
+function fw(record: Record<string, unknown> | undefined, key: string): React.CSSProperties {
+  const align = record?.[`${key}_align`] as string | undefined;
+  const width = record?.[`${key}_width`] as string | undefined;
+  const style: React.CSSProperties = {};
+  if (align) style.textAlign = align as React.CSSProperties['textAlign'];
+  if (width && width !== 'auto' && width !== '100%' && width !== '100') {
+    style.maxWidth = width.endsWith('%') ? width : `${width}%`;
+    style.marginLeft = 'auto';
+    style.marginRight = 'auto';
+  } else if (width === 'auto') {
+    style.maxWidth = 'none';
+  }
+  return style;
+}
 
 export const revalidate = 60;
 
@@ -45,21 +62,27 @@ export default async function BookAMeetingPage() {
             </div>
           )}
 
-          <h1 style={{ fontSize: 'clamp(24px, 4vw, 36px)', fontWeight: 800, color: '#fff', marginBottom: 4, lineHeight: 1.15 }}>{pageHeading}</h1>
-          <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>with <strong style={{ color: '#fff' }}>{name}</strong></p>
+          {cmsVisible(fc ?? {}, 'booking_page_heading') && (
+            <h1 style={{ ...fw(fc, 'booking_page_heading'), fontSize: 'clamp(24px, 4vw, 36px)', fontWeight: 800, color: '#fff', marginBottom: 4, lineHeight: 1.15 }}>{pageHeading}</h1>
+          )}
+          {cmsVisible(fc ?? {}, 'name') && (
+            <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>with <strong style={{ color: '#fff' }}>{name}</strong></p>
+          )}
 
-          <div style={{ marginBottom: 4 }}>
-            {title.split('|').map((line, i) => (
-              <div key={i} style={{ fontSize: 13, color: i === 0 ? '#93C5FD' : '#1ABC9C', fontWeight: 500 }}>{line.trim()}</div>
-            ))}
-          </div>
-          {quals && <div style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.45)', letterSpacing: '0.05em', marginBottom: 24 }}>{quals}</div>}
+          {cmsVisible(fc ?? {}, 'title') && (
+            <div style={{ marginBottom: 4 }}>
+              {title.split('|').map((line, i) => (
+                <div key={i} style={{ fontSize: 13, color: i === 0 ? '#93C5FD' : '#1ABC9C', fontWeight: 500 }}>{line.trim()}</div>
+              ))}
+            </div>
+          )}
+          {cmsVisible(fc ?? {}, 'qualifications') && quals && <div style={{ ...fw(fc, 'qualifications'), fontSize: '0.8rem', color: 'rgba(255,255,255,0.45)', letterSpacing: '0.05em', marginBottom: 24 }}>{quals}</div>}
 
           {/* Divider */}
           <div style={{ height: 1, background: 'rgba(255,255,255,0.1)', margin: '16px 0 24px' }} />
 
           {/* Expectations */}
-          {expectations.length > 0 && (
+          {cmsVisible(fc ?? {}, 'booking_expectations') && expectations.length > 0 && (
             <div style={{ textAlign: 'left', marginBottom: 28 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>{expectLabel}</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -86,9 +109,12 @@ export default async function BookAMeetingPage() {
               }}>
                 📅 Open Booking Calendar →
               </a>
-              <p style={{ marginTop: 14, fontSize: 12, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}>
-                {redirectNote}
-              </p>
+              <CmsField
+                content={fc ?? { booking_redirect_note: redirectNote }}
+                field="booking_redirect_note"
+                as="p"
+                style={{ marginTop: 14, fontSize: 12, color: 'rgba(255,255,255,0.35)', lineHeight: 1.5 }}
+              />
             </>
           ) : (
             <div style={{ padding: '32px 20px', background: 'rgba(255,255,255,0.04)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.08)' }}>
