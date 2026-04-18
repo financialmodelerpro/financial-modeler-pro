@@ -366,7 +366,7 @@ src/lib/
 ├── marketing/                   # Canvas editor (Phase 1.5) — element-based designs
 │   ├── types.ts                 # BrandKit (with array libraries), ImageAsset, CanvasElement (text/image/shape), CanvasBackground, Design, TemplatePreset, MarketingDesign
 │   ├── canvasDefaults.ts        # makeTextElement/ImageElement/ShapeElement factories, backgroundToCss, uid
-│   ├── presets.ts               # PRESETS array: YouTube Thumbnail, LinkedIn Post, Instagram Post, Instagram Story, Blank Custom — each exports buildPreset(kit) → {background, elements}
+│   ├── presets.ts               # PRESETS array: FMP YouTube Thumbnail (signature branded preset), YouTube Thumbnail (generic), LinkedIn Post, Instagram Post, Instagram Story, Blank Custom — each exports buildPreset(kit) → {background, elements}
 │   ├── brandKit.ts              # loadBrandKit() — reads singleton row (id=1) incl. additional_logos/photos/uploaded_images, falls back to defaults
 │   └── imageToDataUri.ts        # Fetches URL → base64 data URI (sharp SVG→PNG), shared by render route
 ├── modeling/real-estate/

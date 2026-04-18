@@ -21,6 +21,7 @@ const ALLOWED_KEYS = new Set([
   'primary_color', 'secondary_color', 'accent_color',
   'text_color_dark', 'text_color_light', 'font_family',
   'additional_logos', 'additional_photos', 'uploaded_images',
+  'background_library',
 ]);
 
 /** PATCH /api/admin/marketing-studio/brand-kit — update brand kit row (singleton id=1) */

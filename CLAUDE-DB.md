@@ -118,11 +118,11 @@
 | `email_templates` | Editable templates per email type (announcement, 24h reminder, 1h reminder, recording available) |
 | `site_settings` | Global site settings (header, footer, colors, SEO) — JSONB per key |
 
-### Marketing Studio (migrations 100 + 101)
+### Marketing Studio (migrations 100 + 101 + 102)
 | Table | Purpose |
 |-------|---------|
 | `marketing_designs` | Saved designs: id, name, template_type, `dimensions jsonb`, `background jsonb`, `elements jsonb` (Phase 1.5 canvas data), `content jsonb` (legacy Phase 1, unused), ai_captions jsonb, preview_url, created_by, timestamps |
-| `marketing_brand_kit` | Singleton row (id=1): logo_url, logo_light_url, founder_photo_url, primary/secondary/accent/text colors, font_family, `additional_logos jsonb[]`, `additional_photos jsonb[]`, `uploaded_images jsonb[]` (Phase 1.5 libraries of `[{url, name}]`) |
+| `marketing_brand_kit` | Singleton row (id=1): logo_url, logo_light_url, founder_photo_url, primary/secondary/accent/text colors, font_family, `additional_logos jsonb[]`, `additional_photos jsonb[]`, `uploaded_images jsonb[]` (Phase 1.5 libraries of `[{url, name}]`), `background_library jsonb[]` (Phase 1.5+ reusable backgrounds `[{id, name, url, thumbnail, type: brand\|custom}]`) |
 
 ---
 
@@ -228,3 +228,4 @@
 | `099_cleanup_about_page.sql` | DELETE rows for the removed `/about` page (`page_sections` + `cms_pages`), and update any `site_pages` entry with `href = '/about'` to point at `/about/ahmad-din`. |
 | `100_marketing_studio.sql` | Marketing Studio foundation: `marketing_designs` (saved design drafts, indexed by template_type + created_at) and `marketing_brand_kit` (single-row brand kit with logos, colors, fonts). Seeds default brand kit row (id=1). |
 | `101_marketing_studio_canvas.sql` | Marketing Studio Phase 1.5 canvas editor: add `dimensions jsonb`, `background jsonb`, `elements jsonb` to `marketing_designs`. Add `additional_logos jsonb`, `additional_photos jsonb`, `uploaded_images jsonb` to `marketing_brand_kit`. |
+| `102_marketing_studio_backgrounds.sql` | Marketing Studio background library: add `background_library jsonb` to `marketing_brand_kit`, seed one `{id: "fmp-navy-default", type: "brand"}` placeholder entry. |

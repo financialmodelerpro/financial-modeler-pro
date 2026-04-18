@@ -1,6 +1,100 @@
 import type { TemplatePreset, CanvasElement, CanvasBackground, BrandKit } from './types';
 import { uid } from './canvasDefaults';
 
+// ── FMP YouTube Thumbnail 1280×720 (branded signature preset) ─────────────────
+const fmpYoutubeThumbnailPreset: TemplatePreset = {
+  id: 'fmp-youtube-thumbnail',
+  name: 'FMP YouTube Thumbnail',
+  description: 'Signature Financial Modeler Pro thumbnail — session badge, teal accent, founder portrait.',
+  category: 'youtube',
+  dimensions: { width: 1280, height: 720 },
+  aspectRatio: '16:9',
+  buildPreset: (kit) => {
+    // Prefer an uploaded "FMP Dark Navy" background from the brand library;
+    // fall back to a gradient if the user hasn't uploaded one yet.
+    const brandBg = kit.background_library.find(b => b.type === 'brand' && b.url)
+                 ?? kit.background_library.find(b => b.url);
+    const background: CanvasBackground = brandBg
+      ? { type: 'image', image: brandBg.url, overlay: { color: '#000000', opacity: 10 } }
+      : { type: 'gradient', gradient: { from: '#0A1F3C', to: kit.primary_color, direction: 'to bottom right' } };
+
+    const elements: CanvasElement[] = [
+      // Session badge border (transparent shape with teal border)
+      {
+        id: uid(), type: 'shape', x: 60, y: 50, width: 180, height: 60, zIndex: 8,
+        shape: { backgroundColor: 'transparent', borderRadius: 8, borderColor: kit.secondary_color, borderWidth: 2, opacity: 100, lockAspectRatio: false },
+      },
+      // Session badge text
+      {
+        id: uid(), type: 'text', x: 60, y: 50, width: 180, height: 60, zIndex: 9,
+        text: { content: '1 of 16', fontSize: 28, fontWeight: 600, color: kit.secondary_color, fontFamily: kit.font_family, textAlign: 'center', lineHeight: 2.1, letterSpacing: 0, fontStyle: 'normal' },
+      },
+      // Main title line 1 (white)
+      {
+        id: uid(), type: 'text', x: 60, y: 140, width: 620, height: 120, zIndex: 10,
+        text: { content: '3-Statement', fontSize: 72, fontWeight: 800, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.0, letterSpacing: -1, fontStyle: 'normal' },
+      },
+      // Title line 2 (teal accent)
+      {
+        id: uid(), type: 'text', x: 60, y: 260, width: 420, height: 110, zIndex: 10,
+        text: { content: 'Model', fontSize: 80, fontWeight: 800, color: kit.secondary_color, fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.0, letterSpacing: -1, fontStyle: 'normal' },
+      },
+      // Gold underline
+      {
+        id: uid(), type: 'shape', x: 60, y: 380, width: 150, height: 4, zIndex: 10,
+        shape: { backgroundColor: kit.accent_color, borderRadius: 2, borderColor: 'transparent', borderWidth: 0, opacity: 100, lockAspectRatio: false },
+      },
+      // Subtitle
+      {
+        id: uid(), type: 'text', x: 60, y: 410, width: 600, height: 44, zIndex: 10,
+        text: { content: 'Project Overview & Timeline', fontSize: 28, fontWeight: 500, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.3, letterSpacing: 0, fontStyle: 'normal' },
+      },
+      // Tagline (italic)
+      {
+        id: uid(), type: 'text', x: 60, y: 470, width: 560, height: 30, zIndex: 10,
+        text: { content: 'Structured Modeling. Real-World Finance.', fontSize: 18, fontWeight: 400, color: 'rgba(255,255,255,0.85)', fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.3, letterSpacing: 0, fontStyle: 'italic' },
+      },
+      // FMP logo bottom-left
+      kit.logo_url ? {
+        id: uid(), type: 'image', x: 60, y: 620, width: 180, height: 60, zIndex: 10,
+        image: { src: kit.logo_url, objectFit: 'contain', borderRadius: 0, opacity: 100, filter: 'none' as const, brightness: 100, lockAspectRatio: true, borderColor: 'transparent', borderWidth: 0 },
+      } : null,
+      // Vertical divider
+      {
+        id: uid(), type: 'shape', x: 690, y: 60, width: 2, height: 600, zIndex: 5,
+        shape: { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 0, borderColor: 'transparent', borderWidth: 0, opacity: 100, lockAspectRatio: false },
+      },
+      // Founder photo (right, circular with teal ring) — fallback to placeholder if no photo
+      {
+        id: uid(), type: 'image', x: 800, y: 60, width: 380, height: 380, zIndex: 10,
+        image: { src: kit.founder_photo_url ?? '', objectFit: 'cover', borderRadius: 50, opacity: 100, filter: 'none' as const, brightness: 100, lockAspectRatio: true, borderColor: kit.secondary_color, borderWidth: 4 },
+      },
+      // Founder name
+      {
+        id: uid(), type: 'text', x: 750, y: 470, width: 480, height: 56, zIndex: 10,
+        text: { content: 'Ahmad Din', fontSize: 42, fontWeight: 700, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.2, letterSpacing: 0, fontStyle: 'normal' },
+      },
+      // Gold divider under name
+      {
+        id: uid(), type: 'shape', x: 900, y: 530, width: 180, height: 2, zIndex: 10,
+        shape: { backgroundColor: kit.accent_color, borderRadius: 0, borderColor: 'transparent', borderWidth: 0, opacity: 100, lockAspectRatio: false },
+      },
+      // Founder title line 1
+      {
+        id: uid(), type: 'text', x: 750, y: 548, width: 480, height: 30, zIndex: 10,
+        text: { content: 'Corporate Finance & Transaction Advisory Specialist', fontSize: 18, fontWeight: 400, color: 'rgba(255,255,255,0.9)', fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.3, letterSpacing: 0, fontStyle: 'normal' },
+      },
+      // Founder title line 2
+      {
+        id: uid(), type: 'text', x: 750, y: 588, width: 480, height: 30, zIndex: 10,
+        text: { content: 'Financial Modeling Expert', fontSize: 18, fontWeight: 400, color: 'rgba(255,255,255,0.9)', fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.3, letterSpacing: 0, fontStyle: 'normal' },
+      },
+    ].filter(Boolean) as CanvasElement[];
+
+    return { background, elements };
+  },
+};
+
 // ── YouTube Thumbnail 1280×720 ────────────────────────────────────────────────
 const youtubePreset: TemplatePreset = {
   id: 'youtube-thumbnail',
@@ -223,7 +317,7 @@ const storyPreset: TemplatePreset = {
   }),
 };
 
-export const PRESETS: TemplatePreset[] = [youtubePreset, linkedinPreset, instagramPreset, storyPreset, blankPreset];
+export const PRESETS: TemplatePreset[] = [fmpYoutubeThumbnailPreset, youtubePreset, linkedinPreset, instagramPreset, storyPreset, blankPreset];
 
 export function getPreset(id: string): TemplatePreset | null {
   return PRESETS.find(p => p.id === id) ?? null;

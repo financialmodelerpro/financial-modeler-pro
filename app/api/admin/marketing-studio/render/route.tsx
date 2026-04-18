@@ -104,6 +104,7 @@ function renderElement(el: CanvasElement, resolved: Record<string, string>, dims
           fontSize: t.fontSize,
           fontWeight: t.fontWeight,
           fontFamily: `${t.fontFamily}, Inter, Arial, sans-serif`,
+          fontStyle: t.fontStyle ?? 'normal',
           textAlign: t.textAlign,
           lineHeight: t.lineHeight,
           letterSpacing: t.letterSpacing,
@@ -121,13 +122,22 @@ function renderElement(el: CanvasElement, resolved: Record<string, string>, dims
   if (el.type === 'image' && el.image) {
     const i = el.image;
     const src = resolved[i.src] || '';
-    if (!src) return <div key={el.id} style={{ ...pos, background: 'rgba(0,0,0,0.1)' }} />;
+    const radius = i.borderRadius <= 50 ? `${i.borderRadius}%` : `${i.borderRadius}px`;
+    const hasBorder = (i.borderWidth ?? 0) > 0 && i.borderColor && i.borderColor !== 'transparent';
+    if (!src) return <div key={el.id} style={{ ...pos, background: 'rgba(0,0,0,0.1)', borderRadius: radius, border: hasBorder ? `${i.borderWidth}px solid ${i.borderColor}` : undefined }} />;
     const filters: string[] = [];
     if (i.filter === 'grayscale') filters.push('grayscale(100%)');
     if (i.filter === 'blur')      filters.push('blur(6px)');
     if (i.brightness !== 100)     filters.push(`brightness(${i.brightness}%)`);
     return (
-      <div key={el.id} style={pos}>
+      <div key={el.id} style={{
+        ...pos,
+        borderRadius: radius,
+        overflow: 'hidden',
+        border: hasBorder ? `${i.borderWidth}px solid ${i.borderColor}` : undefined,
+        boxSizing: 'border-box',
+        opacity: i.opacity / 100,
+      }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={src}
@@ -135,11 +145,10 @@ function renderElement(el: CanvasElement, resolved: Record<string, string>, dims
           width={el.width}
           height={el.height}
           style={{
-            width: el.width, height: el.height,
+            width: '100%', height: '100%',
             objectFit: i.objectFit,
-            borderRadius: i.borderRadius <= 50 ? `${i.borderRadius}%` : `${i.borderRadius}px`,
-            opacity: i.opacity / 100,
             filter: filters.length ? filters.join(' ') : undefined,
+            display: 'flex',
           }}
         />
       </div>

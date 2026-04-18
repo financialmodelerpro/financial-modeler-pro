@@ -257,22 +257,28 @@ export default function MarketingStudioPage() {
 
         {/* Preset picker + dimensions + saved designs */}
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-          <div style={{ display: 'flex', gap: 4 }}>
-            {PRESETS.map(p => (
-              <button
-                key={p.id}
-                onClick={() => applyPreset(p.id)}
-                title={p.description}
-                style={{
-                  padding: '7px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
-                  border: design.template_type === p.id ? `2px solid ${NAVY}` : `1px solid ${BORDER}`,
-                  background: design.template_type === p.id ? '#F0F5FA' : '#fff',
-                  color: NAVY,
-                }}
-              >
-                {p.name}
-              </button>
-            ))}
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {PRESETS.map(p => {
+              const isFmp = p.id.startsWith('fmp-');
+              const active = design.template_type === p.id;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => applyPreset(p.id)}
+                  title={p.description}
+                  style={{
+                    padding: '7px 12px', fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: 'pointer',
+                    border: active ? `2px solid ${NAVY}` : `1px solid ${isFmp ? '#F59E0B' : BORDER}`,
+                    background: active ? '#F0F5FA' : (isFmp ? '#FFFBEB' : '#fff'),
+                    color: NAVY,
+                    display: 'inline-flex', alignItems: 'center', gap: 5,
+                  }}
+                >
+                  {isFmp && <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: '#F59E0B', padding: '1px 5px', borderRadius: 3, letterSpacing: '0.05em' }}>FMP</span>}
+                  {p.name}
+                </button>
+              );
+            })}
           </div>
           <div style={{ display: 'flex', gap: 4, alignItems: 'center', background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 6, padding: '3px 8px' }}>
             <span style={{ fontSize: 10, color: '#6B7280' }}>W</span>
@@ -304,6 +310,7 @@ export default function MarketingStudioPage() {
           design={design}
           brandKit={brandKit}
           onDesignChange={setDesign}
+          onBrandKitChange={(patch) => setBrandKit(prev => ({ ...prev, ...patch }))}
         />
 
         {/* AI caption bar */}

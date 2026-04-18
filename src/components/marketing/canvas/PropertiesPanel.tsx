@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import type { CanvasElement, CanvasBackground, BrandKit, ImageAsset } from '@/src/lib/marketing/types';
+import type { CanvasElement, CanvasBackground, BrandKit, ImageAsset, BackgroundLibraryItem } from '@/src/lib/marketing/types';
 
 const BORDER = '#E5E7EB';
 const NAVY = '#0D2E5A';
@@ -17,14 +17,16 @@ interface Props {
   onBringForward: () => void;
   onSendBackward: () => void;
   onAddBrandImage: (url: string) => void;
+  onBrandKitChange: (patch: Partial<BrandKit>) => void;
 }
 
 export function PropertiesPanel({
   selected, background, brandKit,
   onUpdateElement, onUpdateBackground,
   onDelete, onDuplicate, onBringForward, onSendBackward,
+  onBrandKitChange,
 }: Props) {
-  if (!selected) return <BackgroundPanel background={background} onUpdate={onUpdateBackground} brandKit={brandKit} />;
+  if (!selected) return <BackgroundPanel background={background} onUpdate={onUpdateBackground} brandKit={brandKit} onBrandKitChange={onBrandKitChange} />;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -110,6 +112,21 @@ function TextProps({ element, onUpdate }: { element: CanvasElement; onUpdate: (p
           ))}
         </div>
       </div>
+
+      <div style={{ marginTop: 10 }}>
+        <label style={lbl}>Style</label>
+        <div style={{ display: 'flex', gap: 4 }}>
+          {([['normal', 'Normal'], ['italic', 'Italic']] as const).map(([val, label]) => (
+            <button key={val} onClick={() => patch({ fontStyle: val })} style={{
+              ...smallBtn, flex: 1,
+              background: (t.fontStyle ?? 'normal') === val ? NAVY : '#fff',
+              color:      (t.fontStyle ?? 'normal') === val ? '#fff' : NAVY,
+              borderColor: (t.fontStyle ?? 'normal') === val ? NAVY : BORDER,
+              fontStyle: val,
+            }}>{label}</button>
+          ))}
+        </div>
+      </div>
     </Panel>
   );
 }
@@ -154,6 +171,17 @@ function ImagePropsPanel({ element, brandKit, onUpdate }: { element: CanvasEleme
       )}
 
       <div style={{ marginTop: 10 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={i.lockAspectRatio !== false}
+            onChange={e => patch({ lockAspectRatio: e.target.checked })}
+          />
+          Lock aspect ratio
+        </label>
+      </div>
+
+      <div style={{ marginTop: 10 }}>
         <label style={lbl}>Object fit</label>
         <select value={i.objectFit} onChange={e => patch({ objectFit: e.target.value as typeof i.objectFit })} style={input}>
           <option value="cover">Cover</option>
@@ -165,6 +193,14 @@ function ImagePropsPanel({ element, brandKit, onUpdate }: { element: CanvasEleme
       <RangeField label="Border radius" value={i.borderRadius} min={0} max={50} onChange={v => patch({ borderRadius: v })} unit="%" />
       <RangeField label="Opacity" value={i.opacity} min={0} max={100} onChange={v => patch({ opacity: v })} unit="%" />
       <RangeField label="Brightness" value={i.brightness} min={0} max={200} onChange={v => patch({ brightness: v })} unit="%" />
+
+      <RangeField label="Border width" value={i.borderWidth ?? 0} min={0} max={20} onChange={v => patch({ borderWidth: v })} unit="px" />
+      {(i.borderWidth ?? 0) > 0 && (
+        <>
+          <label style={{ ...lbl, marginTop: 6 }}>Border color</label>
+          <ColorRow value={(i.borderColor && i.borderColor !== 'transparent') ? i.borderColor : '#2DD4BF'} onChange={v => patch({ borderColor: v })} />
+        </>
+      )}
 
       <div style={{ marginTop: 10 }}>
         <label style={lbl}>Filter</label>
@@ -196,12 +232,28 @@ function ShapePropsPanel({ element, onUpdate }: { element: CanvasElement; onUpda
         </>
       )}
       <RangeField label="Opacity" value={s.opacity} min={0} max={100} onChange={v => patch({ opacity: v })} unit="%" />
+
+      <div style={{ marginTop: 10 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={s.lockAspectRatio === true}
+            onChange={e => patch({ lockAspectRatio: e.target.checked })}
+          />
+          Lock aspect ratio
+        </label>
+      </div>
     </Panel>
   );
 }
 
 // ── Background ──────────────────────────────────────────────────────────────
-function BackgroundPanel({ background, onUpdate, brandKit }: { background: CanvasBackground; onUpdate: (p: Partial<CanvasBackground>) => void; brandKit: BrandKit }) {
+function BackgroundPanel({ background, onUpdate, brandKit, onBrandKitChange }: {
+  background: CanvasBackground;
+  onUpdate: (p: Partial<CanvasBackground>) => void;
+  brandKit: BrandKit;
+  onBrandKitChange: (patch: Partial<BrandKit>) => void;
+}) {
   return (
     <Panel title="Background">
       <div style={{ fontSize: 10, color: '#9CA3AF', marginBottom: 10 }}>Select an element to edit its properties, or set the canvas background here.</div>
@@ -255,13 +307,153 @@ function BackgroundPanel({ background, onUpdate, brandKit }: { background: Canva
       )}
 
       {background.type === 'image' && (
-        <>
-          <label style={lbl}>Image URL</label>
-          <input type="text" value={background.image ?? ''} onChange={e => onUpdate({ image: e.target.value })} placeholder="https://…" style={input} />
-          <ImageUploadButton onUploaded={url => onUpdate({ image: url })} />
-        </>
+        <BackgroundImagePanel background={background} onUpdate={onUpdate} brandKit={brandKit} onBrandKitChange={onBrandKitChange} />
       )}
     </Panel>
+  );
+}
+
+function BackgroundImagePanel({ background, onUpdate, brandKit, onBrandKitChange }: {
+  background: CanvasBackground;
+  onUpdate: (p: Partial<CanvasBackground>) => void;
+  brandKit: BrandKit;
+  onBrandKitChange: (patch: Partial<BrandKit>) => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  async function upload(file: File): Promise<string | null> {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('bucket', 'cms-assets');
+    const res = await fetch('/api/admin/media', { method: 'POST', body: fd });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error || 'Upload failed');
+    return json.url ?? null;
+  }
+
+  async function saveLibrary(next: BackgroundLibraryItem[]) {
+    setSaving(true);
+    setMsg('');
+    try {
+      onBrandKitChange({ background_library: next });
+      const res = await fetch('/api/admin/marketing-studio/brand-kit', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ background_library: next }),
+      });
+      if (!res.ok) throw new Error('Save failed');
+      setMsg('Saved ✓');
+      setTimeout(() => setMsg(''), 1500);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function onUploadAndSave(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await upload(file);
+      if (!url) throw new Error('No URL returned');
+      const newItem: BackgroundLibraryItem = {
+        id: 'bg-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+        name: file.name.replace(/\.[^.]+$/, ''),
+        url,
+        thumbnail: url,
+        type: 'custom',
+      };
+      await saveLibrary([...brandKit.background_library, newItem]);
+      onUpdate({ image: url });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+      if (ref.current) ref.current.value = '';
+    }
+  }
+
+  async function removeFromLibrary(item: BackgroundLibraryItem) {
+    if (item.type === 'brand') return;
+    if (!confirm(`Remove "${item.name}" from library?`)) return;
+    await saveLibrary(brandKit.background_library.filter(b => b.id !== item.id));
+  }
+
+  const overlay = background.overlay;
+
+  return (
+    <>
+      <label style={lbl}>Image URL</label>
+      <input type="text" value={background.image ?? ''} onChange={e => onUpdate({ image: e.target.value })} placeholder="https://…" style={input} />
+
+      <div style={{ display: 'flex', gap: 6, marginTop: 6, alignItems: 'center' }}>
+        <button onClick={() => ref.current?.click()} disabled={uploading || saving} style={{ ...smallBtn, flex: 1 }}>
+          {uploading ? 'Uploading…' : '↑ Upload Background'}
+        </button>
+        <input ref={ref} type="file" accept="image/*" onChange={onUploadAndSave} style={{ display: 'none' }} />
+        {msg && <span style={{ fontSize: 10, color: msg.includes('fail') ? '#DC2626' : '#059669' }}>{msg}</span>}
+      </div>
+
+      {brandKit.background_library.length > 0 && (
+        <>
+          <label style={{ ...lbl, marginTop: 12 }}>Library</label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 5 }}>
+            {brandKit.background_library.map((bg) => (
+              <div key={bg.id} style={{ position: 'relative', borderRadius: 5, overflow: 'hidden', border: background.image === bg.url ? `2px solid ${NAVY}` : `1px solid ${BORDER}`, cursor: 'pointer', aspectRatio: '16/9', background: bg.url ? '#F3F4F6' : 'linear-gradient(135deg, #0A1F3C, #1B4F72)' }}>
+                <button
+                  onClick={() => bg.url && onUpdate({ image: bg.url })}
+                  title={bg.name + (bg.type === 'brand' ? ' (Brand)' : '')}
+                  style={{ width: '100%', height: '100%', border: 'none', padding: 0, cursor: 'pointer', background: 'transparent' }}
+                >
+                  {bg.url ? (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={bg.thumbnail || bg.url} alt={bg.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    <span style={{ color: '#fff', fontSize: 9, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', padding: 4, textAlign: 'center' }}>
+                      {bg.name}
+                    </span>
+                  )}
+                </button>
+                {bg.type === 'brand' ? (
+                  <span style={{ position: 'absolute', bottom: 2, left: 2, background: '#F59E0B', color: '#fff', fontSize: 8, fontWeight: 700, padding: '1px 4px', borderRadius: 3, letterSpacing: '0.05em' }}>BRAND</span>
+                ) : (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); removeFromLibrary(bg); }}
+                    title="Remove"
+                    style={{ position: 'absolute', top: 2, right: 2, width: 16, height: 16, borderRadius: '50%', background: '#DC2626', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 9, fontWeight: 800, lineHeight: 1 }}
+                  >×</button>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div style={{ marginTop: 10, padding: 8, background: '#F9FAFB', borderRadius: 5 }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: '#374151', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={!!overlay}
+            onChange={e => onUpdate({ overlay: e.target.checked ? { color: '#000000', opacity: 20 } : undefined })}
+          />
+          Add dark overlay
+        </label>
+        {overlay && (
+          <>
+            <div style={{ marginTop: 6 }}>
+              <label style={lbl}>Overlay color</label>
+              <ColorRow value={overlay.color} onChange={v => onUpdate({ overlay: { color: v, opacity: overlay.opacity } })} />
+            </div>
+            <RangeField label="Overlay opacity" value={overlay.opacity} min={0} max={100} onChange={v => onUpdate({ overlay: { color: overlay.color, opacity: v } })} unit="%" />
+          </>
+        )}
+      </div>
+    </>
   );
 }
 

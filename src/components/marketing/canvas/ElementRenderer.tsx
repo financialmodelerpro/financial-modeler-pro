@@ -23,6 +23,7 @@ export function ElementRenderer({ element, editable, onTextChange }: Props) {
       fontSize: t.fontSize,
       fontWeight: t.fontWeight,
       fontFamily: `${t.fontFamily}, Inter, Arial, sans-serif`,
+      fontStyle: t.fontStyle ?? 'normal',
       textAlign: t.textAlign,
       lineHeight: t.lineHeight,
       letterSpacing: t.letterSpacing,
@@ -54,25 +55,38 @@ export function ElementRenderer({ element, editable, onTextChange }: Props) {
     if (i.filter === 'grayscale') filters.push('grayscale(100%)');
     if (i.filter === 'blur')      filters.push('blur(6px)');
     if (i.brightness !== 100)     filters.push(`brightness(${i.brightness}%)`);
-    const style: React.CSSProperties = {
+    const radius = i.borderRadius <= 50 ? `${i.borderRadius}%` : `${i.borderRadius}px`;
+    const hasBorder = (i.borderWidth ?? 0) > 0 && i.borderColor && i.borderColor !== 'transparent';
+    const wrapperStyle: React.CSSProperties = {
       width: '100%',
       height: '100%',
-      objectFit: i.objectFit,
-      borderRadius: i.borderRadius <= 50 ? `${i.borderRadius}%` : `${i.borderRadius}px`,
+      borderRadius: radius,
+      overflow: 'hidden',
+      border: hasBorder ? `${i.borderWidth}px solid ${i.borderColor}` : undefined,
+      boxSizing: 'border-box',
       opacity: i.opacity / 100,
-      filter: filters.length ? filters.join(' ') : undefined,
-      display: 'block',
-      pointerEvents: 'none',
     };
     if (!i.src) {
       return (
-        <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.1)', color: 'rgba(255,255,255,0.7)', fontSize: 12, border: '1px dashed rgba(255,255,255,0.3)', borderRadius: style.borderRadius }}>
+        <div style={{ ...wrapperStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.1)', color: 'rgba(255,255,255,0.7)', fontSize: 12, border: hasBorder ? wrapperStyle.border : '1px dashed rgba(255,255,255,0.3)' }}>
           No image
         </div>
       );
     }
-    /* eslint-disable-next-line @next/next/no-img-element */
-    return <img src={i.src} alt="" style={style} draggable={false} />;
+    const imgStyle: React.CSSProperties = {
+      width: '100%',
+      height: '100%',
+      objectFit: i.objectFit,
+      display: 'block',
+      pointerEvents: 'none',
+      filter: filters.length ? filters.join(' ') : undefined,
+    };
+    return (
+      <div style={wrapperStyle}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={i.src} alt="" style={imgStyle} draggable={false} />
+      </div>
+    );
   }
 
   if (element.type === 'shape' && element.shape) {

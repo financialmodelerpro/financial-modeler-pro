@@ -2,6 +2,14 @@
 
 export interface ImageAsset { url: string; name: string }
 
+export interface BackgroundLibraryItem {
+  id: string;
+  name: string;
+  url: string;
+  thumbnail?: string;
+  type: 'brand' | 'custom';
+}
+
 export interface BrandKit {
   logo_url: string | null;
   logo_light_url: string | null;
@@ -15,6 +23,7 @@ export interface BrandKit {
   additional_logos: ImageAsset[];
   additional_photos: ImageAsset[];
   uploaded_images: ImageAsset[];
+  background_library: BackgroundLibraryItem[];
 }
 
 export const DEFAULT_BRAND_KIT: BrandKit = {
@@ -30,6 +39,7 @@ export const DEFAULT_BRAND_KIT: BrandKit = {
   additional_logos: [],
   additional_photos: [],
   uploaded_images: [],
+  background_library: [],
 };
 
 // ── Canvas Elements ───────────────────────────────────────────────────────────
@@ -48,6 +58,7 @@ export interface TextProps {
   textAlign: TextAlign;
   lineHeight: number;
   letterSpacing: number;
+  fontStyle?: 'normal' | 'italic';
 }
 
 export interface ImageProps {
@@ -57,6 +68,11 @@ export interface ImageProps {
   opacity: number;      // 0-100
   filter: 'none' | 'grayscale' | 'blur';
   brightness: number;   // 0-200, 100 = normal
+  /** Lock the W:H ratio when resizing (default true for images). */
+  lockAspectRatio?: boolean;
+  /** Optional frame around image (e.g. teal ring on founder photo). */
+  borderColor?: string;
+  borderWidth?: number;
 }
 
 export interface ShapeProps {
@@ -65,6 +81,7 @@ export interface ShapeProps {
   borderColor: string;
   borderWidth: number;
   opacity: number;
+  lockAspectRatio?: boolean;
 }
 
 export interface CanvasElement {

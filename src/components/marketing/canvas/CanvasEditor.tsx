@@ -14,10 +14,11 @@ interface Props {
   design: Design;
   brandKit: BrandKit;
   onDesignChange: (design: Design) => void;
+  onBrandKitChange?: (patch: Partial<BrandKit>) => void;
 }
 
 /** The full canvas editor surface — left panel, canvas, right panel. */
-export function CanvasEditor({ design, brandKit, onDesignChange }: Props) {
+export function CanvasEditor({ design, brandKit, onDesignChange, onBrandKitChange }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
 
@@ -275,33 +276,40 @@ export function CanvasEditor({ design, brandKit, onDesignChange }: Props) {
             }} />
           )}
 
-          {sortedElements.map(el => (
-            <Rnd
-              key={el.id}
-              size={{ width: el.width, height: el.height }}
-              position={{ x: el.x, y: el.y }}
-              bounds="parent"
-              scale={zoom}
-              onDragStop={(_, d) => updateElementPosition(el.id, { x: d.x, y: d.y })}
-              onResizeStop={(_e, _dir, ref, _delta, pos) => {
-                updateElementPosition(el.id, {
-                  width:  parseInt(ref.style.width, 10),
-                  height: parseInt(ref.style.height, 10),
-                  x: pos.x, y: pos.y,
-                });
-              }}
-              onClick={(e: React.MouseEvent) => { e.stopPropagation(); setSelectedId(el.id); }}
-              style={{
-                zIndex: el.zIndex,
-                outline: selectedId === el.id ? `2px dashed ${NAVY}` : 'none',
-                outlineOffset: 2,
-                cursor: 'move',
-              }}
-              resizeHandleStyles={selectedId === el.id ? handleStyles : hiddenHandles}
-            >
-              <ElementRenderer element={el} />
-            </Rnd>
-          ))}
+          {sortedElements.map(el => {
+            const lockAR =
+              el.type === 'image' ? (el.image?.lockAspectRatio !== false)
+            : el.type === 'shape' ? (el.shape?.lockAspectRatio === true)
+            : false;
+            return (
+              <Rnd
+                key={el.id}
+                size={{ width: el.width, height: el.height }}
+                position={{ x: el.x, y: el.y }}
+                bounds="parent"
+                scale={zoom}
+                lockAspectRatio={lockAR}
+                onDragStop={(_, d) => updateElementPosition(el.id, { x: d.x, y: d.y })}
+                onResizeStop={(_e, _dir, ref, _delta, pos) => {
+                  updateElementPosition(el.id, {
+                    width:  parseInt(ref.style.width, 10),
+                    height: parseInt(ref.style.height, 10),
+                    x: pos.x, y: pos.y,
+                  });
+                }}
+                onClick={(e: React.MouseEvent) => { e.stopPropagation(); setSelectedId(el.id); }}
+                style={{
+                  zIndex: el.zIndex,
+                  outline: selectedId === el.id ? `2px dashed ${NAVY}` : 'none',
+                  outlineOffset: 2,
+                  cursor: 'move',
+                }}
+                resizeHandleStyles={selectedId === el.id ? handleStyles : hiddenHandles}
+              >
+                <ElementRenderer element={el} />
+              </Rnd>
+            );
+          })}
         </div>
       </div>
 
@@ -318,6 +326,7 @@ export function CanvasEditor({ design, brandKit, onDesignChange }: Props) {
           onBringForward={() => selectedId && changeZ(selectedId, 'forward')}
           onSendBackward={() => selectedId && changeZ(selectedId, 'backward')}
           onAddBrandImage={(url) => addElement(makeImageElement(url))}
+          onBrandKitChange={(patch) => onBrandKitChange?.(patch)}
         />
       </aside>
     </div>

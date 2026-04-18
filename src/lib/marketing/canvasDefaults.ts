@@ -15,6 +15,7 @@ export const DEFAULT_TEXT: TextProps = {
   textAlign: 'left',
   lineHeight: 1.15,
   letterSpacing: 0,
+  fontStyle: 'normal',
 };
 
 export const DEFAULT_IMAGE: ImageProps = {
@@ -24,6 +25,9 @@ export const DEFAULT_IMAGE: ImageProps = {
   opacity: 100,
   filter: 'none',
   brightness: 100,
+  lockAspectRatio: true,
+  borderColor: 'transparent',
+  borderWidth: 0,
 };
 
 export const DEFAULT_SHAPE: ShapeProps = {
@@ -32,6 +36,7 @@ export const DEFAULT_SHAPE: ShapeProps = {
   borderColor: 'transparent',
   borderWidth: 0,
   opacity: 100,
+  lockAspectRatio: false,
 };
 
 export const DEFAULT_BACKGROUND: CanvasBackground = {
