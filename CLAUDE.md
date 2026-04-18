@@ -347,6 +347,26 @@ All three marketing pages use **Option B**: each section fetched from `page_sect
 - **Dashboard**: fetches watch history, passes `completedWatchKeys`/`inProgressWatchKeys` + `watchPctMap` + `watchThreshold` to SessionCard
 - **SessionCard**: "Take Assessment →" only when `isWatched=true`; StatusBadge shows "In Progress" amber badge; thin watch progress bar appears below the score row when a percentage exists and the session isn't yet passed
 
+### Watch Enforcement — Default Behavior
+
+All training sessions — current and future — enforce the watch threshold by default. No per-session seeding is required: a session has no `watch_enforcement_bypass_{TABKEY}` row → enforcement applies.
+
+**Override precedence** (evaluated top-down, first match wins):
+1. **NextAuth admin role** → always bypassed (lets admins test without watching)
+2. **Global toggle OFF** (`watch_enforcement_enabled='false'`) → all sessions bypassed
+3. **Per-session bypass** (`watch_enforcement_bypass_{TABKEY}='true'`) → that session bypassed
+4. **Default** → enforce `watch_percentage ≥ watch_enforcement_threshold`
+
+New sessions added to `src/config/courses.ts` automatically inherit global enforcement. They also appear in the admin Watch Enforcement per-session table on next page load (the table is a union of `COURSES` tab_keys + any tab_key observed in `certification_watch_history`).
+
+**Certificate issuance gate** (`src/lib/training/watchThresholdVerifier.ts`): before `processPendingCertificates` generates a cert, it calls `verifyWatchThresholdMet(email, courseCode)`. If any required session has `watch_percentage < threshold` and isn't bypassed, the cert is skipped (logged as `watch_threshold_not_met:` error). Rows that predate migration 103 (no watch data captured) are grandfathered so historical cert issuance isn't broken.
+
+Admin actions at `/admin/training-settings`:
+- Toggle global enforcement on/off
+- Change threshold (50–100%, step 5)
+- Add/remove per-session bypass exceptions
+- Summary shows global status + threshold + enforcing/bypassed counts at a glance
+
 ### Watch Enforcement (70% rule — migration 103)
 - **Interval-merging tracker**: `src/lib/training/watchTracker.ts` — records `[start, end]` intervals from PLAYING → PAUSED/ENDED transitions, merges overlaps on every commit. Seeking forward, replaying, or skipping cannot inflate the count. A `baselineWatchedSeconds` seed ensures a reload with a higher DB value never makes the live counter go backwards.
 - **YouTubePlayer**: now accepts `baselineWatchedSeconds` + `onProgress(watchedSec, totalSec, pos)`. Polls getCurrentTime every 1s during PLAYING, reports roughly every 10s (plus on pause/end/unmount). Seek detection: if `|pos - (lastPos + 1)| > 2s` we close the previous segment and open a new one at the current position.

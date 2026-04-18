@@ -30,20 +30,42 @@ export default function TrainingSettingsPage() {
   const [enforceThreshold, setEnforceThreshold] = useState(70);
   const [bypassMap, setBypassMap] = useState<Record<string, boolean>>({});
   const [enforceSaving, setEnforceSaving] = useState(false);
+  const [historyTabKeys, setHistoryTabKeys] = useState<string[]>([]);
 
-  // Flattened list of every course session for the per-session bypass table
+  // ── Flattened session list ─────────────────────────────────────────────────
+  // Union of:
+  //   (a) every session currently defined in COURSES config, and
+  //   (b) every tab_key with at least one certification_watch_history record.
+  //
+  // This guarantees that new sessions added to COURSES in the future appear
+  // automatically — no manual seeding needed. Sessions from (b) that aren't in
+  // (a) are flagged `unmapped: true` (e.g. deprecated or not yet configured).
   const allSessions = useMemo(() => {
-    const out: { tabKey: string; courseTitle: string; sessionTitle: string }[] = [];
+    const configTks: Record<string, { courseTitle: string; sessionTitle: string }> = {};
     for (const course of Object.values(COURSES)) {
       for (const s of course.sessions) {
         const tk = s.isFinal
           ? `${course.shortTitle.toUpperCase()}_Final`
           : `${course.shortTitle.toUpperCase()}_${s.id}`;
-        out.push({ tabKey: tk, courseTitle: course.shortTitle, sessionTitle: s.title });
+        configTks[tk] = { courseTitle: course.shortTitle, sessionTitle: s.title };
       }
     }
-    return out;
-  }, []);
+    const merged: { tabKey: string; courseTitle: string; sessionTitle: string; unmapped: boolean }[] = [];
+    const seen = new Set<string>();
+    for (const tk of Object.keys(configTks)) {
+      merged.push({ tabKey: tk, ...configTks[tk], unmapped: false });
+      seen.add(tk);
+    }
+    for (const tk of historyTabKeys) {
+      if (seen.has(tk)) continue;
+      // Parse "{COURSE}_{ID or Final}"
+      const under = tk.indexOf('_');
+      const courseTitle = under > 0 ? tk.slice(0, under) : tk;
+      const sessionTitle = under > 0 ? tk.slice(under + 1) : '(unknown)';
+      merged.push({ tabKey: tk, courseTitle, sessionTitle, unmapped: true });
+    }
+    return merged;
+  }, [historyTabKeys]);
 
   useEffect(() => {
     if (status === 'unauthenticated') { router.replace('/login'); return; }
@@ -51,7 +73,10 @@ export default function TrainingSettingsPage() {
   }, [status, session, router]);
 
   useEffect(() => {
-    fetch('/api/admin/training-settings').then(r => r.json()).then(ts => {
+    Promise.all([
+      fetch('/api/admin/training-settings').then(r => r.json()).catch(() => ({ settings: {} })),
+      fetch('/api/admin/watch-enforcement-stats').then(r => r.json()).catch(() => ({ historyTabKeys: [] })),
+    ]).then(([ts, stats]) => {
       const s = ts.settings ?? {};
       const u = s.apps_script_url ?? '';
       setUrl(u);
@@ -66,6 +91,7 @@ export default function TrainingSettingsPage() {
         }
       }
       setBypassMap(bm);
+      setHistoryTabKeys(Array.isArray(stats.historyTabKeys) ? stats.historyTabKeys : []);
       setLoading(false);
     });
   }, []);
@@ -230,13 +256,29 @@ export default function TrainingSettingsPage() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B' }}>🎬 Video Watch Enforcement</div>
-                  <div style={{ fontSize: 12, color: '#6B7280' }}>Require students to watch ≥ threshold% of a video before the <strong>Mark Complete</strong> button is usable. Admins always bypass.</div>
+                  <div style={{ fontSize: 12, color: '#6B7280' }}>Require students to watch ≥ threshold% before <strong>Mark Complete</strong>. Applies to all sessions by default (current and future). Admins always bypass.</div>
                 </div>
                 <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', background: enforceEnabled ? '#D1FAE5' : '#FEE2E2', padding: '6px 12px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: enforceEnabled ? '#065F46' : '#991B1B' }}>
                   <input type="checkbox" checked={enforceEnabled} onChange={e => setEnforceEnabled(e.target.checked)} />
                   {enforceEnabled ? 'Enforcing' : 'Disabled'}
                 </label>
               </div>
+
+              {/* Summary stats — global status + threshold + counts */}
+              {(() => {
+                const totalSessions = allSessions.length;
+                const bypassedCount = allSessions.filter(s => bypassMap[s.tabKey]).length;
+                const enforcingCount = enforceEnabled ? totalSessions - bypassedCount : 0;
+                return (
+                  <div style={{ marginTop: 14, padding: '12px 14px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, display: 'flex', flexWrap: 'wrap', gap: 18, alignItems: 'center' }}>
+                    <SummaryStat label="Global" value={enforceEnabled ? 'ON' : 'OFF'} color={enforceEnabled ? '#059669' : '#DC2626'} />
+                    <SummaryStat label="Threshold" value={`${enforceThreshold}%`} color="#1B4F8A" />
+                    <SummaryStat label="Enforcing" value={`${enforcingCount} session${enforcingCount === 1 ? '' : 's'}`} color={enforcingCount > 0 ? '#059669' : '#9CA3AF'} />
+                    <SummaryStat label="Bypassed" value={`${bypassedCount}`} color={bypassedCount > 0 ? '#F59E0B' : '#9CA3AF'} />
+                    <SummaryStat label="Tracked" value={`${totalSessions}`} color="#6B7280" />
+                  </div>
+                );
+              })()}
 
               {/* Threshold */}
               <div style={{ marginTop: 14, padding: 14, background: '#F9FAFB', borderRadius: 8 }}>
@@ -257,30 +299,54 @@ export default function TrainingSettingsPage() {
                 </div>
               </div>
 
-              {/* Per-session bypass table */}
+              {/* Per-session bypass table — merged list of COURSES + tab_keys seen in history */}
               <div style={{ marginTop: 14 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 8 }}>
-                  Per-Session Bypass ({Object.values(bypassMap).filter(Boolean).length} active)
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+                    Per-Session Status ({allSessions.length} session{allSessions.length === 1 ? '' : 's'})
+                  </div>
+                  <div style={{ fontSize: 10, color: '#9CA3AF' }}>
+                    Default = enforcing · toggle to bypass a specific session
+                  </div>
                 </div>
-                <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid #E5E7EB', borderRadius: 8 }}>
+                <div style={{ maxHeight: 340, overflowY: 'auto', border: '1px solid #E5E7EB', borderRadius: 8 }}>
                   <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
                     <thead>
                       <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E5E7EB', position: 'sticky', top: 0 }}>
-                        <th style={{ padding: '7px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#6B7280', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Course</th>
-                        <th style={{ padding: '7px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#6B7280', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Session</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'left',   fontSize: 10, fontWeight: 700, color: '#6B7280', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Course</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'left',   fontSize: 10, fontWeight: 700, color: '#6B7280', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Session</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#6B7280', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Status</th>
                         <th style={{ padding: '7px 10px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#6B7280', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Bypass</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {allSessions.map(({ tabKey, courseTitle, sessionTitle }) => {
-                        const on = !!bypassMap[tabKey];
+                      {allSessions.map(({ tabKey, courseTitle, sessionTitle, unmapped }) => {
+                        const bypassed = !!bypassMap[tabKey];
+                        const effectivelyEnforcing = enforceEnabled && !bypassed;
+                        const statusLabel = !enforceEnabled ? 'Global OFF'
+                                         : bypassed          ? 'Bypassed'
+                                                             : 'Enforcing (default)';
+                        const statusColor = !enforceEnabled ? '#6B7280'
+                                         : bypassed          ? '#F59E0B'
+                                                             : '#059669';
+                        const statusBg    = !enforceEnabled ? '#F3F4F6'
+                                         : bypassed          ? '#FEF3C7'
+                                                             : '#D1FAE5';
                         return (
                           <tr key={tabKey} style={{ borderBottom: '1px solid #F3F4F6' }}>
-                            <td style={{ padding: '6px 10px', fontSize: 11, fontWeight: 600, color: '#6B7280' }}>{courseTitle}</td>
+                            <td style={{ padding: '6px 10px', fontSize: 11, fontWeight: 600, color: '#6B7280', whiteSpace: 'nowrap' }}>
+                              {courseTitle}
+                              {unmapped && <span style={{ marginLeft: 6, fontSize: 8, fontWeight: 800, background: '#FEE2E2', color: '#991B1B', padding: '1px 5px', borderRadius: 3, letterSpacing: '0.04em' }} title="tab_key seen in watch history but not in COURSES config">UNMAPPED</span>}
+                            </td>
                             <td style={{ padding: '6px 10px', fontSize: 11, color: '#374151' }}>{sessionTitle}</td>
                             <td style={{ padding: '6px 10px', textAlign: 'center' }}>
-                              <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }} title={on ? 'Enforcement bypassed for this session' : 'Enforcement applies'}>
-                                <input type="checkbox" checked={on} onChange={() => toggleBypass(tabKey)} />
+                              <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 8px', borderRadius: 999, background: statusBg, color: statusColor, whiteSpace: 'nowrap' }}>
+                                {effectivelyEnforcing ? `${enforceThreshold}% · ` : ''}{statusLabel}
+                              </span>
+                            </td>
+                            <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                              <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }} title={bypassed ? 'Enforcement bypassed for this session' : 'Enforcement applies by default'}>
+                                <input type="checkbox" checked={bypassed} onChange={() => toggleBypass(tabKey)} />
                               </label>
                             </td>
                           </tr>
@@ -328,6 +394,15 @@ export default function TrainingSettingsPage() {
           {toast}
         </div>
       )}
+    </div>
+  );
+}
+
+function SummaryStat({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <span style={{ fontSize: 9, fontWeight: 700, color: '#9CA3AF', letterSpacing: '0.06em', textTransform: 'uppercase' }}>{label}</span>
+      <span style={{ fontSize: 14, fontWeight: 800, color, fontVariantNumeric: 'tabular-nums' }}>{value}</span>
     </div>
   );
 }

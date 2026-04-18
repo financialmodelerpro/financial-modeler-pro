@@ -8,6 +8,7 @@ import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import sharp from 'sharp';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { getPendingCertificates, updateCertificateUrls } from '@/src/lib/training/sheets';
+import { verifyWatchThresholdMet } from '@/src/lib/training/watchThresholdVerifier';
 import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
 import { certificateIssuedTemplate } from '@/src/lib/email/templates/certificateIssued';
 
@@ -422,6 +423,17 @@ export async function processPendingCertificates(): Promise<{
 
   for (const cert of pending) {
     try {
+      // Watch enforcement gate — skip issuance if the student failed to meet
+      // the watch threshold on any required session (unless bypassed). Rows
+      // that predate migration 103 (no watch data yet captured) are grandfathered.
+      const verify = await verifyWatchThresholdMet(cert.email, cert.courseCode);
+      if (!verify.ok) {
+        const list = verify.failed.map(f => `${f.tabKey}(${f.pct}%)`).join(', ');
+        errors.push(`watch_threshold_not_met: ${cert.email} ${cert.courseCode} — ${list}`);
+        console.warn(`[cron/certificates] skipping ${cert.email}: watch threshold not met for ${list}`);
+        continue;
+      }
+
       const certificateId  = await generateCertificateId(cert.courseCode);
       const verificationUrl = `${MAIN_URL}/verify/${certificateId}`;
       const grade           = cert.grade || deriveGrade(cert.finalScore ?? 0, cert.avgScore ?? 0);
