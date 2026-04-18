@@ -99,23 +99,6 @@ export default async function FounderPage() {
               {bookingUrl && (
                 <Link href="/book-a-meeting" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1ABC9C', color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}>📅 Book a Meeting</Link>
               )}
-              {email && (
-                <a
-                  href={`mailto:${email}?subject=${encodeURIComponent('Consultation Inquiry')}`}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1B4F8A', color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}
-                >
-                  ✉️ Email
-                </a>
-              )}
-              {whatsappDigits && (
-                <a
-                  href={`https://wa.me/${whatsappDigits}?text=${encodeURIComponent(`Hi ${name.split(' ')[0]}, I would like to discuss`)}`}
-                  target="_blank" rel="noopener noreferrer"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#25D366', color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}
-                >
-                  💬 WhatsApp
-                </a>
-              )}
             </div>
           </div>
         </div>
