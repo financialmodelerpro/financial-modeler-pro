@@ -26,7 +26,7 @@ export function HeroSection({ content, styles }: Props) {
       textAlign: align as React.CSSProperties['textAlign'],
       color: textColor,
     }}>
-      <div style={{ maxWidth: 720, margin: '0 auto' }}>
+      <div style={{ maxWidth: 'min(1200px, 90vw)', margin: '0 auto' }}>
         {cmsVisible(content, 'badge') && badge && (
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 7,
@@ -48,12 +48,12 @@ export function HeroSection({ content, styles }: Props) {
         <CmsField
           content={content}
           field="subtitle"
-          style={{ fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.6)', lineHeight: 1.7, maxWidth: 560, margin: '0 auto 36px' }}
+          style={{ fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.6)', lineHeight: 1.7, maxWidth: 960, margin: '0 auto 36px' }}
         />
         <CmsField
           content={content}
           field="powerStatement"
-          style={{ fontSize: 'clamp(16px,2.3vw,22px)', color: 'rgba(255,255,255,0.92)', lineHeight: 1.45, fontWeight: 600, maxWidth: 640, margin: '0 auto 28px' }}
+          style={{ fontSize: 'clamp(16px,2.3vw,22px)', color: 'rgba(255,255,255,0.92)', lineHeight: 1.45, fontWeight: 600, maxWidth: 920, margin: '0 auto 28px' }}
         />
         <CmsField
           content={content}

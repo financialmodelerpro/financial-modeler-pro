@@ -159,7 +159,7 @@ export default async function ModelingHubPage() {
           textAlign: 'center',
           color: '#fff',
         }}>
-          <div style={{ maxWidth: 720, margin: '0 auto' }}>
+          <div style={{ maxWidth: 'min(1200px, 90vw)', margin: '0 auto' }}>
             {cmsVisible(h ?? {}, 'badge') && (
               <div style={{ ...fw('badge'),
                 display: 'inline-flex', alignItems: 'center', gap: 7,
@@ -188,7 +188,7 @@ export default async function ModelingHubPage() {
               as="p"
               style={{
                 fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.6)',
-                lineHeight: 1.7, marginBottom: 36, maxWidth: 560, margin: '0 auto 36px',
+                lineHeight: 1.7, marginBottom: 36, maxWidth: 960, margin: '0 auto 36px',
               }}
             />
 

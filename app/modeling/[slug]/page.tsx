@@ -184,7 +184,7 @@ export default async function PlatformDetailPage({
             padding: 'clamp(48px,7vw,88px) 40px clamp(56px,8vw,96px)',
             color: '#fff',
           }}>
-            <div style={{ maxWidth: 1000, margin: '0 auto' }}>
+            <div style={{ maxWidth: 'min(1200px, 90vw)', margin: '0 auto' }}>
               <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.55)', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 6 }}>
                 <Link href="/modeling" style={{ color: 'rgba(255,255,255,0.55)', textDecoration: 'none' }}>Modeling Hub</Link>
                 <span>→</span>
@@ -221,7 +221,7 @@ export default async function PlatformDetailPage({
                 as="p"
                 style={{
                   fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.75)',
-                  lineHeight: 1.65, marginBottom: 28, maxWidth: 620,
+                  lineHeight: 1.65, marginBottom: 28, maxWidth: 960, marginLeft: 'auto', marginRight: 'auto',
                 }}
               />
 
