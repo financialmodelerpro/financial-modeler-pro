@@ -317,15 +317,22 @@ export default async function ModelingHubPage() {
         <section style={{ background: '#F5F7FA', padding: 'clamp(48px,7vw,80px) 40px' }}>
           <div style={{ maxWidth: 1100, margin: '0 auto' }}>
             <div style={{ textAlign: 'center', marginBottom: 52 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: '#1B4F8A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
-                {modulesBadge}
-              </div>
-              <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', margin: '0 0 12px' }}>
-                {modulesHead}
-              </h2>
-              <p style={{ fontSize: 15, color: '#6B7280', maxWidth: 560, margin: '0 auto' }}>
-                {modulesDesc}
-              </p>
+              {cmsVisible(mc ?? {}, 'badge') && (
+                <div style={{ fontSize: 12, fontWeight: 700, color: '#1B4F8A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
+                  {modulesBadge}
+                </div>
+              )}
+              {cmsVisible(mc ?? {}, 'heading') && (
+                <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', margin: '0 0 12px' }}>
+                  {modulesHead}
+                </h2>
+              )}
+              <CmsField
+                content={mc ?? { description: modulesDesc }}
+                field="description"
+                as="p"
+                style={{ fontSize: 15, color: '#6B7280', maxWidth: 560, margin: '0 auto' }}
+              />
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 24 }}>
@@ -373,9 +380,11 @@ export default async function ModelingHubPage() {
         <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
           <div style={{ maxWidth: 1000, margin: '0 auto' }}>
             <div style={{ textAlign: 'center', marginBottom: 48 }}>
-              <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', margin: 0 }}>
-                {whyHead}
-              </h2>
+              {cmsVisible(wc ?? {}, 'heading') && (
+                <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', margin: 0 }}>
+                  {whyHead}
+                </h2>
+              )}
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 24 }}>
@@ -404,8 +413,15 @@ export default async function ModelingHubPage() {
         <section style={{ background: '#fff', padding: 'clamp(48px,7vw,80px) 40px' }}>
           <div style={{ maxWidth: 1100, margin: '0 auto' }}>
             <div style={{ textAlign: 'center', marginBottom: 48 }}>
-              <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 10 }}>{testimH2}</h2>
-              <p style={{ fontSize: 14, color: '#6B7280' }}>{testimSub}</p>
+              {cmsVisible(tc ?? {}, 'heading') && (
+                <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 10 }}>{testimH2}</h2>
+              )}
+              <CmsField
+                content={tc ?? { subheading: testimSub }}
+                field="subheading"
+                as="p"
+                style={{ fontSize: 14, color: '#6B7280' }}
+              />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 24 }}>
               {testimonials.map(t => (
@@ -444,18 +460,27 @@ export default async function ModelingHubPage() {
       {!hidden(submitCtaRaw) && (
         <section style={{ background: '#EEF2FF', padding: 'clamp(28px,4vw,48px) 40px', textAlign: 'center', borderTop: '1px solid #C7D2FE', borderBottom: '1px solid #C7D2FE' }}>
           <div style={{ maxWidth: 540, margin: '0 auto' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#4F46E5', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
-              {submitBadge}
-            </div>
-            <h2 style={{ fontSize: 'clamp(18px,3vw,24px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 10 }}>
-              {submitHead}
-            </h2>
-            <p style={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.7, marginBottom: 22 }}>
-              {submitDesc}
-            </p>
-            <Link href={submitCtaUrl} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14, padding: '11px 26px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 16px rgba(27,79,138,0.25)' }}>
-              {submitCtaText}
-            </Link>
+            {cmsVisible(sc ?? {}, 'badge') && (
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#4F46E5', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 8 }}>
+                {submitBadge}
+              </div>
+            )}
+            {cmsVisible(sc ?? {}, 'heading') && (
+              <h2 style={{ fontSize: 'clamp(18px,3vw,24px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 10 }}>
+                {submitHead}
+              </h2>
+            )}
+            <CmsField
+              content={sc ?? { description: submitDesc }}
+              field="description"
+              as="p"
+              style={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.7, marginBottom: 22 }}
+            />
+            {cmsVisible(sc ?? {}, 'cta_text') && submitCtaText && submitCtaUrl && (
+              <Link href={submitCtaUrl} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14, padding: '11px 26px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 16px rgba(27,79,138,0.25)' }}>
+                {submitCtaText}
+              </Link>
+            )}
           </div>
         </section>
       )}
@@ -464,15 +489,22 @@ export default async function ModelingHubPage() {
       {bottomCtaVisible && (
         <section style={{ background: '#1B4F8A', padding: 'clamp(48px,7vw,80px) 40px', textAlign: 'center' }}>
           <div style={{ maxWidth: 600, margin: '0 auto' }}>
-            <h2 style={{ fontSize: 'clamp(22px,4vw,38px)', fontWeight: 800, color: '#fff', marginBottom: 12, lineHeight: 1.2 }}>
-              {bottomH2}
-            </h2>
-            <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}>
-              {bottomSub}
-            </p>
-            <a href={`${APP_URL}${bottomCtaUrl}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1B4F8A', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
-              {bottomCtaText}
-            </a>
+            {cmsVisible(bc ?? {}, 'heading') && (
+              <h2 style={{ fontSize: 'clamp(22px,4vw,38px)', fontWeight: 800, color: '#fff', marginBottom: 12, lineHeight: 1.2 }}>
+                {bottomH2}
+              </h2>
+            )}
+            <CmsField
+              content={bc ?? { description: bottomSub }}
+              field="description"
+              as="p"
+              style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}
+            />
+            {cmsVisible(bc ?? {}, 'cta_text') && bottomCtaText && bottomCtaUrl && (
+              <a href={`${APP_URL}${bottomCtaUrl}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1B4F8A', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
+                {bottomCtaText}
+              </a>
+            )}
           </div>
         </section>
       )}
