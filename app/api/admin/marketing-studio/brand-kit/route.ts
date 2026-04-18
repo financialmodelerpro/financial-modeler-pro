@@ -20,6 +20,7 @@ const ALLOWED_KEYS = new Set([
   'logo_url', 'logo_light_url', 'founder_photo_url',
   'primary_color', 'secondary_color', 'accent_color',
   'text_color_dark', 'text_color_light', 'font_family',
+  'additional_logos', 'additional_photos', 'uploaded_images',
 ]);
 
 /** PATCH /api/admin/marketing-studio/brand-kit — update brand kit row (singleton id=1) */

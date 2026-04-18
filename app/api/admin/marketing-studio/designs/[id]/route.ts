@@ -22,19 +22,32 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
   return NextResponse.json({ design: data });
 }
 
+interface PatchBody {
+  name?: string;
+  template_type?: string;
+  dimensions?: { width: number; height: number };
+  background?: Record<string, unknown>;
+  elements?: unknown[];
+  ai_captions?: Record<string, string>;
+  preview_url?: string;
+}
+
 /** PATCH /api/admin/marketing-studio/designs/[id] — update existing design */
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   if (!(await requireAdmin())) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { id } = await params;
 
-  let body: { name?: string; content?: Record<string, string>; ai_captions?: Record<string, string>; preview_url?: string };
+  let body: PatchBody;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (body.name         !== undefined) patch.name         = body.name;
-  if (body.content      !== undefined) patch.content      = body.content;
-  if (body.ai_captions  !== undefined) patch.ai_captions  = body.ai_captions;
-  if (body.preview_url  !== undefined) patch.preview_url  = body.preview_url;
+  if (body.name          !== undefined) patch.name          = body.name;
+  if (body.template_type !== undefined) patch.template_type = body.template_type;
+  if (body.dimensions    !== undefined) patch.dimensions    = body.dimensions;
+  if (body.background    !== undefined) patch.background    = body.background;
+  if (body.elements      !== undefined) patch.elements      = body.elements;
+  if (body.ai_captions   !== undefined) patch.ai_captions   = body.ai_captions;
+  if (body.preview_url   !== undefined) patch.preview_url   = body.preview_url;
 
   const sb = getServerClient();
   const { data, error } = await sb.from('marketing_designs').update(patch).eq('id', id).select('*').single();

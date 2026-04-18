@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-18** (session end — Marketing Studio Phase 1 (3 templates + Brand Kit + AI captions), universal CmsField rendering path, Tiptap RichTextarea upgrade, array-item VF, retake + timer persistence, attempts counter server-authoritative, founder_profile table dropped, /about page removed, universal share utility, Calendly inline embed on /book-a-meeting, migrations 097-100)
+**Last updated: 2026-04-18** (session end — Marketing Studio Phase 1.5 (drag-and-drop canvas editor, react-rnd, element-based designs, multi-asset brand kit, migration 101), universal CmsField rendering path, Tiptap RichTextarea upgrade, array-item VF, retake + timer persistence, attempts counter server-authoritative, founder_profile table dropped, /about page removed, universal share utility, Calendly inline embed on /book-a-meeting, migrations 097-101)
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md) — Database tables, storage buckets, migrations log
@@ -416,13 +416,18 @@ All three marketing pages use **Option B**: each section fetched from `page_sect
 - **Portal page**: PaceMakers, Two Platforms, Founder card, FounderExpand all use isHtml() detection
 - **VF component**: `showLayout` defaults to `true` — all Page Builder fields get Width % + Alignment dropdowns
 
-### Marketing Studio (Phase 1 — migration 100)
-- **Admin page**: `/admin/marketing-studio` — 3-panel editor (left: template picker + saved designs, middle: live preview, right: field editor + AI caption generator)
-- **Templates**: `src/lib/marketing/templates/` — `youtube-thumbnail.tsx` (1280x720), `linkedin-post.tsx` (1200x627), `instagram-post.tsx` (1080x1080). Each exports a `TemplateDefinition` with fields, defaults, and a `render()` that returns a satori-compatible React element
-- **Client metadata mirror**: `src/lib/marketing/templateMeta.ts` — flat field/dimensions/defaults export (no render fns) so the admin client page doesn't bundle server-side render code
-- **Render API**: `POST /api/admin/marketing-studio/render` — `ImageResponse` via `next/og`, loads Inter fonts via `loadOgFonts()`, loads brand kit + logo + founder photo as base64 data URIs via `imageToDataUri()` (sharp for SVG→PNG)
-- **Brand Kit**: `marketing_brand_kit` table (single row id=1). Editor at `/admin/marketing-studio/brand-kit` — upload logos + founder photo (via `/api/admin/media`), color pickers, font family. API `GET/PATCH /api/admin/marketing-studio/brand-kit`
-- **Designs**: `marketing_designs` table. List/create `/api/admin/marketing-studio/designs`, update/delete `/api/admin/marketing-studio/designs/[id]`. Save stores `content` + `ai_captions` jsonb
-- **AI captions**: `POST /api/admin/marketing-studio/generate-caption` — Anthropic Claude (`claude-sonnet-4-20250514`), 4 platforms (youtube, linkedin, instagram, twitter). Each platform has a tailored prompt guide
-- **Preview**: debounced 500ms, blob URL renders into `<img>`. Downloads trigger a second render call + `a[download]`
-- **Admin nav**: Marketing Studio link added under Content section in `CmsAdminNav.tsx`
+### Marketing Studio (Phase 1.5 — migrations 100 + 101)
+**Drag-and-drop canvas editor** (replaced Phase 1 fixed templates). Element-based design: text, image, shape elements positioned with absolute coords. Backed by `react-rnd` for drag + resize.
+
+- **Admin page**: `/admin/marketing-studio` — top bar (preset picker, dimension inputs, save/download), canvas editor below. The canvas IS the WYSIWYG preview — no separate preview panel.
+- **Canvas editor**: `src/components/marketing/canvas/CanvasEditor.tsx` — 3-column: left (Add Text/Image/Shape + Layers + Undo/Redo), center (canvas with auto-fit zoom via ResizeObserver), right (properties panel). Supports multi-element designs, history stack (50 entries), keyboard shortcuts (Delete/Backspace, Ctrl+Z/Y, Ctrl+D duplicate, Ctrl+C/V copy-paste, Arrow nudge ±1 / Shift+Arrow ±10, Escape deselect).
+- **Element renderer**: `src/components/marketing/canvas/ElementRenderer.tsx` — pure React visual for text/image/shape. Shared logic with server render route (same prop shape, slightly different JSX because satori is strict).
+- **Properties panel**: `src/components/marketing/canvas/PropertiesPanel.tsx` — switches based on selected element. Text (font, size, weight, color, alignment, line height, letter spacing, inline content textarea), Image (URL/upload/Brand Kit picker, object fit, border radius, opacity, brightness, filter), Shape (bg color, border radius, border width/color, opacity). When nothing selected → Background panel (solid color / gradient / image with overlay).
+- **Presets**: `src/lib/marketing/presets.ts` — element-based starting points. `PRESETS` array: YouTube Thumbnail 1280×720, LinkedIn Post 1200×627, Instagram Post 1080×1080, Instagram Story 1080×1920, Blank Custom. Each exports `buildPreset(brandKit) → { background, elements }`.
+- **Render API**: `POST /api/admin/marketing-studio/render` — accepts `{ dimensions, background, elements }` payload. Pre-resolves all image URLs to base64 data URIs (sharp handles SVG→PNG), builds satori-compatible JSX with absolute-positioned divs, returns `ImageResponse` PNG at target dimensions.
+- **Brand Kit**: `marketing_brand_kit` table (single row id=1) + migration 101 arrays `additional_logos`, `additional_photos`, `uploaded_images` (each `[{url, name}]`). Editor at `/admin/marketing-studio/brand-kit` — upload libraries of logos/photos/images that the canvas image element can pull from via a grid picker.
+- **Designs**: `marketing_designs` table + migration 101 columns `dimensions jsonb`, `background jsonb`, `elements jsonb`. `content` column retained for backward compat (unused by canvas-mode). List/create `/api/admin/marketing-studio/designs`, update/delete `/api/admin/marketing-studio/designs/[id]`.
+- **AI captions**: `POST /api/admin/marketing-studio/generate-caption` — Anthropic Claude (`claude-sonnet-4-20250514`), extracts text content from canvas elements (sorted by y then x reading order), generates platform-specific copy for LinkedIn / YouTube / Instagram / Twitter. Caption embedded in same page below canvas.
+- **Types**: `src/lib/marketing/types.ts` — `CanvasElement` (text/image/shape), `CanvasBackground` (color/gradient/image), `Design` (dimensions + background + elements + ai_captions), `BrandKit` (with array fields).
+- **Helpers**: `src/lib/marketing/canvasDefaults.ts` — `makeTextElement`/`makeImageElement`/`makeShapeElement` factories, `backgroundToCss()` shared by editor + server render, `uid()` id generator.
+- **Admin nav**: Marketing Studio link under Content section in `CmsAdminNav.tsx`.

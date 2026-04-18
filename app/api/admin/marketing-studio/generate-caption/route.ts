@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
 import Anthropic from '@anthropic-ai/sdk';
+import type { CanvasElement } from '@/src/lib/marketing/types';
 
 export const runtime = 'nodejs';
 
@@ -20,7 +21,7 @@ const PLATFORM_GUIDE: Record<Platform, string> = {
 
 /**
  * POST /api/admin/marketing-studio/generate-caption
- * body: { template_type, content, platform }
+ * body: { template_type, elements, platform } — uses text content from canvas elements.
  * Returns: { caption: string }
  */
 export async function POST(req: NextRequest) {
@@ -29,22 +30,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  let body: { template_type?: string; content?: Record<string, string>; platform?: Platform };
+  let body: { template_type?: string; elements?: CanvasElement[]; platform?: Platform };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
   const platform = (body.platform || 'linkedin') as Platform;
-  if (!PLATFORM_GUIDE[platform]) {
-    return NextResponse.json({ error: `Unsupported platform: ${platform}` }, { status: 400 });
+  if (!PLATFORM_GUIDE[platform]) return NextResponse.json({ error: `Unsupported platform: ${platform}` }, { status: 400 });
+
+  // Extract all text content from the canvas, sorted by reading order (top → bottom, left → right).
+  const texts = (body.elements ?? [])
+    .filter((el): el is CanvasElement & { text: NonNullable<CanvasElement['text']> } => el.type === 'text' && !!el.text)
+    .sort((a, b) => (a.y - b.y) || (a.x - b.x))
+    .map(el => el.text.content.trim())
+    .filter(Boolean);
+
+  if (texts.length === 0) {
+    return NextResponse.json({ error: 'Add at least one text element to generate a caption' }, { status: 400 });
   }
 
-  const content = body.content || {};
-  const headline = content.headline || content.title || '';
-  const subtitle = content.subtitle || '';
-  const bodyText = content.body || '';
-
-  if (!headline.trim()) {
-    return NextResponse.json({ error: 'Headline required to generate caption' }, { status: 400 });
-  }
+  const [headline, ...rest] = texts;
+  const context = rest.join('\n');
 
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return NextResponse.json({ error: 'AI not configured' }, { status: 500 });
@@ -56,7 +60,7 @@ export async function POST(req: NextRequest) {
       max_tokens: 1500,
       messages: [{
         role: 'user',
-        content: `You are writing social copy for Financial Modeler Pro — a professional financial modeling training and tools brand. The visual asset has:\n\nHeadline: ${headline}\n${subtitle ? `Subtitle: ${subtitle}\n` : ''}${bodyText ? `Body: ${bodyText}\n` : ''}\nTemplate: ${body.template_type || 'generic'}\n\nTask: ${PLATFORM_GUIDE[platform]}\n\nReturn ONLY the caption text, no explanation, no surrounding quotes.`,
+        content: `You are writing social copy for Financial Modeler Pro — a professional financial modeling training and tools brand. The visual asset has this text content:\n\nHeadline: ${headline}\n${context ? `Supporting text:\n${context}\n` : ''}\nTemplate: ${body.template_type || 'custom'}\n\nTask: ${PLATFORM_GUIDE[platform]}\n\nReturn ONLY the caption text, no explanation, no surrounding quotes.`,
       }],
     });
 

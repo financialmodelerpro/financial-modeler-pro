@@ -313,6 +313,11 @@ src/components/
 │   └── ShareExperienceModal.tsx     # 3-tab testimonial modal for both hubs
 ├── newsletter/
 │   └── NewsletterSubscribeForm.tsx   # Hub checkboxes + email input, shown in SharedFooter
+├── marketing/
+│   └── canvas/
+│       ├── CanvasEditor.tsx          # Drag-and-drop canvas: left (add/layers/history), center (canvas with react-rnd + auto-fit zoom), right (properties). Keyboard shortcuts, undo/redo history stack
+│       ├── ElementRenderer.tsx       # Pure visual for text/image/shape CanvasElements
+│       └── PropertiesPanel.tsx       # Per-type properties + Background panel when nothing selected
 ├── shared/
 │   ├── FollowPopup.tsx              # Reusable LinkedIn+YouTube follow popup (bottom-right toast)
 │   └── SiteFollowPopup.tsx          # Site-wide 60s popup wrapper
@@ -358,16 +363,12 @@ src/lib/
 │       ALL template functions are async (use baseLayoutBranded) — callers must await
 ├── newsletter/
 │   └── autoNotify.ts            # sendAutoNewsletter() — fire-and-forget, duplicate prevention, per-event-type toggle
-├── marketing/
-│   ├── types.ts                 # BrandKit, DEFAULT_BRAND_KIT, TemplateDefinition, TemplateField, MarketingDesign
-│   ├── brandKit.ts              # loadBrandKit() — reads singleton row (id=1), falls back to defaults
-│   ├── imageToDataUri.ts        # Fetches URL → base64 data URI (sharp SVG→PNG), shared by render route
-│   ├── templateMeta.ts          # Client-safe metadata mirror (fields + dimensions + defaults, no render fns)
-│   └── templates/
-│       ├── index.ts             # TEMPLATES array + getTemplate(id) — server-side (includes render fns)
-│       ├── youtube-thumbnail.tsx  # 1280×720 bold thumbnail with 3 variants (dark/accent/light)
-│       ├── linkedin-post.tsx      # 1200×627 with 3 variants (navy/light/split-with-photo)
-│       └── instagram-post.tsx     # 1080×1080 square with 3 variants (gradient/navy/light)
+├── marketing/                   # Canvas editor (Phase 1.5) — element-based designs
+│   ├── types.ts                 # BrandKit (with array libraries), ImageAsset, CanvasElement (text/image/shape), CanvasBackground, Design, TemplatePreset, MarketingDesign
+│   ├── canvasDefaults.ts        # makeTextElement/ImageElement/ShapeElement factories, backgroundToCss, uid
+│   ├── presets.ts               # PRESETS array: YouTube Thumbnail, LinkedIn Post, Instagram Post, Instagram Story, Blank Custom — each exports buildPreset(kit) → {background, elements}
+│   ├── brandKit.ts              # loadBrandKit() — reads singleton row (id=1) incl. additional_logos/photos/uploaded_images, falls back to defaults
+│   └── imageToDataUri.ts        # Fetches URL → base64 data URI (sharp SVG→PNG), shared by render route
 ├── modeling/real-estate/
 │   ├── export/ (excel-formula, excel-static, pdf)
 │   └── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))

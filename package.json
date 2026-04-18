@@ -42,6 +42,7 @@
     "react-hook-form": "^7.71.2",
     "react-hot-toast": "^2.6.0",
     "react-is": "^19.2.5",
+    "react-rnd": "^10.5.3",
     "recharts": "^3.8.0",
     "resend": "^6.10.0",
     "satori": "^0.26.0",
