@@ -15,11 +15,11 @@ app/
 ├── (portal)/FounderExpand.tsx   # Client expand/collapse for founder profile (long bio, experience, philosophy)
 ├── layout.tsx                   # Root layout, SessionProvider, Inter font
 ├── globals.css                  # SINGLE SOURCE OF TRUTH for all CSS tokens
-├── about/page.tsx
-├── about/ahmad-din/page.tsx     # Founder profile page — reads from page_sections team content
+├── about/ahmad-din/page.tsx     # Founder profile page — reads from page_sections team content; "Get in Touch" section with email/WhatsApp/LinkedIn/booking
+# NOTE: app/about/page.tsx DELETED 2026-04-18 — /about redirects to /about/ahmad-din (next.config.ts)
 ├── articles/page.tsx
 ├── articles/[slug]/page.tsx
-├── book-a-meeting/page.tsx      # Professional booking redirect page (reads booking_url from CMS)
+├── book-a-meeting/page.tsx      # Calendly inline embed (no redirect) via CalendlyEmbed component; reads booking_url from CMS team section
 ├── contact/page.tsx
 ├── forgot-password/page.tsx
 ├── login/page.tsx               # Full admin login UI (200 response, no redirect)
@@ -49,8 +49,8 @@ app/admin/
 ├── cms/page.tsx
 ├── contact/page.tsx
 ├── content/page.tsx
-├── founder/page.tsx
 ├── health/page.tsx
+# NOTE: app/admin/founder/page.tsx DELETED 2026-04-18 — founder editing moved to Page Builder → Founder section (team)
 ├── media/page.tsx
 ├── modules/page.tsx
 ├── overrides/page.tsx
@@ -206,7 +206,8 @@ app/api/admin/
 ├── certificate-layout/ certificates/sync/ certificates/upload-template/
 ├── certificates/settings/       # GET/POST auto_generation_enabled
 ├── certificates/generate/       # POST: trigger processPendingCertificates()
-├── contact-submissions/ content/ env-check/ founder/ media/ modules/ modules/cms-status/ pages/ permissions/
+├── contact-submissions/ content/ env-check/ media/ modules/ modules/cms-status/ pages/ permissions/
+# NOTE: app/api/admin/founder/route.ts DELETED 2026-04-18 — founder data written via /api/admin/page-sections
 ├── modeling-coming-soon/        # GET/PATCH: toggle coming soon mode
 ├── pricing/features/ + modules/ + plans/
 ├── projects/ testimonials/ training/ + [courseId]/lessons/
@@ -268,19 +269,22 @@ src/components/
 ├── admin/
 │   ├── AnnouncementsManager.tsx  AuditLogViewer.tsx  CmsAdminNav.tsx
 │   ├── PermissionsManager.tsx  ProjectsBrowser.tsx
-│   ├── RichTextEditor.tsx       # Tiptap: headings, alignment, images, links
-│   ├── RichTextarea.tsx         # Contenteditable div with floating selection toolbar (B, I, U, Size, Color)
+│   ├── RichTextEditor.tsx       # Tiptap full toolbar: headings, alignment, images, links (used ONLY by rich_text section)
+│   ├── RichTextarea.tsx         # Tiptap editor + selection-based floating toolbar (B, I, U, S, font size, color presets, lists, link, clear). Enter → new <p>. Used by 17+ CMS text fields. Phase 2A rewrite 2026-04-18.
 │   └── SystemHealth.tsx
 ├── cms/
+│   ├── CmsField.tsx             # UNIVERSAL CMS TEXT RENDERER (Phase 1). ALL CMS text fields must render via <CmsField>. Handles visibility/align/width/HTML detection/paragraph splitting. See docstring for enforcement rules.
 │   ├── SectionRenderer.tsx      # Maps section_type -> component
 │   ├── index.ts
 │   └── sections/ (Hero, Text, RichText, Image, TextImage, Columns, Cards, Cta, Faq, Stats, List,
 │       Testimonials, PricingTable, Video, Banner, Spacer, Embed, Team, Timeline, LogoGrid, Countdown,
 │       CmsParagraphs)
-│       All sections support per-field visibility (content.fieldName_visible !== false)
-│       CmsParagraphs: shared paragraph renderer supporting string[] and {text,align}[] formats, HTML-aware
-│       renderCmsText.tsx: shared isHtml() + CmsText utility for all renderers
-│       TextImage: checklist items, background image with padding/position/fit/overlay controls, body field, audience cards
+│       Every text field renders via CmsField. Array items (cards, testimonials, team, faq, list, timeline, pricing tiers, logo grid)
+│       support per-item `visible !== false` filtering (Phase 2B).
+│       TextImage: checklist items, background image with padding/position/fit/overlay controls, body field, audience cards.
+│       # renderCmsText.tsx DELETED 2026-04-18 — superseded by CmsField
+├── booking/
+│   └── CalendlyEmbed.tsx        # Inline Calendly booking widget — dynamic script load, guarded. Used by /book-a-meeting.
 ├── sessions/
 │   └── SessionCard.tsx              # Universal live session card (variant: student|public, compact mode, watched badge)
 ├── landing/
@@ -320,7 +324,9 @@ src/components/
 │   ├── player/
 │   │   ├── CoursePlayerLayout.tsx   # CFI-style layout: left sidebar + video + right comments panel
 │   │   ├── CourseTopBar.tsx         # Dark sticky bar: title, actions, Mark Complete, Assessment, Continue
-│   │   └── ShareModal.tsx           # Share modal: Copy Link, LinkedIn, WhatsApp
+│   │   └── ShareModal.tsx           # Thin forwarder → share/ShareModal (universal)
+│   ├── share/
+│   │   └── ShareModal.tsx           # UNIVERSAL ShareModal (Training Hub). Textarea preview + platform buttons (LinkedIn/WhatsApp/Twitter/Copy). Uses shareTo() utility internally. Optional cardImageUrl preview + download.
 │   └── dashboard/
 │       ├── AboutThisCourse.tsx  BvmLockedContent.tsx  CertificateImageCard.tsx
 │       ├── CourseContent.tsx  FeedbackModal.tsx  ProfileModal.tsx
@@ -353,6 +359,7 @@ src/lib/
 │   ├── password.ts  permissions.ts  storage.ts  supabase.ts  urls.ts
 └── training/
     ├── appsScript.ts  certificateEngine.ts  certificateLayout.ts  certifier.ts(deprecated)
+    ├── share.ts       # Universal share utility: shareTo(platform, options), FMP_HASHTAGS, FMP_TRAINING_URL. Auto-copy-then-open pattern.
     ├── sheets.ts  training-session.ts  videoTimer.ts
 ```
 

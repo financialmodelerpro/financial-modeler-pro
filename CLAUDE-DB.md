@@ -53,6 +53,8 @@
 | `contact_submissions` | Contact form entries |
 | `media` | Uploaded media asset references |
 
+**Removed 2026-04-18 (migration 098):** `founder_profile` — legacy key-value table for the standalone `/admin/founder` editor. All founder data now lives in `page_sections` (`section_type='team'` on the home page), edited via Page Builder → Founder section.
+
 ### Training Platform
 | Table | Purpose |
 |-------|---------|
@@ -215,3 +217,6 @@
 | `094_founder_profile_update.sql` | Update founder team section: new bio, 10 credentials, full career long_bio, why_fmp, expertise[], industry_focus[], market_focus, personal |
 | `095_home_text_sections_update.sql` | Update home text_image sections: What is FMP (new body + items, maxWidth 1200px), Our Mission, Our Vision |
 | `096_cleanup_text_image_html.sql` | Remove stale html field from text_image sections that also have body (prevents duplicate rendering) |
+| `097_two_platforms_vf_backfill.sql` | Move legacy top-level `col{i}_*_{align|width|visible}` keys into nested `columns[i].{field}_{suffix}` on TwoPlatforms sections so per-column VF controls actually correlate with the frontend CmsField reads. Safe to re-run. |
+| `098_drop_founder_profile.sql` | `DROP TABLE IF EXISTS founder_profile CASCADE` — legacy key-value founder table removed. All founder data lives in `page_sections.team` (single source of truth). |
+| `099_cleanup_about_page.sql` | DELETE rows for the removed `/about` page (`page_sections` + `cms_pages`), and update any `site_pages` entry with `href = '/about'` to point at `/about/ahmad-din`. |

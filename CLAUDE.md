@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-18** (docs updated session end — newsletter system, auto-notifications, legal pages, founder profile update, YouTube engagement, badge visual upgrade, OG font loading, website audit fixes, CMS rich text rendering, migrations 091-096)
+**Last updated: 2026-04-18** (session end — universal CmsField rendering path, Tiptap RichTextarea upgrade, array-item VF, retake + timer persistence, attempts counter server-authoritative, founder_profile table dropped, /about page removed, universal share utility, Calendly inline embed on /book-a-meeting, migrations 097-099)
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md) — Database tables, storage buckets, migrations log
@@ -84,7 +84,7 @@
 | QR Codes | qrcode | ^1.5.4 |
 | PDF Generation | pdf-lib | ^1.17.1 |
 | Image Processing | sharp | ^0.33.5 |
-| Rich Text | @tiptap/react + starter-kit + image + text-align + link | 2.27.2 |
+| Rich Text | @tiptap/react + starter-kit + image + text-align + link + color + text-style + underline | 2.27.2 |
 | Drag & Drop | @hello-pangea/dnd | ^18.0.1 |
 | SVG Text Rendering | satori | latest |
 | Passwords | bcryptjs (Training Hub) / scrypt via Node (Modeling Hub) | ^3.0.3 |
