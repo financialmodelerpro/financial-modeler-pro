@@ -26,17 +26,17 @@ const fmpYoutubeThumbnailPreset: TemplatePreset = {
       },
       // Session badge text
       {
-        id: uid(), type: 'text', x: 60, y: 50, width: 180, height: 60, zIndex: 9,
+        id: 'session-' + uid(), type: 'text', x: 60, y: 50, width: 180, height: 60, zIndex: 9,
         text: { content: '1 of 16', fontSize: 28, fontWeight: 600, color: kit.secondary_color, fontFamily: kit.font_family, textAlign: 'center', lineHeight: 2.1, letterSpacing: 0, fontStyle: 'normal' },
       },
       // Main title line 1 (white)
       {
-        id: uid(), type: 'text', x: 60, y: 140, width: 620, height: 120, zIndex: 10,
+        id: 'title-' + uid(), type: 'text', x: 60, y: 140, width: 620, height: 120, zIndex: 10,
         text: { content: '3-Statement', fontSize: 72, fontWeight: 800, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.0, letterSpacing: -1, fontStyle: 'normal' },
       },
       // Title line 2 (teal accent)
       {
-        id: uid(), type: 'text', x: 60, y: 260, width: 420, height: 110, zIndex: 10,
+        id: 'title2-' + uid(), type: 'text', x: 60, y: 260, width: 420, height: 110, zIndex: 10,
         text: { content: 'Model', fontSize: 80, fontWeight: 800, color: kit.secondary_color, fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.0, letterSpacing: -1, fontStyle: 'normal' },
       },
       // Gold underline
@@ -46,7 +46,7 @@ const fmpYoutubeThumbnailPreset: TemplatePreset = {
       },
       // Subtitle
       {
-        id: uid(), type: 'text', x: 60, y: 410, width: 600, height: 44, zIndex: 10,
+        id: 'subtitle-' + uid(), type: 'text', x: 60, y: 410, width: 600, height: 44, zIndex: 10,
         text: { content: 'Project Overview & Timeline', fontSize: 28, fontWeight: 500, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.3, letterSpacing: 0, fontStyle: 'normal' },
       },
       // Tagline (italic)
@@ -88,6 +88,130 @@ const fmpYoutubeThumbnailPreset: TemplatePreset = {
       {
         id: uid(), type: 'text', x: 750, y: 588, width: 480, height: 30, zIndex: 10,
         text: { content: 'Financial Modeling Expert', fontSize: 18, fontWeight: 400, color: 'rgba(255,255,255,0.9)', fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.3, letterSpacing: 0, fontStyle: 'normal' },
+      },
+    ].filter(Boolean) as CanvasElement[];
+
+    return { background, elements };
+  },
+};
+
+// ── FMP LinkedIn Post 1200×627 (branded signature preset) ────────────────────
+const fmpLinkedinPostPreset: TemplatePreset = {
+  id: 'fmp-linkedin-post',
+  name: 'FMP LinkedIn Post',
+  description: 'Signature FMP LinkedIn share — deep navy, headline, founder mini-card, series tag.',
+  category: 'linkedin',
+  dimensions: { width: 1200, height: 627 },
+  aspectRatio: '1.91:1',
+  buildPreset: (kit) => {
+    const brandBg = kit.background_library.find(b => b.type === 'brand' && b.url);
+    const background: CanvasBackground = brandBg
+      ? { type: 'image', image: brandBg.url, overlay: { color: '#000000', opacity: 20 } }
+      : { type: 'color', color: '#0A1F3C' };
+    const logo = kit.logo_light_url ?? kit.logo_url;
+
+    const elements: CanvasElement[] = [
+      // Top-left: logo
+      logo ? {
+        id: uid(), type: 'image', x: 50, y: 40, width: 150, height: 50, zIndex: 10,
+        image: { src: logo, objectFit: 'contain', borderRadius: 0, opacity: 100, filter: 'none' as const, brightness: 100, lockAspectRatio: true, borderColor: 'transparent', borderWidth: 0 },
+      } : null,
+      // Top-right: category tag (labeled id 'tag' for auto-populate)
+      {
+        id: 'tag-' + uid(), type: 'text', x: 950, y: 50, width: 200, height: 40, zIndex: 10,
+        text: { content: 'FINANCIAL MODELING', fontSize: 14, fontWeight: 700, color: kit.secondary_color, fontFamily: kit.font_family, textAlign: 'right', lineHeight: 1.2, letterSpacing: 2, fontStyle: 'normal' },
+      },
+      // Main headline
+      {
+        id: 'headline-' + uid(), type: 'text', x: 60, y: 150, width: 1080, height: 200, zIndex: 10,
+        text: { content: 'The Real Reason M&A Models Break in Week 2', fontSize: 52, fontWeight: 800, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.1, letterSpacing: -1, fontStyle: 'normal' },
+      },
+      // Gold underline
+      {
+        id: uid(), type: 'shape', x: 60, y: 350, width: 120, height: 4, zIndex: 10,
+        shape: { backgroundColor: kit.accent_color, borderRadius: 2, borderColor: 'transparent', borderWidth: 0, opacity: 100, lockAspectRatio: false },
+      },
+      // Key insight
+      {
+        id: 'insight-' + uid(), type: 'text', x: 60, y: 380, width: 1080, height: 100, zIndex: 10,
+        text: { content: 'Three reasons practitioner-built models outperform templates in real deal work.', fontSize: 22, fontWeight: 400, color: 'rgba(255,255,255,0.85)', fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.4, letterSpacing: 0, fontStyle: 'normal' },
+      },
+      // Founder mini-photo
+      {
+        id: uid(), type: 'image', x: 60, y: 510, width: 60, height: 60, zIndex: 10,
+        image: { src: kit.founder_photo_url ?? '', objectFit: 'cover', borderRadius: 50, opacity: 100, filter: 'none' as const, brightness: 100, lockAspectRatio: true, borderColor: kit.secondary_color, borderWidth: 2 },
+      },
+      // Founder name mini
+      {
+        id: uid(), type: 'text', x: 135, y: 515, width: 300, height: 25, zIndex: 10,
+        text: { content: 'Ahmad Din', fontSize: 18, fontWeight: 700, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.2, letterSpacing: 0, fontStyle: 'normal' },
+      },
+      // Founder title mini
+      {
+        id: uid(), type: 'text', x: 135, y: 542, width: 500, height: 20, zIndex: 10,
+        text: { content: 'Founder, Financial Modeler Pro · ACCA, FMVA', fontSize: 13, fontWeight: 400, color: 'rgba(255,255,255,0.6)', fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.3, letterSpacing: 0, fontStyle: 'normal' },
+      },
+      // Series label bottom-right
+      {
+        id: 'series-' + uid(), type: 'text', x: 800, y: 515, width: 350, height: 50, zIndex: 10,
+        text: { content: 'FMP Real-World\nFinancial Modeling', fontSize: 14, fontWeight: 600, color: kit.secondary_color, fontFamily: kit.font_family, textAlign: 'right', lineHeight: 1.3, letterSpacing: 0.5, fontStyle: 'normal' },
+      },
+    ].filter(Boolean) as CanvasElement[];
+
+    return { background, elements };
+  },
+};
+
+// ── FMP Instagram Post 1080×1080 (branded signature preset) ──────────────────
+const fmpInstagramPostPreset: TemplatePreset = {
+  id: 'fmp-instagram-post',
+  name: 'FMP Instagram Post',
+  description: 'Signature FMP Instagram square — centered headline, gold divider, circular founder portrait.',
+  category: 'instagram',
+  dimensions: { width: 1080, height: 1080 },
+  aspectRatio: '1:1',
+  buildPreset: (kit) => {
+    const brandBg = kit.background_library.find(b => b.type === 'brand' && b.url);
+    const background: CanvasBackground = brandBg
+      ? { type: 'image', image: brandBg.url, overlay: { color: '#000000', opacity: 20 } }
+      : { type: 'gradient', gradient: { from: '#0A1F3C', to: kit.primary_color, direction: 'to bottom right' } };
+    const logo = kit.logo_light_url ?? kit.logo_url;
+
+    const elements: CanvasElement[] = [
+      // Centered logo top
+      logo ? {
+        id: uid(), type: 'image', x: 440, y: 60, width: 200, height: 60, zIndex: 10,
+        image: { src: logo, objectFit: 'contain', borderRadius: 0, opacity: 100, filter: 'none' as const, brightness: 100, lockAspectRatio: true, borderColor: 'transparent', borderWidth: 0 },
+      } : null,
+      // Main title centered
+      {
+        id: 'title-' + uid(), type: 'text', x: 80, y: 250, width: 920, height: 220, zIndex: 10,
+        text: { content: 'Why Every Analyst Should Master the Debt Schedule', fontSize: 62, fontWeight: 800, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.15, letterSpacing: -1, fontStyle: 'normal' },
+      },
+      // Gold divider centered
+      {
+        id: uid(), type: 'shape', x: 490, y: 490, width: 100, height: 4, zIndex: 10,
+        shape: { backgroundColor: kit.accent_color, borderRadius: 2, borderColor: 'transparent', borderWidth: 0, opacity: 100, lockAspectRatio: false },
+      },
+      // Subtitle
+      {
+        id: 'subtitle-' + uid(), type: 'text', x: 100, y: 530, width: 880, height: 160, zIndex: 10,
+        text: { content: 'A practitioner walkthrough of the one model every M&A deal needs.', fontSize: 32, fontWeight: 400, color: 'rgba(255,255,255,0.85)', fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.3, letterSpacing: 0, fontStyle: 'normal' },
+      },
+      // Founder photo centered
+      {
+        id: uid(), type: 'image', x: 440, y: 750, width: 200, height: 200, zIndex: 10,
+        image: { src: kit.founder_photo_url ?? '', objectFit: 'cover', borderRadius: 50, opacity: 100, filter: 'none' as const, brightness: 100, lockAspectRatio: true, borderColor: kit.secondary_color, borderWidth: 4 },
+      },
+      // Name
+      {
+        id: uid(), type: 'text', x: 80, y: 970, width: 920, height: 36, zIndex: 10,
+        text: { content: 'Ahmad Din · Financial Modeler Pro', fontSize: 24, fontWeight: 700, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.2, letterSpacing: 0, fontStyle: 'normal' },
+      },
+      // Series
+      {
+        id: uid(), type: 'text', x: 80, y: 1010, width: 920, height: 28, zIndex: 10,
+        text: { content: 'FMP Real-World Financial Modeling', fontSize: 16, fontWeight: 500, color: kit.secondary_color, fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.3, letterSpacing: 1, fontStyle: 'normal' },
       },
     ].filter(Boolean) as CanvasElement[];
 
@@ -317,7 +441,13 @@ const storyPreset: TemplatePreset = {
   }),
 };
 
-export const PRESETS: TemplatePreset[] = [fmpYoutubeThumbnailPreset, youtubePreset, linkedinPreset, instagramPreset, storyPreset, blankPreset];
+export const PRESETS: TemplatePreset[] = [
+  fmpYoutubeThumbnailPreset, fmpLinkedinPostPreset, fmpInstagramPostPreset,
+  youtubePreset, linkedinPreset, instagramPreset, storyPreset, blankPreset,
+];
+
+/** IDs of branded presets used by the "Export to All Platforms" ZIP feature. */
+export const FMP_EXPORT_PRESET_IDS = ['fmp-youtube-thumbnail', 'fmp-linkedin-post', 'fmp-instagram-post'];
 
 export function getPreset(id: string): TemplatePreset | null {
   return PRESETS.find(p => p.id === id) ?? null;

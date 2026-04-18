@@ -230,11 +230,13 @@ app/api/admin/
 ├── newsletter/content-items/    # GET: items from live_sessions/articles for compose auto-populate
 ├── newsletter/enhance/          # POST: AI rewrite via Anthropic API
 ├── newsletter/auto-settings/    # GET/PATCH: auto-notification toggles
-├── marketing-studio/render/         # POST: render template → PNG via ImageResponse (satori)
-├── marketing-studio/generate-caption/ # POST: Anthropic Claude caption for LinkedIn/YouTube/Instagram/Twitter
-├── marketing-studio/designs/         # GET (list) + POST (create) saved designs
-├── marketing-studio/designs/[id]/    # GET/PATCH/DELETE single design
-├── marketing-studio/brand-kit/       # GET/PATCH brand kit singleton
+├── marketing-studio/render/             # POST: render element-based design → PNG via ImageResponse (satori)
+├── marketing-studio/generate-caption/   # POST: single-platform caption (legacy Phase 1)
+├── marketing-studio/generate-captions/  # POST: multi-platform parallel captions + tone selector
+├── marketing-studio/data-sources/       # GET: articles + live_sessions + training sessions for Quick Fill
+├── marketing-studio/designs/            # GET (list) + POST (create) saved designs
+├── marketing-studio/designs/[id]/       # GET/PATCH/DELETE single design
+├── marketing-studio/brand-kit/          # GET/PATCH brand kit singleton
 ├── generate-images/             # POST: satori+sharp generate mission/vision PNGs → Supabase
 ├── page-sections/               # CRUD for page_sections + cms_pages
 ├── reset-attempts/              # POST: reset via Apps Script
@@ -314,6 +316,9 @@ src/components/
 ├── newsletter/
 │   └── NewsletterSubscribeForm.tsx   # Hub checkboxes + email input, shown in SharedFooter
 ├── marketing/
+│   ├── QuickFillPanel.tsx            # Data source picker (Training / Live Session / Article) + Apply to Canvas. Calls /data-sources, invokes autoFillElements()
+│   ├── CaptionsPanel.tsx             # Multi-platform caption generator with tone selector, per-platform tabs, copy buttons
+│   ├── DesignsSidebar.tsx            # Saved designs grid with lazy-rendered thumbnails + template filter
 │   └── canvas/
 │       ├── CanvasEditor.tsx          # Drag-and-drop canvas: left (add/layers/history), center (canvas with react-rnd + auto-fit zoom), right (properties). Keyboard shortcuts, undo/redo history stack
 │       ├── ElementRenderer.tsx       # Pure visual for text/image/shape CanvasElements
@@ -366,7 +371,8 @@ src/lib/
 ├── marketing/                   # Canvas editor (Phase 1.5) — element-based designs
 │   ├── types.ts                 # BrandKit (with array libraries), ImageAsset, CanvasElement (text/image/shape), CanvasBackground, Design, TemplatePreset, MarketingDesign
 │   ├── canvasDefaults.ts        # makeTextElement/ImageElement/ShapeElement factories, backgroundToCss, uid
-│   ├── presets.ts               # PRESETS array: FMP YouTube Thumbnail (signature branded preset), YouTube Thumbnail (generic), LinkedIn Post, Instagram Post, Instagram Story, Blank Custom — each exports buildPreset(kit) → {background, elements}
+│   ├── presets.ts               # PRESETS array: 3 FMP-branded (YouTube, LinkedIn, Instagram) + 5 generic/story/blank. Uses element-id prefixes (title-, subtitle-, session-, etc.) for Quick Fill matching. Exports FMP_EXPORT_PRESET_IDS used by ZIP export
+│   ├── autoFill.ts              # autoFillElements() — id-prefix → bucket matching (title/subtitle/session), returns new elements with text content swapped
 │   ├── brandKit.ts              # loadBrandKit() — reads singleton row (id=1) incl. additional_logos/photos/uploaded_images, falls back to defaults
 │   └── imageToDataUri.ts        # Fetches URL → base64 data URI (sharp SVG→PNG), shared by render route
 ├── modeling/real-estate/

@@ -2,16 +2,19 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
+import JSZip from 'jszip';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { CanvasEditor } from '@/src/components/marketing/canvas/CanvasEditor';
-import { PRESETS, getPreset } from '@/src/lib/marketing/presets';
+import { QuickFillPanel } from '@/src/components/marketing/QuickFillPanel';
+import { CaptionsPanel } from '@/src/components/marketing/CaptionsPanel';
+import { DesignsSidebar } from '@/src/components/marketing/DesignsSidebar';
+import { PRESETS, getPreset, FMP_EXPORT_PRESET_IDS } from '@/src/lib/marketing/presets';
+import { autoFillElements, type AutoFillSource } from '@/src/lib/marketing/autoFill';
 import type { Design, BrandKit, CanvasElement, CanvasBackground } from '@/src/lib/marketing/types';
 import { DEFAULT_BRAND_KIT } from '@/src/lib/marketing/types';
 
 const NAVY = '#0D2E5A';
 const BORDER = '#E5E7EB';
-
-type Platform = 'youtube' | 'linkedin' | 'instagram' | 'twitter';
 
 interface SavedDesignRow {
   id: string;
@@ -46,13 +49,10 @@ export default function MarketingStudioPage() {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState('');
 
-  const [captionPlatform, setCaptionPlatform] = useState<Platform>('linkedin');
-  const [generatingCaption, setGeneratingCaption] = useState(false);
-  const [captionError, setCaptionError] = useState('');
-
   const [downloading, setDownloading] = useState(false);
+  const [exportingZip, setExportingZip] = useState(false);
 
-  // ── Load brand kit + designs on mount ────────────────────────────────────
+  // ── Load brand kit + designs ─────────────────────────────────────────────
   const loadBrandKit = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/marketing-studio/brand-kit');
@@ -72,7 +72,7 @@ export default function MarketingStudioPage() {
 
   useEffect(() => { void loadBrandKit(); void loadDesigns(); }, [loadBrandKit, loadDesigns]);
 
-  // Once brand kit actually loads, re-apply the first preset so it uses real logos/photos.
+  // Apply real brand kit to initial preset when it loads
   const appliedRealKitRef = useRef(false);
   useEffect(() => {
     if (!brandKitLoaded || appliedRealKitRef.current) return;
@@ -85,7 +85,7 @@ export default function MarketingStudioPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [brandKitLoaded]);
 
-  // ── Preset switching ─────────────────────────────────────────────────────
+  // ── Presets / dimensions ─────────────────────────────────────────────────
   function applyPreset(presetId: string) {
     const p = getPreset(presetId);
     if (!p) return;
@@ -96,17 +96,20 @@ export default function MarketingStudioPage() {
       template_type: p.id,
       dimensions: p.dimensions,
       background, elements,
-      ai_captions: {},
+      ai_captions: design.ai_captions, // preserve captions across preset swap
     });
     setCurrentDesignId(null);
   }
 
-  function newBlank() {
-    applyPreset('blank-custom');
-  }
+  function newBlank() { applyPreset('blank-custom'); }
 
   function updateDimensions(w: number, h: number) {
     setDesign(d => ({ ...d, dimensions: { width: Math.max(1, w), height: Math.max(1, h) } }));
+  }
+
+  // ── Quick Fill ────────────────────────────────────────────────────────────
+  function handleQuickFill(source: AutoFillSource) {
+    setDesign(d => ({ ...d, elements: autoFillElements(d.elements, source) }));
   }
 
   // ── Save / load / delete ─────────────────────────────────────────────────
@@ -163,20 +166,24 @@ export default function MarketingStudioPage() {
     await loadDesigns();
   }
 
-  // ── Download PNG ─────────────────────────────────────────────────────────
+  // ── Download single PNG ─────────────────────────────────────────────────
+  async function renderBlob(dimensions: { width: number; height: number }, background: CanvasBackground, elements: CanvasElement[]): Promise<Blob> {
+    const res = await fetch('/api/admin/marketing-studio/render', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dimensions, background, elements }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Render failed' }));
+      throw new Error(err.error || 'Render failed');
+    }
+    return res.blob();
+  }
+
   async function download() {
     setDownloading(true);
     try {
-      const res = await fetch('/api/admin/marketing-studio/render', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ dimensions: design.dimensions, background: design.background, elements: design.elements }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: 'Render failed' }));
-        throw new Error(err.error || 'Render failed');
-      }
-      const blob = await res.blob();
+      const blob = await renderBlob(design.dimensions, design.background, design.elements);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -193,31 +200,44 @@ export default function MarketingStudioPage() {
     }
   }
 
-  // ── AI caption ───────────────────────────────────────────────────────────
-  async function generateCaption() {
-    setGeneratingCaption(true);
-    setCaptionError('');
+  // ── Export to all platforms (ZIP) ────────────────────────────────────────
+  async function exportAllPlatforms() {
+    setExportingZip(true);
+    setSaveMsg('');
     try {
-      const res = await fetch('/api/admin/marketing-studio/generate-caption', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ template_type: design.template_type, elements: design.elements, platform: captionPlatform }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Caption generation failed');
-      setDesign(d => ({ ...d, ai_captions: { ...d.ai_captions, [captionPlatform]: json.caption } }));
-    } catch (e) {
-      setCaptionError(e instanceof Error ? e.message : 'Caption generation failed');
-    } finally {
-      setGeneratingCaption(false);
-    }
-  }
+      const zip = new JSZip();
+      const slug = design.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'design';
+      // Walk through each FMP preset, rebuild its layout with brand kit,
+      // then pull over text content from the current design so the user's
+      // headline/subtitle/session carries across adapted dimensions.
+      const currentTexts: AutoFillSource = textsFromCurrentDesign(design.elements);
 
-  async function copyCaption() {
-    const text = design.ai_captions[captionPlatform] || '';
-    if (!text) return;
-    try { await navigator.clipboard.writeText(text); setSaveMsg('Caption copied ✓'); setTimeout(() => setSaveMsg(''), 1500); }
-    catch { /* ignore */ }
+      for (const presetId of FMP_EXPORT_PRESET_IDS) {
+        const preset = getPreset(presetId);
+        if (!preset) continue;
+        const built = preset.buildPreset(brandKit);
+        const adapted = autoFillElements(built.elements, currentTexts);
+        const blob = await renderBlob(preset.dimensions, built.background, adapted);
+        const platformSlug = presetId.replace('fmp-', '').replace('-thumbnail', '').replace('-post', '');
+        zip.file(`${slug}_${platformSlug}_${preset.dimensions.width}x${preset.dimensions.height}.png`, blob);
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${slug}-all-platforms.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setSaveMsg('Exported ✓');
+      setTimeout(() => setSaveMsg(''), 2500);
+    } catch (e) {
+      setSaveMsg(e instanceof Error ? e.message : 'Export failed');
+    } finally {
+      setExportingZip(false);
+    }
   }
 
   // ── Render ───────────────────────────────────────────────────────────────
@@ -231,7 +251,7 @@ export default function MarketingStudioPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <div>
               <h1 style={{ fontSize: 20, fontWeight: 800, color: NAVY, marginBottom: 2 }}>Marketing Studio</h1>
-              <div style={{ fontSize: 11, color: '#6B7280' }}>Drag-and-drop canvas editor. Use presets or start blank.</div>
+              <div style={{ fontSize: 11, color: '#6B7280' }}>Drag-and-drop canvas · Auto-populate from CMS · Multi-platform captions.</div>
             </div>
             <Link href="/admin/marketing-studio/brand-kit" style={{ padding: '6px 12px', background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 6, fontSize: 11, fontWeight: 600, color: NAVY, textDecoration: 'none' }}>
               🎨 Brand Kit
@@ -252,11 +272,15 @@ export default function MarketingStudioPage() {
             <button onClick={download} disabled={downloading} style={{ ...btn, background: '#059669', color: '#fff' }}>
               {downloading ? 'Rendering…' : '↓ PNG'}
             </button>
+            <button onClick={exportAllPlatforms} disabled={exportingZip} title="Renders FMP YouTube + LinkedIn + Instagram adaptations and downloads them as a ZIP."
+              style={{ ...btn, background: '#F59E0B', color: '#fff' }}>
+              {exportingZip ? 'Zipping…' : '📦 Export All'}
+            </button>
           </div>
         </div>
 
-        {/* Preset picker + dimensions + saved designs */}
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+        {/* Preset picker + dimensions */}
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {PRESETS.map(p => {
               const isFmp = p.id.startsWith('fmp-');
@@ -286,23 +310,11 @@ export default function MarketingStudioPage() {
             <span style={{ fontSize: 10, color: '#6B7280' }}>× H</span>
             <input type="number" value={design.dimensions.height} onChange={e => updateDimensions(design.dimensions.width, Number(e.target.value))} style={{ width: 64, border: 'none', fontSize: 12, fontWeight: 600, color: NAVY, outline: 'none' }} />
           </div>
-          {savedDesigns.length > 0 && (
-            <select
-              onChange={e => { const row = savedDesigns.find(d => d.id === e.target.value); if (row) loadSaved(row); }}
-              value={currentDesignId ?? ''}
-              style={{ fontSize: 12, padding: '7px 8px', border: `1px solid ${BORDER}`, borderRadius: 6, color: NAVY, fontWeight: 500, minWidth: 200 }}
-            >
-              <option value="">— Load Saved Design —</option>
-              {savedDesigns.map(d => (
-                <option key={d.id} value={d.id}>{d.name} · {d.template_type}</option>
-              ))}
-            </select>
-          )}
-          {currentDesignId && (
-            <button onClick={() => deleteSaved(currentDesignId)} style={{ ...btn, background: '#fff', border: `1px solid #FCA5A5`, color: '#DC2626' }}>
-              Delete
-            </button>
-          )}
+        </div>
+
+        {/* Quick Fill */}
+        <div style={{ marginBottom: 14 }}>
+          <QuickFillPanel onApply={handleQuickFill} />
         </div>
 
         {/* Canvas editor */}
@@ -313,37 +325,51 @@ export default function MarketingStudioPage() {
           onBrandKitChange={(patch) => setBrandKit(prev => ({ ...prev, ...patch }))}
         />
 
-        {/* AI caption bar */}
-        <div style={{ marginTop: 14, background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 8, padding: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: design.ai_captions[captionPlatform] ? 10 : 0 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: '#374151', letterSpacing: '0.06em', textTransform: 'uppercase' }}>AI Caption</span>
-            <select value={captionPlatform} onChange={e => setCaptionPlatform(e.target.value as Platform)} style={{ fontSize: 12, padding: '5px 7px', border: `1px solid ${BORDER}`, borderRadius: 5 }}>
-              <option value="linkedin">LinkedIn</option>
-              <option value="youtube">YouTube</option>
-              <option value="instagram">Instagram</option>
-              <option value="twitter">Twitter</option>
-            </select>
-            <button onClick={generateCaption} disabled={generatingCaption} style={{ ...btn, background: '#7C3AED', color: '#fff' }}>
-              {generatingCaption ? 'Generating…' : '✨ Generate'}
-            </button>
-            {design.ai_captions[captionPlatform] && (
-              <button onClick={copyCaption} style={{ ...btn, background: '#fff', border: `1px solid ${BORDER}`, color: NAVY }}>📋 Copy</button>
-            )}
-            {captionError && <span style={{ fontSize: 11, color: '#DC2626' }}>{captionError}</span>}
-          </div>
-          {design.ai_captions[captionPlatform] && (
-            <textarea
-              value={design.ai_captions[captionPlatform]}
-              onChange={e => setDesign(d => ({ ...d, ai_captions: { ...d.ai_captions, [captionPlatform]: e.target.value } }))}
-              rows={6}
-              style={{ width: '100%', fontSize: 12, lineHeight: 1.5, padding: '8px 10px', border: `1px solid ${BORDER}`, borderRadius: 5, fontFamily: 'inherit', resize: 'vertical' }}
-            />
-          )}
+        {/* Captions + Saved designs */}
+        <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr', gap: 14 }}>
+          <CaptionsPanel
+            templateType={design.template_type}
+            elements={design.elements}
+            captions={design.ai_captions}
+            onCaptionsChange={(next) => setDesign(d => ({ ...d, ai_captions: next }))}
+          />
+          <DesignsSidebar
+            designs={savedDesigns}
+            currentDesignId={currentDesignId}
+            onLoad={loadSaved}
+            onDelete={deleteSaved}
+          />
         </div>
 
       </div>
     </div>
   );
+}
+
+/** Extract headline / subtitle / session from current canvas text elements. */
+function textsFromCurrentDesign(elements: CanvasElement[]): AutoFillSource {
+  const byBucket: Record<string, string> = {};
+  const sorted = [...elements].sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  for (const el of sorted) {
+    if (el.type !== 'text' || !el.text) continue;
+    const id = el.id.toLowerCase();
+    if ((id.startsWith('session-') || id.includes('session_number')) && !byBucket.session) {
+      byBucket.session = el.text.content;
+    } else if ((id.startsWith('title-') || id.startsWith('headline-')) && !byBucket.title) {
+      byBucket.title = el.text.content;
+    } else if ((id.startsWith('subtitle-') || id.startsWith('insight-') || id.startsWith('description-') || id.startsWith('title2-')) && !byBucket.subtitle) {
+      byBucket.subtitle = el.text.content;
+    }
+  }
+  // Fallback: take first text element as title if no 'title-' match
+  if (!byBucket.title && sorted.length > 0 && sorted[0].type === 'text' && sorted[0].text) {
+    byBucket.title = sorted[0].text.content;
+  }
+  return {
+    title:    byBucket.title ?? '',
+    subtitle: byBucket.subtitle ?? '',
+    session:  byBucket.session ?? '',
+  };
 }
 
 const btn: React.CSSProperties = {
