@@ -158,18 +158,21 @@ export default async function TrainingPage() {
   const testimH2  = (tc?.heading as string)    || cms(content, 'training_page', 'testimonials_heading', 'What Our Students Say');
   const testimSub = (tc?.subheading as string) || cms(content, 'training_page', 'testimonials_sub',     'Verified feedback from FMP Training Hub students.');
 
+  // CtaEditor saves: subtitle, buttonText, buttonUrl, button2Text, button2Url.
+  // Older seed data used description / cta_text / cta_url. Read both so new
+  // admin edits take effect without breaking legacy rows.
   const sc2 = fc(submitCtaRaw);
-  const submitBadge   = (sc2?.badge as string)       || 'Your Voice Matters';
+  const submitBadge   = (sc2?.badge as string)        || 'Your Voice Matters';
   const submitHead    = (sc2?.heading as string)      || 'Completed a Course? Share Your Story';
-  const submitDesc    = (sc2?.description as string)  || 'Help other learners by sharing your experience. Your testimonial could inspire the next finance professional.';
-  const submitCtaText = (sc2?.cta_text as string)     || '⭐ Submit Your Testimonial';
-  const submitCtaUrl  = (sc2?.cta_url as string)      || '/training/submit-testimonial';
+  const submitDesc    = (sc2?.subtitle as string)     || (sc2?.description as string) || 'Help other learners by sharing your experience. Your testimonial could inspire the next finance professional.';
+  const submitCtaText = (sc2?.buttonText as string)   || (sc2?.cta_text as string)    || '⭐ Submit Your Testimonial';
+  const submitCtaUrl  = (sc2?.buttonUrl as string)    || (sc2?.cta_url as string)     || '/training/submit-testimonial';
 
   const bc2 = fc(bottomCtaRaw);
   const bottomH2       = (bc2?.heading as string)     || cms(content, 'training_page', 'bottom_cta_heading', 'Ready to get certified?');
-  const bottomSub      = (bc2?.description as string) || cms(content, 'training_page', 'bottom_cta_sub',     'Join hundreds of finance professionals building verified skills - completely free.');
-  const bottomCtaText  = (bc2?.cta_text as string)    || 'Register Free →';
-  const bottomCtaUrl   = (bc2?.cta_url as string)     || '/register';
+  const bottomSub      = (bc2?.subtitle as string)    || (bc2?.description as string) || cms(content, 'training_page', 'bottom_cta_sub', 'Join hundreds of finance professionals building verified skills - completely free.');
+  const bottomCtaText  = (bc2?.buttonText as string)  || (bc2?.cta_text as string)    || 'Register Free →';
+  const bottomCtaUrl   = (bc2?.buttonUrl as string)   || (bc2?.cta_url as string)     || '/register';
   const bottomLoginH   = (bc2?.login_hint as string)  || 'Already registered?';
   const bottomLoginT   = (bc2?.login_text as string)  || 'Login to Dashboard →';
   const bottomLoginU   = (bc2?.login_url as string)   || '/signin';
@@ -472,12 +475,12 @@ export default async function TrainingPage() {
               </h2>
             )}
             <CmsField
-              content={sc2 ?? { description: submitDesc }}
+              content={{ ...(sc2 ?? {}), description: submitDesc }}
               field="description"
               as="p"
               style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.7, marginBottom: 24 }}
             />
-            {cmsVisible(sc2 ?? {}, 'cta_text') && submitCtaText && submitCtaUrl && (
+            {cmsVisible(sc2 ?? {}, 'buttonText') && submitCtaText && submitCtaUrl && (
               <Link href={submitCtaUrl} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14, padding: '12px 28px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 16px rgba(27,79,138,0.25)' }}>
                 {submitCtaText}
               </Link>
@@ -496,12 +499,12 @@ export default async function TrainingPage() {
               </h2>
             )}
             <CmsField
-              content={bc2 ?? { description: bottomSub }}
+              content={{ ...(bc2 ?? {}), description: bottomSub }}
               field="description"
               as="p"
               style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', marginBottom: 36, lineHeight: 1.6 }}
             />
-            {cmsVisible(bc2 ?? {}, 'cta_text') && bottomCtaText && bottomCtaUrl && (
+            {cmsVisible(bc2 ?? {}, 'buttonText') && bottomCtaText && bottomCtaUrl && (
               <Link href={bottomCtaUrl} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1A7A30', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
                 {bottomCtaText}
               </Link>

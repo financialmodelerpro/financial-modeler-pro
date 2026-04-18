@@ -98,18 +98,22 @@ export default async function ModelingHubPage() {
   const testimH2  = (tc?.heading as string)    || cms(content, 'modeling_hub', 'testimonials_heading', 'What Professionals Say');
   const testimSub = (tc?.subheading as string) || cms(content, 'modeling_hub', 'testimonials_sub',     'Feedback from finance professionals using the Modeling Hub.');
 
+  // CtaEditor in Page Builder writes to: subtitle, buttonText, buttonUrl,
+  // button2Text, button2Url. Older seed data used description / cta_text /
+  // cta_url. Read both so new admin edits take effect without breaking any
+  // rows still carrying the legacy keys.
   const sc = fc(submitCtaRaw);
-  const submitBadge   = (sc?.badge as string)       || 'Your Voice Matters';
+  const submitBadge   = (sc?.badge as string)        || 'Your Voice Matters';
   const submitHead    = (sc?.heading as string)      || 'Using the Modeling Hub? Share Your Experience';
-  const submitDesc    = (sc?.description as string)  || 'Your feedback helps other finance professionals and helps us build a better platform.';
-  const submitCtaText = (sc?.cta_text as string)     || '⭐ Submit Your Testimonial';
-  const submitCtaUrl  = (sc?.cta_url as string)      || '/modeling/submit-testimonial';
+  const submitDesc    = (sc?.subtitle as string)     || (sc?.description as string) || 'Your feedback helps other finance professionals and helps us build a better platform.';
+  const submitCtaText = (sc?.buttonText as string)   || (sc?.cta_text as string)    || '⭐ Submit Your Testimonial';
+  const submitCtaUrl  = (sc?.buttonUrl as string)    || (sc?.cta_url as string)     || '/modeling/submit-testimonial';
 
   const bc = fc(bottomCtaRaw);
-  const bottomH2      = (bc?.heading as string)     || cms(content, 'modeling_hub', 'bottom_cta_heading', 'Ready to build your first model?');
-  const bottomSub     = (bc?.description as string) || 'Join financial professionals around the world building institutional-grade models - completely free.';
-  const bottomCtaText = (bc?.cta_text as string)    || 'Launch Platform Free →';
-  const bottomCtaUrl  = (bc?.cta_url as string)     || '/register';
+  const bottomH2      = (bc?.heading as string)      || cms(content, 'modeling_hub', 'bottom_cta_heading', 'Ready to build your first model?');
+  const bottomSub     = (bc?.subtitle as string)     || (bc?.description as string) || 'Join financial professionals around the world building institutional-grade models - completely free.';
+  const bottomCtaText = (bc?.buttonText as string)   || (bc?.cta_text as string)    || 'Launch Platform Free →';
+  const bottomCtaUrl  = (bc?.buttonUrl as string)    || (bc?.cta_url as string)     || '/register';
 
   const bottomCtaVisible = bottomCtaRaw
     ? bottomCtaRaw.visible !== false
@@ -388,8 +392,8 @@ export default async function ModelingHubPage() {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 24 }}>
-              {whyItems.map((item) => (
-                <div key={item.title} style={{
+              {whyItems.map((item, i) => (
+                <div key={item.title || i} style={{
                   background: '#F9FAFB', borderRadius: 12,
                   border: '1px solid #E5E7EB',
                   padding: '28px 22px', textAlign: 'center',
@@ -398,9 +402,11 @@ export default async function ModelingHubPage() {
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#0D2E5A', marginBottom: 8 }}>
                     {item.title}
                   </div>
-                  <div style={{ fontSize: 12.5, color: '#6B7280', lineHeight: 1.6 }}>
-                    {item.desc}
-                  </div>
+                  <CmsField
+                    content={item as unknown as Record<string, unknown>}
+                    field="desc"
+                    style={{ fontSize: 12.5, color: '#6B7280', lineHeight: 1.6 }}
+                  />
                 </div>
               ))}
             </div>
@@ -471,12 +477,12 @@ export default async function ModelingHubPage() {
               </h2>
             )}
             <CmsField
-              content={sc ?? { description: submitDesc }}
+              content={{ ...(sc ?? {}), description: submitDesc }}
               field="description"
               as="p"
               style={{ fontSize: 13.5, color: '#6B7280', lineHeight: 1.7, marginBottom: 22 }}
             />
-            {cmsVisible(sc ?? {}, 'cta_text') && submitCtaText && submitCtaUrl && (
+            {cmsVisible(sc ?? {}, 'buttonText') && submitCtaText && submitCtaUrl && (
               <Link href={submitCtaUrl} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14, padding: '11px 26px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 16px rgba(27,79,138,0.25)' }}>
                 {submitCtaText}
               </Link>
@@ -495,12 +501,12 @@ export default async function ModelingHubPage() {
               </h2>
             )}
             <CmsField
-              content={bc ?? { description: bottomSub }}
+              content={{ ...(bc ?? {}), description: bottomSub }}
               field="description"
               as="p"
               style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', marginBottom: 36, lineHeight: 1.6 }}
             />
-            {cmsVisible(bc ?? {}, 'cta_text') && bottomCtaText && bottomCtaUrl && (
+            {cmsVisible(bc ?? {}, 'buttonText') && bottomCtaText && bottomCtaUrl && (
               <a href={`${APP_URL}${bottomCtaUrl}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#fff', color: '#1B4F8A', fontWeight: 800, fontSize: 16, padding: '14px 40px', borderRadius: 8, textDecoration: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.15)' }}>
                 {bottomCtaText}
               </a>
