@@ -233,6 +233,14 @@ npm run verify       # type-check + lint + build
 
 ## Key Architectural Notes
 
+### Booking System — Calendly Inline Embed
+
+`/book-a-meeting` embeds Calendly inline (no redirect). The widget URL comes from `page_sections.team.content.booking_url` (admin editable in Page Builder → Founder → Booking Page tab). Default event: 60-minute Modeling Hub Advisory Meeting. Calendly account is on the free tier with Outlook + Teams integration.
+
+- **Component:** `src/components/booking/CalendlyEmbed.tsx` — client component, dynamically injects `assets.calendly.com/assets/external/widget.js` once per page load.
+- **Fallback:** when `booking_url` is empty, the page shows a "Booking Calendar Coming Soon" notice and falls through to email / WhatsApp contact options.
+- **Buttons on other pages** (home founder card, `/about/ahmad-din`) continue to navigate to `/book-a-meeting` where the embed lives — no deep link to Calendly anywhere else.
+
 ### CMS Content Rendering — Rules
 
 **All CMS text content MUST be rendered via `<CmsField>` (`src/components/cms/CmsField.tsx`).**
