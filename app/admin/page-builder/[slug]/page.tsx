@@ -1297,6 +1297,13 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
       {/* ── SECTION 6: BOOKING PAGE ── */}
       <div style={{ marginTop:14, padding:10, background:'#FFF7ED', borderRadius:8, border:'1px solid #FED7AA' }}>
         <div style={{ fontSize:10, fontWeight:800, color:'#C2410C', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:6 }}>6. Booking Page (/book-a-meeting)</div>
+        <VF label="Email (mailto)" fieldKey="email" content={content} onChange={onChange}>
+          <input style={IS} value={(content.email as string) ?? ''} onChange={e => set('email', e.target.value)} placeholder="support@financialmodelerpro.com" />
+        </VF>
+        <VF label="WhatsApp Number" fieldKey="whatsapp_number" content={content} onChange={onChange}>
+          <input style={IS} value={(content.whatsapp_number as string) ?? ''} onChange={e => set('whatsapp_number', e.target.value)} placeholder="+923001234567 (with country code)" />
+          <div style={{ fontSize:10, color:'#9CA3AF', marginTop:3 }}>Include country code. Non-digits are stripped when building the wa.me link.</div>
+        </VF>
         {(() => {
           const items = (content.booking_expectations as string[]) ?? [];
           const setItems = (next: string[]) => onChange({ ...content, booking_expectations: next });

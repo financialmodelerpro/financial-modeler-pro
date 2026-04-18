@@ -39,9 +39,15 @@ export default async function BookAMeetingPage() {
   const expectations = (fc?.booking_expectations as string[]) ?? ['60-minute consultation', 'Financial modeling advice', 'Platform walkthrough', 'Corporate finance guidance'];
   const pageHeading = (fc?.booking_page_heading as string) || 'Book a Meeting';
   const redirectNote = (fc?.booking_redirect_note as string) || 'You will be redirected to our Microsoft Bookings page to select your preferred time slot.';
-  const backText = (fc?.booking_back_text as string) || '← Back to Home';
-  const backUrl = (fc?.booking_back_url as string) || '/';
+  const backText = (fc?.booking_back_text as string) || '← Back to Founder Profile';
+  const backUrl = (fc?.booking_back_url as string) || '/about/ahmad-din';
   const expectLabel = (fc?.booking_expectations_label as string) || 'What to expect';
+
+  // Direct contact options (admin-configurable via Founder Editor → Booking Page tab)
+  const email          = (fc?.email as string) || '';
+  const whatsappNumber = (fc?.whatsapp_number as string) || '';
+  const whatsappDigits = whatsappNumber.replace(/[^0-9]/g, '');
+  const waPrefill      = encodeURIComponent(`Hi ${name.split(' ')[0]}, I would like to discuss`);
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
@@ -120,6 +126,37 @@ export default async function BookAMeetingPage() {
                 Contact us at{' '}
                 <a href="mailto:hello@financialmodelerpro.com" style={{ color: '#4A90D9', textDecoration: 'none' }}>hello@financialmodelerpro.com</a>
               </p>
+            </div>
+          )}
+
+          {/* Direct contact options */}
+          {(email || whatsappDigits) && (
+            <div style={{ marginTop: 20, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {email && (
+                <a
+                  href={`mailto:${email}?subject=${encodeURIComponent('Consultation Inquiry')}`}
+                  style={{
+                    flex: '1 1 180px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14,
+                    padding: '12px 20px', borderRadius: 10, textDecoration: 'none',
+                  }}
+                >
+                  ✉️ Send Email
+                </a>
+              )}
+              {whatsappDigits && (
+                <a
+                  href={`https://wa.me/${whatsappDigits}?text=${waPrefill}`}
+                  target="_blank" rel="noopener noreferrer"
+                  style={{
+                    flex: '1 1 180px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                    background: '#25D366', color: '#fff', fontWeight: 700, fontSize: 14,
+                    padding: '12px 20px', borderRadius: 10, textDecoration: 'none',
+                  }}
+                >
+                  💬 WhatsApp
+                </a>
+              )}
             </div>
           )}
 

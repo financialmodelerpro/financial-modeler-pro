@@ -52,7 +52,33 @@ export async function POST(req: NextRequest) {
     // Record scored result in Apps Script (V8: website scores, Apps Script stores)
     const numScore = Number(score);
     const didPass = passed ?? numScore >= 70;
-    const attempt = attemptNo ?? 1;
+
+    // Compute attempt number server-side from Supabase — don't trust the
+    // client. The client derives attemptNo from /api/training/attempt-status
+    // which reads Apps Script; when Apps Script's counter is stale or not
+    // incrementing on fail, every submission arrives as attempt #1 and the
+    // counter never advances. Source of truth: training_assessment_results.
+    const cleanEmail = email.trim().toLowerCase();
+    let serverAttempt = 1;
+    try {
+      const sbRead = getServerClient();
+      const { data: existing } = await sbRead
+        .from('training_assessment_results')
+        .select('attempts')
+        .eq('email', cleanEmail)
+        .eq('tab_key', tabKey)
+        .maybeSingle();
+      const existingAttempts = Number(existing?.attempts ?? 0);
+      const clientAttempt    = Number(attemptNo ?? 0);
+      // Monotonic: never decrease. Take max(existing, client) + 1 so a stale
+      // client value doesn't overwrite a higher server count.
+      serverAttempt = Math.max(existingAttempts, clientAttempt) + 1;
+    } catch (readErr) {
+      console.warn('[submit-assessment] Supabase read failed, falling back to client attempt:', readErr);
+      serverAttempt = Number(attemptNo ?? 1);
+    }
+    const attempt = serverAttempt;
+
     const recordRes = await submitAssessmentToAppsScript({
       tabKey,
       regId,
@@ -76,11 +102,14 @@ export async function POST(req: NextRequest) {
 
     console.log('[submit-assessment] Recorded successfully:', { tabKey, email, score, passed, attemptNo });
 
-    // Write to Supabase (primary source for dashboard - instant reads)
+    // Write to Supabase (primary source for dashboard - instant reads).
+    // The `attempts` column records server-incremented attempt count — every
+    // submission (pass OR fail) bumps it so students can see all three of
+    // their attempts on the dashboard, not just the last passing one.
     try {
       const sb = getServerClient();
       await sb.from('training_assessment_results').upsert({
-        email: email.trim().toLowerCase(),
+        email: cleanEmail,
         reg_id: regId,
         tab_key: tabKey,
         course_id: tabKey.toUpperCase().startsWith('BVM') ? 'bvm' : '3sfm',
