@@ -568,7 +568,7 @@ function CardsEditor({ content, onChange }: { content: Record<string, unknown>; 
       </VF>
       {content.description !== undefined && (
         <VF label="Description" fieldKey="description" content={content} onChange={onChange}>
-          <textarea style={{ ...TA, minHeight: 40 }} value={(content.description as string) ?? ''} onChange={e => set('description', e.target.value)} />
+          <RichTextarea value={(content.description as string) ?? ''} onChange={v => set('description', v)} minHeight={60} />
         </VF>
       )}
       {isDynamic && (
@@ -583,7 +583,7 @@ function CardsEditor({ content, onChange }: { content: Record<string, unknown>; 
             <div style={{ flex: 1 }}><label style={LS}>Title</label><input style={IS} value={card.title} onChange={e => { const n = [...cards]; n[i] = { ...n[i], title: e.target.value }; setCards(n); }} /></div>
             <button onClick={() => setCards(cards.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11, alignSelf: 'end' }}>X</button>
           </div>
-          <label style={LS}>Description</label><textarea style={{ ...TA, minHeight: 40 }} value={card.description} onChange={e => { const n = [...cards]; n[i] = { ...n[i], description: e.target.value }; setCards(n); }} />
+          <label style={LS}>Description</label><RichTextarea value={card.description} onChange={v => { const n = [...cards]; n[i] = { ...n[i], description: v }; setCards(n); }} minHeight={60} />
         </div>
       ))}
       {!isDynamic && (
@@ -665,7 +665,7 @@ function TwoPlatformsEditor({ content, onChange }: { content: Record<string, unk
               </div>
             </div>
             <VF label="Description" fieldKey={`col${ci}_desc`} content={content} onChange={onChange}>
-              <textarea style={{ ...TA, minHeight: 50 }} value={col.description} onChange={e => updateCol(ci, { description: e.target.value })} />
+              <RichTextarea value={col.description} onChange={v => updateCol(ci, { description: v })} minHeight={60} />
             </VF>
             <VF label="Features" fieldKey={`col${ci}_features`} content={content} onChange={onChange}>
               <DragDropContext onDragEnd={handleFeatureDrag}>
@@ -861,7 +861,7 @@ function ListEditor({ content, onChange }: { content: Record<string, unknown>; o
         <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'end' }}>
           <div style={{ width: 50 }}><label style={LS}>Icon</label><input style={IS} value={item.icon} onChange={e => { const n = [...items]; n[i] = { ...n[i], icon: e.target.value }; setItems(n); }} /></div>
           <div style={{ flex: 1 }}><label style={LS}>Title</label><input style={IS} value={item.title} onChange={e => { const n = [...items]; n[i] = { ...n[i], title: e.target.value }; setItems(n); }} /></div>
-          <div style={{ flex: 2 }}><label style={LS}>Description</label><input style={IS} value={item.description} onChange={e => { const n = [...items]; n[i] = { ...n[i], description: e.target.value }; setItems(n); }} /></div>
+          <div style={{ flex: 2 }}><label style={LS}>Description</label><RichTextarea value={item.description} onChange={v => { const n = [...items]; n[i] = { ...n[i], description: v }; setItems(n); }} minHeight={50} /></div>
           <button onClick={() => setItems(items.filter((_, j) => j !== i))} style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>X</button>
         </div>
       ))}
@@ -890,7 +890,7 @@ function TestimonialsEditor({ content, onChange }: { content: Record<string, unk
             <button onClick={() => setItems(items.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11, alignSelf: 'end' }}>X</button>
           </div>
           <label style={LS}>Photo URL</label><input style={{ ...IS, marginBottom: 6 }} value={t.photo} onChange={e => { const n = [...items]; n[i] = { ...n[i], photo: e.target.value }; setItems(n); }} placeholder="https://..." />
-          <label style={LS}>Quote</label><textarea style={{ ...TA, minHeight: 50 }} value={t.quote} onChange={e => { const n = [...items]; n[i] = { ...n[i], quote: e.target.value }; setItems(n); }} />
+          <label style={LS}>Quote</label><RichTextarea value={t.quote} onChange={v => { const n = [...items]; n[i] = { ...n[i], quote: v }; setItems(n); }} minHeight={60} />
         </div>
       ))}
       <button onClick={() => setItems([...items, { photo: '', name: 'Name', role: 'Role', quote: 'Quote' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Testimonial</button>
@@ -921,7 +921,7 @@ function PricingTableEditor({ content, onChange }: { content: Record<string, unk
             </label>
             <button onClick={() => setTiers(tiers.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11 }}>X</button>
           </div>
-          <label style={LS}>Description</label><input style={{ ...IS, marginBottom: 6 }} value={tier.description} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], description: e.target.value }; setTiers(n); }} />
+          <label style={LS}>Description</label><div style={{ marginBottom: 6 }}><RichTextarea value={tier.description} onChange={v => { const n = [...tiers]; n[i] = { ...n[i], description: v }; setTiers(n); }} minHeight={50} /></div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
             <div><label style={LS}>CTA Text</label><input style={IS} value={tier.cta_text} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], cta_text: e.target.value }; setTiers(n); }} /></div>
             <div><label style={LS}>CTA URL</label><input style={IS} value={tier.cta_url} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], cta_url: e.target.value }; setTiers(n); }} /></div>
@@ -1008,7 +1008,7 @@ function TeamEditor({ content, onChange }: { content: Record<string, unknown>; o
             <button onClick={() => setMembers(members.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11 }}>X</button>
           </div>
           <label style={LS}>Photo URL</label><input style={{ ...IS, marginBottom: 6 }} value={m.photo} onChange={e => { const n = [...members]; n[i] = { ...n[i], photo: e.target.value }; setMembers(n); }} placeholder="https://..." />
-          <label style={LS}>Bio</label><textarea style={{ ...TA, minHeight: 40 }} value={m.bio} onChange={e => { const n = [...members]; n[i] = { ...n[i], bio: e.target.value }; setMembers(n); }} />
+          <label style={LS}>Bio</label><RichTextarea value={m.bio} onChange={v => { const n = [...members]; n[i] = { ...n[i], bio: v }; setMembers(n); }} minHeight={60} />
         </div>
       ))}
       <button onClick={() => setMembers([...members, { photo: '', name: 'Name', role: 'Role', bio: 'Bio' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Member</button>
@@ -1124,7 +1124,7 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
                     <div style={{ flex:1 }}><label style={{...LS,fontSize:10}}>Sector</label><input style={IS} value={p.sector} onChange={e=>{const n=[...projs];n[i]={...n[i],sector:e.target.value};setProjs(n);}}/></div>
                     <button onClick={()=>setProjs(projs.filter((_,j)=>j!==i))} style={{ padding:'4px 8px', borderRadius:4, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626', cursor:'pointer', fontSize:11, alignSelf:'end' }}>X</button>
                   </div>
-                  <label style={{...LS,fontSize:10}}>Description</label><textarea style={{...TA,minHeight:30}} value={p.description} onChange={e=>{const n=[...projs];n[i]={...n[i],description:e.target.value};setProjs(n);}}/>
+                  <label style={{...LS,fontSize:10}}>Description</label><RichTextarea value={p.description} onChange={v=>{const n=[...projs];n[i]={...n[i],description:v};setProjs(n);}} minHeight={50}/>
                   <label style={{...LS,fontSize:10,marginTop:4}}>Value</label><input style={IS} value={p.value} onChange={e=>{const n=[...projs];n[i]={...n[i],value:e.target.value};setProjs(n);}} placeholder="e.g. $50M"/>
                 </div>
               ))}
@@ -1181,7 +1181,7 @@ function ProcessStepsEditor({ content, onChange }: { content: Record<string, unk
         <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 8, alignItems: 'end', background: '#F9FAFB', borderRadius: 8, padding: 8, border: '1px solid #E5E7EB' }}>
           <div style={{ width: 50 }}><label style={LS}>Icon</label><input style={IS} value={step.icon} onChange={e => { const n = [...steps]; n[i] = { ...n[i], icon: e.target.value }; setSteps(n); }} /></div>
           <div style={{ flex: 1 }}><label style={LS}>Title</label><input style={IS} value={step.label} onChange={e => { const n = [...steps]; n[i] = { ...n[i], label: e.target.value }; setSteps(n); }} /></div>
-          <div style={{ flex: 2 }}><label style={LS}>Description</label><input style={IS} value={step.desc} onChange={e => { const n = [...steps]; n[i] = { ...n[i], desc: e.target.value }; setSteps(n); }} /></div>
+          <div style={{ flex: 2 }}><label style={LS}>Description</label><RichTextarea value={step.desc} onChange={v => { const n = [...steps]; n[i] = { ...n[i], desc: v }; setSteps(n); }} minHeight={50} /></div>
           <button onClick={() => setSteps(steps.filter((_, j) => j !== i))} style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>X</button>
         </div>
       ))}
@@ -1206,7 +1206,7 @@ function TimelineEventsEditor({ content, onChange }: { content: Record<string, u
         <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'end' }}>
           <div style={{ width: 90 }}><label style={LS}>Date</label><input style={IS} value={item.date} onChange={e => { const n = [...items]; n[i] = { ...n[i], date: e.target.value }; setItems(n); }} /></div>
           <div style={{ flex: 1 }}><label style={LS}>Title</label><input style={IS} value={item.title} onChange={e => { const n = [...items]; n[i] = { ...n[i], title: e.target.value }; setItems(n); }} /></div>
-          <div style={{ flex: 2 }}><label style={LS}>Description</label><input style={IS} value={item.description} onChange={e => { const n = [...items]; n[i] = { ...n[i], description: e.target.value }; setItems(n); }} /></div>
+          <div style={{ flex: 2 }}><label style={LS}>Description</label><RichTextarea value={item.description} onChange={v => { const n = [...items]; n[i] = { ...n[i], description: v }; setItems(n); }} minHeight={50} /></div>
           <button onClick={() => setItems(items.filter((_, j) => j !== i))} style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>X</button>
         </div>
       ))}
@@ -1276,66 +1276,6 @@ const EDITORS: Record<string, React.ComponentType<{ content: Record<string, unkn
   banner: BannerEditor, spacer: SpacerEditor, embed: EmbedEditor, team: SmartTeamEditor,
   timeline: TimelineEditor, logo_grid: LogoGridEditor, countdown: CountdownEditor,
 };
-
-// ── Universal paragraphs + alignment editor (shown for every section type) ──
-
-const ALIGN_BTNS: { value: string; label: string }[] = [
-  { value: 'left', label: 'L' },
-  { value: 'center', label: 'C' },
-  { value: 'right', label: 'R' },
-  { value: 'justify', label: 'J' },
-];
-
-function AlignPicker({ value, onChange: onPick }: { value: string; onChange: (v: string) => void }) {
-  return (
-    <div style={{ display: 'inline-flex', border: '1px solid #D1D5DB', borderRadius: 4, overflow: 'hidden', flexShrink: 0 }}>
-      {ALIGN_BTNS.map(a => (
-        <button key={a.value} type="button" onClick={() => onPick(a.value)}
-          style={{ padding: '2px 6px', fontSize: 10, fontWeight: 700, border: 'none', cursor: 'pointer', background: value === a.value ? '#1B4F8A' : '#fff', color: value === a.value ? '#fff' : '#9CA3AF' }}>
-          {a.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function ParagraphsEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
-  // Normalize: support both string[] and {text,align}[] formats
-  const raw = (content.paragraphs ?? []) as (string | { text: string; align?: string })[];
-  const paragraphs = raw.map(p => typeof p === 'string' ? { text: p, align: 'left' } : { text: p.text ?? '', align: p.align ?? 'left' });
-  const setParagraphs = (next: typeof paragraphs) => onChange({ ...content, paragraphs: next });
-
-  if (paragraphs.length === 0) {
-    return (
-      <div style={{ marginTop: 14 }}>
-        <button onClick={() => setParagraphs([{ text: '', align: 'left' }])}
-          style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #FDE68A', background: '#FEFCE8', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#92400E' }}>
-          + Add Paragraph
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div style={{ marginTop: 14, padding: 10, background: '#FEFCE8', borderRadius: 8, border: '1px solid #FDE68A' }}>
-      <div style={{ fontSize: 10, fontWeight: 800, color: '#92400E', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Additional Paragraphs</div>
-      {paragraphs.map((para, i) => (
-        <div key={i} style={{ display: 'flex', gap: 6, marginBottom: 6, alignItems: 'start' }}>
-          <span style={{ color: '#9CA3AF', fontSize: 11, flexShrink: 0, marginTop: 8 }}>{i + 1}.</span>
-          <div style={{ flex: 1 }}><RichTextarea value={para.text} onChange={v => { const n = [...paragraphs]; n[i] = { ...n[i], text: v }; setParagraphs(n); }} minHeight={50} /></div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, flexShrink: 0, marginTop: 4 }}>
-            <AlignPicker value={para.align} onChange={v => { const n = [...paragraphs]; n[i] = { ...n[i], align: v }; setParagraphs(n); }} />
-            <button onClick={() => setParagraphs(paragraphs.filter((_, j) => j !== i))} style={{ padding: '3px 6px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 10 }}>X</button>
-          </div>
-        </div>
-      ))}
-      <button onClick={() => setParagraphs([...paragraphs, { text: '', align: 'left' }])}
-        style={{ padding: '5px 12px', borderRadius: 6, border: '1px solid #FDE68A', background: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600, color: '#92400E' }}>
-        + Add Paragraph
-      </button>
-    </div>
-  );
-}
 
 // ── Style editor (shared across all section types) ───────────────────────────
 
@@ -1691,10 +1631,6 @@ export default function PageBuilderEditorPage() {
                   </button>
                 </div>
                 <ActiveEditor
-                  content={activeSection.content}
-                  onChange={c => updateSection(activeSection.id, { content: c })}
-                />
-                <ParagraphsEditor
                   content={activeSection.content}
                   onChange={c => updateSection(activeSection.id, { content: c })}
                 />
