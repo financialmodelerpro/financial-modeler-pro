@@ -131,33 +131,44 @@ export default async function BookAMeetingPage() {
 
           {/* Direct contact options */}
           {(email || whatsappDigits) && (
-            <div style={{ marginTop: 20, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-              {email && (
-                <a
-                  href={`mailto:${email}?subject=${encodeURIComponent('Consultation Inquiry')}`}
-                  style={{
-                    flex: '1 1 180px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                    background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14,
-                    padding: '12px 20px', borderRadius: 10, textDecoration: 'none',
-                  }}
-                >
-                  ✉️ Send Email
-                </a>
-              )}
-              {whatsappDigits && (
-                <a
-                  href={`https://wa.me/${whatsappDigits}?text=${waPrefill}`}
-                  target="_blank" rel="noopener noreferrer"
-                  style={{
-                    flex: '1 1 180px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                    background: '#25D366', color: '#fff', fontWeight: 700, fontSize: 14,
-                    padding: '12px 20px', borderRadius: 10, textDecoration: 'none',
-                  }}
-                >
-                  💬 WhatsApp
-                </a>
-              )}
-            </div>
+            <>
+              <div style={{ marginTop: 20, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {email && (
+                  <a
+                    href={`mailto:${email}?subject=${encodeURIComponent('Consultation Inquiry')}`}
+                    style={{
+                      flex: '1 1 180px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                      background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14,
+                      padding: '12px 20px', borderRadius: 10, textDecoration: 'none',
+                    }}
+                  >
+                    ✉️ Send Email
+                  </a>
+                )}
+                {whatsappDigits && (
+                  <a
+                    href={`https://wa.me/${whatsappDigits}?text=${waPrefill}`}
+                    target="_blank" rel="noopener noreferrer"
+                    style={{
+                      flex: '1 1 180px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                      background: '#25D366', color: '#fff', fontWeight: 700, fontSize: 14,
+                      padding: '12px 20px', borderRadius: 10, textDecoration: 'none',
+                    }}
+                  >
+                    💬 WhatsApp
+                  </a>
+                )}
+              </div>
+              <div style={{ marginTop: 12, textAlign: 'left', fontSize: 12, color: 'rgba(255,255,255,0.4)', lineHeight: 1.8 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Direct contact</div>
+                {email && (
+                  <div>📧 <a href={`mailto:${email}`} style={{ color: 'rgba(255,255,255,0.65)', textDecoration: 'none' }}>{email}</a></div>
+                )}
+                {whatsappDigits && (
+                  <div>💬 <a href={`https://wa.me/${whatsappDigits}`} target="_blank" rel="noopener noreferrer" style={{ color: 'rgba(255,255,255,0.65)', textDecoration: 'none' }}>{whatsappNumber}</a></div>
+                )}
+              </div>
+            </>
           )}
 
           <div style={{ marginTop: 28 }}>

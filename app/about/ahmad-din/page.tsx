@@ -254,6 +254,55 @@ export default async function FounderPage() {
         </section>
       )}
 
+      {/* Get in Touch — readable contact details at bottom of page */}
+      {(email || whatsappDigits || linkedin || bookingUrl) && (
+        <section style={{ padding: '64px 40px 80px', background: 'rgba(0,0,0,0.25)', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
+          <div style={{ maxWidth: 800, margin: '0 auto' }}>
+            <h2 style={{ fontSize: 26, fontWeight: 800, color: '#fff', marginBottom: 28, textAlign: 'center' }}>Get in Touch</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {email && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10 }}>
+                  <span style={{ fontSize: 24, flexShrink: 0 }}>📧</span>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase', marginBottom: 2 }}>Email</div>
+                    <a href={`mailto:${email}`} style={{ fontSize: 16, color: '#93C5FD', fontWeight: 500, textDecoration: 'none', wordBreak: 'break-all' }}>{email}</a>
+                  </div>
+                </div>
+              )}
+              {whatsappDigits && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10 }}>
+                  <span style={{ fontSize: 24, flexShrink: 0 }}>💬</span>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase', marginBottom: 2 }}>WhatsApp</div>
+                    <a href={`https://wa.me/${whatsappDigits}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 16, color: '#4ADE80', fontWeight: 500, textDecoration: 'none' }}>{whatsappNumber}</a>
+                  </div>
+                </div>
+              )}
+              {linkedin && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10 }}>
+                  <span style={{ fontSize: 24, flexShrink: 0 }}>🔗</span>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase', marginBottom: 2 }}>LinkedIn</div>
+                    <a href={linkedin} target="_blank" rel="noopener noreferrer" style={{ fontSize: 16, color: '#93C5FD', fontWeight: 500, textDecoration: 'none', wordBreak: 'break-all' }}>
+                      {linkedin.replace(/^https?:\/\/(?:www\.)?/, '').replace(/\/$/, '')}
+                    </a>
+                  </div>
+                </div>
+              )}
+              {bookingUrl && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10 }}>
+                  <span style={{ fontSize: 24, flexShrink: 0 }}>📅</span>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.45)', fontWeight: 600, letterSpacing: '0.03em', textTransform: 'uppercase', marginBottom: 2 }}>Book a Meeting</div>
+                    <Link href="/book-a-meeting" style={{ fontSize: 16, color: '#1ABC9C', fontWeight: 500, textDecoration: 'none' }}>Schedule a consultation →</Link>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
       <SharedFooter
         company="Financial Modeler Pro is a product of PaceMakers Business Consultants"
         founder="Ahmad Din - CEO & Founder"

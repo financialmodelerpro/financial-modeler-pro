@@ -58,6 +58,8 @@ export async function POST(req: NextRequest) {
     // which reads Apps Script; when Apps Script's counter is stale or not
     // incrementing on fail, every submission arrives as attempt #1 and the
     // counter never advances. Source of truth: training_assessment_results.
+    //
+    // Simple increment: existing + 1. First attempt (no row) → 1.
     const cleanEmail = email.trim().toLowerCase();
     let serverAttempt = 1;
     try {
@@ -69,10 +71,7 @@ export async function POST(req: NextRequest) {
         .eq('tab_key', tabKey)
         .maybeSingle();
       const existingAttempts = Number(existing?.attempts ?? 0);
-      const clientAttempt    = Number(attemptNo ?? 0);
-      // Monotonic: never decrease. Take max(existing, client) + 1 so a stale
-      // client value doesn't overwrite a higher server count.
-      serverAttempt = Math.max(existingAttempts, clientAttempt) + 1;
+      serverAttempt = existingAttempts + 1;
     } catch (readErr) {
       console.warn('[submit-assessment] Supabase read failed, falling back to client attempt:', readErr);
       serverAttempt = Number(attemptNo ?? 1);
