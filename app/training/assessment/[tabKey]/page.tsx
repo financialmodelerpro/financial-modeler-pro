@@ -11,6 +11,7 @@ import type {
   QuestionResult,
 } from '@/src/lib/training/sheets';
 import { COURSES } from '@/src/config/courses';
+import { shareTo, FMP_TRAINING_URL } from '@/src/lib/training/share';
 
 // Resolve a human-readable session name from a tabKey (e.g. "3SFM_S1" → "Session 1: Introduction…")
 function getSessionTitleFromTabKey(tabKey: string): string {
@@ -1030,7 +1031,8 @@ export default function AssessmentPage() {
           const sess = getTrainingSession();
           const regIdVal = sess?.registrationId || '';
           const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionName)}&score=${result.score}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName)}&regId=${encodeURIComponent(regIdVal)}`;
-          const shareText = `🏆 I just passed "${sessionName}" with ${result.score}% in the ${courseName} program at Financial Modeler Pro!\n\nBuilding institutional-grade financial models - completely free certification program.\n\n👉 https://learn.financialmodelerpro.com\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
+          const shareText = `🏆 I just passed "${sessionName}" with ${result.score}% in the ${courseName} program at Financial Modeler Pro!\n\nBuilding institutional-grade financial models - completely free certification program.`;
+          const onShared = () => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2500); };
           return (
             <div style={{ maxWidth: 780, margin: '0 auto 32px', padding: '0 24px' }}>
               <div style={{ background: WHITE, borderRadius: 12, border: '1px solid #E5E7EB', padding: '24px 28px' }}>
@@ -1056,13 +1058,13 @@ export default function AssessmentPage() {
                 <div style={{ fontSize: 12, color: '#6B7280', background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8, padding: '10px 14px', marginBottom: 12, lineHeight: 1.5 }}>
                   💡 Click <strong>Share on LinkedIn</strong> - your text is auto-copied. Just <strong>paste it (Ctrl+V)</strong> in LinkedIn and attach the downloaded card.
                 </div>
-                {/* Buttons */}
+                {/* Buttons (universal share utility handles auto-copy + open) */}
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => { navigator.clipboard.writeText(shareText).catch(() => {}); window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank'); }}
+                  <button onClick={() => shareTo('linkedin', { text: shareText, url: FMP_TRAINING_URL, onCopied: onShared })}
                     style={{ flex: 1, padding: '10px 14px', background: '#0077b5', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                     💼 Share on LinkedIn
                   </button>
-                  <button onClick={() => { navigator.clipboard.writeText(shareText).then(() => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2500); }).catch(() => {}); }}
+                  <button onClick={() => shareTo('copy', { text: shareText, url: FMP_TRAINING_URL, onCopied: onShared })}
                     style={{ flex: 1, padding: '10px 14px', background: linkCopied ? '#F0FDF4' : '#F3F4F6', color: linkCopied ? '#16A34A' : '#374151', border: `1px solid ${linkCopied ? '#86EFAC' : '#E5E7EB'}`, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                     {linkCopied ? '✓ Copied!' : '🔗 Copy Text'}
                   </button>

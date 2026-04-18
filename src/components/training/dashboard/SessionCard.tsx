@@ -5,6 +5,8 @@ import Link from 'next/link';
 import type { SessionProgress } from './types';
 import { StatusBadge } from './StatusBadge';
 import { FilePreviewModal } from './FilePreviewModal';
+import { ShareModal as UniversalShareModal } from '@/src/components/training/share/ShareModal';
+import { FMP_TRAINING_URL } from '@/src/lib/training/share';
 
 export interface SessionCardProps {
   sessionTitle: string;
@@ -60,7 +62,6 @@ export function SessionCard({
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showCardModal, setShowCardModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
-  const [textCopied, setTextCopied] = useState(false);
 
   // Sync incoming noteContent (loaded async)
   useEffect(() => { setNoteText(noteContent); }, [noteContent]);
@@ -254,49 +255,22 @@ export function SessionCard({
         />
       )}
 
-      {/* Share achievement modal */}
+      {/* Share achievement modal — universal ShareModal */}
       {showShareModal && prog?.passed && (() => {
         const passDate = prog.completedAt
           ? new Date(prog.completedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
           : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
         const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName || '')}&regId=${encodeURIComponent(regId)}`;
-        const shareText = `🏆 I just passed "${sessionTitle}" with ${prog.score}% in the ${courseName || 'Financial Modeling'} program at Financial Modeler Pro!\n\nBuilding institutional-grade financial models - completely free certification program.\n\n👉 https://learn.financialmodelerpro.com\n\n#FinancialModeling #CorporateFinance #FinancialModelerPro`;
+        const shareText = `🏆 I just passed "${sessionTitle}" with ${prog.score}% in the ${courseName || 'Financial Modeling'} program at Financial Modeler Pro!\n\nBuilding institutional-grade financial models - completely free certification program.`;
         return (
-          <div onClick={() => { setShowShareModal(false); setTextCopied(false); }}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-            <div onClick={e => e.stopPropagation()}
-              style={{ background: '#fff', borderRadius: 12, padding: 24, width: 520, maxWidth: 'calc(100vw - 32px)', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-                <div style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A' }}>Share Your Achievement</div>
-                <button onClick={() => { setShowShareModal(false); setTextCopied(false); }} style={{ background: 'none', border: 'none', fontSize: 18, color: '#6B7280', cursor: 'pointer', lineHeight: 1 }}>&#10005;</button>
-              </div>
-              {/* Achievement card preview */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={cardImgUrl} alt="Achievement Card" style={{ width: '100%', borderRadius: 8, border: '1px solid #E5E7EB', marginBottom: 12 }} />
-              {/* Share text */}
-              <textarea readOnly value={shareText} rows={6}
-                style={{ width: '100%', padding: '10px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 12, fontFamily: 'Inter,sans-serif', resize: 'none', lineHeight: 1.6, boxSizing: 'border-box', marginBottom: 12, color: '#374151', background: '#F9FAFB' }} />
-              {/* Instruction */}
-              <div style={{ fontSize: 12, color: '#6B7280', background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8, padding: '10px 14px', marginBottom: 12, lineHeight: 1.5 }}>
-                💡 Click <strong>Share on LinkedIn</strong> below - your text is auto-copied. Just <strong>paste it (Ctrl+V)</strong> in LinkedIn and attach the downloaded card image.
-              </div>
-              {/* Action buttons */}
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <a href={cardImgUrl} download="FMP-Achievement.png"
-                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 14px', background: '#1F3864', color: '#fff', borderRadius: 8, fontSize: 13, fontWeight: 600, textDecoration: 'none', minWidth: 140 }}>
-                  ⬇️ Download Card
-                </a>
-                <button onClick={() => { navigator.clipboard.writeText(shareText).catch(() => {}); window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank'); }}
-                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 14px', background: '#0077b5', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', minWidth: 140 }}>
-                  💼 Share on LinkedIn
-                </button>
-                <button onClick={() => { navigator.clipboard.writeText(shareText).then(() => { setTextCopied(true); setTimeout(() => setTextCopied(false), 2500); }).catch(() => {}); }}
-                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '10px 14px', background: textCopied ? '#F0FDF4' : '#F3F4F6', color: textCopied ? '#16A34A' : '#374151', border: `1px solid ${textCopied ? '#86EFAC' : '#E5E7EB'}`, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', minWidth: 140 }}>
-                  {textCopied ? '✓ Copied!' : '🔗 Copy Text'}
-                </button>
-              </div>
-            </div>
-          </div>
+          <UniversalShareModal
+            isOpen
+            onClose={() => setShowShareModal(false)}
+            title="Share Your Achievement"
+            text={shareText}
+            url={FMP_TRAINING_URL}
+            cardImageUrl={cardImgUrl}
+          />
         );
       })()}
 
