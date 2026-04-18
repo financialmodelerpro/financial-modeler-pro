@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { getAllPageSections } from '@/src/lib/shared/cms';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { CmsField } from '@/src/components/cms/CmsField';
+import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
 
 export const revalidate = 0;
 
@@ -93,10 +93,10 @@ export default async function FounderPage() {
               style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.55)', lineHeight: 1.75, marginBottom: 24 }}
             />
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-              {linkedin && (
+              {cmsVisible(fc ?? {}, 'cta_secondary') && linkedin && (
                 <a href={linkedin} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 600, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}>LinkedIn ↗</a>
               )}
-              {bookingUrl && (
+              {cmsVisible(fc ?? {}, 'booking') && bookingUrl && (
                 <Link href="/book-a-meeting" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#1ABC9C', color: '#fff', fontSize: 13, fontWeight: 700, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}>📅 Book a Meeting</Link>
               )}
             </div>
@@ -237,13 +237,17 @@ export default async function FounderPage() {
         </section>
       )}
 
-      {/* Get in Touch — readable contact details at bottom of page */}
-      {(email || whatsappDigits || linkedin || bookingUrl) && (
+      {/* Get in Touch — readable contact details at bottom of page.
+          Each row honours the admin visibility toggle AND the field having a value. */}
+      {((cmsVisible(fc ?? {}, 'email') && email)
+       || (cmsVisible(fc ?? {}, 'whatsapp_number') && whatsappDigits)
+       || (cmsVisible(fc ?? {}, 'cta_secondary') && linkedin)
+       || (cmsVisible(fc ?? {}, 'booking') && bookingUrl)) && (
         <section style={{ padding: '64px 40px 80px', background: 'rgba(0,0,0,0.25)', borderTop: '1px solid rgba(255,255,255,0.07)' }}>
           <div style={{ maxWidth: 800, margin: '0 auto' }}>
             <h2 style={{ fontSize: 26, fontWeight: 800, color: '#fff', marginBottom: 28, textAlign: 'center' }}>Get in Touch</h2>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-              {email && (
+              {cmsVisible(fc ?? {}, 'email') && email && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10 }}>
                   <span style={{ fontSize: 24, flexShrink: 0 }}>📧</span>
                   <div style={{ minWidth: 0, flex: 1 }}>
@@ -252,7 +256,7 @@ export default async function FounderPage() {
                   </div>
                 </div>
               )}
-              {whatsappDigits && (
+              {cmsVisible(fc ?? {}, 'whatsapp_number') && whatsappDigits && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10 }}>
                   <span style={{ fontSize: 24, flexShrink: 0 }}>💬</span>
                   <div style={{ minWidth: 0, flex: 1 }}>
@@ -261,7 +265,7 @@ export default async function FounderPage() {
                   </div>
                 </div>
               )}
-              {linkedin && (
+              {cmsVisible(fc ?? {}, 'cta_secondary') && linkedin && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10 }}>
                   <span style={{ fontSize: 24, flexShrink: 0 }}>🔗</span>
                   <div style={{ minWidth: 0, flex: 1 }}>
@@ -272,7 +276,7 @@ export default async function FounderPage() {
                   </div>
                 </div>
               )}
-              {bookingUrl && (
+              {cmsVisible(fc ?? {}, 'booking') && bookingUrl && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 10 }}>
                   <span style={{ fontSize: 24, flexShrink: 0 }}>📅</span>
                   <div style={{ minWidth: 0, flex: 1 }}>

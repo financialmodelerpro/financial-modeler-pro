@@ -576,11 +576,13 @@ export default async function LandingPage() {
                   <Link href="/admin/page-builder/home" target="_blank" style={{ fontSize:11, color:'#93C5FD', textDecoration:'none', display:'block', marginBottom:20 }}>✏️ Edit founder profile in Admin →</Link>
                 )}
                 <div style={{ display:'flex', gap:14, flexWrap:'wrap' }}>
-                  <Link href={fCtaUrl} style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1B4F8A', border:'1px solid #1B4F8A', color:'#fff', fontSize:13, fontWeight:700, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>{fCtaPri}</Link>
-                  {fLinkedIn && (
+                  {cmsVisible(fc ?? {}, 'cta_primary') && (
+                    <Link href={fCtaUrl} style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1B4F8A', border:'1px solid #1B4F8A', color:'#fff', fontSize:13, fontWeight:700, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>{fCtaPri}</Link>
+                  )}
+                  {cmsVisible(fc ?? {}, 'cta_secondary') && fLinkedIn && (
                     <a href={fLinkedIn} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'transparent', border:'1px solid rgba(255,255,255,0.25)', color:'rgba(255,255,255,0.8)', fontSize:13, fontWeight:600, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>{fCtaSec}</a>
                   )}
-                  {fBookUrl && (
+                  {cmsVisible(fc ?? {}, 'booking') && fBookUrl && (
                     <Link href="/book-a-meeting" style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1ABC9C', color:'#fff', fontSize:13, fontWeight:700, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>📅 {fBookTxt}</Link>
                   )}
                 </div>

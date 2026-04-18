@@ -129,11 +129,11 @@ export default async function BookAMeetingPage() {
             </div>
           )}
 
-          {/* Direct contact options */}
-          {(email || whatsappDigits) && (
+          {/* Direct contact options — each gated on admin visibility + value. */}
+          {((cmsVisible(fc ?? {}, 'email') && email) || (cmsVisible(fc ?? {}, 'whatsapp_number') && whatsappDigits)) && (
             <>
               <div style={{ marginTop: 20, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                {email && (
+                {cmsVisible(fc ?? {}, 'email') && email && (
                   <a
                     href={`mailto:${email}?subject=${encodeURIComponent('Consultation Inquiry')}`}
                     style={{
@@ -145,7 +145,7 @@ export default async function BookAMeetingPage() {
                     ✉️ Send Email
                   </a>
                 )}
-                {whatsappDigits && (
+                {cmsVisible(fc ?? {}, 'whatsapp_number') && whatsappDigits && (
                   <a
                     href={`https://wa.me/${whatsappDigits}?text=${waPrefill}`}
                     target="_blank" rel="noopener noreferrer"
@@ -161,10 +161,10 @@ export default async function BookAMeetingPage() {
               </div>
               <div style={{ marginTop: 12, textAlign: 'left', fontSize: 12, color: 'rgba(255,255,255,0.4)', lineHeight: 1.8 }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Direct contact</div>
-                {email && (
+                {cmsVisible(fc ?? {}, 'email') && email && (
                   <div>📧 <a href={`mailto:${email}`} style={{ color: 'rgba(255,255,255,0.65)', textDecoration: 'none' }}>{email}</a></div>
                 )}
-                {whatsappDigits && (
+                {cmsVisible(fc ?? {}, 'whatsapp_number') && whatsappDigits && (
                   <div>💬 <a href={`https://wa.me/${whatsappDigits}`} target="_blank" rel="noopener noreferrer" style={{ color: 'rgba(255,255,255,0.65)', textDecoration: 'none' }}>{whatsappNumber}</a></div>
                 )}
               </div>
