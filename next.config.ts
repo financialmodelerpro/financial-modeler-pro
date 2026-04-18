@@ -114,6 +114,8 @@ const nextConfig: NextConfig = {
       // Existing slug redirects
       { source: '/modeling-hub',        destination: '/modeling',        permanent: true },
       { source: '/modeling-hub/:path*', destination: '/modeling/:path*', permanent: true },
+      // /about page deleted — founder profile is the single source
+      { source: '/about',               destination: '/about/ahmad-din', permanent: true },
 
       // Subdomains → main domain for main-site paths
       ...learnToMain,

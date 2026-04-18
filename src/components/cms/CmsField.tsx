@@ -1,10 +1,36 @@
 /**
- * Universal CMS field renderer.
+ * UNIVERSAL CMS TEXT RENDERER
+ * ============================================================================
+ * This is the ONLY way CMS text content should reach the frontend.
  *
- * Handles visibility, alignment, width, and HTML detection uniformly for every
- * section renderer. Replaces hand-rolled dangerouslySetInnerHTML + paragraph
- * splitting across 20+ section components so admin VF controls (alignment,
- * width %, visibility) actually take effect on the frontend.
+ * DO NOT:
+ *   - Use {content.field} or {h?.field} directly in JSX for CMS text fields
+ *   - Call dangerouslySetInnerHTML manually (except for truly intentional raw
+ *     HTML passthrough like EmbedSection iframes or SVG icon fields)
+ *   - Implement isHtml() detection yourself
+ *   - Hand-roll paragraph splitting
+ *   - Hand-roll visibility/alignment/width gating
+ *
+ * ALWAYS:
+ *   - Use <CmsField content={...} field="..." /> for any CMS text field
+ *   - Use cmsVisible(content, 'field') for visibility-only gating around
+ *     heavily-styled chips/badges/headings where the wrapper markup matters
+ *
+ * This component handles:
+ *   - Visibility ({field}_visible) — hide/show
+ *   - Alignment ({field}_align) — left/center/right/justify
+ *   - Width ({field}_width) — maxWidth percentage
+ *   - HTML detection + safe rendering via .fmp-rich-text class
+ *   - Plain text paragraph splitting on blank lines
+ *   - Single-line `<br />` preservation
+ *
+ * Any future CMS content additions MUST use this component.
+ * Breaking this rule causes: raw HTML tags showing as literal text, broken
+ * admin visibility toggles, ghost alignment controls, paragraph spacing
+ * bugs. When in doubt, use <CmsField>.
+ *
+ * See also: src/components/cms/sections/*.tsx for examples. Every section
+ * renderer passes its section content to CmsField for every text field.
  */
 
 import React from 'react';

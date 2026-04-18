@@ -7,6 +7,7 @@ import { getCmsContent, cms, getAllPageSections } from '@/src/lib/shared/cms';
 import { ContactForm } from './ContactForm';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
+import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
 
 export const revalidate = 0;
 
@@ -154,9 +155,18 @@ export default async function ContactPage() {
 
       <section style={{ background: 'linear-gradient(180deg,#0D2E5A 0%,#0A2448 100%)', padding: '64px 40px 56px', textAlign: 'center', color: '#fff' }}>
         <div style={{ maxWidth: 640, margin: '0 auto' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 12 }}>{heroBadge}</div>
-          <h1 style={{ fontSize: 'clamp(28px,4vw,44px)', fontWeight: 800, color: '#fff', marginBottom: 14, lineHeight: 1.15 }}>{heroHead}</h1>
-          <p style={{ fontSize: 15, color: 'rgba(255,255,255,0.55)', lineHeight: 1.7, maxWidth: 480, margin: '0 auto' }}>{heroSub}</p>
+          {cmsVisible(hc ?? {}, 'badge') && (
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 12 }}>{heroBadge}</div>
+          )}
+          {cmsVisible(hc ?? {}, 'headline') && (
+            <h1 style={{ fontSize: 'clamp(28px,4vw,44px)', fontWeight: 800, color: '#fff', marginBottom: 14, lineHeight: 1.15 }}>{heroHead}</h1>
+          )}
+          <CmsField
+            content={hc ?? { subtitle: heroSub }}
+            field="subtitle"
+            as="p"
+            style={{ fontSize: 15, color: 'rgba(255,255,255,0.55)', lineHeight: 1.7, maxWidth: 480, margin: '0 auto' }}
+          />
         </div>
       </section>
 

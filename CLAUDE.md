@@ -233,6 +233,19 @@ npm run verify       # type-check + lint + build
 
 ## Key Architectural Notes
 
+### CMS Content Rendering — Rules
+
+**All CMS text content MUST be rendered via `<CmsField>` (`src/components/cms/CmsField.tsx`).**
+
+- Never use `{content.field}` directly in JSX for a CMS text field.
+- Never call `dangerouslySetInnerHTML` manually (except intentional raw passthrough like EmbedSection iframes or SVG `cols[].icon`).
+- Never hand-roll `isHtml()` detection or `.split(/\n\n/)` paragraph splitting. CmsField does all of it.
+- Use `cmsVisible(content, 'field')` when you need only a visibility gate around a heavily-styled wrapper (e.g. pill badges, h1 containers).
+
+**CmsField handles:** visibility (`{field}_visible`), alignment (`{field}_align`), width (`{field}_width`), HTML-vs-plain detection, `.fmp-rich-text` styling, paragraph splitting.
+
+Adding a new CMS section or page → every text field uses `<CmsField>`. No exceptions. Breaking this rule reintroduces the raw-tags / ghost-UI bugs the universal renderer was built to eliminate.
+
 ### CMS Option B Pages
 All three marketing pages use **Option B**: each section fetched from `page_sections` via `getAllPageSections(slug)` and fed into custom hardcoded JSX (NOT SectionRenderer). `getAllPageSections()` returns ALL sections including `visible=false`. Pattern: `section.visible === false ? null : section ? <CMS render> : <hardcoded fallback>`. All pages use `revalidate = 0` (no ISR caching).
 

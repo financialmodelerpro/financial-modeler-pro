@@ -220,7 +220,7 @@ export default async function LandingPage() {
     { id:'2', label:'Modeling Hub',     href:'/modeling', visible:true, display_order:2, can_toggle:true },
     { id:'3', label:'Training Hub', href:'/training', visible:true, display_order:3, can_toggle:true },
     { id:'4', label:'Articles',         href:'/articles', visible:true, display_order:4, can_toggle:true },
-    { id:'5', label:'About',            href:'/about',    visible:true, display_order:5, can_toggle:true },
+    { id:'5', label:'About',            href:'/about/ahmad-din', visible:true, display_order:5, can_toggle:true },
     { id:'6', label:'Pricing',          href:'/pricing',  visible:true, display_order:6, can_toggle:true },
   ];
   const navPages = sitePages.length > 0 ? sitePages : fallbackPages;

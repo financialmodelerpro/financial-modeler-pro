@@ -75,7 +75,7 @@ export function SharedFooter({
                 Company
               </div>
               {([
-                ['About Us',   '/about'],
+                ['About Us',   '/about/ahmad-din'],
                 ['Founder',    '/about/ahmad-din'],
                 ['Pricing',    '/pricing'],
               ] as [string, string][]).map(([label, href]) => (
