@@ -11,7 +11,7 @@ import { FounderExpand } from './FounderExpand';
 import {
   getCmsContent, cms,
   getPublishedArticles,
-  getFounderProfile, getSitePages,
+  getSitePages,
   getTestimonialsForPage,
   getSectionStyles,
   getAllPageSections,
@@ -61,11 +61,11 @@ async function getPublicPlanNames(): Promise<string[]> {
 }
 
 export default async function LandingPage() {
-  const [content, articles, testimonials, founder, session, sitePages, planNames, homePageSections] = await Promise.all([
+  const [content, articles, testimonials, session, sitePages, planNames, homePageSections] = await Promise.all([
     getCmsContent(),
     getPublishedArticles(3),
     getTestimonialsForPage('landing'),
-    getFounderProfile(), getServerSession(), getSitePages(),
+    getServerSession(), getSitePages(),
     getPublicPlanNames(),
     getAllPageSections('home'),
   ]);
@@ -78,20 +78,13 @@ export default async function LandingPage() {
 
   const isAdmin = (session?.user as { role?: string } | undefined)?.role === 'admin';
 
-  // ── Founder ───────────────────────────────────────────────────────────────
-  const founderName     = cms(founder, 'bio', 'name',         'Ahmad Din');
-  const founderShortBio = cms(founder, 'bio', 'short_bio',    'Corporate Finance and Transaction Advisory specialist with deep expertise in financial modeling across real estate, business valuation, and corporate finance.');
-  const founderLinkedIn = cms(founder, 'bio', 'linkedin_url', '');
-  const _founderPhotoRaw = cms(founder, 'bio', 'photo_url', '');
-  // Normalise: FileReader.readAsDataURL() always returns a full data URI.
-  // Guard against raw base64 strings (no prefix) that may have been stored directly.
-  const founderPhotoUrl = _founderPhotoRaw.startsWith('data:') || _founderPhotoRaw.startsWith('http')
-    ? _founderPhotoRaw
-    : _founderPhotoRaw
-      ? `data:image/jpeg;base64,${_founderPhotoRaw}`
-      : '';
+  // ── Founder fallback constants (used only when page_sections.team is absent) ──
+  const founderName     = 'Ahmad Din';
+  const founderShortBio = 'Corporate Finance and Transaction Advisory specialist with deep expertise in financial modeling across real estate, business valuation, and corporate finance.';
+  const founderLinkedIn = '';
+  const founderPhotoUrl = '';
 
-  // ── Founder (CMS page_sections → founder_profile → hardcoded fallback) ──
+  // ── Founder (CMS page_sections only — single source of truth) ───────────
   const cmsFounderRaw = homePageSections.find(s => s.section_type === 'team');
   const founderHidden = cmsFounderRaw?.visible === false;
   const cmsFounder = cmsFounderRaw?.visible !== false ? cmsFounderRaw : undefined;
@@ -580,7 +573,7 @@ export default async function LandingPage() {
                   ))}
                 </div>
                 {isAdmin && (
-                  <Link href="/admin/founder" target="_blank" style={{ fontSize:11, color:'#93C5FD', textDecoration:'none', display:'block', marginBottom:20 }}>✏️ Edit founder profile in Admin →</Link>
+                  <Link href="/admin/page-builder/home" target="_blank" style={{ fontSize:11, color:'#93C5FD', textDecoration:'none', display:'block', marginBottom:20 }}>✏️ Edit founder profile in Admin →</Link>
                 )}
                 <div style={{ display:'flex', gap:14, flexWrap:'wrap' }}>
                   <Link href={fCtaUrl} style={{ display:'inline-flex', alignItems:'center', gap:6, background:'#1B4F8A', border:'1px solid #1B4F8A', color:'#fff', fontSize:13, fontWeight:700, padding:'9px 20px', borderRadius:7, textDecoration:'none' }}>{fCtaPri}</Link>

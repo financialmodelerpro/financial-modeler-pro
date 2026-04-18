@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
-import { getAllPageSections, getFounderProfile, cms } from '@/src/lib/shared/cms';
+import { getAllPageSections } from '@/src/lib/shared/cms';
 import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
 
 // Per-field width + alignment style from admin VF keys.
@@ -28,18 +28,14 @@ export const metadata: Metadata = {
 };
 
 export default async function BookAMeetingPage() {
-  const [homeSections, founder] = await Promise.all([
-    getAllPageSections('home'),
-    getFounderProfile(),
-  ]);
+  const homeSections = await getAllPageSections('home');
   const founderSection = homeSections.find(s => s.section_type === 'team');
   const fc = founderSection?.content as Record<string, unknown> | undefined;
   const bookingUrl = (fc?.booking_url as string) ?? '';
-  const name = (fc?.name as string) || cms(founder, 'bio', 'name', 'Ahmad Din');
+  const name = (fc?.name as string) || 'Ahmad Din';
   const title = (fc?.title as string) || 'Corporate Finance & Transaction Advisory Specialist | Financial Modeling Expert';
   const quals = (fc?.qualifications as string) || '';
-  const _photoRaw = cms(founder, 'bio', 'photo_url', '');
-  const photoUrl = (fc?.photo_url as string) || (_photoRaw.startsWith('data:') || _photoRaw.startsWith('http') ? _photoRaw : _photoRaw ? `data:image/jpeg;base64,${_photoRaw}` : '');
+  const photoUrl = (fc?.photo_url as string) || '';
   const expectations = (fc?.booking_expectations as string[]) ?? ['60-minute consultation', 'Financial modeling advice', 'Platform walkthrough', 'Corporate finance guidance'];
   const pageHeading = (fc?.booking_page_heading as string) || 'Book a Meeting';
   const redirectNote = (fc?.booking_redirect_note as string) || 'You will be redirected to our Microsoft Bookings page to select your preferred time slot.';

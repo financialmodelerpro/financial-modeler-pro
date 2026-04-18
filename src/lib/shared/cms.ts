@@ -13,8 +13,6 @@ export interface AssetType { id: string; module_id: string; name: string; descri
 export interface Article   { id: string; title: string; slug: string; body: string; cover_url: string | null; category: string; status: string; featured: boolean; published_at: string | null; seo_title: string | null; seo_description: string | null; author_id: string | null; created_at: string; updated_at: string }
 export interface Course    { id: string; title: string; description: string; thumbnail_url: string | null; category: string; status: string; display_order: number; created_at: string; _lesson_count?: number }
 export interface Lesson    { id: string; course_id: string; title: string; youtube_url: string; description: string; file_url: string | null; duration_minutes: number; display_order: number }
-export interface FounderRow { section: string; key: string; value: string }
-
 // ── CMS Content helpers ────────────────────────────────────────────────────────
 
 /**
@@ -153,24 +151,6 @@ export async function getCourseWithLessons(courseId: string): Promise<{ course: 
     return { course: course as Course, lessons: (lessons as Lesson[]) ?? [] };
   } catch {
     return null;
-  }
-}
-
-// ── Founder Profile ───────────────────────────────────────────────────────────
-
-export async function getFounderProfile(): Promise<Record<string, Record<string, string>>> {
-  try {
-    const sb = getServerClient();
-    const { data } = await sb.from('founder_profile').select('section,key,value');
-    if (!data) return {};
-    const out: Record<string, Record<string, string>> = {};
-    for (const row of data as FounderRow[]) {
-      if (!out[row.section]) out[row.section] = {};
-      out[row.section][row.key] = row.value;
-    }
-    return out;
-  } catch {
-    return {};
   }
 }
 

@@ -1,43 +1,41 @@
 // v-founder-profile-update
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { getFounderProfile, cms, getAllPageSections } from '@/src/lib/shared/cms';
+import { getAllPageSections } from '@/src/lib/shared/cms';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { CmsField } from '@/src/components/cms/CmsField';
 
 export const revalidate = 0;
 
+async function getFounderContent(): Promise<Record<string, unknown> | undefined> {
+  const sections = await getAllPageSections('home');
+  return sections.find(s => s.section_type === 'team')?.content as Record<string, unknown> | undefined;
+}
+
 export async function generateMetadata(): Promise<Metadata> {
-  const founder = await getFounderProfile();
-  const name  = cms(founder, 'bio', 'name',  'Ahmad Din');
-  const title = cms(founder, 'bio', 'title', 'Founder & Lead Instructor - Financial Modeler Pro');
+  const fc = await getFounderContent();
+  const name  = (fc?.name as string)  || 'Ahmad Din';
+  const title = (fc?.title as string) || 'Founder & Lead Instructor - Financial Modeler Pro';
   return {
     title: `${name} - ${title}`,
-    description: cms(founder, 'bio', 'short_bio', 'Corporate finance specialist and founder of Financial Modeler Pro.'),
+    description: (fc?.bio as string) || 'Corporate finance specialist and founder of Financial Modeler Pro.',
   };
 }
 
 export default async function FounderPage() {
-  const [founder, homeSections] = await Promise.all([
-    getFounderProfile(),
-    getAllPageSections('home'),
-  ]);
-
-  const founderSection = homeSections.find(s => s.section_type === 'team');
-  const fc = founderSection?.content as Record<string, unknown> | undefined;
+  const fc = await getFounderContent();
   const bookingUrl = (fc?.booking_url as string) ?? '';
 
-  const name       = (fc?.name as string)           || cms(founder, 'bio', 'name',       'Ahmad Din');
-  const title      = (fc?.title as string)          || cms(founder, 'bio', 'title',      'Founder & Lead Instructor');
+  const name       = (fc?.name as string)           || 'Ahmad Din';
+  const title      = (fc?.title as string)          || 'Founder & Lead Instructor';
   const quals      = (fc?.qualifications as string) || '';
-  const _photoRaw  = cms(founder, 'bio', 'photo_url',  '');
-  const photoUrl   = (fc?.photo_url as string)      || (_photoRaw.startsWith('data:') || _photoRaw.startsWith('http') ? _photoRaw : _photoRaw ? `data:image/jpeg;base64,${_photoRaw}` : '');
-  const shortBio   = (fc?.bio as string)            || cms(founder, 'bio', 'short_bio',  '');
-  const linkedin   = (fc?.cta_secondary_url as string) || (fc?.linkedin_url as string) || cms(founder, 'bio', 'linkedin_url', '');
-  const philosophy = (fc?.philosophy as string)     || cms(founder, 'philosophy', 'text', '');
+  const photoUrl   = (fc?.photo_url as string)      || '';
+  const shortBio   = (fc?.bio as string)            || '';
+  const linkedin   = (fc?.cta_secondary_url as string) || (fc?.linkedin_url as string) || '';
+  const philosophy = (fc?.philosophy as string)     || '';
 
-  const longBioRaw = (fc?.long_bio as string) || cms(founder, 'bio', 'long_bio', '');
+  const longBioRaw = (fc?.long_bio as string) || '';
   const whyFmpRaw  = (fc?.why_fmp as string) || '';
 
   const expItems      = (fc?.credentials as string[]) ?? [];
