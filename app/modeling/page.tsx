@@ -192,6 +192,18 @@ export default async function ModelingHubPage() {
               }}
             />
 
+            {/* Power statement — highlighted block with teal bottom border */}
+            {cmsVisible(h ?? {}, 'powerStatement') && (h?.powerStatement as string) && (
+              <div style={{ ...fw('powerStatement'), borderBottom: '3px solid #1ABC9C', maxWidth: 920, margin: '0 auto 26px', textAlign: 'center', paddingBottom: 16 }}>
+                <CmsField
+                  content={h ?? {}}
+                  field="powerStatement"
+                  as="p"
+                  style={{ fontSize: 'clamp(0.95rem,1.8vw,1.05rem)', fontWeight: 600, color: 'rgba(255,255,255,0.9)', margin: 0, lineHeight: 1.55 }}
+                />
+              </div>
+            )}
+
             {(cmsVisible(h ?? {}, 'cta_primary') && ctaPrimary.trim() && ctaPriUrl) || (cmsVisible(h ?? {}, 'cta_secondary') && ctaSecondary.trim() && ctaSecUrl) ? (
               <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
                 {cmsVisible(h ?? {}, 'cta_primary') && ctaPrimary.trim() && ctaPriUrl && (
@@ -218,6 +230,42 @@ export default async function ModelingHubPage() {
                 )}
               </div>
             ) : null}
+
+            {/* Soft CTA — inline link with downward arrow */}
+            {cmsVisible(h ?? {}, 'softCta') && (h?.softCta as string) && (
+              <div style={{ ...fw('softCta'), marginTop: 26, marginBottom: 26 }}>
+                <a href={(h?.softCtaUrl as string) || '#'} style={{ fontSize: '0.9rem', fontWeight: 500, color: 'rgba(255,255,255,0.65)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  {h?.softCta as string} <span style={{ fontSize: 14 }}>&#8595;</span>
+                </a>
+              </div>
+            )}
+
+            {/* Trust line — small muted text */}
+            {cmsVisible(h ?? {}, 'trustLine') && (h?.trustLine as string) && (
+              <CmsField
+                content={h ?? {}}
+                field="trustLine"
+                as="p"
+                style={{ fontSize: '0.78rem', fontWeight: 400, color: 'rgba(255,255,255,0.48)', letterSpacing: '0.025em', margin: '22px auto' }}
+              />
+            )}
+
+            {/* Tags — comma-separated pill chips */}
+            {cmsVisible(h ?? {}, 'tags') && (h?.tags as string) && (() => {
+              const tags = ((h?.tags as string) ?? '').split(',').map(t => t.trim()).filter(Boolean);
+              if (!tags.length) return null;
+              return (
+                <div style={{ ...fw('tags'), marginTop: 22 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: 10 }}>
+                    {tags.map(tag => (
+                      <span key={tag} style={{ fontSize: '0.72rem', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 999, padding: '4px 14px', color: 'rgba(255,255,255,0.58)' }}>
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </section>
         );
