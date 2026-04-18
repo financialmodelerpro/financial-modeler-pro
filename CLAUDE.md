@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-18** (session end — universal CmsField rendering path, Tiptap RichTextarea upgrade, array-item VF, retake + timer persistence, attempts counter server-authoritative, founder_profile table dropped, /about page removed, universal share utility, Calendly inline embed on /book-a-meeting, migrations 097-099)
+**Last updated: 2026-04-18** (session end — Marketing Studio Phase 1 (3 templates + Brand Kit + AI captions), universal CmsField rendering path, Tiptap RichTextarea upgrade, array-item VF, retake + timer persistence, attempts counter server-authoritative, founder_profile table dropped, /about page removed, universal share utility, Calendly inline embed on /book-a-meeting, migrations 097-100)
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md) — Database tables, storage buckets, migrations log
@@ -415,3 +415,14 @@ All three marketing pages use **Option B**: each section fetched from `page_sect
 - **All section renderers**: HTML detection → `dangerouslySetInnerHTML` with `fmp-rich-text` class
 - **Portal page**: PaceMakers, Two Platforms, Founder card, FounderExpand all use isHtml() detection
 - **VF component**: `showLayout` defaults to `true` — all Page Builder fields get Width % + Alignment dropdowns
+
+### Marketing Studio (Phase 1 — migration 100)
+- **Admin page**: `/admin/marketing-studio` — 3-panel editor (left: template picker + saved designs, middle: live preview, right: field editor + AI caption generator)
+- **Templates**: `src/lib/marketing/templates/` — `youtube-thumbnail.tsx` (1280x720), `linkedin-post.tsx` (1200x627), `instagram-post.tsx` (1080x1080). Each exports a `TemplateDefinition` with fields, defaults, and a `render()` that returns a satori-compatible React element
+- **Client metadata mirror**: `src/lib/marketing/templateMeta.ts` — flat field/dimensions/defaults export (no render fns) so the admin client page doesn't bundle server-side render code
+- **Render API**: `POST /api/admin/marketing-studio/render` — `ImageResponse` via `next/og`, loads Inter fonts via `loadOgFonts()`, loads brand kit + logo + founder photo as base64 data URIs via `imageToDataUri()` (sharp for SVG→PNG)
+- **Brand Kit**: `marketing_brand_kit` table (single row id=1). Editor at `/admin/marketing-studio/brand-kit` — upload logos + founder photo (via `/api/admin/media`), color pickers, font family. API `GET/PATCH /api/admin/marketing-studio/brand-kit`
+- **Designs**: `marketing_designs` table. List/create `/api/admin/marketing-studio/designs`, update/delete `/api/admin/marketing-studio/designs/[id]`. Save stores `content` + `ai_captions` jsonb
+- **AI captions**: `POST /api/admin/marketing-studio/generate-caption` — Anthropic Claude (`claude-sonnet-4-20250514`), 4 platforms (youtube, linkedin, instagram, twitter). Each platform has a tailored prompt guide
+- **Preview**: debounced 500ms, blob URL renders into `<img>`. Downloads trigger a second render call + `a[download]`
+- **Admin nav**: Marketing Studio link added under Content section in `CmsAdminNav.tsx`

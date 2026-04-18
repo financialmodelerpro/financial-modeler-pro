@@ -69,6 +69,9 @@ app/admin/
 ├── training-settings/page.tsx
 ├── transcript-editor/page.tsx
 ├── newsletter/page.tsx           # Newsletter admin: 4 tabs (Subscribers, Compose, Campaigns, Auto Notifications)
+├── marketing-studio/
+│   ├── page.tsx                  # Marketing Studio: template picker + live preview + field editor + AI captions
+│   └── brand-kit/page.tsx        # Brand Kit editor: logos, founder photo, colors, fonts
 ├── users/page.tsx
 └── whitelabel/page.tsx
 ```
@@ -227,6 +230,11 @@ app/api/admin/
 ├── newsletter/content-items/    # GET: items from live_sessions/articles for compose auto-populate
 ├── newsletter/enhance/          # POST: AI rewrite via Anthropic API
 ├── newsletter/auto-settings/    # GET/PATCH: auto-notification toggles
+├── marketing-studio/render/         # POST: render template → PNG via ImageResponse (satori)
+├── marketing-studio/generate-caption/ # POST: Anthropic Claude caption for LinkedIn/YouTube/Instagram/Twitter
+├── marketing-studio/designs/         # GET (list) + POST (create) saved designs
+├── marketing-studio/designs/[id]/    # GET/PATCH/DELETE single design
+├── marketing-studio/brand-kit/       # GET/PATCH brand kit singleton
 ├── generate-images/             # POST: satori+sharp generate mission/vision PNGs → Supabase
 ├── page-sections/               # CRUD for page_sections + cms_pages
 ├── reset-attempts/              # POST: reset via Apps Script
@@ -350,6 +358,16 @@ src/lib/
 │       ALL template functions are async (use baseLayoutBranded) — callers must await
 ├── newsletter/
 │   └── autoNotify.ts            # sendAutoNewsletter() — fire-and-forget, duplicate prevention, per-event-type toggle
+├── marketing/
+│   ├── types.ts                 # BrandKit, DEFAULT_BRAND_KIT, TemplateDefinition, TemplateField, MarketingDesign
+│   ├── brandKit.ts              # loadBrandKit() — reads singleton row (id=1), falls back to defaults
+│   ├── imageToDataUri.ts        # Fetches URL → base64 data URI (sharp SVG→PNG), shared by render route
+│   ├── templateMeta.ts          # Client-safe metadata mirror (fields + dimensions + defaults, no render fns)
+│   └── templates/
+│       ├── index.ts             # TEMPLATES array + getTemplate(id) — server-side (includes render fns)
+│       ├── youtube-thumbnail.tsx  # 1280×720 bold thumbnail with 3 variants (dark/accent/light)
+│       ├── linkedin-post.tsx      # 1200×627 with 3 variants (navy/light/split-with-photo)
+│       └── instagram-post.tsx     # 1080×1080 square with 3 variants (gradient/navy/light)
 ├── modeling/real-estate/
 │   ├── export/ (excel-formula, excel-static, pdf)
 │   └── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))
