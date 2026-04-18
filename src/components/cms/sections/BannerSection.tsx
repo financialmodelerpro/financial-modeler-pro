@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { isHtml } from './renderCmsText';
+import { CmsField, cmsVisible } from '../CmsField';
 
 interface Props {
   content: Record<string, unknown>;
@@ -7,9 +7,8 @@ interface Props {
 }
 
 export function BannerSection({ content, styles }: Props) {
-  const v = (k: string) => content[`${k}_visible`] !== false;
-  const text    = v('text') ? (content.text as string ?? '') : '';
-  const url     = v('url') ? (content.url as string ?? '') : '';
+  const text    = cmsVisible(content, 'text') ? (content.text as string ?? '') : '';
+  const url     = cmsVisible(content, 'url') ? (content.url as string ?? '') : '';
   const bgColor = (styles.bgColor as string) ?? '#2EAA4A';
   const textColor = (styles.textColor as string) ?? '#ffffff';
   const py      = (styles.paddingY as string) ?? '12px';
@@ -22,7 +21,7 @@ export function BannerSection({ content, styles }: Props) {
       fontSize: 14, fontWeight: 600, color: textColor, lineHeight: 1.4,
       display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
     }}>
-      {isHtml(text) ? <span dangerouslySetInnerHTML={{ __html: text }} /> : text}
+      <CmsField content={content} field="text" as="span" />
       {url && <span style={{ fontSize: 16 }}>&rarr;</span>}
     </div>
   );

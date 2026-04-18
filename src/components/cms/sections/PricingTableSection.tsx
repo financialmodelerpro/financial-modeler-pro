@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { isHtml } from './renderCmsText';
+import { CmsField, cmsVisible } from '../CmsField';
 
 interface Props {
   content: Record<string, unknown>;
@@ -18,7 +18,6 @@ interface PricingTier {
 }
 
 export function PricingTableSection({ content, styles }: Props) {
-  const v = (k: string) => content[`${k}_visible`] !== false;
   const tiers   = (content.tiers as PricingTier[]) ?? [];
   const heading = content.heading as string ?? '';
   const badge   = content.badge as string ?? '';
@@ -32,12 +31,12 @@ export function PricingTableSection({ content, styles }: Props) {
   return (
     <section style={{ background: bgColor, padding: `${py} 40px`, color: textColor || undefined }}>
       <div style={{ maxWidth: maxW, margin: '0 auto' }}>
-        {v('badge') && badge && (
+        {cmsVisible(content, 'badge') && badge && (
           <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#2EAA4A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
             {badge}
           </div>
         )}
-        {v('heading') && heading && (
+        {cmsVisible(content, 'heading') && heading && (
           <h2 style={{ textAlign: 'center', fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: textColor || '#0D2E5A', marginBottom: 40 }}>
             {heading}
           </h2>
@@ -65,17 +64,17 @@ export function PricingTableSection({ content, styles }: Props) {
                 {tier.price}
                 {tier.period && <span style={{ fontSize: 14, fontWeight: 500, color: '#9CA3AF' }}>/{tier.period}</span>}
               </div>
-              {tier.description && (
-                isHtml(tier.description)
-                  ? <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: tier.description }} style={{ fontSize: 13, color: '#6B7280', marginTop: 8, lineHeight: 1.5 }} />
-                  : <div style={{ fontSize: 13, color: '#6B7280', marginTop: 8, lineHeight: 1.5 }}>{tier.description}</div>
-              )}
+              <CmsField
+                content={tier as unknown as Record<string, unknown>}
+                field="description"
+                style={{ fontSize: 13, color: '#6B7280', marginTop: 8, lineHeight: 1.5 }}
+              />
               <div style={{ margin: '20px 0', borderTop: '1px solid #F3F4F6' }} />
               <div style={{ textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 24 }}>
                 {tier.features.map((f, j) => (
                   <div key={j} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, fontSize: 13, color: '#374151' }}>
                     <span style={{ color: '#2EAA4A', fontWeight: 700, flexShrink: 0 }}>&#10003;</span>
-                    {isHtml(f) ? <span dangerouslySetInnerHTML={{ __html: f }} /> : f}
+                    <CmsField content={{ text: f }} field="text" as="span" />
                   </div>
                 ))}
               </div>

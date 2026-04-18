@@ -1,4 +1,4 @@
-import { isHtml } from './renderCmsText';
+import { CmsField, cmsVisible } from '../CmsField';
 
 interface Props {
   content: Record<string, unknown>;
@@ -13,7 +13,6 @@ interface Testimonial {
 }
 
 export function TestimonialsSection({ content, styles }: Props) {
-  const v = (k: string) => content[`${k}_visible`] !== false;
   const items   = (content.items as Testimonial[]) ?? [];
   const heading = content.heading as string ?? '';
   const badge   = content.badge as string ?? '';
@@ -27,12 +26,12 @@ export function TestimonialsSection({ content, styles }: Props) {
   return (
     <section style={{ background: bgColor, padding: `${py} 40px`, color: textColor || undefined }}>
       <div style={{ maxWidth: maxW, margin: '0 auto' }}>
-        {v('badge') && badge && (
+        {cmsVisible(content, 'badge') && badge && (
           <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#2EAA4A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
             {badge}
           </div>
         )}
-        {v('heading') && heading && (
+        {cmsVisible(content, 'heading') && heading && (
           <h2 style={{ textAlign: 'center', fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: textColor || '#0D2E5A', marginBottom: 40 }}>
             {heading}
           </h2>
@@ -45,7 +44,9 @@ export function TestimonialsSection({ content, styles }: Props) {
               display: 'flex', flexDirection: 'column', gap: 16,
             }}>
               <div style={{ fontSize: 14, color: '#6B7280', lineHeight: 1.7, fontStyle: 'italic', flex: 1 }}>
-                {isHtml(t.quote) ? <span dangerouslySetInnerHTML={{ __html: `&ldquo;${t.quote}&rdquo;` }} /> : <>&ldquo;{t.quote}&rdquo;</>}
+                <span>&ldquo;</span>
+                <CmsField content={t as unknown as Record<string, unknown>} field="quote" as="span" />
+                <span>&rdquo;</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 {t.photo ? (

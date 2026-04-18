@@ -6,6 +6,7 @@ import { PLATFORMS } from '@/src/config/platforms';
 import { getCmsContent, cms, getModules, getTestimonialsForPage, getAllPageSections } from '@/src/lib/shared/cms';
 import type { Module } from '@/src/lib/shared/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
+import { CmsField } from '@/src/components/cms/CmsField';
 
 export const revalidate = 0;
 
@@ -203,9 +204,10 @@ export default async function ModelingHubPage() {
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 48, alignItems: 'start' }}>
-              <div
+              <CmsField
+                content={(ac ?? { body: whatBody }) as Record<string, unknown>}
+                field="body"
                 className="fmp-modeling-prose"
-                dangerouslySetInnerHTML={{ __html: whatBody }}
               />
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
                 {audienceItems.map((a) => (

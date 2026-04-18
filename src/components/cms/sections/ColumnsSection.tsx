@@ -1,3 +1,5 @@
+import { CmsField, cmsVisible } from '../CmsField';
+
 interface Props {
   content: Record<string, unknown>;
   styles: Record<string, unknown>;
@@ -10,7 +12,6 @@ interface Column {
 }
 
 export function ColumnsSection({ content, styles }: Props) {
-  const v = (k: string) => content[`${k}_visible`] !== false;
   const columns = (content.columns as Column[]) ?? [];
   const count   = (content.count as number) ?? columns.length ?? 2;
   const heading = content.heading as string ?? '';
@@ -25,12 +26,12 @@ export function ColumnsSection({ content, styles }: Props) {
   return (
     <section style={{ background: bgColor, padding: `${py} 40px` }}>
       <div style={{ maxWidth: maxW, margin: '0 auto' }}>
-        {v('badge') && badge && (
+        {cmsVisible(content, 'badge') && badge && (
           <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#2EAA4A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
             {badge}
           </div>
         )}
-        {v('heading') && heading && (
+        {cmsVisible(content, 'heading') && heading && (
           <h2 style={{ textAlign: 'center', fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 40 }}>
             {heading}
           </h2>
@@ -52,10 +53,11 @@ export function ColumnsSection({ content, styles }: Props) {
                   {col.heading}
                 </div>
               )}
-              {col.html && (
-                <div dangerouslySetInnerHTML={{ __html: col.html }}
-                  style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.6 }} />
-              )}
+              <CmsField
+                content={col as unknown as Record<string, unknown>}
+                field="html"
+                style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.6 }}
+              />
             </div>
           ))}
         </div>

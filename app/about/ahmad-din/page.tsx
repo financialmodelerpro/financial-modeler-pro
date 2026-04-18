@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { getFounderProfile, cms, getAllPageSections } from '@/src/lib/shared/cms';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { isHtml } from '@/src/lib/shared/htmlUtils';
+import { CmsField } from '@/src/components/cms/CmsField';
 
 export const revalidate = 0;
 
@@ -38,10 +38,7 @@ export default async function FounderPage() {
   const philosophy = (fc?.philosophy as string)     || cms(founder, 'philosophy', 'text', '');
 
   const longBioRaw = (fc?.long_bio as string) || cms(founder, 'bio', 'long_bio', '');
-  const longBio = longBioRaw.split(/\n\n|\n/).map(p => p.trim()).filter(Boolean);
-
-  const whyFmpRaw = (fc?.why_fmp as string) || '';
-  const whyFmp = whyFmpRaw.split(/\n\n|\n/).map(p => p.trim()).filter(Boolean);
+  const whyFmpRaw  = (fc?.why_fmp as string) || '';
 
   const expItems      = (fc?.credentials as string[]) ?? [];
   const expertise     = (fc?.expertise as string[]) ?? [];
@@ -49,6 +46,15 @@ export default async function FounderPage() {
   const marketFocus   = (fc?.market_focus as string) || '';
   const personal      = (fc?.personal as string) || '';
   const projects      = (fc?.projects as { id: string; title: string; description: string; sector: string; value: string }[]) ?? [];
+
+  // Merge CMS content keys (bio/long_bio/why_fmp/etc.) with their VF suffixes
+  // (_align/_width/_visible) so CmsField reads them uniformly.
+  const cmsData: Record<string, unknown> = { ...(fc ?? {}) };
+  if (!cmsData.bio)          cmsData.bio = shortBio;
+  if (!cmsData.long_bio)     cmsData.long_bio = longBioRaw;
+  if (!cmsData.philosophy)   cmsData.philosophy = philosophy;
+  if (!cmsData.market_focus) cmsData.market_focus = marketFocus;
+  if (!cmsData.personal)     cmsData.personal = personal;
 
   const sectionHeading: React.CSSProperties = { fontSize: 22, fontWeight: 800, color: '#fff', marginBottom: 24 };
   const sectionPadding = '0 40px 72px';
@@ -80,9 +86,11 @@ export default async function FounderPage() {
               ))}
             </div>
             {quals && <div style={{ fontSize: '0.85rem', color: 'rgba(255,255,255,0.6)', letterSpacing: '0.05em', marginBottom: 16, marginTop: 4 }}>{quals}</div>}
-            {isHtml(shortBio)
-              ? <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: shortBio }} style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.55)', lineHeight: 1.75, marginBottom: 24 }} />
-              : <p style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.55)', lineHeight: 1.75, marginBottom: 24 }}>{shortBio}</p>}
+            <CmsField
+              content={cmsData}
+              field="bio"
+              style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.55)', lineHeight: 1.75, marginBottom: 24 }}
+            />
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
               {linkedin && (
                 <a href={linkedin} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: 'transparent', border: '1px solid rgba(255,255,255,0.2)', color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 600, padding: '9px 20px', borderRadius: 7, textDecoration: 'none' }}>LinkedIn ↗</a>
@@ -99,12 +107,11 @@ export default async function FounderPage() {
       {longBioRaw && (
         <section style={{ padding: '72px 40px 48px', maxWidth: 800, margin: '0 auto' }}>
           <h2 style={sectionHeading}>Background</h2>
-          {isHtml(longBioRaw)
-            ? <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: longBioRaw }} style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.85)', lineHeight: 1.8 }} />
-            : longBio.map((para, i) => (
-                <p key={i} style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.85)', lineHeight: 1.8, marginBottom: 16 }}>{para}</p>
-              ))
-          }
+          <CmsField
+            content={cmsData}
+            field="long_bio"
+            style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.85)', lineHeight: 1.8 }}
+          />
         </section>
       )}
 
@@ -112,12 +119,11 @@ export default async function FounderPage() {
       {whyFmpRaw && (
         <section style={{ padding: sectionPadding, maxWidth: 800, margin: '0 auto' }}>
           <h2 style={sectionHeading}>Why Financial Modeler Pro</h2>
-          {isHtml(whyFmpRaw)
-            ? <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: whyFmpRaw }} style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.85)', lineHeight: 1.8 }} />
-            : whyFmp.map((para, i) => (
-                <p key={i} style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.85)', lineHeight: 1.8, marginBottom: 16 }}>{para}</p>
-              ))
-          }
+          <CmsField
+            content={cmsData}
+            field="why_fmp"
+            style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.85)', lineHeight: 1.8 }}
+          />
         </section>
       )}
 
@@ -129,7 +135,12 @@ export default async function FounderPage() {
             {expItems.map((item, i) => (
               <div key={i} style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
                 <span style={{ background: '#1ABC9C', color: '#fff', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', fontWeight: 700, flexShrink: 0 }}>{i + 1}</span>
-                <p style={{ color: 'rgba(255,255,255,0.85)', lineHeight: 1.6, margin: 0 }}>{item}</p>
+                <CmsField
+                  content={{ item }}
+                  field="item"
+                  as="p"
+                  style={{ color: 'rgba(255,255,255,0.85)', lineHeight: 1.6, margin: 0 }}
+                />
               </div>
             ))}
           </div>
@@ -167,7 +178,11 @@ export default async function FounderPage() {
       {marketFocus && (
         <section style={{ padding: sectionPadding, maxWidth: 800, margin: '0 auto' }}>
           <h2 style={sectionHeading}>Market Focus</h2>
-          <p style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.85)', lineHeight: 1.8 }}>{marketFocus}</p>
+          <CmsField
+            content={cmsData}
+            field="market_focus"
+            style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.85)', lineHeight: 1.8 }}
+          />
         </section>
       )}
 
@@ -182,7 +197,11 @@ export default async function FounderPage() {
                   <h3 style={{ fontSize: 15, fontWeight: 700, color: '#fff', margin: 0 }}>{p.title}</h3>
                   {p.sector && <span style={{ fontSize: 11, fontWeight: 600, color: '#4A90D9', background: 'rgba(27,79,138,0.2)', padding: '2px 10px', borderRadius: 12 }}>{p.sector}</span>}
                 </div>
-                {p.description && <p style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6, margin: 0 }}>{p.description}</p>}
+                <CmsField
+                  content={p as unknown as Record<string, unknown>}
+                  field="description"
+                  style={{ fontSize: 13.5, color: 'rgba(255,255,255,0.55)', lineHeight: 1.6 }}
+                />
                 {p.value && <div style={{ fontSize: 12, color: '#1ABC9C', fontWeight: 600, marginTop: 8 }}>{p.value}</div>}
               </div>
             ))}
@@ -196,7 +215,9 @@ export default async function FounderPage() {
           <div style={{ maxWidth: 800, margin: '0 auto' }}>
             <h2 style={{ fontSize: 22, fontWeight: 800, color: '#fff', marginBottom: 20 }}>Modeling Philosophy</h2>
             <blockquote style={{ borderLeft: '3px solid #1B4F8A', paddingLeft: 24, margin: 0, fontSize: 16, color: 'rgba(255,255,255,0.6)', lineHeight: 1.8, fontStyle: 'italic' }}>
-              {isHtml(philosophy) ? <span dangerouslySetInnerHTML={{ __html: `&ldquo;${philosophy}&rdquo;` }} /> : <>&ldquo;{philosophy}&rdquo;</>}
+              <span>&ldquo;</span>
+              <CmsField content={cmsData} field="philosophy" as="span" />
+              <span>&rdquo;</span>
             </blockquote>
             <div style={{ marginTop: 16, fontSize: 13, color: 'rgba(255,255,255,0.35)' }}>- {name}</div>
           </div>
@@ -207,7 +228,11 @@ export default async function FounderPage() {
       {personal && (
         <section style={{ padding: '48px 40px 72px', maxWidth: 800, margin: '0 auto' }}>
           <h2 style={{ fontSize: 18, fontWeight: 700, color: 'rgba(255,255,255,0.5)', marginBottom: 12 }}>Personal</h2>
-          <p style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)', lineHeight: 1.7 }}>{personal}</p>
+          <CmsField
+            content={cmsData}
+            field="personal"
+            style={{ fontSize: 14, color: 'rgba(255,255,255,0.45)', lineHeight: 1.7 }}
+          />
         </section>
       )}
 

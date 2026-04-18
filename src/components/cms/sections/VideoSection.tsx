@@ -1,3 +1,5 @@
+import { CmsField } from '../CmsField';
+
 interface Props {
   content: Record<string, unknown>;
   styles: Record<string, unknown>;
@@ -16,9 +18,7 @@ function getEmbedUrl(url: string): string {
 }
 
 export function VideoSection({ content, styles }: Props) {
-  const v = (k: string) => content[`${k}_visible`] !== false;
   const url     = content.url as string ?? '';
-  const caption = content.caption as string ?? '';
   const bgColor = (styles.bgColor as string) ?? '#ffffff';
   const textColor = (styles.textColor as string) ?? '';
   const py      = (styles.paddingY as string) ?? 'clamp(48px,7vw,80px)';
@@ -41,11 +41,11 @@ export function VideoSection({ content, styles }: Props) {
             allowFullScreen
           />
         </div>
-        {v('caption') && caption && (
-          <p style={{ textAlign: 'center', fontSize: 13, color: textColor || '#6B7280', marginTop: 16, lineHeight: 1.6 }}>
-            {caption}
-          </p>
-        )}
+        <CmsField
+          content={content}
+          field="caption"
+          style={{ textAlign: 'center', fontSize: 13, color: textColor || '#6B7280', marginTop: 16, lineHeight: 1.6 }}
+        />
       </div>
     </section>
   );

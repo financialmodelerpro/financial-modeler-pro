@@ -1,3 +1,5 @@
+import { CmsField } from '../CmsField';
+
 interface Props {
   content: Record<string, unknown>;
   styles: Record<string, unknown>;
@@ -25,12 +27,18 @@ export function StatsSection({ content, styles }: Props) {
       }}>
         {items.map((item, i) => (
           <div key={i} style={{ textAlign: 'center', minWidth: 100 }}>
-            <div style={{ fontSize: 28, fontWeight: 800, color, lineHeight: 1.2 }}>
-              {item.value}
-            </div>
-            <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: 4, fontWeight: 600 }}>
-              {item.label}
-            </div>
+            <CmsField
+              content={item as unknown as Record<string, unknown>}
+              field="value"
+              as="div"
+              style={{ fontSize: 28, fontWeight: 800, color, lineHeight: 1.2 }}
+            />
+            <CmsField
+              content={item as unknown as Record<string, unknown>}
+              field="label"
+              as="div"
+              style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', marginTop: 4, fontWeight: 600 }}
+            />
           </div>
         ))}
       </div>

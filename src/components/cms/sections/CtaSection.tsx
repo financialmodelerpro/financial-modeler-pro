@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { CmsParagraphs } from './CmsParagraphs';
-
-const HTML_RE = /<[a-z][\s\S]*>/i;
+import { CmsField, cmsVisible } from '../CmsField';
 
 interface Props {
   content: Record<string, unknown>;
@@ -9,9 +8,7 @@ interface Props {
 }
 
 export function CtaSection({ content, styles }: Props) {
-  const v = (k: string) => content[`${k}_visible`] !== false;
   const heading    = content.heading as string ?? '';
-  const subtitle   = content.subtitle as string ?? '';
   const buttonText = content.buttonText as string ?? '';
   const buttonUrl  = content.buttonUrl as string ?? '';
   const button2Text = content.button2Text as string ?? '';
@@ -26,7 +23,7 @@ export function CtaSection({ content, styles }: Props) {
       textAlign: 'center', color: textColor,
     }}>
       <div style={{ maxWidth: 600, margin: '0 auto' }}>
-        {v('heading') && heading && (
+        {cmsVisible(content, 'heading') && heading && (
           <h2 style={{
             fontSize: 'clamp(22px,4vw,38px)', fontWeight: 800,
             marginBottom: 12, lineHeight: 1.2,
@@ -34,22 +31,15 @@ export function CtaSection({ content, styles }: Props) {
             {heading}
           </h2>
         )}
-        {v('subtitle') && subtitle && (
-          HTML_RE.test(subtitle) ? (
-            <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: subtitle }}
-              style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', marginBottom: 36, lineHeight: 1.6 }} />
-          ) : (
-            <div style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', marginBottom: 36, lineHeight: 1.6 }}>
-              {subtitle.split(/\n\n|\n/).filter(Boolean).map((para, i) => (
-                <p key={i} style={{ margin: '0 0 14px' }}>{para}</p>
-              ))}
-            </div>
-          )
-        )}
+        <CmsField
+          content={content}
+          field="subtitle"
+          style={{ fontSize: 15, color: 'rgba(255,255,255,0.85)', marginBottom: 36, lineHeight: 1.6 }}
+        />
         <CmsParagraphs content={content} color="rgba(255,255,255,0.8)" />
-        {((v('buttonText') && buttonText.trim() && buttonUrl) || (v('button2Text') && button2Text.trim() && button2Url)) && (
+        {((cmsVisible(content, 'buttonText') && buttonText.trim() && buttonUrl) || (cmsVisible(content, 'button2Text') && button2Text.trim() && button2Url)) && (
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-            {v('buttonText') && buttonText.trim() && buttonUrl && (
+            {cmsVisible(content, 'buttonText') && buttonText.trim() && buttonUrl && (
               <Link href={buttonUrl} style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 background: '#fff', color: '#1A7A30', fontWeight: 800,
@@ -59,7 +49,7 @@ export function CtaSection({ content, styles }: Props) {
                 {buttonText}
               </Link>
             )}
-            {v('button2Text') && button2Text.trim() && button2Url && (
+            {cmsVisible(content, 'button2Text') && button2Text.trim() && button2Url && (
               <Link href={button2Url} style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 background: 'transparent', color: '#fff', fontWeight: 700,

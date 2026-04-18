@@ -1,5 +1,5 @@
 import { CmsParagraphs } from './CmsParagraphs';
-import { isHtml } from './renderCmsText';
+import { CmsField, cmsVisible } from '../CmsField';
 
 interface Props {
   content: Record<string, unknown>;
@@ -13,7 +13,6 @@ interface ListItem {
 }
 
 export function ListSection({ content, styles }: Props) {
-  const v = (k: string) => content[`${k}_visible`] !== false;
   const items   = (content.items as ListItem[]) ?? [];
   const heading = content.heading as string ?? '';
   const badge   = content.badge as string ?? '';
@@ -27,12 +26,12 @@ export function ListSection({ content, styles }: Props) {
   return (
     <section style={{ background: bgColor, padding: `${py} 40px` }}>
       <div style={{ maxWidth: maxW, margin: '0 auto' }}>
-        {v('badge') && badge && (
+        {cmsVisible(content, 'badge') && badge && (
           <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#2EAA4A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
             {badge}
           </div>
         )}
-        {v('heading') && heading && (
+        {cmsVisible(content, 'heading') && heading && (
           <h2 style={{ textAlign: 'center', fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 16 }}>
             {heading}
           </h2>
@@ -54,7 +53,11 @@ export function ListSection({ content, styles }: Props) {
                     </div>
                   )}
                   <div style={{ fontSize: 13, fontWeight: 700, color: '#0D2E5A', marginBottom: 6 }}>{item.title}</div>
-                  <div style={{ fontSize: 11.5, color: '#6B7280', lineHeight: 1.5 }}>{isHtml(item.description) ? <span className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: item.description }} /> : item.description}</div>
+                  <CmsField
+                    content={item as unknown as Record<string, unknown>}
+                    field="description"
+                    style={{ fontSize: 11.5, color: '#6B7280', lineHeight: 1.5 }}
+                  />
                 </div>
                 {i < items.length - 1 && (
                   <div style={{ fontSize: 20, color: '#2EAA4A', fontWeight: 700, marginTop: 16, padding: '0 4px', flexShrink: 0 }}>→</div>
@@ -69,7 +72,11 @@ export function ListSection({ content, styles }: Props) {
                 {item.icon && <span style={{ fontSize: 24, flexShrink: 0 }}>{item.icon}</span>}
                 <div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: '#0D2E5A', marginBottom: 4 }}>{item.title}</div>
-                  <div style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.6 }}>{isHtml(item.description) ? <span className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: item.description }} /> : item.description}</div>
+                  <CmsField
+                    content={item as unknown as Record<string, unknown>}
+                    field="description"
+                    style={{ fontSize: 13, color: '#6B7280', lineHeight: 1.6 }}
+                  />
                 </div>
               </div>
             ))}

@@ -1,17 +1,12 @@
 import { CmsParagraphs } from './CmsParagraphs';
+import { CmsField, cmsVisible } from '../CmsField';
 
 interface Props {
   content: Record<string, unknown>;
   styles: Record<string, unknown>;
 }
 
-/** Detect if a string contains HTML tags */
-function isHtml(text: string): boolean {
-  return /<[a-z][\s\S]*>/i.test(text);
-}
-
 export function TextImageSection({ content, styles }: Props) {
-  const v = (k: string) => content[`${k}_visible`] !== false;
   const heading       = content.heading as string ?? '';
   const badge         = content.badge as string ?? '';
   const imageSrc      = content.imageSrc as string ?? '';
@@ -44,35 +39,25 @@ export function TextImageSection({ content, styles }: Props) {
   const headColor   = hasBg ? '#ffffff' : '#0D2E5A';
   const badgeColor  = hasBg ? 'rgba(255,255,255,0.7)' : '#1B4F8A';
 
-  // Use body field as primary text source (html field removed from admin editor)
-  const body      = content.body as string ?? '';
-  const bodyAlign = (content.body_align as string) ?? '';
-  const bodyWidth = (content.body_width as string) ?? '';
-
+  // Legacy `body_align`/`body_width` fields stored directly on content are
+  // supported by CmsField automatically (it reads body_align / body_width).
   const textBlock = (
     <div style={{ flex: 1, minWidth: 280, borderLeft: '4px solid #1ABC9C', paddingLeft: 24 }}>
-      {v('badge') && badge && badge.toUpperCase() !== heading.toUpperCase() && (
+      {cmsVisible(content, 'badge') && badge && badge.toUpperCase() !== heading.toUpperCase() && (
         <div style={{ fontSize: 12, fontWeight: 700, color: badgeColor, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 14 }}>
           {badge}
         </div>
       )}
-      {v('heading') && heading && (
+      {cmsVisible(content, 'heading') && heading && (
         <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: headColor, marginBottom: 16, lineHeight: 1.2 }}>
           {heading}
         </h2>
       )}
-      {v('body') && body && (
-        isHtml(body) ? (
-          <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: body }}
-            style={{ fontSize: 15, color: textColor, lineHeight: 1.75, textAlign: (bodyAlign || undefined) as React.CSSProperties['textAlign'], maxWidth: bodyWidth || undefined }} />
-        ) : (
-          <div style={{ fontSize: 15, color: textColor, lineHeight: 1.75, textAlign: (bodyAlign || undefined) as React.CSSProperties['textAlign'], maxWidth: bodyWidth || undefined }}>
-            {body.split(/\n\n|\n/).filter(Boolean).map((para, i) => (
-              <p key={i} style={{ margin: '0 0 14px' }}>{para}</p>
-            ))}
-          </div>
-        )
-      )}
+      <CmsField
+        content={content}
+        field="body"
+        style={{ fontSize: 15, color: textColor, lineHeight: 1.75 }}
+      />
       <CmsParagraphs content={content} color={textColor} />
     </div>
   );

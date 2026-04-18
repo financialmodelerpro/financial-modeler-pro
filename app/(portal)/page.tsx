@@ -24,7 +24,7 @@ import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/Ar
 import { InlineEdit } from '@/src/components/landing/InlineEdit';
 import { AdminEditBar } from '@/src/components/landing/AdminEditBar';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
-import { isHtml } from '@/src/lib/shared/htmlUtils';
+import { CmsField } from '@/src/components/cms/CmsField';
 
 export const revalidate = 0;
 
@@ -455,9 +455,11 @@ export default async function LandingPage() {
           <div style={{ maxWidth:1100, margin:'0 auto' }}>
             <div style={{ textAlign:'center', marginBottom:48 }}>
               <h2 style={{ fontSize: pillarsStyles.headingSize ?? 'clamp(24px,3vw,36px)', fontWeight:800, color: pillarsStyles.headingColor ?? '#1B3A6B' }}>{pillarsH2}</h2>
-              {isHtml(pillarsSub)
-                ? <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: pillarsSub }} style={{ fontSize:15, color:'#6B7280', marginTop:10 }} />
-                : <p style={{ fontSize:15, color:'#6B7280', marginTop:10 }}>{pillarsSub}</p>}
+              <CmsField
+                content={(pc ?? { subheading: pillarsSub }) as Record<string, unknown>}
+                field="subheading"
+                style={{ fontSize:15, color:'#6B7280', marginTop:10 }}
+              />
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:24 }}>
               {/* Modeling card */}
@@ -468,9 +470,11 @@ export default async function LandingPage() {
                   </svg>
                 )}
                 <h3 style={{ fontSize:22, fontWeight:800, color:'#1B3A6B', marginBottom:12 }}>{modelTitle}</h3>
-                {isHtml(modelDesc)
-                  ? <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: modelDesc }} style={{ fontSize:14, color:'#4B5563', lineHeight:1.7, marginBottom:24 }} />
-                  : <p style={{ fontSize:14, color:'#4B5563', lineHeight:1.7, marginBottom:24 }}>{modelDesc}</p>}
+                <CmsField
+                  content={(pillarsCols[0] ?? { description: modelDesc }) as unknown as Record<string, unknown>}
+                  field="description"
+                  style={{ fontSize:14, color:'#4B5563', lineHeight:1.7, marginBottom:24 }}
+                />
                 <ul style={{ listStyle:'none', padding:0, margin:'0 0 28px', display:'flex', flexDirection:'column', gap:8 }}>
                   {mFeatures.map(t=>(<li key={t} style={{ fontSize:13, color:'#4B5563', display:'flex', gap:8, alignItems:'center' }}><span style={{ color:mAccent, fontWeight:700 }}>→</span> {t}</li>))}
                 </ul>
@@ -484,9 +488,11 @@ export default async function LandingPage() {
                   </svg>
                 )}
                 <h3 style={{ fontSize:22, fontWeight:800, color:'#1B3A6B', marginBottom:12 }}>{trainingTitle}</h3>
-                {isHtml(trainingDesc)
-                  ? <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: trainingDesc }} style={{ fontSize:14, color:'#4B5563', lineHeight:1.7, marginBottom:24 }} />
-                  : <p style={{ fontSize:14, color:'#4B5563', lineHeight:1.7, marginBottom:24 }}>{trainingDesc}</p>}
+                <CmsField
+                  content={(pillarsCols[1] ?? { description: trainingDesc }) as unknown as Record<string, unknown>}
+                  field="description"
+                  style={{ fontSize:14, color:'#4B5563', lineHeight:1.7, marginBottom:24 }}
+                />
                 <ul style={{ listStyle:'none', padding:0, margin:'0 0 28px', display:'flex', flexDirection:'column', gap:8 }}>
                   {tFeatures.map(t=>(<li key={t} style={{ fontSize:13, color:'#4B5563', display:'flex', gap:8, alignItems:'center' }}><span style={{ color:tAccent, fontWeight:700 }}>→</span> {t}</li>))}
                 </ul>
@@ -552,9 +558,11 @@ export default async function LandingPage() {
                 {fQuals && (
                   <div style={{ fontSize:'0.85rem', color:'rgba(255,255,255,0.6)', letterSpacing:'0.05em', marginBottom:16, marginTop:4 }}>{fQuals}</div>
                 )}
-                {isHtml(fBio)
-                  ? <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: fBio }} style={{ fontSize:14.5, color:'rgba(255,255,255,0.65)', lineHeight:1.75, marginBottom:16 }} />
-                  : <p style={{ fontSize:14.5, color:'rgba(255,255,255,0.65)', lineHeight:1.75, marginBottom:16 }}>{fBio}</p>}
+                <CmsField
+                  content={(fc ?? { bio: fBio }) as Record<string, unknown>}
+                  field="bio"
+                  style={{ fontSize:14.5, color:'rgba(255,255,255,0.65)', lineHeight:1.75, marginBottom:16 }}
+                />
                 <div style={{ display:'flex', flexDirection:'column', gap:8, marginBottom:24 }}>
                   {fCreds.slice(0, 5).map(text=>(
                     <div key={text} style={{ display:'flex', alignItems:'center', gap:10 }}>
@@ -613,9 +621,11 @@ export default async function LandingPage() {
                 )}
                 <div style={{ fontSize:12, fontWeight:700, color:'#4A90D9', letterSpacing:'0.1em', textTransform:'uppercase', marginBottom:14 }}>{pmBadge}</div>
                 <h2 style={{ fontSize:'clamp(22px,3vw,32px)', fontWeight:800, color:'#fff', marginBottom:20, lineHeight:1.2 }}>{pmHead}</h2>
-                {isHtml(pmDesc)
-                  ? <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: pmDesc }} style={{ fontSize:15, color:'rgba(255,255,255,0.6)', lineHeight:1.75, marginBottom:32 }} />
-                  : <p style={{ fontSize:15, color:'rgba(255,255,255,0.6)', lineHeight:1.75, marginBottom:32 }}>{pmDesc}</p>}
+                <CmsField
+                  content={(pm ?? { description: pmDesc }) as Record<string, unknown>}
+                  field="description"
+                  style={{ fontSize:15, color:'rgba(255,255,255,0.6)', lineHeight:1.75, marginBottom:32 }}
+                />
                 <a href={pmUrl} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#1B4F8A', color:'#fff', fontWeight:700, fontSize:13, padding:'10px 24px', borderRadius:7, textDecoration:'none' }}>{pmCta}</a>
               </div>
               <div style={{ display:'flex', flexDirection:'column', gap:16 }}>

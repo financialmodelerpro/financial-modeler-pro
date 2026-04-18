@@ -95,7 +95,8 @@
       "Bash(file *.ttf)",
       "Bash(.*undefined)",
       "Bash(null)",
-      "Bash(\\\\\\\\[object\" | head -10)"
+      "Bash(\\\\\\\\[object\" | head -10)",
+      "Bash(xargs basename *)"
     ]
   }
 }

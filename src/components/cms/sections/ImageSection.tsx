@@ -1,13 +1,13 @@
+import { CmsField } from '../CmsField';
+
 interface Props {
   content: Record<string, unknown>;
   styles: Record<string, unknown>;
 }
 
 export function ImageSection({ content, styles }: Props) {
-  const v = (k: string) => content[`${k}_visible`] !== false;
   const src     = content.src as string ?? '';
   const alt     = content.alt as string ?? '';
-  const caption = content.caption as string ?? '';
   const width   = content.width as string ?? '100%';
   const align   = (styles.textAlign as string) ?? 'center';
   const bgColor = (styles.bgColor as string) ?? '#ffffff';
@@ -37,11 +37,11 @@ export function ImageSection({ content, styles }: Props) {
             margin: align === 'center' ? '0 auto' : align === 'right' ? '0 0 0 auto' : undefined,
           }}
         />
-        {v('caption') && caption && (
-          <p style={{ fontSize: 13, color: '#9CA3AF', marginTop: 10, lineHeight: 1.5 }}>
-            {caption}
-          </p>
-        )}
+        <CmsField
+          content={content}
+          field="caption"
+          style={{ fontSize: 13, color: '#9CA3AF', marginTop: 10, lineHeight: 1.5 }}
+        />
       </div>
     </section>
   );

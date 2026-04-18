@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { isHtml } from './renderCmsText';
+import { CmsField, cmsVisible } from '../CmsField';
 
 interface Props {
   content: Record<string, unknown>;
@@ -22,9 +22,7 @@ function calcRemaining(target: string) {
 }
 
 export function CountdownSection({ content, styles }: Props) {
-  const v = (k: string) => content[`${k}_visible`] !== false;
   const heading    = content.heading as string ?? '';
-  const subtitle   = content.subtitle as string ?? '';
   const targetDate = content.targetDate as string ?? '';
   const ctaText    = content.ctaText as string ?? '';
   const ctaUrl     = content.ctaUrl as string ?? '';
@@ -53,21 +51,16 @@ export function CountdownSection({ content, styles }: Props) {
   return (
     <section style={{ background: bgColor, padding: `${py} 40px`, textAlign: 'center', color: textColor }}>
       <div style={{ maxWidth: 700, margin: '0 auto' }}>
-        {v('heading') && heading && (
+        {cmsVisible(content, 'heading') && heading && (
           <h2 style={{ fontSize: 'clamp(22px,3.5vw,36px)', fontWeight: 800, marginBottom: 12, lineHeight: 1.2 }}>
             {heading}
           </h2>
         )}
-        {v('subtitle') && subtitle && (
-          isHtml(subtitle) ? (
-            <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: subtitle }}
-              style={{ fontSize: 'clamp(14px,2vw,17px)', color: 'rgba(255,255,255,0.6)', marginBottom: 36, lineHeight: 1.6 }} />
-          ) : (
-            <p style={{ fontSize: 'clamp(14px,2vw,17px)', color: 'rgba(255,255,255,0.6)', marginBottom: 36, lineHeight: 1.6 }}>
-              {subtitle}
-            </p>
-          )
-        )}
+        <CmsField
+          content={content}
+          field="subtitle"
+          style={{ fontSize: 'clamp(14px,2vw,17px)', color: 'rgba(255,255,255,0.65)', marginBottom: 36, lineHeight: 1.6 }}
+        />
         {remaining.expired ? (
           <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>{expiredText}</p>
         ) : (
@@ -87,7 +80,7 @@ export function CountdownSection({ content, styles }: Props) {
             ))}
           </div>
         )}
-        {v('ctaText') && ctaText && ctaUrl && !remaining.expired && (
+        {cmsVisible(content, 'ctaText') && ctaText && ctaUrl && !remaining.expired && (
           <Link href={ctaUrl} style={{
             display: 'inline-flex', alignItems: 'center', gap: 8,
             background: '#2EAA4A', color: '#fff', fontWeight: 700, fontSize: 15,

@@ -1,7 +1,6 @@
 import Link from 'next/link';
 import { CmsParagraphs } from './CmsParagraphs';
-
-const HTML_RE = /<[a-z][\s\S]*>/i;
+import { CmsField, cmsVisible } from '../CmsField';
 
 interface Props {
   content: Record<string, unknown>;
@@ -9,10 +8,8 @@ interface Props {
 }
 
 export function HeroSection({ content, styles }: Props) {
-  const v = (k: string) => content[`${k}_visible`] !== false;
   const badge     = content.badge as string ?? '';
   const headline  = content.headline as string ?? '';
-  const subtitle  = content.subtitle as string ?? '';
   const cta1Text  = content.cta1Text as string ?? '';
   const cta1Url   = content.cta1Url as string ?? '';
   const cta2Text  = content.cta2Text as string ?? '';
@@ -30,7 +27,7 @@ export function HeroSection({ content, styles }: Props) {
       color: textColor,
     }}>
       <div style={{ maxWidth: 720, margin: '0 auto' }}>
-        {v('badge') && badge && (
+        {cmsVisible(content, 'badge') && badge && (
           <div style={{
             display: 'inline-flex', alignItems: 'center', gap: 7,
             background: 'rgba(46,170,74,0.18)', border: '1px solid rgba(46,170,74,0.45)',
@@ -40,7 +37,7 @@ export function HeroSection({ content, styles }: Props) {
             {badge}
           </div>
         )}
-        {v('headline') && headline && (
+        {cmsVisible(content, 'headline') && headline && (
           <h1 style={{
             fontSize: 'clamp(28px,5vw,52px)', fontWeight: 800,
             lineHeight: 1.15, marginBottom: 20, letterSpacing: '-0.02em',
@@ -48,22 +45,25 @@ export function HeroSection({ content, styles }: Props) {
             {headline}
           </h1>
         )}
-        {v('subtitle') && subtitle && (
-          HTML_RE.test(subtitle) ? (
-            <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: subtitle }}
-              style={{ fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.6)', lineHeight: 1.7, maxWidth: 560, margin: '0 auto 36px' }} />
-          ) : (
-            <div style={{ fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.6)', lineHeight: 1.7, maxWidth: 560, margin: '0 auto 36px' }}>
-              {subtitle.split(/\n\n|\n/).filter(Boolean).map((para, i) => (
-                <p key={i} style={{ margin: '0 0 14px' }}>{para}</p>
-              ))}
-            </div>
-          )
-        )}
+        <CmsField
+          content={content}
+          field="subtitle"
+          style={{ fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.6)', lineHeight: 1.7, maxWidth: 560, margin: '0 auto 36px' }}
+        />
+        <CmsField
+          content={content}
+          field="powerStatement"
+          style={{ fontSize: 'clamp(16px,2.3vw,22px)', color: 'rgba(255,255,255,0.92)', lineHeight: 1.45, fontWeight: 600, maxWidth: 640, margin: '0 auto 28px' }}
+        />
+        <CmsField
+          content={content}
+          field="trustLine"
+          style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', marginBottom: 24 }}
+        />
         <CmsParagraphs content={content} color="rgba(255,255,255,0.6)" />
-        {(v('cta1') && cta1Text.trim() && cta1Url) || (v('cta2') && cta2Text.trim() && cta2Url) ? (
+        {(cmsVisible(content, 'cta1') && cta1Text.trim() && cta1Url) || (cmsVisible(content, 'cta2') && cta2Text.trim() && cta2Url) ? (
           <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-            {v('cta1') && cta1Text.trim() && cta1Url && (
+            {cmsVisible(content, 'cta1') && cta1Text.trim() && cta1Url && (
               <Link href={cta1Url} style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 background: '#2EAA4A', color: '#fff',
@@ -74,7 +74,7 @@ export function HeroSection({ content, styles }: Props) {
                 {cta1Text}
               </Link>
             )}
-            {v('cta2') && cta2Text.trim() && cta2Url && (
+            {cmsVisible(content, 'cta2') && cta2Text.trim() && cta2Url && (
               <Link href={cta2Url} style={{
                 display: 'inline-flex', alignItems: 'center', gap: 8,
                 background: 'transparent', color: '#fff',

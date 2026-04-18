@@ -1,17 +1,12 @@
 import { CmsParagraphs } from './CmsParagraphs';
+import { CmsField, cmsVisible } from '../CmsField';
 
 interface Props {
   content: Record<string, unknown>;
   styles: Record<string, unknown>;
 }
 
-function isHtml(text: string): boolean {
-  return /<[a-z][\s\S]*>/i.test(text);
-}
-
 export function TextSection({ content, styles }: Props) {
-  const v = (k: string) => content[`${k}_visible`] !== false;
-  const body    = content.body as string ?? '';
   const heading = content.heading as string ?? '';
   const bgColor = (styles.bgColor as string) ?? '#ffffff';
   const color   = (styles.textColor as string) ?? '#374151';
@@ -27,7 +22,7 @@ export function TextSection({ content, styles }: Props) {
       textAlign: align as React.CSSProperties['textAlign'],
     }}>
       <div style={{ maxWidth: maxW, margin: '0 auto' }}>
-        {v('heading') && heading && (
+        {cmsVisible(content, 'heading') && heading && (
           <h2 style={{
             fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800,
             color: '#0D2E5A', marginBottom: 16,
@@ -35,18 +30,11 @@ export function TextSection({ content, styles }: Props) {
             {heading}
           </h2>
         )}
-        {v('body') && body && (
-          isHtml(body) ? (
-            <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: body }}
-              style={{ fontSize: 15, color, lineHeight: 1.7, textAlign: bodyAlign as React.CSSProperties['textAlign'] }} />
-          ) : (
-            <div style={{ fontSize: 15, color, lineHeight: 1.7, textAlign: bodyAlign as React.CSSProperties['textAlign'] }}>
-              {body.split(/\n\n|\n/).filter(Boolean).map((para, i) => (
-                <p key={i} style={{ margin: '0 0 14px' }}>{para}</p>
-              ))}
-            </div>
-          )
-        )}
+        <CmsField
+          content={content}
+          field="body"
+          style={{ fontSize: 15, color, lineHeight: 1.7, textAlign: bodyAlign as React.CSSProperties['textAlign'] }}
+        />
         <CmsParagraphs content={content} color={color} />
       </div>
     </section>

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { isHtml } from '@/src/lib/shared/htmlUtils';
+import { CmsField } from '@/src/components/cms/CmsField';
 
 interface Props {
   label: string;
@@ -33,19 +33,20 @@ export function FounderExpand({ label, longBio, experience, philosophy, name, ph
               {longBio && (
                 <div style={{ marginBottom:32 }}>
                   <h3 style={{ fontSize:18, fontWeight:800, color:'#fff', marginBottom:16 }}>Background</h3>
-                  {isHtml(longBio)
-                    ? <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: longBio }} style={{ fontSize:14, color:'rgba(255,255,255,0.85)', lineHeight:1.8 }} />
-                    : longBio.split(/\n\n|\n/).filter(p => p.trim()).map((para, i) => (
-                        <p key={i} style={{ fontSize:14, color:'rgba(255,255,255,0.85)', lineHeight:1.8, marginBottom:16 }}>{para.trim()}</p>
-                      ))
-                  }
+                  <CmsField
+                    content={{ longBio }}
+                    field="longBio"
+                    style={{ fontSize:14, color:'rgba(255,255,255,0.85)', lineHeight:1.8 }}
+                  />
                 </div>
               )}
               {philosophy && (
                 <div style={{ padding:24, background:'rgba(0,0,0,0.15)', borderRadius:10, marginBottom:32 }}>
                   <h3 style={{ fontSize:16, fontWeight:800, color:'#fff', marginBottom:12 }}>Modeling Philosophy</h3>
                   <blockquote style={{ borderLeft:'3px solid #1B4F8A', paddingLeft:20, margin:0, fontSize:15, color:'rgba(255,255,255,0.6)', lineHeight:1.8, fontStyle:'italic' }}>
-                    {isHtml(philosophy) ? <span dangerouslySetInnerHTML={{ __html: `&ldquo;${philosophy}&rdquo;` }} /> : <>&ldquo;{philosophy}&rdquo;</>}
+                    <span>&ldquo;</span>
+                    <CmsField content={{ philosophy }} field="philosophy" as="span" />
+                    <span>&rdquo;</span>
                   </blockquote>
                   <div style={{ marginTop:12, fontSize:12, color:'rgba(255,255,255,0.35)' }}>- {name}</div>
                 </div>
@@ -71,7 +72,12 @@ export function FounderExpand({ label, longBio, experience, philosophy, name, ph
                     {experience.map((item, i) => (
                       <div key={i} style={{ display:'flex', gap:10, alignItems:'flex-start' }}>
                         <span style={{ background:'#1ABC9C', color:'#fff', borderRadius:'50%', width:24, height:24, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, flexShrink:0 }}>{i+1}</span>
-                        <span style={{ fontSize:13, color:'rgba(255,255,255,0.85)', lineHeight:1.5, paddingTop:2 }}>{item}</span>
+                        <CmsField
+                          content={{ item }}
+                          field="item"
+                          as="span"
+                          style={{ fontSize:13, color:'rgba(255,255,255,0.85)', lineHeight:1.5, paddingTop:2 }}
+                        />
                       </div>
                     ))}
                   </div>

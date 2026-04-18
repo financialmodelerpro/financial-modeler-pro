@@ -1,5 +1,5 @@
 import { CmsParagraphs } from './CmsParagraphs';
-import { isHtml } from './renderCmsText';
+import { CmsField, cmsVisible } from '../CmsField';
 
 interface Props {
   content: Record<string, unknown>;
@@ -13,7 +13,6 @@ interface Card {
 }
 
 export function CardsSection({ content, styles }: Props) {
-  const v = (k: string) => content[`${k}_visible`] !== false;
   const cards   = (content.cards as Card[]) ?? [];
   const heading = content.heading as string ?? '';
   const badge   = content.badge as string ?? '';
@@ -26,16 +25,21 @@ export function CardsSection({ content, styles }: Props) {
   return (
     <section style={{ background: bgColor, padding: `${py} 40px` }}>
       <div style={{ maxWidth: maxW, margin: '0 auto' }}>
-        {v('badge') && badge && (
+        {cmsVisible(content, 'badge') && badge && (
           <div style={{ textAlign: 'center', fontSize: 12, fontWeight: 700, color: '#2EAA4A', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 10 }}>
             {badge}
           </div>
         )}
-        {v('heading') && heading && (
+        {cmsVisible(content, 'heading') && heading && (
           <h2 style={{ textAlign: 'center', fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: '#0D2E5A', marginBottom: 16 }}>
             {heading}
           </h2>
         )}
+        <CmsField
+          content={content}
+          field="description"
+          style={{ textAlign: 'center', fontSize: 15, color: '#6B7280', lineHeight: 1.7, marginBottom: 24, maxWidth: 720, marginLeft: 'auto', marginRight: 'auto' }}
+        />
         <div style={{ textAlign: 'center', marginBottom: 24 }}><CmsParagraphs content={content} color="#6B7280" /></div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 24 }}>
           {cards.map((card, i) => (
@@ -49,14 +53,11 @@ export function CardsSection({ content, styles }: Props) {
               <div style={{ fontSize: 14, fontWeight: 700, color: '#0D2E5A', marginBottom: 8 }}>
                 {card.title}
               </div>
-              {isHtml(card.description) ? (
-                <div className="fmp-rich-text" dangerouslySetInnerHTML={{ __html: card.description }}
-                  style={{ fontSize: 12.5, color: '#6B7280', lineHeight: 1.6 }} />
-              ) : (
-                <div style={{ fontSize: 12.5, color: '#6B7280', lineHeight: 1.6 }}>
-                  {card.description}
-                </div>
-              )}
+              <CmsField
+                content={card as unknown as Record<string, unknown>}
+                field="description"
+                style={{ fontSize: 12.5, color: '#6B7280', lineHeight: 1.6 }}
+              />
             </div>
           ))}
         </div>
