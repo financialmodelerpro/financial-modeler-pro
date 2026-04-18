@@ -26,6 +26,7 @@ export async function GET() {
 interface CreateBody {
   name?: string;
   template_type?: string;
+  variant_id?: string;
   dimensions?: { width: number; height: number };
   background?: Record<string, unknown>;
   elements?: unknown[];
@@ -53,6 +54,7 @@ export async function POST(req: NextRequest) {
       background: body.background ?? { type: 'color', color: '#1B4F72' },
       elements: body.elements ?? [],
       ai_captions: body.ai_captions ?? {},
+      content: { variant_id: body.variant_id ?? 'default' },
       created_by: user.email || user.name || null,
     })
     .select('*')

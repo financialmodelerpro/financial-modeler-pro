@@ -8,9 +8,10 @@ import { CanvasEditor } from '@/src/components/marketing/canvas/CanvasEditor';
 import { QuickFillPanel } from '@/src/components/marketing/QuickFillPanel';
 import { CaptionsPanel } from '@/src/components/marketing/CaptionsPanel';
 import { DesignsSidebar } from '@/src/components/marketing/DesignsSidebar';
-import { PRESETS, getPreset, FMP_EXPORT_PRESET_IDS } from '@/src/lib/marketing/presets';
+import { PRESETS, PRESET_GROUPS, getPreset, FMP_EXPORT_PRESET_IDS } from '@/src/lib/marketing/presets';
+import { VARIANTS, getVariant } from '@/src/lib/marketing/variants';
 import { autoFillElements, type AutoFillSource } from '@/src/lib/marketing/autoFill';
-import type { Design, BrandKit, CanvasElement, CanvasBackground } from '@/src/lib/marketing/types';
+import type { Design, BrandKit, CanvasElement, CanvasBackground, VariantId } from '@/src/lib/marketing/types';
 import { DEFAULT_BRAND_KIT } from '@/src/lib/marketing/types';
 
 const NAVY = '#0D2E5A';
@@ -20,6 +21,8 @@ interface SavedDesignRow {
   id: string;
   name: string;
   template_type: string;
+  variant_id?: VariantId;
+  content?: { variant_id?: string };
   dimensions?: { width: number; height: number };
   background?: CanvasBackground;
   elements?: CanvasElement[];
@@ -85,7 +88,7 @@ export default function MarketingStudioPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [brandKitLoaded]);
 
-  // ── Presets / dimensions ─────────────────────────────────────────────────
+  // ── Presets / variants / dimensions ──────────────────────────────────────
   function applyPreset(presetId: string) {
     const p = getPreset(presetId);
     if (!p) return;
@@ -94,11 +97,28 @@ export default function MarketingStudioPage() {
       id: 'new',
       name: p.name,
       template_type: p.id,
+      variant_id: 'default',
       dimensions: p.dimensions,
       background, elements,
       ai_captions: design.ai_captions, // preserve captions across preset swap
     });
     setCurrentDesignId(null);
+  }
+
+  /** Swap the elements+background layout to a variant while keeping dimensions. */
+  function applyVariant(variantId: VariantId) {
+    if (variantId === 'default') {
+      // Restore the preset's default layout at current dimensions
+      const p = getPreset(design.template_type);
+      if (!p) return;
+      const { background, elements } = p.buildPreset(brandKit);
+      setDesign(d => ({ ...d, variant_id: 'default', background, elements }));
+      return;
+    }
+    const v = getVariant(variantId);
+    if (!v) return;
+    const { background, elements } = v.build(brandKit, design.dimensions);
+    setDesign(d => ({ ...d, variant_id: variantId, background, elements }));
   }
 
   function newBlank() { applyPreset('blank-custom'); }
@@ -120,6 +140,7 @@ export default function MarketingStudioPage() {
       const payload = {
         name: design.name,
         template_type: design.template_type,
+        variant_id: design.variant_id ?? 'default',
         dimensions: design.dimensions,
         background: design.background,
         elements: design.elements,
@@ -147,10 +168,12 @@ export default function MarketingStudioPage() {
   }
 
   function loadSaved(row: SavedDesignRow) {
+    const variantId = (row.variant_id ?? (row.content?.variant_id as VariantId | undefined) ?? 'default') as VariantId;
     setDesign({
       id: row.id,
       name: row.name,
       template_type: row.template_type,
+      variant_id: variantId,
       dimensions: row.dimensions ?? { width: 1280, height: 720 },
       background: row.background ?? { type: 'color', color: brandKit.primary_color },
       elements: row.elements ?? [],
@@ -279,37 +302,76 @@ export default function MarketingStudioPage() {
           </div>
         </div>
 
-        {/* Preset picker + dimensions */}
-        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-            {PRESETS.map(p => {
-              const isFmp = p.id.startsWith('fmp-');
-              const active = design.template_type === p.id;
-              return (
-                <button
-                  key={p.id}
-                  onClick={() => applyPreset(p.id)}
-                  title={p.description}
-                  style={{
-                    padding: '7px 12px', fontSize: 11, fontWeight: 700, borderRadius: 6, cursor: 'pointer',
-                    border: active ? `2px solid ${NAVY}` : `1px solid ${isFmp ? '#F59E0B' : BORDER}`,
-                    background: active ? '#F0F5FA' : (isFmp ? '#FFFBEB' : '#fff'),
-                    color: NAVY,
-                    display: 'inline-flex', alignItems: 'center', gap: 5,
-                  }}
-                >
-                  {isFmp && <span style={{ fontSize: 9, fontWeight: 800, color: '#fff', background: '#F59E0B', padding: '1px 5px', borderRadius: 3, letterSpacing: '0.05em' }}>FMP</span>}
-                  {p.name}
-                </button>
-              );
-            })}
+        {/* Preset picker — grouped by platform */}
+        <div style={{ background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 8, padding: 10, marginBottom: 10 }}>
+          <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+            {PRESET_GROUPS.filter(g => g.presets.length > 0).map(group => (
+              <div key={group.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ fontSize: 9, fontWeight: 800, color: '#9CA3AF', letterSpacing: '0.1em', textTransform: 'uppercase' }}>{group.label}</div>
+                <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                  {group.presets.map(p => {
+                    const isFmp = p.id.startsWith('fmp-');
+                    const active = design.template_type === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => applyPreset(p.id)}
+                        title={`${p.description} (${p.dimensions.width}×${p.dimensions.height})`}
+                        style={{
+                          padding: '6px 10px', fontSize: 11, fontWeight: 700, borderRadius: 5, cursor: 'pointer',
+                          border: active ? `2px solid ${NAVY}` : `1px solid ${isFmp ? '#F59E0B' : BORDER}`,
+                          background: active ? '#F0F5FA' : (isFmp ? '#FFFBEB' : '#fff'),
+                          color: NAVY,
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                        }}
+                      >
+                        {isFmp && <span style={{ fontSize: 8, fontWeight: 800, color: '#fff', background: '#F59E0B', padding: '1px 4px', borderRadius: 2, letterSpacing: '0.05em' }}>FMP</span>}
+                        {p.name.replace(/^FMP\s+/, '')}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 4, alignItems: 'center', background: '#F9FAFB', border: `1px solid ${BORDER}`, borderRadius: 6, padding: '3px 8px', alignSelf: 'flex-end' }}>
+              <span style={{ fontSize: 10, color: '#6B7280' }}>W</span>
+              <input type="number" value={design.dimensions.width} onChange={e => updateDimensions(Number(e.target.value), design.dimensions.height)} style={{ width: 64, border: 'none', fontSize: 12, fontWeight: 600, color: NAVY, outline: 'none', background: 'transparent' }} />
+              <span style={{ fontSize: 10, color: '#6B7280' }}>× H</span>
+              <input type="number" value={design.dimensions.height} onChange={e => updateDimensions(design.dimensions.width, Number(e.target.value))} style={{ width: 64, border: 'none', fontSize: 12, fontWeight: 600, color: NAVY, outline: 'none', background: 'transparent' }} />
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center', background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 6, padding: '3px 8px' }}>
-            <span style={{ fontSize: 10, color: '#6B7280' }}>W</span>
-            <input type="number" value={design.dimensions.width} onChange={e => updateDimensions(Number(e.target.value), design.dimensions.height)} style={{ width: 64, border: 'none', fontSize: 12, fontWeight: 600, color: NAVY, outline: 'none' }} />
-            <span style={{ fontSize: 10, color: '#6B7280' }}>× H</span>
-            <input type="number" value={design.dimensions.height} onChange={e => updateDimensions(design.dimensions.width, Number(e.target.value))} style={{ width: 64, border: 'none', fontSize: 12, fontWeight: 600, color: NAVY, outline: 'none' }} />
-          </div>
+
+          {/* Variant selector — only shown for non-blank presets */}
+          {design.template_type !== 'blank-custom' && (
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: `1px dashed ${BORDER}`, display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 9, fontWeight: 800, color: '#9CA3AF', letterSpacing: '0.1em', textTransform: 'uppercase' }}>Variant</span>
+              <button
+                onClick={() => applyVariant('default')}
+                title="Default preset layout"
+                style={{
+                  padding: '5px 9px', fontSize: 11, fontWeight: 600, borderRadius: 5, cursor: 'pointer',
+                  border: (design.variant_id ?? 'default') === 'default' ? `2px solid ${NAVY}` : `1px solid ${BORDER}`,
+                  background: (design.variant_id ?? 'default') === 'default' ? '#F0F5FA' : '#fff', color: NAVY,
+                }}
+              >⭐ Default</button>
+              {VARIANTS.map(v => {
+                const active = design.variant_id === v.id;
+                return (
+                  <button
+                    key={v.id}
+                    onClick={() => applyVariant(v.id)}
+                    title={v.description}
+                    style={{
+                      padding: '5px 9px', fontSize: 11, fontWeight: 600, borderRadius: 5, cursor: 'pointer',
+                      border: active ? `2px solid ${NAVY}` : `1px solid ${BORDER}`,
+                      background: active ? '#F0F5FA' : '#fff', color: NAVY,
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                    }}
+                  >{v.icon} {v.name}</button>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* Quick Fill */}

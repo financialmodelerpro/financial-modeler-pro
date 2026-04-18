@@ -128,7 +128,8 @@ export interface CanvasDimensions { width: number; height: number }
 export interface Design {
   id: string;
   name: string;
-  template_type: string; // 'youtube-thumbnail' | 'linkedin-post' | 'instagram-post' | 'custom' | ...
+  template_type: string; // preset id, e.g. 'fmp-youtube-thumbnail', 'blank-custom'
+  variant_id?: VariantId;  // optional: 'default' or a variant like 'session-announcement'
   dimensions: CanvasDimensions;
   background: CanvasBackground;
   elements: CanvasElement[];
@@ -137,15 +138,32 @@ export interface Design {
 
 // ── Template Preset ───────────────────────────────────────────────────────────
 
+export type PresetPlatform = 'youtube' | 'linkedin' | 'instagram' | 'facebook' | 'twitter' | 'whatsapp' | 'custom';
+
 export interface TemplatePreset {
   id: string;
   name: string;
   description: string;
-  category: 'youtube' | 'linkedin' | 'instagram' | 'custom';
+  category: PresetPlatform;
+  /** Display grouping in the picker (shorthand for category, e.g. 'YOUTUBE'). */
+  platform: PresetPlatform;
   dimensions: CanvasDimensions;
   aspectRatio: string;
   /** Build initial elements + background using brand kit colors/assets. */
   buildPreset: (kit: BrandKit) => { background: CanvasBackground; elements: CanvasElement[] };
+}
+
+// ── Variants ──────────────────────────────────────────────────────────────────
+
+export type VariantId = 'default' | 'session-announcement' | 'quote-insight' | 'platform-launch' | 'achievement-spotlight' | 'article-promo';
+
+export interface TemplateVariant {
+  id: VariantId;
+  name: string;
+  description: string;
+  icon: string;
+  /** Build variant-specific elements scaled to target dimensions. */
+  build: (kit: BrandKit, dims: CanvasDimensions) => { background: CanvasBackground; elements: CanvasElement[] };
 }
 
 // ── Saved design (DB row) ─────────────────────────────────────────────────────

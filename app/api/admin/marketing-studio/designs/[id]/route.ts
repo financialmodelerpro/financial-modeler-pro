@@ -25,6 +25,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
 interface PatchBody {
   name?: string;
   template_type?: string;
+  variant_id?: string;
   dimensions?: { width: number; height: number };
   background?: Record<string, unknown>;
   elements?: unknown[];
@@ -48,6 +49,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   if (body.elements      !== undefined) patch.elements      = body.elements;
   if (body.ai_captions   !== undefined) patch.ai_captions   = body.ai_captions;
   if (body.preview_url   !== undefined) patch.preview_url   = body.preview_url;
+  if (body.variant_id    !== undefined) patch.content       = { variant_id: body.variant_id };
 
   const sb = getServerClient();
   const { data, error } = await sb.from('marketing_designs').update(patch).eq('id', id).select('*').single();

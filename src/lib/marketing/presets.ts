@@ -6,7 +6,7 @@ const fmpYoutubeThumbnailPreset: TemplatePreset = {
   id: 'fmp-youtube-thumbnail',
   name: 'FMP YouTube Thumbnail',
   description: 'Signature Financial Modeler Pro thumbnail — session badge, teal accent, founder portrait.',
-  category: 'youtube',
+  category: 'youtube', platform: 'youtube',
   dimensions: { width: 1280, height: 720 },
   aspectRatio: '16:9',
   buildPreset: (kit) => {
@@ -100,7 +100,7 @@ const fmpLinkedinPostPreset: TemplatePreset = {
   id: 'fmp-linkedin-post',
   name: 'FMP LinkedIn Post',
   description: 'Signature FMP LinkedIn share — deep navy, headline, founder mini-card, series tag.',
-  category: 'linkedin',
+  category: 'linkedin', platform: 'linkedin',
   dimensions: { width: 1200, height: 627 },
   aspectRatio: '1.91:1',
   buildPreset: (kit) => {
@@ -167,7 +167,7 @@ const fmpInstagramPostPreset: TemplatePreset = {
   id: 'fmp-instagram-post',
   name: 'FMP Instagram Post',
   description: 'Signature FMP Instagram square — centered headline, gold divider, circular founder portrait.',
-  category: 'instagram',
+  category: 'instagram', platform: 'instagram',
   dimensions: { width: 1080, height: 1080 },
   aspectRatio: '1:1',
   buildPreset: (kit) => {
@@ -224,7 +224,7 @@ const youtubePreset: TemplatePreset = {
   id: 'youtube-thumbnail',
   name: 'YouTube Thumbnail',
   description: 'Bold 1280×720 thumbnail — logo, big title, founder photo, accent bar.',
-  category: 'youtube',
+  category: 'youtube', platform: 'youtube',
   dimensions: { width: 1280, height: 720 },
   aspectRatio: '16:9',
   buildPreset: (kit) => {
@@ -283,7 +283,7 @@ const linkedinPreset: TemplatePreset = {
   id: 'linkedin-post',
   name: 'LinkedIn Post',
   description: 'Professional 1200×627 share image — eyebrow, headline, body, author.',
-  category: 'linkedin',
+  category: 'linkedin', platform: 'linkedin',
   dimensions: { width: 1200, height: 627 },
   aspectRatio: '1.91:1',
   buildPreset: (kit) => {
@@ -342,7 +342,7 @@ const instagramPreset: TemplatePreset = {
   id: 'instagram-post',
   name: 'Instagram Post',
   description: 'Square 1080×1080 — large headline, subtitle, hashtag line.',
-  category: 'instagram',
+  category: 'instagram', platform: 'instagram',
   dimensions: { width: 1080, height: 1080 },
   aspectRatio: '1:1',
   buildPreset: (kit) => {
@@ -402,7 +402,7 @@ const blankPreset: TemplatePreset = {
   id: 'blank-custom',
   name: 'Blank Custom',
   description: 'Empty canvas — bring your own dimensions and elements.',
-  category: 'custom',
+  category: 'custom', platform: 'custom',
   dimensions: { width: 1200, height: 1200 },
   aspectRatio: '1:1',
   buildPreset: (_kit) => ({
@@ -416,7 +416,7 @@ const storyPreset: TemplatePreset = {
   id: 'instagram-story',
   name: 'Instagram Story',
   description: 'Vertical 1080×1920 for IG/TikTok stories.',
-  category: 'instagram',
+  category: 'instagram', platform: 'instagram',
   dimensions: { width: 1080, height: 1920 },
   aspectRatio: '9:16',
   buildPreset: (kit) => ({
@@ -441,14 +441,329 @@ const storyPreset: TemplatePreset = {
   }),
 };
 
+// ══════════════════════════════════════════════════════════════════════════════
+// PHASE 3A — additional FMP platform presets
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Shared helper: FMP-branded background resolution. Uses first brand-typed
+ * background from the library if uploaded, else falls back to a navy gradient.
+ */
+function fmpBackground(kit: BrandKit, overlay = 15): CanvasBackground {
+  const brandBg = kit.background_library.find(b => b.type === 'brand' && b.url)
+               ?? kit.background_library.find(b => b.url);
+  if (brandBg?.url) return { type: 'image', image: brandBg.url, overlay: { color: '#000000', opacity: overlay } };
+  return { type: 'gradient', gradient: { from: '#0A1F3C', to: kit.primary_color, direction: 'to bottom right' } };
+}
+
+// ── FMP YouTube Banner 2560×1440 ──────────────────────────────────────────────
+const fmpYoutubeBannerPreset: TemplatePreset = {
+  id: 'fmp-youtube-banner',
+  name: 'FMP YouTube Banner',
+  description: 'YouTube channel banner 2560×1440 — large brand + safe-area centered layout.',
+  category: 'youtube', platform: 'youtube',
+  dimensions: { width: 2560, height: 1440 },
+  aspectRatio: '16:9',
+  buildPreset: (kit) => ({
+    background: fmpBackground(kit, 20),
+    elements: [
+      kit.logo_url ? {
+        id: uid(), type: 'image', x: 1130, y: 450, width: 300, height: 100, zIndex: 5,
+        image: { src: kit.logo_url, objectFit: 'contain', borderRadius: 0, opacity: 100, filter: 'none' as const, brightness: 100, lockAspectRatio: true, borderColor: 'transparent', borderWidth: 0 },
+      } : null,
+      {
+        id: 'title-' + uid(), type: 'text', x: 780, y: 580, width: 1000, height: 140, zIndex: 6,
+        text: { content: 'Financial Modeler Pro', fontSize: 90, fontWeight: 800, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.0, letterSpacing: -2, fontStyle: 'normal' },
+      },
+      {
+        id: uid(), type: 'shape', x: 1180, y: 740, width: 200, height: 6, zIndex: 5,
+        shape: { backgroundColor: kit.accent_color, borderRadius: 3, borderColor: 'transparent', borderWidth: 0, opacity: 100, lockAspectRatio: false },
+      },
+      {
+        id: 'subtitle-' + uid(), type: 'text', x: 680, y: 770, width: 1200, height: 60, zIndex: 6,
+        text: { content: 'Structured Modeling. Real-World Finance.', fontSize: 38, fontWeight: 500, color: kit.secondary_color, fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.3, letterSpacing: 2, fontStyle: 'normal' },
+      },
+    ].filter(Boolean) as CanvasElement[],
+  }),
+};
+
+// ── FMP LinkedIn Banner 1584×396 ──────────────────────────────────────────────
+const fmpLinkedinBannerPreset: TemplatePreset = {
+  id: 'fmp-linkedin-banner',
+  name: 'FMP LinkedIn Banner',
+  description: 'LinkedIn profile banner 1584×396 — side-by-side logo + tagline.',
+  category: 'linkedin', platform: 'linkedin',
+  dimensions: { width: 1584, height: 396 },
+  aspectRatio: '4:1',
+  buildPreset: (kit) => ({
+    background: fmpBackground(kit, 15),
+    elements: [
+      (kit.logo_light_url ?? kit.logo_url) ? {
+        id: uid(), type: 'image', x: 80, y: 140, width: 260, height: 100, zIndex: 5,
+        image: { src: (kit.logo_light_url ?? kit.logo_url)!, objectFit: 'contain', borderRadius: 0, opacity: 100, filter: 'none' as const, brightness: 100, lockAspectRatio: true, borderColor: 'transparent', borderWidth: 0 },
+      } : null,
+      {
+        id: uid(), type: 'shape', x: 400, y: 140, width: 2, height: 110, zIndex: 4,
+        shape: { backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: 0, borderColor: 'transparent', borderWidth: 0, opacity: 100, lockAspectRatio: false },
+      },
+      {
+        id: 'title-' + uid(), type: 'text', x: 440, y: 140, width: 1080, height: 54, zIndex: 6,
+        text: { content: 'Corporate Finance & Transaction Advisory', fontSize: 36, fontWeight: 800, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.1, letterSpacing: -1, fontStyle: 'normal' },
+      },
+      {
+        id: 'subtitle-' + uid(), type: 'text', x: 440, y: 200, width: 1080, height: 42, zIndex: 6,
+        text: { content: 'Structured Modeling. Real-World Finance.', fontSize: 22, fontWeight: 500, color: kit.secondary_color, fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.3, letterSpacing: 1, fontStyle: 'italic' },
+      },
+      {
+        id: uid(), type: 'shape', x: 440, y: 260, width: 120, height: 4, zIndex: 5,
+        shape: { backgroundColor: kit.accent_color, borderRadius: 2, borderColor: 'transparent', borderWidth: 0, opacity: 100, lockAspectRatio: false },
+      },
+    ].filter(Boolean) as CanvasElement[],
+  }),
+};
+
+// ── FMP Instagram Story 1080×1920 ─────────────────────────────────────────────
+const fmpInstagramStoryPreset: TemplatePreset = {
+  id: 'fmp-instagram-story',
+  name: 'FMP Instagram Story',
+  description: 'Vertical story 1080×1920 — big title center, founder photo bottom, tap-to-next CTA.',
+  category: 'instagram', platform: 'instagram',
+  dimensions: { width: 1080, height: 1920 },
+  aspectRatio: '9:16',
+  buildPreset: (kit) => {
+    const logo = kit.logo_light_url ?? kit.logo_url;
+    return {
+      background: fmpBackground(kit, 25),
+      elements: [
+        logo ? {
+          id: uid(), type: 'image', x: 440, y: 120, width: 200, height: 60, zIndex: 5,
+          image: { src: logo, objectFit: 'contain', borderRadius: 0, opacity: 100, filter: 'none' as const, brightness: 100, lockAspectRatio: true, borderColor: 'transparent', borderWidth: 0 },
+        } : null,
+        {
+          id: 'tag-' + uid(), type: 'text', x: 80, y: 580, width: 920, height: 36, zIndex: 6,
+          text: { content: 'FMP REAL-WORLD MODELING', fontSize: 18, fontWeight: 700, color: kit.secondary_color, fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.2, letterSpacing: 4, fontStyle: 'normal' },
+        },
+        {
+          id: 'title-' + uid(), type: 'text', x: 80, y: 660, width: 920, height: 440, zIndex: 6,
+          text: { content: 'Master\nFinancial\nModeling', fontSize: 140, fontWeight: 800, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.02, letterSpacing: -2, fontStyle: 'normal' },
+        },
+        {
+          id: uid(), type: 'shape', x: 490, y: 1130, width: 100, height: 4, zIndex: 5,
+          shape: { backgroundColor: kit.accent_color, borderRadius: 2, borderColor: 'transparent', borderWidth: 0, opacity: 100, lockAspectRatio: false },
+        },
+        {
+          id: 'subtitle-' + uid(), type: 'text', x: 80, y: 1170, width: 920, height: 160, zIndex: 6,
+          text: { content: 'Free certification. Real practitioner training.', fontSize: 36, fontWeight: 500, color: 'rgba(255,255,255,0.82)', fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.3, letterSpacing: 0, fontStyle: 'normal' },
+        },
+        {
+          id: uid(), type: 'image', x: 440, y: 1500, width: 200, height: 200, zIndex: 5,
+          image: { src: kit.founder_photo_url ?? '', objectFit: 'cover', borderRadius: 50, opacity: 100, filter: 'none' as const, brightness: 100, lockAspectRatio: true, borderColor: kit.secondary_color, borderWidth: 4 },
+        },
+        {
+          id: uid(), type: 'text', x: 80, y: 1740, width: 920, height: 36, zIndex: 6,
+          text: { content: 'Ahmad Din · Financial Modeler Pro', fontSize: 22, fontWeight: 700, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.2, letterSpacing: 0, fontStyle: 'normal' },
+        },
+        {
+          id: 'series-' + uid(), type: 'text', x: 80, y: 1790, width: 920, height: 30, zIndex: 6,
+          text: { content: 'Swipe Up · financialmodelerpro.com', fontSize: 18, fontWeight: 500, color: kit.secondary_color, fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.3, letterSpacing: 1, fontStyle: 'normal' },
+        },
+      ].filter(Boolean) as CanvasElement[],
+    };
+  },
+};
+
+// ── FMP Facebook Post 1200×630 ────────────────────────────────────────────────
+const fmpFacebookPostPreset: TemplatePreset = {
+  id: 'fmp-facebook-post',
+  name: 'FMP Facebook Post',
+  description: 'Facebook share image 1200×630 — conversational headline + founder byline.',
+  category: 'facebook', platform: 'facebook',
+  dimensions: { width: 1200, height: 630 },
+  aspectRatio: '1.91:1',
+  buildPreset: (kit) => {
+    const logo = kit.logo_light_url ?? kit.logo_url;
+    return {
+      background: fmpBackground(kit, 18),
+      elements: [
+        logo ? {
+          id: uid(), type: 'image', x: 60, y: 50, width: 150, height: 50, zIndex: 5,
+          image: { src: logo, objectFit: 'contain', borderRadius: 0, opacity: 100, filter: 'none' as const, brightness: 100, lockAspectRatio: true, borderColor: 'transparent', borderWidth: 0 },
+        } : null,
+        {
+          id: 'tag-' + uid(), type: 'text', x: 900, y: 58, width: 240, height: 36, zIndex: 6,
+          text: { content: 'FMP NEW POST', fontSize: 13, fontWeight: 700, color: kit.secondary_color, fontFamily: kit.font_family, textAlign: 'right', lineHeight: 2.5, letterSpacing: 3, fontStyle: 'normal' },
+        },
+        {
+          id: 'title-' + uid(), type: 'text', x: 60, y: 170, width: 1080, height: 180, zIndex: 6,
+          text: { content: 'Why most financial models break in production', fontSize: 48, fontWeight: 800, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.1, letterSpacing: -1, fontStyle: 'normal' },
+        },
+        {
+          id: uid(), type: 'shape', x: 60, y: 370, width: 100, height: 4, zIndex: 5,
+          shape: { backgroundColor: kit.accent_color, borderRadius: 2, borderColor: 'transparent', borderWidth: 0, opacity: 100, lockAspectRatio: false },
+        },
+        {
+          id: 'subtitle-' + uid(), type: 'text', x: 60, y: 398, width: 1080, height: 80, zIndex: 6,
+          text: { content: 'A candid look at what separates analyst-built templates from deal-ready models.', fontSize: 22, fontWeight: 400, color: 'rgba(255,255,255,0.85)', fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.4, letterSpacing: 0, fontStyle: 'normal' },
+        },
+        {
+          id: uid(), type: 'image', x: 60, y: 520, width: 54, height: 54, zIndex: 5,
+          image: { src: kit.founder_photo_url ?? '', objectFit: 'cover', borderRadius: 50, opacity: 100, filter: 'none' as const, brightness: 100, lockAspectRatio: true, borderColor: kit.secondary_color, borderWidth: 2 },
+        },
+        {
+          id: uid(), type: 'text', x: 128, y: 530, width: 400, height: 40, zIndex: 6,
+          text: { content: 'Ahmad Din · Financial Modeler Pro', fontSize: 16, fontWeight: 600, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.4, letterSpacing: 0, fontStyle: 'normal' },
+        },
+        {
+          id: 'series-' + uid(), type: 'text', x: 820, y: 540, width: 320, height: 30, zIndex: 6,
+          text: { content: 'financialmodelerpro.com', fontSize: 16, fontWeight: 500, color: kit.secondary_color, fontFamily: kit.font_family, textAlign: 'right', lineHeight: 1.4, letterSpacing: 0, fontStyle: 'normal' },
+        },
+      ].filter(Boolean) as CanvasElement[],
+    };
+  },
+};
+
+// ── FMP Twitter/X Post 1600×900 ───────────────────────────────────────────────
+const fmpTwitterPostPreset: TemplatePreset = {
+  id: 'fmp-twitter-post',
+  name: 'FMP Twitter/X Post',
+  description: 'Twitter/X share card 1600×900 — punchy headline, mini-byline.',
+  category: 'twitter', platform: 'twitter',
+  dimensions: { width: 1600, height: 900 },
+  aspectRatio: '16:9',
+  buildPreset: (kit) => {
+    const logo = kit.logo_light_url ?? kit.logo_url;
+    return {
+      background: fmpBackground(kit, 20),
+      elements: [
+        logo ? {
+          id: uid(), type: 'image', x: 80, y: 70, width: 180, height: 60, zIndex: 5,
+          image: { src: logo, objectFit: 'contain', borderRadius: 0, opacity: 100, filter: 'none' as const, brightness: 100, lockAspectRatio: true, borderColor: 'transparent', borderWidth: 0 },
+        } : null,
+        {
+          id: 'tag-' + uid(), type: 'text', x: 1200, y: 80, width: 320, height: 40, zIndex: 6,
+          text: { content: 'FMP · MODELING', fontSize: 16, fontWeight: 700, color: kit.secondary_color, fontFamily: kit.font_family, textAlign: 'right', lineHeight: 2.3, letterSpacing: 4, fontStyle: 'normal' },
+        },
+        {
+          id: 'title-' + uid(), type: 'text', x: 80, y: 260, width: 1440, height: 260, zIndex: 6,
+          text: { content: '3 mistakes that kill M&A models in week 2', fontSize: 80, fontWeight: 800, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.08, letterSpacing: -2, fontStyle: 'normal' },
+        },
+        {
+          id: uid(), type: 'shape', x: 80, y: 560, width: 160, height: 6, zIndex: 5,
+          shape: { backgroundColor: kit.accent_color, borderRadius: 3, borderColor: 'transparent', borderWidth: 0, opacity: 100, lockAspectRatio: false },
+        },
+        {
+          id: 'subtitle-' + uid(), type: 'text', x: 80, y: 600, width: 1440, height: 80, zIndex: 6,
+          text: { content: 'A practitioner take — not a textbook.', fontSize: 32, fontWeight: 500, color: 'rgba(255,255,255,0.82)', fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.3, letterSpacing: 0, fontStyle: 'italic' },
+        },
+        {
+          id: uid(), type: 'image', x: 80, y: 760, width: 64, height: 64, zIndex: 5,
+          image: { src: kit.founder_photo_url ?? '', objectFit: 'cover', borderRadius: 50, opacity: 100, filter: 'none' as const, brightness: 100, lockAspectRatio: true, borderColor: kit.secondary_color, borderWidth: 2 },
+        },
+        {
+          id: uid(), type: 'text', x: 160, y: 772, width: 600, height: 40, zIndex: 6,
+          text: { content: '@FinancialModelerPro', fontSize: 20, fontWeight: 700, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'left', lineHeight: 1.4, letterSpacing: 0, fontStyle: 'normal' },
+        },
+        {
+          id: 'series-' + uid(), type: 'text', x: 1080, y: 780, width: 440, height: 30, zIndex: 6,
+          text: { content: 'A thread ↓', fontSize: 22, fontWeight: 600, color: kit.accent_color, fontFamily: kit.font_family, textAlign: 'right', lineHeight: 1.3, letterSpacing: 0, fontStyle: 'normal' },
+        },
+      ].filter(Boolean) as CanvasElement[],
+    };
+  },
+};
+
+// ── FMP WhatsApp Status 1080×1920 ─────────────────────────────────────────────
+const fmpWhatsappStatusPreset: TemplatePreset = {
+  id: 'fmp-whatsapp-status',
+  name: 'FMP WhatsApp Status',
+  description: 'Vertical 1080×1920 status/broadcast — direct CTA, minimal copy.',
+  category: 'whatsapp', platform: 'whatsapp',
+  dimensions: { width: 1080, height: 1920 },
+  aspectRatio: '9:16',
+  buildPreset: (kit) => {
+    const logo = kit.logo_light_url ?? kit.logo_url;
+    return {
+      background: fmpBackground(kit, 25),
+      elements: [
+        logo ? {
+          id: uid(), type: 'image', x: 440, y: 140, width: 200, height: 60, zIndex: 5,
+          image: { src: logo, objectFit: 'contain', borderRadius: 0, opacity: 100, filter: 'none' as const, brightness: 100, lockAspectRatio: true, borderColor: 'transparent', borderWidth: 0 },
+        } : null,
+        {
+          id: 'tag-' + uid(), type: 'text', x: 80, y: 640, width: 920, height: 36, zIndex: 6,
+          text: { content: 'NEW DROP · FMP', fontSize: 20, fontWeight: 700, color: kit.secondary_color, fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.2, letterSpacing: 4, fontStyle: 'normal' },
+        },
+        {
+          id: 'title-' + uid(), type: 'text', x: 80, y: 740, width: 920, height: 360, zIndex: 6,
+          text: { content: 'Free Financial Modeling Certification', fontSize: 100, fontWeight: 800, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.05, letterSpacing: -2, fontStyle: 'normal' },
+        },
+        {
+          id: uid(), type: 'shape', x: 490, y: 1140, width: 100, height: 4, zIndex: 5,
+          shape: { backgroundColor: kit.accent_color, borderRadius: 2, borderColor: 'transparent', borderWidth: 0, opacity: 100, lockAspectRatio: false },
+        },
+        {
+          id: 'subtitle-' + uid(), type: 'text', x: 80, y: 1180, width: 920, height: 120, zIndex: 6,
+          text: { content: 'Practitioner-built course. Real-world project. No cost.', fontSize: 34, fontWeight: 500, color: 'rgba(255,255,255,0.85)', fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.3, letterSpacing: 0, fontStyle: 'normal' },
+        },
+        // Big CTA button
+        {
+          id: uid(), type: 'shape', x: 240, y: 1500, width: 600, height: 110, zIndex: 8,
+          shape: { backgroundColor: kit.accent_color, borderRadius: 18, borderColor: 'transparent', borderWidth: 0, opacity: 100, lockAspectRatio: false },
+        },
+        {
+          id: uid(), type: 'text', x: 240, y: 1500, width: 600, height: 110, zIndex: 9,
+          text: { content: 'START FREE →', fontSize: 38, fontWeight: 800, color: '#0A1F3C', fontFamily: kit.font_family, textAlign: 'center', lineHeight: 2.9, letterSpacing: 2, fontStyle: 'normal' },
+        },
+        {
+          id: 'series-' + uid(), type: 'text', x: 80, y: 1780, width: 920, height: 40, zIndex: 6,
+          text: { content: 'learn.financialmodelerpro.com', fontSize: 22, fontWeight: 600, color: '#FFFFFF', fontFamily: kit.font_family, textAlign: 'center', lineHeight: 1.3, letterSpacing: 1, fontStyle: 'normal' },
+        },
+      ].filter(Boolean) as CanvasElement[],
+    };
+  },
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+// EXPORTS — only FMP-branded + Blank in the public picker. Legacy generic
+// presets kept in the module for backward compat with any already-saved designs
+// that referenced them, but are not surfaced in the UI.
+// ══════════════════════════════════════════════════════════════════════════════
+
 export const PRESETS: TemplatePreset[] = [
-  fmpYoutubeThumbnailPreset, fmpLinkedinPostPreset, fmpInstagramPostPreset,
-  youtubePreset, linkedinPreset, instagramPreset, storyPreset, blankPreset,
+  // YOUTUBE
+  fmpYoutubeThumbnailPreset,
+  fmpYoutubeBannerPreset,
+  // LINKEDIN
+  fmpLinkedinPostPreset,
+  fmpLinkedinBannerPreset,
+  // INSTAGRAM
+  fmpInstagramPostPreset,
+  fmpInstagramStoryPreset,
+  // FACEBOOK
+  fmpFacebookPostPreset,
+  // OTHER — Twitter/X + WhatsApp
+  fmpTwitterPostPreset,
+  fmpWhatsappStatusPreset,
+  // CUSTOM
+  blankPreset,
+];
+
+// Hidden compat-only alias list — loaded when an older saved design references these
+const LEGACY_PRESETS: TemplatePreset[] = [youtubePreset, linkedinPreset, instagramPreset, storyPreset];
+
+/** Display grouping of presets by category. Used by the admin picker. */
+export const PRESET_GROUPS: { id: string; label: string; presets: TemplatePreset[] }[] = [
+  { id: 'youtube',   label: 'YOUTUBE',   presets: PRESETS.filter(p => p.platform === 'youtube') },
+  { id: 'linkedin',  label: 'LINKEDIN',  presets: PRESETS.filter(p => p.platform === 'linkedin') },
+  { id: 'instagram', label: 'INSTAGRAM', presets: PRESETS.filter(p => p.platform === 'instagram') },
+  { id: 'facebook',  label: 'FACEBOOK',  presets: PRESETS.filter(p => p.platform === 'facebook') },
+  { id: 'other',     label: 'OTHER',     presets: PRESETS.filter(p => p.platform === 'twitter' || p.platform === 'whatsapp') },
+  { id: 'custom',    label: 'CUSTOM',    presets: PRESETS.filter(p => p.platform === 'custom') },
 ];
 
 /** IDs of branded presets used by the "Export to All Platforms" ZIP feature. */
 export const FMP_EXPORT_PRESET_IDS = ['fmp-youtube-thumbnail', 'fmp-linkedin-post', 'fmp-instagram-post'];
 
 export function getPreset(id: string): TemplatePreset | null {
-  return PRESETS.find(p => p.id === id) ?? null;
+  return PRESETS.find(p => p.id === id) ?? LEGACY_PRESETS.find(p => p.id === id) ?? null;
 }

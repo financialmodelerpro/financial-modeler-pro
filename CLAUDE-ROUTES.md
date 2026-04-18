@@ -371,7 +371,8 @@ src/lib/
 ├── marketing/                   # Canvas editor (Phase 1.5) — element-based designs
 │   ├── types.ts                 # BrandKit (with array libraries), ImageAsset, CanvasElement (text/image/shape), CanvasBackground, Design, TemplatePreset, MarketingDesign
 │   ├── canvasDefaults.ts        # makeTextElement/ImageElement/ShapeElement factories, backgroundToCss, uid
-│   ├── presets.ts               # PRESETS array: 3 FMP-branded (YouTube, LinkedIn, Instagram) + 5 generic/story/blank. Uses element-id prefixes (title-, subtitle-, session-, etc.) for Quick Fill matching. Exports FMP_EXPORT_PRESET_IDS used by ZIP export
+│   ├── presets.ts               # PRESETS array (Phase 3A): 9 FMP-branded platform presets + Blank. PRESET_GROUPS for category-grouped picker. Legacy generic presets preserved for saved-design compat. Uses element-id prefixes (title-, subtitle-, session-, etc.) for Quick Fill + ZIP export matching
+│   ├── variants.ts              # VARIANTS array (Phase 3A): 5 template variants — Session Announcement, Quote, Platform Launch, Achievement Spotlight, Article Promo. build(kit, dims) scales elements proportionally to any canvas dimensions
 │   ├── autoFill.ts              # autoFillElements() — id-prefix → bucket matching (title/subtitle/session), returns new elements with text content swapped
 │   ├── brandKit.ts              # loadBrandKit() — reads singleton row (id=1) incl. additional_logos/photos/uploaded_images, falls back to defaults
 │   └── imageToDataUri.ts        # Fetches URL → base64 data URI (sharp SVG→PNG), shared by render route
