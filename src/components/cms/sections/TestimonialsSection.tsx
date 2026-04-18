@@ -10,10 +10,12 @@ interface Testimonial {
   name: string;
   role?: string;
   quote: string;
+  visible?: boolean;
 }
 
 export function TestimonialsSection({ content, styles }: Props) {
-  const items   = (content.items as Testimonial[]) ?? [];
+  const rawItems = (content.items as Testimonial[]) ?? [];
+  const items    = rawItems.filter(t => t.visible !== false);
   const heading = content.heading as string ?? '';
   const badge   = content.badge as string ?? '';
   const bgColor = (styles.bgColor as string) ?? '#F5F7FA';

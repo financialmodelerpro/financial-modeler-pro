@@ -624,6 +624,11 @@ export default async function LandingPage() {
                 <CmsField
                   content={(pm ?? { description: pmDesc }) as Record<string, unknown>}
                   field="description"
+                  style={{ fontSize:15, color:'rgba(255,255,255,0.6)', lineHeight:1.75, marginBottom:16 }}
+                />
+                <CmsField
+                  content={(pm ?? {}) as Record<string, unknown>}
+                  field="description2"
                   style={{ fontSize:15, color:'rgba(255,255,255,0.6)', lineHeight:1.75, marginBottom:32 }}
                 />
                 <a href={pmUrl} target="_blank" rel="noopener noreferrer" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#1B4F8A', color:'#fff', fontWeight:700, fontSize:13, padding:'10px 24px', borderRadius:7, textDecoration:'none' }}>{pmCta}</a>

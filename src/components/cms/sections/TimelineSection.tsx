@@ -9,10 +9,12 @@ interface TimelineItem {
   date?: string;
   title: string;
   description?: string;
+  visible?: boolean;
 }
 
 export function TimelineSection({ content, styles }: Props) {
-  const items   = (content.items as TimelineItem[]) ?? [];
+  const rawItems = (content.items as TimelineItem[]) ?? [];
+  const items    = rawItems.filter(it => it.visible !== false);
   const heading = content.heading as string ?? '';
   const badge   = content.badge as string ?? '';
   const bgColor = (styles.bgColor as string) ?? '#ffffff';

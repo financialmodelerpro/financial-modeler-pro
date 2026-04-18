@@ -15,10 +15,12 @@ interface PricingTier {
   cta_text?: string;
   cta_url?: string;
   highlighted?: boolean;
+  visible?: boolean;
 }
 
 export function PricingTableSection({ content, styles }: Props) {
-  const tiers   = (content.tiers as PricingTier[]) ?? [];
+  const rawTiers = (content.tiers as PricingTier[]) ?? [];
+  const tiers    = rawTiers.filter(t => t.visible !== false);
   const heading = content.heading as string ?? '';
   const badge   = content.badge as string ?? '';
   const bgColor = (styles.bgColor as string) ?? '#ffffff';

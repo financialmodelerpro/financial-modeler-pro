@@ -10,10 +10,12 @@ interface Member {
   name: string;
   role?: string;
   bio?: string;
+  visible?: boolean;
 }
 
 export function TeamSection({ content, styles }: Props) {
-  const members = (content.members as Member[]) ?? [];
+  const rawMembers = (content.members as Member[]) ?? [];
+  const members    = rawMembers.filter(m => m.visible !== false);
   const heading = content.heading as string ?? '';
   const badge   = content.badge as string ?? '';
   const bgColor = (styles.bgColor as string) ?? '#ffffff';

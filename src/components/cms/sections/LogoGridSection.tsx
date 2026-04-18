@@ -9,10 +9,12 @@ interface LogoItem {
   src: string;
   alt?: string;
   url?: string;
+  visible?: boolean;
 }
 
 export function LogoGridSection({ content, styles }: Props) {
-  const logos   = (content.logos as LogoItem[]) ?? [];
+  const rawLogos = (content.logos as LogoItem[]) ?? [];
+  const logos    = rawLogos.filter(l => l.visible !== false);
   const heading = content.heading as string ?? '';
   const badge   = content.badge as string ?? '';
   const bgColor = (styles.bgColor as string) ?? '#F5F7FA';

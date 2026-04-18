@@ -45,7 +45,7 @@ export default async function FounderPage() {
   const industryFocus = (fc?.industry_focus as string[]) ?? [];
   const marketFocus   = (fc?.market_focus as string) || '';
   const personal      = (fc?.personal as string) || '';
-  const projects      = (fc?.projects as { id: string; title: string; description: string; sector: string; value: string }[]) ?? [];
+  const projects      = ((fc?.projects as { id: string; title: string; description: string; sector: string; value: string; visible?: boolean }[]) ?? []).filter(p => p.visible !== false);
 
   // Merge CMS content keys (bio/long_bio/why_fmp/etc.) with their VF suffixes
   // (_align/_width/_visible) so CmsField reads them uniformly.

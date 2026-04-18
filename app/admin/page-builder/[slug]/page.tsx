@@ -126,6 +126,87 @@ function VF({ label, fieldKey, content, onChange, children, showLayout = true }:
   );
 }
 
+// Per-array-item variant of VF: stores `${fieldKey}_visible/_width/_align` keys
+// INSIDE the item object rather than at the section's top-level content. Used
+// when the actual text lives in an array (e.g. columns[i].description) so the
+// frontend can correlate the VF controls with the text by passing the array
+// item as `content` to CmsField.
+function ItemVF({ label, fieldKey, item, onItemChange, children, showLayout = true }: {
+  label: string; fieldKey: string; item: Record<string, unknown>;
+  onItemChange: (patch: Record<string, unknown>) => void;
+  children: React.ReactNode; showLayout?: boolean;
+}) {
+  const visKey = `${fieldKey}_visible`;
+  const wKey = `${fieldKey}_width`;
+  const aKey = `${fieldKey}_align`;
+  const visible = item[visKey] !== false;
+  return (
+    <div style={{ marginTop: 8, opacity: visible ? 1 : 0.4, transition: 'opacity 0.15s' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+        <label style={{ ...LS, display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', userSelect: 'none', margin: 0, flex: 1 }}>
+          <input type="checkbox" style={VCS} checked={visible} onChange={e => onItemChange({ [visKey]: e.target.checked })} />
+          {label}
+        </label>
+        {showLayout && (
+          <>
+            <select style={MINI_SELECT} value={(item[wKey] as string) ?? '100%'} onChange={e => onItemChange({ [wKey]: e.target.value })} title="Width">
+              {WIDTH_OPTIONS.map(w => <option key={w} value={w}>{w}</option>)}
+            </select>
+            <select style={MINI_SELECT} value={(item[aKey] as string) ?? 'center'} onChange={e => onItemChange({ [aKey]: e.target.value })} title="Align">
+              {ALIGN_OPTIONS.map(a => <option key={a} value={a}>{a.charAt(0).toUpperCase() + a.slice(1)}</option>)}
+            </select>
+          </>
+        )}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+// Compact header strip for array items: whole-item visibility toggle,
+// optional alignment/width dropdowns for a designated text field, and a
+// delete button. Stores `visible` boolean plus `${alignField}_align` and
+// `${widthField}_width` on the item itself (so CmsField reads them when
+// the item is passed as content on the frontend).
+function ItemBar({ item, onItemChange, onDelete, alignField, widthField, label }: {
+  item: Record<string, unknown>;
+  onItemChange: (patch: Record<string, unknown>) => void;
+  onDelete: () => void;
+  alignField?: string;
+  widthField?: string;
+  label?: string;
+}) {
+  const visible = item.visible !== false;
+  const aKey = alignField ? `${alignField}_align` : null;
+  const wKey = widthField ? `${widthField}_width` : null;
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, paddingBottom: 6, borderBottom: '1px dashed #E5E7EB' }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 10, fontWeight: 700, color: visible ? '#374151' : '#9CA3AF' }}>
+        <input type="checkbox" style={VCS} checked={visible} onChange={e => onItemChange({ visible: e.target.checked })} />
+        {label ?? 'Show'}
+      </label>
+      {aKey && (
+        <>
+          <span style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 600 }}>Align:</span>
+          <select style={MINI_SELECT} value={(item[aKey] as string) ?? 'left'} onChange={e => onItemChange({ [aKey]: e.target.value })} title={`${alignField} alignment`}>
+            {ALIGN_OPTIONS.map(a => <option key={a} value={a}>{a.charAt(0).toUpperCase() + a.slice(1)}</option>)}
+          </select>
+        </>
+      )}
+      {wKey && (
+        <>
+          <span style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 600 }}>W:</span>
+          <select style={MINI_SELECT} value={(item[wKey] as string) ?? '100%'} onChange={e => onItemChange({ [wKey]: e.target.value })} title={`${widthField} width`}>
+            {WIDTH_OPTIONS.map(w => <option key={w} value={w}>{w}</option>)}
+          </select>
+        </>
+      )}
+      <div style={{ flex: 1 }} />
+      <button type="button" onClick={onDelete} style={{ padding: '3px 10px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 10, fontWeight: 700 }}>✕ Delete</button>
+    </div>
+  );
+}
+
 // ── Section content editors ──────────────────────────────────────────────────
 
 interface HeroCustomField { id: string; label: string; value: string; visible: boolean; insertAfter: string }
@@ -547,16 +628,30 @@ function CardsEditor({ content, onChange }: { content: Record<string, unknown>; 
   // Smart detection: benefits[] (modeling why section), cards[] (generic)
   const isDynamic = !!(content as Record<string, unknown>)?._dynamic;
   const arrayKey = content.benefits ? 'benefits' : 'cards';
-  const rawItems = (content[arrayKey] as { icon: string; title: string; desc?: string; description?: string }[]) ?? [];
-  // Normalize: support both desc and description field names
-  const cards = rawItems.map(c => ({ icon: c.icon ?? '', title: c.title ?? '', description: c.description ?? c.desc ?? '' }));
+  const rawItems = (content[arrayKey] as (Record<string, unknown> & { icon?: string; title?: string; desc?: string; description?: string })[]) ?? [];
+  // Normalize: support both desc and description field names while preserving
+  // any other keys (visible, description_align, description_width, etc.)
+  const cards = rawItems.map(c => ({
+    ...c,
+    icon: (c.icon as string) ?? '',
+    title: (c.title as string) ?? '',
+    description: (c.description as string) ?? (c.desc as string) ?? '',
+  }));
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
-  const setCards = (next: { icon: string; title: string; description: string }[]) => {
+  const setCards = (next: typeof cards) => {
     // Write back using the original key; for benefits, store as {icon, title, desc}
     const stored = arrayKey === 'benefits'
-      ? next.map(c => ({ icon: c.icon, title: c.title, desc: c.description }))
+      ? next.map(c => {
+          const { description, ...rest } = c;
+          return { ...rest, desc: description };
+        })
       : next;
     onChange({ ...content, [arrayKey]: stored });
+  };
+  const updateCard = (i: number, patch: Record<string, unknown>) => {
+    const n = [...cards];
+    n[i] = { ...n[i], ...patch };
+    setCards(n);
   };
   return (
     <>
@@ -577,13 +672,19 @@ function CardsEditor({ content, onChange }: { content: Record<string, unknown>; 
         </div>
       )}
       {!isDynamic && cards.map((card, i) => (
-        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB' }}>
+        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB', opacity: (card as { visible?: boolean }).visible === false ? 0.5 : 1 }}>
+          <ItemBar
+            item={card as unknown as Record<string, unknown>}
+            onItemChange={patch => updateCard(i, patch)}
+            onDelete={() => setCards(cards.filter((_, j) => j !== i))}
+            alignField="description"
+            widthField="description"
+          />
           <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-            <div style={{ width: 60 }}><label style={LS}>Icon</label><input style={IS} value={card.icon} onChange={e => { const n = [...cards]; n[i] = { ...n[i], icon: e.target.value }; setCards(n); }} /></div>
-            <div style={{ flex: 1 }}><label style={LS}>Title</label><input style={IS} value={card.title} onChange={e => { const n = [...cards]; n[i] = { ...n[i], title: e.target.value }; setCards(n); }} /></div>
-            <button onClick={() => setCards(cards.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11, alignSelf: 'end' }}>X</button>
+            <div style={{ width: 60 }}><label style={LS}>Icon</label><input style={IS} value={card.icon} onChange={e => updateCard(i, { icon: e.target.value })} /></div>
+            <div style={{ flex: 1 }}><label style={LS}>Title</label><input style={IS} value={card.title} onChange={e => updateCard(i, { title: e.target.value })} /></div>
           </div>
-          <label style={LS}>Description</label><RichTextarea value={card.description} onChange={v => { const n = [...cards]; n[i] = { ...n[i], description: v }; setCards(n); }} minHeight={60} />
+          <label style={LS}>Description</label><RichTextarea value={card.description} onChange={v => updateCard(i, { description: v })} minHeight={60} />
         </div>
       ))}
       {!isDynamic && (
@@ -654,9 +755,9 @@ function TwoPlatformsEditor({ content, onChange }: { content: Record<string, unk
             <div style={{ fontSize: 11, fontWeight: 800, color: col.accentColor || '#374151', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
               {col.title || `Column ${ci + 1}`}
             </div>
-            <VF label="Title" fieldKey={`col${ci}_title`} content={content} onChange={onChange}>
+            <ItemVF label="Title" fieldKey="title" item={col as unknown as Record<string, unknown>} onItemChange={patch => updateCol(ci, patch as Partial<PlatformCol>)}>
               <input style={IS} value={col.title} onChange={e => updateCol(ci, { title: e.target.value })} />
-            </VF>
+            </ItemVF>
             <div style={{ marginTop: 6 }}>
               <label style={LS}>Border Color</label>
               <div style={{ display: 'flex', gap: 4 }}>
@@ -664,10 +765,10 @@ function TwoPlatformsEditor({ content, onChange }: { content: Record<string, unk
                 <input style={IS} value={col.borderColor || ''} onChange={e => updateCol(ci, { borderColor: e.target.value, accentColor: e.target.value })} placeholder="#1B4F8A" />
               </div>
             </div>
-            <VF label="Description" fieldKey={`col${ci}_desc`} content={content} onChange={onChange}>
+            <ItemVF label="Description" fieldKey="description" item={col as unknown as Record<string, unknown>} onItemChange={patch => updateCol(ci, patch as Partial<PlatformCol>)}>
               <RichTextarea value={col.description} onChange={v => updateCol(ci, { description: v })} minHeight={60} />
-            </VF>
-            <VF label="Features" fieldKey={`col${ci}_features`} content={content} onChange={onChange}>
+            </ItemVF>
+            <ItemVF label="Features" fieldKey="features" item={col as unknown as Record<string, unknown>} onItemChange={patch => updateCol(ci, patch as Partial<PlatformCol>)}>
               <DragDropContext onDragEnd={handleFeatureDrag}>
                 <Droppable droppableId={`platform-features-${ci}`}>
                   {(provided) => (
@@ -690,13 +791,13 @@ function TwoPlatformsEditor({ content, onChange }: { content: Record<string, unk
                 </Droppable>
               </DragDropContext>
               <button onClick={() => setFeatures([...features, 'New feature'])} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 11, fontWeight: 600, marginTop: 4 }}>+ Add Feature</button>
-            </VF>
-            <VF label="CTA Button" fieldKey={`col${ci}_cta`} content={content} onChange={onChange}>
+            </ItemVF>
+            <ItemVF label="CTA Button" fieldKey="ctaText" item={col as unknown as Record<string, unknown>} onItemChange={patch => updateCol(ci, patch as Partial<PlatformCol>)}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 <div><label style={LS}>Text</label><input style={IS} value={col.ctaText} onChange={e => updateCol(ci, { ctaText: e.target.value })} /></div>
                 <div><label style={LS}>URL</label><input style={IS} value={col.ctaUrl} onChange={e => updateCol(ci, { ctaUrl: e.target.value })} /></div>
               </div>
-            </VF>
+            </ItemVF>
           </div>
         );
       })}
@@ -820,21 +921,29 @@ function SmartColumnsEditor({ content, onChange }: { content: Record<string, unk
 }
 
 function FaqEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
-  const items = (content.items as { question: string; answer: string }[]) ?? [];
+  const items = (content.items as (Record<string, unknown> & { question: string; answer: string })[]) ?? [];
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   const setItems = (next: typeof items) => onChange({ ...content, items: next });
+  const updateItem = (i: number, patch: Record<string, unknown>) => {
+    const n = [...items];
+    n[i] = { ...n[i], ...patch } as typeof items[number];
+    setItems(n);
+  };
   return (
     <>
       <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
         <input style={IS} value={(content.heading as string) ?? ''} onChange={e => set('heading', e.target.value)} />
       </VF>
       {items.map((item, i) => (
-        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB' }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'end', marginBottom: 6 }}>
-            <div style={{ flex: 1 }}><label style={LS}>Question</label><input style={IS} value={item.question} onChange={e => { const n = [...items]; n[i] = { ...n[i], question: e.target.value }; setItems(n); }} /></div>
-            <button onClick={() => setItems(items.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11 }}>X</button>
-          </div>
-          <label style={LS}>Answer</label><RichTextarea value={item.answer} onChange={v => { const n = [...items]; n[i] = { ...n[i], answer: v }; setItems(n); }} minHeight={50} />
+        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB', opacity: item.visible === false ? 0.5 : 1 }}>
+          <ItemBar
+            item={item as Record<string, unknown>}
+            onItemChange={patch => updateItem(i, patch)}
+            onDelete={() => setItems(items.filter((_, j) => j !== i))}
+            alignField="answer"
+          />
+          <div style={{ marginBottom: 6 }}><label style={LS}>Question</label><input style={IS} value={item.question} onChange={e => updateItem(i, { question: e.target.value })} /></div>
+          <label style={LS}>Answer</label><RichTextarea value={item.answer} onChange={v => updateItem(i, { answer: v })} minHeight={50} />
         </div>
       ))}
       <button onClick={() => setItems([...items, { question: 'New question?', answer: 'Answer here.' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add FAQ</button>
@@ -843,9 +952,14 @@ function FaqEditor({ content, onChange }: { content: Record<string, unknown>; on
 }
 
 function ListEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
-  const items = (content.items as { icon: string; title: string; description: string }[]) ?? [];
+  const items = (content.items as (Record<string, unknown> & { icon: string; title: string; description: string })[]) ?? [];
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   const setItems = (next: typeof items) => onChange({ ...content, items: next });
+  const updateItem = (i: number, patch: Record<string, unknown>) => {
+    const n = [...items];
+    n[i] = { ...n[i], ...patch } as typeof items[number];
+    setItems(n);
+  };
   return (
     <>
       <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
@@ -858,11 +972,18 @@ function ListEditor({ content, onChange }: { content: Record<string, unknown>; o
         </select>
       </div>
       {items.map((item, i) => (
-        <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'end' }}>
-          <div style={{ width: 50 }}><label style={LS}>Icon</label><input style={IS} value={item.icon} onChange={e => { const n = [...items]; n[i] = { ...n[i], icon: e.target.value }; setItems(n); }} /></div>
-          <div style={{ flex: 1 }}><label style={LS}>Title</label><input style={IS} value={item.title} onChange={e => { const n = [...items]; n[i] = { ...n[i], title: e.target.value }; setItems(n); }} /></div>
-          <div style={{ flex: 2 }}><label style={LS}>Description</label><RichTextarea value={item.description} onChange={v => { const n = [...items]; n[i] = { ...n[i], description: v }; setItems(n); }} minHeight={50} /></div>
-          <button onClick={() => setItems(items.filter((_, j) => j !== i))} style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>X</button>
+        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB', opacity: item.visible === false ? 0.5 : 1 }}>
+          <ItemBar
+            item={item as Record<string, unknown>}
+            onItemChange={patch => updateItem(i, patch)}
+            onDelete={() => setItems(items.filter((_, j) => j !== i))}
+            alignField="description"
+          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'end' }}>
+            <div style={{ width: 50 }}><label style={LS}>Icon</label><input style={IS} value={item.icon} onChange={e => updateItem(i, { icon: e.target.value })} /></div>
+            <div style={{ flex: 1 }}><label style={LS}>Title</label><input style={IS} value={item.title} onChange={e => updateItem(i, { title: e.target.value })} /></div>
+            <div style={{ flex: 2 }}><label style={LS}>Description</label><RichTextarea value={item.description} onChange={v => updateItem(i, { description: v })} minHeight={50} /></div>
+          </div>
         </div>
       ))}
       <button onClick={() => setItems([...items, { icon: '✓', title: 'Item', description: 'Description' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Item</button>
@@ -871,9 +992,14 @@ function ListEditor({ content, onChange }: { content: Record<string, unknown>; o
 }
 
 function TestimonialsEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
-  const items = (content.items as { photo: string; name: string; role: string; quote: string }[]) ?? [];
+  const items = (content.items as (Record<string, unknown> & { photo: string; name: string; role: string; quote: string })[]) ?? [];
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   const setItems = (next: typeof items) => onChange({ ...content, items: next });
+  const updateItem = (i: number, patch: Record<string, unknown>) => {
+    const n = [...items];
+    n[i] = { ...n[i], ...patch } as typeof items[number];
+    setItems(n);
+  };
   return (
     <>
       <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
@@ -883,14 +1009,19 @@ function TestimonialsEditor({ content, onChange }: { content: Record<string, unk
         <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
       </VF>
       {items.map((t, i) => (
-        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB' }}>
+        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB', opacity: t.visible === false ? 0.5 : 1 }}>
+          <ItemBar
+            item={t as Record<string, unknown>}
+            onItemChange={patch => updateItem(i, patch)}
+            onDelete={() => setItems(items.filter((_, j) => j !== i))}
+            alignField="quote"
+          />
           <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
-            <div style={{ flex: 1 }}><label style={LS}>Name</label><input style={IS} value={t.name} onChange={e => { const n = [...items]; n[i] = { ...n[i], name: e.target.value }; setItems(n); }} /></div>
-            <div style={{ flex: 1 }}><label style={LS}>Role</label><input style={IS} value={t.role} onChange={e => { const n = [...items]; n[i] = { ...n[i], role: e.target.value }; setItems(n); }} /></div>
-            <button onClick={() => setItems(items.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11, alignSelf: 'end' }}>X</button>
+            <div style={{ flex: 1 }}><label style={LS}>Name</label><input style={IS} value={t.name} onChange={e => updateItem(i, { name: e.target.value })} /></div>
+            <div style={{ flex: 1 }}><label style={LS}>Role</label><input style={IS} value={t.role} onChange={e => updateItem(i, { role: e.target.value })} /></div>
           </div>
-          <label style={LS}>Photo URL</label><input style={{ ...IS, marginBottom: 6 }} value={t.photo} onChange={e => { const n = [...items]; n[i] = { ...n[i], photo: e.target.value }; setItems(n); }} placeholder="https://..." />
-          <label style={LS}>Quote</label><RichTextarea value={t.quote} onChange={v => { const n = [...items]; n[i] = { ...n[i], quote: v }; setItems(n); }} minHeight={60} />
+          <label style={LS}>Photo URL</label><input style={{ ...IS, marginBottom: 6 }} value={t.photo} onChange={e => updateItem(i, { photo: e.target.value })} placeholder="https://..." />
+          <label style={LS}>Quote</label><RichTextarea value={t.quote} onChange={v => updateItem(i, { quote: v })} minHeight={60} />
         </div>
       ))}
       <button onClick={() => setItems([...items, { photo: '', name: 'Name', role: 'Role', quote: 'Quote' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Testimonial</button>
@@ -899,9 +1030,14 @@ function TestimonialsEditor({ content, onChange }: { content: Record<string, unk
 }
 
 function PricingTableEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
-  const tiers = (content.tiers as { name: string; price: string; period: string; description: string; features: string[]; cta_text: string; cta_url: string; highlighted: boolean }[]) ?? [];
+  const tiers = (content.tiers as (Record<string, unknown> & { name: string; price: string; period: string; description: string; features: string[]; cta_text: string; cta_url: string; highlighted: boolean })[]) ?? [];
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   const setTiers = (next: typeof tiers) => onChange({ ...content, tiers: next });
+  const updateTier = (i: number, patch: Record<string, unknown>) => {
+    const n = [...tiers];
+    n[i] = { ...n[i], ...patch } as typeof tiers[number];
+    setTiers(n);
+  };
   return (
     <>
       <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
@@ -911,23 +1047,27 @@ function PricingTableEditor({ content, onChange }: { content: Record<string, unk
         <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
       </VF>
       {tiers.map((tier, i) => (
-        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: tier.highlighted ? '2px solid #2EAA4A' : '1px solid #E5E7EB' }}>
+        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: tier.highlighted ? '2px solid #2EAA4A' : '1px solid #E5E7EB', opacity: tier.visible === false ? 0.5 : 1 }}>
+          <ItemBar
+            item={tier as Record<string, unknown>}
+            onItemChange={patch => updateTier(i, patch)}
+            onDelete={() => setTiers(tiers.filter((_, j) => j !== i))}
+          />
           <div style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'end' }}>
-            <div style={{ flex: 1 }}><label style={LS}>Plan Name</label><input style={IS} value={tier.name} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], name: e.target.value }; setTiers(n); }} /></div>
-            <div style={{ width: 80 }}><label style={LS}>Price</label><input style={IS} value={tier.price} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], price: e.target.value }; setTiers(n); }} /></div>
-            <div style={{ width: 70 }}><label style={LS}>Period</label><input style={IS} value={tier.period} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], period: e.target.value }; setTiers(n); }} placeholder="month" /></div>
+            <div style={{ flex: 1 }}><label style={LS}>Plan Name</label><input style={IS} value={tier.name} onChange={e => updateTier(i, { name: e.target.value })} /></div>
+            <div style={{ width: 80 }}><label style={LS}>Price</label><input style={IS} value={tier.price} onChange={e => updateTier(i, { price: e.target.value })} /></div>
+            <div style={{ width: 70 }}><label style={LS}>Period</label><input style={IS} value={tier.period} onChange={e => updateTier(i, { period: e.target.value })} placeholder="month" /></div>
             <label style={{ fontSize: 11, display: 'flex', gap: 4, alignItems: 'center', cursor: 'pointer' }}>
-              <input type="checkbox" checked={tier.highlighted} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], highlighted: e.target.checked }; setTiers(n); }} /> Popular
+              <input type="checkbox" checked={tier.highlighted} onChange={e => updateTier(i, { highlighted: e.target.checked })} /> Popular
             </label>
-            <button onClick={() => setTiers(tiers.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11 }}>X</button>
           </div>
-          <label style={LS}>Description</label><div style={{ marginBottom: 6 }}><RichTextarea value={tier.description} onChange={v => { const n = [...tiers]; n[i] = { ...n[i], description: v }; setTiers(n); }} minHeight={50} /></div>
+          <label style={LS}>Description</label><div style={{ marginBottom: 6 }}><RichTextarea value={tier.description} onChange={v => updateTier(i, { description: v })} minHeight={50} /></div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
-            <div><label style={LS}>CTA Text</label><input style={IS} value={tier.cta_text} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], cta_text: e.target.value }; setTiers(n); }} /></div>
-            <div><label style={LS}>CTA URL</label><input style={IS} value={tier.cta_url} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], cta_url: e.target.value }; setTiers(n); }} /></div>
+            <div><label style={LS}>CTA Text</label><input style={IS} value={tier.cta_text} onChange={e => updateTier(i, { cta_text: e.target.value })} /></div>
+            <div><label style={LS}>CTA URL</label><input style={IS} value={tier.cta_url} onChange={e => updateTier(i, { cta_url: e.target.value })} /></div>
           </div>
           <label style={LS}>Features (one per line)</label>
-          <textarea style={{ ...TA, minHeight: 60 }} value={tier.features.join('\n')} onChange={e => { const n = [...tiers]; n[i] = { ...n[i], features: e.target.value.split('\n') }; setTiers(n); }} />
+          <textarea style={{ ...TA, minHeight: 60 }} value={tier.features.join('\n')} onChange={e => updateTier(i, { features: e.target.value.split('\n') })} />
         </div>
       ))}
       <button onClick={() => setTiers([...tiers, { name: 'Plan', price: '$0', period: 'month', description: '', features: ['Feature 1'], cta_text: 'Get Started', cta_url: '/', highlighted: false }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Tier</button>
@@ -989,9 +1129,14 @@ function EmbedEditor({ content, onChange }: { content: Record<string, unknown>; 
 }
 
 function TeamEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
-  const members = (content.members as { photo: string; name: string; role: string; bio: string }[]) ?? [];
+  const members = (content.members as (Record<string, unknown> & { photo: string; name: string; role: string; bio: string })[]) ?? [];
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   const setMembers = (next: typeof members) => onChange({ ...content, members: next });
+  const updateMember = (i: number, patch: Record<string, unknown>) => {
+    const n = [...members];
+    n[i] = { ...n[i], ...patch } as typeof members[number];
+    setMembers(n);
+  };
   return (
     <>
       <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
@@ -1001,14 +1146,19 @@ function TeamEditor({ content, onChange }: { content: Record<string, unknown>; o
         <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
       </VF>
       {members.map((m, i) => (
-        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB' }}>
-          <div style={{ display: 'flex', gap: 8, marginBottom: 6, alignItems: 'end' }}>
-            <div style={{ flex: 1 }}><label style={LS}>Name</label><input style={IS} value={m.name} onChange={e => { const n = [...members]; n[i] = { ...n[i], name: e.target.value }; setMembers(n); }} /></div>
-            <div style={{ flex: 1 }}><label style={LS}>Role</label><input style={IS} value={m.role} onChange={e => { const n = [...members]; n[i] = { ...n[i], role: e.target.value }; setMembers(n); }} /></div>
-            <button onClick={() => setMembers(members.filter((_, j) => j !== i))} style={{ padding: '4px 8px', borderRadius: 4, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 11 }}>X</button>
+        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB', opacity: m.visible === false ? 0.5 : 1 }}>
+          <ItemBar
+            item={m as Record<string, unknown>}
+            onItemChange={patch => updateMember(i, patch)}
+            onDelete={() => setMembers(members.filter((_, j) => j !== i))}
+            alignField="bio"
+          />
+          <div style={{ display: 'flex', gap: 8, marginBottom: 6 }}>
+            <div style={{ flex: 1 }}><label style={LS}>Name</label><input style={IS} value={m.name} onChange={e => updateMember(i, { name: e.target.value })} /></div>
+            <div style={{ flex: 1 }}><label style={LS}>Role</label><input style={IS} value={m.role} onChange={e => updateMember(i, { role: e.target.value })} /></div>
           </div>
-          <label style={LS}>Photo URL</label><input style={{ ...IS, marginBottom: 6 }} value={m.photo} onChange={e => { const n = [...members]; n[i] = { ...n[i], photo: e.target.value }; setMembers(n); }} placeholder="https://..." />
-          <label style={LS}>Bio</label><RichTextarea value={m.bio} onChange={v => { const n = [...members]; n[i] = { ...n[i], bio: v }; setMembers(n); }} minHeight={60} />
+          <label style={LS}>Photo URL</label><input style={{ ...IS, marginBottom: 6 }} value={m.photo} onChange={e => updateMember(i, { photo: e.target.value })} placeholder="https://..." />
+          <label style={LS}>Bio</label><RichTextarea value={m.bio} onChange={v => updateMember(i, { bio: v })} minHeight={60} />
         </div>
       ))}
       <button onClick={() => setMembers([...members, { photo: '', name: 'Name', role: 'Role', bio: 'Bio' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Member</button>
@@ -1112,20 +1262,30 @@ function FounderEditor({ content, onChange }: { content: Record<string, unknown>
         </VF>
         {/* Projects */}
         {(() => {
-          const projs = (content.projects as { id: string; title: string; description: string; sector: string; value: string }[]) ?? [];
+          const projs = (content.projects as (Record<string, unknown> & { id: string; title: string; description: string; sector: string; value: string })[]) ?? [];
           const setProjs = (next: typeof projs) => onChange({ ...content, projects: next });
+          const updateProj = (i: number, patch: Record<string, unknown>) => {
+            const n = [...projs];
+            n[i] = { ...n[i], ...patch } as typeof projs[number];
+            setProjs(n);
+          };
           return (
             <div style={{ marginTop:10 }}>
               <label style={LS}>Projects</label>
               {projs.map((p, i) => (
-                <div key={p.id||i} style={{ background:'#F9FAFB', borderRadius:8, padding:8, marginBottom:6, border:'1px solid #E5E7EB' }}>
+                <div key={p.id||i} style={{ background:'#F9FAFB', borderRadius:8, padding:8, marginBottom:6, border:'1px solid #E5E7EB', opacity: p.visible === false ? 0.5 : 1 }}>
+                  <ItemBar
+                    item={p as Record<string, unknown>}
+                    onItemChange={patch => updateProj(i, patch)}
+                    onDelete={() => setProjs(projs.filter((_, j) => j !== i))}
+                    alignField="description"
+                  />
                   <div style={{ display:'flex', gap:6, marginBottom:4 }}>
-                    <div style={{ flex:1 }}><label style={{...LS,fontSize:10}}>Title</label><input style={IS} value={p.title} onChange={e=>{const n=[...projs];n[i]={...n[i],title:e.target.value};setProjs(n);}}/></div>
-                    <div style={{ flex:1 }}><label style={{...LS,fontSize:10}}>Sector</label><input style={IS} value={p.sector} onChange={e=>{const n=[...projs];n[i]={...n[i],sector:e.target.value};setProjs(n);}}/></div>
-                    <button onClick={()=>setProjs(projs.filter((_,j)=>j!==i))} style={{ padding:'4px 8px', borderRadius:4, border:'1px solid #FECACA', background:'#FEF2F2', color:'#DC2626', cursor:'pointer', fontSize:11, alignSelf:'end' }}>X</button>
+                    <div style={{ flex:1 }}><label style={{...LS,fontSize:10}}>Title</label><input style={IS} value={p.title} onChange={e => updateProj(i, { title: e.target.value })}/></div>
+                    <div style={{ flex:1 }}><label style={{...LS,fontSize:10}}>Sector</label><input style={IS} value={p.sector} onChange={e => updateProj(i, { sector: e.target.value })}/></div>
                   </div>
-                  <label style={{...LS,fontSize:10}}>Description</label><RichTextarea value={p.description} onChange={v=>{const n=[...projs];n[i]={...n[i],description:v};setProjs(n);}} minHeight={50}/>
-                  <label style={{...LS,fontSize:10,marginTop:4}}>Value</label><input style={IS} value={p.value} onChange={e=>{const n=[...projs];n[i]={...n[i],value:e.target.value};setProjs(n);}} placeholder="e.g. $50M"/>
+                  <label style={{...LS,fontSize:10}}>Description</label><RichTextarea value={p.description} onChange={v => updateProj(i, { description: v })} minHeight={50}/>
+                  <label style={{...LS,fontSize:10,marginTop:4}}>Value</label><input style={IS} value={p.value} onChange={e => updateProj(i, { value: e.target.value })} placeholder="e.g. $50M"/>
                 </div>
               ))}
               <button onClick={()=>setProjs([...projs,{id:`proj_${Date.now()}`,title:'',description:'',sector:'',value:''}])} style={{ padding:'4px 10px', borderRadius:6, border:'1px solid #BBF7D0', background:'#fff', cursor:'pointer', fontSize:11, fontWeight:600, color:'#15803D' }}>+ Add Project</button>
@@ -1191,9 +1351,14 @@ function ProcessStepsEditor({ content, onChange }: { content: Record<string, unk
 }
 
 function TimelineEventsEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
-  const items = (content.items as { date: string; title: string; description: string }[]) ?? [];
+  const items = (content.items as (Record<string, unknown> & { date: string; title: string; description: string })[]) ?? [];
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   const setItems = (next: typeof items) => onChange({ ...content, items: next });
+  const updateItem = (i: number, patch: Record<string, unknown>) => {
+    const n = [...items];
+    n[i] = { ...n[i], ...patch } as typeof items[number];
+    setItems(n);
+  };
   return (
     <>
       <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
@@ -1203,11 +1368,18 @@ function TimelineEventsEditor({ content, onChange }: { content: Record<string, u
         <input style={IS} value={(content.badge as string) ?? ''} onChange={e => set('badge', e.target.value)} />
       </VF>
       {items.map((item, i) => (
-        <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'end' }}>
-          <div style={{ width: 90 }}><label style={LS}>Date</label><input style={IS} value={item.date} onChange={e => { const n = [...items]; n[i] = { ...n[i], date: e.target.value }; setItems(n); }} /></div>
-          <div style={{ flex: 1 }}><label style={LS}>Title</label><input style={IS} value={item.title} onChange={e => { const n = [...items]; n[i] = { ...n[i], title: e.target.value }; setItems(n); }} /></div>
-          <div style={{ flex: 2 }}><label style={LS}>Description</label><RichTextarea value={item.description} onChange={v => { const n = [...items]; n[i] = { ...n[i], description: v }; setItems(n); }} minHeight={50} /></div>
-          <button onClick={() => setItems(items.filter((_, j) => j !== i))} style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>X</button>
+        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB', opacity: item.visible === false ? 0.5 : 1 }}>
+          <ItemBar
+            item={item as Record<string, unknown>}
+            onItemChange={patch => updateItem(i, patch)}
+            onDelete={() => setItems(items.filter((_, j) => j !== i))}
+            alignField="description"
+          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'end' }}>
+            <div style={{ width: 90 }}><label style={LS}>Date</label><input style={IS} value={item.date} onChange={e => updateItem(i, { date: e.target.value })} /></div>
+            <div style={{ flex: 1 }}><label style={LS}>Title</label><input style={IS} value={item.title} onChange={e => updateItem(i, { title: e.target.value })} /></div>
+            <div style={{ flex: 2 }}><label style={LS}>Description</label><RichTextarea value={item.description} onChange={v => updateItem(i, { description: v })} minHeight={50} /></div>
+          </div>
         </div>
       ))}
       <button onClick={() => setItems([...items, { date: '2024', title: 'Event', description: 'Description' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Event</button>
@@ -1221,9 +1393,14 @@ function TimelineEditor({ content, onChange }: { content: Record<string, unknown
 }
 
 function LogoGridEditor({ content, onChange }: { content: Record<string, unknown>; onChange: (c: Record<string, unknown>) => void }) {
-  const logos = (content.logos as { src: string; alt: string; url: string }[]) ?? [];
+  const logos = (content.logos as (Record<string, unknown> & { src: string; alt: string; url: string })[]) ?? [];
   const set = (k: string, v: string) => onChange({ ...content, [k]: v });
   const setLogos = (next: typeof logos) => onChange({ ...content, logos: next });
+  const updateLogo = (i: number, patch: Record<string, unknown>) => {
+    const n = [...logos];
+    n[i] = { ...n[i], ...patch } as typeof logos[number];
+    setLogos(n);
+  };
   return (
     <>
       <VF label="Section Heading" fieldKey="heading" content={content} onChange={onChange}>
@@ -1234,11 +1411,17 @@ function LogoGridEditor({ content, onChange }: { content: Record<string, unknown
       </VF>
       <label style={{ ...LS, marginTop: 6 }}>Logo Height</label><input style={{ ...IS, marginBottom: 10 }} value={(content.logoHeight as string) ?? '48px'} onChange={e => set('logoHeight', e.target.value)} placeholder="48px" />
       {logos.map((logo, i) => (
-        <div key={i} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'end' }}>
-          <div style={{ flex: 2 }}><label style={LS}>Image URL</label><input style={IS} value={logo.src} onChange={e => { const n = [...logos]; n[i] = { ...n[i], src: e.target.value }; setLogos(n); }} placeholder="https://..." /></div>
-          <div style={{ flex: 1 }}><label style={LS}>Alt</label><input style={IS} value={logo.alt} onChange={e => { const n = [...logos]; n[i] = { ...n[i], alt: e.target.value }; setLogos(n); }} /></div>
-          <div style={{ flex: 1 }}><label style={LS}>Link URL</label><input style={IS} value={logo.url} onChange={e => { const n = [...logos]; n[i] = { ...n[i], url: e.target.value }; setLogos(n); }} /></div>
-          <button onClick={() => setLogos(logos.filter((_, j) => j !== i))} style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid #FECACA', background: '#FEF2F2', color: '#DC2626', cursor: 'pointer', fontSize: 12, flexShrink: 0 }}>X</button>
+        <div key={i} style={{ background: '#F9FAFB', borderRadius: 8, padding: 10, marginBottom: 8, border: '1px solid #E5E7EB', opacity: logo.visible === false ? 0.5 : 1 }}>
+          <ItemBar
+            item={logo as Record<string, unknown>}
+            onItemChange={patch => updateLogo(i, patch)}
+            onDelete={() => setLogos(logos.filter((_, j) => j !== i))}
+          />
+          <div style={{ display: 'flex', gap: 8, alignItems: 'end' }}>
+            <div style={{ flex: 2 }}><label style={LS}>Image URL</label><input style={IS} value={logo.src} onChange={e => updateLogo(i, { src: e.target.value })} placeholder="https://..." /></div>
+            <div style={{ flex: 1 }}><label style={LS}>Alt</label><input style={IS} value={logo.alt} onChange={e => updateLogo(i, { alt: e.target.value })} /></div>
+            <div style={{ flex: 1 }}><label style={LS}>Link URL</label><input style={IS} value={logo.url} onChange={e => updateLogo(i, { url: e.target.value })} /></div>
+          </div>
         </div>
       ))}
       <button onClick={() => setLogos([...logos, { src: '', alt: 'Logo', url: '' }])} style={{ padding: '6px 14px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600 }}>+ Add Logo</button>

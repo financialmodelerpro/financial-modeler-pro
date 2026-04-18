@@ -11,10 +11,12 @@ interface Props {
 interface FaqItem {
   question: string;
   answer: string;
+  visible?: boolean;
 }
 
 export function FaqSection({ content, styles }: Props) {
-  const items   = (content.items as FaqItem[]) ?? [];
+  const rawItems = (content.items as FaqItem[]) ?? [];
+  const items    = rawItems.filter(it => it.visible !== false);
   const heading = content.heading as string ?? '';
   const badge   = content.badge as string ?? '';
   const bgColor = (styles.bgColor as string) ?? '#ffffff';

@@ -10,10 +10,12 @@ interface ListItem {
   icon?: string;
   title: string;
   description: string;
+  visible?: boolean;
 }
 
 export function ListSection({ content, styles }: Props) {
-  const items   = (content.items as ListItem[]) ?? [];
+  const rawItems = (content.items as ListItem[]) ?? [];
+  const items    = rawItems.filter(it => it.visible !== false);
   const heading = content.heading as string ?? '';
   const badge   = content.badge as string ?? '';
   const layout  = (content.layout as string) ?? 'vertical';

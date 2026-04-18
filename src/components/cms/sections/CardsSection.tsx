@@ -10,10 +10,12 @@ interface Card {
   icon?: string;
   title: string;
   description: string;
+  visible?: boolean;
 }
 
 export function CardsSection({ content, styles }: Props) {
-  const cards   = (content.cards as Card[]) ?? [];
+  const rawCards = (content.cards as Card[]) ?? [];
+  const cards    = rawCards.filter(c => c.visible !== false);
   const heading = content.heading as string ?? '';
   const badge   = content.badge as string ?? '';
   const bgColor = (styles.bgColor as string) ?? '#F5F7FA';
