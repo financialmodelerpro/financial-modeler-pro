@@ -24,7 +24,7 @@ import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/Ar
 import { InlineEdit } from '@/src/components/landing/InlineEdit';
 import { AdminEditBar } from '@/src/components/landing/AdminEditBar';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
-import { CmsField } from '@/src/components/cms/CmsField';
+import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
 
 export const revalidate = 0;
 
@@ -191,9 +191,11 @@ export default async function LandingPage() {
   const heroCta2         = (h?.cta2Text as string)   || cms(content, 'hero', 'cta2',         'Explore Platforms ↓');
 
   // ── Visibility toggles ────────────────────────────────────────────────────
-  const heroCta_visible    = h?.softCtaVisible !== undefined ? !!h.softCtaVisible : cms(content, 'hero', 'cta_visible',     'true') !== 'false';
-  const heroCta1_visible   = h?.cta1Visible !== undefined    ? !!h.cta1Visible    : cms(content, 'hero', 'cta1_visible',    'false') === 'true';
-  const heroCta2_visible   = h?.cta2Visible !== undefined    ? !!h.cta2Visible    : cms(content, 'hero', 'cta2_visible',    'false') === 'true';
+  // Prefer the snake_case VF key admin writes (cta1_visible); fall back to
+  // the legacy camelCase key (cta1Visible), then to the cms_content table.
+  const heroCta_visible    = h?.softCta_visible !== undefined ? h.softCta_visible !== false : h?.softCtaVisible !== undefined ? !!h.softCtaVisible : cms(content, 'hero', 'cta_visible', 'true') !== 'false';
+  const heroCta1_visible   = h?.cta1_visible !== undefined    ? h.cta1_visible !== false    : h?.cta1Visible    !== undefined ? !!h.cta1Visible    : cms(content, 'hero', 'cta1_visible', 'false') === 'true';
+  const heroCta2_visible   = h?.cta2_visible !== undefined    ? h.cta2_visible !== false    : h?.cta2Visible    !== undefined ? !!h.cta2Visible    : cms(content, 'hero', 'cta2_visible', 'false') === 'true';
   const ctaSection_visible = cms(content, 'cta',  'section_visible', 'true') !== 'false';
 
   // ── Section style overrides ───────────────────────────────────────────────
@@ -273,29 +275,35 @@ export default async function LandingPage() {
             {cfAt('top')}
 
             {/* Badge */}
-            <div style={fw('badge')}>
-              <div className="ha" style={{ animation:'hero-fade-in 550ms ease-out 0ms both', display:'inline-flex', alignItems:'center', gap:7, background:'rgba(27,79,138,0.5)', border:'1px solid rgba(27,79,138,0.8)', borderRadius:20, padding:'5px 16px', fontSize:12, color:'rgba(255,255,255,0.8)', fontWeight:600, marginBottom:28, letterSpacing:'0.03em' }}>
-                <InlineEdit tag="span" section="hero" fieldKey="badge_text" value={heroBadge} isAdmin={isAdmin} darkBg />
+            {cmsVisible(h ?? {}, 'badge') && (
+              <div style={fw('badge')}>
+                <div className="ha" style={{ animation:'hero-fade-in 550ms ease-out 0ms both', display:'inline-flex', alignItems:'center', gap:7, background:'rgba(27,79,138,0.5)', border:'1px solid rgba(27,79,138,0.8)', borderRadius:20, padding:'5px 16px', fontSize:12, color:'rgba(255,255,255,0.8)', fontWeight:600, marginBottom:28, letterSpacing:'0.03em' }}>
+                  <InlineEdit tag="span" section="hero" fieldKey="badge_text" value={heroBadge} isAdmin={isAdmin} darkBg />
+                </div>
               </div>
-            </div>
+            )}
             {cfAt('badge')}
 
             {/* Headline */}
-            <div style={fw('headline')}>
-              <InlineEdit
-                tag="h1" section="hero" fieldKey="headline" value={heroHeadline} isAdmin={isAdmin} darkBg
-                style={{ animation:'hero-fade-up 550ms ease-out 100ms both', fontSize: heroStyles.headingSize ?? 'clamp(2.2rem,4.5vw,3.8rem)', fontWeight:800, lineHeight:1.1, color: heroStyles.headingColor ?? '#fff', marginBottom:22, whiteSpace:'pre-line', display:'block' } as React.CSSProperties}
-              />
-            </div>
+            {cmsVisible(h ?? {}, 'headline') && (
+              <div style={fw('headline')}>
+                <InlineEdit
+                  tag="h1" section="hero" fieldKey="headline" value={heroHeadline} isAdmin={isAdmin} darkBg
+                  style={{ animation:'hero-fade-up 550ms ease-out 100ms both', fontSize: heroStyles.headingSize ?? 'clamp(2.2rem,4.5vw,3.8rem)', fontWeight:800, lineHeight:1.1, color: heroStyles.headingColor ?? '#fff', marginBottom:22, whiteSpace:'pre-line', display:'block' } as React.CSSProperties}
+                />
+              </div>
+            )}
             {cfAt('headline')}
 
             {/* Subheading */}
-            <div style={fw('subtitle')}>
-              <InlineEdit
-                tag="p" section="hero" fieldKey="subheadline" value={heroSub} isAdmin={isAdmin} darkBg
-                style={{ animation:'hero-fade-up 550ms ease-out 200ms both', fontSize:'clamp(1rem,2vw,1.2rem)', color:'rgba(255,255,255,0.75)', lineHeight:1.65, maxWidth:960, margin:'0 auto 26px', display:'block' } as React.CSSProperties}
-              />
-            </div>
+            {cmsVisible(h ?? {}, 'subtitle') && (
+              <div style={fw('subtitle')}>
+                <InlineEdit
+                  tag="p" section="hero" fieldKey="subheadline" value={heroSub} isAdmin={isAdmin} darkBg
+                  style={{ animation:'hero-fade-up 550ms ease-out 200ms both', fontSize:'clamp(1rem,2vw,1.2rem)', color:'rgba(255,255,255,0.75)', lineHeight:1.65, maxWidth:960, margin:'0 auto 26px', display:'block' } as React.CSSProperties}
+                />
+              </div>
+            )}
             {cfAt('subtitle')}
 
             {/* Primary CTA Buttons */}

@@ -6,7 +6,7 @@ import { PLATFORMS } from '@/src/config/platforms';
 import { getCmsContent, cms, getModules, getTestimonialsForPage, getAllPageSections } from '@/src/lib/shared/cms';
 import type { Module } from '@/src/lib/shared/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { CmsField } from '@/src/components/cms/CmsField';
+import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
 
 export const revalidate = 0;
 
@@ -134,7 +134,25 @@ export default async function ModelingHubPage() {
       <div style={{ height: 64 }} />
 
       {/* ── Section 1 - Hero ──────────────────────────────────────────────── */}
-      {!hidden(heroRaw) && (
+      {!hidden(heroRaw) && (() => {
+        // Per-field width + alignment wrapper reading admin VF keys (e.g.
+        // h.subtitle_align, h.subtitle_width). Mirrors the helper on the
+        // home page so admin alignment / width / visibility all take effect.
+        const fw = (key: string): React.CSSProperties => {
+          const w = (h?.[`${key}_width`] as string | undefined);
+          const a = (h?.[`${key}_align`] as string | undefined);
+          const style: React.CSSProperties = {};
+          if (a) style.textAlign = a as React.CSSProperties['textAlign'];
+          if (w && w !== 'auto' && w !== '100%' && w !== '100') {
+            style.maxWidth = w.endsWith('%') ? w : `${w}%`;
+            style.marginLeft = 'auto';
+            style.marginRight = 'auto';
+          } else if (w === 'auto') {
+            style.maxWidth = 'none';
+          }
+          return style;
+        };
+        return (
         <section style={{
           background: 'linear-gradient(135deg, #0A1F3D 0%, #0D2E5A 50%, #0F3D6E 100%)',
           padding: 'clamp(56px,8vw,96px) 40px clamp(64px,9vw,104px)',
@@ -142,53 +160,68 @@ export default async function ModelingHubPage() {
           color: '#fff',
         }}>
           <div style={{ maxWidth: 720, margin: '0 auto' }}>
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: 7,
-              background: 'rgba(27,79,138,0.18)', border: '1px solid rgba(27,79,138,0.45)',
-              borderRadius: 20, padding: '5px 16px', fontSize: 12,
-              color: '#93C5FD', fontWeight: 700, marginBottom: 24, letterSpacing: '0.04em',
-            }}>
-              {heroBadge}
-            </div>
-
-            <h1 style={{
-              fontSize: 'clamp(28px,5vw,52px)', fontWeight: 800, color: '#fff',
-              lineHeight: 1.15, marginBottom: 20, letterSpacing: '-0.02em',
-              whiteSpace: 'pre-line',
-            }}>
-              {heroHeadline}
-            </h1>
-
-            <p style={{
-              fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.6)',
-              lineHeight: 1.7, marginBottom: 36, maxWidth: 560, margin: '0 auto 36px',
-            }}>
-              {heroSub}
-            </p>
-
-            <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
-              <a href={`${APP_URL}${ctaPriUrl}`} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                background: '#1B4F8A', color: '#fff',
-                fontWeight: 700, fontSize: 15, padding: '13px 32px',
-                borderRadius: 8, textDecoration: 'none',
-                boxShadow: '0 4px 20px rgba(27,79,138,0.4)',
+            {cmsVisible(h ?? {}, 'badge') && (
+              <div style={{ ...fw('badge'),
+                display: 'inline-flex', alignItems: 'center', gap: 7,
+                background: 'rgba(27,79,138,0.18)', border: '1px solid rgba(27,79,138,0.45)',
+                borderRadius: 20, padding: '5px 16px', fontSize: 12,
+                color: '#93C5FD', fontWeight: 700, marginBottom: 24, letterSpacing: '0.04em',
               }}>
-                {ctaPrimary}
-              </a>
-              <a href={`${APP_URL}${ctaSecUrl}`} style={{
-                display: 'inline-flex', alignItems: 'center', gap: 8,
-                background: 'transparent', color: '#fff',
-                fontWeight: 700, fontSize: 15, padding: '13px 32px',
-                borderRadius: 8, textDecoration: 'none',
-                border: '2px solid rgba(255,255,255,0.35)',
+                {heroBadge}
+              </div>
+            )}
+
+            {cmsVisible(h ?? {}, 'headline') && (
+              <h1 style={{
+                fontSize: 'clamp(28px,5vw,52px)', fontWeight: 800, color: '#fff',
+                lineHeight: 1.15, marginBottom: 20, letterSpacing: '-0.02em',
+                whiteSpace: 'pre-line',
+                ...fw('headline'),
               }}>
-                {ctaSecondary}
-              </a>
-            </div>
+                {heroHeadline}
+              </h1>
+            )}
+
+            <CmsField
+              content={h ?? { subtitle: heroSub }}
+              field="subtitle"
+              as="p"
+              style={{
+                fontSize: 'clamp(14px,2vw,18px)', color: 'rgba(255,255,255,0.6)',
+                lineHeight: 1.7, marginBottom: 36, maxWidth: 560, margin: '0 auto 36px',
+              }}
+            />
+
+            {(cmsVisible(h ?? {}, 'cta_primary') && ctaPrimary.trim() && ctaPriUrl) || (cmsVisible(h ?? {}, 'cta_secondary') && ctaSecondary.trim() && ctaSecUrl) ? (
+              <div style={{ display: 'flex', gap: 14, justifyContent: 'center', flexWrap: 'wrap' }}>
+                {cmsVisible(h ?? {}, 'cta_primary') && ctaPrimary.trim() && ctaPriUrl && (
+                  <a href={`${APP_URL}${ctaPriUrl}`} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8,
+                    background: '#1B4F8A', color: '#fff',
+                    fontWeight: 700, fontSize: 15, padding: '13px 32px',
+                    borderRadius: 8, textDecoration: 'none',
+                    boxShadow: '0 4px 20px rgba(27,79,138,0.4)',
+                  }}>
+                    {ctaPrimary}
+                  </a>
+                )}
+                {cmsVisible(h ?? {}, 'cta_secondary') && ctaSecondary.trim() && ctaSecUrl && (
+                  <a href={`${APP_URL}${ctaSecUrl}`} style={{
+                    display: 'inline-flex', alignItems: 'center', gap: 8,
+                    background: 'transparent', color: '#fff',
+                    fontWeight: 700, fontSize: 15, padding: '13px 32px',
+                    borderRadius: 8, textDecoration: 'none',
+                    border: '2px solid rgba(255,255,255,0.35)',
+                  }}>
+                    {ctaSecondary}
+                  </a>
+                )}
+              </div>
+            ) : null}
           </div>
         </section>
-      )}
+        );
+      })()}
 
       {/* ── Section 2 - What is Modeling Hub ─────────────────────────────── */}
       {!hidden(audienceRaw) && (
