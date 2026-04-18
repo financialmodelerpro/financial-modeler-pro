@@ -104,6 +104,11 @@ interface CoursePlayerLayoutProps {
   onVideoPlaying?: () => void;
   onVideoEnded?: () => void;
   onVideoNearEnd?: () => void;
+  onVideoProgress?: (watchedSec: number, totalSec: number, currentPos: number) => void;
+  /** Seed the player's tracker with seconds already persisted to DB. */
+  baselineWatchedSeconds?: number;
+  /** Optional UI block rendered directly above the Mark Complete area — e.g. watch progress bar. */
+  belowVideoContent?: React.ReactNode;
   // Video (optional - may not have embedded video)
   videoId?: string;
   sessionId?: string;
@@ -140,6 +145,7 @@ export function CoursePlayerLayout({
   sessionTitle, sessionDescription, sessionUrl,
   nextSessionHref, isWatched, onMarkComplete, isCompleted,
   assessmentUrl, assessmentReady, assessmentPassed, onVideoPlaying, onVideoEnded, onVideoNearEnd,
+  onVideoProgress, baselineWatchedSeconds, belowVideoContent,
   videoId, sessionId, studentEmail, studentRegId,
   bannerUrl, instructorName, instructorTitle,
   scheduledDatetime, timezone, durationMinutes, difficultyLevel, tags,
@@ -445,12 +451,15 @@ export function CoursePlayerLayout({
                   sessionId={sessionId}
                   studentEmail={studentEmail}
                   studentRegId={studentRegId}
+                  baselineWatchedSeconds={baselineWatchedSeconds}
                   onPlaying={onVideoPlaying}
                   onEnded={onVideoEnded}
                   onNearEnd={onVideoNearEnd}
+                  onProgress={onVideoProgress}
                 />
               </div>
               <div style={{ padding: '24px 32px', maxWidth: 860 }}>
+                {belowVideoContent}
                 {children}
                 {studentEmail && sessionId && (
                   <StudentNotes sessionId={sessionId} studentEmail={studentEmail} />

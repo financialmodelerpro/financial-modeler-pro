@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { makeWatchTracker, onPlay, onTick, onClose, watchedSeconds, type WatchTrackerState } from '@/src/lib/training/watchTracker';
 
 /* ── Minimal YT IFrame API types ────────────────────────────────────────────── */
 interface YTPlayerOptions {
@@ -28,14 +29,21 @@ interface YouTubePlayerProps {
   sessionId?: string;
   studentEmail?: string;
   studentRegId?: string;
+  /** Seed the tracker with seconds already persisted to DB (avoids backwards drift on reload). */
+  baselineWatchedSeconds?: number;
   onReady?: () => void;
   onPlaying?: () => void;
   onPaused?: () => void;
   onEnded?: () => void;
   onNearEnd?: () => void;
+  /**
+   * Fires periodically (≈10s during playback + on pause/end) with interval-merged
+   * watched seconds. `totalSeconds` may be 0 before metadata loads.
+   */
+  onProgress?: (watchedSec: number, totalSec: number, currentPos: number) => void;
 }
 
-export function YouTubePlayer({ videoId, title, sessionId, studentEmail, studentRegId, onReady, onPlaying, onPaused, onEnded, onNearEnd }: YouTubePlayerProps) {
+export function YouTubePlayer({ videoId, title, sessionId, studentEmail, studentRegId, baselineWatchedSeconds, onReady, onPlaying, onPaused, onEnded, onNearEnd, onProgress }: YouTubePlayerProps) {
   const playerRef = useRef<YTPlayer | null>(null);
   const containerIdRef = useRef(`yt-player-${videoId}`);
   const reportedRef = useRef(false);
@@ -43,16 +51,43 @@ export function YouTubePlayer({ videoId, title, sessionId, studentEmail, student
   useEffect(() => {
     let destroyed = false;
     let nearEndInterval: ReturnType<typeof setInterval> | null = null;
+    let tickInterval: ReturnType<typeof setInterval> | null = null;
     let nearEndFired = false;
+    let tracker: WatchTrackerState = makeWatchTracker(baselineWatchedSeconds ?? 0);
+    let lastReportAt = 0;
+
+    function pos(): number { try { return playerRef.current?.getCurrentTime?.() ?? 0; } catch { return 0; } }
+    function dur(): number { try { return playerRef.current?.getDuration?.() ?? 0; } catch { return 0; } }
+
+    function report(force = false) {
+      const now = Date.now();
+      if (!force && now - lastReportAt < 9500) return;
+      lastReportAt = now;
+      const c = pos();
+      const watched = watchedSeconds(tracker, c);
+      onProgress?.(watched, dur(), c);
+    }
+
+    function startTickCheck() {
+      if (tickInterval) return;
+      tickInterval = setInterval(() => {
+        const c = pos();
+        tracker = onTick(tracker, c);
+        report();
+      }, 1000);
+    }
+    function stopTickCheck() {
+      if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
+    }
 
     function startNearEndCheck() {
       if (nearEndFired || !onNearEnd || nearEndInterval) return;
       nearEndInterval = setInterval(() => {
         const p = playerRef.current;
         if (!p?.getDuration || !p?.getCurrentTime) return;
-        const dur = p.getDuration();
+        const d = p.getDuration();
         const cur = p.getCurrentTime();
-        if (dur > 0 && (dur - cur) <= 20) {
+        if (d > 0 && (d - cur) <= 20) {
           nearEndFired = true;
           onNearEnd();
           if (nearEndInterval) { clearInterval(nearEndInterval); nearEndInterval = null; }
@@ -87,10 +122,26 @@ export function YouTubePlayer({ videoId, title, sessionId, studentEmail, student
           onReady: () => onReady?.(),
           onStateChange: (event) => {
             const PS = window.YT.PlayerState;
-            if (event.data === PS.PLAYING) { onPlaying?.(); startNearEndCheck(); }
-            if (event.data === PS.PAUSED) { onPaused?.(); stopNearEndCheck(); }
-            if (event.data === PS.ENDED) { stopNearEndCheck();
+            if (event.data === PS.PLAYING) {
+              onPlaying?.();
+              tracker = onPlay(tracker, pos());
+              startTickCheck();
+              startNearEndCheck();
+              report(true);
+            }
+            if (event.data === PS.PAUSED) {
+              onPaused?.();
+              tracker = onClose(tracker, pos());
+              stopTickCheck();
+              stopNearEndCheck();
+              report(true);
+            }
+            if (event.data === PS.ENDED) {
+              tracker = onClose(tracker, pos());
+              stopTickCheck();
+              stopNearEndCheck();
               onEnded?.();
+              report(true);
               reportCompletion();
             }
           },
@@ -118,6 +169,10 @@ export function YouTubePlayer({ videoId, title, sessionId, studentEmail, student
 
     return () => {
       destroyed = true;
+      // Final close + report so the last partial interval is captured on unmount
+      try { tracker = onClose(tracker, playerRef.current?.getCurrentTime?.() ?? 0); } catch { /* ignore */ }
+      report(true);
+      stopTickCheck();
       stopNearEndCheck();
       try { playerRef.current?.destroy(); } catch { /* already gone */ }
       playerRef.current = null;

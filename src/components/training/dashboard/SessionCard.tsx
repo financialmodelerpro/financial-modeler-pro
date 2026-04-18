@@ -42,6 +42,10 @@ export interface SessionCardProps {
   isWatched?: boolean;
   /** Video is in progress (from certification_watch_history) */
   isInProgress?: boolean;
+  /** Actual watched percentage (0-100) from interval-merged tracker */
+  watchPercentage?: number;
+  /** Threshold to unlock assessment/Mark Complete */
+  watchThreshold?: number;
   /** Course name for share context */
   courseName?: string;
   /** Student name for achievement card */
@@ -52,7 +56,7 @@ export function SessionCard({
   sessionTitle, sessionId, maxAttempts, questionCount, passingScore,
   idx, prog, locked, ytUrl, isFinal, passedCount, regularCount,
   tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
-  bvmLocked, watchLocked, timerBypassed, courseId, isWatched, isInProgress, courseName, studentName,
+  bvmLocked, watchLocked, timerBypassed, courseId, isWatched, isInProgress, watchPercentage, watchThreshold, courseName, studentName,
 }: SessionCardProps) {
   const [notesOpen, setNotesOpen] = useState(false);
   const [noteText, setNoteText] = useState(noteContent);
@@ -147,6 +151,29 @@ export function SessionCard({
           )}
         </div>
       )}
+
+      {/* Watch progress bar — only while student is progressing (not yet passed) */}
+      {!locked && !prog?.passed && typeof watchPercentage === 'number' && watchPercentage > 0 && (() => {
+        const pct = Math.min(100, Math.max(0, Math.round(watchPercentage)));
+        const thresh = watchThreshold ?? 70;
+        const color = pct < 30 ? '#DC2626' : pct < thresh ? '#F59E0B' : '#059669';
+        const met = pct >= thresh;
+        return (
+          <div
+            style={{ paddingLeft: 38, marginBottom: 10 }}
+            title={met ? 'Watch threshold met — assessment unlocked' : `Watch ${thresh}% to unlock assessment`}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 3 }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', letterSpacing: '0.04em', textTransform: 'uppercase' }}>Watch progress</span>
+              <span style={{ fontSize: 11, fontWeight: 700, color, fontVariantNumeric: 'tabular-nums' }}>{pct}% / {thresh}%</span>
+            </div>
+            <div style={{ position: 'relative', height: 5, background: '#F3F4F6', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${pct}%`, background: color, transition: 'width 0.3s ease' }} />
+              <div style={{ position: 'absolute', top: -1, bottom: -1, left: `${thresh}%`, width: 0, borderLeft: '2px dashed rgba(13,46,90,0.5)' }} />
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Feedback prompt for recently-passed sessions */}
       {prog?.passed && !feedbackGiven && !locked && !isFinal && (

@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-18** (session end — Marketing Studio Phase 3A (9 FMP platform presets grouped by category + 5 template variants + variant-aware Quick Fill), Phase 2 (Quick Fill auto-populate + multi-caption + ZIP export), Phase 1.5 + background library + aspect-ratio lock, drag-and-drop canvas editor, react-rnd, element-based designs, multi-asset brand kit, universal CmsField rendering path, Tiptap RichTextarea upgrade, array-item VF, retake + timer persistence, attempts counter server-authoritative, founder_profile table dropped, /about page removed, universal share utility, Calendly inline embed on /book-a-meeting, migrations 097-102)
+**Last updated: 2026-04-18** (session end — Video watch enforcement (migration 103) with interval-merging tracker + admin toggles, Marketing Studio Phase 3A (9 FMP platform presets grouped by category + 5 template variants + variant-aware Quick Fill), Phase 2 (Quick Fill auto-populate + multi-caption + ZIP export), Phase 1.5 + background library + aspect-ratio lock, drag-and-drop canvas editor, react-rnd, element-based designs, multi-asset brand kit, universal CmsField rendering path, Tiptap RichTextarea upgrade, array-item VF, retake + timer persistence, attempts counter server-authoritative, founder_profile table dropped, /about page removed, universal share utility, Calendly inline embed on /book-a-meeting, migrations 097-102)
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md) — Database tables, storage buckets, migrations log
@@ -341,11 +341,20 @@ All three marketing pages use **Option B**: each section fetched from `page_sect
 - GET is public (no auth) — PATCH requires admin
 
 ### Certification Watch Tracking
-- **Table**: `certification_watch_history` (migration 088)
-- **API**: `GET/POST /api/training/certification-watch`
+- **Table**: `certification_watch_history` (migration 088 base, migration 103 adds `watch_seconds`, `total_seconds`, `watch_percentage`, `last_position`, `updated_at`)
+- **API**: `GET/POST /api/training/certification-watch` — POST accepts optional `watch_seconds`/`total_seconds`/`last_position` and uses MAX(existing, incoming) for seconds so stale updates never shrink progress
 - **Watch page**: writes `in_progress` on video play, `completed` on Mark Complete
-- **Dashboard**: fetches watch history, passes `completedWatchKeys`/`inProgressWatchKeys` to SessionCard
-- **SessionCard**: "Take Assessment →" only when `isWatched=true`; StatusBadge shows "In Progress" amber badge
+- **Dashboard**: fetches watch history, passes `completedWatchKeys`/`inProgressWatchKeys` + `watchPctMap` + `watchThreshold` to SessionCard
+- **SessionCard**: "Take Assessment →" only when `isWatched=true`; StatusBadge shows "In Progress" amber badge; thin watch progress bar appears below the score row when a percentage exists and the session isn't yet passed
+
+### Watch Enforcement (70% rule — migration 103)
+- **Interval-merging tracker**: `src/lib/training/watchTracker.ts` — records `[start, end]` intervals from PLAYING → PAUSED/ENDED transitions, merges overlaps on every commit. Seeking forward, replaying, or skipping cannot inflate the count. A `baselineWatchedSeconds` seed ensures a reload with a higher DB value never makes the live counter go backwards.
+- **YouTubePlayer**: now accepts `baselineWatchedSeconds` + `onProgress(watchedSec, totalSec, pos)`. Polls getCurrentTime every 1s during PLAYING, reports roughly every 10s (plus on pause/end/unmount). Seek detection: if `|pos - (lastPos + 1)| > 2s` we close the previous segment and open a new one at the current position.
+- **Watch page** (`app/training/watch/[courseId]/[sessionKey]/page.tsx`): fetches `/api/training/watch-enforcement?tabKeys=...` for `{ enabled, threshold, sessionBypass[tk], isAdmin }`. Posts progress every ~10s (throttled: needs ≥10s elapsed AND ≥5s delta). Renders `<WatchProgressBar>` above the Mark Complete button (`belowVideoContent` prop on CoursePlayerLayout). Mark Complete callback only set when `!enforcing || threshold met`; when `undefined` the button is hidden by CourseTopBar.
+- **Enforcement API**: `GET /api/training/watch-enforcement?tabKeys=3SFM_S1,3SFM_S2` returns global flag + threshold (default 70) + per-tab bypass map + `isAdmin` (checked via NextAuth session — Training Hub students always `false`).
+- **Admin UI**: `/admin/training-settings` → Watch Enforcement card. Global toggle (stored `watch_enforcement_enabled`), threshold slider 50–100% step 5 (`watch_enforcement_threshold`), per-session bypass table iterating all `COURSES[*].sessions` with tab_key-keyed checkboxes (`watch_enforcement_bypass_{TABKEY}`).
+- **Bypass precedence**: admin role → always bypass; global disabled → always bypass; per-session bypass → bypass for that session; else enforce at threshold.
+- **Progress bar component**: `src/components/training/WatchProgressBar.tsx` — color scheme red <30% / amber <threshold / green ≥threshold, dashed vertical threshold marker, `X% to go` messaging, bypass-aware labels.
 
 ### Training Assessment Results (Supabase Primary)
 - **Table**: `training_assessment_results` (migration 090) — `email + tab_key` UNIQUE

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getTrainingSession } from '@/src/lib/training/training-session';
@@ -8,6 +8,7 @@ import { TrainingShell } from '@/src/components/training/TrainingShell';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/components/training/player/CoursePlayerLayout';
 import { COURSES } from '@/src/config/courses';
 import { startTimer, getTimerStatus } from '@/src/lib/training/videoTimer';
+import { WatchProgressBar } from '@/src/components/training/WatchProgressBar';
 import type { LiveLinksMap, SessionProgress } from '@/src/components/training/dashboard/types';
 
 function extractYouTubeId(url: string): string | null {
@@ -29,6 +30,14 @@ export default function CourseWatchPage() {
   const [timerBypassed, setTimerBypassed] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);
   const [markedComplete, setMarkedComplete] = useState(false);
+  // Watch-enforcement state
+  const [enforcement, setEnforcement] = useState<{ enabled: boolean; threshold: number; sessionBypass: boolean; isAdmin: boolean }>({
+    enabled: true, threshold: 70, sessionBypass: false, isAdmin: false,
+  });
+  const [baselineWatchedSec, setBaselineWatchedSec] = useState(0);
+  const [liveWatchSec, setLiveWatchSec] = useState(0);
+  const [liveTotalSec, setLiveTotalSec] = useState(0);
+  const lastPostedRef = useRef<{ sec: number; at: number }>({ sec: 0, at: 0 });
 
   const course = COURSES[courseId];
 
@@ -38,11 +47,27 @@ export default function CourseWatchPage() {
     if (!sess) { router.replace('/training/signin'); return; }
     setStudentSession(sess);
 
+    // Build the tabKey early so we can query enforcement by it
+    const earlyCourse = COURSES[courseId];
+    const earlySession = earlyCourse?.sessions.find(x => x.id === sessionKey);
+    const earlyTk = earlyCourse && earlySession
+      ? (earlySession.isFinal ? `${earlyCourse.shortTitle.toUpperCase()}_Final` : `${earlyCourse.shortTitle.toUpperCase()}_${earlySession.id}`)
+      : '';
+
     Promise.all([
       fetch('/api/training/course-details').then(r => r.json()),
       fetch(`/api/training/progress?registrationId=${encodeURIComponent(sess.registrationId)}&email=${encodeURIComponent(sess.email)}`).then(r => r.json()),
       fetch(`/api/training/certification-watch?email=${encodeURIComponent(sess.email)}`).then(r => r.json()).catch(() => ({ history: [] })),
-    ]).then(([detailsJson, progressJson, watchJson]) => {
+      earlyTk ? fetch(`/api/training/watch-enforcement?tabKeys=${encodeURIComponent(earlyTk)}`).then(r => r.json()).catch(() => null) : Promise.resolve(null),
+    ]).then(([detailsJson, progressJson, watchJson, enforceJson]) => {
+      if (enforceJson && earlyTk) {
+        setEnforcement({
+          enabled:       enforceJson.enabled !== false,
+          threshold:     typeof enforceJson.threshold === 'number' ? enforceJson.threshold : 70,
+          sessionBypass: !!enforceJson.sessionBypass?.[earlyTk],
+          isAdmin:       !!enforceJson.isAdmin,
+        });
+      }
       const map: LiveLinksMap = {};
       for (const raw of detailsJson.sessions ?? []) {
         map[raw.tabKey] = { ...raw, videoDuration: raw.videoDuration ?? 0 };
@@ -79,12 +104,18 @@ export default function CourseWatchPage() {
           const watchTk = currentSess.isFinal
             ? `${course.shortTitle.toUpperCase()}_Final`
             : `${course.shortTitle.toUpperCase()}_${currentSess.id}`;
-          const watchRecord = (watchJson.history as { tab_key: string; status: string }[] ?? [])
+          const watchRecord = (watchJson.history as { tab_key: string; status: string; watch_seconds?: number; total_seconds?: number }[] ?? [])
             .find((h: { tab_key: string }) => h.tab_key === watchTk);
           if (watchRecord?.status === 'completed') {
             setVideoEnded(true);
             setMarkedComplete(true);
             setTimerComplete(true);
+          }
+          if (watchRecord) {
+            const base = Math.max(0, Math.round(watchRecord.watch_seconds ?? 0));
+            setBaselineWatchedSec(base);
+            setLiveWatchSec(base);
+            setLiveTotalSec(Math.max(0, Math.round(watchRecord.total_seconds ?? 0)));
           }
         }
       }
@@ -163,6 +194,46 @@ export default function CourseWatchPage() {
       body: JSON.stringify({ student_email: studentSession.email, tab_key: tk, course_id: courseId, status: 'completed' }),
     }).catch(() => {});
   }, [studentSession, course, sessionKey, courseId]);
+
+  /**
+   * Fires ~every 10s during playback, on pause, and on ended. Tracks actual
+   * watched seconds (interval-merged by watchTracker in YouTubePlayer) and
+   * posts to the DB so the threshold can be enforced server-side too.
+   */
+  const handleProgress = useCallback((watchedSec: number, totalSec: number, currentPos: number) => {
+    setLiveWatchSec(watchedSec);
+    if (totalSec > 0) setLiveTotalSec(totalSec);
+
+    if (!studentSession || !course) return;
+    const session = course.sessions.find(s => s.id === sessionKey);
+    if (!session) return;
+    const tk = session.isFinal
+      ? `${course.shortTitle.toUpperCase()}_Final`
+      : `${course.shortTitle.toUpperCase()}_${session.id}`;
+
+    // Throttle: only POST if ≥10s elapsed AND value grew by ≥5s since last post
+    // (plus always POST the first one). Keeps request volume sane on active viewers.
+    const now = Date.now();
+    const last = lastPostedRef.current;
+    const delta = watchedSec - last.sec;
+    const tooSoon = now - last.at < 9500;
+    if (tooSoon && delta < 5 && last.at !== 0) return;
+    lastPostedRef.current = { sec: watchedSec, at: now };
+
+    fetch('/api/training/certification-watch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        student_email: studentSession.email,
+        tab_key: tk,
+        course_id: courseId,
+        status: markedComplete ? 'completed' : 'in_progress',
+        watch_seconds: Math.round(watchedSec),
+        total_seconds: Math.round(totalSec),
+        last_position: Math.round(currentPos),
+      }),
+    }).catch(() => {});
+  }, [studentSession, course, sessionKey, courseId, markedComplete]);
 
   // Handle video play - start timer + record in_progress
   const handlePlaying = useCallback(() => {
@@ -253,6 +324,29 @@ export default function CourseWatchPage() {
   // Assessment URL - always use the internal route (Apps Script formUrl is deprecated)
   const assessmentUrl = `/training/assessment/${encodeURIComponent(tk)}`;
 
+  // Watch-enforcement gating
+  const watchPct = liveTotalSec > 0 ? Math.min(100, Math.round((liveWatchSec / liveTotalSec) * 100)) : 0;
+  const thresholdMet = watchPct >= enforcement.threshold;
+  const enforcing = enforcement.enabled && !enforcement.sessionBypass && !enforcement.isAdmin;
+  const canMarkComplete = !enforcing || thresholdMet;
+
+  // Only expose the Mark Complete callback when the user is ALLOWED to click it.
+  // CourseTopBar hides the button entirely when `onMarkComplete` is undefined, so
+  // we avoid visually-enabled-but-blocked UX.
+  const markCompleteCallback = videoEnded && !markedComplete && canMarkComplete ? handleMarkComplete : undefined;
+
+  // Progress bar sits in the scroll area above the Mark Complete button (CourseTopBar).
+  // We only show it while the student is watching (video opened, not yet completed).
+  const progressBar = !markedComplete && !progressMap.get(sessionKey)?.passed ? (
+    <WatchProgressBar
+      watchPct={watchPct}
+      threshold={enforcement.threshold}
+      enforcing={enforcement.enabled}
+      adminBypass={enforcement.isAdmin}
+      sessionBypass={enforcement.sessionBypass}
+    />
+  ) : null;
+
   return (
     <TrainingShell headerOnly>
       <CoursePlayerLayout
@@ -264,12 +358,14 @@ export default function CourseWatchPage() {
         sessionUrl={typeof window !== 'undefined' ? window.location.href : ''}
         nextSessionHref={nextHref}
         isWatched={markedComplete || progressMap.get(sessionKey)?.passed}
-        onMarkComplete={videoEnded ? (markedComplete ? undefined : handleMarkComplete) : undefined}
+        onMarkComplete={markCompleteCallback}
         isCompleted={markedComplete || progressMap.get(sessionKey)?.passed === true}
         videoId={videoId || undefined}
         sessionId={sessionKey}
         studentEmail={studentSession?.email}
         studentRegId={studentSession?.registrationId}
+        baselineWatchedSeconds={baselineWatchedSec}
+        belowVideoContent={progressBar}
         sessionType="recorded"
         isLoggedIn={true}
         sessions={sidebarSessions}
@@ -282,6 +378,7 @@ export default function CourseWatchPage() {
         onVideoPlaying={handlePlaying}
         onVideoEnded={handleVideoEnded}
         onVideoNearEnd={handleNearEnd}
+        onVideoProgress={handleProgress}
       />
     </TrainingShell>
   );

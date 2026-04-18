@@ -3,7 +3,8 @@ import { getServerClient } from '@/src/lib/shared/supabase';
 
 /**
  * GET /api/training/certification-watch?email=x
- * Returns all certification watch history records for a student.
+ * Returns all certification watch history records for a student
+ * (tab_key, status, timing, watch_seconds / watch_percentage / last_position).
  */
 export async function GET(req: NextRequest) {
   const email = req.nextUrl.searchParams.get('email');
@@ -12,7 +13,7 @@ export async function GET(req: NextRequest) {
   const sb = getServerClient();
   const { data } = await sb
     .from('certification_watch_history')
-    .select('tab_key, status, started_at, completed_at')
+    .select('tab_key, status, started_at, completed_at, watch_seconds, total_seconds, watch_percentage, last_position')
     .eq('student_email', email.toLowerCase());
 
   return NextResponse.json({ history: data ?? [] });
@@ -20,14 +21,15 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/training/certification-watch
- * Upserts a watch record. Body: { student_email, tab_key, course_id, status }
+ * Upserts a watch record. Body: {
+ *   student_email, tab_key, course_id, status,
+ *   watch_seconds?, total_seconds?, last_position?  (optional progress fields)
+ * }
  *
- * 'completed' is a terminal state — this endpoint will never downgrade a row
- * from 'completed' back to 'in_progress'. Without this guard, the watch page's
- * `onVideoPlaying` handler would overwrite the completed flag every time the
- * student revisits a video (e.g. after failing an assessment), which in turn
- * would hide the "Take Assessment" button on the dashboard and force the
- * student to click "Mark Complete" again.
+ * Guards:
+ *  - 'completed' is a terminal state — never downgraded back to 'in_progress'
+ *  - watch_seconds uses MAX(existing, incoming) so stale or lower-value updates
+ *    never shrink the persisted progress
  */
 export async function POST(req: NextRequest) {
   const body = await req.json() as {
@@ -35,6 +37,9 @@ export async function POST(req: NextRequest) {
     tab_key?: string;
     course_id?: string;
     status?: string;
+    watch_seconds?: number;
+    total_seconds?: number;
+    last_position?: number;
   };
 
   const { student_email, tab_key, course_id, status } = body;
@@ -48,32 +53,46 @@ export async function POST(req: NextRequest) {
   const sb = getServerClient();
   const email = student_email.toLowerCase();
 
-  // Guard: don't downgrade 'completed' → 'in_progress'
-  if (status === 'in_progress') {
-    const { data: existing } = await sb
-      .from('certification_watch_history')
-      .select('status')
-      .eq('student_email', email)
-      .eq('tab_key', tab_key)
-      .maybeSingle();
-    if (existing?.status === 'completed') {
-      return NextResponse.json({ success: true, skipped: 'already completed' });
-    }
-  }
+  // Read existing row for terminal-status guard + MAX merging
+  const { data: existing } = await sb
+    .from('certification_watch_history')
+    .select('status, watch_seconds, total_seconds, last_position')
+    .eq('student_email', email)
+    .eq('tab_key', tab_key)
+    .maybeSingle();
+
+  // Guard: don't downgrade 'completed' → 'in_progress'. Still merge progress fields though.
+  const effectiveStatus = existing?.status === 'completed' ? 'completed' : status;
+
+  const existingSec = Number(existing?.watch_seconds ?? 0);
+  const incomingSec = typeof body.watch_seconds === 'number' ? Math.max(0, Math.round(body.watch_seconds)) : null;
+  const mergedWatch = incomingSec === null ? existingSec : Math.max(existingSec, incomingSec);
+
+  const existingTotal = Number(existing?.total_seconds ?? 0);
+  const incomingTotal = typeof body.total_seconds === 'number' ? Math.max(0, Math.round(body.total_seconds)) : null;
+  const mergedTotal = incomingTotal === null ? existingTotal : Math.max(existingTotal, incomingTotal);
+
+  const pct = mergedTotal > 0 ? Math.min(100, Math.max(0, Math.round((mergedWatch / mergedTotal) * 100))) : 0;
 
   const record: Record<string, unknown> = {
     student_email: email,
     tab_key,
     course_id,
-    status,
+    status: effectiveStatus,
+    watch_seconds: mergedWatch,
+    total_seconds: mergedTotal,
+    watch_percentage: pct,
+    updated_at: new Date().toISOString(),
   };
-  if (status === 'completed') {
+  if (typeof body.last_position === 'number') record.last_position = Math.max(0, Math.round(body.last_position));
+  if (effectiveStatus === 'completed' && existing?.status !== 'completed') {
     record.completed_at = new Date().toISOString();
   }
 
-  await sb
+  const { error } = await sb
     .from('certification_watch_history')
     .upsert(record, { onConflict: 'student_email,tab_key' });
 
-  return NextResponse.json({ success: true });
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ success: true, watch_seconds: mergedWatch, total_seconds: mergedTotal, watch_percentage: pct });
 }

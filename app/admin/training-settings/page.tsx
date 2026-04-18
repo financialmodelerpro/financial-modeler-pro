@@ -1,8 +1,9 @@
 'use client';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { COURSES } from '@/src/config/courses';
 
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '9px 12px', fontSize: 13,
@@ -24,6 +25,26 @@ export default function TrainingSettingsPage() {
   const [testResult, setTestResult] = useState<'ok' | 'fail' | null>(null);
   const [toast, setToast]       = useState('');
 
+  // Watch enforcement settings
+  const [enforceEnabled, setEnforceEnabled] = useState(true);
+  const [enforceThreshold, setEnforceThreshold] = useState(70);
+  const [bypassMap, setBypassMap] = useState<Record<string, boolean>>({});
+  const [enforceSaving, setEnforceSaving] = useState(false);
+
+  // Flattened list of every course session for the per-session bypass table
+  const allSessions = useMemo(() => {
+    const out: { tabKey: string; courseTitle: string; sessionTitle: string }[] = [];
+    for (const course of Object.values(COURSES)) {
+      for (const s of course.sessions) {
+        const tk = s.isFinal
+          ? `${course.shortTitle.toUpperCase()}_Final`
+          : `${course.shortTitle.toUpperCase()}_${s.id}`;
+        out.push({ tabKey: tk, courseTitle: course.shortTitle, sessionTitle: s.title });
+      }
+    }
+    return out;
+  }, []);
+
   useEffect(() => {
     if (status === 'unauthenticated') { router.replace('/login'); return; }
     if (status === 'authenticated' && (session.user as any).role !== 'admin') router.replace('/');
@@ -31,9 +52,20 @@ export default function TrainingSettingsPage() {
 
   useEffect(() => {
     fetch('/api/admin/training-settings').then(r => r.json()).then(ts => {
-      const u = ts.settings?.apps_script_url ?? '';
+      const s = ts.settings ?? {};
+      const u = s.apps_script_url ?? '';
       setUrl(u);
       setSavedUrl(u);
+      setEnforceEnabled(s.watch_enforcement_enabled !== 'false');
+      setEnforceThreshold(Math.max(0, Math.min(100, parseInt(s.watch_enforcement_threshold || '70', 10) || 70)));
+      const bm: Record<string, boolean> = {};
+      for (const k of Object.keys(s)) {
+        if (k.startsWith('watch_enforcement_bypass_')) {
+          const tk = k.slice('watch_enforcement_bypass_'.length);
+          bm[tk] = s[k] === 'true';
+        }
+      }
+      setBypassMap(bm);
       setLoading(false);
     });
   }, []);
@@ -76,6 +108,26 @@ export default function TrainingSettingsPage() {
   };
 
   const dirty = url.trim() !== savedUrl;
+
+  const saveEnforcement = async () => {
+    setEnforceSaving(true);
+    const payload: Record<string, string> = {
+      watch_enforcement_enabled:   enforceEnabled ? 'true' : 'false',
+      watch_enforcement_threshold: String(enforceThreshold),
+    };
+    for (const [tk, on] of Object.entries(bypassMap)) {
+      payload[`watch_enforcement_bypass_${tk}`] = on ? 'true' : 'false';
+    }
+    const res = await fetch('/api/admin/training-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    setEnforceSaving(false);
+    showToast(res.ok ? 'Watch enforcement saved' : 'Save failed');
+  };
+
+  const toggleBypass = (tk: string) => setBypassMap(prev => ({ ...prev, [tk]: !prev[tk] }));
 
   return (
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter',sans-serif", background: '#F4F7FC' }}>
@@ -171,6 +223,83 @@ export default function TrainingSettingsPage() {
                 style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '10px 20px', background: '#1B4F8A', color: '#fff', borderRadius: 8, fontWeight: 700, fontSize: 13, textDecoration: 'none', whiteSpace: 'nowrap' }}>
                 Open Transcript Editor →
               </a>
+            </div>
+
+            {/* Watch Enforcement Card */}
+            <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '24px 28px', marginBottom: 24, maxWidth: 780 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B' }}>🎬 Video Watch Enforcement</div>
+                  <div style={{ fontSize: 12, color: '#6B7280' }}>Require students to watch ≥ threshold% of a video before the <strong>Mark Complete</strong> button is usable. Admins always bypass.</div>
+                </div>
+                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', background: enforceEnabled ? '#D1FAE5' : '#FEE2E2', padding: '6px 12px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: enforceEnabled ? '#065F46' : '#991B1B' }}>
+                  <input type="checkbox" checked={enforceEnabled} onChange={e => setEnforceEnabled(e.target.checked)} />
+                  {enforceEnabled ? 'Enforcing' : 'Disabled'}
+                </label>
+              </div>
+
+              {/* Threshold */}
+              <div style={{ marginTop: 14, padding: 14, background: '#F9FAFB', borderRadius: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: '#374151', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Threshold</span>
+                  <span style={{ fontSize: 16, fontWeight: 800, color: '#1B4F8A', fontVariantNumeric: 'tabular-nums' }}>{enforceThreshold}%</span>
+                </div>
+                <input
+                  type="range"
+                  min={50} max={100} step={5}
+                  value={enforceThreshold}
+                  onChange={e => setEnforceThreshold(Number(e.target.value))}
+                  disabled={!enforceEnabled}
+                  style={{ width: '100%', accentColor: '#1B4F8A' }}
+                />
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: '#9CA3AF', marginTop: 4 }}>
+                  <span>50%</span><span>70% (recommended)</span><span>100%</span>
+                </div>
+              </div>
+
+              {/* Per-session bypass table */}
+              <div style={{ marginTop: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', letterSpacing: '0.05em', textTransform: 'uppercase', marginBottom: 8 }}>
+                  Per-Session Bypass ({Object.values(bypassMap).filter(Boolean).length} active)
+                </div>
+                <div style={{ maxHeight: 320, overflowY: 'auto', border: '1px solid #E5E7EB', borderRadius: 8 }}>
+                  <table style={{ width: '100%', fontSize: 12, borderCollapse: 'collapse' }}>
+                    <thead>
+                      <tr style={{ background: '#F9FAFB', borderBottom: '1px solid #E5E7EB', position: 'sticky', top: 0 }}>
+                        <th style={{ padding: '7px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#6B7280', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Course</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#6B7280', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Session</th>
+                        <th style={{ padding: '7px 10px', textAlign: 'center', fontSize: 10, fontWeight: 700, color: '#6B7280', letterSpacing: '0.05em', textTransform: 'uppercase' }}>Bypass</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {allSessions.map(({ tabKey, courseTitle, sessionTitle }) => {
+                        const on = !!bypassMap[tabKey];
+                        return (
+                          <tr key={tabKey} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                            <td style={{ padding: '6px 10px', fontSize: 11, fontWeight: 600, color: '#6B7280' }}>{courseTitle}</td>
+                            <td style={{ padding: '6px 10px', fontSize: 11, color: '#374151' }}>{sessionTitle}</td>
+                            <td style={{ padding: '6px 10px', textAlign: 'center' }}>
+                              <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }} title={on ? 'Enforcement bypassed for this session' : 'Enforcement applies'}>
+                                <input type="checkbox" checked={on} onChange={() => toggleBypass(tabKey)} />
+                              </label>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div style={{ marginTop: 14, display: 'flex', justifyContent: 'flex-end' }}>
+                <button
+                  onClick={saveEnforcement}
+                  disabled={enforceSaving}
+                  style={{ padding: '9px 22px', background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: enforceSaving ? 0.7 : 1 }}
+                >
+                  {enforceSaving ? 'Saving…' : 'Save Enforcement Settings'}
+                </button>
+              </div>
             </div>
 
             {/* How-to guide */}
