@@ -194,6 +194,8 @@ app/api/training/
 ├── live-sessions/[id]/watched/    # POST: record watch, 50 points
 ├── live-sessions/registration-status-batch/ # POST: batch status
 ├── watch-history/                 # GET: student watch history (session_watch_history rows)
+├── certification-watch/           # GET/POST: certification_watch_history — POST accepts progress fields (watch_seconds/total_seconds/last_position), MAX server-side merge
+├── watch-enforcement/             # GET: {enabled, threshold, sessionBypass[tabKey], isAdmin} — powers watch page gating
 ├── youtube-comments/              # GET: cached YouTube comments (24h DB cache via youtube_comments_cache)
 ├── certification-watch/           # GET/POST: certification video watch status (in_progress/completed)
 └── achievement-image/route.tsx    # GET: dynamic OG achievement card image (satori ImageResponse, sharp SVG→PNG logo)
@@ -237,6 +239,7 @@ app/api/admin/
 ├── marketing-studio/designs/            # GET (list) + POST (create) saved designs
 ├── marketing-studio/designs/[id]/       # GET/PATCH/DELETE single design
 ├── marketing-studio/brand-kit/          # GET/PATCH brand kit singleton
+├── watch-enforcement-stats/             # GET: distinct tab_keys in certification_watch_history + per-key stats (for admin dynamic session list)
 ├── generate-images/             # POST: satori+sharp generate mission/vision PNGs → Supabase
 ├── page-sections/               # CRUD for page_sections + cms_pages
 ├── reset-attempts/              # POST: reset via Apps Script
@@ -330,7 +333,8 @@ src/components/
 │   ├── CountdownTimer.tsx
 │   ├── TrainingShell.tsx            # Shared layout (header + sidebar + footer + mobile nav + CMS logo)
 │   ├── TrainingShellServer.tsx      # Server wrapper — fetches CMS logo for TrainingShell
-│   ├── YouTubePlayer.tsx            # YT IFrame API player with onNearEnd (20s) + watch tracking
+│   ├── YouTubePlayer.tsx            # YT IFrame API player — onNearEnd (20s), interval-merging `onProgress(watchedSec, totalSec, pos)` via watchTracker, baselineWatchedSeconds seed
+│   ├── WatchProgressBar.tsx         # Watch progress bar shown above Mark Complete — %/threshold with color + dashed threshold marker + bypass-aware label
 │   ├── SubscribeButton.tsx          # Legacy — unused (replaced by SubscribeModal)
 │   ├── SubscribeModal.tsx           # Subscribe modal with YouTube link + ?sub_confirmation=1
 │   ├── EngagementBar.tsx            # Legacy — unused (replaced by CourseTopBar)
@@ -386,6 +390,8 @@ src/lib/
 └── training/
     ├── appsScript.ts  certificateEngine.ts  certificateLayout.ts  certifier.ts(deprecated)
     ├── share.ts       # Universal share utility: shareTo(platform, options), FMP_HASHTAGS, FMP_TRAINING_URL. Auto-copy-then-open pattern.
+    ├── watchTracker.ts           # Interval-merging playback tracker — onPlay/onTick/onClose; seeking cannot inflate counts
+    ├── watchThresholdVerifier.ts # verifyWatchThresholdMet(email, courseCode) — gates cert issuance per course+session
     ├── sheets.ts  training-session.ts  videoTimer.ts
 ```
 

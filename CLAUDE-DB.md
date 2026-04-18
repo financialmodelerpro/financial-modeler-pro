@@ -108,7 +108,7 @@
 ### Certification Watch & Assessment Results
 | Table | Purpose |
 |-------|---------|
-| `certification_watch_history` | Video watch status (in_progress/completed) for cert course sessions. Gates "Take Assessment" button on dashboard. student_email + tab_key UNIQUE |
+| `certification_watch_history` | Video watch status (in_progress/completed) + interval-merged tracking (`watch_seconds`, `total_seconds`, `watch_percentage`, `last_position`, `updated_at` — added migration 103). Gates "Take Assessment" on dashboard + Mark Complete on watch page. `student_email + tab_key` UNIQUE |
 | `training_assessment_results` | Per-session assessment scores for Training Hub. Supabase as primary source (instant reads). email + tab_key UNIQUE. Dual-write with Apps Script |
 
 ### Email System

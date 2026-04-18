@@ -85,7 +85,9 @@
 | PDF Generation | pdf-lib | ^1.17.1 |
 | Image Processing | sharp | ^0.33.5 |
 | Rich Text | @tiptap/react + starter-kit + image + text-align + link + color + text-style + underline | 2.27.2 |
-| Drag & Drop | @hello-pangea/dnd | ^18.0.1 |
+| Drag & Drop (CMS lists) | @hello-pangea/dnd | ^18.0.1 |
+| Canvas Drag/Resize (Marketing Studio) | react-rnd | ^10.5.3 |
+| ZIP Export | jszip | ^3.10.1 |
 | SVG Text Rendering | satori | latest |
 | Passwords | bcryptjs (Training Hub) / scrypt via Node (Modeling Hub) | ^3.0.3 |
 | Toast | react-hot-toast | ^2.6.0 |
