@@ -21,6 +21,13 @@ export async function GET(req: NextRequest) {
 /**
  * POST /api/training/certification-watch
  * Upserts a watch record. Body: { student_email, tab_key, course_id, status }
+ *
+ * 'completed' is a terminal state — this endpoint will never downgrade a row
+ * from 'completed' back to 'in_progress'. Without this guard, the watch page's
+ * `onVideoPlaying` handler would overwrite the completed flag every time the
+ * student revisits a video (e.g. after failing an assessment), which in turn
+ * would hide the "Take Assessment" button on the dashboard and force the
+ * student to click "Mark Complete" again.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json() as {
@@ -39,8 +46,23 @@ export async function POST(req: NextRequest) {
   }
 
   const sb = getServerClient();
+  const email = student_email.toLowerCase();
+
+  // Guard: don't downgrade 'completed' → 'in_progress'
+  if (status === 'in_progress') {
+    const { data: existing } = await sb
+      .from('certification_watch_history')
+      .select('status')
+      .eq('student_email', email)
+      .eq('tab_key', tab_key)
+      .maybeSingle();
+    if (existing?.status === 'completed') {
+      return NextResponse.json({ success: true, skipped: 'already completed' });
+    }
+  }
+
   const record: Record<string, unknown> = {
-    student_email: student_email.toLowerCase(),
+    student_email: email,
     tab_key,
     course_id,
     status,

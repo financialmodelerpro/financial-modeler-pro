@@ -58,6 +58,40 @@ function clearSavedAnswers(tabKey: string) {
   } catch { /* ignore */ }
 }
 
+// ── Timer persistence (start time per attempt) ──────────────────────────────
+//
+// Keyed by tabKey + attempt number so a retry starts a fresh clock but a
+// navigate-away-and-return within the same attempt resumes the existing clock.
+// If the clock has already expired when the student returns, the page
+// auto-submits whatever answers were saved in localStorage.
+
+function timerKeyFor(tabKey: string, attemptNo: number): string {
+  return `assessment_timer_${tabKey}_${attemptNo}`;
+}
+
+function getTimerStart(tabKey: string, attemptNo: number): number | null {
+  try {
+    const raw = localStorage.getItem(timerKeyFor(tabKey, attemptNo));
+    if (!raw) return null;
+    const n = parseInt(raw, 10);
+    return Number.isFinite(n) ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+function setTimerStart(tabKey: string, attemptNo: number, startMs: number): void {
+  try {
+    localStorage.setItem(timerKeyFor(tabKey, attemptNo), String(startMs));
+  } catch { /* ignore */ }
+}
+
+function clearTimerStart(tabKey: string, attemptNo: number): void {
+  try {
+    localStorage.removeItem(timerKeyFor(tabKey, attemptNo));
+  } catch { /* ignore */ }
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type PageState =
@@ -140,6 +174,10 @@ export default function AssessmentPage() {
   const [currentQ, setCurrentQ]     = useState(0);
   const [timeLeft, setTimeLeft]     = useState<number | null>(null);
   const timerRef                    = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Attempt number for THIS run (status.attempts at load + 1). Captured here so
+  // the timer key is stable across a single attempt even if `status.attempts`
+  // changes (e.g. after submit bumps it).
+  const [attemptForRun, setAttemptForRun] = useState<number | null>(null);
   // Shuffle settings
   const [shuffleOptions, setShuffleOptions] = useState(false);
   // Maps: for each question index, stores the mapping from shuffled option index → original option index
@@ -266,12 +304,52 @@ export default function AssessmentPage() {
     setQuestions(q);
 
     // Restore saved answers
-    setAnswers(loadSavedAnswers(tabKey));
+    const savedAnswers = loadSavedAnswers(tabKey);
+    setAnswers(savedAnswers);
     setCurrentQ(0);
+
+    // Capture attempt number for THIS run so timer key stays stable through it
+    const runAttempt = (statusData.data?.attempts ?? 0) + 1;
+    setAttemptForRun(runAttempt);
+
+    // ── Timer resume: if an unsubmitted timer exists for this attempt, skip the
+    // ready screen and either resume the clock or auto-submit if expired. ────
+    const timeLimitMin = q.timeLimit || q.questions.length;
+    const timeLimitSec = timeLimitMin * 60;
+    const storedStart  = getTimerStart(tabKey, runAttempt);
+    if (storedStart && timeLimitSec > 0) {
+      const elapsedSec  = Math.floor((Date.now() - storedStart) / 1000);
+      const remaining   = timeLimitSec - elapsedSec;
+      if (remaining <= 0) {
+        // Expired while the student was away → auto-submit with saved answers
+        setTimeLeft(0);
+        setPageState('taking');
+        // Defer one tick so handleSubmitRef picks up the latest closure
+        setTimeout(() => handleSubmitRef.current(), 50);
+        return;
+      }
+      setTimeLeft(remaining);
+      setPageState('taking');
+      return;
+    }
+
     setPageState('ready');
   }, [tabKey, router]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Warn students about losing their attempt if they try to leave mid-assessment.
+  // The timer keeps running regardless (see timer useEffect above), so even if
+  // they confirm leave, navigating back within the window will resume.
+  useEffect(() => {
+    if (pageState !== 'taking') return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [pageState]);
 
   // ── Timer ──────────────────────────────────────────────────────────────────
 
@@ -279,26 +357,41 @@ export default function AssessmentPage() {
   const handleSubmitRef = useRef<() => void>(() => { /* placeholder */ });
 
   useEffect(() => {
-    if (pageState !== 'taking' || !effectiveTimeLimit) return;
+    if (pageState !== 'taking' || !effectiveTimeLimit || attemptForRun === null) return;
 
     const totalSeconds = effectiveTimeLimit * 60;
-    setTimeLeft(totalSeconds);
+
+    // Derive remaining from stored start time if present (handles navigate-away,
+    // reload, and resume-mid-attempt). Otherwise start a fresh clock.
+    let startMs = getTimerStart(tabKey, attemptForRun);
+    if (!startMs) {
+      startMs = Date.now();
+      setTimerStart(tabKey, attemptForRun, startMs);
+    }
+    const initialRemaining = Math.max(0, totalSeconds - Math.floor((Date.now() - startMs) / 1000));
+    setTimeLeft(initialRemaining);
+
+    if (initialRemaining <= 0) {
+      setTimeout(() => handleSubmitRef.current(), 0);
+      return;
+    }
 
     timerRef.current = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev === null || prev <= 1) {
-          if (timerRef.current) clearInterval(timerRef.current);
-          // Schedule outside the state-updater so React isn't called re-entrantly
-          setTimeout(() => handleSubmitRef.current(), 0);
-          return 0;
-        }
-        return prev - 1;
-      });
+      // Always re-derive from the stored start time so background tabs and
+      // clock drift can't let a student run past the cutoff.
+      const stored = getTimerStart(tabKey, attemptForRun!);
+      const elapsed = stored ? Math.floor((Date.now() - stored) / 1000) : 0;
+      const remaining = Math.max(0, totalSeconds - elapsed);
+      setTimeLeft(remaining);
+      if (remaining <= 0) {
+        if (timerRef.current) clearInterval(timerRef.current);
+        setTimeout(() => handleSubmitRef.current(), 0);
+      }
     }, 1000);
 
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageState]);
+  }, [pageState, attemptForRun]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -394,6 +487,7 @@ export default function AssessmentPage() {
 
     // ── Step 3: Show results - NEVER re-fetch questions ──
     clearSavedAnswers(tabKey);
+    if (attemptForRun !== null) clearTimerStart(tabKey, attemptForRun);
     setResult({
       tabKey,
       score,
