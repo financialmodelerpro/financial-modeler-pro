@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import type { Certificate } from './types';
 import { ShareModal } from '@/src/components/training/share/ShareModal';
 import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
-import { renderShareTemplate } from '@/src/lib/training/shareTemplates';
+import { renderShareTemplate, formatShareDate } from '@/src/lib/training/shareTemplates';
 
 interface CertificateImageCardProps {
   cert: Certificate;
@@ -59,9 +59,7 @@ export function CertificateImageCard({ cert }: CertificateImageCardProps) {
     ? `${learnUrl}/verify/${certId}`
     : (supaData?.verification_url ?? cert.verificationUrl ?? cert.certifierUrl ?? '');
 
-  const issuedLabel = issuedAt
-    ? new Date(issuedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
-    : '';
+  const issuedLabel = formatShareDate(issuedAt);
 
   const template = useShareTemplate('certificate_earned');
   const { text: shareText, hashtags: shareHashtags } = renderShareTemplate(template, {
@@ -125,7 +123,7 @@ export function CertificateImageCard({ cert }: CertificateImageCardProps) {
             </div>
           )}
           <div style={{ fontSize: 12, color: '#6B7280' }}>
-            Issued: {issuedAt ? new Date(issuedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : '-'}
+            Issued: {issuedLabel || '-'}
           </div>
         </div>
 

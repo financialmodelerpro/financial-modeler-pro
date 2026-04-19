@@ -8,7 +8,7 @@ import { FilePreviewModal } from './FilePreviewModal';
 import { ShareModal as UniversalShareModal } from '@/src/components/training/share/ShareModal';
 import { FMP_TRAINING_URL } from '@/src/lib/training/share';
 import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
-import { renderShareTemplate } from '@/src/lib/training/shareTemplates';
+import { renderShareTemplate, formatShareDate } from '@/src/lib/training/shareTemplates';
 
 export interface SessionCardProps {
   sessionTitle: string;
@@ -320,9 +320,7 @@ export function SessionCard({
 
       {/* Share achievement modal — universal ShareModal */}
       {showShareModal && prog?.passed && (() => {
-        const passDate = prog.completedAt
-          ? new Date(prog.completedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-          : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+        const passDate = formatShareDate(prog.completedAt ?? new Date());
         const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName || '')}&regId=${encodeURIComponent(regId)}`;
         const rendered = renderShareTemplate(shareTemplate, {
           studentName: studentName ?? '',
@@ -347,9 +345,7 @@ export function SessionCard({
 
       {/* Achievement card preview modal */}
       {showCardModal && prog?.passed && (() => {
-        const passDate = prog.completedAt
-          ? new Date(prog.completedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
-          : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+        const passDate = formatShareDate(prog.completedAt ?? new Date());
         const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName || '')}&regId=${encodeURIComponent(regId)}`;
         return (
           <div onClick={() => setShowCardModal(false)}

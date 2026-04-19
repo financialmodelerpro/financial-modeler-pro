@@ -436,7 +436,7 @@ export default async function VerifyPage({ params }: PageProps) {
             fullName={cert.full_name ?? 'Student'}
             course={cert.course ?? 'Course'}
             grade={cert.grade ?? ''}
-            issuedLabel={formatDate(issueDate)}
+            issuedAt={issueDate}
             verifyUrl={verifyUrl}
             certPdfUrl={cert.cert_pdf_url}
             badgeUrl={cert.badge_url}

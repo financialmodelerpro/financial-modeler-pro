@@ -19,9 +19,54 @@
  * fields), so call-site code stays the same.
  */
 
+import { COURSES } from '@/src/config/courses';
+
 /** Default mention text — fallback when training_settings hasn't been seeded yet. */
 export const DEFAULT_BRAND_MENTION   = 'FinancialModelerPro';
 export const DEFAULT_FOUNDER_MENTION = 'Ahmad Din, ACCA, FMVA®';
+
+/**
+ * Resolve a course identifier to its full display title. Accepts any of:
+ *   - the course id (`'3sfm'`, `'bvm'`)
+ *   - the short title (`'3SFM'`, `'BVM'`)
+ *   - the full title (passthrough)
+ * Returns the input unchanged when no match — lets live-session names and
+ * other non-COURSES values pass through untouched.
+ *
+ * Every share call site goes through this via `renderShareTemplate`, so even
+ * if a call site accidentally passes "3SFM" the share text comes out with
+ * "3-Statement Financial Modeling" — matching what the admin sees in the
+ * template preview.
+ */
+export function resolveCourseName(value: string | null | undefined): string {
+  if (!value) return '';
+  const v = String(value).trim();
+  if (!v) return '';
+  const vUpper = v.toUpperCase();
+  const vLower = v.toLowerCase();
+  for (const c of Object.values(COURSES)) {
+    if (c.title === v) return c.title;
+    if (c.shortTitle.toUpperCase() === vUpper) return c.title;
+    if (c.id === vLower) return c.title;
+  }
+  return v;
+}
+
+/**
+ * Canonical share-date format — matches the admin preview sample
+ * ("20 March 2026"). All share call sites go through this so the output
+ * is identical regardless of platform locale or call-site formatting quirks.
+ */
+export function formatShareDate(input: string | number | Date | null | undefined): string {
+  if (!input) return '';
+  try {
+    const d = input instanceof Date ? input : new Date(input);
+    if (isNaN(d.getTime())) return String(input);
+    return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+  } catch {
+    return String(input);
+  }
+}
 
 export interface ShareSettings {
   brand_mention:   string;
@@ -67,11 +112,19 @@ export function renderShareTemplate(template: ShareTemplate, vars: ShareVars): R
   const brand   = template.mention_brand   ? `@${brandText}`   : brandText;
   const founder = template.mention_founder ? `@${founderText}` : founderText;
 
+  // Normalize well-known variables so the output always matches the admin
+  // template preview: `course` ⇒ full title (resolves short codes like "3SFM"),
+  // date-ish keys ⇒ canonical "20 March 2026" format.
+  const normalizedVars: ShareVars = { ...vars };
+  if (typeof normalizedVars.course === 'string') {
+    normalizedVars.course = resolveCourseName(normalizedVars.course);
+  }
+
   let text = template.template_text
     .split('{@brand}').join(brand)
     .split('{@founder}').join(founder);
 
-  for (const [k, v] of Object.entries(vars)) {
+  for (const [k, v] of Object.entries(normalizedVars)) {
     if (v === undefined || v === null) continue;
     const token = `{${k}}`;
     // split/join avoids regex-escaping issues for odd variable names.

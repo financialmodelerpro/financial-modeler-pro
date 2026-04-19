@@ -13,7 +13,7 @@ import type {
 import { COURSES } from '@/src/config/courses';
 import { shareTo, FMP_TRAINING_URL } from '@/src/lib/training/share';
 import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
-import { renderShareTemplate } from '@/src/lib/training/shareTemplates';
+import { renderShareTemplate, formatShareDate } from '@/src/lib/training/shareTemplates';
 
 // Resolve a human-readable session name from a tabKey (e.g. "3SFM_S1" → "Session 1: Introduction…")
 function getSessionTitleFromTabKey(tabKey: string): string {
@@ -1038,7 +1038,7 @@ export default function AssessmentPage() {
 
         {/* Share achievement - only shown when student PASSES */}
         {passed && (() => {
-          const passDate = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+          const passDate = formatShareDate(new Date());
           const courseName = courseId === 'bvm' ? 'Business Valuation Modeling' : '3-Statement Financial Modeling';
           const sess = getTrainingSession();
           const regIdVal = sess?.registrationId || '';

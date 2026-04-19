@@ -34,7 +34,10 @@ async function fetchSupabaseCerts(email: string): Promise<DashboardCert[]> {
       certificateId:   r.certificate_id as string,
       studentName:     (r.full_name as string) ?? undefined,
       email:           (r.email as string) ?? undefined,
-      course:          (r.course_code as string) ?? (r.course as string) ?? '',
+      // Full course title first — short codes ("3SFM") are for internal
+      // indexing, share/display surfaces need the full name. The share
+      // render engine resolves short codes too as a safety net.
+      course:          (r.course as string) ?? (r.course_code as string) ?? '',
       issuedAt:        (r.issued_at as string) ?? '',
       certPdfUrl:      (r.cert_pdf_url as string) ?? undefined,
       badgeUrl:        (r.badge_url as string) ?? undefined,

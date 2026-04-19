@@ -6,7 +6,7 @@ import { Calendar, Clock, User, Play, CheckCircle2, Radio, Share2, Download as D
 import { downloadIcs } from '@/src/lib/training/calendar';
 import { ShareModal } from '@/src/components/training/share/ShareModal';
 import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
-import { renderShareTemplate } from '@/src/lib/training/shareTemplates';
+import { renderShareTemplate, formatShareDate } from '@/src/lib/training/shareTemplates';
 import type { LiveSession, RegistrationStatus, WatchHistoryEntry } from '@/src/lib/training/liveSessionsForStudent';
 
 const NAVY = '#0D2E5A';
@@ -206,9 +206,7 @@ export function LiveSessionCardLarge(props: Props) {
     studentName: props.studentName ?? '',
     sessionName: session.title,
     course:      'FMP Real-World Financial Modeling',
-    date:        session.scheduled_datetime
-      ? new Date(session.scheduled_datetime).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-      : new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+    date:        formatShareDate(session.scheduled_datetime ?? new Date()),
   });
 
   if (props.variant === 'upcoming') {
@@ -447,9 +445,7 @@ export function LiveSessionCardLarge(props: Props) {
       />
 
       {cardOpen && cardEligible && (() => {
-        const dateLabel = session.scheduled_datetime
-          ? new Date(session.scheduled_datetime).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-          : new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        const dateLabel = formatShareDate(session.scheduled_datetime ?? new Date());
         const rendered = renderShareTemplate(achievementTemplate, {
           studentName: props.studentName ?? '',
           sessionName: session.title,

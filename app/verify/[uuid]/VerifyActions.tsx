@@ -3,14 +3,17 @@
 import { useState } from 'react';
 import { ShareModal } from '@/src/components/training/share/ShareModal';
 import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
-import { renderShareTemplate } from '@/src/lib/training/shareTemplates';
+import { renderShareTemplate, formatShareDate } from '@/src/lib/training/shareTemplates';
 
 interface Props {
   certId: string;
   fullName: string;
   course: string;
   grade: string;
-  issuedLabel: string;
+  /** Raw ISO date — VerifyActions runs it through formatShareDate() so the
+   *  share text uses the same canonical "20 March 2026" format as the
+   *  admin template preview, not whatever string the server page built. */
+  issuedAt?: string | null;
   verifyUrl: string;
   certPdfUrl?: string | null;
   badgeUrl?: string | null;
@@ -22,7 +25,7 @@ interface Props {
  * copy / @-mentions / hashtags from /admin/training-hub/share-templates
  * and every share button across the platform reflects the change.
  */
-export function VerifyActions({ certId, fullName, course, grade, issuedLabel, verifyUrl, certPdfUrl, badgeUrl }: Props) {
+export function VerifyActions({ certId, fullName, course, grade, issuedAt, verifyUrl, certPdfUrl, badgeUrl }: Props) {
   const [showShare, setShowShare] = useState(false);
 
   const template = useShareTemplate('certificate_earned');
@@ -30,7 +33,7 @@ export function VerifyActions({ certId, fullName, course, grade, issuedLabel, ve
     studentName: fullName,
     course,
     grade: grade || 'Pass',
-    date: issuedLabel,
+    date: formatShareDate(issuedAt),
     certId,
     verifyUrl,
   });
