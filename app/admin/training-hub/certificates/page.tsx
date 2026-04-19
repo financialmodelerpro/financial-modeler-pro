@@ -40,6 +40,21 @@ export default function CertificatesPage() {
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [toast, setToast]   = useState('');
 
+  // Force-issue panel state
+  const [fiEmail, setFiEmail] = useState('');
+  const [fiCourse, setFiCourse] = useState<'3SFM' | 'BVM'>('3SFM');
+  const [fiBusy, setFiBusy] = useState(false);
+  const [fiCheck, setFiCheck] = useState<null | {
+    eligible: boolean;
+    course: string;
+    email: string;
+    passedSessions: string[];
+    missingSessions: Array<{ tabKey: string; title: string }>;
+    watchThresholdMet: boolean;
+    reason?: string;
+  }>(null);
+  const [fiResult, setFiResult] = useState<null | { certificateId: string; certPdfUrl: string; badgeUrl: string }>(null);
+
   useEffect(() => {
     if (status === 'unauthenticated') { router.replace('/login'); return; }
     if (status === 'authenticated' && (session.user as any).role !== 'admin') router.replace('/');
@@ -59,6 +74,39 @@ export default function CertificatesPage() {
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
   const setAL = (key: string, val: boolean) => setActionLoading(p => ({ ...p, [key]: val }));
+
+  const handleCheckEligibility = async () => {
+    if (!fiEmail.trim()) { showToast('Enter an email'); return; }
+    setFiBusy(true); setFiCheck(null); setFiResult(null);
+    try {
+      const res = await fetch('/api/admin/certificates/check-eligibility', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: fiEmail.trim(), courseCode: fiCourse }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? 'Check failed');
+      setFiCheck(j);
+    } catch (e) { showToast((e as Error).message); }
+    setFiBusy(false);
+  };
+
+  const handleForceIssue = async () => {
+    if (!fiEmail.trim()) { showToast('Enter an email'); return; }
+    if (!confirm(`Force-issue ${fiCourse} certificate for ${fiEmail.trim()}? This bypasses the watch-threshold check and is audited.`)) return;
+    setFiBusy(true); setFiResult(null);
+    try {
+      const res = await fetch('/api/admin/certificates/force-issue', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: fiEmail.trim(), courseCode: fiCourse }),
+      });
+      const j = await res.json();
+      if (!res.ok || !j.success) throw new Error(j.error ?? 'Force-issue failed');
+      setFiResult({ certificateId: j.certificateId, certPdfUrl: j.certPdfUrl, badgeUrl: j.badgeUrl });
+      showToast('Certificate issued');
+      await fetchData();
+    } catch (e) { showToast((e as Error).message); }
+    setFiBusy(false);
+  };
 
   const handleRevoke = async (cert: AdminCert) => {
     if (!confirm(`Revoke certificate for ${cert.studentName}? This will mark it as revoked.`)) return;
@@ -160,6 +208,74 @@ export default function CertificatesPage() {
               <StatCard label="BVM"           value={data?.bvmCerts ?? 0} />
               <StatCard label="Revoked"       value={data?.revokedCerts ?? 0} />
             </>
+          )}
+        </div>
+
+        {/* Force-Issue + Check Eligibility panel */}
+        <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '18px 22px', marginBottom: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#1B3A6B' }}>⚡ Force-Issue Certificate (admin override)</div>
+              <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>
+                Bypasses the watch-threshold check. Cert, badge, and email still generate with the standard design. Audit trail recorded in <code style={{ background: '#F3F4F6', padding: '1px 4px', borderRadius: 3 }}>student_certificates.issued_by_admin</code>.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center', marginTop: 10 }}>
+            <input
+              type="email"
+              placeholder="student@example.com"
+              value={fiEmail}
+              onChange={e => { setFiEmail(e.target.value); setFiCheck(null); setFiResult(null); }}
+              style={{ flex: '2 1 240px', padding: '8px 12px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 6, fontFamily: 'Inter,sans-serif' }}
+            />
+            <select
+              value={fiCourse}
+              onChange={e => { setFiCourse(e.target.value as '3SFM' | 'BVM'); setFiCheck(null); setFiResult(null); }}
+              style={{ padding: '8px 10px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 6, background: '#fff', cursor: 'pointer' }}
+            >
+              <option value="3SFM">3SFM</option>
+              <option value="BVM">BVM</option>
+            </select>
+            <button
+              onClick={handleCheckEligibility}
+              disabled={fiBusy || !fiEmail.trim()}
+              style={{ padding: '8px 16px', fontSize: 12, fontWeight: 700, borderRadius: 6, background: '#fff', color: '#1B4F8A', border: '1px solid #1B4F8A', cursor: fiBusy ? 'not-allowed' : 'pointer', opacity: fiBusy ? 0.6 : 1 }}
+            >
+              Check Eligibility
+            </button>
+            <button
+              onClick={handleForceIssue}
+              disabled={fiBusy || !fiEmail.trim()}
+              style={{ padding: '8px 16px', fontSize: 12, fontWeight: 700, borderRadius: 6, background: '#B45309', color: '#fff', border: 'none', cursor: fiBusy ? 'not-allowed' : 'pointer', opacity: fiBusy ? 0.6 : 1 }}
+            >
+              {fiBusy ? 'Working…' : '⚡ Force Issue'}
+            </button>
+          </div>
+
+          {fiCheck && (
+            <div style={{ marginTop: 12, padding: '10px 14px', background: fiCheck.eligible ? '#F0FFF4' : '#FFFBEB', border: `1px solid ${fiCheck.eligible ? '#BBF7D0' : '#FDE68A'}`, borderRadius: 8, fontSize: 12 }}>
+              <div style={{ fontWeight: 700, color: fiCheck.eligible ? '#166534' : '#92400E', marginBottom: 4 }}>
+                {fiCheck.eligible ? '✓ Eligible — safe to auto-issue' : `⚠️ Not eligible — ${fiCheck.reason}`}
+              </div>
+              <div style={{ color: '#374151' }}>
+                Passed: <strong>{fiCheck.passedSessions.length}</strong> session{fiCheck.passedSessions.length === 1 ? '' : 's'}
+                {fiCheck.missingSessions.length > 0 && (
+                  <> · Missing: {fiCheck.missingSessions.map(m => m.tabKey).join(', ')}</>
+                )}
+                {' · '}Watch threshold: <strong>{fiCheck.watchThresholdMet ? 'met' : 'not met'}</strong>
+              </div>
+            </div>
+          )}
+
+          {fiResult && (
+            <div style={{ marginTop: 12, padding: '10px 14px', background: '#F0FFF4', border: '1px solid #BBF7D0', borderRadius: 8, fontSize: 12 }}>
+              <div style={{ fontWeight: 700, color: '#166534', marginBottom: 4 }}>✓ Issued: {fiResult.certificateId}</div>
+              <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                <a href={fiResult.certPdfUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#1B4F8A', textDecoration: 'underline' }}>Certificate PDF ↗</a>
+                {fiResult.badgeUrl && <a href={fiResult.badgeUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#1B4F8A', textDecoration: 'underline' }}>Badge PNG ↗</a>}
+              </div>
+            </div>
           )}
         </div>
 

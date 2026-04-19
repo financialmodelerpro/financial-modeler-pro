@@ -112,6 +112,18 @@
 
 ---
 
+## Certificate Issuance (Supabase-native, migration 109)
+
+Certificates are now issued from Supabase eligibility data. Apps Script's "pending" flag is no longer a prerequisite — any student who has all required passes + meets the watch threshold will be picked up by the next cron tick.
+
+- **Eligibility view**: `certificate_eligibility_raw` (from `training_assessment_results`) — one row per (email, course_code) with pass counters + `final_passed` flag. Migration 109.
+- **Eligibility lib**: `src/lib/training/certificateEligibility.ts` — `checkEligibility(email, courseId)` runs the full course-config check (all regular + final sessions passed, watch threshold met with grandfathering + per-session bypass). `findAllEligibleFromSupabase()` returns every eligible student that doesn't already have an Issued row in `student_certificates`.
+- **Engine**: `src/lib/training/certificateEngine.ts` gained `issueCertificateForPending(cert, options)` — the single per-student issuance path. `processPendingCertificates()` now scans BOTH Apps Script AND Supabase, dedups by (email|course_code), and calls `issueCertificateForPending` for each. Apps Script sync (`updateCertificateUrls`) is best-effort — a failure there no longer blocks issuance. Self-healing: a student Apps Script missed gets picked up on the next cron.
+- **Force-issue**: `POST /api/admin/certificates/force-issue { email, courseCode }` — admin-only, bypasses the watch-threshold check, records the admin's email in `student_certificates.issued_by_admin` + sets `issued_via='forced'`.
+- **Check eligibility**: `POST /api/admin/certificates/check-eligibility { email, courseCode }` — returns the full `EligibilityResult` (passed sessions, missing sessions, watch details, blocking reason).
+- **Admin UI**: `/admin/training-hub/certificates` top card — email + course dropdown + `Check Eligibility` + `⚡ Force Issue` buttons. Shows eligibility breakdown inline; on success, links to the generated certificate PDF + badge PNG.
+- **Cron unchanged**: still hits `/api/cron/certificates` every 15 min, still calls `processPendingCertificates()` — the new Supabase-first pass runs inside that same call, so no Vercel cron re-config needed.
+
 ## SEO
 
 Full SEO implemented across all public pages.

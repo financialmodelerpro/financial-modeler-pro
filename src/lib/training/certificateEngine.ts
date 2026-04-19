@@ -7,8 +7,10 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import sharp from 'sharp';
 import { getServerClient } from '@/src/lib/shared/supabase';
-import { getPendingCertificates, updateCertificateUrls } from '@/src/lib/training/sheets';
+import { getPendingCertificates, updateCertificateUrls, type PendingCertificate } from '@/src/lib/training/sheets';
 import { verifyWatchThresholdMet } from '@/src/lib/training/watchThresholdVerifier';
+import { findAllEligibleFromSupabase, type EligibilityResult } from '@/src/lib/training/certificateEligibility';
+import { COURSES } from '@/src/config/courses';
 import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
 import { certificateIssuedTemplate } from '@/src/lib/email/templates/certificateIssued';
 
@@ -405,113 +407,166 @@ export async function generateBadgePng(data: {
 
 // ── Main Orchestrator ─────────────────────────────────────────────────────────
 
-export async function processPendingCertificates(): Promise<{
-  processed: number;
-  errors: string[];
-}> {
-  const errors: string[] = [];
-  let processed = 0;
+/**
+ * Generate a cert + badge + DB upsert + email for a single student.
+ * Exported so:
+ *   - processPendingCertificates can call it in a loop (Apps Script + Supabase sources)
+ *   - /api/admin/certificates/force-issue can call it directly to bypass the
+ *     eligibility gate for one student
+ *
+ * `options.force` skips the watch-threshold verification — use only when an
+ * admin has explicitly chosen to override (audit trail recorded by caller).
+ */
+export async function issueCertificateForPending(
+  cert: PendingCertificate,
+  options: { force?: boolean; issuedVia?: 'auto' | 'forced' | 'apps_script'; forcedByAdmin?: string } = {},
+): Promise<{ ok: true; certificateId: string; certPdfUrl: string; badgeUrl: string; verificationUrl: string } | { ok: false; error: string }> {
   const sb = getServerClient();
 
-  // 1. Fetch pending from Apps Script
-  let pending;
-  try {
-    pending = await getPendingCertificates();
-  } catch (e) {
-    return { processed: 0, errors: [`Failed to fetch pending certificates: ${String(e)}`] };
+  if (!options.force) {
+    const verify = await verifyWatchThresholdMet(cert.email, cert.courseCode);
+    if (!verify.ok) {
+      const list = verify.failed.map(f => `${f.tabKey}(${f.pct}%)`).join(', ');
+      return { ok: false, error: `watch_threshold_not_met: ${list}` };
+    }
   }
 
-  for (const cert of pending) {
+  try {
+    const certificateId   = await generateCertificateId(cert.courseCode);
+    const verificationUrl = `${MAIN_URL}/verify/${certificateId}`;
+    const grade           = cert.grade || deriveGrade(cert.finalScore ?? 0, cert.avgScore ?? 0);
+    const issueDate       = cert.completionDate || new Date().toISOString();
+
+    const certPdfUrl = await generateCertificatePdf({
+      certificateId, studentName: cert.studentName, issueDate, grade, verificationUrl, courseCode: cert.courseCode,
+    });
+    const badgeUrl = await generateBadgePng({ certificateId, issueDate, courseCode: cert.courseCode });
+
+    // Best-effort sync back to Apps Script (still the source of truth for
+    // legacy admin UIs). Failures here don't block issuance.
     try {
-      // Watch enforcement gate — skip issuance if the student failed to meet
-      // the watch threshold on any required session (unless bypassed). Rows
-      // that predate migration 103 (no watch data yet captured) are grandfathered.
-      const verify = await verifyWatchThresholdMet(cert.email, cert.courseCode);
-      if (!verify.ok) {
-        const list = verify.failed.map(f => `${f.tabKey}(${f.pct}%)`).join(', ');
-        errors.push(`watch_threshold_not_met: ${cert.email} ${cert.courseCode} — ${list}`);
-        console.warn(`[cron/certificates] skipping ${cert.email}: watch threshold not met for ${list}`);
-        continue;
-      }
-
-      const certificateId  = await generateCertificateId(cert.courseCode);
-      const verificationUrl = `${MAIN_URL}/verify/${certificateId}`;
-      const grade           = cert.grade || deriveGrade(cert.finalScore ?? 0, cert.avgScore ?? 0);
-      const issueDate       = cert.completionDate || new Date().toISOString();
-
-      // 2. Generate certificate PDF
-      const certPdfUrl = await generateCertificatePdf({
-        certificateId,
-        studentName:     cert.studentName,
-        issueDate,
-        grade,
-        verificationUrl,
-        courseCode:      cert.courseCode,
-      });
-
-      // 3. Generate badge PNG
-      const badgeUrl = await generateBadgePng({
-        certificateId,
-        issueDate,
-        courseCode: cert.courseCode,
-      });
-
-      // 4. Update Apps Script
-      await updateCertificateUrls({
-        certificateId,
-        certPdfUrl,
-        badgeUrl,
-        transcriptUrl: '', // transcript URL set separately by student
-        status: 'Issued',
-      });
-
-      // 5. Upsert student_certificates in Supabase
-      await sb.from('student_certificates').upsert(
-        {
-          certificate_id:     certificateId,
-          registration_id:    cert.registrationId,
-          full_name:          cert.studentName,
-          email:              cert.email,
-          course:             cert.courseName,
-          course_code:        cert.courseCode,
-          grade,
-          final_score:        cert.finalScore ?? null,
-          avg_score:          cert.avgScore ?? null,
-          cert_pdf_url:       certPdfUrl,
-          badge_url:          badgeUrl || null,
-          verification_url:   verificationUrl,
-          cert_status:        'Issued',
-          issued_at:          new Date().toISOString(),
-          issued_date:        new Date().toISOString().split('T')[0],
-          course_subheading:  cert.courseSubheading ?? null,
-          course_description: cert.courseDescription ?? null,
-        },
-        { onConflict: 'registration_id' },
-      );
-
-      // 6. Send certificate email
-      try {
-        const { subject, html } = await certificateIssuedTemplate({
-          studentName:     cert.studentName,
-          courseName:      cert.courseName,
-          certPdfUrl,
-          badgeUrl,
-          verificationUrl,
-          certificateId,
-          grade,
-        });
-        await sendEmail({ to: cert.email, subject, html, from: FROM.training });
-      } catch (emailErr) {
-        // Non-fatal - log but don't fail the whole cert
-        console.error(`[certEngine] Email failed for ${cert.email}:`, emailErr);
-      }
-
-      processed++;
+      await updateCertificateUrls({ certificateId, certPdfUrl, badgeUrl, transcriptUrl: '', status: 'Issued' });
     } catch (e) {
-      const msg = `Failed to process cert for ${cert.email}: ${String(e)}`;
-      console.error('[certEngine]', msg);
-      errors.push(msg);
+      console.warn('[certEngine] Apps Script updateCertificateUrls failed (non-fatal):', e);
     }
+
+    await sb.from('student_certificates').upsert(
+      {
+        certificate_id:     certificateId,
+        registration_id:    cert.registrationId,
+        full_name:          cert.studentName,
+        email:              cert.email,
+        course:             cert.courseName,
+        course_code:        cert.courseCode,
+        grade,
+        final_score:        cert.finalScore ?? null,
+        avg_score:          cert.avgScore ?? null,
+        cert_pdf_url:       certPdfUrl,
+        badge_url:          badgeUrl || null,
+        verification_url:   verificationUrl,
+        cert_status:        options.force ? 'Forced' : 'Issued',
+        issued_at:          new Date().toISOString(),
+        issued_date:        new Date().toISOString().split('T')[0],
+        course_subheading:  cert.courseSubheading ?? null,
+        course_description: cert.courseDescription ?? null,
+        issued_via:         options.issuedVia ?? (options.force ? 'forced' : 'auto'),
+        issued_by_admin:    options.forcedByAdmin ?? null,
+      },
+      { onConflict: 'registration_id' },
+    );
+
+    try {
+      const { subject, html } = await certificateIssuedTemplate({
+        studentName: cert.studentName, courseName: cert.courseName,
+        certPdfUrl, badgeUrl, verificationUrl, certificateId, grade,
+      });
+      await sendEmail({ to: cert.email, subject, html, from: FROM.training });
+    } catch (emailErr) {
+      console.error(`[certEngine] Email failed for ${cert.email}:`, emailErr);
+    }
+
+    return { ok: true, certificateId, certPdfUrl, badgeUrl, verificationUrl };
+  } catch (e) {
+    const msg = `Failed to process cert for ${cert.email}: ${String(e)}`;
+    console.error('[certEngine]', msg);
+    return { ok: false, error: msg };
+  }
+}
+
+/** Build a PendingCertificate from a Supabase eligibility result + student meta. */
+async function pendingFromEligibility(result: EligibilityResult): Promise<PendingCertificate | null> {
+  const sb = getServerClient();
+  const { data: meta } = await sb
+    .from('training_registrations_meta')
+    .select('registration_id, name')
+    .eq('email', result.email)
+    .maybeSingle();
+  if (!meta) return null;
+  const course = Object.values(COURSES).find(c => c.shortTitle.toUpperCase() === result.course.toUpperCase());
+  if (!course) return null;
+  return {
+    registrationId:    meta.registration_id ?? '',
+    email:             result.email,
+    studentName:       meta.name ?? '',
+    courseName:        course.title,
+    courseCode:        course.shortTitle.toUpperCase(),
+    courseSubheading:  '',
+    courseDescription: course.description ?? '',
+    finalScore:        result.finalScore ?? 0,
+    avgScore:          result.avgScore ?? 0,
+    grade:             '',
+    completionDate:    new Date().toISOString(),
+  };
+}
+
+/**
+ * Processes every pending certificate from BOTH sources (deduped):
+ *  - Apps Script `getPendingCertificates` (legacy flag)
+ *  - Supabase eligibility view + course-config check (native)
+ *
+ * This makes issuance self-healing: a student who passed all requirements
+ * but was never flagged by Apps Script will still be picked up on the next
+ * cron tick.
+ */
+export async function processPendingCertificates(): Promise<{ processed: number; errors: string[] }> {
+  const errors: string[] = [];
+  let processed = 0;
+
+  // 1. Apps Script pending list (best-effort — failure here doesn't block the Supabase pass)
+  let appsPending: PendingCertificate[] = [];
+  try {
+    appsPending = await getPendingCertificates();
+  } catch (e) {
+    errors.push(`apps_script_fetch_failed: ${String(e)}`);
+  }
+
+  // 2. Supabase-first scan — finds eligible students the Apps Script flag missed.
+  let supabasePending: PendingCertificate[] = [];
+  try {
+    const eligible = await findAllEligibleFromSupabase();
+    for (const e of eligible) {
+      if (!e.eligible) continue;
+      const pc = await pendingFromEligibility(e);
+      if (pc) supabasePending.push(pc);
+    }
+  } catch (e) {
+    errors.push(`supabase_scan_failed: ${String(e)}`);
+  }
+
+  // Dedup by (email|courseCode) — Apps Script wins first.
+  const seen = new Set<string>();
+  const combined: PendingCertificate[] = [];
+  for (const p of [...appsPending, ...supabasePending]) {
+    const key = `${p.email.toLowerCase()}|${p.courseCode.toUpperCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    combined.push(p);
+  }
+
+  for (const cert of combined) {
+    const result = await issueCertificateForPending(cert, { issuedVia: 'auto' });
+    if (result.ok) processed++;
+    else errors.push(result.error);
   }
 
   return { processed, errors };
