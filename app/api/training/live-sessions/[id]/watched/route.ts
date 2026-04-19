@@ -43,7 +43,7 @@ export async function POST(
     // Current row (if any)
     const { data: existing } = await sb
       .from('session_watch_history')
-      .select('id, status, watch_seconds, total_seconds, watch_percentage, points_awarded')
+      .select('id, status, watch_seconds, total_seconds, watch_percentage, points_awarded, updated_at')
       .eq('session_id', id)
       .eq('student_email', email)
       .maybeSingle();
@@ -52,11 +52,37 @@ export async function POST(
     const incomingTotalSec = Math.max(0, Math.round(total_seconds ?? 0));
     const incomingPos      = Math.max(0, Math.round(last_position ?? 0));
 
-    const mergedWatchSec = Math.max(existing?.watch_seconds ?? 0, incomingWatchSec);
+    // Wall-clock rate limit: watch_seconds can't grow faster than real time
+    // between updates. Defeats tampered clients that POST a huge watch_seconds
+    // in one shot — they now have to pace their fabricated updates to real
+    // elapsed wall time, at which point they might as well have been watching.
+    const existingWatchSec = Math.max(0, Math.round(existing?.watch_seconds ?? 0));
+    const existingUpdatedAt = existing?.updated_at ? new Date(existing.updated_at).getTime() : null;
+    let clampedIncoming = incomingWatchSec;
+    if (existingUpdatedAt && incomingWatchSec > existingWatchSec) {
+      const realElapsedSec = Math.max(0, (Date.now() - existingUpdatedAt) / 1000) + 5; // 5s buffer
+      const maxAllowed = existingWatchSec + realElapsedSec;
+      if (clampedIncoming > maxAllowed) {
+        console.warn('[watched] clamped watch_seconds (too fast)', {
+          session_id: id, email,
+          existingWatchSec, incomingWatchSec, clampedTo: Math.round(maxAllowed),
+          realElapsedSec,
+        });
+        clampedIncoming = Math.round(maxAllowed);
+      }
+    }
+
+    const mergedWatchSec = Math.max(existingWatchSec, clampedIncoming);
     const mergedTotalSec = Math.max(existing?.total_seconds ?? 0, incomingTotalSec);
+    // Always compute pct from ACTUAL seconds — never trust `status='completed'`
+    // alone to imply 100%. A client that sends completed without total_seconds
+    // (e.g. trying to short-circuit enforcement) now gets pct=0 and is
+    // rejected below by canCompleteWith(). If total_seconds is unknown we fall
+    // back to the stored percentage so we never accidentally demote a valid
+    // prior completion.
     const pct = mergedTotalSec > 0
-      ? Math.min(100, Math.round((mergedWatchSec / mergedTotalSec) * 100))
-      : status === 'completed' ? 100 : existing?.watch_percentage ?? 0;
+      ? Math.min(100, Math.max(0, Math.round((mergedWatchSec / mergedTotalSec) * 100)))
+      : existing?.watch_percentage ?? 0;
 
     // Server-side enforcement: reject an attempt to flip this row to
     // `completed` when the actual stored watch percentage is still below the
@@ -66,6 +92,10 @@ export async function POST(
     if (wantsCompleted) {
       const enforcement = await getWatchEnforcement(`LIVE_${id}`);
       if (!canCompleteWith(enforcement, pct)) {
+        console.warn('[watched] Completion rejected — below threshold', {
+          session_id: id, email, pct, threshold: enforcement.threshold,
+          mergedWatchSec, mergedTotalSec, incomingWatchSec, incomingTotalSec,
+        });
         return NextResponse.json({
           success: false,
           error: 'Watch threshold not met',
@@ -74,6 +104,11 @@ export async function POST(
         }, { status: 403 });
       }
     }
+
+    console.log('[watched] upsert', {
+      session_id: id, email, status, mergedStatus: existing?.status === 'completed' || status === 'completed' ? 'completed' : 'in_progress',
+      mergedWatchSec, mergedTotalSec, pct,
+    });
 
     // Once completed, stay completed — progress ticks shouldn't demote back.
     const mergedStatus = existing?.status === 'completed' || status === 'completed' ? 'completed' : 'in_progress';

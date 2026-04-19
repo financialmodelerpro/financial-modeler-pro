@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   // Read existing row for terminal-status guard + MAX merging
   const { data: existing } = await sb
     .from('certification_watch_history')
-    .select('status, watch_seconds, total_seconds, last_position')
+    .select('status, watch_seconds, total_seconds, last_position, updated_at')
     .eq('student_email', email)
     .eq('tab_key', tab_key)
     .maybeSingle();
@@ -67,7 +67,23 @@ export async function POST(req: NextRequest) {
 
   const existingSec = Number(existing?.watch_seconds ?? 0);
   const incomingSec = typeof body.watch_seconds === 'number' ? Math.max(0, Math.round(body.watch_seconds)) : null;
-  const mergedWatch = incomingSec === null ? existingSec : Math.max(existingSec, incomingSec);
+
+  // Wall-clock rate limit: watch_seconds can't grow faster than real time
+  // between updates (same defence as the live-session endpoint).
+  let clampedIncoming = incomingSec;
+  const existingUpdatedAt = existing?.updated_at ? new Date(existing.updated_at).getTime() : null;
+  if (clampedIncoming !== null && existingUpdatedAt && clampedIncoming > existingSec) {
+    const realElapsedSec = Math.max(0, (Date.now() - existingUpdatedAt) / 1000) + 5; // 5s buffer
+    const maxAllowed = existingSec + realElapsedSec;
+    if (clampedIncoming > maxAllowed) {
+      console.warn('[certification-watch] clamped watch_seconds (too fast)', {
+        tab_key, email, existingSec, incomingSec: clampedIncoming, clampedTo: Math.round(maxAllowed), realElapsedSec,
+      });
+      clampedIncoming = Math.round(maxAllowed);
+    }
+  }
+
+  const mergedWatch = clampedIncoming === null ? existingSec : Math.max(existingSec, clampedIncoming);
 
   const existingTotal = Number(existing?.total_seconds ?? 0);
   const incomingTotal = typeof body.total_seconds === 'number' ? Math.max(0, Math.round(body.total_seconds)) : null;
@@ -83,6 +99,10 @@ export async function POST(req: NextRequest) {
   if (wantsCompleted) {
     const enforcement = await getWatchEnforcement(tab_key);
     if (!canCompleteWith(enforcement, pct)) {
+      console.warn('[certification-watch] Completion rejected — below threshold', {
+        tab_key, email, pct, threshold: enforcement.threshold,
+        mergedWatch, mergedTotal,
+      });
       return NextResponse.json({
         success: false,
         error: 'Watch threshold not met',
@@ -91,6 +111,9 @@ export async function POST(req: NextRequest) {
       }, { status: 403 });
     }
   }
+  console.log('[certification-watch] upsert', {
+    tab_key, email, status: effectiveStatus, mergedWatch, mergedTotal, pct,
+  });
 
   const record: Record<string, unknown> = {
     student_email: email,
