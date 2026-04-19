@@ -285,12 +285,15 @@ export default function TrainingSettingsPage() {
 
   const dirty = url.trim() !== savedUrl;
 
+  /**
+   * Saves ONLY the per-session bypass map. Global toggle + threshold auto-
+   * persist on change (see `saveGlobalEnforcement` / `saveThreshold` below),
+   * so the bottom button focuses on the batch operation — flipping a large
+   * number of per-session toggles is the one action worth confirming.
+   */
   const saveEnforcement = async () => {
     setEnforceSaving(true);
-    const payload: Record<string, string> = {
-      watch_enforcement_enabled:   enforceEnabled ? 'true' : 'false',
-      watch_enforcement_threshold: String(enforceThreshold),
-    };
+    const payload: Record<string, string> = {};
     for (const [tk, on] of Object.entries(bypassMap)) {
       payload[`watch_enforcement_bypass_${tk}`] = on ? 'true' : 'false';
     }
@@ -300,7 +303,38 @@ export default function TrainingSettingsPage() {
       body: JSON.stringify(payload),
     });
     setEnforceSaving(false);
-    showToast(res.ok ? 'Watch enforcement saved' : 'Save failed');
+    showToast(res.ok ? 'Per-session bypasses saved' : 'Save failed');
+  };
+
+  /** Auto-persist the master global toggle. Fire-and-forget toast. */
+  const saveGlobalEnforcement = async (nextEnabled: boolean) => {
+    setEnforceEnabled(nextEnabled);
+    try {
+      const res = await fetch('/api/admin/training-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ watch_enforcement_enabled: nextEnabled ? 'true' : 'false' }),
+      });
+      if (!res.ok) throw new Error('Save failed');
+      showToast(nextEnabled ? 'Watch enforcement ON' : 'Watch enforcement OFF');
+    } catch {
+      setEnforceEnabled(!nextEnabled); // revert on failure
+      showToast('Save failed');
+    }
+  };
+
+  /** Auto-persist the threshold. Called on slider release so we don't POST on every tick. */
+  const saveThreshold = async (nextThreshold: number) => {
+    try {
+      const res = await fetch('/api/admin/training-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ watch_enforcement_threshold: String(nextThreshold) }),
+      });
+      showToast(res.ok ? `Threshold saved (${nextThreshold}%)` : 'Save failed');
+    } catch {
+      showToast('Save failed');
+    }
   };
 
   const toggleBypass = (tk: string) => setBypassMap(prev => ({ ...prev, [tk]: !prev[tk] }));
@@ -408,8 +442,8 @@ export default function TrainingSettingsPage() {
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B' }}>🎬 Video Watch Enforcement</div>
                   <div style={{ fontSize: 12, color: '#6B7280' }}>Require students to watch ≥ threshold% before <strong>Mark Complete</strong>. Applies to all sessions by default (current and future). Admins always bypass.</div>
                 </div>
-                <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', background: enforceEnabled ? '#D1FAE5' : '#FEE2E2', padding: '6px 12px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: enforceEnabled ? '#065F46' : '#991B1B' }}>
-                  <input type="checkbox" checked={enforceEnabled} onChange={e => setEnforceEnabled(e.target.checked)} />
+                <label title="Auto-saves when toggled" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', background: enforceEnabled ? '#D1FAE5' : '#FEE2E2', padding: '6px 12px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: enforceEnabled ? '#065F46' : '#991B1B' }}>
+                  <input type="checkbox" checked={enforceEnabled} onChange={e => saveGlobalEnforcement(e.target.checked)} />
                   {enforceEnabled ? 'Enforcing' : 'Disabled'}
                 </label>
               </div>
@@ -445,6 +479,9 @@ export default function TrainingSettingsPage() {
                   min={50} max={100} step={5}
                   value={enforceThreshold}
                   onChange={e => setEnforceThreshold(Number(e.target.value))}
+                  onMouseUp={e => saveThreshold(Number((e.target as HTMLInputElement).value))}
+                  onTouchEnd={e => saveThreshold(Number((e.target as HTMLInputElement).value))}
+                  onKeyUp={e => { if (['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'].includes(e.key)) saveThreshold(Number((e.target as HTMLInputElement).value)); }}
                   disabled={!enforceEnabled}
                   style={{ width: '100%', accentColor: '#1B4F8A' }}
                 />
@@ -620,7 +657,7 @@ export default function TrainingSettingsPage() {
                   disabled={enforceSaving}
                   style={{ padding: '9px 22px', background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: enforceSaving ? 0.7 : 1 }}
                 >
-                  {enforceSaving ? 'Saving…' : 'Save Enforcement Settings'}
+                  {enforceSaving ? 'Saving…' : 'Save Per-Session Bypasses'}
                 </button>
               </div>
             </div>
