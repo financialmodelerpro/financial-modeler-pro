@@ -1,6 +1,8 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
 import { getServerClient } from '@/src/lib/shared/supabase';
+import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { VerifyActions } from './VerifyActions';
 
 export const dynamic = 'force-dynamic';
 
@@ -114,15 +116,10 @@ export default async function VerifyPage({ params }: PageProps) {
   if (!cert || cert.cert_status !== 'Issued') {
     return (
       <div style={{ minHeight: '100vh', background: '#F5F7FA', fontFamily: 'Inter, -apple-system, sans-serif' }}>
-        {/* Top Bar */}
-        <div style={{ background: '#0D2E5A', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 10 }}>
-          <span style={{ fontSize: 16 }}>🔒</span>
-          <span style={{ fontSize: 14, fontWeight: 600, color: '#fff' }}>Certificate Verification</span>
-          <span style={{ color: 'rgba(255,255,255,0.4)', margin: '0 6px' }}>|</span>
-          <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>Financial Modeler Pro</span>
-        </div>
+        <NavbarServer />
+        <div style={{ height: 64 }} />
 
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 48px)', padding: '40px 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 'calc(100vh - 64px)', padding: '40px 20px' }}>
           <div style={{ maxWidth: 480, textAlign: 'center' }}>
             <div style={{ fontSize: 56, marginBottom: 20 }}>🔍</div>
             <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0D2E5A', marginBottom: 12 }}>Certificate Not Found</h1>
@@ -155,27 +152,34 @@ export default async function VerifyPage({ params }: PageProps) {
   // consistent regardless of which subdomain the student arrived on.
   const verifyUrl   = `${learnUrl}/verify/${certId}`;
   const qrSrc       = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(verifyUrl)}`;
-  const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(verifyUrl)}`;
   const issueDate   = cert.issued_at ?? cert.issued_date ?? '';
 
   return (
-    <div style={{ minHeight: '100vh', background: '#F5F7FA', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #071530 0%, #0D2E5A 50%, #0F3D6E 100%)', fontFamily: 'Inter, -apple-system, BlinkMacSystemFont, sans-serif' }}>
+      <NavbarServer />
+      <div style={{ height: 64 }} />
 
-      {/* Top Bar */}
-      <div style={{ background: '#0D2E5A', padding: '12px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#fff' }}>
-          <span style={{ fontSize: 16 }}>🔒</span>
-          <span style={{ fontSize: 14, fontWeight: 600 }}>Certificate Verification</span>
-          <span style={{ color: 'rgba(255,255,255,0.4)', margin: '0 6px' }}>|</span>
-          <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)' }}>Financial Modeler Pro</span>
+      {/* Hero lead-in */}
+      <div style={{ padding: '40px 24px 16px', textAlign: 'center' }}>
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          padding: '6px 14px', borderRadius: 999,
+          background: 'rgba(46,170,74,0.15)', border: '1px solid rgba(46,170,74,0.4)',
+          color: '#8FDCA0', fontSize: 11, fontWeight: 800, letterSpacing: '0.12em', textTransform: 'uppercase',
+          marginBottom: 14,
+        }}>
+          ✅ Credential Verified
         </div>
-        <Link href={`${learnUrl}/training`} style={{ color: '#C9A84C', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}>
-          Training Hub →
-        </Link>
+        <div style={{ fontSize: 'clamp(22px, 4vw, 30px)', fontWeight: 800, color: '#fff', lineHeight: 1.15, marginBottom: 6 }}>
+          Certificate Verified
+        </div>
+        <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.55)', maxWidth: 520, margin: '0 auto' }}>
+          This credential is authentic and issued by Financial Modeler Pro.
+        </div>
       </div>
 
       {/* Main Card */}
-      <div style={{ maxWidth: 760, margin: '32px auto', borderRadius: 12, boxShadow: '0 4px 32px rgba(0,0,0,0.12)', overflow: 'hidden', background: '#fff' }}>
+      <div style={{ maxWidth: 760, margin: '16px auto 32px', borderRadius: 14, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden', background: '#fff' }}>
 
         {/* Top - navy header */}
         <div style={{ background: '#0D2E5A', padding: '28px 36px', display: 'flex', alignItems: 'flex-start', gap: 28 }}>
@@ -238,32 +242,17 @@ export default async function VerifyPage({ params }: PageProps) {
             </div>
           </div>
 
-          {/* Buttons */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, flex: 1, minWidth: 200 }}>
-            {cert.cert_pdf_url && (
-              <a href={cert.cert_pdf_url} target="_blank" rel="noopener noreferrer"
-                style={{ display: 'block', padding: '10px 18px', borderRadius: 8, background: '#0D2E5A', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 600, textAlign: 'center' }}>
-                ⬇ Download Certificate PDF
-              </a>
-            )}
-            {cert.badge_url && (
-              <a href={cert.badge_url} target="_blank" rel="noopener noreferrer"
-                style={{ display: 'block', padding: '10px 18px', borderRadius: 8, background: '#C9A84C', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 600, textAlign: 'center' }}>
-                🎖 Download Badge
-              </a>
-            )}
-            {/* Transcript: always use the cached endpoint — it 302-redirects
-                to the stored URL if already generated, or generates + caches
-                on first click so students never wait through a regeneration. */}
-            <a href={`/api/training/transcript-cached/${certId}`} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'block', padding: '10px 18px', borderRadius: 8, background: '#1B4F8A', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 600, textAlign: 'center' }}>
-              📄 Download Transcript
-            </a>
-            <a href={linkedInUrl} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'block', padding: '10px 18px', borderRadius: 8, background: '#0A66C2', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 600, textAlign: 'center' }}>
-              🔗 Share on LinkedIn
-            </a>
-          </div>
+          {/* Buttons — client component owns the share copy-to-clipboard flow. */}
+          <VerifyActions
+            certId={certId}
+            fullName={cert.full_name ?? 'Student'}
+            course={cert.course ?? 'Course'}
+            grade={cert.grade ?? ''}
+            issuedLabel={formatDate(issueDate)}
+            verifyUrl={verifyUrl}
+            certPdfUrl={cert.cert_pdf_url}
+            badgeUrl={cert.badge_url}
+          />
         </div>
 
         {/* Footer */}
