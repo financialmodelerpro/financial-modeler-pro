@@ -557,12 +557,23 @@ export default function TrainingDashboardPage() {
   const initials = studentName.split(' ').map((w: string) => w[0] ?? '').filter(Boolean).join('').toUpperCase().slice(0, 2) || 'ST';
   const avatarUrl = studentProfile?.avatar_url || '';
 
-  // Overall progress - includes final exam
+  // Overall progress across enrolled courses. Session count stays unweighted
+  // for the "X of Y sessions completed" copy. The progress BAR percentage uses
+  // question-weighted totals so it lines up with the per-course pct shown on
+  // each course tile (e.g. 15 of 18 passed → 68%, not 83%).
   const totalSessions = enrolledCourses.reduce((s, cId) => s + (COURSES[cId]?.sessions.length ?? 0), 0);
   const totalPassed   = enrolledCourses.reduce((s, cId) => {
     const c = COURSES[cId]; if (!c) return s;
     return s + c.sessions.filter(x => progressMap.get(x.id)?.passed).length;
   }, 0);
+  const overallWeighted = enrolledCourses.reduce((acc, cId) => {
+    const c = COURSES[cId]; if (!c) return acc;
+    const wp = calculateCourseProgress(c, progressMap);
+    return { earned: acc.earned + wp.earned, total: acc.total + wp.total };
+  }, { earned: 0, total: 0 });
+  const overallPct = overallWeighted.total > 0
+    ? Math.round((overallWeighted.earned / overallWeighted.total) * 100)
+    : 0;
 
   const isEnrolledInBvm = enrolledCourses.includes('bvm');
 
@@ -1079,10 +1090,10 @@ export default function TrainingDashboardPage() {
                   <div style={{ marginBottom: 4 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
                       <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>Overall Progress</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: '#2EAA4A' }}>{totalSessions > 0 ? Math.round((totalPassed / totalSessions) * 100) : 0}%</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#2EAA4A' }}>{overallPct}%</span>
                     </div>
                     <div style={{ height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', borderRadius: 4, background: 'linear-gradient(90deg, #2EAA4A, #34D058)', width: `${totalSessions > 0 ? (totalPassed / totalSessions) * 100 : 0}%`, transition: 'width 0.8s ease' }} />
+                      <div style={{ height: '100%', borderRadius: 4, background: 'linear-gradient(90deg, #2EAA4A, #34D058)', width: `${overallPct}%`, transition: 'width 0.8s ease' }} />
                     </div>
                   </div>
                 </div>
