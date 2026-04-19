@@ -7,6 +7,8 @@ import { StatusBadge } from './StatusBadge';
 import { FilePreviewModal } from './FilePreviewModal';
 import { ShareModal as UniversalShareModal } from '@/src/components/training/share/ShareModal';
 import { FMP_TRAINING_URL } from '@/src/lib/training/share';
+import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
+import { renderShareTemplate } from '@/src/lib/training/shareTemplates';
 
 export interface SessionCardProps {
   sessionTitle: string;
@@ -77,6 +79,9 @@ export function SessionCard({
   const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [showCardModal, setShowCardModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+
+  // Share template (achievement card) — loaded once, reused when the modal opens.
+  const shareTemplate = useShareTemplate('achievement_card');
 
   // Sync incoming noteContent (loaded async)
   useEffect(() => { setNoteText(noteContent); }, [noteContent]);
@@ -319,14 +324,22 @@ export function SessionCard({
           ? new Date(prog.completedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
           : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
         const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName || '')}&regId=${encodeURIComponent(regId)}`;
-        const shareText = `🏆 I just passed "${sessionTitle}" with ${prog.score}% in the ${courseName || 'Financial Modeling'} program at Financial Modeler Pro!\n\nBuilding institutional-grade financial models - completely free certification program.`;
+        const rendered = renderShareTemplate(shareTemplate, {
+          studentName: studentName ?? '',
+          sessionName: sessionTitle,
+          score:       prog.score,
+          course:      courseName ?? 'Financial Modeling',
+          date:        passDate,
+          regId,
+        });
         return (
           <UniversalShareModal
             isOpen
             onClose={() => setShowShareModal(false)}
             title="Share Your Achievement"
-            text={shareText}
+            text={rendered.text}
             url={FMP_TRAINING_URL}
+            hashtags={rendered.hashtags}
             cardImageUrl={cardImgUrl}
           />
         );

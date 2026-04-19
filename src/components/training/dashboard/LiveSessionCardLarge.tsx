@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { Calendar, Clock, User, Play, CheckCircle2, Radio, Share2, Download as DownloadIcon, Award, Lock, FileText } from 'lucide-react';
 import { downloadIcs } from '@/src/lib/training/calendar';
 import { ShareModal } from '@/src/components/training/share/ShareModal';
+import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
+import { renderShareTemplate } from '@/src/lib/training/shareTemplates';
 import type { LiveSession, RegistrationStatus, WatchHistoryEntry } from '@/src/lib/training/liveSessionsForStudent';
 
 const NAVY = '#0D2E5A';
@@ -198,7 +200,16 @@ export function LiveSessionCardLarge(props: Props) {
     transform: hover ? 'translateY(-2px)' : 'none',
   };
 
-  const shareText = `I just watched "${session.title}" — part of FMP Real-World Financial Modeling. Practitioner-led, built on real deal work.`;
+  const watchedTemplate     = useShareTemplate('live_session_watched');
+  const achievementTemplate = useShareTemplate('achievement_card');
+  const watchedShare = renderShareTemplate(watchedTemplate, {
+    studentName: props.studentName ?? '',
+    sessionName: session.title,
+    course:      'FMP Real-World Financial Modeling',
+    date:        session.scheduled_datetime
+      ? new Date(session.scheduled_datetime).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+      : new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+  });
 
   if (props.variant === 'upcoming') {
     const reg = props.reg;
@@ -431,21 +442,34 @@ export function LiveSessionCardLarge(props: Props) {
         isOpen={shareOpen}
         onClose={() => setShareOpen(false)}
         title="Share this session"
-        text={shareText}
+        text={watchedShare.text}
+        hashtags={watchedShare.hashtags}
       />
 
-      {cardOpen && cardEligible && (
-        <ShareModal
-          isOpen={cardOpen}
-          onClose={() => setCardOpen(false)}
-          title="🎉 Your Achievement Card"
-          text={assessmentPassed
-            ? `Just passed "${session.title}" — part of FMP Real-World Financial Modeling. Scored ${attempt?.bestScore}%.`
-            : `Just completed "${session.title}" — part of FMP Real-World Financial Modeling.`}
-          cardImageUrl={achievementCardUrl(session, props.studentName, props.registrationId, attempt?.bestScore, session.scheduled_datetime)}
-          cardDownloadName={`FMP-${session.title.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40)}.png`}
-        />
-      )}
+      {cardOpen && cardEligible && (() => {
+        const dateLabel = session.scheduled_datetime
+          ? new Date(session.scheduled_datetime).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+          : new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+        const rendered = renderShareTemplate(achievementTemplate, {
+          studentName: props.studentName ?? '',
+          sessionName: session.title,
+          score:       attempt?.bestScore ?? 'Completed',
+          course:      'FMP Real-World Financial Modeling',
+          date:        dateLabel,
+          regId:       props.registrationId ?? '',
+        });
+        return (
+          <ShareModal
+            isOpen={cardOpen}
+            onClose={() => setCardOpen(false)}
+            title="🎉 Your Achievement Card"
+            text={rendered.text}
+            hashtags={rendered.hashtags}
+            cardImageUrl={achievementCardUrl(session, props.studentName, props.registrationId, attempt?.bestScore, session.scheduled_datetime)}
+            cardDownloadName={`FMP-${session.title.replace(/[^a-zA-Z0-9]/g, '_').slice(0, 40)}.png`}
+          />
+        );
+      })()}
     </>
   );
 }

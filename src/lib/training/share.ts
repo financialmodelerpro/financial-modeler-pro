@@ -82,12 +82,14 @@ export async function shareTo(platform: SharePlatform, options: ShareOptions): P
 
   switch (platform) {
     case 'linkedin': {
-      // LinkedIn's sharing endpoints ignore pre-filled text for unverified
-      // URLs, so we open the compose feed and rely on clipboard paste.
-      const target = url
-        ? `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`
-        : 'https://www.linkedin.com/feed/?shareActive=true';
-      window.open(target, '_blank', 'noopener,noreferrer');
+      // Always open the plain feed composer — never `share-offsite`. The
+      // share-offsite endpoint auto-attaches a link preview card, which
+      // collapses any @-mentions the user's about to type back into plain
+      // text. The composer approach keeps paste-to-post clean: the full
+      // text (including the verify/session URL inline and hashtags) lands
+      // in the clipboard for the user to paste, and LinkedIn's @ menu
+      // still works when the user retypes @Financial… → @FMP.
+      window.open('https://www.linkedin.com/feed/?shareActive=true', '_blank', 'noopener,noreferrer');
       break;
     }
     case 'whatsapp': {

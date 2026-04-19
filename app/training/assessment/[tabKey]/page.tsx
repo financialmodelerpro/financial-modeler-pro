@@ -12,6 +12,8 @@ import type {
 } from '@/src/lib/training/sheets';
 import { COURSES } from '@/src/config/courses';
 import { shareTo, FMP_TRAINING_URL } from '@/src/lib/training/share';
+import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
+import { renderShareTemplate } from '@/src/lib/training/shareTemplates';
 
 // Resolve a human-readable session name from a tabKey (e.g. "3SFM_S1" → "Session 1: Introduction…")
 function getSessionTitleFromTabKey(tabKey: string): string {
@@ -169,6 +171,9 @@ export default function AssessmentPage() {
   const [errorMsg, setErrorMsg]     = useState('');
   const [linkCopied, setLinkCopied] = useState(false);
   const [studentName, setStudentName] = useState('');
+
+  // Share template (assessment pass) — fetched once, rendered with live data below.
+  const shareTemplate = useShareTemplate('assessment_passed');
 
   // Taking state
   const [answers, setAnswers]       = useState<Record<number, number>>({});
@@ -1038,7 +1043,16 @@ export default function AssessmentPage() {
           const sess = getTrainingSession();
           const regIdVal = sess?.registrationId || '';
           const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionName)}&score=${result.score}&course=${encodeURIComponent(courseName)}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName)}&regId=${encodeURIComponent(regIdVal)}`;
-          const shareText = `🏆 I just passed "${sessionName}" with ${result.score}% in the ${courseName} program at Financial Modeler Pro!\n\nBuilding institutional-grade financial models - completely free certification program.`;
+          const rendered = renderShareTemplate(shareTemplate, {
+            studentName,
+            sessionName,
+            score:       result.score,
+            course:      courseName,
+            date:        passDate,
+            regId:       regIdVal,
+          });
+          const shareText = rendered.text;
+          const shareHashtags = rendered.hashtags;
           const onShared = () => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2500); };
           return (
             <div style={{ maxWidth: 780, margin: '0 auto 32px', padding: '0 24px' }}>
@@ -1067,11 +1081,11 @@ export default function AssessmentPage() {
                 </div>
                 {/* Buttons (universal share utility handles auto-copy + open) */}
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button onClick={() => shareTo('linkedin', { text: shareText, url: FMP_TRAINING_URL, onCopied: onShared })}
+                  <button onClick={() => shareTo('linkedin', { text: shareText, url: FMP_TRAINING_URL, hashtags: shareHashtags, onCopied: onShared })}
                     style={{ flex: 1, padding: '10px 14px', background: '#0077b5', color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                     💼 Share on LinkedIn
                   </button>
-                  <button onClick={() => shareTo('copy', { text: shareText, url: FMP_TRAINING_URL, onCopied: onShared })}
+                  <button onClick={() => shareTo('copy', { text: shareText, url: FMP_TRAINING_URL, hashtags: shareHashtags, onCopied: onShared })}
                     style={{ flex: 1, padding: '10px 14px', background: linkCopied ? '#F0FDF4' : '#F3F4F6', color: linkCopied ? '#16A34A' : '#374151', border: `1px solid ${linkCopied ? '#86EFAC' : '#E5E7EB'}`, borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                     {linkCopied ? '✓ Copied!' : '🔗 Copy Text'}
                   </button>

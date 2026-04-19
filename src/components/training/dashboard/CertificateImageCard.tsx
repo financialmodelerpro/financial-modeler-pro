@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react';
 import type { Certificate } from './types';
 import { ShareModal } from '@/src/components/training/share/ShareModal';
+import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
+import { renderShareTemplate } from '@/src/lib/training/shareTemplates';
 
 interface CertificateImageCardProps {
   cert: Certificate;
@@ -61,16 +63,15 @@ export function CertificateImageCard({ cert }: CertificateImageCardProps) {
     ? new Date(issuedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
     : '';
 
-  const shareText = `I just earned my ${cert.course} Certification from Financial Modeler Pro!
-
-✅ Grade: ${grade || 'Pass'}
-📅 Issued: ${issuedLabel}
-🎯 Certificate ID: ${certId}
-
-Verify the credential →
-${verifyUrl}
-
-Huge thanks to Ahmad Din and the Financial Modeler Pro team for structured, practitioner-led training in real-world financial modeling.`;
+  const template = useShareTemplate('certificate_earned');
+  const { text: shareText, hashtags: shareHashtags } = renderShareTemplate(template, {
+    studentName: cert.studentName,
+    course:      cert.course,
+    grade:       grade || 'Pass',
+    date:        issuedLabel,
+    certId,
+    verifyUrl,
+  });
 
   // ── Pending state ──────────────────────────────────────────────────────────
   if (!loading && status === 'Pending') {
@@ -190,6 +191,7 @@ Huge thanks to Ahmad Din and the Financial Modeler Pro team for structured, prac
           title="🎉 Share Your Certificate"
           text={shareText}
           url={verifyUrl}
+          hashtags={shareHashtags}
           cardImageUrl={`/api/og/certificate/${certId}`}
           cardDownloadName={`FMP-Certificate-${certId}.png`}
         />

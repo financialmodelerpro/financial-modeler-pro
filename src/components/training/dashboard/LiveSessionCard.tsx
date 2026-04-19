@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { Calendar, Clock, User, Play, CheckCircle2, Radio, Share2, Download as DownloadIcon } from 'lucide-react';
 import { downloadIcs } from '@/src/lib/training/calendar';
 import { ShareModal } from '@/src/components/training/share/ShareModal';
+import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
+import { renderShareTemplate } from '@/src/lib/training/shareTemplates';
 import type { LiveSession, RegistrationStatus, WatchHistoryEntry } from '@/src/lib/training/liveSessionsForStudent';
 
 const NAVY = '#0D2E5A';
@@ -105,6 +107,17 @@ export function LiveSessionCard(props: Props) {
   const { session, href } = props;
   const [hover, setHover] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+
+  // Share template is fetched for every variant — hooks must be called in
+  // the same order every render, so it lives above the variant branch.
+  const shareTemplate = useShareTemplate('live_session_watched');
+  const shareRendered = renderShareTemplate(shareTemplate, {
+    sessionName: session.title,
+    course:      'FMP Real-World Financial Modeling',
+    date:        session.scheduled_datetime
+      ? new Date(session.scheduled_datetime).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+      : new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
+  });
 
   const banner = session.banner_url
     ? { ...bannerBase, backgroundImage: `url(${session.banner_url})`, backgroundSize: 'cover', backgroundPosition: 'center' }
@@ -225,8 +238,6 @@ export function LiveSessionCard(props: Props) {
   const ctaLabel = watched ? 'Watch Again' : inProgress ? 'Continue Watching' : 'Watch Recording';
   const ctaBg = watched ? NAVY : inProgress ? ORANGE : TEAL;
 
-  const shareText = `I just watched "${session.title}" — a free live session from Financial Modeler Pro. Practical financial modeling, taught the way real deals are structured.`;
-
   return (
     <>
       <div
@@ -332,7 +343,8 @@ export function LiveSessionCard(props: Props) {
         isOpen={shareOpen}
         onClose={() => setShareOpen(false)}
         title="Share this session"
-        text={shareText}
+        text={shareRendered.text}
+        hashtags={shareRendered.hashtags}
       />
     </>
   );
