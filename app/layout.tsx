@@ -97,6 +97,9 @@ export async function generateMetadata(): Promise<Metadata> {
         'max-snippet': -1,
       },
     },
+    verification: {
+      google: 'jfT1RuMQksYExlTJUB_dB5Jisp_BBw6XCHEihIb-0pc',
+    },
   };
 
   if (iconUrl) base.icons = { icon: iconUrl };
