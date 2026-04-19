@@ -169,6 +169,74 @@ function DocumentPreview({
   );
 }
 
+/**
+ * Inline image preview card — mirrors DocumentPreview's visual language
+ * but renders a raster image (e.g. the achievement badge PNG) instead of
+ * a PDF iframe. Uses a subtle gradient backdrop so transparent-background
+ * badges don't look hollow on white.
+ */
+function ImagePreview({
+  label, accent, url, altText,
+}: { label: string; accent: string; url: string; altText: string }) {
+  return (
+    <div style={{
+      background: '#F9FAFB', borderRadius: 10, border: '1px solid #E5E7EB',
+      overflow: 'hidden', display: 'flex', flexDirection: 'column',
+      boxShadow: '0 2px 6px rgba(13,46,90,0.06)',
+    }}>
+      {/* Header strip — matches DocumentPreview. */}
+      <div style={{
+        background: '#0D2E5A', padding: '10px 14px',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      }}>
+        <span style={{ fontSize: 10, fontWeight: 800, color: accent, letterSpacing: '0.12em' }}>
+          {label}
+        </span>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ fontSize: 11, color: '#fff', textDecoration: 'none', fontWeight: 600, opacity: 0.9 }}
+        >
+          Open Full ↗
+        </a>
+      </div>
+
+      {/* Image frame */}
+      <div style={{
+        aspectRatio: '1 / 1',
+        background: 'radial-gradient(circle at center, #FFFBF0 0%, #FFF 70%)',
+        position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 20,
+      }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={url}
+          alt={altText}
+          loading="lazy"
+          style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }}
+        />
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`Open ${label.toLowerCase()} in new tab`}
+          style={{
+            position: 'absolute', bottom: 10, right: 10,
+            padding: '6px 12px', borderRadius: 999,
+            background: 'rgba(13,46,90,0.92)', color: '#fff',
+            fontSize: 10, fontWeight: 700, textDecoration: 'none',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+            letterSpacing: '0.04em',
+          }}
+        >
+          ⛶ View
+        </a>
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function VerifyPage({ params }: PageProps) {
@@ -297,7 +365,9 @@ export default async function VerifyPage({ params }: PageProps) {
           </div>
         </div>
 
-        {/* Document Previews — inline PDF previews for Certificate + Transcript */}
+        {/* Document Previews — inline previews for Certificate + Badge + Transcript.
+            Left column stacks the two landscape/square credential artifacts;
+            right column holds the taller portrait transcript. */}
         <div style={{ padding: '4px 36px 24px', background: '#fff', borderTop: '1px solid #F3F4F6' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 16px' }}>
             <div style={{ fontSize: 10, fontWeight: 800, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
@@ -307,15 +377,28 @@ export default async function VerifyPage({ params }: PageProps) {
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 18 }}>
-            {cert.cert_pdf_url && (
-              <DocumentPreview
-                label="CERTIFICATE"
-                accent="#C9A84C"
-                embedUrl={cert.cert_pdf_url}
-                openUrl={cert.cert_pdf_url}
-                aspectRatio="4 / 3"
-              />
-            )}
+            {/* Left column: Certificate + Badge stacked. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+              {cert.cert_pdf_url && (
+                <DocumentPreview
+                  label="CERTIFICATE"
+                  accent="#C9A84C"
+                  embedUrl={cert.cert_pdf_url}
+                  openUrl={cert.cert_pdf_url}
+                  aspectRatio="4 / 3"
+                />
+              )}
+              {cert.badge_url && (
+                <ImagePreview
+                  label="BADGE"
+                  accent="#C9A84C"
+                  url={cert.badge_url}
+                  altText={`${cert.course ?? 'Course'} badge for ${cert.full_name ?? 'student'}`}
+                />
+              )}
+            </div>
+
+            {/* Right column: Transcript. */}
             <DocumentPreview
               label="TRANSCRIPT"
               accent="#8FBCEC"
