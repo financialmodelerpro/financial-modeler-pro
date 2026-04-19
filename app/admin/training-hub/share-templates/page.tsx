@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import {
   renderShareTemplate, SAMPLE_VARS, TEMPLATE_VARIABLES,
-  type ShareTemplate,
+  DEFAULT_BRAND_MENTION, DEFAULT_FOUNDER_MENTION,
+  type ShareTemplate, type ShareSettings,
 } from '@/src/lib/training/shareTemplates';
 
 const NAVY   = '#1B3A6B';
@@ -31,8 +32,13 @@ const btn = (bg: string, fg = '#fff', disabled = false): React.CSSProperties => 
 
 export default function ShareTemplatesPage() {
   const [templates, setTemplates] = useState<ShareTemplate[]>([]);
+  const [settings, setSettings]   = useState<ShareSettings>({
+    brand_mention:   DEFAULT_BRAND_MENTION,
+    founder_mention: DEFAULT_FOUNDER_MENTION,
+  });
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
+  const [savingSettings, setSavingSettings] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'ok' | 'err' } | null>(null);
 
   const show = useCallback((msg: string, type: 'ok' | 'err' = 'ok') => {
@@ -44,8 +50,9 @@ export default function ShareTemplatesPage() {
     setLoading(true);
     try {
       const res = await fetch('/api/admin/share-templates');
-      const j = await res.json() as { templates?: ShareTemplate[] };
+      const j = await res.json() as { templates?: ShareTemplate[]; settings?: ShareSettings };
       setTemplates(j.templates ?? []);
+      if (j.settings) setSettings(j.settings);
     } catch {
       show('Failed to load templates', 'err');
     }
@@ -56,6 +63,34 @@ export default function ShareTemplatesPage() {
 
   function updateLocal(key: string, patch: Partial<ShareTemplate>) {
     setTemplates(prev => prev.map(t => t.template_key === key ? { ...t, ...patch } : t));
+  }
+
+  async function saveSettings() {
+    setSavingSettings(true);
+    try {
+      const res = await fetch('/api/admin/share-templates/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      });
+      const j = await res.json() as { error?: string; settings?: ShareSettings };
+      if (!res.ok) throw new Error(j.error ?? 'Save failed');
+      if (j.settings) setSettings(j.settings);
+      // Propagate the new mention strings into every template in local
+      // state so the live previews update instantly without a re-fetch.
+      const next = j.settings;
+      if (next) {
+        setTemplates(prev => prev.map(t => ({
+          ...t,
+          brand_mention:   next.brand_mention,
+          founder_mention: next.founder_mention,
+        })));
+      }
+      show('Mention settings saved');
+    } catch (e) {
+      show((e as Error).message, 'err');
+    }
+    setSavingSettings(false);
   }
 
   async function save(t: ShareTemplate) {
@@ -99,11 +134,61 @@ export default function ShareTemplatesPage() {
             lineHeight: 1.55, maxWidth: 720,
           }}>
             <strong>Variable syntax:</strong> <code>{'{studentName}'}</code>, <code>{'{course}'}</code> etc. get
-            substituted at share time. <code>{'{@brand}'}</code> becomes <code>@FinancialModelerPro</code> or
+            substituted at share time. <code>{'{@brand}'}</code> becomes <code>@{settings.brand_mention}</code> or
             plain text depending on the checkbox. <code>{'{@founder}'}</code> works the same way for
-            <code>@Ahmad Din, ACCA, FMVA®</code>.
+            <code>@{settings.founder_mention}</code>.
           </div>
         </div>
+
+        {/* Global mention settings */}
+        {!loading && (
+          <div style={{
+            background: '#fff', border: `1px solid ${BORDER}`, borderRadius: 12,
+            padding: '18px 22px', marginBottom: 24,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <span style={{ fontSize: 16 }}>🏷️</span>
+              <h2 style={{ fontSize: 15, fontWeight: 800, color: NAVY, margin: 0 }}>Global mention settings</h2>
+              <span style={{ flex: 1, height: 1, background: '#F3F4F6' }} />
+            </div>
+            <p style={{ fontSize: 12, color: MUTED, margin: '0 0 14px', lineHeight: 1.55 }}>
+              These values drive <code>{'{@brand}'}</code> and <code>{'{@founder}'}</code> in every template
+              above. Store the bare handle — no leading <code>@</code>. The render engine adds the <code>@</code>
+              when a template&apos;s mention checkbox is on.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 12 }}>
+              <div>
+                <label style={label}>Brand name / LinkedIn handle</label>
+                <input
+                  value={settings.brand_mention}
+                  onChange={e => setSettings(s => ({ ...s, brand_mention: e.target.value.replace(/^@+/, '') }))}
+                  placeholder="FinancialModelerPro"
+                  style={field}
+                />
+                <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>
+                  Preview (mention on): <code style={{ color: BLUE }}>@{settings.brand_mention || DEFAULT_BRAND_MENTION}</code>
+                </div>
+              </div>
+              <div>
+                <label style={label}>Founder name / LinkedIn handle</label>
+                <input
+                  value={settings.founder_mention}
+                  onChange={e => setSettings(s => ({ ...s, founder_mention: e.target.value.replace(/^@+/, '') }))}
+                  placeholder="Ahmad Din, ACCA, FMVA®"
+                  style={field}
+                />
+                <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>
+                  Preview (mention on): <code style={{ color: '#92400E' }}>@{settings.founder_mention || DEFAULT_FOUNDER_MENTION}</code>
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button onClick={saveSettings} disabled={savingSettings} style={btn(BLUE, '#fff', savingSettings)}>
+                {savingSettings ? 'Saving…' : 'Save mention settings'}
+              </button>
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div style={{ padding: 40, textAlign: 'center', color: MUTED }}>Loading templates…</div>

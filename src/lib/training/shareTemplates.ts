@@ -3,28 +3,35 @@
  *
  * All share-button text across the Training Hub (certificates, achievement
  * cards, assessment passes, live-session shares) resolves through a single
- * admin-editable template stored in `share_templates`. This module provides:
- *
- *   - `ShareTemplate` type
- *   - `renderShareTemplate(template, vars)` — pure substitution
- *   - `SAMPLE_VARS` + `TEMPLATE_VARIABLES` — admin preview + variable picker
- *   - `DEFAULT_TEMPLATES` — offline fallback mirroring the migration seed,
- *     so a failed fetch never breaks a share button.
+ * admin-editable template stored in `share_templates`, plus two global
+ * mention strings stored in `training_settings`.
  *
  * Placeholder syntax:
  *   {variable}   — substituted from the `vars` object
- *   {@brand}     — "@FinancialModelerPro" or "Financial Modeler Pro"
- *   {@founder}   — "@Ahmad Din, ACCA, FMVA®" or "Ahmad Din, ACCA, FMVA®"
+ *   {@brand}     — "@{settings.brand_mention}"   or "{settings.brand_mention}"
+ *   {@founder}   — "@{settings.founder_mention}" or "{settings.founder_mention}"
  *
- * The @-prefixed tokens swap based on the template's `mention_brand` and
- * `mention_founder` flags. When a flag is off, the LinkedIn @-mention is
- * dropped but the surrounding sentence still reads naturally.
+ * The @-prefix is added when the template's `mention_brand` / `mention_founder`
+ * flag is on. The mention text itself (e.g. `FinancialModelerPro` or
+ * `Ahmad Din, ACCA, FMVA®`) lives in training_settings so admins can rotate
+ * LinkedIn handles without a code change. The API merges those settings
+ * into the returned template object (`brand_mention` + `founder_mention`
+ * fields), so call-site code stays the same.
  */
 
-export const BRAND_HANDLE   = '@FinancialModelerPro';
-export const BRAND_PLAIN    = 'Financial Modeler Pro';
-export const FOUNDER_HANDLE = '@Ahmad Din, ACCA, FMVA®';
-export const FOUNDER_PLAIN  = 'Ahmad Din, ACCA, FMVA®';
+/** Default mention text — fallback when training_settings hasn't been seeded yet. */
+export const DEFAULT_BRAND_MENTION   = 'FinancialModelerPro';
+export const DEFAULT_FOUNDER_MENTION = 'Ahmad Din, ACCA, FMVA®';
+
+export interface ShareSettings {
+  brand_mention:   string;
+  founder_mention: string;
+}
+
+export const DEFAULT_SHARE_SETTINGS: ShareSettings = {
+  brand_mention:   DEFAULT_BRAND_MENTION,
+  founder_mention: DEFAULT_FOUNDER_MENTION,
+};
 
 export interface ShareTemplate {
   template_key:    string;
@@ -34,6 +41,11 @@ export interface ShareTemplate {
   mention_brand:   boolean;
   mention_founder: boolean;
   active:          boolean;
+  /** Resolved from training_settings.share_brand_mention at the API layer.
+   *  Falls back to DEFAULT_BRAND_MENTION when unset. */
+  brand_mention:   string;
+  /** Resolved from training_settings.share_founder_mention at the API layer. */
+  founder_mention: string;
 }
 
 export type ShareVars = Record<string, string | number | null | undefined>;
@@ -50,8 +62,10 @@ export interface RenderedShare {
  * a real newline (Postgres E-strings).
  */
 export function renderShareTemplate(template: ShareTemplate, vars: ShareVars): RenderedShare {
-  const brand   = template.mention_brand   ? BRAND_HANDLE   : BRAND_PLAIN;
-  const founder = template.mention_founder ? FOUNDER_HANDLE : FOUNDER_PLAIN;
+  const brandText   = template.brand_mention   || DEFAULT_BRAND_MENTION;
+  const founderText = template.founder_mention || DEFAULT_FOUNDER_MENTION;
+  const brand   = template.mention_brand   ? `@${brandText}`   : brandText;
+  const founder = template.mention_founder ? `@${founderText}` : founderText;
 
   let text = template.template_text
     .split('{@brand}').join(brand)
@@ -95,12 +109,9 @@ export const TEMPLATE_VARIABLES: Record<string, string[]> = {
   session_shared:       ['sessionName', 'sessionDescription', 'sessionUrl'],
 };
 
-/**
- * Offline fallback — mirrors the migration seed. Used when the
- * `/api/share-templates/[key]` fetch fails or the admin has disabled a
- * template. Keeps share buttons functional no matter what.
- */
-export const DEFAULT_TEMPLATES: Record<string, ShareTemplate> = {
+type TemplateSeed = Omit<ShareTemplate, 'brand_mention' | 'founder_mention'>;
+
+const TEMPLATE_SEEDS: Record<string, TemplateSeed> = {
   certificate_earned: {
     template_key:    'certificate_earned',
     title:           'Certificate Earned',
@@ -168,6 +179,21 @@ export const DEFAULT_TEMPLATES: Record<string, ShareTemplate> = {
     active:          true,
   },
 };
+
+/**
+ * Offline fallback — mirrors the migration seed. Used when the
+ * `/api/share-templates/[key]` fetch fails or the admin has disabled a
+ * template. Keeps share buttons functional no matter what.
+ *
+ * Brand/founder mention fields are populated with the DEFAULT_SHARE_SETTINGS
+ * values; the API overwrites them with the admin-edited values at fetch time.
+ */
+export const DEFAULT_TEMPLATES: Record<string, ShareTemplate> = Object.fromEntries(
+  Object.entries(TEMPLATE_SEEDS).map(([key, seed]) => [
+    key,
+    { ...seed, brand_mention: DEFAULT_BRAND_MENTION, founder_mention: DEFAULT_FOUNDER_MENTION },
+  ]),
+);
 
 /**
  * Render helper combining fetch-or-fallback + substitution in one call.
