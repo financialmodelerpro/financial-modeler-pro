@@ -441,10 +441,13 @@ export default function TrainingSettingsPage() {
                 <div>
                   <div style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B' }}>🎬 Video Watch Enforcement</div>
                   <div style={{ fontSize: 12, color: '#6B7280' }}>Require students to watch ≥ threshold% before <strong>Mark Complete</strong>. Applies to all sessions by default (current and future). Admins always bypass.</div>
+                  <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }}>
+                    <strong>Global: ON/OFF</strong> is the master switch (top-right). <strong>Bulk row actions</strong> (below filters) flip per-session bypass on the currently-filtered rows.
+                  </div>
                 </div>
-                <label title="Auto-saves when toggled" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', background: enforceEnabled ? '#D1FAE5' : '#FEE2E2', padding: '6px 12px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: enforceEnabled ? '#065F46' : '#991B1B' }}>
+                <label title="Master switch — when OFF, enforcement is disabled for every session regardless of per-session bypass flags. Auto-saves when toggled." style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', background: enforceEnabled ? '#D1FAE5' : '#FEE2E2', padding: '6px 12px', borderRadius: 999, fontSize: 11, fontWeight: 700, color: enforceEnabled ? '#065F46' : '#991B1B' }}>
                   <input type="checkbox" checked={enforceEnabled} onChange={e => saveGlobalEnforcement(e.target.checked)} />
-                  {enforceEnabled ? 'Enforcing' : 'Disabled'}
+                  {enforceEnabled ? 'Global: ON' : 'Global: OFF'}
                 </label>
               </div>
 
@@ -544,9 +547,10 @@ export default function TrainingSettingsPage() {
                 </div>
 
                 {/* Bulk actions on the filtered view */}
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
-                  <span style={{ fontSize: 10, color: '#9CA3AF', letterSpacing: '0.05em', textTransform: 'uppercase', fontWeight: 700 }}>Bulk</span>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: 10, color: '#9CA3AF', letterSpacing: '0.05em', textTransform: 'uppercase', fontWeight: 700 }}>Bulk row actions</span>
                   <button
+                    title="Set every currently-filtered session to BYPASS the global enforcement"
                     onClick={() => {
                       const next = { ...bypassMap };
                       for (const r of visibleSessions) next[r.tabKey] = true;
@@ -555,9 +559,10 @@ export default function TrainingSettingsPage() {
                     disabled={visibleSessions.length === 0}
                     style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, background: '#fff', color: '#92400E', border: '1px solid #FDE68A', borderRadius: 6, cursor: visibleSessions.length === 0 ? 'not-allowed' : 'pointer', opacity: visibleSessions.length === 0 ? 0.5 : 1 }}
                   >
-                    Bypass all ({visibleSessions.length})
+                    Mark all rows bypassed ({visibleSessions.length})
                   </button>
                   <button
+                    title="Clear the per-session bypass flag on every currently-filtered row (they fall back to following the global setting)"
                     onClick={() => {
                       const next = { ...bypassMap };
                       for (const r of visibleSessions) next[r.tabKey] = false;
@@ -566,7 +571,7 @@ export default function TrainingSettingsPage() {
                     disabled={visibleSessions.length === 0}
                     style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, background: '#fff', color: '#065F46', border: '1px solid #BBF7D0', borderRadius: 6, cursor: visibleSessions.length === 0 ? 'not-allowed' : 'pointer', opacity: visibleSessions.length === 0 ? 0.5 : 1 }}
                   >
-                    Enforce all ({visibleSessions.length})
+                    Clear bypass on all rows ({visibleSessions.length})
                   </button>
                   {(searchQuery || typeFilter !== 'all' || statusFilter !== 'all') && (
                     <button
