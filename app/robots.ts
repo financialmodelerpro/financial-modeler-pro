@@ -7,7 +7,11 @@ export default function robots(): MetadataRoute.Robots {
     rules: [
       {
         userAgent: '*',
-        allow: '/',
+        // `/api/og/` is explicitly allowed so LinkedInBot / Twitterbot /
+        // WhatsApp etc. can fetch the dynamic OG images embedded in share
+        // previews. More specific allows override the broader `/api/` block
+        // below (robots.txt precedence = longest matching rule wins).
+        allow: ['/', '/api/og/'],
         disallow: [
           '/admin/',
           '/admin',

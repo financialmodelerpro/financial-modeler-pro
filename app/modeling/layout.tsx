@@ -8,6 +8,9 @@ export const metadata: Metadata = {
   metadataBase: new URL(APP_URL),
   title: OG_TITLE,
   description: OG_DESC,
+  // Override the root layout's MAIN_URL canonical so modeling-hub pages
+  // default to app.* rather than inheriting the main-domain canonical.
+  alternates: { canonical: APP_URL },
   openGraph: {
     type: 'website',
     title: OG_TITLE,

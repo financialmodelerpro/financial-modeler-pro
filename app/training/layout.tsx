@@ -8,6 +8,11 @@ export const metadata: Metadata = {
   metadataBase: new URL(LEARN_URL),
   title: OG_TITLE,
   description: OG_DESC,
+  // Override the root layout's MAIN_URL canonical so training-hub pages
+  // default to learn.* rather than inheriting the main-domain canonical.
+  // Specific pages (verify, dashboard, etc.) further override this with
+  // their full per-URL canonical in their own generateMetadata.
+  alternates: { canonical: LEARN_URL },
   openGraph: {
     type: 'website',
     title: OG_TITLE,
