@@ -99,6 +99,9 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     verification: {
       google: 'jfT1RuMQksYExlTJUB_dB5Jisp_BBw6XCHEihIb-0pc',
+      other: {
+        'msvalidate.01': '914C3726459EF363BC996DD79F3CF8E7',
+      },
     },
   };
 
