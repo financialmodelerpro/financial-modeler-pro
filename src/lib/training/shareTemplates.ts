@@ -69,13 +69,19 @@ export function formatShareDate(input: string | number | Date | null | undefined
 }
 
 export interface ShareSettings {
-  brand_mention:   string;
-  founder_mention: string;
+  brand_mention:     string;
+  founder_mention:   string;
+  /** When true, `{@brand}` renders as `@<mention>`. When false, plain text. */
+  brand_prefix_at:   boolean;
+  /** When true, `{@founder}` renders as `@<mention>`. When false, plain text. */
+  founder_prefix_at: boolean;
 }
 
 export const DEFAULT_SHARE_SETTINGS: ShareSettings = {
-  brand_mention:   DEFAULT_BRAND_MENTION,
-  founder_mention: DEFAULT_FOUNDER_MENTION,
+  brand_mention:     DEFAULT_BRAND_MENTION,
+  founder_mention:   DEFAULT_FOUNDER_MENTION,
+  brand_prefix_at:   false,
+  founder_prefix_at: false,
 };
 
 export interface ShareTemplate {
@@ -83,7 +89,11 @@ export interface ShareTemplate {
   title:           string;
   template_text:   string;
   hashtags:        string[];
+  /** Legacy per-template flag. Deprecated in migration 116 — the `@` prefix
+   *  is now controlled by the global `share_brand_prefix_at` setting. Field
+   *  retained for schema compatibility; render engine no longer consults it. */
   mention_brand:   boolean;
+  /** Legacy per-template flag. Superseded by `share_founder_prefix_at`. */
   mention_founder: boolean;
   active:          boolean;
   /** Resolved from training_settings.share_brand_mention at the API layer.
@@ -91,6 +101,10 @@ export interface ShareTemplate {
   brand_mention:   string;
   /** Resolved from training_settings.share_founder_mention at the API layer. */
   founder_mention: string;
+  /** Resolved from training_settings.share_brand_prefix_at. */
+  brand_prefix_at: boolean;
+  /** Resolved from training_settings.share_founder_prefix_at. */
+  founder_prefix_at: boolean;
 }
 
 export type ShareVars = Record<string, string | number | null | undefined>;
@@ -109,8 +123,13 @@ export interface RenderedShare {
 export function renderShareTemplate(template: ShareTemplate, vars: ShareVars): RenderedShare {
   const brandText   = template.brand_mention   || DEFAULT_BRAND_MENTION;
   const founderText = template.founder_mention || DEFAULT_FOUNDER_MENTION;
-  const brand   = template.mention_brand   ? `@${brandText}`   : brandText;
-  const founder = template.mention_founder ? `@${founderText}` : founderText;
+  // Global `share_brand_prefix_at` / `share_founder_prefix_at` settings
+  // (seeded false in migration 116) decide whether to prefix `@`. The
+  // legacy per-template `mention_brand` / `mention_founder` booleans are
+  // ignored — admin controls everything from the Global Mention Settings
+  // card.
+  const brand   = template.brand_prefix_at   ? `@${brandText}`   : brandText;
+  const founder = template.founder_prefix_at ? `@${founderText}` : founderText;
 
   // Normalize well-known variables so the output always matches the admin
   // template preview: `course` ⇒ full title (resolves short codes like "3SFM"),
@@ -162,7 +181,7 @@ export const TEMPLATE_VARIABLES: Record<string, string[]> = {
   session_shared:       ['sessionName', 'sessionDescription', 'sessionUrl'],
 };
 
-type TemplateSeed = Omit<ShareTemplate, 'brand_mention' | 'founder_mention'>;
+type TemplateSeed = Omit<ShareTemplate, 'brand_mention' | 'founder_mention' | 'brand_prefix_at' | 'founder_prefix_at'>;
 
 const TEMPLATE_SEEDS: Record<string, TemplateSeed> = {
   certificate_earned: {
@@ -244,7 +263,13 @@ const TEMPLATE_SEEDS: Record<string, TemplateSeed> = {
 export const DEFAULT_TEMPLATES: Record<string, ShareTemplate> = Object.fromEntries(
   Object.entries(TEMPLATE_SEEDS).map(([key, seed]) => [
     key,
-    { ...seed, brand_mention: DEFAULT_BRAND_MENTION, founder_mention: DEFAULT_FOUNDER_MENTION },
+    {
+      ...seed,
+      brand_mention:     DEFAULT_BRAND_MENTION,
+      founder_mention:   DEFAULT_FOUNDER_MENTION,
+      brand_prefix_at:   false,
+      founder_prefix_at: false,
+    },
   ]),
 );
 

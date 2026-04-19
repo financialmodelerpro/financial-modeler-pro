@@ -33,8 +33,10 @@ const btn = (bg: string, fg = '#fff', disabled = false): React.CSSProperties => 
 export default function ShareTemplatesPage() {
   const [templates, setTemplates] = useState<ShareTemplate[]>([]);
   const [settings, setSettings]   = useState<ShareSettings>({
-    brand_mention:   DEFAULT_BRAND_MENTION,
-    founder_mention: DEFAULT_FOUNDER_MENTION,
+    brand_mention:     DEFAULT_BRAND_MENTION,
+    founder_mention:   DEFAULT_FOUNDER_MENTION,
+    brand_prefix_at:   false,
+    founder_prefix_at: false,
   });
   const [loading, setLoading] = useState(true);
   const [savingKey, setSavingKey] = useState<string | null>(null);
@@ -76,14 +78,17 @@ export default function ShareTemplatesPage() {
       const j = await res.json() as { error?: string; settings?: ShareSettings };
       if (!res.ok) throw new Error(j.error ?? 'Save failed');
       if (j.settings) setSettings(j.settings);
-      // Propagate the new mention strings into every template in local
-      // state so the live previews update instantly without a re-fetch.
+      // Propagate the new mention strings + prefix toggles into every
+      // template in local state so the live previews update instantly
+      // without a re-fetch.
       const next = j.settings;
       if (next) {
         setTemplates(prev => prev.map(t => ({
           ...t,
-          brand_mention:   next.brand_mention,
-          founder_mention: next.founder_mention,
+          brand_mention:     next.brand_mention,
+          founder_mention:   next.founder_mention,
+          brand_prefix_at:   next.brand_prefix_at,
+          founder_prefix_at: next.founder_prefix_at,
         })));
       }
       show('Mention settings saved');
@@ -134,9 +139,11 @@ export default function ShareTemplatesPage() {
             lineHeight: 1.55, maxWidth: 720,
           }}>
             <strong>Variable syntax:</strong> <code>{'{studentName}'}</code>, <code>{'{course}'}</code> etc. get
-            substituted at share time. <code>{'{@brand}'}</code> becomes <code>@{settings.brand_mention}</code> or
-            plain text depending on the checkbox. <code>{'{@founder}'}</code> works the same way for
-            <code>@{settings.founder_mention}</code>.
+            substituted at share time. <code>{'{@brand}'}</code> renders as <code>
+              {settings.brand_prefix_at ? '@' : ''}{settings.brand_mention}
+            </code> and <code>{'{@founder}'}</code> as <code>
+              {settings.founder_prefix_at ? '@' : ''}{settings.founder_mention}
+            </code> — both controlled from the Global Mention Settings card below.
           </div>
         </div>
 
@@ -153,10 +160,10 @@ export default function ShareTemplatesPage() {
             </div>
             <p style={{ fontSize: 12, color: MUTED, margin: '0 0 14px', lineHeight: 1.55 }}>
               These values drive <code>{'{@brand}'}</code> and <code>{'{@founder}'}</code> in every template
-              above. Store the bare handle — no leading <code>@</code>. The render engine adds the <code>@</code>
-              when a template&apos;s mention checkbox is on.
+              above. Store the bare handle — no leading <code>@</code>. Each toggle below decides whether the
+              render engine prefixes <code>@</code> (for LinkedIn tagging) or leaves the handle as plain text.
             </p>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14, marginBottom: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 12 }}>
               <div>
                 <label style={label}>Brand name / LinkedIn handle</label>
                 <input
@@ -165,8 +172,21 @@ export default function ShareTemplatesPage() {
                   placeholder="FinancialModelerPro"
                   style={field}
                 />
-                <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>
-                  Preview (mention on): <code style={{ color: BLUE }}>@{settings.brand_mention || DEFAULT_BRAND_MENTION}</code>
+                <label style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12,
+                  color: NAVY, fontWeight: 600, cursor: 'pointer', marginTop: 8,
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={settings.brand_prefix_at}
+                    onChange={e => setSettings(s => ({ ...s, brand_prefix_at: e.target.checked }))}
+                  />
+                  Prefix <code>@</code> for Brand
+                </label>
+                <div style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>
+                  Live preview: <code style={{ color: BLUE }}>
+                    {settings.brand_prefix_at ? '@' : ''}{settings.brand_mention || DEFAULT_BRAND_MENTION}
+                  </code>
                 </div>
               </div>
               <div>
@@ -177,8 +197,21 @@ export default function ShareTemplatesPage() {
                   placeholder="Ahmad Din, ACCA, FMVA®"
                   style={field}
                 />
-                <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>
-                  Preview (mention on): <code style={{ color: '#92400E' }}>@{settings.founder_mention || DEFAULT_FOUNDER_MENTION}</code>
+                <label style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 12,
+                  color: NAVY, fontWeight: 600, cursor: 'pointer', marginTop: 8,
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={settings.founder_prefix_at}
+                    onChange={e => setSettings(s => ({ ...s, founder_prefix_at: e.target.checked }))}
+                  />
+                  Prefix <code>@</code> for Founder
+                </label>
+                <div style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>
+                  Live preview: <code style={{ color: '#92400E' }}>
+                    {settings.founder_prefix_at ? '@' : ''}{settings.founder_mention || DEFAULT_FOUNDER_MENTION}
+                  </code>
                 </div>
               </div>
             </div>
@@ -322,17 +355,11 @@ function TemplateEditor({
         style={{ ...field, fontFamily: "'Inter', 'Menlo', monospace", fontSize: 13, lineHeight: 1.55, resize: 'vertical' }}
       />
 
-      {/* Mention toggles */}
-      <div style={{ display: 'flex', gap: 16, marginTop: 14, flexWrap: 'wrap' }}>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: NAVY, fontWeight: 600, cursor: 'pointer' }}>
-          <input type="checkbox" checked={template.mention_brand} onChange={e => onChange({ mention_brand: e.target.checked })} />
-          Include <code style={{ color: BLUE }}>@FinancialModelerPro</code> mention
-        </label>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 13, color: NAVY, fontWeight: 600, cursor: 'pointer' }}>
-          <input type="checkbox" checked={template.mention_founder} onChange={e => onChange({ mention_founder: e.target.checked })} />
-          Include <code style={{ color: '#92400E' }}>@Ahmad Din, ACCA, FMVA®</code> mention
-        </label>
-      </div>
+      {/* Per-template mention checkboxes were removed — @ prefix is now
+          driven globally from the Global Mention Settings card above so the
+          behavior is consistent across every template. Admins control
+          presence by including or omitting {@brand} / {@founder} in the
+          template text itself. */}
 
       {/* Hashtags */}
       <div style={{ marginTop: 14 }}>
