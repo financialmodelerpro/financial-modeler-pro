@@ -1,14 +1,20 @@
 'use client';
 
 import Link from 'next/link';
+import { CountdownTimer } from '@/src/components/shared/CountdownTimer';
 
 const NAVY = '#0D2E5A';
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
 
-export function ModelingComingSoon({ variant }: { variant: 'signin' | 'register' }) {
+interface Props {
+  variant: 'signin' | 'register';
+  launchDate?: string | null;
+}
+
+export function ModelingComingSoon({ variant, launchDate }: Props) {
   return (
     <div style={{ minHeight: '100vh', background: `linear-gradient(135deg, #0A1F3D 0%, ${NAVY} 50%, #0F3D6E 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', fontFamily: "'Inter', sans-serif" }}>
-      <div style={{ width: '100%', maxWidth: 480, textAlign: 'center' }}>
+      <div style={{ width: '100%', maxWidth: 520, textAlign: 'center' }}>
         <div style={{ fontSize: 48, marginBottom: 20 }}>🚀</div>
 
         <div style={{
@@ -24,12 +30,31 @@ export function ModelingComingSoon({ variant }: { variant: 'signin' | 'register'
           Launching Soon
         </h1>
 
-        <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)', lineHeight: 1.7, marginBottom: 36, maxWidth: 400, margin: '0 auto 36px' }}>
+        <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)', lineHeight: 1.7, marginBottom: 32, maxWidth: 420, margin: '0 auto 32px' }}>
           {variant === 'register'
             ? 'Registration will open when we launch. Join our waitlist to be the first to know.'
             : "We're putting the finishing touches on our professional financial modeling platform. Be the first to know when we launch."
           }
         </p>
+
+        {launchDate && (
+          <div style={{ marginBottom: 32 }}>
+            <CountdownTimer
+              targetDate={launchDate}
+              accentColor="#93C5FD"
+              cardBackground="rgba(27,79,138,0.35)"
+              cardBorder="rgba(147,197,253,0.3)"
+            />
+            <div style={{
+              marginTop: 14, fontSize: 12,
+              color: 'rgba(255,255,255,0.4)', letterSpacing: '0.04em',
+            }}>
+              Launching {new Date(launchDate).toLocaleString(undefined, {
+                dateStyle: 'medium', timeStyle: 'short',
+              })}
+            </div>
+          </div>
+        )}
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12, alignItems: 'center' }}>
           <a href={`${MAIN_URL}/training`} style={{

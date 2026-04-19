@@ -284,25 +284,28 @@ All three marketing pages use **Option B**: each section fetched from `page_sect
 - `content.booking_url` — Microsoft Bookings URL. `/book-a-meeting` page reads this
 - `content.booking_expectations[]` — "What to expect" list on booking page
 
-### Modeling Hub Coming Soon Mode
-- Setting: `training_settings` table, key `modeling_hub_coming_soon`, value `'true'`/`'false'`
-- Server helper: `src/lib/shared/modelingComingSoon.ts` → `isModelingComingSoon()`
-- Signin page: server component checks setting → shows `ComingSoonWrapper` (handles `?bypass=true`) or `SignInForm`
-- Register page: server component checks setting → shows `ModelingComingSoon` or `RegisterForm`
-- Admin toggle: `/admin/modules` page header, API `GET/PATCH /api/admin/modeling-coming-soon`
-- Files: `app/modeling/signin/SignInForm.tsx`, `app/modeling/signin/ComingSoonWrapper.tsx`, `app/modeling/register/RegisterForm.tsx`, `app/modeling/ComingSoon.tsx`
+### Hub Coming Soon Mode (Modeling + Training)
 
-### Training Hub Coming Soon Mode
-- Settings: `training_settings` table — keys `training_hub_coming_soon` (`'true'`/`'false'`) + `training_hub_launch_date` (ISO 8601 string, optional). Upserted on first admin save; no migration needed.
-- Server helper: `src/lib/shared/trainingComingSoon.ts` → `getTrainingComingSoonState()` returns `{ enabled, launchDate }`, plus `isTrainingComingSoon()` shortcut.
-- Signin page (`app/training/signin/page.tsx`): server component checks state → renders `TrainingComingSoonWrapper` (handles `?bypass=true`) or `TrainingSignInForm`.
-- Register page (`app/training/register/page.tsx`): server component checks state → renders `TrainingComingSoon` or `TrainingRegisterForm` (client component extracted to `app/training/register/RegisterForm.tsx`).
-- Direct page: `app/training/coming-soon/page.tsx` always renders the coming soon screen (useful for preview/share).
+Both hubs share the same pattern: a server-side gate on signin/register pages plus a reusable admin card. The toggle and an optional launch date are stored in `training_settings` per hub. When the launch date is set the public page renders a live Days/Hrs/Min/Sec countdown; when it's empty only the coming-soon message is shown.
+
+**Shared pieces:**
+- `CountdownTimer` (`src/components/shared/CountdownTimer.tsx`): reusable Days/Hrs/Min/Sec grid, updates every 1s, fires optional `onComplete`, swaps in "We're Live!" banner at zero. Accepts `accentColor` / `cardBackground` / `cardBorder` for per-hub theming.
+- `LaunchStatusCard` (`src/components/admin/LaunchStatusCard.tsx`): reusable admin card. Props `{ label, icon, endpoint, previewUrl, onMessage }`. Renders the status pill + toggle + Preview ↗, and when enabled an optional `datetime-local` picker with Save / Clear. Posts to the given `endpoint` with `{ enabled }` or `{ launchDate }` partial PATCH.
+
+**Modeling Hub:**
+- Settings: `modeling_hub_coming_soon` (`'true'`/`'false'`) + `modeling_hub_launch_date` (ISO 8601, optional).
+- Helper: `src/lib/shared/modelingComingSoon.ts` → `getModelingComingSoonState()` returns `{ enabled, launchDate }`; `isModelingComingSoon()` shortcut kept for back-compat.
+- API: `GET/PATCH /api/admin/modeling-coming-soon` — partial upsert on either field, admin-gated.
+- Public pages: `app/modeling/signin/page.tsx` + `app/modeling/register/page.tsx` server-gate and pass `launchDate` through. Signin uses `ComingSoonWrapper` with `?bypass=true` escape hatch. `ModelingComingSoon` renders blue-tinted `CountdownTimer` only when `launchDate` is set.
+- Admin: `LaunchStatusCard` mounted at top of `/admin/modules`.
+
+**Training Hub:**
+- Settings: `training_hub_coming_soon` + `training_hub_launch_date`.
+- Helper: `src/lib/shared/trainingComingSoon.ts` → `getTrainingComingSoonState()` / `isTrainingComingSoon()`.
+- API: `GET/PATCH /api/admin/training-coming-soon`.
+- Public pages: `app/training/signin/page.tsx` + `app/training/register/page.tsx` server-gate. `TrainingRegisterForm` extracted from the old page to allow the split. `TrainingComingSoon` (`app/training/ComingSoon.tsx`) adds a newsletter waitlist (hubs=['training']) + LinkedIn/YouTube links + standalone `/training/coming-soon` preview route. Countdown only renders when `launchDate` is set.
+- Admin: `LaunchStatusCard` mounted at top of `/admin/training` (Course Manager page — NOT `/admin/modules`, which is for Modeling Hub only).
 - Dashboard redirect chain: unauthenticated `/training/dashboard` already sends to `/signin`, which is gated — no middleware change needed.
-- `TrainingComingSoon` component (`app/training/ComingSoon.tsx`): FMP-branded dark gradient hero, "Training Hub" badge, countdown timer (if `launchDate` set), newsletter waitlist form (hubs=['training']), LinkedIn/YouTube links, Back to Home. Shows "Already have access? Sign in →" bypass on signin variant only.
-- `CountdownTimer` (`src/components/shared/CountdownTimer.tsx`): reusable Days/Hrs/Min/Sec grid, teal digits on navy cards, updates every 1s via setInterval, fires optional `onComplete`, swaps in "We're Live!" banner at 0.
-- Admin toggle: `/admin/modules` adds a second launch-status card below the Modeling Hub one. Toggle enables/disables coming soon; when ON a `datetime-local` picker with Save Launch Date + Clear + Preview buttons appears. Timezone hint uses `Intl.DateTimeFormat().resolvedOptions().timeZone`.
-- API: `GET/PATCH /api/admin/training-coming-soon` — GET returns `{ enabled, launchDate }`, PATCH accepts `{ enabled?, launchDate? }` (partial upsert, admin-gated via NextAuth role).
 
 ### certificateEngine.ts
 - PDF generation uses scaleX/scaleY (editor 1240x877 -> PDF points) and per-font ascent correction

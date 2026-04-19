@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { LaunchStatusCard } from '@/src/components/admin/LaunchStatusCard';
 
 interface Module    { id: string; name: string; slug: string; description: string; icon: string; status: 'live' | 'coming_soon' | 'hidden'; display_order: number; launch_date: string | null }
 interface AssetType { id: string; name: string; description: string; icon: string; visible: boolean; display_order: number }
@@ -17,13 +18,6 @@ export default function AdminModulesPage() {
   const [modules,    setModules]    = useState<Module[]>([]);
   const [assetTypes, setAssetTypes] = useState<AssetType[]>([]);
   const [cmsReady,   setCmsReady]   = useState<Set<string>>(new Set());
-  const [comingSoon, setComingSoon] = useState(false);
-  const [togglingCS, setTogglingCS] = useState(false);
-  const [trainingCS,       setTrainingCS]       = useState(false);
-  const [trainingDate,     setTrainingDate]     = useState('');
-  const [trainingDateDraft,setTrainingDateDraft]= useState('');
-  const [togglingTCS,      setTogglingTCS]      = useState(false);
-  const [savingTrainingDate,setSavingTrainingDate] = useState(false);
   const [loadingM,   setLoadingM]   = useState(true);
   const [loadingA,   setLoadingA]   = useState(true);
   const [togglingM,  setTogglingM]  = useState<string | null>(null);
@@ -46,82 +40,7 @@ export default function AdminModulesPage() {
       .then(r => r.json())
       .then(j => { setCmsReady(new Set((j.slugs as string[]) ?? [])); })
       .catch(() => {});
-    fetch('/api/admin/modeling-coming-soon')
-      .then(r => r.json())
-      .then(j => setComingSoon(j.enabled ?? false))
-      .catch(() => {});
-    fetch('/api/admin/training-coming-soon')
-      .then(r => r.json())
-      .then(j => {
-        setTrainingCS(j.enabled ?? false);
-        const iso = (j.launchDate ?? '') as string;
-        setTrainingDate(iso);
-        setTrainingDateDraft(isoToLocal(iso));
-      })
-      .catch(() => {});
   }, []);
-
-  function isoToLocal(iso: string): string {
-    if (!iso) return '';
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return '';
-    const pad = (n: number) => n.toString().padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-  }
-  function localToIso(local: string): string {
-    if (!local) return '';
-    const d = new Date(local);
-    return isNaN(d.getTime()) ? '' : d.toISOString();
-  }
-
-  async function toggleTrainingComingSoon() {
-    setTogglingTCS(true);
-    try {
-      const res = await fetch('/api/admin/training-coming-soon', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !trainingCS }),
-      });
-      if (res.ok) {
-        setTrainingCS(!trainingCS);
-        showToast(trainingCS ? 'Training Hub is now LIVE' : 'Training Hub set to Coming Soon');
-      } else { showToast('Update failed', 'error'); }
-    } catch { showToast('Update failed', 'error'); }
-    finally { setTogglingTCS(false); }
-  }
-
-  async function saveTrainingLaunchDate() {
-    setSavingTrainingDate(true);
-    try {
-      const iso = localToIso(trainingDateDraft);
-      const res = await fetch('/api/admin/training-coming-soon', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ launchDate: iso }),
-      });
-      if (res.ok) {
-        setTrainingDate(iso);
-        showToast('Launch date saved');
-      } else { showToast('Save failed', 'error'); }
-    } catch { showToast('Save failed', 'error'); }
-    finally { setSavingTrainingDate(false); }
-  }
-
-  async function toggleComingSoon() {
-    setTogglingCS(true);
-    try {
-      const res = await fetch('/api/admin/modeling-coming-soon', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !comingSoon }),
-      });
-      if (res.ok) {
-        setComingSoon(!comingSoon);
-        showToast(comingSoon ? 'Modeling Hub is now LIVE' : 'Modeling Hub set to Coming Soon');
-      } else { showToast('Update failed', 'error'); }
-    } catch { showToast('Update failed', 'error'); }
-    finally { setTogglingCS(false); }
-  }
 
   function showToast(msg: string, type: 'success' | 'error' = 'success') {
     setToast({ msg, type });
@@ -204,86 +123,13 @@ export default function AdminModulesPage() {
       <main style={{ flex: 1, padding: 40, overflowY: 'auto' }}>
 
         {/* ── Launch Settings — Modeling Hub ── */}
-        <div style={{ background: comingSoon ? '#FFFBEB' : '#F0FFF4', border: `1px solid ${comingSoon ? '#FDE68A' : '#BBF7D0'}`, borderRadius: 12, padding: '20px 24px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-          <div style={{ flex: 1, minWidth: 200 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>
-              🚀 Modeling Hub Launch Status
-            </div>
-            <div style={{ fontSize: 12, color: '#6B7280' }}>
-              {comingSoon
-                ? 'Coming Soon mode is ON - signin and register pages show a coming soon message. Admins can bypass via ?bypass=true.'
-                : 'Modeling Hub is LIVE - signin and register pages work normally.'}
-            </div>
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 20, background: comingSoon ? '#FEF3C7' : '#E8F7EC', color: comingSoon ? '#92400E' : '#1A7A30' }}>
-              {comingSoon ? 'COMING SOON' : 'LIVE'}
-            </span>
-            <button onClick={toggleComingSoon} disabled={togglingCS}
-              style={{ padding: '8px 20px', borderRadius: 7, border: 'none', fontSize: 12, fontWeight: 700, cursor: togglingCS ? 'not-allowed' : 'pointer', background: comingSoon ? '#1A7A30' : '#B45309', color: '#fff', opacity: togglingCS ? 0.6 : 1 }}>
-              {togglingCS ? 'Updating…' : comingSoon ? 'Set to LIVE →' : 'Set to Coming Soon'}
-            </button>
-          </div>
-        </div>
-
-        {/* ── Launch Settings — Training Hub ── */}
-        <div style={{ background: trainingCS ? '#FFFBEB' : '#F0FFF4', border: `1px solid ${trainingCS ? '#FDE68A' : '#BBF7D0'}`, borderRadius: 12, padding: '20px 24px', marginBottom: 32 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-            <div style={{ flex: 1, minWidth: 200 }}>
-              <div style={{ fontSize: 14, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>
-                🎓 Training Hub Launch Status
-              </div>
-              <div style={{ fontSize: 12, color: '#6B7280' }}>
-                {trainingCS
-                  ? 'Coming Soon mode is ON — signin and register pages show a countdown. Admins can bypass via ?bypass=true on /signin.'
-                  : 'Training Hub is LIVE — signin and register pages work normally.'}
-              </div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, padding: '4px 12px', borderRadius: 20, background: trainingCS ? '#FEF3C7' : '#E8F7EC', color: trainingCS ? '#92400E' : '#1A7A30' }}>
-                {trainingCS ? 'COMING SOON' : 'LIVE'}
-              </span>
-              <button onClick={toggleTrainingComingSoon} disabled={togglingTCS}
-                style={{ padding: '8px 20px', borderRadius: 7, border: 'none', fontSize: 12, fontWeight: 700, cursor: togglingTCS ? 'not-allowed' : 'pointer', background: trainingCS ? '#1A7A30' : '#B45309', color: '#fff', opacity: togglingTCS ? 0.6 : 1 }}>
-                {togglingTCS ? 'Updating…' : trainingCS ? 'Set to LIVE →' : 'Set to Coming Soon'}
-              </button>
-              <a href="https://learn.financialmodelerpro.com/signin" target="_blank" rel="noopener noreferrer"
-                style={{ fontSize: 11, fontWeight: 700, padding: '8px 14px', borderRadius: 7, border: '1px solid #1B4F8A', background: '#fff', color: '#1B4F8A', textDecoration: 'none' }}>
-                Preview ↗
-              </a>
-            </div>
-          </div>
-
-          {trainingCS && (
-            <div style={{ marginTop: 16, borderTop: '1px dashed #E5E7EB', paddingTop: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-              <div>
-                <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', marginBottom: 4, letterSpacing: '0.05em' }}>LAUNCH DATE &amp; TIME</div>
-                <input
-                  type="datetime-local"
-                  value={trainingDateDraft}
-                  onChange={e => setTrainingDateDraft(e.target.value)}
-                  style={{ padding: '8px 10px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 6, color: '#1B3A6B', background: '#fff', fontFamily: "'Inter', sans-serif" }}
-                />
-                <div style={{ marginTop: 4, fontSize: 11, color: '#9CA3AF' }}>
-                  Shown as a countdown on /signin and /register. Timezone: {Intl.DateTimeFormat().resolvedOptions().timeZone}.
-                </div>
-              </div>
-              <button
-                onClick={saveTrainingLaunchDate}
-                disabled={savingTrainingDate || localToIso(trainingDateDraft) === trainingDate}
-                style={{ padding: '8px 18px', borderRadius: 7, border: 'none', fontSize: 12, fontWeight: 700, cursor: (savingTrainingDate || localToIso(trainingDateDraft) === trainingDate) ? 'not-allowed' : 'pointer', background: '#1B4F8A', color: '#fff', opacity: (savingTrainingDate || localToIso(trainingDateDraft) === trainingDate) ? 0.5 : 1 }}>
-                {savingTrainingDate ? 'Saving…' : 'Save Launch Date'}
-              </button>
-              {trainingDateDraft && (
-                <button
-                  onClick={() => { setTrainingDateDraft(''); }}
-                  style={{ padding: '8px 14px', borderRadius: 7, border: '1px solid #D1D5DB', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: '#fff', color: '#6B7280' }}>
-                  Clear
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+        <LaunchStatusCard
+          label="Modeling Hub"
+          icon="🚀"
+          endpoint="/api/admin/modeling-coming-soon"
+          previewUrl={(process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com') + '/signin'}
+          onMessage={showToast}
+        />
 
         {/* ── Platforms ── */}
         <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>Module Manager</h1>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { LaunchStatusCard } from '@/src/components/admin/LaunchStatusCard';
 import Link from 'next/link';
 
 interface Course {
@@ -122,6 +123,15 @@ export default function AdminTrainingPage() {
             + New Course
           </button>
         </div>
+
+        {/* ── Launch Settings — Training Hub ── */}
+        <LaunchStatusCard
+          label="Training Hub"
+          icon="🎓"
+          endpoint="/api/admin/training-coming-soon"
+          previewUrl={(process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com') + '/signin'}
+          onMessage={(msg, type) => { setToast({ msg, type }); setTimeout(() => setToast(null), 2500); }}
+        />
 
         {/* KPI strip */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 16, marginBottom: 32 }}>
