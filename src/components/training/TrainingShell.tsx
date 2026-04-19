@@ -298,8 +298,8 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
             <NavItem icon={<Lock size={16} />} label="Business Valuation Modeling" href="/training/dashboard?course=bvm" wrapLabel
               badge="LOCKED" badgeColor="rgba(255,255,255,0.15)" />
 
-            {/* TRAINING SESSIONS */}
-            <NavLabel text="Training Sessions" />
+            {/* LIVE SESSIONS */}
+            <NavLabel text="Live Sessions" />
             <NavItem icon={<Video size={16} />} label={liveSessionsLabel} active={currentNav === 'live-sessions'}
               dot={hasLiveNow} dotColor="#EF4444"
               badge={sessionsLoaded ? sessionsList.length : (upcomingCount > 0 ? upcomingCount : undefined)} badgeColor="#3B82F6"

@@ -67,7 +67,7 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
       <div style={{ textAlign: 'center', padding: 80 }}>
         <div style={{ fontSize: 48, marginBottom: 12 }}>404</div>
         <div style={{ color: '#6B7280', marginBottom: 12 }}>Session not found</div>
-        <Link href={`${LEARN_URL}/training-sessions`} style={{ color: '#1B4F8A' }}>Back to Training Sessions</Link>
+        <Link href={`${LEARN_URL}/training-sessions`} style={{ color: '#1B4F8A' }}>Back to Live Sessions</Link>
       </div>
     );
   }

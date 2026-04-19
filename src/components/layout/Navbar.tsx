@@ -19,7 +19,7 @@ const DEFAULT_PAGES: NavPage[] = [
   { id: '1', label: 'Home',               href: `${MAIN_URL}/`,                       display_order: 1 },
   { id: '2', label: 'Modeling Hub',       href: `${APP_URL}/modeling`,                display_order: 2 },
   { id: '3', label: 'Training Hub',       href: `${LEARN_URL}/training`,              display_order: 3 },
-  { id: '8', label: 'Training Sessions',  href: `${LEARN_URL}/training-sessions`,     display_order: 4 },
+  { id: '8', label: 'Live Sessions',      href: `${LEARN_URL}/training-sessions`,     display_order: 4 },
   { id: '4', label: 'Articles',           href: `${MAIN_URL}/articles`,               display_order: 5 },
   { id: '6', label: 'Pricing',            href: `${MAIN_URL}/pricing`,                display_order: 6 },
   { id: '7', label: 'Contact',            href: `${MAIN_URL}/contact`,                display_order: 7 },

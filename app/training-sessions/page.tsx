@@ -6,8 +6,8 @@ import { getAllPageSections } from '@/src/lib/shared/cms';
 import { SessionsClient, type PublicSession, type HeroContent } from './SessionsClient';
 
 export const metadata: Metadata = {
-  title: 'Training Sessions | Financial Modeler Pro',
-  description: 'Join free live financial modeling training sessions or watch recordings. Learn DCF, valuation, and 3-statement modeling with Ahmad Din.',
+  title: 'Live Sessions | FMP Real-World Financial Modeling',
+  description: 'Join live training sessions and access recorded content from Financial Modeler Pro. Practitioner-led courses on financial modeling, deal structuring, and corporate finance.',
 };
 
 export const dynamic = 'force-dynamic';

@@ -911,7 +911,7 @@ export default function TrainingDashboardPage() {
             )}
 
             {/* TRAINING SESSIONS */}
-            <SidebarLabel text="Training Sessions" />
+            <SidebarLabel text="Live Sessions" />
             <SidebarItem
               icon={<Video size={16} />}
               label="Live Sessions"

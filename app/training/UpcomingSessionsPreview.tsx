@@ -66,10 +66,10 @@ export function UpcomingSessionsPreview() {
             Live Learning
           </div>
           <h2 style={{ fontSize: 'clamp(22px,3.5vw,34px)', fontWeight: 800, color: NAVY, margin: 0 }}>
-            Training Sessions
+            FMP Real-World Financial Modeling
           </h2>
           <p style={{ fontSize: 14, color: '#6B7280', marginTop: 10 }}>
-            Join live sessions or watch recordings at your own pace
+            Live sessions and recorded content. Practitioner-led. Built on real deal work.
           </p>
         </div>
 
@@ -86,7 +86,7 @@ export function UpcomingSessionsPreview() {
 
         <div style={{ textAlign: 'center', marginTop: 20 }}>
           <Link href={`${LEARN_URL}/training-sessions`} style={{ fontSize: 14, fontWeight: 700, color: '#1B4F8A', textDecoration: 'none' }}>
-            View All Training Sessions &#8594;
+            View All Live Sessions &#8594;
           </Link>
         </div>
       </div>

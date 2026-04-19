@@ -1704,7 +1704,7 @@ export default function LiveSessionsPage() {
 
               {/* Footer */}
               <div style={{ padding: '10px 24px', borderTop: '1px solid #E5E7EB', background: '#F9FAFB', flexShrink: 0, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic' }}>Preview only - public Training Sessions page coming soon. Enrolled students can view this in their Training Hub dashboard at learn.financialmodelerpro.com/training/live-sessions</span>
+                <span style={{ fontSize: 11, color: '#9CA3AF', fontStyle: 'italic' }}>Preview only - public Live Sessions page coming soon. Enrolled students can view this in their Training Hub dashboard at learn.financialmodelerpro.com/training/live-sessions</span>
                 <button onClick={() => setPreviewSession(null)} style={{ padding: '5px 16px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: NAVY, color: '#fff', border: 'none', cursor: 'pointer' }}>Close Preview</button>
               </div>
             </div>

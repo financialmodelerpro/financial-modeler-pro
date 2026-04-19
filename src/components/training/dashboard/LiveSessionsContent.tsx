@@ -137,8 +137,9 @@ export function LiveSessionsContent({ studentEmail }: LiveSessionsContentProps) 
       }}>
         <div style={{ position: 'absolute', top: -30, right: -30, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
         <div style={{ position: 'relative', zIndex: 1 }}>
-          <h1 style={{ fontSize: 'clamp(20px,5vw,26px)', fontWeight: 800, margin: '0 0 6px' }}>Training Sessions</h1>
-          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', margin: 0, marginBottom: 12 }}>Join live sessions or watch recordings at your own pace.</p>
+          <div style={{ fontSize: 10.5, fontWeight: 700, color: 'rgba(255,255,255,0.55)', letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 6 }}>Live Sessions</div>
+          <h1 style={{ fontSize: 'clamp(20px,5vw,26px)', fontWeight: 800, margin: '0 0 6px' }}>FMP Real-World Financial Modeling</h1>
+          <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', margin: 0, marginBottom: 12 }}>Live sessions and recorded content.</p>
           <div style={{ display: 'flex', gap: 16, fontSize: 12, fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>
             <span>{upcoming.length} Upcoming</span>
             <span>{recorded.length} Recording{recorded.length !== 1 ? 's' : ''}</span>
