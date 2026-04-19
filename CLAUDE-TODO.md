@@ -4,6 +4,21 @@
 
 ---
 
+## Recently Completed — Share Templates + Verify Previews + OG canonicalization (2026-04-19 / 2026-04-20 session)
+
+| Feature | Status |
+|---------|--------|
+| **Share templates — centralized system** (migrations 114-117) | Complete — `share_templates` table + four `training_settings` keys for global brand/founder mention strings + `@` prefix toggles. Render engine at `src/lib/training/shareTemplates.ts` with `renderShareTemplate`, `resolveCourseName`, `formatShareDate`. Client hook `useShareTemplate` with module cache + fallback. Admin page `/admin/training-hub/share-templates` with Global Mention Settings card + per-template editor. 5 seeded templates (certificate_earned, assessment_passed, achievement_card, live_session_watched, session_shared). Every share call site migrated (CertificateImageCard / VerifyActions / SessionCard / LiveSessionCard(Large) / assessment results / CourseTopBar). Commits `e155b54`, `a667c8d`, `fe8e6e3`, `0604db5`, `e691c92`. |
+| **Daily certifications roundup** (migration 117) | Complete — `/admin/training-hub/daily-roundup` admin page + `GET /api/admin/certificates/by-date` endpoint. Template uses `{studentList}`, `{verifyLinks}`, `{count}`, `{date}`. One roll-up post per day instead of one post per student. Share Roundup button opens universal ShareModal. Nav entry 🎓 Daily Roundup under Training Hub. Commit `3c0f752`. |
+| **Verify page — inline PDF + badge previews** | Complete — 2-column preview grid: Certificate PDF (4:3 iframe) + Badge PNG (1:1 img with soft-gold radial backdrop) on left, Transcript PDF (3:4 iframe, pre-cache-first) on right. Navy header strips + `Open Full ↗` + floating `⛶ View` mobile pill. Commits `5cb1c7e`, `608c4aa`. |
+| **Dashboard cert share — ShareModal preview** | Complete — `CertificateImageCard` opens ShareModal with OG certificate image preview + editable text + platform buttons matching Achievement Card pattern. Commit `70f305a`. |
+| **Subdomain-correct OG metadata + LinkedIn OG image** | Complete — `app/verify/layout.tsx` created with `metadataBase` / canonical / og:url pinned to LEARN_URL. Training + Modeling layouts gained explicit `alternates.canonical`. `robots.ts` adds `Allow: /api/og/` so LinkedInBot can fetch OG images. `URLS.verify` helper canonicalized to learn subdomain. Admin certificates fallback no longer routes legacy certifier_uuid certs to main. Sitemap lists `/verify` on learn. Commits `2097ddb`, `756cff9`. |
+| **Share text — course name + date format fixes** | Complete — `resolveCourseName()` + `formatShareDate()` baked into render engine. `/api/training/certificate` no longer prefers `course_code` over `course` (was serving "3SFM" to dashboard). All call sites route dates through `formatShareDate()`. ShareModal now seeds draft with text + hashtags merged so students see exactly what's copied. Commits `fe8e6e3`, `0604db5`. |
+| **Dashboard upcoming-only live sessions preview** | Complete — removed Recorded sub-section from dashboard block (full library stays on `/training/live-sessions`). Grid capped at 3 cards. Empty-state card replaces silent disappearance. Commit `bbc37be`. |
+| **Google Search Console verification** | Complete — token added to `app/layout.tsx` metadata.verification. Commit `4d31229`. |
+
+---
+
 ## Recently Completed — Marketing Studio + Watch Enforcement (2026-04-18 session, continued)
 
 | Feature | Status |

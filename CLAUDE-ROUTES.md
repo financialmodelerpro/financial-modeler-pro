@@ -29,7 +29,11 @@ app/
 ├── settings/page.tsx
 ├── t/[token]/page.tsx
 ├── testimonials/submit/page.tsx
-└── verify/[uuid]/page.tsx       # Certificate public verification
+├── verify/layout.tsx            # Pins metadataBase + canonical + og:url to LEARN_URL so share previews always show learn.* in the card footer (no main-domain inheritance from root layout)
+├── verify/page.tsx              # Verify ID lookup form
+├── verify/VerifySearchForm.tsx  # Client lookup form
+├── verify/[uuid]/page.tsx       # Certificate public verification — dark gradient hero, NavbarServer, inline Certificate/Badge/Transcript preview grid (4:3 PDF iframe + 1:1 badge img + 3:4 transcript iframe with pre-cache fallback), QR, downloads + Share Certificate
+└── verify/[uuid]/VerifyActions.tsx # Client share flow: downloads + ShareModal using certificate_earned template
 ```
 
 ### Admin (`financialmodelerpro.com/admin`)
@@ -65,7 +69,9 @@ app/admin/
 ├── testimonials/page.tsx + modeling/ + training/
 ├── training/page.tsx + [courseId]/
 ├── training-hub/page.tsx + analytics/ + assessments/ + certificates/ + live-sessions/ + live-sessions/email-settings/
-│   + cohorts/ + communications/ + course-details/ + students/
+│   + cohorts/ + communications/ + course-details/ + students/ + instructors/
+│   + share-templates/         # Centralized share-text admin (migrations 114-117): Global Mention Settings card + per-template editor with variable-picker chips, hashtag chip editor, active toggle, live preview
+│   + daily-roundup/            # Daily certifications roundup: date picker + per-student checklist + live preview + Share Roundup via ShareModal (migration 117 template)
 ├── training-settings/page.tsx
 ├── transcript-editor/page.tsx
 ├── newsletter/page.tsx           # Newsletter admin: 4 tabs (Subscribers, Compose, Campaigns, Auto Notifications)
@@ -211,6 +217,10 @@ app/api/admin/
 ├── certificate-layout/ certificates/sync/ certificates/upload-template/
 ├── certificates/settings/       # GET/POST auto_generation_enabled
 ├── certificates/generate/       # POST: trigger processPendingCertificates()
+├── certificates/by-date/        # GET ?date=YYYY-MM-DD → every cert_status='Issued' row for the UTC calendar day (powers Daily Roundup admin page)
+├── share-templates/             # GET: list all templates + merged ShareSettings (admin editor)
+├── share-templates/[key]/       # PATCH: update single template (title/template_text/hashtags/mention_brand/mention_founder/active)
+├── share-templates/settings/    # PATCH: brand_mention / founder_mention / brand_prefix_at / founder_prefix_at — strips leading @ on mention inputs, re-reads full settings after write
 ├── contact-submissions/ content/ env-check/ media/ modules/ modules/cms-status/ pages/ permissions/
 # NOTE: app/api/admin/founder/route.ts DELETED 2026-04-18 — founder data written via /api/admin/page-sections
 ├── modeling-coming-soon/        # GET/PATCH: toggle coming soon mode
@@ -271,6 +281,8 @@ app/api/
 ├── og/route.tsx                   # GET: Training Hub OG banner (1200x630, CMS hero, logo)
 ├── og/modeling/route.tsx          # GET: Modeling Hub OG banner (1200x630, CMS hero, logo)
 ├── og/main/route.tsx              # GET: Main site OG banner (1200x630, CMS hero, logo)
+├── og/certificate/[id]/route.tsx  # GET: Dynamic cert OG image (satori ImageResponse) — student name + course + grade + date + ID + gold seal; used by /verify/[uuid] share previews
+├── share-templates/[key]/route.ts # GET: Public template fetch — merges training_settings mention strings + prefix_at toggles into response so client hook renders immediately
 └── user/account/ + password/ + profile/
 ```
 
@@ -389,7 +401,9 @@ src/lib/
 │   ├── password.ts  permissions.ts  storage.ts  supabase.ts  urls.ts
 └── training/
     ├── appsScript.ts  certificateEngine.ts  certificateLayout.ts  certifier.ts(deprecated)
-    ├── share.ts       # Universal share utility: shareTo(platform, options), FMP_HASHTAGS, FMP_TRAINING_URL. Auto-copy-then-open pattern.
+    ├── share.ts                 # Universal share utility: shareTo(platform, options), FMP_HASHTAGS, FMP_TRAINING_URL. LinkedIn always opens plain feed composer (no share-offsite URL auto-attach). Auto-copy-then-open pattern.
+    ├── shareTemplates.ts        # Share template render engine (migrations 114-117): ShareTemplate + ShareSettings types, renderShareTemplate(template, vars) pure function, resolveCourseName() (COURSES short-code → full title), formatShareDate() (canonical en-GB long form), DEFAULT_TEMPLATES offline fallback, SAMPLE_VARS + TEMPLATE_VARIABLES for admin preview + variable picker
+    ├── useShareTemplate.ts      # Client hook — module-level cache + in-flight dedup; initial render from DEFAULT_TEMPLATES, DB swaps in when fetch resolves. Returns ShareTemplate with brand_mention/founder_mention/prefix_at fields merged in by the API layer
     ├── watchTracker.ts           # Interval-merging playback tracker — onPlay/onTick/onClose; seeking cannot inflate counts
     ├── watchThresholdVerifier.ts # verifyWatchThresholdMet(email, courseCode) — gates cert issuance per course+session
     ├── sheets.ts  training-session.ts  videoTimer.ts
