@@ -1448,7 +1448,11 @@ export default function TrainingDashboardPage() {
           {/* LIVE SESSIONS TAB                                                   */}
           {/* ════════════════════════════════════════════════════════════════════ */}
           {activeView === 'live-sessions' && localSession && (
-            <LiveSessionsContent studentEmail={localSession.email} />
+            <LiveSessionsContent
+              studentEmail={localSession.email}
+              studentName={studentName}
+              registrationId={localSession.registrationId}
+            />
           )}
         </main>
       </div>
