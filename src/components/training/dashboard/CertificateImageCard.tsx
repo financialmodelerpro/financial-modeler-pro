@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import type { Certificate } from './types';
+import { ShareModal } from '@/src/components/training/share/ShareModal';
 
 interface CertificateImageCardProps {
   cert: Certificate;
@@ -19,8 +20,9 @@ interface SupaCertData {
 }
 
 export function CertificateImageCard({ cert }: CertificateImageCardProps) {
-  const [supaData, setSupaData] = useState<SupaCertData | null>(null);
-  const [loading,  setLoading]  = useState(true);
+  const [supaData, setSupaData]   = useState<SupaCertData | null>(null);
+  const [loading,  setLoading]    = useState(true);
+  const [showShare, setShowShare] = useState(false);
 
   const learnUrl = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
   const mainUrl  = process.env.NEXT_PUBLIC_MAIN_URL  ?? 'https://financialmodelerpro.com';
@@ -55,7 +57,20 @@ export function CertificateImageCard({ cert }: CertificateImageCardProps) {
     ? `${learnUrl}/verify/${certId}`
     : (supaData?.verification_url ?? cert.verificationUrl ?? cert.certifierUrl ?? '');
 
-  const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(verifyUrl)}`;
+  const issuedLabel = issuedAt
+    ? new Date(issuedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+    : '';
+
+  const shareText = `I just earned my ${cert.course} Certification from Financial Modeler Pro!
+
+✅ Grade: ${grade || 'Pass'}
+📅 Issued: ${issuedLabel}
+🎯 Certificate ID: ${certId}
+
+Verify the credential →
+${verifyUrl}
+
+Huge thanks to Ahmad Din and the Financial Modeler Pro team for structured, practitioner-led training in real-world financial modeling.`;
 
   // ── Pending state ──────────────────────────────────────────────────────────
   if (!loading && status === 'Pending') {
@@ -152,10 +167,13 @@ export function CertificateImageCard({ cert }: CertificateImageCardProps) {
               📄 Download Transcript
             </a>
           )}
-          <a href={linkedInUrl} target="_blank" rel="noopener noreferrer"
-            style={{ display: 'block', padding: '9px 16px', borderRadius: 7, background: '#0A66C2', color: '#fff', textDecoration: 'none', fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
-            🔗 Share on LinkedIn
-          </a>
+          <button
+            type="button"
+            onClick={() => setShowShare(true)}
+            style={{ display: 'block', padding: '9px 16px', borderRadius: 7, background: '#0A66C2', color: '#fff', border: 'none', fontSize: 12, fontWeight: 700, textAlign: 'center', cursor: 'pointer', width: '100%' }}
+          >
+            🔗 Share Certificate
+          </button>
           {verifyUrl && (
             <a href={verifyUrl} target="_blank" rel="noopener noreferrer"
               style={{ display: 'block', padding: '9px 16px', borderRadius: 7, background: '#fff', color: '#374151', textDecoration: 'none', fontSize: 12, fontWeight: 700, textAlign: 'center', border: '1px solid #D1D5DB' }}>
@@ -164,6 +182,18 @@ export function CertificateImageCard({ cert }: CertificateImageCardProps) {
           )}
         </div>
       </div>
+
+      {certId && (
+        <ShareModal
+          isOpen={showShare}
+          onClose={() => setShowShare(false)}
+          title="🎉 Share Your Certificate"
+          text={shareText}
+          url={verifyUrl}
+          cardImageUrl={`/api/og/certificate/${certId}`}
+          cardDownloadName={`FMP-Certificate-${certId}.png`}
+        />
+      )}
     </div>
   );
 }
