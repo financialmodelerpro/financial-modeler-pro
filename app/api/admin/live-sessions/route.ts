@@ -43,6 +43,26 @@ export async function POST(req: NextRequest) {
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const body = await req.json() as Record<string, unknown>;
   const sb = getServerClient();
+
+  // Resolve instructor: prefer explicit instructor_id, else fall back to the
+  // default instructor (if configured). Denormalize name/title so legacy
+  // readers still work.
+  let instructorId = (body.instructor_id as string | undefined) || null;
+  let instructorName = (body.instructor_name as string | undefined) ?? '';
+  let instructorTitle = (body.instructor_title as string | undefined) ?? '';
+  if (!instructorId) {
+    const { data: def } = await sb.from('instructors').select('id, name, title').eq('is_default', true).maybeSingle();
+    if (def) {
+      instructorId = def.id;
+      if (!instructorName) instructorName = def.name;
+      if (!instructorTitle) instructorTitle = def.title;
+    }
+  } else {
+    const { data: inst } = await sb.from('instructors').select('name, title').eq('id', instructorId).maybeSingle();
+    if (inst) { instructorName = inst.name; instructorTitle = inst.title; }
+  }
+  if (!instructorName) instructorName = 'Ahmad Din';
+
   const { data, error } = await sb.from('live_sessions').insert({
     title:              body.title ?? '',
     description:        body.description ?? '',
@@ -60,7 +80,9 @@ export async function POST(req: NextRequest) {
     max_attendees:      body.max_attendees ?? null,
     difficulty_level:   body.difficulty_level ?? 'All Levels',
     prerequisites:      body.prerequisites ?? '',
-    instructor_name:    body.instructor_name ?? 'Ahmad Din',
+    instructor_id:      instructorId,
+    instructor_name:    instructorName,
+    instructor_title:   instructorTitle,
     tags:               body.tags ?? [],
     is_featured:        body.is_featured ?? false,
     live_password:      body.live_password ?? '',

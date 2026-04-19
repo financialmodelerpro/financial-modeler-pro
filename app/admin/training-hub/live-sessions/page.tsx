@@ -4,6 +4,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { LiveSessionAssessmentEditor } from '@/src/components/admin/LiveSessionAssessmentEditor';
+import { InstructorPicker } from '@/src/components/admin/InstructorPicker';
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -40,6 +41,7 @@ interface LiveSession {
   max_attendees?: number;
   difficulty_level?: string;
   prerequisites?: string;
+  instructor_id?: string | null;
   instructor_name?: string;
   instructor_title?: string;
   tags?: string[];
@@ -260,6 +262,7 @@ interface FormState {
   max_attendees: string;
   difficulty_level: string;
   prerequisites: string;
+  instructor_id: string;
   instructor_name: string;
   instructor_title: string;
   tags: string[];
@@ -276,7 +279,7 @@ const defaultForm: FormState = {
   type: 'UPCOMING', date: '', time: '', timezone: 'Asia/Riyadh',
   live_url: '', youtube_url: '', published: false,
   duration_minutes: '', max_attendees: '', difficulty_level: 'All Levels',
-  prerequisites: '', instructor_name: '', instructor_title: '', tags: [],
+  prerequisites: '', instructor_id: '', instructor_name: '', instructor_title: '', tags: [],
   is_featured: false, live_password: '', registration_url: '',
   youtube_embed: false, show_like_button: true, announcement_send_mode: 'auto',
 };
@@ -530,6 +533,7 @@ export default function LiveSessionsPage() {
     max_attendees: s.max_attendees != null ? String(s.max_attendees) : '',
     difficulty_level: s.difficulty_level ?? 'All Levels',
     prerequisites: s.prerequisites ?? '',
+    instructor_id: s.instructor_id ?? '',
     instructor_name: s.instructor_name ?? '',
     instructor_title: s.instructor_title ?? '',
     tags: s.tags ?? [],
@@ -607,6 +611,7 @@ export default function LiveSessionsPage() {
         max_attendees:      form.max_attendees ? parseInt(form.max_attendees, 10) : null,
         difficulty_level:   form.difficulty_level,
         prerequisites:      form.prerequisites,
+        instructor_id:      form.instructor_id || null,
         instructor_name:    form.instructor_name,
         instructor_title:   form.instructor_title || null,
         tags:               form.tags,
@@ -1147,16 +1152,19 @@ export default function LiveSessionsPage() {
                   )}
                 </div>
 
-                {/* Instructor Name + Title */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                  <div>
-                    <label style={labelStyle}>Instructor Name</label>
-                    <input style={inputStyle} value={form.instructor_name} onChange={e => setForm(f => ({ ...f, instructor_name: e.target.value }))} placeholder="Ahmad Din" />
-                  </div>
-                  <div>
-                    <label style={labelStyle}>Instructor Title</label>
-                    <input style={inputStyle} value={form.instructor_title} onChange={e => setForm(f => ({ ...f, instructor_title: e.target.value }))} placeholder="e.g. Corporate Finance Specialist" />
-                  </div>
+                {/* Instructor */}
+                <div>
+                  <label style={labelStyle}>Instructor</label>
+                  <InstructorPicker
+                    value={form.instructor_id}
+                    onChange={(id, ins) => setForm(f => ({
+                      ...f,
+                      instructor_id: id,
+                      instructor_name: ins?.name ?? '',
+                      instructor_title: ins?.title ?? '',
+                    }))}
+                    onMessage={(msg, type) => toast(msg, type === 'success' ? 'ok' : 'err')}
+                  />
                 </div>
 
                 {/* Duration + Max Attendees */}

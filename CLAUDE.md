@@ -351,6 +351,15 @@ Both hubs share the same pattern: a server-side gate on signin/register pages pl
 - **Admin toggle**: `show_like_button` on `live_sessions` table (default true), toggled in admin session edit form
 - **Watch progress**: `session_watch_history` table, 50 points on first completion, badges on live sessions listing page
 
+### Live Sessions — Instructor Roster (migration 106)
+- **Table**: `instructors` (name, title, bio, photo_url, email, linkedin_url, credentials, display_order, is_default, active). Partial unique index `uniq_instructors_single_default` enforces at most one default. Seeded with Ahmad Din.
+- **Link**: `live_sessions.instructor_id UUID REFERENCES instructors(id) ON DELETE SET NULL`. Legacy `instructor_name`/`instructor_title` columns are kept and auto-synced — every read path (cards, emails, detail pages) keeps working unchanged.
+- **Admin APIs**: `GET/POST /api/admin/instructors`, `GET/PATCH/DELETE /api/admin/instructors/[id]`. PATCH demotes the previous default when promoting a new one, and fan-outs name/title changes to every linked `live_sessions` row. DELETE returns 409 + `inUse: true` + `sessionCount` if the instructor is still linked.
+- **Admin page**: `/admin/training-hub/instructors` — list cards (photo avatar or initials fallback), DEFAULT / INACTIVE badges, ↑/↓ reorder, Make Default, Activate/Deactivate, Edit (modal with RichTextarea for bio), Delete (with usage-check error).
+- **Picker**: `src/components/admin/InstructorPicker.tsx` — mounted in the live-session editor in place of the old two-text-input row. Dropdown of active instructors (default shows "(default)"), "+ New" inline quick-add form (name/title/credentials → auto-select on save), live preview of the selected instructor, "Manage ↗" link to the full admin page.
+- **Save flow**: admin editor now posts `instructor_id`. POST `/api/admin/live-sessions` falls back to the default instructor when `instructor_id` is empty; PATCH denormalizes name/title from the instructor row when `instructor_id` is set. Existing sessions without an `instructor_id` keep their legacy text values.
+- **Sidebar**: `Instructors` link added under Training Hub in `CmsAdminNav.tsx` (🎤 icon), between Live Sessions and Course Manager.
+
 ### Live Sessions — Native Assessment System (migration 105)
 - **Tables**: `live_session_assessments` (one per session, stores `questions jsonb`, `pass_threshold`, `max_attempts`, `timer_minutes`, `require_watch_before_assessment`, `watch_threshold`) and `live_session_attempts` (per submission, unique on `(session_id, email, attempt_number)`). Denormalized `has_assessment` flag on `live_sessions` is kept in sync by `saveAssessment()` / `deleteAssessment()`.
 - **Helper**: `src/lib/training/liveSessionAssessments.ts` — `getAssessment`, `saveAssessment`, `deleteAssessment`, `submitAttempt` (server-side scoring — compares against stored `correct_index` so clients can't cheat), `getStudentAttempts`, `getLatestAttempt`, `hasPassed`, `getWatchPercentage`, `isWatchRequirementMet`, `stripAnswersForStudent` (removes `correct_index` + `explanation` before shipping to clients).

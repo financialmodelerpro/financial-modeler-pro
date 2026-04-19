@@ -40,10 +40,30 @@ export async function PATCH(
     'timezone', 'category', 'playlist_id', 'is_published', 'display_order', 'banner_url',
     'duration_minutes', 'max_attendees', 'difficulty_level', 'prerequisites', 'instructor_name',
     'tags', 'is_featured', 'live_password', 'registration_url',
-    'announcement_send_mode', 'youtube_embed', 'instructor_title',
+    'announcement_send_mode', 'youtube_embed', 'instructor_title', 'instructor_id',
   ];
   for (const k of allowed) {
-    if (body[k] !== undefined) updates[k] = body[k] === '' && k === 'playlist_id' ? null : body[k];
+    if (body[k] !== undefined) {
+      if ((k === 'playlist_id' || k === 'instructor_id') && body[k] === '') {
+        updates[k] = null;
+      } else {
+        updates[k] = body[k];
+      }
+    }
+  }
+
+  // When instructor_id is set, denormalize name/title from the instructors row
+  // so legacy readers (cards, emails, detail pages) keep working unchanged.
+  if (updates.instructor_id) {
+    const { data: inst } = await sb
+      .from('instructors')
+      .select('name, title')
+      .eq('id', updates.instructor_id as string)
+      .maybeSingle();
+    if (inst) {
+      updates.instructor_name = inst.name;
+      updates.instructor_title = inst.title;
+    }
   }
 
   const { error } = await sb.from('live_sessions').update(updates).eq('id', id);
