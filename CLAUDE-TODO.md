@@ -16,6 +16,7 @@
 | **Share text — course name + date format fixes** | Complete — `resolveCourseName()` + `formatShareDate()` baked into render engine. `/api/training/certificate` no longer prefers `course_code` over `course` (was serving "3SFM" to dashboard). All call sites route dates through `formatShareDate()`. ShareModal now seeds draft with text + hashtags merged so students see exactly what's copied. Commits `fe8e6e3`, `0604db5`. |
 | **Dashboard upcoming-only live sessions preview** | Complete — removed Recorded sub-section from dashboard block (full library stays on `/training/live-sessions`). Grid capped at 3 cards. Empty-state card replaces silent disappearance. Commit `bbc37be`. |
 | **Google Search Console verification** | Complete — token added to `app/layout.tsx` metadata.verification. Commit `4d31229`. |
+| **Bing Webmaster Tools verification** | Complete — `msvalidate.01` token added via `metadata.verification.other`. Both `<meta name="google-site-verification">` and `<meta name="msvalidate.01">` render sitewide. Commit `578eed7`. |
 
 ---
 

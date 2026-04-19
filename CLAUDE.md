@@ -524,9 +524,13 @@ Public certificate verification page served on the learn subdomain as the canoni
 
 Dashboard block (`src/components/training/dashboard/LiveSessionsSection.tsx`) shows **upcoming-only** — recordings live on the full `/training/live-sessions` page. Single "Upcoming Live Sessions" header with `View all →` link, grid capped at 3 cards (`auto-fit, minmax(260px, 1fr)` + `slice(0, 3)` on the data), `auto-fit` collapses gracefully to 2/1 columns on narrow viewports. Empty state: dashed-border placeholder with `CalendarClock` icon, "No upcoming live sessions scheduled" message, and a `Browse recordings →` link. Previously the whole block disappeared when nothing was upcoming.
 
-### SEO — Google Search Console
+### SEO — Search Engine Webmaster Verification
 
-`app/layout.tsx` metadata.verification.google = `jfT1RuMQksYExlTJUB_dB5Jisp_BBw6XCHEihIb-0pc`. Once Vercel redeploys, Google Search Console ownership verification completes via the rendered `<meta name="google-site-verification">` tag.
+`app/layout.tsx` metadata.verification carries both search-engine ownership tokens:
+- `google: 'jfT1RuMQksYExlTJUB_dB5Jisp_BBw6XCHEihIb-0pc'` — renders as `<meta name="google-site-verification">` for Google Search Console.
+- `other: { 'msvalidate.01': '914C3726459EF363BC996DD79F3CF8E7' }` — renders as `<meta name="msvalidate.01">` for Bing Webmaster Tools.
+
+Both verify automatically once Vercel redeploys; confirm via **Verify** button in each respective console.
 
 ### Newsletter System (migrations 091-092)
 - **Tables**: `newsletter_subscribers` (email+hub UNIQUE, per-hub unsubscribe_token), `newsletter_campaigns` (subject, body, target_hub, status, sent/failed counts, campaign_type auto/manual, source_type/source_id)
