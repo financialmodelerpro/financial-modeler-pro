@@ -93,7 +93,7 @@ interface ProgRow { sessionId: string; passed: boolean; score: number; attempts:
 interface CertData {
   certificateId:   string;
   issuedAt:        string;   // ISO timestamp from issued_at
-  verificationUrl: string;   // internal: financialmodelerpro.com/verify/{certId}
+  verificationUrl: string;   // internal: learn.financialmodelerpro.com/verify/{certId}
   certPdfUrl:      string;
 }
 

@@ -646,7 +646,7 @@ export async function GET(req: NextRequest) {
     }
 
     // Sample cert data for preview
-    const sampleVerifyUrl = 'https://financialmodelerpro.com/verify/FMP-3SFM-2026-0001';
+    const sampleVerifyUrl = 'https://learn.financialmodelerpro.com/verify/FMP-3SFM-2026-0001';
     const previewCerts = new Map<string, CertData>();
     previewCerts.set(previewCourseId, {
       certificateId: 'FMP-3SFM-2026-0001',

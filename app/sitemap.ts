@@ -26,7 +26,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     s(`${MAIN_URL}/pricing`,                0.8, 'monthly'),
     s(`${MAIN_URL}/articles`,               0.9, 'weekly'),
     s(`${MAIN_URL}/training-sessions`,      0.9, 'weekly'),
-    s(`${MAIN_URL}/verify`,                 0.5, 'yearly'),
+    s(`${LEARN_URL}/verify`,                0.5, 'yearly'),
     s(`${MAIN_URL}/testimonials/submit`,    0.4, 'yearly'),
   );
 

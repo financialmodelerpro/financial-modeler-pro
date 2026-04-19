@@ -15,6 +15,9 @@ export const URLS = {
   modeling:      () => `${URLS.app}/modeling`,
   refm:          () => `${URLS.app}/refm`,
 
-  // Verification (always on main domain)
-  verify:        (id: string) => `${URLS.main}/verify/${id}`,
+  // Verification (canonical host is learn.* — QR codes, share previews,
+  // and OG metadata all resolve here. Migration 113 moved all stored
+  // verification URLs to learn; main→learn redirect still honours any
+  // legacy shares that predate the migration.)
+  verify:        (id: string) => `${URLS.learn}/verify/${id}`,
 };

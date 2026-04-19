@@ -42,7 +42,7 @@ const SAMPLE: Record<keyof Omit<PdfLayout, 'qrCode'>, string> = {
   certificateId: 'FMP-3SFM-2026-0001',
 };
 
-const SAMPLE_VERIFY_URL = 'https://financialmodelerpro.com/verify/FMP-3SFM-2026-0001';
+const SAMPLE_VERIFY_URL = 'https://learn.financialmodelerpro.com/verify/FMP-3SFM-2026-0001';
 const QR_API = 'https://api.qrserver.com/v1/create-qr-code';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

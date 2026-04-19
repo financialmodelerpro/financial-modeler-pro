@@ -52,16 +52,24 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const description = `${name} completed ${course} from Financial Modeler Pro${grade}.${issued} Scan or click to verify.`;
 
   // Dynamic, branded OG image — rich LinkedIn / Twitter / WhatsApp preview
-  // with student name + course + grade + date.
-  const ogImage = `/api/og/certificate/${cert.certificate_id ?? uuid}`;
+  // with student name + course + grade + date. Absolute URLs (not relative)
+  // guarantee the social card footer always shows learn.* regardless of
+  // which subdomain the user originally shared from.
+  const learnUrl  = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+  const certId    = cert.certificate_id ?? uuid;
+  const ogImage   = `${learnUrl}/api/og/certificate/${certId}`;
+  const canonical = `${learnUrl}/verify/${certId}`;
 
   return {
     title,
     description,
+    alternates: { canonical },
     openGraph: {
       title:       `${name} — Verified ${course} Certificate`,
       description,
       type:        'profile',
+      url:         canonical,
+      siteName:    'Financial Modeler Pro',
       images:      [{ url: ogImage, width: 1200, height: 630, alt: `${name} ${course} Certificate` }],
     },
     twitter: {

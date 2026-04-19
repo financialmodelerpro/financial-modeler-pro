@@ -267,11 +267,10 @@ export default function AdminCertificatesPage() {
   }
 
   const learnUrl = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
-  const mainUrl  = process.env.NEXT_PUBLIC_MAIN_URL  ?? 'https://financialmodelerpro.com';
 
   function getVerifyLink(cert: CertRecord): string {
     if (cert.certificate_id) return `${learnUrl}/verify/${cert.certificate_id}`;
-    if (cert.certifier_uuid)  return `${mainUrl}/verify/${cert.certifier_uuid}`;
+    if (cert.certifier_uuid) return `${learnUrl}/verify/${cert.certifier_uuid}`;
     return '#';
   }
 

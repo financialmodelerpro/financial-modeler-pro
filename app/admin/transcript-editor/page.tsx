@@ -27,7 +27,7 @@ const SAMPLE = {
   ],
   final: { score:'89%', attempts:'1 / 2' },
   certId: 'FMP-3SFM-2026-0001', certIssued: '20 March 2026',
-  verifyUrl: 'https://financialmodelerpro.com/verify/FMP-3SFM-2026-0001',
+  verifyUrl: 'https://learn.financialmodelerpro.com/verify/FMP-3SFM-2026-0001',
 };
 
 // ── Settings ──────────────────────────────────────────────────────────────────
