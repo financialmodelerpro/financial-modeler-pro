@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { LiveSessionAssessmentEditor } from '@/src/components/admin/LiveSessionAssessmentEditor';
 
 /* ── Types ─────────────────────────────────────────────────────── */
 
@@ -1426,6 +1427,17 @@ export default function LiveSessionsPage() {
                 {attachments.length === 0 && (
                   <p style={{ color: '#9CA3AF', fontSize: 12, marginTop: 8 }}>No attachments yet.</p>
                 )}
+              </div>
+            )}
+
+            {/* ── C2. Assessment ── */}
+            {editSession && (
+              <div style={{ marginBottom: 20 }}>
+                <h3 style={{ fontSize: 13, fontWeight: 700, color: NAVY, marginBottom: 12 }}>Assessment</h3>
+                <LiveSessionAssessmentEditor
+                  sessionId={editSession.id}
+                  onMessage={(msg, type) => toast(msg, type === 'success' ? 'ok' : 'err')}
+                />
               </div>
             )}
 
