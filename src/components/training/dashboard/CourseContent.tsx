@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { COURSES } from '@/src/config/courses';
 import type { SessionProgress, Certificate, LiveLinksMap, CourseDescsMap } from './types';
 import { allRegularSessionsPassed } from './types';
+import { calculateCourseProgress } from '@/src/lib/training/progressCalculator';
 import { AboutThisCourse } from './AboutThisCourse';
 import { SessionCard } from './SessionCard';
 import { FilePreviewModal } from './FilePreviewModal';
@@ -100,9 +101,11 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
   const finalSession = course.sessions.find(s => s.isFinal);
   const passedCount = regularSessions.filter(s => progressMap.get(s.id)?.passed).length;
   const finalPassed = finalSession ? progressMap.get(finalSession.id)?.passed === true : false;
-  // Include final exam in display counts
-  const allPassedCount = course.sessions.filter(s => progressMap.get(s.id)?.passed).length;
-  const progressPct = course.sessions.length > 0 ? Math.round((allPassedCount / course.sessions.length) * 100) : 0;
+  // Weighted progress: 10 pts per regular session + ~50 pts for the final exam.
+  // Student-facing display keeps the "N of M sessions" count for intuition.
+  const courseProgress = calculateCourseProgress(course, progressMap);
+  const allPassedCount = courseProgress.passedCount;
+  const progressPct = courseProgress.percentage;
 
   const courseCert = certificates.find(c =>
     c.course === courseId || c.course === course.id || c.course === course.shortTitle.toLowerCase()

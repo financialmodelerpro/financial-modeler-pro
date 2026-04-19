@@ -491,7 +491,7 @@ export default function StudentsPage() {
                               const res = await fetch('/api/admin/reset-attempts', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ regId: progressStudent?.registrationId, tabKey: resetSession, course: resetCourse }),
+                                body: JSON.stringify({ regId: progressStudent?.registrationId, email: progressStudent?.email, tabKey: resetSession, course: resetCourse }),
                               });
                               const d = await res.json() as { success: boolean; error?: string };
                               if (d.success) {
@@ -534,7 +534,7 @@ export default function StudentsPage() {
                             const res = await fetch('/api/admin/reset-attempts', {
                               method: 'POST',
                               headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ regId: progressStudent?.registrationId, tabKey: 'ALL', course: resetCourse }),
+                              body: JSON.stringify({ regId: progressStudent?.registrationId, email: progressStudent?.email, tabKey: 'ALL', course: resetCourse }),
                             });
                             const d = await res.json() as { success: boolean; error?: string };
                             if (d.success) {

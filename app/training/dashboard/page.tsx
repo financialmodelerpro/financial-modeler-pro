@@ -14,6 +14,7 @@ import {
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training/training-session';
 import { useInactivityLogout } from '@/src/hooks/useInactivityLogout';
 import { COURSES } from '@/src/config/courses';
+import { calculateCourseProgress } from '@/src/lib/training/progressCalculator';
 import {
   type LiveLinksMap,
   type CourseDescsMap,
@@ -606,12 +607,13 @@ export default function TrainingDashboardPage() {
     } catch { return ''; }
   }
 
-  // Per-course stats helper
+  // Per-course stats helper. `pct` is question-weighted (regular = 10 pts,
+  // final exam = ~50 pts) so the overview view reflects actual knowledge
+  // coverage rather than number of boxes ticked.
   function getCourseStats(courseId: string) {
     const c = COURSES[courseId];
     if (!c) return { total: 0, passed: 0, pct: 0, avgScore: 0, bestScore: 0, bestSession: '' };
     const all = c.sessions;
-    const passed = all.filter(s => progressMap.get(s.id)?.passed).length;
     const scores = all.map(s => progressMap.get(s.id)?.score ?? 0).filter(sc => sc > 0);
     const avgScore = scores.length > 0 ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : 0;
     let bestScore = 0;
@@ -620,7 +622,8 @@ export default function TrainingDashboardPage() {
       const sc = progressMap.get(s.id)?.score ?? 0;
       if (sc > bestScore) { bestScore = sc; bestSession = s.id; }
     }
-    return { total: all.length, passed, pct: all.length > 0 ? Math.round((passed / all.length) * 100) : 0, avgScore, bestScore, bestSession };
+    const wp = calculateCourseProgress(c, progressMap);
+    return { total: wp.totalCount, passed: wp.passedCount, pct: wp.percentage, avgScore, bestScore, bestSession };
   }
 
   // ── Sidebar nav item helper ────────────────────────────────────────────────
