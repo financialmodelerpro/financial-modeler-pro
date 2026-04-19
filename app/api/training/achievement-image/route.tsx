@@ -17,6 +17,17 @@ export async function GET(req: NextRequest) {
 
   const fonts = await loadOgFonts().catch(() => []);
 
+  // Scale the hero session title down as it gets longer so it fits on a single
+  // line in most cases. Bucket thresholds chosen against 720px of horizontal
+  // space at Inter 800 weight; the last bucket allows a graceful wrap to two
+  // lines for extreme outliers instead of overflowing.
+  const sessionLen = session.length;
+  const sessionFontSize =
+    sessionLen <= 24 ? 44 :
+    sessionLen <= 34 ? 36 :
+    sessionLen <= 48 ? 30 :
+    26;
+
   // Fetch header settings - same source and rules as NavbarServer + Navbar
   let logoDataUri = '';
   let logoEnabled = true;
@@ -162,7 +173,7 @@ export async function GET(req: NextRequest) {
               <span style={{ fontSize: 15, fontWeight: 800, color: '#C9A84C', letterSpacing: '1.5px', textTransform: 'uppercase' as const }}>Assessment Passed</span>
             </div>
 
-            <div style={{ fontSize: 36, fontWeight: 800, color: '#ffffff', lineHeight: 1.25, marginBottom: 10, maxWidth: 560 }}>
+            <div style={{ fontSize: sessionFontSize, fontWeight: 800, color: '#ffffff', lineHeight: 1.15, marginBottom: 10, maxWidth: 760 }}>
               {session}
             </div>
 
