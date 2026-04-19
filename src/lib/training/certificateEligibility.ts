@@ -18,6 +18,7 @@
 
 import { COURSES } from '@/src/config/courses';
 import { getServerClient } from '@/src/lib/shared/supabase';
+import { getStudentProgress } from '@/src/lib/training/sheets';
 
 export interface EligibilityResult {
   eligible: boolean;
@@ -91,28 +92,78 @@ export async function checkEligibility(
 
   const allTabKeys = [...regular, final];
   const sb = getServerClient();
+  const course = COURSES[courseId] ?? COURSES[courseId.toLowerCase()]!;
+  const finalSessionId = course.sessions.find(s => s.isFinal)?.id ?? '';
 
-  // 1. Session passes from training_assessment_results.
+  /**
+   * We match on canonical **session IDs** (e.g. `S1`, `S18`, `L7`) not raw
+   * `tab_key` strings. That's because:
+   *   - Supabase may store the final as `{COURSE}_Final` OR `{COURSE}_{finalId}`
+   *     depending on when the row was written.
+   *   - Early-era sessions may pre-date the Supabase dual-write — so they
+   *     only exist in Apps Script and must be merged in from there.
+   *
+   * Build a set of sessionIds that are known-passed from EITHER source.
+   */
+  const passedIds = new Set<string>();
+  const scoreById = new Map<string, number>();
+
+  // Source 1: Supabase — strip the COURSE_ prefix + rewrite `Final` → finalSessionId.
   const { data: attempts } = await sb
     .from('training_assessment_results')
     .select('tab_key, passed, score, is_final')
-    .eq('email', normalizedEmail)
-    .in('tab_key', allTabKeys);
-
-  const passed = new Set<string>();
-  let finalScore: number | null = null;
-  const scores: number[] = [];
+    .eq('email', normalizedEmail);
   for (const a of (attempts ?? []) as { tab_key: string; passed: boolean; score: number | null; is_final: boolean | null }[]) {
     if (!a.passed) continue;
-    passed.add(a.tab_key);
-    if (a.tab_key === final) finalScore = typeof a.score === 'number' ? a.score : finalScore;
-    else if (typeof a.score === 'number') scores.push(a.score);
+    const sep = a.tab_key.indexOf('_');
+    const raw = sep >= 0 ? a.tab_key.slice(sep + 1) : a.tab_key;
+    const sid = raw.toLowerCase() === 'final' ? finalSessionId : raw;
+    passedIds.add(sid);
+    if (typeof a.score === 'number') scoreById.set(sid, a.score);
   }
-  const passedSessions = [...passed];
-  const missing = allTabKeys.filter(tk => !passed.has(tk)).map(tk => ({ tabKey: tk, title: labels[tk] ?? tk }));
-  const avgScore = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
 
-  if (missing.length > 0) {
+  // Source 2: Apps Script progress merge — catches pre-dual-write history.
+  // Best-effort: a failure here must not block a student who has everything
+  // in Supabase already.
+  try {
+    const { data: reg } = await sb
+      .from('training_registrations_meta')
+      .select('registration_id')
+      .eq('email', normalizedEmail)
+      .maybeSingle();
+    if (reg?.registration_id) {
+      const progress = await getStudentProgress(normalizedEmail, reg.registration_id);
+      if (progress.success && progress.data?.sessions) {
+        for (const s of progress.data.sessions) {
+          if (s.passed) {
+            passedIds.add(s.sessionId);
+            if (typeof s.score === 'number' && !scoreById.has(s.sessionId)) scoreById.set(s.sessionId, s.score);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[certEligibility] Apps Script progress fetch failed, using Supabase only:', e);
+  }
+
+  // Resolve required sessions against the merged pass set.
+  const requiredIds = course.sessions.map(s => s.id);
+  const missingIds = requiredIds.filter(id => !passedIds.has(id));
+  const passedSessions = requiredIds.filter(id => passedIds.has(id))
+    .map(id => course.sessions.find(s => s.id === id)?.isFinal ? `${code}_Final` : `${code}_${id}`);
+
+  const finalScore = finalSessionId ? (scoreById.get(finalSessionId) ?? null) : null;
+  const regularScores = course.sessions.filter(s => !s.isFinal && passedIds.has(s.id))
+    .map(s => scoreById.get(s.id))
+    .filter((n): n is number => typeof n === 'number');
+  const avgScore = regularScores.length ? Math.round(regularScores.reduce((a, b) => a + b, 0) / regularScores.length) : null;
+
+  if (missingIds.length > 0) {
+    const missing = missingIds.map(id => {
+      const s = course.sessions.find(x => x.id === id);
+      const tk = s?.isFinal ? `${code}_Final` : `${code}_${id}`;
+      return { tabKey: tk, title: labels[tk] ?? s?.title ?? tk };
+    });
     return {
       ...empty,
       passedSessions,
