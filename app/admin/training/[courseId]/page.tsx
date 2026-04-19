@@ -138,12 +138,8 @@ export default function AdminCourseLessonsPage() {
   // Shared state
   const [course, setCourse] = useState<{ title?: string; category?: string } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [timerBypassed, setTimerBypassed] = useState(false);
   const [activeTab, setActiveTab] = useState<'lessons' | 'assessment'>('lessons');
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
-  // Shuffle settings
-  const [shuffleQuestions, setShuffleQuestions] = useState(true);
-  const [shuffleOptions, setShuffleOptions]   = useState(false);
 
   // ── Lesson state ────────────────────────────────────────────────────────────
   const [lessons, setLessons] = useState<Lesson[]>([]);
@@ -307,20 +303,6 @@ export default function AdminCourseLessonsPage() {
   }, [assessment]);
 
   useEffect(() => { fetchCourseData(); }, [fetchCourseData]);
-
-  // Sync timer bypass + shuffle settings from training_settings DB
-  useEffect(() => {
-    fetch('/api/admin/training-settings')
-      .then(r => r.json())
-      .then((d: { settings?: Record<string, string> }) => {
-        const s = d.settings ?? {};
-        setTimerBypassed(s.timer_bypass_enabled === 'true');
-        const code = courseId?.toLowerCase() === 'bvm' ? 'bvm' : '3sfm';
-        setShuffleQuestions(s[`shuffle_questions_${code}`] !== 'false');
-        setShuffleOptions(s[`shuffle_options_${code}`] === 'true');
-      })
-      .catch(() => {});
-  }, [courseId]);
 
   useEffect(() => {
     if (activeTab === 'assessment') fetchAssessment();
@@ -648,92 +630,8 @@ export default function AdminCourseLessonsPage() {
           </div>
         </div>
 
-        {/* Settings toggles - Timer bypass + Shuffle questions/options */}
-        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 20 }}>
-          {/* Timer bypass */}
-          <button
-            onClick={async () => {
-              const next = !timerBypassed;
-              try {
-                await fetch('/api/admin/training-settings', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ timer_bypass_enabled: next ? 'true' : 'false' }),
-                });
-                setTimerBypassed(next);
-              } catch { /* ignore */ }
-            }}
-            title={timerBypassed ? 'Timer bypass ON - countdown disabled for all students' : 'Bypass video timer for all students (disables countdown)'}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
-              cursor: 'pointer', border: '1px solid',
-              background: timerBypassed ? '#FEF3C7' : '#F3F4F6',
-              borderColor: timerBypassed ? '#F59E0B' : '#D1D5DB',
-              color: timerBypassed ? '#B45309' : '#6B7280',
-            }}
-          >
-            {timerBypassed ? '⏱ Timer Bypassed' : '⏱ Bypass Timer'}
-          </button>
-
-          {/* Shuffle Questions */}
-          <button
-            onClick={async () => {
-              const next = !shuffleQuestions;
-              setShuffleQuestions(next);
-              const code = courseId?.toLowerCase() === 'bvm' ? 'bvm' : '3sfm';
-              try {
-                await fetch('/api/admin/training-settings', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ [`shuffle_questions_${code}`]: next ? 'true' : 'false' }),
-                });
-                setToast({ msg: 'Settings saved', type: 'success' });
-                setTimeout(() => setToast(null), 2000);
-              } catch { setShuffleQuestions(!next); }
-            }}
-            title={shuffleQuestions ? 'Questions are shuffled for students' : 'Questions shown in fixed order'}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
-              cursor: 'pointer', border: '1px solid',
-              background: shuffleQuestions ? '#F0FFF4' : '#F3F4F6',
-              borderColor: shuffleQuestions ? '#2EAA4A' : '#D1D5DB',
-              color: shuffleQuestions ? '#15803D' : '#6B7280',
-            }}
-          >
-            {shuffleQuestions ? '🔀 Shuffle Questions ON' : '🔀 Shuffle Questions OFF'}
-          </button>
-
-          {/* Shuffle Options */}
-          <button
-            onClick={async () => {
-              const next = !shuffleOptions;
-              setShuffleOptions(next);
-              const code = courseId?.toLowerCase() === 'bvm' ? 'bvm' : '3sfm';
-              try {
-                await fetch('/api/admin/training-settings', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ [`shuffle_options_${code}`]: next ? 'true' : 'false' }),
-                });
-                setToast({ msg: 'Settings saved', type: 'success' });
-                setTimeout(() => setToast(null), 2000);
-              } catch { setShuffleOptions(!next); }
-            }}
-            title={shuffleOptions ? 'Answer options A/B/C/D are shuffled' : 'Answer options shown in original order'}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 6,
-              padding: '7px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700,
-              cursor: 'pointer', border: '1px solid',
-              background: shuffleOptions ? '#F0FFF4' : '#F3F4F6',
-              borderColor: shuffleOptions ? '#2EAA4A' : '#D1D5DB',
-              color: shuffleOptions ? '#15803D' : '#6B7280',
-            }}
-          >
-            {shuffleOptions ? '🔀 Shuffle Options ON' : '🔀 Shuffle Options OFF'}
-          </button>
-        </div>
+        {/* Global shuffle + timer toggles moved to Training Settings — see note
+            on the Course Manager overview. This page focuses on course structure. */}
 
         {/* Tab bar */}
         <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #E5E7EB', marginBottom: 28 }}>

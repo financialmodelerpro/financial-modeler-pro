@@ -4,6 +4,7 @@ import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { COURSES } from '@/src/config/courses';
+import { LaunchStatusCard } from '@/src/components/admin/LaunchStatusCard';
 
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '9px 12px', fontSize: 13,
@@ -55,6 +56,11 @@ export default function TrainingSettingsPage() {
   const [historyTabKeys, setHistoryTabKeys] = useState<string[]>([]);
   const [liveSessions, setLiveSessions] = useState<LiveSessionRow[]>([]);
   const [perKeyStats, setPerKeyStats] = useState<Record<string, { completed: number; in_progress: number; avgPct: number; rows: number }>>({});
+
+  // Assessment settings (global shuffle) — migration 108
+  const [shuffleQuestions, setShuffleQuestions] = useState(true);
+  const [shuffleOptions, setShuffleOptions]     = useState(false);
+  const [shuffleSaving, setShuffleSaving]       = useState(false);
 
   // Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -210,9 +216,35 @@ export default function TrainingSettingsPage() {
       setHistoryTabKeys(Array.isArray(stats.historyTabKeys) ? stats.historyTabKeys : []);
       setPerKeyStats(stats.perKeyStats ?? {});
       setLiveSessions(Array.isArray(stats.liveSessions) ? stats.liveSessions : []);
+      setShuffleQuestions(s.shuffle_questions_enabled !== 'false');
+      setShuffleOptions(s.shuffle_options_enabled === 'true');
       setLoading(false);
     });
   }, []);
+
+  const saveShuffle = async (next: { shuffleQuestions?: boolean; shuffleOptions?: boolean }) => {
+    setShuffleSaving(true);
+    const payload: Record<string, string> = {};
+    if (next.shuffleQuestions !== undefined) {
+      payload.shuffle_questions_enabled = next.shuffleQuestions ? 'true' : 'false';
+      setShuffleQuestions(next.shuffleQuestions);
+    }
+    if (next.shuffleOptions !== undefined) {
+      payload.shuffle_options_enabled = next.shuffleOptions ? 'true' : 'false';
+      setShuffleOptions(next.shuffleOptions);
+    }
+    try {
+      const res = await fetch('/api/admin/training-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      showToast(res.ok ? 'Assessment settings saved' : 'Save failed');
+    } catch {
+      showToast('Save failed');
+    }
+    setShuffleSaving(false);
+  };
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
 
@@ -591,6 +623,63 @@ export default function TrainingSettingsPage() {
                   {enforceSaving ? 'Saving…' : 'Save Enforcement Settings'}
                 </button>
               </div>
+            </div>
+
+            {/* Assessment Settings Card */}
+            <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '24px 28px', marginBottom: 24, maxWidth: 780 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B', marginBottom: 4 }}>📝 Assessment Settings</div>
+              <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
+                Global shuffle controls for every assessment — 3SFM, BVM, and live sessions. Applied client-side after questions load so the same setting works uniformly regardless of where the questions come from.
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, cursor: 'pointer' }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B' }}>🔀 Shuffle Questions</div>
+                    <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>Each student sees questions in a random order.</div>
+                  </div>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: shuffleQuestions ? '#065F46' : '#6B7280' }}>
+                      {shuffleQuestions ? 'ON' : 'OFF'}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={shuffleQuestions}
+                      onChange={e => saveShuffle({ shuffleQuestions: e.target.checked })}
+                      disabled={shuffleSaving}
+                    />
+                  </div>
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, cursor: 'pointer' }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B' }}>🎲 Shuffle Options</div>
+                    <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>Answer options (A / B / C / D) reorder within each question. Correct answer is remapped automatically so scoring stays accurate.</div>
+                  </div>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: shuffleOptions ? '#065F46' : '#6B7280' }}>
+                      {shuffleOptions ? 'ON' : 'OFF'}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={shuffleOptions}
+                      onChange={e => saveShuffle({ shuffleOptions: e.target.checked })}
+                      disabled={shuffleSaving}
+                    />
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* Training Hub Launch Status (moved from Course Manager) */}
+            <div style={{ maxWidth: 780 }}>
+              <LaunchStatusCard
+                label="Training Hub"
+                icon="🎓"
+                endpoint="/api/admin/training-coming-soon"
+                previewUrl={(process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com') + '/signin'}
+                onMessage={(msg) => showToast(msg)}
+              />
             </div>
 
             {/* How-to guide */}

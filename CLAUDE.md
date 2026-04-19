@@ -300,6 +300,16 @@ All three marketing pages use **Option B**: each section fetched from `page_sect
 - `content.booking_url` — Microsoft Bookings URL. `/book-a-meeting` page reads this
 - `content.booking_expectations[]` — "What to expect" list on booking page
 
+### Training Settings (Unified admin page)
+All global training controls live at **`/admin/training-settings`**:
+- **Apps Script URL** — the Google Apps Script Web App URL (still needed by 3SFM/BVM question fetch + legacy progress).
+- **Transcript Editor** shortcut card.
+- **Watch Enforcement** — global toggle + threshold + per-session bypass table (union of COURSES + every `live_sessions` row + unmapped cert-course history) with search, type filter, status filter, sort, bulk actions.
+- **Assessment Settings** *(new, migration 108)* — global **Shuffle Questions** + **Shuffle Options** toggles. Applied client-side after questions load so one setting drives 3SFM, BVM (Apps Script-backed), and live sessions (Supabase-backed) uniformly. Helper `src/lib/training/shuffle.ts` provides `applyShufflesLive`/`applyShufflesLegacy` for Fisher-Yates with `correct_index`/`correctIndex` remapping. Live session submit endpoint additionally returns `correct_answer_texts` so the result view works regardless of option shuffle state.
+- **Training Hub Launch Status** *(moved from Course Manager)* — `<LaunchStatusCard>` for the Training Hub coming-soon toggle + launch date.
+
+**Course Manager pages** (`/admin/training` + `/admin/training/[courseId]`) are now focused purely on course structure + content. The old Timer Bypass, per-course Shuffle, and Launch Status toggles have been removed — an info banner at the top of the Course Manager links to Training Settings. The `timer_bypass_enabled` key is dropped by migration 108 since watch-enforcement supersedes it; remaining readers (`course-details` route, `videoTimer.ts`, etc.) gracefully default to `false`.
+
 ### Hub Coming Soon Mode (Modeling + Training)
 
 Both hubs share the same pattern: a server-side gate on signin/register pages plus a reusable admin card. The toggle and an optional launch date are stored in `training_settings` per hub. When the launch date is set the public page renders a live Days/Hrs/Min/Sec countdown; when it's empty only the coming-soon message is shown.

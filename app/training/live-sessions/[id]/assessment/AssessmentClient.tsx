@@ -36,6 +36,7 @@ interface SubmitResponse {
   max_attempts: number;
   question_results: Record<string, boolean>;
   correct_answers: Record<string, number>;
+  correct_answer_texts?: Record<string, string>;
   explanations: Array<{ id: string; explanation: string }>;
 }
 
@@ -81,10 +82,58 @@ export function AssessmentClient({
   const [result, setResult] = useState<SubmitResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const questions = useMemo(
-    () => assessment.questions.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)),
-    [assessment.questions],
-  );
+  // Global shuffle settings (shared with 3SFM/BVM via migration 108)
+  const [shuffleSettings, setShuffleSettings] = useState<{ shuffleQuestions: boolean; shuffleOptions: boolean } | null>(null);
+  useEffect(() => {
+    fetch('/api/training/assessment-settings')
+      .then(r => r.json())
+      .then((d: { shuffleQuestions?: boolean; shuffleOptions?: boolean }) => {
+        setShuffleSettings({
+          shuffleQuestions: d.shuffleQuestions !== false,
+          shuffleOptions:   d.shuffleOptions   === true,
+        });
+      })
+      .catch(() => setShuffleSettings({ shuffleQuestions: true, shuffleOptions: false }));
+  }, []);
+
+  /**
+   * Build the shuffled question view + per-question option index maps once the
+   * settings arrive. `optionMaps[qid][shuffledIdx] = originalDbIdx` — used at
+   * submit time to translate the student's choice back to the index the server
+   * stored as `correct_index`, since scoring runs against DB-ordered options.
+   * Shuffle is deterministic per mount (runs once after settings load) so a
+   * student who switches tab doesn't see the questions reshuffle mid-quiz.
+   */
+  const { questions, optionMaps } = useMemo(() => {
+    const baseOrdered = assessment.questions.slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    if (!shuffleSettings) return { questions: baseOrdered, optionMaps: {} as Record<string, number[]> };
+
+    let qs = baseOrdered;
+    if (shuffleSettings.shuffleQuestions && qs.length > 1) {
+      qs = qs.slice();
+      for (let i = qs.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [qs[i], qs[j]] = [qs[j], qs[i]];
+      }
+    }
+
+    const maps: Record<string, number[]> = {};
+    if (shuffleSettings.shuffleOptions) {
+      qs = qs.map(q => {
+        if (!Array.isArray(q.options) || q.options.length < 2) { maps[q.id] = []; return q; }
+        const order = q.options.map((_, i) => i);
+        for (let i = order.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [order[i], order[j]] = [order[j], order[i]];
+        }
+        maps[q.id] = order;
+        return { ...q, options: order.map(i => q.options[i]) };
+      });
+    }
+
+    return { questions: qs, optionMaps: maps };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assessment.questions, shuffleSettings]);
 
   useEffect(() => {
     if (phase !== 'quiz' || !assessment.timer_minutes || !startedAt) return;
@@ -116,10 +165,22 @@ export function AssessmentClient({
     setError(null);
     try {
       const timeTakenSeconds = startedAt ? Math.floor((Date.now() - startedAt) / 1000) : null;
+
+      // Translate shuffled-option answers back to DB-ordered indices before
+      // POSTing. Server scores against the stored `correct_index` which is
+      // always expressed in original (non-shuffled) order.
+      const submitAnswers: Record<string, number> = {};
+      for (const [qid, pickedShuffled] of Object.entries(answers)) {
+        const map = optionMaps[qid];
+        submitAnswers[qid] = (Array.isArray(map) && map.length > 0 && typeof map[pickedShuffled] === 'number')
+          ? map[pickedShuffled]
+          : pickedShuffled;
+      }
+
       const res = await fetch(`/api/training/live-sessions/${session.id}/assessment/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ answers, timeTakenSeconds }),
+        body: JSON.stringify({ answers: submitAnswers, timeTakenSeconds }),
       });
       const json = await res.json() as Partial<SubmitResponse> & { error?: string };
       if (!res.ok || json.error) {
@@ -323,7 +384,7 @@ export function AssessmentClient({
               {questions.map((q, idx) => {
                 const correct = result.question_results[q.id];
                 const studentAns = answers[q.id];
-                const correctAns = result.correct_answers[q.id];
+                const correctAnsText = result.correct_answer_texts?.[q.id];
                 const explanation = result.explanations.find(e => e.id === q.id)?.explanation;
                 return (
                   <div key={q.id}
@@ -335,8 +396,8 @@ export function AssessmentClient({
                     </div>
                     <div style={{ fontSize: 12, color: '#6B7280', paddingLeft: 22 }}>
                       Your answer: <strong>{q.options[studentAns] ?? '—'}</strong>
-                      {!correct && typeof correctAns === 'number' && (
-                        <> · Correct: <strong style={{ color: GREEN }}>{q.options[correctAns]}</strong></>
+                      {!correct && correctAnsText && (
+                        <> · Correct: <strong style={{ color: GREEN }}>{correctAnsText}</strong></>
                       )}
                     </div>
                     {explanation && (

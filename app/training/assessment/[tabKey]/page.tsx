@@ -225,24 +225,23 @@ export default function AssessmentPage() {
       }
     } catch { /* continue to normal load */ }
 
-    // Determine course code from tabKey (e.g. "3SFM_S1" → "3sfm", "BVM_L2" → "bvm")
-    const courseCode = tabKey.toUpperCase().startsWith('BVM') ? 'bvm' : '3sfm';
-
-    // Fetch settings first (needed to decide shuffle param for questions)
+    // Fetch global shuffle settings (shared with live sessions — migration 108)
     let shuffleQ = true;
     let shuffleOpt = false;
     try {
-      const settingsRes = await fetch(`/api/training/assessment-settings?course=${courseCode}`);
+      const settingsRes = await fetch('/api/training/assessment-settings');
       const settingsData = await settingsRes.json() as { shuffleQuestions?: boolean; shuffleOptions?: boolean };
       shuffleQ   = settingsData.shuffleQuestions !== false;
       shuffleOpt = settingsData.shuffleOptions === true;
     } catch { /* use defaults */ }
     setShuffleOptions(shuffleOpt);
 
-    // Fetch status + questions in parallel
+    // Always ask Apps Script for unshuffled questions — shuffle is applied
+    // client-side so one global setting drives both Apps Script-backed and
+    // Supabase-backed assessments identically.
     const [statusRes, questionsRes] = await Promise.all([
       fetch(`/api/training/attempt-status?tabKey=${encodeURIComponent(tabKey)}&email=${encodeURIComponent(email)}&regId=${encodeURIComponent(regId)}`),
-      fetch(`/api/training/questions?tabKey=${encodeURIComponent(tabKey)}&email=${encodeURIComponent(email)}&regId=${encodeURIComponent(regId)}${shuffleQ ? '' : '&shuffle=false'}`),
+      fetch(`/api/training/questions?tabKey=${encodeURIComponent(tabKey)}&email=${encodeURIComponent(email)}&regId=${encodeURIComponent(regId)}&shuffle=false`),
     ]);
 
     const statusData  = await statusRes.json()    as { success: boolean; data?: AttemptStatus; error?: string };
@@ -277,6 +276,14 @@ export default function AssessmentPage() {
     }
 
     const q = questData.data;
+
+    // Shuffle question ORDER client-side if enabled (Fisher-Yates)
+    if (shuffleQ && Array.isArray(q.questions) && q.questions.length > 1) {
+      for (let i = q.questions.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [q.questions[i], q.questions[j]] = [q.questions[j], q.questions[i]];
+      }
+    }
 
     // Shuffle options client-side if enabled
     if (shuffleOpt && q.questions?.length) {

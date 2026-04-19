@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
-import { LaunchStatusCard } from '@/src/components/admin/LaunchStatusCard';
 import Link from 'next/link';
 
 interface Course {
@@ -124,14 +123,17 @@ export default function AdminTrainingPage() {
           </button>
         </div>
 
-        {/* ── Launch Settings — Training Hub ── */}
-        <LaunchStatusCard
-          label="Training Hub"
-          icon="🎓"
-          endpoint="/api/admin/training-coming-soon"
-          previewUrl={(process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com') + '/signin'}
-          onMessage={(msg, type) => { setToast({ msg, type }); setTimeout(() => setToast(null), 2500); }}
-        />
+        {/* Training Hub launch status + global shuffle + watch enforcement now live
+            in Training Settings — this page is just course structure + content. */}
+        <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10, padding: '12px 16px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12, fontSize: 12.5, color: '#1E40AF' }}>
+          <span style={{ fontSize: 18 }}>⚙️</span>
+          <div style={{ flex: 1 }}>
+            <strong>Global training controls</strong> (Launch status, Watch enforcement, Shuffle settings) moved to Training Settings.
+          </div>
+          <a href="/admin/training-settings" style={{ fontSize: 12, fontWeight: 700, color: '#1E40AF', textDecoration: 'none', padding: '6px 12px', background: '#DBEAFE', borderRadius: 6, whiteSpace: 'nowrap' }}>
+            Open Training Settings →
+          </a>
+        </div>
 
         {/* KPI strip */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 16, marginBottom: 32 }}>

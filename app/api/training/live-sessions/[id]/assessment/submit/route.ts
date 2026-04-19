@@ -45,6 +45,14 @@ export async function POST(
           return acc;
         }, {})
       : {};
+    // Correct-answer TEXT is sent too so the client can render it regardless of
+    // whether options were shuffled client-side.
+    const correctAnswerTexts = attempt.passed
+      ? assessment.questions.reduce<Record<string, string>>((acc, q) => {
+          acc[q.id] = q.options?.[q.correct_index] ?? '';
+          return acc;
+        }, {})
+      : {};
 
     return NextResponse.json({
       score: attempt.score,
@@ -54,6 +62,7 @@ export async function POST(
       max_attempts: assessment.max_attempts,
       question_results: attempt.question_results,
       correct_answers: correctAnswers,
+      correct_answer_texts: correctAnswerTexts,
       explanations,
     });
   } catch (e) {
