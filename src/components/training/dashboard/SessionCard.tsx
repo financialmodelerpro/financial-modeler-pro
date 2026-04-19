@@ -50,6 +50,16 @@ export interface SessionCardProps {
   courseName?: string;
   /** Student name for achievement card */
   studentName?: string;
+  /** Explicit Watch link — overrides the default `/training/watch/[courseId]/[sessionId]` link. Used by live sessions. */
+  watchHref?: string;
+  /** Explicit Assessment link — overrides the default `/training/assessment/[tabKey]` link. Used by live sessions. */
+  assessmentHref?: string;
+  /** When true, hides the score/attempts row AND the Take Assessment / Locked chip (live sessions with no quiz). `Share` + `Card` buttons still appear on `prog?.passed`. */
+  hideAssessment?: boolean;
+  /** When true, hides the Study Notes toggle at the bottom. */
+  hideNotes?: boolean;
+  /** Override for the session label shown on the far left (default: "S{idx+1}"). */
+  labelOverride?: string;
 }
 
 export function SessionCard({
@@ -57,6 +67,7 @@ export function SessionCard({
   idx, prog, locked, ytUrl, isFinal, passedCount, regularCount,
   tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
   bvmLocked, watchLocked, timerBypassed, courseId, isWatched, isInProgress, watchPercentage, watchThreshold, courseName, studentName,
+  watchHref, assessmentHref, hideAssessment, hideNotes, labelOverride,
 }: SessionCardProps) {
   const [notesOpen, setNotesOpen] = useState(false);
   const [noteText, setNoteText] = useState(noteContent);
@@ -92,7 +103,7 @@ export function SessionCard({
 
   const attemptsUsed = prog?.attempts ?? 0;
   const attemptsLeft = maxAttempts - attemptsUsed;
-  const label = isFinal ? '🏆' : `S${idx + 1}`;
+  const label = labelOverride ?? (isFinal ? '🏆' : `S${idx + 1}`);
 
   return (
     <div style={{
@@ -141,8 +152,8 @@ export function SessionCard({
         </div>
       </div>
 
-      {/* Row 2: score + attempts */}
-      {!locked && (
+      {/* Row 2: score + attempts (hidden when this card has no assessment) */}
+      {!locked && !hideAssessment && (
         <div style={{ display: 'flex', gap: 20, fontSize: 12, color: '#6B7280', marginBottom: 10, paddingLeft: 38, flexWrap: 'wrap' }}>
           <span>Score: <strong style={{ color: '#374151' }}>{attemptsUsed > 0 ? `${prog!.score}%` : '-'}</strong></span>
           <span>Attempts: <strong style={{ color: '#374151' }}>{attemptsUsed} / {maxAttempts}</strong></span>
@@ -198,6 +209,11 @@ export function SessionCard({
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#F3F4F6', color: '#9CA3AF', whiteSpace: 'nowrap', cursor: 'default' }}>
             🔒 Watch Video
           </span>
+        ) : watchHref ? (
+          <Link href={watchHref}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: '#FF0000', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+            ▶ {prog?.passed || isWatched ? 'Watch Again' : isInProgress ? 'Continue Watching' : 'Watch Video'}
+          </Link>
         ) : ytUrl ? (
           courseId ? (
             <Link href={`/training/watch/${courseId}/${sessionId}`}
@@ -217,7 +233,22 @@ export function SessionCard({
         ) : null}
 
         {/* Assessment status (assessment itself is on watch page) */}
-        {bvmLocked ? (
+        {hideAssessment ? (
+          // No assessment configured for this session — still surface Share/Card
+          // once the student has watched (treated as "passed" by parent).
+          prog?.passed ? (
+            <>
+              <button onClick={() => setShowShareModal(true)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: 'transparent', color: '#6B7280', border: '1px solid #E5E7EB', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                🎉 Share
+              </button>
+              <button onClick={() => setShowCardModal(true)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: 'transparent', color: '#6B7280', border: '1px solid #E5E7EB', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                🏆 Card
+              </button>
+            </>
+          ) : null
+        ) : bvmLocked ? (
           <span title="Complete 3-Statement Financial Modeling first to unlock"
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 600, background: '#FEF2F2', color: '#FCA5A5', whiteSpace: 'nowrap', cursor: 'default' }}>
             🔒 {isFinal ? 'Final Exam Locked' : 'Assessment Locked'}
@@ -245,9 +276,9 @@ export function SessionCard({
             No Attempts Left
           </span>
         ) : isWatched && attemptsLeft > 0 ? (
-          <Link href={`/training/assessment/${encodeURIComponent(tabKey)}`}
+          <Link href={assessmentHref ?? `/training/assessment/${encodeURIComponent(tabKey)}`}
             style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, background: '#2563EB', color: '#fff', textDecoration: 'none', whiteSpace: 'nowrap' }}>
-            📝 Take Assessment →
+            📝 {attemptsUsed > 0 ? 'Retake Assessment →' : 'Take Assessment →'}
           </Link>
         ) : null}
       </div>
@@ -332,7 +363,7 @@ export function SessionCard({
       })()}
 
       {/* Notes toggle */}
-      {!locked && !isFinal && (
+      {!locked && !isFinal && !hideNotes && (
         <div style={{ marginTop: 8, paddingLeft: 38 }}>
           <button onClick={() => setNotesOpen(v => !v)}
             style={{ fontSize: 10, fontWeight: 600, color: '#6B7280', background: 'transparent', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 4 }}>

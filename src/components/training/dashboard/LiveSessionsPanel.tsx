@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Target, Eye, CheckCircle2, Award } from 'lucide-react';
 import { LiveSessionCardLarge } from './LiveSessionCardLarge';
+import { RecordedLiveSessionRow } from './RecordedLiveSessionRow';
 import type {
   LiveSession,
   RegistrationStatus,
@@ -206,18 +207,17 @@ export function LiveSessionsPanel({ studentEmail, studentName = '', registration
             Recorded Sessions
             <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>({recorded.length})</span>
           </h2>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
-            {recorded.map(s => (
-              <LiveSessionCardLarge
+          <div>
+            {recorded.map((s, i) => (
+              <RecordedLiveSessionRow
                 key={s.id}
-                variant="recorded"
+                idx={i}
                 session={s}
-                watch={watchMap[s.id]}
-                attemptSummary={attemptMap[s.id] ?? null}
-                href={`/training/live-sessions/${s.id}`}
                 studentEmail={studentEmail}
                 studentName={studentName}
                 registrationId={registrationId}
+                watch={watchMap[s.id]}
+                attempt={attemptMap[s.id] ?? null}
               />
             ))}
           </div>
