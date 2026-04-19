@@ -44,6 +44,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Assessments',       href: '/admin/training-hub/assessments',       icon: '📋' },
   { label: 'Communications',    href: '/admin/training-hub/communications',    icon: '✉️' },
   { label: 'Share Templates',   href: '/admin/training-hub/share-templates',   icon: '📣' },
+  { label: 'Daily Roundup',     href: '/admin/training-hub/daily-roundup',     icon: '🎓' },
   { label: 'Cohorts',           href: '/admin/training-hub/cohorts',           icon: '👥' },
   { label: 'Training Settings', href: '/admin/training-settings',              icon: '⚙️' },
   { label: 'Newsletter',         href: '/admin/newsletter',                     icon: '📧' },

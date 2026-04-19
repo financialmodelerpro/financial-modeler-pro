@@ -166,6 +166,18 @@ export const SAMPLE_VARS: ShareVars = {
   regId:              'REG-2026-00042',
   sessionDescription: 'Mastering the mechanics of integrated 3-statement financial models.',
   sessionUrl:         'https://learn.financialmodelerpro.com/training-sessions/sample-id',
+  // Daily roundup sample — multi-line strings so the admin preview reads
+  // identically to what the /admin/training-hub/daily-roundup page will
+  // produce for a real cohort.
+  count:              3,
+  studentList:
+    '✅ Ahmad Din, ACCA, FMVA® — 3-Statement Financial Modeling\n' +
+    '✅ Jane Doe — Business Valuation Modeling\n' +
+    '✅ John Smith — 3-Statement Financial Modeling',
+  verifyLinks:
+    '• https://learn.financialmodelerpro.com/verify/FMP-3SFM-2026-0001\n' +
+    '• https://learn.financialmodelerpro.com/verify/FMP-BVM-2026-0002\n' +
+    '• https://learn.financialmodelerpro.com/verify/FMP-3SFM-2026-0003',
 };
 
 /**
@@ -174,11 +186,12 @@ export const SAMPLE_VARS: ShareVars = {
  * suggested in the UI.
  */
 export const TEMPLATE_VARIABLES: Record<string, string[]> = {
-  certificate_earned:   ['studentName', 'course', 'grade', 'date', 'certId', 'verifyUrl'],
-  assessment_passed:    ['studentName', 'sessionName', 'score', 'course', 'date', 'regId'],
-  achievement_card:     ['studentName', 'sessionName', 'score', 'course', 'date', 'regId'],
-  live_session_watched: ['studentName', 'sessionName', 'course', 'date'],
-  session_shared:       ['sessionName', 'sessionDescription', 'sessionUrl'],
+  certificate_earned:           ['studentName', 'course', 'grade', 'date', 'certId', 'verifyUrl'],
+  assessment_passed:            ['studentName', 'sessionName', 'score', 'course', 'date', 'regId'],
+  achievement_card:             ['studentName', 'sessionName', 'score', 'course', 'date', 'regId'],
+  live_session_watched:         ['studentName', 'sessionName', 'course', 'date'],
+  session_shared:               ['sessionName', 'sessionDescription', 'sessionUrl'],
+  daily_certifications_roundup: ['studentList', 'verifyLinks', 'count', 'date'],
 };
 
 type TemplateSeed = Omit<ShareTemplate, 'brand_mention' | 'founder_mention' | 'brand_prefix_at' | 'founder_prefix_at'>;
@@ -248,6 +261,21 @@ const TEMPLATE_SEEDS: Record<string, TemplateSeed> = {
     hashtags:        ['FinancialModeling', 'FinancialModelerPro'],
     mention_brand:   true,
     mention_founder: false,
+    active:          true,
+  },
+  daily_certifications_roundup: {
+    template_key:    'daily_certifications_roundup',
+    title:           'Daily Certifications Roundup',
+    template_text:
+      'Congratulations to today\'s newly certified professionals at {@brand}!\n\n' +
+      '{studentList}\n\n' +
+      'Proud of the dedication and hard work from {count} students under the guidance of {@founder}.\n\n' +
+      'View their credentials:\n' +
+      '{verifyLinks}\n\n' +
+      'Structured Modeling. Real-World Finance.',
+    hashtags:        ['FinancialModeling', 'FinancialModelerPro', 'CorporateFinance'],
+    mention_brand:   true,
+    mention_founder: true,
     active:          true,
   },
 };
