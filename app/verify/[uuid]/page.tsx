@@ -232,12 +232,13 @@ export default async function VerifyPage({ params }: PageProps) {
                 🎖 Download Badge
               </a>
             )}
-            {cert.transcript_url && (
-              <a href={cert.transcript_url} target="_blank" rel="noopener noreferrer"
-                style={{ display: 'block', padding: '10px 18px', borderRadius: 8, background: '#1B4F8A', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 600, textAlign: 'center' }}>
-                📄 Download Transcript
-              </a>
-            )}
+            {/* Transcript: always use the cached endpoint — it 302-redirects
+                to the stored URL if already generated, or generates + caches
+                on first click so students never wait through a regeneration. */}
+            <a href={`/api/training/transcript-cached/${certId}`} target="_blank" rel="noopener noreferrer"
+              style={{ display: 'block', padding: '10px 18px', borderRadius: 8, background: '#1B4F8A', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 600, textAlign: 'center' }}>
+              📄 Download Transcript
+            </a>
             <a href={linkedInUrl} target="_blank" rel="noopener noreferrer"
               style={{ display: 'block', padding: '10px 18px', borderRadius: 8, background: '#0A66C2', color: '#fff', textDecoration: 'none', fontSize: 13, fontWeight: 600, textAlign: 'center' }}>
               🔗 Share on LinkedIn

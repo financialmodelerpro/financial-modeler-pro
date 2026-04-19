@@ -43,7 +43,10 @@ export function CertificateImageCard({ cert }: CertificateImageCardProps) {
   const certId      = supaData?.certificate_id ?? cert.certificateId ?? '';
   const certPdfUrl  = supaData?.cert_pdf_url ?? cert.certPdfUrl ?? cert.certifierUrl ?? '';
   const badgeUrl    = supaData?.badge_url ?? cert.badgeUrl ?? '';
-  const transcriptUrl = supaData?.transcript_url ?? cert.transcriptUrl ?? '';
+  // Transcript always goes through the cached endpoint — it 302-redirects
+  // to a stored URL when present, else generates + caches on first click.
+  // Students never wait through a regeneration twice.
+  const transcriptUrl = certId ? `/api/training/transcript-cached/${certId}` : (supaData?.transcript_url ?? cert.transcriptUrl ?? '');
   const grade       = supaData?.grade ?? cert.grade ?? '';
   const issuedAt    = supaData?.issued_at ?? cert.issuedAt ?? '';
   const status      = supaData?.cert_status ?? 'Issued';
