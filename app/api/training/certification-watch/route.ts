@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/lib/shared/supabase';
+import { getWatchEnforcement, canCompleteWith } from '@/src/lib/training/watchEnforcementCheck';
 
 /**
  * GET /api/training/certification-watch?email=x
@@ -73,6 +74,23 @@ export async function POST(req: NextRequest) {
   const mergedTotal = incomingTotal === null ? existingTotal : Math.max(existingTotal, incomingTotal);
 
   const pct = mergedTotal > 0 ? Math.min(100, Math.max(0, Math.round((mergedWatch / mergedTotal) * 100))) : 0;
+
+  // Server-side enforcement: refuse to flip this row to 'completed' when the
+  // stored watch percentage is still below threshold. The client tracker caps
+  // intervals by wall-clock elapsed time, and this check makes a tampered
+  // submit (status='completed' with fabricated values) bounce with 403.
+  const wantsCompleted = effectiveStatus === 'completed' && existing?.status !== 'completed';
+  if (wantsCompleted) {
+    const enforcement = await getWatchEnforcement(tab_key);
+    if (!canCompleteWith(enforcement, pct)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Watch threshold not met',
+        current: pct,
+        required: enforcement.threshold,
+      }, { status: 403 });
+    }
+  }
 
   const record: Record<string, unknown> = {
     student_email: email,

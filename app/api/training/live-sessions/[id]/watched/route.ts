@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/lib/shared/supabase';
+import { getWatchEnforcement, canCompleteWith } from '@/src/lib/training/watchEnforcementCheck';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,6 +57,24 @@ export async function POST(
     const pct = mergedTotalSec > 0
       ? Math.min(100, Math.round((mergedWatchSec / mergedTotalSec) * 100))
       : status === 'completed' ? 100 : existing?.watch_percentage ?? 0;
+
+    // Server-side enforcement: reject an attempt to flip this row to
+    // `completed` when the actual stored watch percentage is still below the
+    // admin-configured threshold. Belt and braces — the client tracker caps
+    // intervals by wall-clock, this rejects a tampered submit.
+    const wantsCompleted = status === 'completed' && existing?.status !== 'completed';
+    if (wantsCompleted) {
+      const enforcement = await getWatchEnforcement(`LIVE_${id}`);
+      if (!canCompleteWith(enforcement, pct)) {
+        return NextResponse.json({
+          success: false,
+          error: 'Watch threshold not met',
+          current: pct,
+          required: enforcement.threshold,
+        }, { status: 403 });
+      }
+    }
+
     // Once completed, stay completed — progress ticks shouldn't demote back.
     const mergedStatus = existing?.status === 'completed' || status === 'completed' ? 'completed' : 'in_progress';
 

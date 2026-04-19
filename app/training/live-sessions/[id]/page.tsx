@@ -328,18 +328,20 @@ export default function LiveSessionDetailPage() {
       } catch {}
     };
 
-    // Watch-enforcement gating
+    // Watch-enforcement gating. Threshold met is the PRIMARY criterion so a
+    // user who drags the playhead to the end (firing ENDED without real
+    // playback) cannot unlock Mark Complete. The interval-merging tracker
+    // caps each interval by wall-clock elapsed time, and the server-side
+    // check in /watched refuses `status='completed'` when watch_percentage
+    // is still below threshold.
     const watchPct = liveTotalSec > 0
       ? Math.min(100, Math.round((liveWatchSec / liveTotalSec) * 100))
       : 0;
     const thresholdMet = watchPct >= enforcement.threshold;
-    const enforcing = enforcement.enabled && !enforcement.sessionBypass && !enforcement.isAdmin;
-    const canMarkComplete = !enforcing || thresholdMet;
+    const bypassActive = !enforcement.enabled || enforcement.sessionBypass || enforcement.isAdmin;
+    const canMarkComplete = thresholdMet || (bypassActive && videoEnded);
 
-    // Expose the Mark Complete callback only when the student is ALLOWED to
-    // click it. CourseTopBar hides the button entirely when the callback is
-    // undefined — avoids a visually-enabled-but-blocked CTA.
-    const markCompleteCallback = videoEnded && !isWatched && canMarkComplete ? handleMarkComplete : undefined;
+    const markCompleteCallback = canMarkComplete && !isWatched ? handleMarkComplete : undefined;
 
     // Progress bar sits in the scroll area above Mark Complete (CourseTopBar).
     // Only render while the student is actively watching (not yet completed).

@@ -324,16 +324,25 @@ export default function CourseWatchPage() {
   // Assessment URL - always use the internal route (Apps Script formUrl is deprecated)
   const assessmentUrl = `/training/assessment/${encodeURIComponent(tk)}`;
 
-  // Watch-enforcement gating
+  // Watch-enforcement gating.
+  //
+  // Threshold met is the PRIMARY criterion — we never rely on `videoEnded`
+  // alone, because a user can drag the playhead to the end of the video to
+  // fire an ENDED event without actually watching. The interval-merging
+  // tracker guarantees `liveWatchSec` only grows from real-time playback, so
+  // this check + the server-side enforcement in /certification-watch together
+  // make skip-to-end attacks infeasible.
   const watchPct = liveTotalSec > 0 ? Math.min(100, Math.round((liveWatchSec / liveTotalSec) * 100)) : 0;
   const thresholdMet = watchPct >= enforcement.threshold;
-  const enforcing = enforcement.enabled && !enforcement.sessionBypass && !enforcement.isAdmin;
-  const canMarkComplete = !enforcing || thresholdMet;
+  const bypassActive = !enforcement.enabled || enforcement.sessionBypass || enforcement.isAdmin;
+  // When bypass is active, Mark Complete shows up once the video has been
+  // opened at all (courtesy for admins/test accounts). Otherwise it strictly
+  // waits for the threshold.
+  const canMarkComplete = thresholdMet || (bypassActive && videoEnded);
 
-  // Only expose the Mark Complete callback when the user is ALLOWED to click it.
-  // CourseTopBar hides the button entirely when `onMarkComplete` is undefined, so
-  // we avoid visually-enabled-but-blocked UX.
-  const markCompleteCallback = videoEnded && !markedComplete && canMarkComplete ? handleMarkComplete : undefined;
+  // CourseTopBar hides the button entirely when `onMarkComplete` is undefined,
+  // so we avoid visually-enabled-but-blocked UX.
+  const markCompleteCallback = canMarkComplete && !markedComplete ? handleMarkComplete : undefined;
 
   // Progress bar sits in the scroll area above the Mark Complete button (CourseTopBar).
   // We only show it while the student is watching (video opened, not yet completed).
