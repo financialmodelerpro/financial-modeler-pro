@@ -5,11 +5,14 @@ const MAIN_URL  = 'https://financialmodelerpro.com';
 const LEARN_URL = 'https://learn.financialmodelerpro.com';
 const APP_URL   = 'https://app.financialmodelerpro.com';
 
-// Paths that belong to the main domain — redirect these back from subdomains
+// Paths that belong to the main domain — redirect these back from subdomains.
+// `/verify` deliberately NOT in this list: certificate verification is Training
+// Hub content and should stay on learn.* (that's the host the QR codes encode
+// and the host users should see in their address bar when scanning).
 const MAIN_PATHS = [
   '/about', '/articles', '/pricing', '/contact', '/login',
   '/forgot-password', '/reset-password', '/admin', '/portal',
-  '/verify', '/t', '/testimonials', '/confidentiality', '/privacy-policy',
+  '/t', '/testimonials', '/confidentiality', '/privacy-policy',
 ];
 
 const nextConfig: NextConfig = {
@@ -131,6 +134,17 @@ const nextConfig: NextConfig = {
       {
         source: '/training-sessions/:id',
         destination: `${LEARN_URL}/training-sessions/:id`,
+        permanent: false,
+        has: [{ type: 'host' as const, value: 'financialmodelerpro.com' }],
+      },
+
+      // Main domain → learn. for /verify/*. Certificates scanned from a PDF
+      // that was generated with the old main-domain QR (pre-migration 113)
+      // still resolve — the browser just lands on the learn.* host where the
+      // page is canonically served.
+      {
+        source: '/verify/:id',
+        destination: `${LEARN_URL}/verify/:id`,
         permanent: false,
         has: [{ type: 'host' as const, value: 'financialmodelerpro.com' }],
       },
