@@ -464,7 +464,12 @@ export async function issueCertificateForPending(
         cert_pdf_url:       certPdfUrl,
         badge_url:          badgeUrl || null,
         verification_url:   verificationUrl,
-        cert_status:        options.force ? 'Forced' : 'Issued',
+        // cert_status is the single enum the rest of the codebase gates on —
+        // verify page, dashboard API, admin list all check `=== 'Issued'`.
+        // Provenance (auto vs forced) is recorded in the separate `issued_via`
+        // + `issued_by_admin` columns so we don't fork the status value and
+        // accidentally hide force-issued certs from downstream readers.
+        cert_status:        'Issued',
         issued_at:          new Date().toISOString(),
         issued_date:        new Date().toISOString().split('T')[0],
         course_subheading:  cert.courseSubheading ?? null,
