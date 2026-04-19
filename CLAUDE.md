@@ -107,6 +107,22 @@
 | **Anthropic Claude API** | AI market research + contextual help agents | `ANTHROPIC_API_KEY` |
 | **YouTube Data API v3** | Fetch video comments (cached 24h in DB) | `YOUTUBE_API_KEY` |
 | **Vercel** | Hosting + edge middleware | Auto-deploy on `main` push |
+| **Vercel Web Analytics** | Page views, unique visitors, referrers, device/browser, geography | Zero-config via `@vercel/analytics` in `app/layout.tsx` |
+| **Vercel Speed Insights** | Core Web Vitals (LCP, FID, CLS) for SEO | Zero-config via `@vercel/speed-insights` in `app/layout.tsx` |
+
+---
+
+## Analytics
+
+Site analytics via **Vercel Web Analytics + Speed Insights** — both free on the Hobby plan, currently sufficient for pre-launch traffic.
+
+- `<Analytics />` + `<SpeedInsights />` mounted in `app/layout.tsx` (after `SessionProviderWrapper`, inside `<body>`). Both components auto-detect `production` vs `preview` / `development` — no manual gating needed.
+- Tracks: page views, unique visitors, top pages, referrers (LinkedIn/Google/direct/etc), device + browser breakdown, geographic data, real-time active users.
+- Speed Insights reports Core Web Vitals (LCP/FID/CLS) per-route — useful for SEO health.
+- **All three subdomains** (`financialmodelerpro.com`, `learn.`, `app.`) share the same dashboard because they're served by the same Next.js deployment.
+- Cookieless + GDPR-compliant by default; no consent banner required.
+- **Dashboard**: Vercel project → Analytics tab (and Speed Insights tab).
+- Plan to upgrade to Vercel Pro when Modeling Hub launches for higher event quotas + longer retention.
 
 ---
 
