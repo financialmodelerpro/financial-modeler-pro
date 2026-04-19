@@ -17,8 +17,15 @@
  *     textarea with a download link.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { shareTo, FMP_HASHTAGS, FMP_TRAINING_URL, type SharePlatform } from '@/src/lib/training/share';
+
+/** Build the full shareable string — body + blank line + space-joined hashtags. */
+function mergeTextAndHashtags(text: string, hashtags: readonly string[]): string {
+  if (!hashtags.length) return text;
+  const tagLine = hashtags.map(h => `#${h.replace(/^#/, '')}`).join(' ');
+  return `${text}\n\n${tagLine}`;
+}
 
 interface ShareModalProps {
   isOpen: boolean;
@@ -59,20 +66,27 @@ export function ShareModal({
   cardImageUrl,
   cardDownloadName = 'FMP-Achievement.png',
 }: ShareModalProps) {
-  const [draft, setDraft] = useState(text);
+  // Merge hashtags into the editable draft so students SEE them in the
+  // preview textarea (matching what ends up on LinkedIn after paste). The
+  // user can trim or edit freely; whatever's in the textarea is exactly
+  // what gets copied / shared.
+  const initialDraft = useMemo(() => mergeTextAndHashtags(text, hashtags), [text, hashtags]);
+  const [draft, setDraft] = useState(initialDraft);
   const [copiedPlatform, setCopiedPlatform] = useState<SharePlatform | null>(null);
 
   // Re-seed draft when the caller rotates in a new `text` prop (e.g. opening
   // the same modal for a different session).
-  useEffect(() => { setDraft(text); }, [text]);
+  useEffect(() => { setDraft(initialDraft); }, [initialDraft]);
 
   if (!isOpen) return null;
 
   const handleShare = async (platform: SharePlatform) => {
+    // Draft already contains hashtags — pass an empty array to shareTo so
+    // buildFullText doesn't append them again.
     await shareTo(platform, {
       text: draft,
       url,
-      hashtags,
+      hashtags: [],
       onCopied: () => {
         setCopiedPlatform(platform);
         setTimeout(() => setCopiedPlatform(null), 1800);
