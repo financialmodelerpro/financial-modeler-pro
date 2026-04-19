@@ -292,6 +292,18 @@ All three marketing pages use **Option B**: each section fetched from `page_sect
 - Admin toggle: `/admin/modules` page header, API `GET/PATCH /api/admin/modeling-coming-soon`
 - Files: `app/modeling/signin/SignInForm.tsx`, `app/modeling/signin/ComingSoonWrapper.tsx`, `app/modeling/register/RegisterForm.tsx`, `app/modeling/ComingSoon.tsx`
 
+### Training Hub Coming Soon Mode
+- Settings: `training_settings` table — keys `training_hub_coming_soon` (`'true'`/`'false'`) + `training_hub_launch_date` (ISO 8601 string, optional). Upserted on first admin save; no migration needed.
+- Server helper: `src/lib/shared/trainingComingSoon.ts` → `getTrainingComingSoonState()` returns `{ enabled, launchDate }`, plus `isTrainingComingSoon()` shortcut.
+- Signin page (`app/training/signin/page.tsx`): server component checks state → renders `TrainingComingSoonWrapper` (handles `?bypass=true`) or `TrainingSignInForm`.
+- Register page (`app/training/register/page.tsx`): server component checks state → renders `TrainingComingSoon` or `TrainingRegisterForm` (client component extracted to `app/training/register/RegisterForm.tsx`).
+- Direct page: `app/training/coming-soon/page.tsx` always renders the coming soon screen (useful for preview/share).
+- Dashboard redirect chain: unauthenticated `/training/dashboard` already sends to `/signin`, which is gated — no middleware change needed.
+- `TrainingComingSoon` component (`app/training/ComingSoon.tsx`): FMP-branded dark gradient hero, "Training Hub" badge, countdown timer (if `launchDate` set), newsletter waitlist form (hubs=['training']), LinkedIn/YouTube links, Back to Home. Shows "Already have access? Sign in →" bypass on signin variant only.
+- `CountdownTimer` (`src/components/shared/CountdownTimer.tsx`): reusable Days/Hrs/Min/Sec grid, teal digits on navy cards, updates every 1s via setInterval, fires optional `onComplete`, swaps in "We're Live!" banner at 0.
+- Admin toggle: `/admin/modules` adds a second launch-status card below the Modeling Hub one. Toggle enables/disables coming soon; when ON a `datetime-local` picker with Save Launch Date + Clear + Preview buttons appears. Timezone hint uses `Intl.DateTimeFormat().resolvedOptions().timeZone`.
+- API: `GET/PATCH /api/admin/training-coming-soon` — GET returns `{ enabled, launchDate }`, PATCH accepts `{ enabled?, launchDate? }` (partial upsert, admin-gated via NextAuth role).
+
 ### certificateEngine.ts
 - PDF generation uses scaleX/scaleY (editor 1240x877 -> PDF points) and per-font ascent correction
 - Badge generation reads BadgeLayout from cms_content (section: badge_layout)
