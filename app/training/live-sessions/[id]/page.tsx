@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { getTrainingSession } from '@/src/lib/training/training-session';
 import { FilePreviewModal } from '@/src/components/training/dashboard/FilePreviewModal';
 import { TrainingShell } from '@/src/components/training/TrainingShell';
-import { YouTubePlayer } from '@/src/components/training/YouTubePlayer';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/components/training/player/CoursePlayerLayout';
+import { WatchProgressBar } from '@/src/components/training/WatchProgressBar';
 
 interface Attachment { id: string; file_name: string; file_url: string; file_type: string; file_size: number }
 interface Session {
@@ -102,20 +102,53 @@ export default function LiveSessionDetailPage() {
   const [cancelling, setCancelling] = useState(false);
   const [playlistSessions, setPlaylistSessions] = useState<SidebarSession[]>([]);
   const [isWatched, setIsWatched] = useState(false);
+  const [videoEnded, setVideoEnded] = useState(false);
+
+  // Watch-enforcement state (mirrors the 3SFM watch page pattern)
+  const [enforcement, setEnforcement] = useState<{ enabled: boolean; threshold: number; sessionBypass: boolean; isAdmin: boolean }>({
+    enabled: true, threshold: 70, sessionBypass: false, isAdmin: false,
+  });
+  const [baselineWatchedSec, setBaselineWatchedSec] = useState(0);
+  const [liveWatchSec, setLiveWatchSec] = useState(0);
+  const [liveTotalSec, setLiveTotalSec] = useState(0);
+  const lastPostedRef = useRef<{ sec: number; at: number }>({ sec: 0, at: 0 });
 
   useEffect(() => {
     const sess = getTrainingSession();
     if (!sess) { router.replace('/training/signin'); return; }
     setStudentSession(sess);
 
+    const tk = `LIVE_${params.id}`;
     Promise.all([
       fetch(`/api/training/live-sessions/${params.id}`).then(r => r.json()),
       fetch(`/api/training/live-sessions/${params.id}/register?email=${encodeURIComponent(sess.email)}`).then(r => r.json()),
-    ]).then(([sessionData, regData]) => {
+      fetch(`/api/training/watch-enforcement?tabKeys=${encodeURIComponent(tk)}`).then(r => r.json()).catch(() => null),
+      fetch(`/api/training/live-sessions/${params.id}/watched?email=${encodeURIComponent(sess.email)}`).then(r => r.json()).catch(() => null),
+    ]).then(([sessionData, regData, enforceJson, watchJson]) => {
       setSession(sessionData.session ?? null);
       setRegistered(regData.registered ?? false);
       setJoinLinkAvailable(regData.joinLinkAvailable ?? false);
       setRegCount(regData.registrationCount ?? 0);
+
+      if (enforceJson) {
+        setEnforcement({
+          enabled:       enforceJson.enabled !== false,
+          threshold:     typeof enforceJson.threshold === 'number' ? enforceJson.threshold : 70,
+          sessionBypass: !!enforceJson.sessionBypass?.[tk],
+          isAdmin:       !!enforceJson.isAdmin,
+        });
+      }
+
+      if (watchJson && typeof watchJson === 'object') {
+        const base = Math.max(0, Math.round(Number(watchJson.watch_seconds ?? 0)));
+        setBaselineWatchedSec(base);
+        setLiveWatchSec(base);
+        setLiveTotalSec(Math.max(0, Math.round(Number(watchJson.total_seconds ?? 0))));
+        if (watchJson.status === 'completed') {
+          setIsWatched(true);
+          setVideoEnded(true);
+        }
+      }
     }).catch(() => {}).finally(() => setLoading(false));
   }, [params.id, router]);
 
@@ -170,6 +203,40 @@ export default function LiveSessionDetailPage() {
     }, 30000);
     return () => clearInterval(id);
   }, [params.id, studentSession, session, registered]);
+
+  // Fires ~every 10s during playback, on pause, and on ended. Persists the
+  // interval-merged watched seconds so the 70% gate can survive reloads.
+  const handleProgress = useCallback((watchedSec: number, totalSec: number, currentPos: number) => {
+    setLiveWatchSec(watchedSec);
+    if (totalSec > 0) setLiveTotalSec(totalSec);
+
+    if (!studentSession?.email) return;
+
+    // Throttle: POST every ≥10s OR when value grew by ≥5s, plus always the
+    // first one. Keeps request volume sane on active viewers.
+    const now = Date.now();
+    const last = lastPostedRef.current;
+    const delta = watchedSec - last.sec;
+    const tooSoon = now - last.at < 9500;
+    if (tooSoon && delta < 5 && last.at !== 0) return;
+    lastPostedRef.current = { sec: watchedSec, at: now };
+
+    fetch(`/api/training/live-sessions/${params.id}/watched`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        email: studentSession.email,
+        regId: studentSession.registrationId,
+        status: isWatched ? 'completed' : 'in_progress',
+        watch_seconds: Math.round(watchedSec),
+        total_seconds: Math.round(totalSec),
+        last_position: Math.round(currentPos),
+      }),
+    }).catch(() => {});
+  }, [studentSession, params.id, isWatched]);
+
+  const handleVideoEnded = useCallback(() => { setVideoEnded(true); }, []);
+  const handleVideoNearEnd = useCallback(() => { setVideoEnded(true); }, []);
 
   async function handleRegister() {
     if (!studentSession) return;
@@ -248,12 +315,43 @@ export default function LiveSessionDetailPage() {
         await fetch(`/api/training/live-sessions/${session.id}/watched`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: studentSession.email, regId: studentSession.registrationId }),
+          body: JSON.stringify({
+            email: studentSession.email,
+            regId: studentSession.registrationId,
+            status: 'completed',
+            watch_seconds: liveWatchSec,
+            total_seconds: liveTotalSec,
+          }),
         });
         setIsWatched(true);
         setPlaylistSessions(prev => prev.map(s => s.id === session.id ? { ...s, watched: true } : s));
       } catch {}
     };
+
+    // Watch-enforcement gating
+    const watchPct = liveTotalSec > 0
+      ? Math.min(100, Math.round((liveWatchSec / liveTotalSec) * 100))
+      : 0;
+    const thresholdMet = watchPct >= enforcement.threshold;
+    const enforcing = enforcement.enabled && !enforcement.sessionBypass && !enforcement.isAdmin;
+    const canMarkComplete = !enforcing || thresholdMet;
+
+    // Expose the Mark Complete callback only when the student is ALLOWED to
+    // click it. CourseTopBar hides the button entirely when the callback is
+    // undefined — avoids a visually-enabled-but-blocked CTA.
+    const markCompleteCallback = videoEnded && !isWatched && canMarkComplete ? handleMarkComplete : undefined;
+
+    // Progress bar sits in the scroll area above Mark Complete (CourseTopBar).
+    // Only render while the student is actively watching (not yet completed).
+    const progressBar = !isWatched ? (
+      <WatchProgressBar
+        watchPct={watchPct}
+        threshold={enforcement.threshold}
+        enforcing={enforcement.enabled}
+        adminBypass={enforcement.isAdmin}
+        sessionBypass={enforcement.sessionBypass}
+      />
+    ) : null;
 
     return (
       <CoursePlayerLayout
@@ -266,11 +364,17 @@ export default function LiveSessionDetailPage() {
         sessionUrl={typeof window !== 'undefined' ? window.location.href : ''}
         nextSessionHref={nextSess?.href}
         isWatched={isWatched}
-        onMarkComplete={handleMarkComplete}
+        onMarkComplete={markCompleteCallback}
+        isCompleted={isWatched}
         videoId={hasVideo ? ytId! : undefined}
         sessionId={session.id}
         studentEmail={studentSession?.email}
         studentRegId={studentSession?.registrationId}
+        baselineWatchedSeconds={baselineWatchedSec}
+        belowVideoContent={progressBar}
+        onVideoProgress={handleProgress}
+        onVideoEnded={handleVideoEnded}
+        onVideoNearEnd={handleVideoNearEnd}
         bannerUrl={session.banner_url}
         instructorName={session.instructor_name}
         instructorTitle={session.instructor_title}
