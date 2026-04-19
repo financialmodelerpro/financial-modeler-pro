@@ -8,6 +8,7 @@ const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
 const TEAL = '#2DD4BF';
 const GOLD = '#F5B942';
+const NAV_HEIGHT = 64;
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
 const LINKEDIN_URL = 'https://www.linkedin.com/company/financial-modeler-pro';
@@ -49,7 +50,7 @@ export function TrainingComingSoon({ variant, launchDate }: Props) {
 
   return (
     <div style={{
-      minHeight: '100vh',
+      minHeight: `calc(100vh - ${NAV_HEIGHT}px)`,
       background: `linear-gradient(135deg, #071530 0%, ${NAVY} 50%, #0F3D6E 100%)`,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       padding: '40px 20px',
@@ -57,28 +58,17 @@ export function TrainingComingSoon({ variant, launchDate }: Props) {
     }}>
       <div style={{ width: '100%', maxWidth: 560, textAlign: 'center' }}>
 
-        {/* FMP Logo + Badge */}
-        <div style={{ marginBottom: 18, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14 }}>
-          <div style={{
-            width: 68, height: 68, borderRadius: 16,
-            background: `linear-gradient(135deg, ${TEAL}, #14B8A6)`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 30, fontWeight: 800, color: NAVY,
-            boxShadow: '0 8px 32px rgba(45,212,191,0.35)',
-            letterSpacing: '-0.02em',
-          }}>
-            FMP
-          </div>
-          <div style={{
-            display: 'inline-flex', alignItems: 'center', gap: 8,
-            background: 'rgba(45,212,191,0.12)',
-            border: '1px solid rgba(45,212,191,0.4)',
-            borderRadius: 20, padding: '5px 14px',
-            fontSize: 11.5, color: TEAL, fontWeight: 700,
-            letterSpacing: '0.08em',
-          }}>
-            🎓 TRAINING HUB
-          </div>
+        {/* Context pill (logo lives in the navbar above) */}
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 8,
+          background: 'rgba(45,212,191,0.12)',
+          border: '1px solid rgba(45,212,191,0.4)',
+          borderRadius: 20, padding: '5px 14px',
+          fontSize: 11.5, color: TEAL, fontWeight: 700,
+          letterSpacing: '0.08em',
+          marginBottom: 20,
+        }}>
+          🎓 TRAINING HUB
         </div>
 
         <h1 style={{

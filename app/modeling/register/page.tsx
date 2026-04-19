@@ -8,7 +8,12 @@ export const revalidate = 0;
 export default async function ModelingRegisterPage() {
   const state = await getModelingComingSoonState();
   if (state.enabled) {
-    return <ModelingComingSoon variant="register" launchDate={state.launchDate} />;
+    return (
+      <>
+        <NavbarServer />
+        <ModelingComingSoon variant="register" launchDate={state.launchDate} />
+      </>
+    );
   }
   return <><NavbarServer /><RegisterForm /></>;
 }

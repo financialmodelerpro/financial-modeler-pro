@@ -5,6 +5,7 @@ import { CountdownTimer } from '@/src/components/shared/CountdownTimer';
 
 const NAVY = '#0D2E5A';
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
+const NAV_HEIGHT = 64;
 
 interface Props {
   variant: 'signin' | 'register';
@@ -13,7 +14,7 @@ interface Props {
 
 export function ModelingComingSoon({ variant, launchDate }: Props) {
   return (
-    <div style={{ minHeight: '100vh', background: `linear-gradient(135deg, #0A1F3D 0%, ${NAVY} 50%, #0F3D6E 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', fontFamily: "'Inter', sans-serif" }}>
+    <div style={{ minHeight: `calc(100vh - ${NAV_HEIGHT}px)`, background: `linear-gradient(135deg, #0A1F3D 0%, ${NAVY} 50%, #0F3D6E 100%)`, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', fontFamily: "'Inter', sans-serif" }}>
       <div style={{ width: '100%', maxWidth: 520, textAlign: 'center' }}>
         <div style={{ fontSize: 48, marginBottom: 20 }}>🚀</div>
 
