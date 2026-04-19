@@ -335,6 +335,13 @@ Both hubs share the same pattern: a server-side gate on signin/register pages pl
 - **Admin toggle**: `show_like_button` on `live_sessions` table (default true), toggled in admin session edit form
 - **Watch progress**: `session_watch_history` table, 50 points on first completion, badges on live sessions listing page
 
+### Dashboard Live Sessions Cards
+- `src/components/training/dashboard/LiveSessionCard.tsx` — two variants. **Upcoming** shows a banner with `UPCOMING` / `REGISTERED` / `LIVE NOW` badge, date/time/duration/instructor meta, and an adaptive CTA: `Register` → `View Details` (registered) → `Starting soon →` (≤15 min before, registered) → `Join Live →` (when `joinLinkAvailable`). Secondary icon is Add-to-Calendar (.ics). **Recorded** shows a teal `Recorded` badge, a green check corner when watched, date/duration/instructor meta, an amber watch-progress bar when `status=in_progress` with pct, an adaptive CTA `Watch Recording` / `Continue Watching` / `Watch Again`, and a Share icon that opens the universal `ShareModal`.
+- `src/components/training/dashboard/LiveSessionsSection.tsx` — dashboard block with single "Live Sessions" header + two sub-grids (Upcoming and Recorded). Self-fetching via `getLiveSessionsForStudent(email)`. Renders nothing when neither subsection has data. Upcoming sub-grid shows registered sessions first. Layout: `grid-template-columns: repeat(auto-fit, minmax(260px, 1fr))`, matches Achievement/SessionCard visual scale (12px radius, 1px border, soft shadow, navy titles).
+- Data helper: `src/lib/training/liveSessionsForStudent.ts` → `getLiveSessionsForStudent(email, courseId?, limit=3)` returns `{ upcoming, upcomingRegistered, recorded, regStatus, watchHistory }`. Wraps existing APIs (`/api/training/live-sessions?type=upcoming|recorded`, `/registration-status-batch`, `/watch-history`). `courseId` filter is a best-effort string match against `category` / `playlist.name` / `tags` (the schema has no course_id column).
+- ICS helper: `src/lib/training/calendar.ts` → `downloadIcs(session)` — 90-min default when `duration_minutes` missing; no-op SSR-safe.
+- Dashboard integration: `app/training/dashboard/page.tsx` replaced the old inline 3-col upcoming preview with `<LiveSessionsSection studentEmail={localSession.email} />`. The dashboard's own `upcomingSessions` state is retained solely to drive the sidebar live-now dot + quick-actions bar.
+
 ### Course Player System
 - **CoursePlayerLayout**: `src/components/training/player/CoursePlayerLayout.tsx` — CFI-style: left sidebar, video, right comments panel
 - **CourseTopBar**: `src/components/training/player/CourseTopBar.tsx` — dark sticky bar with actions, Mark Complete, Assessment, Continue
