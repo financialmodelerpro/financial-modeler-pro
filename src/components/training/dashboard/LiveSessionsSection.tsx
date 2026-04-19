@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Radio, Play } from 'lucide-react';
+import { Radio, CalendarClock } from 'lucide-react';
 import { LiveSessionCard } from './LiveSessionCard';
 import {
   getLiveSessionsForStudent,
@@ -14,110 +14,116 @@ const NAVY = '#0D2E5A';
 interface Props {
   studentEmail: string;
   courseId?: string;
-  /** How many cards to render per sub-section. Defaults to 3. */
+  /** How many upcoming cards to render. Defaults to 3 — matches the
+   *  "max 3 cards per row" dashboard layout. */
   limit?: number;
 }
 
-const gridStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-  gap: 16,
-};
-
-const headerRow: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-  marginBottom: 14,
-};
-
-const heading: React.CSSProperties = {
-  fontSize: 15, fontWeight: 800, color: NAVY,
-  margin: 0,
-  display: 'flex', alignItems: 'center', gap: 8,
-  letterSpacing: '-0.01em',
-};
-
-const subHeading: React.CSSProperties = {
-  fontSize: 16, fontWeight: 800, color: NAVY, margin: 0,
-};
-
-const viewAllLink: React.CSSProperties = {
-  fontSize: 12, fontWeight: 700, color: '#1B4F8A', textDecoration: 'none',
+/**
+ * Dashboard live-sessions preview — UPCOMING ONLY. The main
+ * `/training/live-sessions` page shows both upcoming + recorded;
+ * the dashboard keeps the preview tight so students scan the
+ * "what's next" list without scrolling past a wall of recordings.
+ *
+ * Layout: up to 3 cards, flex-wrapped so each card stays ≤ 1/3 width
+ * on wide screens (>=780px) and gracefully collapses to 2/1 columns
+ * on narrower viewports.
+ */
+const EMPTY_DATA: LiveSessionsForStudent = {
+  upcoming: [], upcomingRegistered: [], recorded: [],
+  regStatus: {}, watchHistory: {},
 };
 
 export function LiveSessionsSection({ studentEmail, courseId, limit = 3 }: Props) {
   const [data, setData] = useState<LiveSessionsForStudent | null>(null);
-  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
+    if (!studentEmail) return;
     let cancelled = false;
-    if (!studentEmail) { setLoaded(true); return; }
     getLiveSessionsForStudent(studentEmail, courseId, limit)
-      .then(d => { if (!cancelled) { setData(d); setLoaded(true); } })
-      .catch(() => { if (!cancelled) setLoaded(true); });
+      .then(d => { if (!cancelled) setData(d); })
+      .catch(() => { if (!cancelled) setData(EMPTY_DATA); });
     return () => { cancelled = true; };
   }, [studentEmail, courseId, limit]);
 
-  if (!loaded) return null;
-  if (!data) return null;
+  // Still loading — hide the section to avoid a flash of empty state before
+  // the fetch completes. Once `data` is set (even to EMPTY_DATA on error),
+  // we render either the grid or the empty-state placeholder.
+  if (data === null && studentEmail) return null;
 
-  const upcomingMerged = [...data.upcomingRegistered, ...data.upcoming].slice(0, limit);
-  const hasUpcoming = upcomingMerged.length > 0;
-  const hasRecorded = data.recorded.length > 0;
-
-  if (!hasUpcoming && !hasRecorded) return null;
+  // Registered-first ordering so the student's own commitments lead.
+  // Slice to `limit` so the grid always holds max 3 cards.
+  const upcoming = data
+    ? [...data.upcomingRegistered, ...data.upcoming].slice(0, limit)
+    : [];
 
   return (
     <div style={{ marginBottom: 32 }}>
-      <div style={headerRow}>
-        <h2 style={subHeading}>Live Sessions</h2>
-        <Link href="/training/live-sessions" style={viewAllLink}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 800, color: NAVY, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <Radio size={14} color="#EA580C" />
+          Upcoming Live Sessions
+        </h2>
+        <Link href="/training/live-sessions" style={{ fontSize: 12, fontWeight: 700, color: '#1B4F8A', textDecoration: 'none' }}>
           View all →
         </Link>
       </div>
 
-      {hasUpcoming && (
-        <div style={{ marginBottom: hasRecorded ? 24 : 0 }}>
-          <div style={headerRow}>
-            <h3 style={heading}>
-              <Radio size={14} color="#EA580C" /> Upcoming
-            </h3>
-            <Link href="/training/live-sessions" style={viewAllLink}>See all upcoming →</Link>
-          </div>
-          <div style={gridStyle}>
-            {upcomingMerged.map(s => (
-              <LiveSessionCard
-                key={s.id}
-                variant="upcoming"
-                session={s}
-                reg={data.regStatus[s.id]}
-                href={`/training/live-sessions/${s.id}`}
-              />
-            ))}
-          </div>
+      {upcoming.length === 0 ? (
+        <EmptyState />
+      ) : (
+        <div style={{
+          display: 'grid',
+          // Max 3 cards per row on wide screens; auto-collapse to 2/1 as
+          // viewport narrows. 260px min keeps card meta readable.
+          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
+          gap: 16,
+        }}>
+          {upcoming.map(s => (
+            <LiveSessionCard
+              key={s.id}
+              variant="upcoming"
+              session={s}
+              reg={data?.regStatus[s.id]}
+              href={`/training/live-sessions/${s.id}`}
+            />
+          ))}
         </div>
       )}
+    </div>
+  );
+}
 
-      {hasRecorded && (
-        <div>
-          <div style={headerRow}>
-            <h3 style={heading}>
-              <Play size={14} color="#0F766E" fill="#0F766E" /> Recorded
-            </h3>
-            <Link href="/training/live-sessions" style={viewAllLink}>See all recordings →</Link>
-          </div>
-          <div style={gridStyle}>
-            {data.recorded.map(s => (
-              <LiveSessionCard
-                key={s.id}
-                variant="recorded"
-                session={s}
-                watch={data.watchHistory[s.id]}
-                href={`/training/live-sessions/${s.id}`}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+function EmptyState() {
+  return (
+    <div style={{
+      padding: '32px 24px',
+      background: '#fff',
+      border: '1px dashed #E5E7EB',
+      borderRadius: 12,
+      textAlign: 'center',
+      color: '#6B7280',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 10 }}>
+        <CalendarClock size={28} color="#9CA3AF" />
+      </div>
+      <div style={{ fontSize: 14, fontWeight: 700, color: '#374151', marginBottom: 6 }}>
+        No upcoming live sessions scheduled
+      </div>
+      <div style={{ fontSize: 13, lineHeight: 1.55, maxWidth: 420, margin: '0 auto 14px' }}>
+        New live sessions appear here as soon as they&apos;re announced. In the meantime, the recordings
+        library is available on the Live Sessions page.
+      </div>
+      <Link
+        href="/training/live-sessions"
+        style={{
+          display: 'inline-block', padding: '8px 16px', borderRadius: 8,
+          background: '#1B4F8A', color: '#fff', fontSize: 12, fontWeight: 700,
+          textDecoration: 'none',
+        }}
+      >
+        Browse recordings →
+      </Link>
     </div>
   );
 }
