@@ -43,13 +43,30 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
   const name   = cert.full_name ?? 'Student';
   const course = cert.course ?? 'Course';
+  const grade  = cert.grade ? ` with grade ${cert.grade}` : '';
+  const issued = cert.issued_at ? ` Verified certificate issued ${new Date(cert.issued_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}.` : '';
+
+  const title = `${name} earned ${course} Certification | Financial Modeler Pro`;
+  const description = `${name} completed ${course} from Financial Modeler Pro${grade}.${issued} Scan or click to verify.`;
+
+  // Dynamic, branded OG image — rich LinkedIn / Twitter / WhatsApp preview
+  // with student name + course + grade + date.
+  const ogImage = `/api/og/certificate/${cert.certificate_id ?? uuid}`;
+
   return {
-    title:       `${name} - ${course} Certificate | Financial Modeler Pro`,
-    description: `Verify the ${course} certificate issued to ${name} by Financial Modeler Pro.`,
+    title,
+    description,
     openGraph: {
-      title:       `${name} - Verified Certificate`,
-      description: `${course} certificate issued by Financial Modeler Pro`,
-      images:      cert.cert_pdf_url ? [{ url: cert.cert_pdf_url }] : [],
+      title:       `${name} — Verified ${course} Certificate`,
+      description,
+      type:        'profile',
+      images:      [{ url: ogImage, width: 1200, height: 630, alt: `${name} ${course} Certificate` }],
+    },
+    twitter: {
+      card:  'summary_large_image',
+      title: `${name} — Verified ${course} Certificate`,
+      description,
+      images: [ogImage],
     },
   };
 }
@@ -133,7 +150,10 @@ export default async function VerifyPage({ params }: PageProps) {
   }
 
   const certId      = cert.certificate_id ?? uuid;
-  const verifyUrl   = `${mainUrl}/verify/${certId}`;
+  // Canonical verification URL is on learn.* — matches the QR encoded in
+  // the certificate + transcript PDFs, and makes the share preview
+  // consistent regardless of which subdomain the student arrived on.
+  const verifyUrl   = `${learnUrl}/verify/${certId}`;
   const qrSrc       = `https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=${encodeURIComponent(verifyUrl)}`;
   const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(verifyUrl)}`;
   const issueDate   = cert.issued_at ?? cert.issued_date ?? '';
@@ -214,7 +234,7 @@ export default async function VerifyPage({ params }: PageProps) {
             <img src={qrSrc} alt="Verification QR Code" width={140} height={140} style={{ borderRadius: 8, border: '1px solid #E5E7EB' }} />
             <div style={{ fontSize: 11, color: '#9CA3AF' }}>Scan to verify</div>
             <div style={{ fontSize: 10, color: '#9CA3AF', wordBreak: 'break-all', maxWidth: 140, textAlign: 'center', lineHeight: 1.4 }}>
-              {mainUrl}/verify/{certId}
+              {learnUrl}/verify/{certId}
             </div>
           </div>
 

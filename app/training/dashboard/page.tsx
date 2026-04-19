@@ -327,11 +327,15 @@ export default function TrainingDashboardPage() {
           }
         }).catch(() => {});
         if (json.fallback) setIsFallback(true);
-        if (json.data.certificateIssued) {
-          const certRes  = await fetch(`/api/training/certificate?email=${encodeURIComponent(sess.email)}`);
-          const certJson = await certRes.json() as { success: boolean; data?: Certificate[] };
-          if (certJson.success && certJson.data) setCertificates(certJson.data);
-        }
+        // Always fetch certificates — the progress endpoint's
+        // `certificateIssued` flag is sourced from Apps Script, so
+        // force-issued certs (which only land in Supabase) would never
+        // flip that flag and the card never rendered. The certificate API
+        // unions both sources and returns an empty array when there's
+        // nothing to show, which is cheap and correct.
+        const certRes  = await fetch(`/api/training/certificate?email=${encodeURIComponent(sess.email)}`);
+        const certJson = await certRes.json() as { success: boolean; data?: Certificate[] };
+        if (certJson.success && certJson.data) setCertificates(certJson.data);
       } else {
         setProgress({ student: { name: sess.registrationId, email: sess.email, registrationId: sess.registrationId, course: '3sfm', registeredAt: '' }, sessions: [], finalPassed: false, certificateIssued: false });
         setIsFallback(true);

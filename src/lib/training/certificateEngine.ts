@@ -15,6 +15,10 @@ import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
 import { certificateIssuedTemplate } from '@/src/lib/email/templates/certificateIssued';
 
 const MAIN_URL   = process.env.NEXT_PUBLIC_MAIN_URL   ?? 'https://financialmodelerpro.com';
+// Verification page lives on the Training Hub subdomain — /verify/:id is
+// rewritten to the same Next page on both domains, but learn.* is the
+// canonical URL students share.
+const LEARN_URL  = process.env.NEXT_PUBLIC_LEARN_URL  ?? 'https://learn.financialmodelerpro.com';
 const QR_API     = 'https://api.qrserver.com/v1/create-qr-code';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -433,7 +437,7 @@ export async function issueCertificateForPending(
 
   try {
     const certificateId   = await generateCertificateId(cert.courseCode);
-    const verificationUrl = `${MAIN_URL}/verify/${certificateId}`;
+    const verificationUrl = `${LEARN_URL}/verify/${certificateId}`;
     const grade           = cert.grade || deriveGrade(cert.finalScore ?? 0, cert.avgScore ?? 0);
     const issueDate       = cert.completionDate || new Date().toISOString();
 
