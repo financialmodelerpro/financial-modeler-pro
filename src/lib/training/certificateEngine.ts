@@ -450,35 +450,82 @@ export async function issueCertificateForPending(
       console.warn('[certEngine] Apps Script updateCertificateUrls failed (non-fatal):', e);
     }
 
-    await sb.from('student_certificates').upsert(
-      {
-        certificate_id:     certificateId,
-        registration_id:    cert.registrationId,
-        full_name:          cert.studentName,
-        email:              cert.email,
-        course:             cert.courseName,
-        course_code:        cert.courseCode,
-        grade,
-        final_score:        cert.finalScore ?? null,
-        avg_score:          cert.avgScore ?? null,
-        cert_pdf_url:       certPdfUrl,
-        badge_url:          badgeUrl || null,
-        verification_url:   verificationUrl,
-        // cert_status is the single enum the rest of the codebase gates on —
-        // verify page, dashboard API, admin list all check `=== 'Issued'`.
-        // Provenance (auto vs forced) is recorded in the separate `issued_via`
-        // + `issued_by_admin` columns so we don't fork the status value and
-        // accidentally hide force-issued certs from downstream readers.
-        cert_status:        'Issued',
-        issued_at:          new Date().toISOString(),
-        issued_date:        new Date().toISOString().split('T')[0],
-        course_subheading:  cert.courseSubheading ?? null,
-        course_description: cert.courseDescription ?? null,
-        issued_via:         options.issuedVia ?? (options.force ? 'forced' : 'auto'),
-        issued_by_admin:    options.forcedByAdmin ?? null,
-      },
-      { onConflict: 'registration_id' },
-    );
+    /**
+     * Persist the row to `student_certificates`.
+     *
+     * Previous version used `.upsert({...}, { onConflict: 'registration_id' })`
+     * and never inspected the returned error. Supabase does NOT throw when a
+     * DB-level error occurs — it returns `{ data: null, error }`. If the
+     * `student_certificates` table lacks a UNIQUE constraint on
+     * `registration_id`, Postgres rejects the statement with
+     *   "there is no unique or exclusion constraint matching the ON CONFLICT..."
+     * That error was silently swallowed and the admin UI reported success
+     * while the DB row was never written. (Matches the observed "zero rows
+     * ever" symptom.)
+     *
+     * Fixed by:
+     *  1. Explicit select → update|insert so we're constraint-agnostic.
+     *  2. Every supabase call is error-checked and the helper RETURNS the
+     *     real error string on failure — the force-issue route already
+     *     surfaces `result.error` to the admin UI as a 500.
+     */
+    const row: Record<string, unknown> = {
+      certificate_id:     certificateId,
+      registration_id:    cert.registrationId,
+      full_name:          cert.studentName,
+      email:              cert.email.toLowerCase(),
+      course:             cert.courseName,
+      course_code:        cert.courseCode,
+      grade,
+      final_score:        cert.finalScore ?? null,
+      avg_score:          cert.avgScore ?? null,
+      cert_pdf_url:       certPdfUrl,
+      badge_url:          badgeUrl || null,
+      verification_url:   verificationUrl,
+      cert_status:        'Issued',
+      issued_at:          new Date().toISOString(),
+      issued_date:        new Date().toISOString().split('T')[0],
+      course_subheading:  cert.courseSubheading ?? null,
+      course_description: cert.courseDescription ?? null,
+      issued_via:         options.issuedVia ?? (options.force ? 'forced' : 'auto'),
+      issued_by_admin:    options.forcedByAdmin ?? null,
+    };
+
+    // Natural-key lookup: (email, course_code). Works regardless of which
+    // columns the DB has unique-indexed.
+    const { data: existing, error: selectErr } = await sb
+      .from('student_certificates')
+      .select('id')
+      .ilike('email', row.email as string)
+      .eq('course_code', row.course_code as string)
+      .maybeSingle();
+
+    if (selectErr) {
+      console.error('[certEngine] student_certificates SELECT failed:', selectErr);
+      return { ok: false, error: `DB select failed: ${selectErr.message}` };
+    }
+
+    const writeRes = existing?.id
+      ? await sb.from('student_certificates').update(row).eq('id', existing.id)
+      : await sb.from('student_certificates').insert(row);
+
+    if (writeRes.error) {
+      console.error('[certEngine] student_certificates WRITE failed:', {
+        message: writeRes.error.message,
+        details: (writeRes.error as { details?: string }).details,
+        hint:    (writeRes.error as { hint?: string }).hint,
+        code:    (writeRes.error as { code?: string }).code,
+        email:   cert.email,
+        courseCode: cert.courseCode,
+        certificateId,
+      });
+      return { ok: false, error: `DB write failed: ${writeRes.error.message}` };
+    }
+
+    console.log('[certEngine] student_certificates row written', {
+      operation: existing?.id ? 'update' : 'insert',
+      certificateId, email: row.email, courseCode: row.course_code,
+    });
 
     try {
       const { subject, html } = await certificateIssuedTemplate({
