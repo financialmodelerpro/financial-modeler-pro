@@ -4,17 +4,31 @@ import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
 
 export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+interface PerKeyStat { completed: number; in_progress: number; avgPct: number; rows: number }
+
+interface LiveSessionRow {
+  id: string;
+  title: string;
+  session_type: string;
+  scheduled_datetime: string | null;
+  is_published: boolean;
+  has_assessment?: boolean | null;
+  playlist_id?: string | null;
+}
 
 /**
  * GET /api/admin/watch-enforcement-stats
  *
- * Returns data the admin Watch Enforcement UI needs to render a dynamic
- * session list that includes BOTH:
- *   - sessions currently defined in COURSES config (admin page reads that directly), and
- *   - any tab_key students have actually watched but that isn't in config yet.
+ * Returns data the admin Watch Enforcement UI needs to render a union of all
+ * trackable sessions:
+ *   - every tab_key currently in COURSES config (handled client-side)
+ *   - every tab_key with at least one certification_watch_history record
+ *   - every live_sessions row (served here as `liveSessions[]` — client
+ *     synthesizes `LIVE_<uuid>` tab_keys)
  *
- * This means when a new session is added to COURSES in the future it shows up
- * automatically. And historical data for deprecated sessions is still visible.
+ * Plus aggregate watch stats keyed by tab_key (rows across all students).
  */
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -24,30 +38,42 @@ export async function GET() {
 
   const sb = getServerClient();
 
-  // Distinct tab_keys students have records for
-  const { data: historyRows } = await sb
-    .from('certification_watch_history')
-    .select('tab_key');
-
-  const historyTabKeys = Array.from(new Set((historyRows ?? []).map(r => r.tab_key as string).filter(Boolean)));
-
-  // Aggregate stats — how many rows in each status across all students
-  const { data: statusRows } = await sb
+  // ── Certification course watch history ──────────────────────────────────────
+  const { data: certHistory } = await sb
     .from('certification_watch_history')
     .select('tab_key, status, watch_percentage');
 
-  const perKey: Record<string, { completed: number; in_progress: number; avgPct: number; rows: number }> = {};
-  for (const r of (statusRows ?? []) as { tab_key: string; status: string; watch_percentage: number | null }[]) {
-    const k = r.tab_key;
+  const perKey: Record<string, PerKeyStat> = {};
+  const addRow = (k: string, status: string, pct: number) => {
     if (!perKey[k]) perKey[k] = { completed: 0, in_progress: 0, avgPct: 0, rows: 0 };
-    if (r.status === 'completed')   perKey[k].completed++;
-    if (r.status === 'in_progress') perKey[k].in_progress++;
-    const pct = typeof r.watch_percentage === 'number' ? r.watch_percentage : 0;
+    if (status === 'completed')   perKey[k].completed++;
+    if (status === 'in_progress') perKey[k].in_progress++;
     perKey[k].avgPct = (perKey[k].avgPct * perKey[k].rows + pct) / (perKey[k].rows + 1);
     perKey[k].rows++;
+  };
+  for (const r of (certHistory ?? []) as { tab_key: string; status: string; watch_percentage: number | null }[]) {
+    addRow(r.tab_key, r.status, typeof r.watch_percentage === 'number' ? r.watch_percentage : 0);
   }
-  // Round avgPct for display
+
+  const historyTabKeys = Array.from(new Set((certHistory ?? []).map(r => r.tab_key as string).filter(Boolean)));
+
+  // ── Live session watch history (mirrors certification_watch_history) ────────
+  const { data: liveHistory } = await sb
+    .from('session_watch_history')
+    .select('session_id, status, watch_percentage');
+  for (const r of (liveHistory ?? []) as { session_id: string; status: string | null; watch_percentage: number | null }[]) {
+    addRow(`LIVE_${r.session_id}`, r.status ?? 'completed', typeof r.watch_percentage === 'number' ? r.watch_percentage : 100);
+  }
+
   for (const k of Object.keys(perKey)) perKey[k].avgPct = Math.round(perKey[k].avgPct);
 
-  return NextResponse.json({ historyTabKeys, perKeyStats: perKey });
+  // ── All live sessions (upcoming + live + recorded) ─────────────────────────
+  const { data: liveRows } = await sb
+    .from('live_sessions')
+    .select('id, title, session_type, scheduled_datetime, is_published, has_assessment, playlist_id')
+    .order('scheduled_datetime', { ascending: false });
+
+  const liveSessions = (liveRows ?? []) as LiveSessionRow[];
+
+  return NextResponse.json({ historyTabKeys, perKeyStats: perKey, liveSessions });
 }
