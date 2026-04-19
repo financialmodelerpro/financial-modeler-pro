@@ -8,9 +8,19 @@ import { ArticlesGrid, NewsletterForm } from './ArticlesClient';
 
 export const revalidate = 0;
 
+const MAIN_URL_ART = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
+
 export const metadata: Metadata = {
-  title: 'Articles & Insights - Financial Modeler Pro',
-  description: 'Real estate financial modeling guides, tutorials, and industry insights from the Financial Modeler Pro team.',
+  title: 'Articles | Financial Modeling Insights & Best Practices',
+  description: 'Expert articles on financial modeling, business valuation, real estate modeling, and transaction advisory. Practitioner insights from 12+ years of deal work across KSA, GCC, and Pakistan.',
+  alternates: { canonical: `${MAIN_URL_ART}/articles` },
+  openGraph: {
+    type: 'website',
+    url: `${MAIN_URL_ART}/articles`,
+    title: 'FMP Articles | Financial Modeling Insights',
+    description: 'Practitioner-led articles on financial modeling, valuation, and corporate finance.',
+    images: [{ url: `${MAIN_URL_ART}/api/og/main`, width: 1200, height: 630 }],
+  },
 };
 
 export default async function ArticlesPage() {

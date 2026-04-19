@@ -5,6 +5,8 @@ import { getAllPageSections } from '@/src/lib/shared/cms';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
+import { PersonJsonLd } from '@/src/components/seo/StructuredData';
+import { canonicalUrl } from '@/src/lib/seo/canonical';
 
 export const revalidate = 0;
 
@@ -16,10 +18,19 @@ async function getFounderContent(): Promise<Record<string, unknown> | undefined>
 export async function generateMetadata(): Promise<Metadata> {
   const fc = await getFounderContent();
   const name  = (fc?.name as string)  || 'Ahmad Din';
-  const title = (fc?.title as string) || 'Founder & Lead Instructor - Financial Modeler Pro';
+  const title = (fc?.title as string) || 'Corporate Finance & Transaction Advisory Specialist';
+  const bio   = (fc?.bio as string)   || 'Ahmad Din, ACCA FMVA, Founder of Financial Modeler Pro. 12+ years of corporate finance and transaction advisory across KSA and Pakistan. Structured multi-billion riyal deals and built institutional-grade financial models. Available for consultations, training, and advisory work.';
+  const url   = canonicalUrl('/about/ahmad-din', 'main');
   return {
-    title: `${name} - ${title}`,
-    description: (fc?.bio as string) || 'Corporate finance specialist and founder of Financial Modeler Pro.',
+    title: `${name} | ${title}`,
+    description: bio,
+    alternates: { canonical: url },
+    openGraph: {
+      type: 'profile',
+      title: `${name} | ${title}`,
+      description: bio,
+      url,
+    },
   };
 }
 
@@ -62,6 +73,14 @@ export default async function FounderPage() {
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
+      <PersonJsonLd
+        name={name}
+        jobTitle={title}
+        image={photoUrl || undefined}
+        bio={shortBio || undefined}
+        url={canonicalUrl('/about/ahmad-din', 'main')}
+        sameAs={[linkedin].filter(Boolean)}
+      />
       <NavbarServer />
       <div style={{ height: 64 }} />
 

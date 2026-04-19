@@ -31,9 +31,25 @@ function fw(record: Record<string, unknown> | undefined, key: string): React.CSS
   return style;
 }
 
+const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+
 export const metadata: Metadata = {
-  title: 'Training Hub - Free Financial Modeling Certification | Financial Modeler Pro',
-  description: 'Get certified in financial modeling for free. Professional certification backed by real practitioner training. Verified certificates with unique IDs.',
+  title: 'Financial Modeling Training | 3-Statement, Business Valuation & Corporate Finance',
+  description: 'Free financial modeling certification taught by a practitioner. 3-Statement Modeling, Business Valuation, and advanced transaction topics. Real deal work, not academic theory. Built for finance professionals in KSA, GCC, Pakistan, and global markets.',
+  alternates: { canonical: `${LEARN_URL}/training` },
+  openGraph: {
+    type: 'website',
+    url: `${LEARN_URL}/training`,
+    title: 'Financial Modeling Training | FMP Training Hub',
+    description: 'Free practitioner-led financial modeling certification — 3-Statement Modeling, Business Valuation, and Real-World Sessions.',
+    images: [{ url: `${LEARN_URL}/api/og`, width: 1200, height: 630, alt: 'FMP Training Hub — Free Financial Modeling Certification' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Financial Modeling Training | FMP Training Hub',
+    description: 'Free practitioner-led financial modeling certification.',
+    images: [`${LEARN_URL}/api/og`],
+  },
 };
 
 // ── Static fallback data ─────────────────────────────────────────────────────

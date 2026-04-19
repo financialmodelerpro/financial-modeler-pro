@@ -11,9 +11,12 @@ import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
 
 export const revalidate = 0;
 
+const MAIN_URL_CT = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
+
 export const metadata = {
-  title: 'Contact Us - Financial Modeler Pro',
-  description: 'Get in touch with the Financial Modeler Pro team.',
+  title: 'Contact Financial Modeler Pro',
+  description: 'Get in touch with Financial Modeler Pro for training inquiries, advisory services, or general questions. Based in Pakistan, serving clients across KSA, GCC, and global markets.',
+  alternates: { canonical: `${MAIN_URL_CT}/contact` },
 };
 
 // ── Types ────────────────────────────────────────────────────────────────────

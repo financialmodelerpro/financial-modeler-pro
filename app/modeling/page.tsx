@@ -10,12 +10,26 @@ import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
 
 export const revalidate = 0;
 
-export const metadata: Metadata = {
-  title: 'Modeling Hub - Professional Financial Modeling Platforms | Financial Modeler Pro',
-  description: 'Build institutional-grade financial models across real estate, business valuation, FP&A, LBO, and more. Free to use, built by finance professionals.',
-};
-
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
+
+export const metadata: Metadata = {
+  title: 'Financial Modeling Platform | Real Estate, Valuation, LBO, Project Finance',
+  description: 'Specialized financial modeling platform for every discipline. Structured workflows for Real Estate, Business Valuation, Project Finance, LBO, FP&A, and Corporate Finance. Institutional-grade models in hours, not weeks. Built for professional advisors across KSA, GCC, Pakistan, and global markets.',
+  alternates: { canonical: `${APP_URL}/modeling` },
+  openGraph: {
+    type: 'website',
+    url: `${APP_URL}/modeling`,
+    title: 'FMP Modeling Hub | Specialized Financial Modeling Platforms',
+    description: 'Institutional-grade financial modeling platforms — Real Estate, Valuation, LBO, Project Finance, FP&A, Corporate Finance.',
+    images: [{ url: `${APP_URL}/api/og/modeling`, width: 1200, height: 630, alt: 'FMP Modeling Hub — Specialized Financial Modeling Platforms' }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'FMP Modeling Hub | Specialized Financial Modeling',
+    description: 'Institutional-grade financial modeling platforms for analysts across KSA, GCC, Pakistan, and globally.',
+    images: [`${APP_URL}/api/og/modeling`],
+  },
+};
 
 // ── Static fallback data ─────────────────────────────────────────────────────
 

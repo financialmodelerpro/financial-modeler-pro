@@ -31,13 +31,15 @@ export const revalidate = 0;
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
 
 export const metadata: Metadata = {
-  title: 'Financial Modeler Pro - The Professional Hub for Financial Modeling',
-  description: 'Professional-grade financial modeling across all disciplines.',
+  title: 'Financial Modeler Pro | Structured Modeling. Real-World Finance.',
+  description: 'Practitioner-built financial modeling platform and training hub. Learn 3-Statement Modeling, Business Valuation, Real Estate Modeling, and Corporate Finance from a specialist with 12+ years of transaction advisory experience across KSA, GCC, and Pakistan.',
+  alternates: { canonical: MAIN_URL },
   openGraph: {
-    title: 'Financial Modeler Pro',
-    description: 'Structured Modeling. Real-World Finance.',
+    title: 'Financial Modeler Pro — Structured Modeling. Real-World Finance.',
+    description: 'Practitioner-built financial modeling training + platform for analysts across KSA, GCC, and global markets.',
     type: 'website',
-    images: [{ url: `${MAIN_URL}/api/og/main`, width: 1200, height: 630 }],
+    url: MAIN_URL,
+    images: [{ url: `${MAIN_URL}/api/og/main`, width: 1200, height: 630, alt: 'Financial Modeler Pro — Structured Modeling. Real-World Finance.' }],
   },
 };
 

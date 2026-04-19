@@ -1,10 +1,43 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { DetailClient, type DetailSession } from './DetailClient';
+import { EventJsonLd, BreadcrumbJsonLd } from '@/src/components/seo/StructuredData';
+import { canonicalUrl } from '@/src/lib/seo/canonical';
 
 export const dynamic = 'force-dynamic';
+
+export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
+  const { id } = await params;
+  const session = await getSession(id);
+  if (!session) return { title: 'Session not found' };
+  const url = canonicalUrl(`/training-sessions/${session.id}`, 'main');
+  const isRecorded = session.session_type === 'recorded';
+  const typeLabel = isRecorded ? 'Recorded Session' : 'Live Session';
+  const title = `${session.title} | FMP ${typeLabel}`;
+  const desc = session.description?.slice(0, 180)
+    || `${typeLabel} from FMP Real-World Financial Modeling. Practitioner-led training with ${session.instructor_name ?? 'Ahmad Din'}.`;
+  return {
+    title,
+    description: desc,
+    alternates: { canonical: url },
+    openGraph: {
+      title,
+      description: desc,
+      type: 'article',
+      url,
+      images: session.banner_url ? [{ url: session.banner_url, width: 1200, height: 630, alt: session.title }] : [],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description: desc,
+      images: session.banner_url ? [session.banner_url] : undefined,
+    },
+  };
+}
 
 async function getSession(id: string): Promise<DetailSession | null> {
   try {
@@ -84,8 +117,33 @@ export default async function PublicSessionDetailPage({ params }: { params: Prom
   const { id } = await params;
   const session = await getSession(id);
 
+  const url = session ? canonicalUrl(`/training-sessions/${session.id}`, 'main') : '';
+  const endDate = session?.scheduled_datetime && session.duration_minutes
+    ? new Date(new Date(session.scheduled_datetime).getTime() + session.duration_minutes * 60000).toISOString()
+    : undefined;
+
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#F5F7FA', minHeight: '100vh' }}>
+      {session && session.scheduled_datetime && (
+        <EventJsonLd
+          name={session.title}
+          description={session.description ?? `${session.session_type === 'recorded' ? 'Recorded' : 'Live'} session from Financial Modeler Pro.`}
+          startDate={session.scheduled_datetime}
+          endDate={endDate}
+          image={session.banner_url ?? undefined}
+          url={url}
+          isVirtual
+          instructor={session.instructor_name ?? undefined}
+          status={session.session_type === 'recorded' ? 'recorded' : 'scheduled'}
+        />
+      )}
+      {session && (
+        <BreadcrumbJsonLd items={[
+          { name: 'Home',          url: canonicalUrl('/', 'main') },
+          { name: 'Live Sessions', url: canonicalUrl('/training-sessions', 'main') },
+          { name: session.title,   url },
+        ]} />
+      )}
       <NavbarServer />
       <div style={{ height: 64 }} />
       <DetailClient session={session} />

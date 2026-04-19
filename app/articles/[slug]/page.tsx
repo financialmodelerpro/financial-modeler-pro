@@ -3,6 +3,8 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getArticleBySlug, estimateReadTime } from '@/src/lib/shared/cms';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { ArticleJsonLd, BreadcrumbJsonLd } from '@/src/components/seo/StructuredData';
+import { canonicalUrl } from '@/src/lib/seo/canonical';
 
 export const revalidate = 60;
 
@@ -18,14 +20,25 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
   const article  = await getArticleBySlug(slug);
   if (!article) return { title: 'Article Not Found' };
+  const url = canonicalUrl(`/articles/${article.slug}`, 'main');
   return {
-    title:       article.seo_title       ?? `${article.title} - Financial Modeler Pro`,
-    description: article.seo_description ?? '',
+    title:       article.seo_title       ?? article.title,
+    description: article.seo_description ?? `${article.title} — practitioner insights on financial modeling, valuation, and corporate finance from Financial Modeler Pro.`,
+    alternates: { canonical: url },
     openGraph: {
       title:       article.seo_title ?? article.title,
       description: article.seo_description ?? '',
       type:        'article',
-      images:      article.cover_url ? [{ url: article.cover_url }] : [],
+      url,
+      publishedTime: article.published_at ?? undefined,
+      modifiedTime:  article.updated_at ?? article.published_at ?? undefined,
+      images:      article.cover_url ? [{ url: article.cover_url, width: 1200, height: 630, alt: article.title }] : [],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: article.seo_title ?? article.title,
+      description: article.seo_description ?? '',
+      images: article.cover_url ? [article.cover_url] : undefined,
     },
   };
 }
@@ -44,8 +57,23 @@ export default async function ArticleDetailPage({ params }: Props) {
   // We trust admin-entered content; body comes from our own Supabase
   const safeBody = article.body;
 
+  const articleUrl = canonicalUrl(`/articles/${article.slug}`, 'main');
+
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#0D2E5A', color: '#fff', minHeight: '100vh' }}>
+      <ArticleJsonLd
+        title={article.seo_title ?? article.title}
+        description={article.seo_description ?? ''}
+        image={article.cover_url ?? undefined}
+        publishedTime={article.published_at}
+        modifiedTime={article.updated_at}
+        url={articleUrl}
+      />
+      <BreadcrumbJsonLd items={[
+        { name: 'Home',     url: canonicalUrl('/', 'main') },
+        { name: 'Articles', url: canonicalUrl('/articles', 'main') },
+        { name: article.title, url: articleUrl },
+      ]} />
 
       <NavbarServer />
       <div style={{ height: 64 }} />

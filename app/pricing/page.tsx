@@ -9,9 +9,12 @@ import { CouponInput } from './CouponInput';
 
 export const revalidate = 0;
 
+const MAIN_URL_PR = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
+
 export const metadata: Metadata = {
-  title: 'Pricing - Financial Modeler Pro',
-  description: 'Simple, transparent pricing for financial modeling professionals. Start free, upgrade when ready.',
+  title: 'Pricing | Financial Modeler Pro',
+  description: 'Flexible pricing for Financial Modeler Pro Training Hub and Modeling Hub platforms. Professional financial modeling training and institutional-grade modeling tools. Start free, upgrade when ready.',
+  alternates: { canonical: `${MAIN_URL_PR}/pricing` },
 };
 
 interface PlatformPlan {

@@ -23,9 +23,17 @@ function fw(record: Record<string, unknown> | undefined, key: string): React.CSS
 
 export const revalidate = 60;
 
+const MAIN_URL_BAM = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
+
 export const metadata: Metadata = {
-  title: 'Book a Meeting - Financial Modeler Pro',
-  description: 'Schedule a call with Ahmad Din - Corporate Finance & Financial Modeling Expert.',
+  title: 'Book a Consultation | Financial Modeling Advisory',
+  description: 'Schedule a consultation with Ahmad Din — Corporate Finance & Transaction Advisory Specialist. Financial modeling advisory, deal structuring, and strategic consultations. 60-minute sessions available.',
+  alternates: { canonical: `${MAIN_URL_BAM}/book-a-meeting` },
+  openGraph: {
+    title: 'Book a Consultation | FMP',
+    description: 'Consultations with Ahmad Din — Corporate Finance & Transaction Advisory Specialist.',
+    url: `${MAIN_URL_BAM}/book-a-meeting`,
+  },
 };
 
 export default async function BookAMeetingPage() {

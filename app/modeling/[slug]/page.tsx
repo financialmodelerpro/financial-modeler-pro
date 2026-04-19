@@ -44,11 +44,26 @@ export async function generateMetadata({
   const { slug } = await params;
   const platform = getPlatform(slug);
   if (!platform) {
-    return { title: 'Platform Not Found | Financial Modeler Pro' };
+    return { title: 'Platform Not Found' };
   }
+  const url = `${APP_URL}/modeling/${platform.slug}`;
   return {
-    title: `${platform.name} | Modeling Hub - Financial Modeler Pro`,
+    title: `${platform.name} | Modeling Hub`,
     description: platform.description,
+    alternates: { canonical: url },
+    openGraph: {
+      type: 'website',
+      url,
+      title: `${platform.name} | FMP Modeling Hub`,
+      description: platform.description,
+      images: [{ url: `${APP_URL}/api/og/modeling`, width: 1200, height: 630, alt: `${platform.name} — Financial Modeler Pro` }],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: `${platform.name} | FMP Modeling Hub`,
+      description: platform.description,
+      images: [`${APP_URL}/api/og/modeling`],
+    },
   };
 }
 

@@ -112,6 +112,24 @@
 
 ---
 
+## SEO
+
+Full SEO implemented across all public pages.
+
+- **Root defaults** (`app/layout.tsx`): metadataBase + title template (`%s | Financial Modeler Pro`) + keyword-rich description + OG/Twitter + robots + viewport. `<OrganizationJsonLd>` + `<WebSiteJsonLd>` rendered once in the root body for sitewide rich results.
+- **Per-page metadata**: every public page has its own title + description + canonical + OG/Twitter. Dynamic pages (`/articles/[slug]`, `/modeling/[slug]`, `/training-sessions/[id]`) use `generateMetadata`.
+- **Sitemap**: `app/sitemap.ts` — auto-generated from `articles`, `live_sessions`, `cms_pages`, plus the static main-domain + `learn.` + `app.` landing pages + every `PLATFORMS` config slug. Regenerates hourly. Accessible at `/sitemap.xml`.
+- **Robots**: `app/robots.ts` — disallows admin/api/dashboard/auth/token routes, blocks LLM-training bots (GPTBot, ChatGPT-User, CCBot, anthropic-ai, Claude-Web, Google-Extended), points to `/sitemap.xml`. Accessible at `/robots.txt`.
+- **Structured data library** (`src/components/seo/StructuredData.tsx`): `OrganizationJsonLd`, `WebSiteJsonLd`, `PersonJsonLd` (Ahmad Din's about page), `CourseJsonLd` (training modules), `ArticleJsonLd` (articles), `EventJsonLd` (live sessions — both scheduled + recorded), `BreadcrumbJsonLd`, `FAQJsonLd`. All auto-escape `</script>` to keep the JSON-LD tamper-safe.
+- **Breadcrumbs**: `src/components/seo/Breadcrumbs.tsx` — visual breadcrumb + matching BreadcrumbList JSON-LD. Article + live-session detail pages already emit the JSON-LD.
+- **Canonical helper**: `src/lib/seo/canonical.ts` — `canonicalUrl(path, 'main' | 'learn' | 'app')`. Used by every page that builds a canonical URL.
+- **Keywords** targeted in defaults: financial modeling training, 3-Statement Financial Modeling, business valuation, real estate modeling, corporate finance training, financial modeling KSA / Saudi Arabia / GCC / Pakistan, FMVA prep, ACCA financial modeling, LBO, project finance, FP&A, transaction advisory. Weaved naturally into page descriptions — no keyword stuffing.
+
+**Next steps (manual, ~15 min):**
+1. Register on Google Search Console → verify ownership (meta tag or DNS) → submit `https://financialmodelerpro.com/sitemap.xml`.
+2. Same for Bing Webmaster Tools (optional).
+3. Once verified, add verification codes to `app/layout.tsx` under `metadata.verification`.
+
 ## Analytics
 
 Site analytics via **Vercel Web Analytics + Speed Insights** — both free on the Hobby plan, currently sufficient for pre-launch traffic.

@@ -96,7 +96,9 @@
       "Bash(.*undefined)",
       "Bash(null)",
       "Bash(\\\\\\\\[object\" | head -10)",
-      "Bash(xargs basename *)"
+      "Bash(xargs basename *)",
+      "Bash(cat)",
+      "Bash(bash /tmp/check_metadata.sh)"
     ]
   }
 }
