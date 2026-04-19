@@ -103,6 +103,72 @@ function formatDate(raw: string | null | undefined): string {
   } catch { return raw; }
 }
 
+/**
+ * Inline PDF preview card — renders the first page of a PDF via iframe
+ * (browser-native viewer) with a branded header and "Open Full ↗" link.
+ * `#toolbar=0&navpanes=0&scrollbar=0&view=FitH` hides the browser's chrome
+ * so the document feels embedded rather than "in a frame".
+ */
+function DocumentPreview({
+  label, accent, embedUrl, openUrl, aspectRatio,
+}: { label: string; accent: string; embedUrl: string; openUrl: string; aspectRatio: string }) {
+  const framedUrl = `${embedUrl}${embedUrl.includes('#') ? '&' : '#'}toolbar=0&navpanes=0&scrollbar=0&view=FitH`;
+  return (
+    <div style={{
+      background: '#F9FAFB', borderRadius: 10, border: '1px solid #E5E7EB',
+      overflow: 'hidden', display: 'flex', flexDirection: 'column',
+      boxShadow: '0 2px 6px rgba(13,46,90,0.06)',
+    }}>
+      {/* Header strip */}
+      <div style={{
+        background: '#0D2E5A', padding: '10px 14px',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      }}>
+        <span style={{ fontSize: 10, fontWeight: 800, color: accent, letterSpacing: '0.12em' }}>
+          {label}
+        </span>
+        <a
+          href={openUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ fontSize: 11, color: '#fff', textDecoration: 'none', fontWeight: 600, opacity: 0.9 }}
+        >
+          Open Full ↗
+        </a>
+      </div>
+
+      {/* PDF frame */}
+      <div style={{ aspectRatio, background: '#fff', position: 'relative' }}>
+        <iframe
+          src={framedUrl}
+          style={{ width: '100%', height: '100%', border: 'none', display: 'block', background: '#fff' }}
+          title={`${label} preview`}
+          loading="lazy"
+        />
+        {/* Mobile-friendly tap overlay — opens the PDF full-screen on
+            devices where the iframe viewer renders a download prompt or
+            blank placeholder instead of the embedded PDF. */}
+        <a
+          href={openUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={`Open ${label.toLowerCase()} in new tab`}
+          style={{
+            position: 'absolute', bottom: 10, right: 10,
+            padding: '6px 12px', borderRadius: 999,
+            background: 'rgba(13,46,90,0.92)', color: '#fff',
+            fontSize: 10, fontWeight: 700, textDecoration: 'none',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.25)',
+            letterSpacing: '0.04em',
+          }}
+        >
+          ⛶ View
+        </a>
+      </div>
+    </div>
+  );
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default async function VerifyPage({ params }: PageProps) {
@@ -228,6 +294,37 @@ export default async function VerifyPage({ params }: PageProps) {
                 <div style={{ fontSize: mono ? 11 : 13, fontWeight: 600, color: '#1F2937', fontFamily: mono ? 'monospace' : undefined, wordBreak: 'break-all' }}>{value}</div>
               </div>
             ))}
+          </div>
+        </div>
+
+        {/* Document Previews — inline PDF previews for Certificate + Transcript */}
+        <div style={{ padding: '4px 36px 24px', background: '#fff', borderTop: '1px solid #F3F4F6' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 16px' }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+              📄 Documents
+            </div>
+            <div style={{ flex: 1, height: 1, background: '#F3F4F6' }} />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 18 }}>
+            {cert.cert_pdf_url && (
+              <DocumentPreview
+                label="CERTIFICATE"
+                accent="#C9A84C"
+                embedUrl={cert.cert_pdf_url}
+                openUrl={cert.cert_pdf_url}
+                aspectRatio="4 / 3"
+              />
+            )}
+            <DocumentPreview
+              label="TRANSCRIPT"
+              accent="#8FBCEC"
+              /* Prefer direct storage URL when already cached — iframe
+                 hash params (toolbar=0) survive without the 302 hop. */
+              embedUrl={cert.transcript_url ?? `/api/training/transcript-cached/${certId}`}
+              openUrl={`/api/training/transcript-cached/${certId}`}
+              aspectRatio="3 / 4"
+            />
           </div>
         </div>
 
