@@ -56,12 +56,18 @@ export default function SystemHealth() {
     try {
       const res = await fetch('/api/admin/env-check');
       if (res.ok) {
-        const json = await res.json() as { checks: { label: string; required: boolean; present: boolean }[] };
+        const json = await res.json() as { checks: { label: string; required: boolean; present: boolean; note?: string }[] };
         for (const c of json.checks) {
+          // Fallback-satisfied vars (e.g. SUPABASE_URL → NEXT_PUBLIC_SUPABASE_URL)
+          // surface as OK with the fallback name inline, so admins can tell
+          // which env var is actually carrying the value.
+          const detail = c.present
+            ? (c.note ? `Present (${c.note})` : 'Present')
+            : c.required ? 'MISSING - required' : 'Not set (optional)';
           results.push({
             name:   c.label,
             status: c.present ? 'ok' : c.required ? 'error' : 'warn',
-            detail: c.present ? 'Present' : c.required ? 'MISSING - required' : 'Not set (optional)',
+            detail,
           });
         }
       } else {
