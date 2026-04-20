@@ -16,6 +16,7 @@
 | **Training Hub — Dashboard** | ✅ Complete | Redesigned: overview + course views, collapsible sidebar, mobile bottom nav, badge download, attachment counts |
 | **Training Hub — Assessments / Quiz** | ✅ Complete | Client-side scoring, shuffle toggles, timer bypass |
 | **Training Hub — Certificate System** | ✅ Complete | Inline fire-and-forget issuance the moment a final exam passes (no cron). Internal pdf-lib PDF gen, sharp badge overlay, Supabase storage, `email_sent_at` delivery tracking (migration 124), admin safety-net panel "Eligible but not issued" + `✉ Resend Email` for unsent rows |
+| **Training Hub — WhatsApp Group Link** | ✅ Complete (migration 123) | Admin sets a `https://chat.whatsapp.com/` invite URL via `/admin/training-settings` (validated before save). When non-empty, the dashboard sidebar renders a green "Join WhatsApp Group" button beside the LinkedIn + YouTube CTAs in both expanded and collapsed states; empty value hides the button entirely. Public read via `GET /api/training/community-links` with server-side URL-shape re-validation so a malformed DB value can never leak to students. |
 | **Training Hub — Transcript** | ✅ Complete | Token-gated HTML + PDF, QR code, Certificate ID, CMS-driven, ASCII-only |
 | **Training Hub — Profile** | ✅ Complete | Avatar upload, name/city/country |
 | **Training Hub — Live Sessions** | ✅ Complete | Full CRUD, registration/RSVP, public pages, watch tracking, email notifications, YouTube player + subscribe banner + like button + comments |

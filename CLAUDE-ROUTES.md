@@ -290,6 +290,7 @@ app/api/
 ├── public/training-sessions/      # GET: public list (no auth, no live_url/password)
 ├── public/training-sessions/[id]/ # GET: public detail (no auth, no live_url/password)
 ├── training/session-notes/        # GET+POST: per-student notes per session (upsert)
+├── training/community-links/      # GET: public — returns { whatsappGroupUrl } with server-side URL-shape re-validation (migration 123). Empty string means the dashboard sidebar hides the Join WhatsApp Group button.
 ├── newsletter/subscribe/          # POST: hub-segmented subscribe (public, rate-limited)
 ├── newsletter/unsubscribe/        # GET: per-hub unsubscribe via token (HTML response)
 ├── og/route.tsx                   # GET: Training Hub OG banner (1200x630, CMS hero, logo)

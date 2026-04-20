@@ -4,6 +4,44 @@
 
 ---
 
+## Recently Completed — Launch Readiness (2026-04-21 session, commits `c37dde9` → `8fb0a77`)
+
+| Feature | Status |
+|---------|--------|
+| **WhatsApp Group Link** | Complete (migration 123) — `training_settings.whatsapp_group_url` seeded `''`. Admin UI at `/admin/training-settings` validates `https://chat.whatsapp.com/…` before save. Green sidebar CTA on Training Hub dashboard (expanded + collapsed variants). Empty value hides the button. Public read: `GET /api/training/community-links` re-validates server-side. New files: `app/api/training/community-links/route.ts`, `supabase/migrations/123_whatsapp_group_url.sql`. Commit `c37dde9`. |
+| **Context-aware live-session achievement card** | Complete — `/api/training/achievement-image` accepts `has_assessment` + `duration` params. With assessment = green score circle + PASSED pill (legacy render). Without assessment = teal duration circle + ATTENDED pill. Duration chip on both variants. `LiveSessionCardLarge.tsx` `achievementCardUrl()` helper threads params from `session.has_assessment` + `session.duration_minutes`. 3SFM/BVM cards unchanged because legacy callers omit the new params. Commit `c37dde9`. |
+| **Recorded live-session achievement card fix** | Complete — first pass missed `SessionCard.tsx` which is the actual component rendering recorded live sessions via the `RecordedLiveSessionRow` adapter (not `LiveSessionCardLarge` as originally assumed). `SessionCard` now accepts optional `hasAssessment` (default true for 3SFM/BVM backward compat) + `durationMinutes`. Shared `buildAchievementCardUrl()` helper drops the score param when `hasAssessment === false`, sets `has_assessment=false`, and always appends duration when provided. `RecordedLiveSessionRow` threads both props through. Commit `2f2f81d`. |
+| **Inline certificate issuance + daily cron retired** | Complete (migration 124) — certificates issue the moment a student passes their final exam via fire-and-forget `issueCertificateForStudent(email, courseCode)` from `/api/training/submit-assessment`. Old `/api/cron/certificates` route deleted; `vercel.json` cron entry removed. Engine helper does a cheap skip-if-already-issued pre-check, runs `checkEligibility`, and hands off to `issueCertificateForPending`. Idempotent via unique index on `(LOWER(email), course_code)` from migration 111. Migration 124 adds `student_certificates.email_sent_at TIMESTAMPTZ NULL` + partial index `idx_student_certificates_email_unsent` for constant-time resend lookups. `issueCertificateForPending` stamps the column after `sendEmail` resolves. Note: task spec requested migration 123 but 123 was already taken by the WhatsApp migration earlier in the session, so email_sent_at landed as 124. Commit `6ae892a`. |
+| **Admin certificates safety-net panel** | Complete — `/admin/training-hub/certificates` gained a top "🛟 Eligible but not issued" panel with per-row `⚡ Issue Now` + bulk `Issue All Pending (N)`. The main cert table gained an `Email` column (Sent / Unsent pill) with a `✉ Resend` button on unsent rows. Three new admin routes: `GET /api/admin/certificates/pending` (eligibility view minus Issued rows), `POST /api/admin/certificates/issue-pending` (`{ email, courseCode }` or `{ all: true }`), `POST /api/admin/certificates/resend-email` (`{ certificateId }`). New files: `app/api/admin/certificates/pending/route.ts`, `app/api/admin/certificates/issue-pending/route.ts`, `app/api/admin/certificates/resend-email/route.ts`. Commit `6ae892a`. |
+| **Legacy Certificate Generation tile removed** | Complete — the `/admin/certificates` "⚙️ Certificate Generation" card with its `Automatic Generation` toggle + `⚡ Generate Now` button was diagnosed fully obsolete (zero live consumers after the cron was deleted in `6ae892a`; replaced by the safety-net panel). Deleted: `/api/admin/certificates/settings`, `/api/admin/certificates/generate`, `processPendingCertificates()` in `certificateEngine.ts`, orphan `getPendingCertificates` import, orphan `@keyframes spin` style, stale "cron every 15 minutes" tip copy. Two orphan data rows left in place (no schema change without approval): `cms_content.certificate_settings.auto_generation_enabled`, `training_settings.cert_last_generated`. Commit `8fb0a77`. |
+
+**Packages installed this session: none.** All changes used existing dependencies (lucide-react icons, inline SVG for WhatsApp glyph, existing Supabase + Resend clients).
+
+**Schema changes this session:**
+- Migration 123 (`123_whatsapp_group_url.sql`): seeds `training_settings.whatsapp_group_url = ''` with `ON CONFLICT DO NOTHING`.
+- Migration 124 (`124_cert_email_sent_at.sql`): adds `student_certificates.email_sent_at TIMESTAMPTZ NULL` + partial index `idx_student_certificates_email_unsent ON student_certificates (email, certificate_id) WHERE email_sent_at IS NULL AND cert_status = 'Issued'`.
+
+**New API routes this session:**
+- `GET /api/training/community-links` (public)
+- `GET /api/admin/certificates/pending` (admin)
+- `POST /api/admin/certificates/issue-pending` (admin)
+- `POST /api/admin/certificates/resend-email` (admin)
+
+**Deleted API routes this session:**
+- `GET /api/cron/certificates`
+- `GET/POST /api/admin/certificates/settings`
+- `POST /api/admin/certificates/generate`
+
+**New non-route files this session:**
+- `supabase/migrations/123_whatsapp_group_url.sql`
+- `supabase/migrations/124_cert_email_sent_at.sql`
+- `app/api/training/community-links/route.ts`
+- `app/api/admin/certificates/pending/route.ts`
+- `app/api/admin/certificates/issue-pending/route.ts`
+- `app/api/admin/certificates/resend-email/route.ts`
+
+---
+
 ## Recently Completed — Pre-Launch Polish (2026-04-21 session)
 
 | Feature | Status |
