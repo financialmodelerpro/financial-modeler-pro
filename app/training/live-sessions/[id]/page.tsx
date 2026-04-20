@@ -207,8 +207,14 @@ export default function LiveSessionDetailPage() {
   // Fires ~every 10s during playback, on pause, and on ended. Persists the
   // interval-merged watched seconds so the 70% gate can survive reloads.
   const handleProgress = useCallback((watchedSec: number, totalSec: number, currentPos: number) => {
-    setLiveWatchSec(watchedSec);
-    if (totalSec > 0) setLiveTotalSec(totalSec);
+    // Monotonic-upward only — mirror the 3SFM watch page. The player's
+    // tracker is seeded with baselineWatchedSec captured at mount, which
+    // is 0 until the watch-history fetch finishes. Without the max-
+    // floor here, a returning student's liveWatchSec gets clobbered
+    // below the DB baseline as soon as playback reports in, dropping
+    // watchPct below threshold and keeping Mark Complete hidden.
+    setLiveWatchSec(prev => Math.max(prev, baselineWatchedSec, watchedSec));
+    if (totalSec > 0) setLiveTotalSec(prev => Math.max(prev, totalSec));
 
     if (!studentSession?.email) return;
 
@@ -233,7 +239,7 @@ export default function LiveSessionDetailPage() {
         last_position: Math.round(currentPos),
       }),
     }).catch(() => {});
-  }, [studentSession, params.id, isWatched]);
+  }, [studentSession, params.id, isWatched, baselineWatchedSec]);
 
   const handleVideoEnded = useCallback(() => { setVideoEnded(true); }, []);
 

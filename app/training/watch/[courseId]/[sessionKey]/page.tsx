@@ -214,8 +214,18 @@ export default function CourseWatchPage() {
    * posts to the DB so the threshold can be enforced server-side too.
    */
   const handleProgress = useCallback((watchedSec: number, totalSec: number, currentPos: number) => {
-    setLiveWatchSec(watchedSec);
-    if (totalSec > 0) setLiveTotalSec(totalSec);
+    // Monotonic-upward only. The YouTubePlayer's internal tracker is
+    // initialized at mount time with `baselineWatchedSec` captured from
+    // props, which starts at 0 and only arrives once the watch-history
+    // fetch completes. Until then, the tracker reports from 0 upward
+    // for THIS session. If we unconditionally set liveWatchSec to the
+    // tracker value, a returning student whose DB baseline is 1800 sees
+    // liveWatchSec get clobbered back to 3, 4, 5… right after play
+    // starts — watchPct drops below threshold, button never unlocks.
+    // Taking max(prev, baseline, watched) preserves the baseline as a
+    // floor and lets liveWatchSec only climb.
+    setLiveWatchSec(prev => Math.max(prev, baselineWatchedSec, watchedSec));
+    if (totalSec > 0) setLiveTotalSec(prev => Math.max(prev, totalSec));
 
     if (!studentSession || !course) return;
     const session = course.sessions.find(s => s.id === sessionKey);
@@ -246,7 +256,7 @@ export default function CourseWatchPage() {
         last_position: Math.round(currentPos),
       }),
     }).catch(() => {});
-  }, [studentSession, course, sessionKey, courseId, markedComplete]);
+  }, [studentSession, course, sessionKey, courseId, markedComplete, baselineWatchedSec]);
 
   // Handle video play - start timer + record in_progress
   const handlePlaying = useCallback(() => {

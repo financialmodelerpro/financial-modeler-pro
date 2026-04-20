@@ -139,6 +139,17 @@ export function YouTubePlayer({ videoId, title, sessionId, studentEmail, student
               onPaused?.();
               tracker = onClose(tracker, pos());
               stopTickCheck();
+              // End-of-video via PAUSED — some YouTube configurations go
+              // PLAYING → PAUSED at the final second instead of
+              // PLAYING → ENDED (end-screen cards, annotations,
+              // autoplay-disabled embeds). Without this the tick is
+              // already stopped by stopTickCheck() above, so the
+              // `c >= d-1` fallback in startTickCheck() never runs and
+              // `videoEnded` stays false forever. Fire here too, guarded
+              // by the same endedFired flag so ENDED still deduplicates.
+              const d = dur();
+              const c = pos();
+              if (d > 0 && c >= d - 1) fireEndedOnce();
               report(true);
             }
             if (event.data === PS.ENDED) {
