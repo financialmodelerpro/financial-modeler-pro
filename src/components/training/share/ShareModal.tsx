@@ -8,18 +8,22 @@
  * Training Hub should use this component.
  *
  * Contract:
- *   - The message BODY is editable. Students can personalize.
- *   - The template HASHTAGS are rendered as a locked chip row beneath the
- *     body and are ALWAYS appended to the shared output. They cannot be
- *     edited or removed from the clipboard — this mirrors the admin
- *     intent that whatever is in the share template (text + hashtags +
- *     {@brand} / {@founder} mentions) must survive through to the post.
- *   - Each platform button calls shareTo(), which copies
- *     `body + "\n\n" + "#tag #tag"` to the clipboard and then opens the
- *     platform compose window.
+ *   - The share preview shows the COMPLETE post exactly as it will land
+ *     on the clipboard — admin-configured body + hashtags merged inline,
+ *     `{@brand}` / `{@founder}` already resolved by renderShareTemplate.
+ *   - The preview is READ-ONLY on the student side. Students cannot edit
+ *     the message, the hashtags, or reorder anything — the admin's
+ *     template is the single source of truth for what goes out. (Admin
+ *     tooling that needs editing — e.g. the Share Templates editor —
+ *     doesn't use this modal.)
+ *   - Clicking any platform button copies the full text to the clipboard
+ *     and opens the platform compose window so the student can paste.
+ *   - LinkedIn in particular requires paste (its share-offsite endpoint
+ *     silently drops pre-filled text when the user isn't logged in); the
+ *     copy-first pattern makes every platform reliable.
  */
 
-import { useState, useEffect } from 'react';
+import { useMemo, useState } from 'react';
 import { shareTo, FMP_HASHTAGS, FMP_TRAINING_URL, type SharePlatform } from '@/src/lib/training/share';
 
 interface ShareModalProps {
@@ -27,11 +31,11 @@ interface ShareModalProps {
   onClose: () => void;
   /** Modal title shown in the header. Defaults to "Share Your Achievement". */
   title?: string;
-  /** Initial share body (hashtags appended at share time — don't include them). */
+  /** Share body (admin template text with placeholders already resolved). */
   text: string;
   /** URL shared alongside the text. Defaults to the Training Hub landing page. */
   url?: string;
-  /** Hashtags to append. Defaults to the FMP set. Pass [] to disable entirely. */
+  /** Hashtags to append inside the visible post. Pass [] to disable. */
   hashtags?: string[];
   /** Platforms to offer. Defaults to all four. */
   platforms?: SharePlatform[];
@@ -66,32 +70,32 @@ export function ShareModal({
   cardImageUrl,
   cardDownloadName = 'FMP-Achievement.png',
 }: ShareModalProps) {
-  // Body and hashtags are tracked separately. Only the body is editable;
-  // hashtags are locked to whatever the template (or caller) supplied.
-  const [body, setBody] = useState(text);
   const [copiedPlatform, setCopiedPlatform] = useState<SharePlatform | null>(null);
 
-  // Re-seed body when the caller rotates in a new `text` prop (e.g. opening
-  // the same modal for a different session).
-  useEffect(() => { setBody(text); }, [text]);
+  // Normalized + deduped hashtags, then the full merged post text. Memoed
+  // so the display textarea and the shareTo() payload refer to the same
+  // exact string — what the student sees is byte-identical to what lands
+  // on their clipboard.
+  const cleanedHashtags = useMemo(
+    () => Array.from(new Set(hashtags.map(cleanTag).filter(Boolean))),
+    [hashtags],
+  );
+
+  const fullText = useMemo(() => {
+    if (!cleanedHashtags.length) return text;
+    const tagLine = cleanedHashtags.map(h => `#${h}`).join(' ');
+    return `${text}\n\n${tagLine}`;
+  }, [text, cleanedHashtags]);
 
   if (!isOpen) return null;
 
-  // Normalized + deduped once per render so the chip row and the final
-  // payload use the same exact strings.
-  const cleanedHashtags = Array.from(
-    new Set(hashtags.map(cleanTag).filter(Boolean)),
-  );
-
   const handleShare = async (platform: SharePlatform) => {
-    // Pass the clean hashtag array to shareTo — it handles the
-    // "body\n\n#a #b" concatenation internally. This guarantees
-    // hashtags land on the clipboard regardless of what the student
-    // typed in the body textarea.
+    // `fullText` already has hashtags baked in — pass an empty array so
+    // shareTo's buildFullText doesn't double-append.
     await shareTo(platform, {
-      text: body,
+      text: fullText,
       url,
-      hashtags: cleanedHashtags,
+      hashtags: [],
       onCopied: () => {
         setCopiedPlatform(platform);
         setTimeout(() => setCopiedPlatform(null), 1800);
@@ -152,80 +156,46 @@ export function ShareModal({
           </>
         )}
 
-        {/* Editable message body.
-            Hashtags are rendered below in a separate locked row so students
-            can personalize the body without accidentally deleting the tags
-            the admin set in the template. */}
+        {/* Read-only post preview.
+            Body + hashtags are rendered inline as a single block — this is
+            EXACTLY what lands on the clipboard when the student clicks any
+            platform. Locked: the admin's template is the single source of
+            truth, so there's no way for the student to strip hashtags,
+            drop mentions, or edit the brand copy before posting. */}
         <div style={{
-          fontSize: 10, fontWeight: 700, color: '#6B7280', letterSpacing: '0.06em',
-          textTransform: 'uppercase', marginBottom: 6,
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          marginBottom: 6,
         }}>
-          Message
+          <span style={{
+            fontSize: 10, fontWeight: 700, color: '#6B7280', letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+          }}>
+            Share Preview
+          </span>
+          <span style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 500 }}>
+            🔒 read-only
+          </span>
         </div>
         <textarea
-          value={body}
-          onChange={e => setBody(e.target.value)}
-          rows={6}
+          readOnly
+          value={fullText}
+          rows={8}
+          onFocus={e => e.currentTarget.select()}
           style={{
             width: '100%', padding: '10px 12px', border: '1px solid #D1D5DB',
             borderRadius: 8, fontSize: 12, fontFamily: 'Inter, sans-serif',
             resize: 'vertical', lineHeight: 1.6, boxSizing: 'border-box',
-            marginBottom: 12, color: '#374151', background: '#F9FAFB',
+            marginBottom: 10, color: '#374151', background: '#F9FAFB',
+            cursor: 'text',
           }}
         />
-
-        {/* Locked hashtag row.
-            Always appended to the shared output, regardless of what's in
-            the body textarea. Matches the admin's "whatever the template
-            says must be in the post" requirement. */}
-        {cleanedHashtags.length > 0 && (
-          <div style={{ marginBottom: 12 }}>
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              marginBottom: 6,
-            }}>
-              <span style={{
-                fontSize: 10, fontWeight: 700, color: '#6B7280', letterSpacing: '0.06em',
-                textTransform: 'uppercase',
-              }}>
-                Hashtags (always included)
-              </span>
-              <span style={{ fontSize: 10, color: '#9CA3AF', fontWeight: 500 }}>
-                🔒 locked by template
-              </span>
-            </div>
-            <div
-              aria-readonly
-              style={{
-                display: 'flex', flexWrap: 'wrap', gap: 6,
-                padding: '10px 12px', border: '1px solid #E5E7EB',
-                borderRadius: 8, background: '#F3F4F6',
-              }}
-            >
-              {cleanedHashtags.map(h => (
-                <span
-                  key={h}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center',
-                    padding: '3px 10px', borderRadius: 999,
-                    background: '#fff', border: '1px solid #D1D5DB',
-                    color: '#1B4F8A', fontSize: 11.5, fontWeight: 700,
-                    fontFamily: 'Inter, sans-serif',
-                  }}
-                >
-                  #{h}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* Tip */}
         <div style={{
           fontSize: 12, color: '#6B7280', background: '#F0F9FF', border: '1px solid #BAE6FD',
           borderRadius: 8, padding: '8px 12px', marginBottom: 14, lineHeight: 1.5,
         }}>
-          💡 Your message + hashtags are auto-copied when you click any platform — just paste (Ctrl/Cmd+V) into the compose window.
+          💡 Click any platform and the full message (including hashtags) is auto-copied to your clipboard — paste (Ctrl/Cmd+V) into the compose window.
         </div>
 
         {/* Platform buttons */}
