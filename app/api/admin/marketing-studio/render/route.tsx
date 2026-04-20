@@ -8,6 +8,13 @@ import { backgroundToCss } from '@/src/lib/marketing/canvasDefaults';
 import type { CanvasElement, CanvasBackground, CanvasDimensions } from '@/src/lib/marketing/types';
 
 export const runtime = 'nodejs';
+// Vercel Hobby caps at 10s; Pro allows up to 60s per the tier. Setting
+// 60 is harmless on Hobby and gives headroom on Pro for designs with
+// many remote images. The real "Failed to fetch" culprit was a single
+// slow image URL holding imageToDataUri open indefinitely — that now
+// has a per-image 5s timeout, so total render time is bounded.
+export const maxDuration = 60;
+export const dynamic = 'force-dynamic';
 
 interface RenderPayload {
   dimensions: CanvasDimensions;
@@ -31,15 +38,28 @@ export async function POST(req: NextRequest) {
   }
   if (!Array.isArray(elements)) return NextResponse.json({ error: 'elements must be array' }, { status: 400 });
 
-  const fonts = await loadOgFonts().catch(() => []);
+  // Fonts are required for satori to render any text reliably. If the
+  // Inter files fail to load, ImageResponse without fonts silently dies
+  // mid-stream on text-heavy designs — another "Failed to fetch" trigger.
+  // We log the failure so the cause is visible in Vercel logs.
+  const fonts = await loadOgFonts().catch((e) => {
+    console.error('[marketing-studio/render] font load failed:', e);
+    return [];
+  });
 
   // Pre-resolve all remote images (background + image elements) as base64
-  // — satori cannot fetch cross-origin URLs at render time.
+  // — satori cannot fetch cross-origin URLs at render time. Per-image
+  // timeout lives inside imageToDataUri; Promise.all total is bounded
+  // by that × concurrency, never unbounded.
   const urls = new Set<string>();
   if (background?.type === 'image' && background.image) urls.add(background.image);
   for (const el of elements) if (el.type === 'image' && el.image?.src) urls.add(el.image.src);
   const resolved: Record<string, string> = {};
   await Promise.all(Array.from(urls).map(async (u) => { resolved[u] = await imageToDataUri(u).catch(() => ''); }));
+  const unresolvedCount = Array.from(urls).filter(u => !resolved[u]).length;
+  if (unresolvedCount > 0) {
+    console.warn('[marketing-studio/render] unresolved image URLs:', unresolvedCount, 'of', urls.size);
+  }
 
   const bgWithResolved: CanvasBackground = background.type === 'image' && background.image
     ? { ...background, image: resolved[background.image] || background.image }
@@ -70,11 +90,30 @@ export async function POST(req: NextRequest) {
           {sorted.map((el) => renderElement(el, resolved, dimensions))}
         </div>
       ),
-      { width: dimensions.width, height: dimensions.height, fonts },
+      {
+        width: dimensions.width,
+        height: dimensions.height,
+        // Pass `undefined` instead of an empty array when fonts failed —
+        // ImageResponse falls back to its bundled defaults rather than
+        // trying to use the missing Inter reference.
+        fonts: fonts.length > 0 ? fonts : undefined,
+      },
     );
   } catch (err) {
-    console.error('[marketing-studio/render] error:', err);
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'Render failed' }, { status: 500 });
+    // Only catches errors thrown synchronously during ImageResponse
+    // construction. Satori errors inside the streamed body can still
+    // surface as "Failed to fetch" on the client — logging payload
+    // details here so Vercel logs capture what was attempted.
+    console.error('[marketing-studio/render] error:', {
+      message:       err instanceof Error ? err.message : String(err),
+      dimensions,
+      elementCount:  elements.length,
+      unresolvedCount,
+    });
+    return NextResponse.json({
+      error: err instanceof Error ? err.message : 'Render failed',
+      hint:  unresolvedCount > 0 ? `${unresolvedCount} image(s) couldn't be loaded` : undefined,
+    }, { status: 500 });
   }
 }
 
