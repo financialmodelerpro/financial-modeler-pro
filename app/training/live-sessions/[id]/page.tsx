@@ -111,6 +111,12 @@ export default function LiveSessionDetailPage() {
   const [baselineWatchedSec, setBaselineWatchedSec] = useState(0);
   const [liveWatchSec, setLiveWatchSec] = useState(0);
   const [liveTotalSec, setLiveTotalSec] = useState(0);
+  // Resume position captured from DB on mount. Passed once to the YT player
+  // via playerVars.start so the video opens at the student's last position
+  // instead of 0:00. Cleared (zeroed) when completed = true so a rewatch
+  // starts from the beginning, and clamped below total-30 to avoid seeking
+  // past-end (YT would loop back to 0 in that case).
+  const [resumeAtSec, setResumeAtSec] = useState(0);
   // Tracks the YT player's currentTime — used to evaluate the "last
   // 20 seconds" near-end window. Monotonic-max so seeking backward
   // doesn't collapse the gate once it's open.
@@ -145,12 +151,21 @@ export default function LiveSessionDetailPage() {
 
       if (watchJson && typeof watchJson === 'object') {
         const base = Math.max(0, Math.round(Number(watchJson.watch_seconds ?? 0)));
+        const total = Math.max(0, Math.round(Number(watchJson.total_seconds ?? 0)));
+        const pos = Math.max(0, Math.round(Number(watchJson.last_position ?? 0)));
         setBaselineWatchedSec(base);
         setLiveWatchSec(base);
-        setLiveTotalSec(Math.max(0, Math.round(Number(watchJson.total_seconds ?? 0))));
+        setLiveTotalSec(total);
         if (watchJson.status === 'completed') {
           setIsWatched(true);
           setVideoEnded(true);
+          // Already finished — rewatch starts fresh at 0.
+          setResumeAtSec(0);
+        } else if (pos > 10 && (total === 0 || pos < total - 30)) {
+          // Resume only when the stored position is meaningfully inside
+          // the video. < 10s: barely started, just play from 0. Too close
+          // to end: skip (YT's start param loops back to 0 past-end).
+          setResumeAtSec(pos);
         }
       }
     }).catch(() => {}).finally(() => setLoading(false));
@@ -451,6 +466,7 @@ export default function LiveSessionDetailPage() {
         studentEmail={studentSession?.email}
         studentRegId={studentSession?.registrationId}
         baselineWatchedSeconds={baselineWatchedSec}
+        resumePositionSeconds={resumeAtSec}
         belowVideoContent={progressBar}
         onVideoProgress={handleProgress}
         onVideoEnded={handleVideoEnded}

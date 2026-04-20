@@ -12,7 +12,7 @@ interface YTPlayerOptions {
     onStateChange?: (e: { data: number }) => void;
   };
 }
-interface YTPlayer { destroy(): void; getDuration?(): number; getCurrentTime?(): number }
+interface YTPlayer { destroy(): void; getDuration?(): number; getCurrentTime?(): number; seekTo?(seconds: number, allowSeekAhead?: boolean): void }
 interface YTAPI { Player: new (el: string, opts: YTPlayerOptions) => YTPlayer; PlayerState: { PLAYING: number; PAUSED: number; ENDED: number } }
 
 declare global {
@@ -31,6 +31,8 @@ interface YouTubePlayerProps {
   studentRegId?: string;
   /** Seed the tracker with seconds already persisted to DB (avoids backwards drift on reload). */
   baselineWatchedSeconds?: number;
+  /** Resume playback from this position on load (passed to YT as playerVars.start). Zero/undefined = start at 0. */
+  startSeconds?: number;
   onReady?: () => void;
   onPlaying?: () => void;
   onPaused?: () => void;
@@ -51,7 +53,7 @@ interface YouTubePlayerProps {
   onProgress?: (watchedSec: number, totalSec: number, currentPos: number) => void;
 }
 
-export function YouTubePlayer({ videoId, title, sessionId, studentEmail, studentRegId, baselineWatchedSeconds, onReady, onPlaying, onPaused, onEnded, onProgress }: YouTubePlayerProps) {
+export function YouTubePlayer({ videoId, title, sessionId, studentEmail, studentRegId, baselineWatchedSeconds, startSeconds, onReady, onPlaying, onPaused, onEnded, onProgress }: YouTubePlayerProps) {
   const playerRef = useRef<YTPlayer | null>(null);
   const containerIdRef = useRef(`yt-player-${videoId}`);
   const reportedRef = useRef(false);
@@ -122,12 +124,19 @@ export function YouTubePlayer({ videoId, title, sessionId, studentEmail, student
 
     function initPlayer() {
       if (destroyed) return;
+      // Resume at stored last_position. YouTube's `start` playerVar is honored
+      // reliably across browsers and survives buffering. We only seed it when
+      // it's comfortably inside the video — the caller clamps against
+      // `total_seconds` to avoid seeking past-end (which would make YT loop
+      // back to 0) and against rewatch-of-completed (resume from 0 then).
+      const resumeAt = Math.max(0, Math.round(startSeconds ?? 0));
       playerRef.current = new window.YT.Player(containerIdRef.current, {
         videoId,
         playerVars: {
           rel: 0,
           modestbranding: 1,
           origin: window.location.origin,
+          ...(resumeAt > 0 ? { start: resumeAt } : {}),
         },
         events: {
           onReady: () => onReady?.(),

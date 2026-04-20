@@ -62,6 +62,11 @@ export default function TrainingSettingsPage() {
   const [shuffleOptions, setShuffleOptions]     = useState(false);
   const [shuffleSaving, setShuffleSaving]       = useState(false);
 
+  // WhatsApp Group URL (migration 123)
+  const [whatsappUrl, setWhatsappUrl]         = useState('');
+  const [savedWhatsappUrl, setSavedWhatsappUrl] = useState('');
+  const [whatsappSaving, setWhatsappSaving]   = useState(false);
+
   // Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter]   = useState<'all' | '3SFM' | 'BVM' | 'live' | 'live_upcoming' | 'live_recorded'>('all');
@@ -218,6 +223,9 @@ export default function TrainingSettingsPage() {
       setLiveSessions(Array.isArray(stats.liveSessions) ? stats.liveSessions : []);
       setShuffleQuestions(s.shuffle_questions_enabled !== 'false');
       setShuffleOptions(s.shuffle_options_enabled === 'true');
+      const wa = (s.whatsapp_group_url ?? '').trim();
+      setWhatsappUrl(wa);
+      setSavedWhatsappUrl(wa);
       setLoading(false);
     });
   }, []);
@@ -247,6 +255,38 @@ export default function TrainingSettingsPage() {
   };
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
+
+  const isValidWhatsappUrl = (v: string) => {
+    const t = v.trim();
+    if (t === '') return true;
+    return /^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+/i.test(t);
+  };
+
+  const saveWhatsapp = async () => {
+    const trimmed = whatsappUrl.trim();
+    if (!isValidWhatsappUrl(trimmed)) {
+      showToast('Enter a valid https://chat.whatsapp.com/ link or leave empty');
+      return;
+    }
+    setWhatsappSaving(true);
+    try {
+      const res = await fetch('/api/admin/training-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ whatsapp_group_url: trimmed }),
+      });
+      if (res.ok) {
+        setSavedWhatsappUrl(trimmed);
+        setWhatsappUrl(trimmed);
+        showToast(trimmed ? 'WhatsApp group link saved' : 'WhatsApp group link cleared');
+      } else {
+        showToast('Save failed');
+      }
+    } catch {
+      showToast('Save failed');
+    }
+    setWhatsappSaving(false);
+  };
 
   const save = async () => {
     setSaving(true);
@@ -434,6 +474,70 @@ export default function TrainingSettingsPage() {
                 Open Transcript Editor →
               </a>
             </div>
+
+            {/* Community Links Card — WhatsApp Group */}
+            {(() => {
+              const trimmed = whatsappUrl.trim();
+              const dirty = trimmed !== savedWhatsappUrl;
+              const valid = isValidWhatsappUrl(trimmed);
+              const showInvalid = trimmed !== '' && !valid;
+              return (
+                <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '24px 28px', marginBottom: 24, maxWidth: 780 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B', marginBottom: 4 }}>
+                    💬 WhatsApp Group Link
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
+                    Paste a WhatsApp group invite URL (must start with <code style={{ background: '#F3F4F6', padding: '1px 5px', borderRadius: 3 }}>https://chat.whatsapp.com/</code>) to show a <strong>Join WhatsApp Group</strong> button in the student dashboard sidebar. Leave empty to hide the button.
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Invite URL</div>
+                      <input
+                        value={whatsappUrl}
+                        onChange={e => setWhatsappUrl(e.target.value)}
+                        placeholder="https://chat.whatsapp.com/XXXXXXXXXXXXXX"
+                        style={{
+                          ...inputStyle,
+                          borderColor: showInvalid ? '#DC2626' : '#D1D5DB',
+                          background: showInvalid ? '#FEF2F2' : '#FFFBEB',
+                        }}
+                      />
+                    </div>
+                    <button
+                      onClick={saveWhatsapp}
+                      disabled={whatsappSaving || !dirty || showInvalid}
+                      style={{
+                        padding: '9px 20px',
+                        background: dirty && !showInvalid ? '#25D366' : '#F3F4F6',
+                        color: dirty && !showInvalid ? '#fff' : '#9CA3AF',
+                        border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 700,
+                        cursor: dirty && !showInvalid ? 'pointer' : 'default',
+                        whiteSpace: 'nowrap', opacity: whatsappSaving ? 0.7 : 1,
+                      }}
+                    >
+                      {whatsappSaving ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+
+                  {showInvalid && (
+                    <div style={{ marginTop: 10, fontSize: 12, color: '#DC2626', fontWeight: 600 }}>
+                      ⚠️ Must be a valid https://chat.whatsapp.com/ invite link.
+                    </div>
+                  )}
+
+                  {savedWhatsappUrl ? (
+                    <div style={{ marginTop: 12, fontSize: 11, color: '#065F46', background: '#D1FAE5', padding: '6px 10px', borderRadius: 6, display: 'inline-block' }}>
+                      ✅ <strong>Active</strong> · Button visible on student dashboard
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 12, fontSize: 11, color: '#6B7280', background: '#F3F4F6', padding: '6px 10px', borderRadius: 6, display: 'inline-block' }}>
+                      Button hidden · no URL set
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Watch Enforcement Card */}
             <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '24px 28px', marginBottom: 24, maxWidth: 780 }}>

@@ -102,6 +102,10 @@ app/training/watch/
 ```
 app/training/
 ├── layout.tsx                   # OG metadata for learn. domain (metadataBase, og:image → /api/og)
+# Per-route layout.tsx files added 2026-04-21 so share previews of deep links inherit learn-subdomain OG defaults:
+#   [courseId]/layout.tsx  assessment/layout.tsx  certificate/layout.tsx  certificates/layout.tsx
+#   dashboard/layout.tsx   live-sessions/layout.tsx  material/layout.tsx  transcript/layout.tsx
+#   watch/layout.tsx
 ├── page.tsx                     # CMS Option B (065-066), revalidate=0
 ├── CurriculumCard.tsx           # Course card component
 ├── TestimonialsCarousel.tsx     # Auto-scrolling testimonials with LinkedIn buttons
@@ -142,6 +146,7 @@ app/modeling/
 └── submit-testimonial/page.tsx
 # NOTE: app/modeling/login/page.tsx was DELETED
 
+app/refm/layout.tsx              # OG metadata for app. domain (added 2026-04-21 for subdomain canonical)
 app/refm/page.tsx                # REFM platform
 app/portal/page.tsx              # Authenticated hub
 ```
@@ -204,7 +209,8 @@ app/api/training/
 ├── watch-enforcement/             # GET: {enabled, threshold, sessionBypass[tabKey], isAdmin} — powers watch page gating
 ├── youtube-comments/              # GET: cached YouTube comments (24h DB cache via youtube_comments_cache)
 ├── certification-watch/           # GET/POST: certification video watch status (in_progress/completed)
-└── achievement-image/route.tsx    # GET: dynamic OG achievement card image (satori ImageResponse, sharp SVG→PNG logo)
+├── achievement-image/route.tsx    # GET: dynamic OG achievement card image (satori ImageResponse, sharp SVG→PNG logo)
+└── tour-status/route.ts           # POST: toggle training_registrations_meta.tour_completed — one-shot dashboard walkthrough (migration 120)
 ```
 
 ### Admin
@@ -250,6 +256,7 @@ app/api/admin/
 ├── marketing-studio/designs/[id]/       # GET/PATCH/DELETE single design
 ├── marketing-studio/brand-kit/          # GET/PATCH brand kit singleton
 ├── watch-enforcement-stats/             # GET: distinct tab_keys in certification_watch_history + per-key stats (for admin dynamic session list)
+├── sessions/[tabKey]/reset-watch-progress/ # POST: admin-only nuclear reset — deletes every watch-history row for the session. Routes by prefix: LIVE_<uuid> → session_watch_history; else → certification_watch_history (tab_key match). Paired with red buttons in both session editors. (2026-04-21)
 ├── generate-images/             # POST: satori+sharp generate mission/vision PNGs → Supabase
 ├── page-sections/               # CRUD for page_sections + cms_pages
 ├── reset-attempts/              # POST: reset via Apps Script
@@ -267,7 +274,9 @@ app/api/admin/
 app/api/
 ├── agents/market-rates/ + research/
 ├── branding/                      # GET: public, PATCH: admin only
-├── cms/ contact/ cron/certificates/ cron/session-reminders/ email/send/
+├── cms/ contact/ cron/certificates/ cron/session-reminders/ cron/auto-launch-check/ email/send/
+# cron/session-reminders — per-registration reminder flag model (migration 122): reads session_registrations.reminder_{24h,1h}_sent; CRON_SECRET bearer auth.
+# cron/auto-launch-check — (disabled UI) flips {hub}_coming_soon='false' + one-shot auto_launch='false' when launch_date <= now(). Gated by AUTO_LAUNCH_UI_ENABLED=false in LaunchStatusCard; Vercel Hobby only supports daily crons so vercel.json entry was rolled back.
 ├── export/excel/ + pdf/
 ├── health/ modeling/submit-testimonial/
 ├── permissions/ projects/ qr/
@@ -340,12 +349,14 @@ src/components/
 │       └── PropertiesPanel.tsx       # Per-type properties + Background panel when nothing selected
 ├── shared/
 │   ├── FollowPopup.tsx              # Reusable LinkedIn+YouTube follow popup (bottom-right toast)
-│   └── SiteFollowPopup.tsx          # Site-wide 60s popup wrapper
+│   ├── SiteFollowPopup.tsx          # Site-wide 60s popup wrapper
+│   └── PreLaunchBanner.tsx          # Slim banner on authed surfaces for Coming-Soon bypass-listed testers (migration 121)
 ├── training/
 │   ├── CountdownTimer.tsx
 │   ├── TrainingShell.tsx            # Shared layout (header + sidebar + footer + mobile nav + CMS logo)
 │   ├── TrainingShellServer.tsx      # Server wrapper — fetches CMS logo for TrainingShell
-│   ├── YouTubePlayer.tsx            # YT IFrame API player — onNearEnd (20s), interval-merging `onProgress(watchedSec, totalSec, pos)` via watchTracker, baselineWatchedSeconds seed
+│   ├── DashboardTour.tsx            # driver.js interactive walkthrough on first dashboard visit (migration 120). Reads/writes `tour_completed` via POST /api/training/tour-status
+│   ├── YouTubePlayer.tsx            # YT IFrame API player — `startSeconds` prop (resume via playerVars.start), onNearEnd (20s), interval-merging `onProgress(watchedSec, totalSec, pos)` via watchTracker, baselineWatchedSeconds seed
 │   ├── WatchProgressBar.tsx         # Watch progress bar shown above Mark Complete — %/threshold with color + dashed threshold marker + bypass-aware label
 │   ├── SubscribeButton.tsx          # Legacy — unused (replaced by SubscribeModal)
 │   ├── SubscribeModal.tsx           # Subscribe modal with YouTube link + ?sub_confirmation=1
@@ -356,7 +367,7 @@ src/components/
 │   ├── StudentNotes.tsx             # Per-session student notes with bold/bullet toolbar + auto-save
 │   ├── WelcomeModal.tsx             # First-visit welcome modal (localStorage, configurable key)
 │   ├── player/
-│   │   ├── CoursePlayerLayout.tsx   # CFI-style layout: left sidebar + video + right comments panel
+│   │   ├── CoursePlayerLayout.tsx   # CFI-style layout: left sidebar + video + right comments panel. `resumePositionSeconds` prop threads through to YouTubePlayer.startSeconds for watch resume.
 │   │   ├── CourseTopBar.tsx         # Dark sticky bar: title, actions, Mark Complete, Assessment, Continue
 │   │   └── ShareModal.tsx           # Thin forwarder → share/ShareModal (universal)
 │   ├── share/
@@ -397,7 +408,9 @@ src/lib/
 │   └── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))
 ├── shared/
 │   ├── audit.ts  auth.ts  captcha.ts  cms.ts (getAllPageSections, getPageSections, getTestimonialsForPage)  deviceTrust.ts
-│   ├── emailConfirmation.ts  htmlUtils.ts(isHtml detection)  modelingComingSoon.ts  ogFonts.ts(Inter font loader)
+│   ├── emailConfirmation.ts  htmlUtils.ts(isHtml detection)  modelingComingSoon.ts  trainingComingSoon.ts  ogFonts.ts(Inter font loader)
+│   ├── comingSoonGuard.ts        # Centralizes signin/register Coming-Soon gate (Training Hub) — checks hub state → bypass list → ?bypass=true query. Used by both /training/signin + /training/register server components.
+│   ├── hubBypassList.ts          # isIdentifierAllowed(identifier) reads training_settings.training_hub_bypass_list (migration 121), case-insensitive, matches email OR registration_id.
 │   ├── password.ts  permissions.ts  storage.ts  supabase.ts  urls.ts
 └── training/
     ├── appsScript.ts  certificateEngine.ts  certificateLayout.ts  certifier.ts(deprecated)
@@ -406,6 +419,8 @@ src/lib/
     ├── useShareTemplate.ts      # Client hook — module-level cache + in-flight dedup; initial render from DEFAULT_TEMPLATES, DB swaps in when fetch resolves. Returns ShareTemplate with brand_mention/founder_mention/prefix_at fields merged in by the API layer
     ├── watchTracker.ts           # Interval-merging playback tracker — onPlay/onTick/onClose; seeking cannot inflate counts
     ├── watchThresholdVerifier.ts # verifyWatchThresholdMet(email, courseCode) — gates cert issuance per course+session
+    ├── detectVideoChange.ts      # detectVideoChange(existingTotal, incomingTotal) → verdict; abs diff > 30s AND relative diff > 10% flags a video swap. Used by both watch endpoints to reset stale progress when the admin replaces a YouTube URL (2026-04-21).
+    ├── sessionAnnouncement.ts    # Centralizes announce-on-publish / manual-announce / reminder email build for live sessions so cron, admin /notify, and register endpoint don't drift.
     ├── sheets.ts  training-session.ts  videoTimer.ts
 ```
 

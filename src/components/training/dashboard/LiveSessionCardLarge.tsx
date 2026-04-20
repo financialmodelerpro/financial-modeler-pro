@@ -189,14 +189,21 @@ const chip = (bg: string, color: string): React.CSSProperties => ({
 });
 
 function achievementCardUrl(session: Props['session'], studentName?: string, regId?: string, score?: number, dateIso?: string | null): string {
+  const hasAssessment = !!session.has_assessment;
   const params = new URLSearchParams({
     session: session.title,
-    score: score != null ? String(score) : 'Completed',
     date: dateIso ? new Date(dateIso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : new Date().toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }),
     course: 'FMP Real-World Financial Modeling',
     name: studentName ?? '',
     regId: regId ?? '',
+    has_assessment: hasAssessment ? 'true' : 'false',
   });
+  if (hasAssessment && score != null) {
+    params.set('score', String(score));
+  }
+  if (session.duration_minutes != null && session.duration_minutes > 0) {
+    params.set('duration', String(session.duration_minutes));
+  }
   return `/api/training/achievement-image?${params.toString()}`;
 }
 

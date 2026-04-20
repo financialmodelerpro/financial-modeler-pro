@@ -37,6 +37,11 @@ export default function CourseWatchPage() {
   const [baselineWatchedSec, setBaselineWatchedSec] = useState(0);
   const [liveWatchSec, setLiveWatchSec] = useState(0);
   const [liveTotalSec, setLiveTotalSec] = useState(0);
+  // Resume position captured from DB on mount. Passed once to the YT player
+  // via playerVars.start so the video opens at the student's last position
+  // instead of 0:00. Zeroed when the session is already completed so a
+  // rewatch starts fresh; clamped below total-30 to avoid seeking past-end.
+  const [resumeAtSec, setResumeAtSec] = useState(0);
   // Tracks the YT player's currentTime — used to evaluate the "last
   // 20 seconds" near-end window. Always monotonic-max so a seek-back
   // from pos 1700 → 200 can't collapse the gate once it's open.
@@ -108,7 +113,7 @@ export default function CourseWatchPage() {
           const watchTk = currentSess.isFinal
             ? `${course.shortTitle.toUpperCase()}_Final`
             : `${course.shortTitle.toUpperCase()}_${currentSess.id}`;
-          const watchRecord = (watchJson.history as { tab_key: string; status: string; watch_seconds?: number; total_seconds?: number }[] ?? [])
+          const watchRecord = (watchJson.history as { tab_key: string; status: string; watch_seconds?: number; total_seconds?: number; last_position?: number }[] ?? [])
             .find((h: { tab_key: string }) => h.tab_key === watchTk);
           if (watchRecord?.status === 'completed') {
             setVideoEnded(true);
@@ -117,9 +122,16 @@ export default function CourseWatchPage() {
           }
           if (watchRecord) {
             const base = Math.max(0, Math.round(watchRecord.watch_seconds ?? 0));
+            const total = Math.max(0, Math.round(watchRecord.total_seconds ?? 0));
+            const pos = Math.max(0, Math.round(watchRecord.last_position ?? 0));
             setBaselineWatchedSec(base);
             setLiveWatchSec(base);
-            setLiveTotalSec(Math.max(0, Math.round(watchRecord.total_seconds ?? 0)));
+            setLiveTotalSec(total);
+            if (watchRecord.status !== 'completed' && pos > 10 && (total === 0 || pos < total - 30)) {
+              // Resume only when meaningfully inside the video and not
+              // already completed. Completed rewatch starts at 0.
+              setResumeAtSec(pos);
+            }
           }
         }
       }
@@ -421,6 +433,7 @@ export default function CourseWatchPage() {
         studentEmail={studentSession?.email}
         studentRegId={studentSession?.registrationId}
         baselineWatchedSeconds={baselineWatchedSec}
+        resumePositionSeconds={resumeAtSec}
         belowVideoContent={progressBar}
         sessionType="recorded"
         isLoggedIn={true}

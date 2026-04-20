@@ -110,6 +110,8 @@ interface CoursePlayerLayoutProps {
   onVideoProgress?: (watchedSec: number, totalSec: number, currentPos: number) => void;
   /** Seed the player's tracker with seconds already persisted to DB. */
   baselineWatchedSeconds?: number;
+  /** Resume video playback from this position (seconds) — threaded to YouTubePlayer.playerVars.start. */
+  resumePositionSeconds?: number;
   /** Optional UI block rendered directly above the Mark Complete area — e.g. watch progress bar. */
   belowVideoContent?: React.ReactNode;
   // Video (optional - may not have embedded video)
@@ -148,7 +150,7 @@ export function CoursePlayerLayout({
   sessionTitle, sessionDescription, sessionUrl,
   nextSessionHref, isWatched, onMarkComplete, isCompleted,
   assessmentUrl, assessmentReady, assessmentPassed, watchHint, onVideoPlaying, onVideoEnded,
-  onVideoProgress, baselineWatchedSeconds, belowVideoContent,
+  onVideoProgress, baselineWatchedSeconds, resumePositionSeconds, belowVideoContent,
   videoId, sessionId, studentEmail, studentRegId,
   bannerUrl, instructorName, instructorTitle,
   scheduledDatetime, timezone, durationMinutes, difficultyLevel, tags,
@@ -458,6 +460,7 @@ export function CoursePlayerLayout({
                   studentEmail={studentEmail}
                   studentRegId={studentRegId}
                   baselineWatchedSeconds={baselineWatchedSeconds}
+                  startSeconds={resumePositionSeconds}
                   onPlaying={onVideoPlaying}
                   onEnded={onVideoEnded}
                   onProgress={onVideoProgress}

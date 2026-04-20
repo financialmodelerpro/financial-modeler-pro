@@ -1,32 +1,18 @@
--- ============================================================
--- 122: Per-registration reminder flags on session_registrations
---
--- The 24-hour and 1-hour reminder crons previously used per-SESSION
--- flags on `live_sessions` (migration 043). That worked, but late
--- registrants (students who register < 24h before the session) never
--- got the 24-hour reminder because the session-level flag was already
--- set the moment ANY registrant got the first reminder.
---
--- Moving the flags to `session_registrations` fixes that — each
--- student's reminder lifecycle is tracked independently, so a late
--- register still triggers the appropriate reminder window.
---
--- Session-level announcement_sent stays where it is (on live_sessions)
--- because it gates whether reminders fire at all — "don't remind
--- about an unpublished session."
--- ============================================================
+# Fix Upcoming Session Card Width on Dashboard
 
-ALTER TABLE session_registrations
-  ADD COLUMN IF NOT EXISTS reminder_24h_sent BOOLEAN NOT NULL DEFAULT FALSE,
-  ADD COLUMN IF NOT EXISTS reminder_1h_sent  BOOLEAN NOT NULL DEFAULT FALSE;
+Read CLAUDE.md before starting.
 
--- Partial index: the cron queries for "rows where this flag is false AND
--- the session is soon" — a partial index on false rows keeps that lookup
--- cheap as registration volume grows.
-CREATE INDEX IF NOT EXISTS idx_session_regs_reminder_24h_pending
-  ON session_registrations (session_id)
-  WHERE reminder_24h_sent = FALSE;
+AUTONOMY: Complete end to end.
 
-CREATE INDEX IF NOT EXISTS idx_session_regs_reminder_1h_pending
-  ON session_registrations (session_id)
-  WHERE reminder_1h_sent = FALSE;
+On student dashboard, upcoming session cards stretch to full width when only 1 session, split in half when 2, correct size only when 3. All cards should be fixed width regardless of count.
+
+Fix the grid layout: use fixed-width columns (3 slots) instead of auto-fit/auto-fill. Empty slots can stay empty or show placeholder. Cards stay consistent 1/3 width on wide screens, 1/2 on tablet, full on mobile.
+
+Example CSS:
+- Desktop: grid-template-columns: repeat(3, 1fr)
+- Tablet: grid-template-columns: repeat(2, 1fr)
+- Mobile: grid-template-columns: 1fr
+
+Or use max-width on cards instead of stretching.
+
+Apply to the Upcoming Sessions section on dashboard (not the standalone Live Sessions page).

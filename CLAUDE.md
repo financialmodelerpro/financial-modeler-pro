@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-20** (session end — Centralized share-template system (migrations 114-117) with admin-editable templates + global brand/founder mention strings + `@` prefix toggles + daily certifications roundup roll-up post; verify-page inline PDF+badge previews with branded gradient; dashboard cert share uses ShareModal with OG image preview; subdomain-correct OG metadata on all per-domain layouts (verify/training/modeling) + LinkedInBot unblocked for `/api/og/`; share text honors full course name (COURSES resolver) + canonical `en-GB` date format; hashtags visible in share-modal preview; dashboard Live Sessions block shows upcoming-only with empty state; Google Search Console verification token; previous session's Marketing Studio Phase 3A + watch enforcement + universal share utility still in place)
+**Last updated: 2026-04-21** (pre-launch polish session — **Resume/Continue Watching** via `playerVars.start` restored on both watch pages (live-sessions + 3SFM/BVM) with completion/near-end/short-position clamps; **Video-swap auto-detection** (`src/lib/training/detectVideoChange.ts`) on `/api/training/certification-watch` + `/api/training/live-sessions/[id]/watched` + admin-only nuclear reset `POST /api/admin/sessions/[tabKey]/reset-watch-progress` (handles LIVE_ prefix vs course tab_keys) with red reset buttons in both session editors; **Mark Complete unlocks in final 20s** via `nearEnd = pos >= total-20 || videoEnded` + `canMarkComplete = nearEnd && (thresholdMet || bypass)`; **Interactive onboarding tour** on first dashboard visit via `driver.js@^1.4.0` (migration 120 `training_registrations_meta.tour_completed`) + `POST /api/training/tour-status`; **Auto-launch cron (disabled)** — migration 118 adds per-hub `auto_launch` + `last_auto_launched_at` keys + `/api/cron/auto-launch-check` route (gated by `AUTO_LAUNCH_UI_ENABLED=false` because Vercel Hobby only supports daily crons); **Session reminder crons** refactored (migration 122) — `reminder_24h_sent`/`reminder_1h_sent` moved from `live_sessions` to `session_registrations` so late registrants still get reminders; **Training Hub Coming-Soon bypass list** (migration 121 `training_hub_bypass_list` in `training_settings` + `src/lib/shared/hubBypassList.ts` + `comingSoonGuard.ts`) for owner + pre-launch testers; **Universal share template `{hubUrl}` variable** (migration 119) appended to 5 templates with soft-upgrade predicate; **Hashtags mandatory + read-only in student preview**; watch threshold hidden from student-facing surfaces; live-session registration flow + email pipeline (`src/lib/training/sessionAnnouncement.ts`); **Mobile responsiveness pass** (C1-C9 Critical + I1-I18 Important); **Marketing Studio PNG render** fixed with 5s AbortController + `maxDuration=60` on `imageToDataUri`; System Health env-check respects `SUPABASE_URL` fallback; per-subdomain `layout.tsx` added across `app/training/*` + `app/refm/` for OG metadata inheritance)
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md) — Database tables, storage buckets, migrations log
@@ -88,6 +88,7 @@
 | Drag & Drop (CMS lists) | @hello-pangea/dnd | ^18.0.1 |
 | Canvas Drag/Resize (Marketing Studio) | react-rnd | ^10.5.3 |
 | ZIP Export | jszip | ^3.10.1 |
+| Onboarding Tour | driver.js | ^1.4.0 |
 | SVG Text Rendering | satori | latest |
 | Passwords | bcryptjs (Training Hub) / scrypt via Node (Modeling Hub) | ^3.0.3 |
 | Toast | react-hot-toast | ^2.6.0 |
@@ -469,6 +470,89 @@ Admin actions at `/admin/training-settings`:
 - Change threshold (50–100%, step 5)
 - Add/remove per-session bypass exceptions
 - Summary shows global status + threshold + enforcing/bypassed counts at a glance
+
+### Mark Complete — Near-End Gate (20s window)
+
+The Mark Complete button unlocks the moment the student is genuinely approaching the end of a video, using a two-step gate that's uniform across the live-session watch page and the 3SFM/BVM certification watch page:
+
+```
+nearEnd         = liveTotalSec > 0 && (liveCurrentPos >= liveTotalSec - 20 || videoEnded)
+canMarkComplete = nearEnd && (thresholdMet || bypassActive)
+```
+
+- **`nearEnd`** fires either when the YT player's `currentTime` crosses into the final 20s **or** when `videoEnded` has been set (triggered by `PlayerState.ENDED`, the `currentTime >= duration - 1` tick fallback, or the `PLAYING → PAUSED-at-end` fallback — all funnel through `onEnded` once, guarded by `endedFired`).
+- **`thresholdMet`** uses the interval-merged `watch_seconds / total_seconds`, which seeking forward can't inflate. `bypassActive` covers admin / global-off / per-session bypass.
+- When `canMarkComplete` is false and the student has logged playback, CourseTopBar swaps Mark Complete for a ghost hint (`Watching… X%` or `Watched X% · keep watching to finish`) so the toolbar isn't empty.
+- To surface the near-end window snappily, `YouTubePlayer.startTickCheck` bypasses the normal 9.5s report throttle when `d > 0 && c >= d - 20` — parent state catches up within ~1s.
+- Server-side `/watched` + `/certification-watch` re-check the threshold before accepting `status='completed'`; a tampered client POST returns 403 with `{ current, required }` which the live-session page surfaces to the student.
+
+### Watch Resume / Continue (2026-04-21)
+
+Resume from `last_position` works across logout/login and different devices for both watch pages. Chain:
+
+1. **DB persistence** — every progress POST stores `watch_seconds`, `total_seconds`, `last_position`, `watch_percentage`, `status`. Wall-clock clamp prevents tampered inflation; MAX-merge prevents stale-client shrinkage.
+2. **Page mount** — both watch pages fetch the stored row and seed `baselineWatchedSec` + `liveWatchSec` + `liveTotalSec` + `resumeAtSec`.
+3. **YT start param** — `YouTubePlayer` accepts `startSeconds` and injects it into `playerVars.start` on `new YT.Player(…)`. YouTube honors the param reliably and survives buffering.
+4. **Tracker floor** — `makeWatchTracker(baselineWatchedSeconds)` uses the baseline as a permanent floor so `watchedSeconds()` never drops below it; both pages wrap live emissions with `Math.max(prev, baselineWatchedSec, watchedSec)`.
+5. **Cross-session** — DB keyed by `(email, session_id)` / `(email, tab_key)`, so any device with the same email sees the same resume state.
+
+**Clamps applied before passing `resumeAtSec` to the player:**
+- `status === 'completed'` → resume at 0 (rewatch from beginning, standard YouTube UX).
+- `last_position ≤ 10s` → skip seek (treat as a fresh start).
+- `last_position ≥ total − 30s` → skip seek (YT's `start` param loops back to 0 past-end).
+- `last_position` null/missing → 0.
+
+`resumePositionSeconds` is a new prop on `CoursePlayerLayout` that threads through to `YouTubePlayer.startSeconds`.
+
+### Video Swap Auto-Detection (2026-04-21)
+
+When an admin replaces a session's YouTube URL, the stored `total_seconds` will disagree with what the new player reports. Without intervention, the stored `watch_percentage` would be nonsense on the new video — possibly showing 100% completed against a video the student has never watched.
+
+- **Helper**: `src/lib/training/detectVideoChange.ts` → `detectVideoChange(existingTotal, incomingTotal)` returns `{ changed: true, reason }` when `|existing − incoming| > 30s` **and** the relative diff exceeds 10%. Both a 0 on either side → `{ changed: false }` (unknown, don't trigger).
+- **Applied to both endpoints**: `POST /api/training/certification-watch` + `POST /api/training/live-sessions/[id]/watched`. On verdict `changed=true`: reset `watch_seconds`/`total_seconds` to incoming, demote `status` to `in_progress`, clear `completed_at`/`watched_at`/`points_awarded`/`last_position`. Threshold guard then re-runs against the new video.
+- **Admin nuclear reset**: `POST /api/admin/sessions/[tabKey]/reset-watch-progress` (admin-gated via NextAuth). Routes by prefix — `LIVE_<uuid>` → `DELETE FROM session_watch_history WHERE session_id=<uuid>`; everything else (e.g. `3SFM_S1`, `BVM_L3`, `3SFM_Final`) → `DELETE FROM certification_watch_history WHERE tab_key=<tabKey>`. Wipes every student's row so bypasses don't cover stale "completed" rows that wouldn't receive another tick from their owner.
+- **Admin UI**: red "Reset Watch Progress" button inside both session editors — `/admin/training-hub/live-sessions` (uses `window.confirm` because the page shadows `confirm` with state) + `/admin/training/[courseId]`. Confirms before firing.
+
+### Interactive Onboarding Tour (migration 120)
+
+First-visit guided walkthrough of the Training Hub dashboard, powered by `driver.js@^1.4.0` (react-joyride rejected React 19 peer dep).
+
+- **Component**: `src/components/training/DashboardTour.tsx` — runs once per student; highlights sidebar nav, courses, live sessions, profile menu, share button. Uses `data-tour="…"` attributes sprinkled on the real UI (no fake overlays).
+- **State**: `training_registrations_meta.tour_completed BOOLEAN DEFAULT FALSE` (migration 120). One-shot: sets `true` on finish/skip.
+- **API**: `POST /api/training/tour-status` — toggles the flag. Restart via profile dropdown's "Restart Tour" action (flips back to false).
+- **Copy**: student-facing tour copy avoids mentioning the watch threshold percentage — the rule exists to gate progression, not to be advertised.
+
+### Auto-Launch Cron (migration 118 — currently disabled)
+
+Admins can schedule a Coming Soon → LIVE flip at a specific `launch_date`. Wiring is complete but **disabled** because Vercel Hobby only supports daily crons, and launch-flip needs 5-min granularity to be useful.
+
+- **Settings seeded** (migration 118): `{training_hub,modeling_hub}_auto_launch` (`'false'`), `{training_hub,modeling_hub}_last_auto_launched_at` (`''`). Admins opt-in per hub.
+- **Route**: `GET /api/cron/auto-launch-check` — polls `training_settings`, flips `coming_soon='false'` + `auto_launch='false'` (one-shot) + `last_auto_launched_at=ISO` when `enabled && auto_launch && launch_date <= now()`. `CRON_SECRET` bearer required.
+- **UI gate**: `AUTO_LAUNCH_UI_ENABLED = false` in `LaunchStatusCard` hides the auto-launch opt-in until we upgrade to Pro. Manual toggles in `/admin/training-settings` + `/admin/modules` remain authoritative.
+- **vercel.json**: the `*/5 * * * *` cron entry was rolled back. The route stays callable by hand for testing.
+
+### Session Reminder Crons — per-registration flags (migration 122)
+
+The 24h + 1h reminder crons previously used per-session flags on `live_sessions` (migration 043), which meant a student who registered inside the 24h window never got their reminder because the session-level flag was already set by the first registrant.
+
+- **Migration 122**: adds `reminder_24h_sent BOOLEAN NOT NULL DEFAULT FALSE` + `reminder_1h_sent BOOLEAN NOT NULL DEFAULT FALSE` to `session_registrations`. Partial indexes on `false` rows keep the lookup cheap.
+- **Cron**: `GET /api/cron/session-reminders` — iterates rows where the appropriate flag is false and the session is within the corresponding window, fires `liveSessionNotificationTemplate('reminder_24h' | 'reminder_1h')`, flips the flag.
+- **Session-level `announcement_sent`** stays on `live_sessions` — that gates whether reminders fire at all ("don't remind about an unpublished session").
+- **Helper**: `src/lib/training/sessionAnnouncement.ts` centralizes the announce-on-publish / manual-announce email build so the cron, the admin `/notify` route, and the register endpoint don't drift.
+
+### Training Hub Coming-Soon Bypass List (migration 121)
+
+Modeling Hub's NextAuth admin role skips the Coming-Soon gate in `authorize()`. Training Hub uses a custom cookie-based session with no role field, so migration 121 adds a per-identifier allowlist in `training_settings`:
+
+- **Key**: `training_hub_bypass_list` — comma-separated emails OR registration IDs (case-insensitive). Seeded with the owner's email + their RegID.
+- **Helper**: `src/lib/shared/hubBypassList.ts` → `isIdentifierAllowed(identifier)` reads the list, splits, trims, lowercases, matches either field.
+- **Guard**: `src/lib/shared/comingSoonGuard.ts` centralizes the signin/register CS gate — checks hub state, then the bypass list, then `?bypass=true`. Both `/training/signin` + `/training/register` call it server-side.
+- **Banner**: `src/components/shared/PreLaunchBanner.tsx` shows a slim pre-launch banner on the authed dashboard for bypass-listed testers so they know they're viewing a live build while the hub is still Coming Soon to the public.
+- **UI**: admin editor for the list isn't built yet — edit the `training_settings` row directly for now.
+
+### Share Template `{hubUrl}` Variable (migration 119)
+
+Centralized share templates gain a `{hubUrl}` variable that resolves to the learn subdomain. Migration 119 soft-upgrades 5 templates (`assessment_passed`, `achievement_card`, `live_session_watched`, `session_shared`, `daily_certifications_roundup`) by appending `\n\nLearn more at {hubUrl}` — but only when `template_text` doesn't already mention the learn subdomain OR the `{hubUrl}` placeholder. Admin edits are preserved. `certificate_earned` is intentionally excluded because it already embeds `{verifyUrl}`. Migration is idempotent: re-running is a no-op because the updated rows then match the skip predicate.
 
 ### Watch Enforcement (70% rule — migration 103)
 - **Interval-merging tracker**: `src/lib/training/watchTracker.ts` — records `[start, end]` intervals from PLAYING → PAUSED/ENDED transitions, merges overlaps on every commit. Seeking forward, replaying, or skipping cannot inflate the count. A `baselineWatchedSeconds` seed ensures a reload with a higher DB value never makes the live counter go backwards.

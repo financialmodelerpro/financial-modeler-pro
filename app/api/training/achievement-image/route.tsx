@@ -14,6 +14,22 @@ export async function GET(req: NextRequest) {
   const course      = searchParams.get('course') || '3-Statement Financial Modeling';
   const studentName = searchParams.get('name') || '';
   const regId       = searchParams.get('regId') || '';
+  const hasAssessment = searchParams.get('has_assessment') !== 'false';
+  const durationRaw   = parseInt(searchParams.get('duration') || '0', 10);
+  const durationMin   = Number.isFinite(durationRaw) && durationRaw > 0 ? durationRaw : 0;
+
+  const formatDuration = (mins: number): string => {
+    if (mins <= 0) return '';
+    if (mins < 60) return `${mins} MIN`;
+    const h = Math.floor(mins / 60);
+    const m = mins - h * 60;
+    if (m === 0) return `${h}H`;
+    return `${h}H ${m}M`;
+  };
+  const durationLabel = formatDuration(durationMin);
+
+  const eyebrowLabel = hasAssessment ? 'Assessment Passed' : 'Session Completed';
+  const eyebrowIcon  = hasAssessment ? '🏆' : '🎓';
 
   const fonts = await loadOgFonts().catch(() => []);
 
@@ -169,8 +185,8 @@ export async function GET(req: NextRequest) {
               borderRadius: 8, border: '1px solid rgba(201,168,76,0.3)',
               alignSelf: 'flex-start',
             }}>
-              <span style={{ fontSize: 20 }}>🏆</span>
-              <span style={{ fontSize: 15, fontWeight: 800, color: '#C9A84C', letterSpacing: '1.5px', textTransform: 'uppercase' as const }}>Assessment Passed</span>
+              <span style={{ fontSize: 20 }}>{eyebrowIcon}</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: '#C9A84C', letterSpacing: '1.5px', textTransform: 'uppercase' as const }}>{eyebrowLabel}</span>
             </div>
 
             <div style={{ fontSize: sessionFontSize, fontWeight: 800, color: '#ffffff', lineHeight: 1.15, marginBottom: 10, maxWidth: 760 }}>
@@ -187,7 +203,7 @@ export async function GET(req: NextRequest) {
               </div>
             )}
 
-            <div style={{ display: 'flex', gap: 20, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
               {date && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>
                   <span>📅</span> <span>{date}</span>
@@ -198,29 +214,69 @@ export async function GET(req: NextRequest) {
                   <span>🪪</span> <span>{regId}</span>
                 </div>
               )}
+              {durationLabel && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 14, color: 'rgba(255,255,255,0.4)' }}>
+                  <span>⏱</span> <span>{durationLabel}</span>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Right - score display */}
+          {/* Right - context-aware visual. With assessment = score circle.
+              Without assessment = session-completed visual with duration. */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
-            <div style={{
-              width: 200, height: 200, borderRadius: '50%',
-              border: '10px solid #2EAA4A',
-              background: 'rgba(46,170,74,0.08)',
-              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 0 40px rgba(46,170,74,0.15)',
-            }}>
-              <span style={{ fontSize: 64, fontWeight: 900, color: '#2EAA4A', lineHeight: 1 }}>{score}%</span>
-              <span style={{ fontSize: 15, color: 'rgba(255,255,255,0.45)', marginTop: 2, fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase' as const }}>Score</span>
-            </div>
-            <div style={{
-              marginTop: 16, padding: '6px 20px', borderRadius: 20,
-              background: '#2EAA4A', color: '#fff',
-              fontSize: 13, fontWeight: 800, letterSpacing: '1.5px',
-              textTransform: 'uppercase' as const,
-            }}>
-              ✓ PASSED
-            </div>
+            {hasAssessment ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div style={{
+                  width: 200, height: 200, borderRadius: '50%',
+                  border: '10px solid #2EAA4A',
+                  background: 'rgba(46,170,74,0.08)',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 0 40px rgba(46,170,74,0.15)',
+                }}>
+                  <span style={{ fontSize: 64, fontWeight: 900, color: '#2EAA4A', lineHeight: 1 }}>{score}%</span>
+                  <span style={{ fontSize: 15, color: 'rgba(255,255,255,0.45)', marginTop: 2, fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase' as const }}>Score</span>
+                </div>
+                <div style={{
+                  marginTop: 16, padding: '6px 20px', borderRadius: 20,
+                  background: '#2EAA4A', color: '#fff',
+                  fontSize: 13, fontWeight: 800, letterSpacing: '1.5px',
+                  textTransform: 'uppercase' as const,
+                }}>
+                  ✓ PASSED
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div style={{
+                  width: 200, height: 200, borderRadius: '50%',
+                  border: '10px solid #14B8A6',
+                  background: 'rgba(20,184,166,0.08)',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 0 40px rgba(20,184,166,0.15)',
+                }}>
+                  {durationLabel ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <span style={{ fontSize: 56, fontWeight: 900, color: '#14B8A6', lineHeight: 1 }}>{durationLabel}</span>
+                      <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', marginTop: 6, fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase' as const }}>Session</span>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                      <span style={{ fontSize: 72, lineHeight: 1 }}>🎥</span>
+                      <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.5)', marginTop: 8, fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase' as const }}>Session</span>
+                    </div>
+                  )}
+                </div>
+                <div style={{
+                  marginTop: 16, padding: '6px 20px', borderRadius: 20,
+                  background: '#14B8A6', color: '#fff',
+                  fontSize: 13, fontWeight: 800, letterSpacing: '1.5px',
+                  textTransform: 'uppercase' as const,
+                }}>
+                  ✓ Attended
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

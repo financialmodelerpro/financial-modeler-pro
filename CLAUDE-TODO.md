@@ -4,6 +4,30 @@
 
 ---
 
+## Recently Completed — Pre-Launch Polish (2026-04-21 session)
+
+| Feature | Status |
+|---------|--------|
+| **Watch Resume / Continue** | Complete — `YouTubePlayer.startSeconds` prop threaded via `CoursePlayerLayout.resumePositionSeconds`; both watch pages capture `last_position` from the GET response and pass it through. Clamps: completed → 0, `<10s` → skip, `≥ total−30` → skip, null → 0. Tracker floor preserves threshold credit across reloads so the resume only moves the playhead, not the counter. (Uncommitted as of doc update.) |
+| **Video Swap Auto-Detection + Admin Reset** | Complete — `src/lib/training/detectVideoChange.ts` heuristic (`abs > 30s AND rel > 10%`). Both watch endpoints reset progress + demote status + clear audit timestamps on a detected swap. `POST /api/admin/sessions/[tabKey]/reset-watch-progress` routes by `LIVE_` prefix vs course tab_keys; red reset buttons in both session editors. Commit `b96fe23`. |
+| **Mark Complete — final 20s + ENDED fallback** | Complete — `canMarkComplete = nearEnd && (thresholdMet || bypass)`. `nearEnd = liveCurrentPos >= liveTotalSec - 20 || videoEnded`. Fixed two root causes of "button stuck hidden": PAUSED-at-end fallback in `YouTubePlayer` + tracker baseline capture at mount with stale prop. Monotonic-max floor on `liveWatchSec`. Commits `cae696a`, `7f39fe9`, `4f3d675`, `2a6f5f5`. |
+| **Live-Session Completion Flow** | Complete — `isWatched` effect filters `status === 'completed'` (not any history row) so an in-progress tick no longer masquerades as completion. `handleMarkComplete` parses 403 errors with `{ current, required }` and surfaces threshold-not-met to the student. Commit `2cf7777`. |
+| **Interactive Onboarding Tour** | Complete (migration 120) — `driver.js@^1.4.0` walkthrough on first dashboard visit. `training_registrations_meta.tour_completed` flag + `POST /api/training/tour-status`. `src/components/training/DashboardTour.tsx`. Tour copy avoids mentioning watch threshold. Commit `a9bf40a`. |
+| **Auto-Launch Cron (disabled at UI)** | Complete wiring, gated off — migration 118 seeds `{hub}_auto_launch` + `{hub}_last_auto_launched_at`. `/api/cron/auto-launch-check` flips `coming_soon='false'` + one-shot clear. `AUTO_LAUNCH_UI_ENABLED=false` in `LaunchStatusCard` because Vercel Hobby only supports daily crons — re-enable when we upgrade to Pro. `vercel.json` entry rolled back. Commits `e05a51c`, `6cda7fb`. |
+| **Session Reminders — per-registration** | Complete (migration 122) — flags moved from `live_sessions` to `session_registrations.reminder_{24h,1h}_sent` + partial indexes on `false` rows. Late registrants now receive the right window. `src/lib/training/sessionAnnouncement.ts` centralizes the email build. Commit `fed8ece`. |
+| **Coming-Soon bypass list** | Complete (migration 121) — `training_settings.training_hub_bypass_list` seeded with owner email + RegID. `src/lib/shared/hubBypassList.ts` + `comingSoonGuard.ts`. `PreLaunchBanner` on authed dashboard. Admin UI TBD. Commit `ba218bc`. |
+| **Share template `{hubUrl}` variable** | Complete (migration 119) — append `\n\nLearn more at {hubUrl}` to 5 templates via soft-upgrade predicate; admin edits preserved; idempotent. Commit `589db84`. |
+| **Hashtags mandatory + read-only preview** | Complete — every share post auto-merges `hashtags[]` into the body; student-side ShareModal textarea is read-only (admin edits on share-templates page are the single authority). Commits `30ded6d`, `0ffcfc3`. |
+| **Watch threshold hidden from students** | Complete — every student-facing surface (CourseTopBar ghost hint, SessionCard, WatchProgressBar label) hides the literal `X% to go` numeric. The rule exists to gate progression, not to be advertised. Commit `1d45bf7`. |
+| **Live-session registration flow + email pipeline** | Complete — register endpoint now fires announcement/confirmation email via `sessionAnnouncement.ts`; cron reminder flags flipped per registration. Commit `fed8ece`. |
+| **Dashboard upcoming-session card layout** | Complete — fixed 3-2-1 grid, 25% shorter (width reverted), auto-collapse via `minmax(min(100%, Npx), 1fr)`. Commits `8ceca27`, `25a93a6`, `8585bce`. |
+| **Mobile responsiveness pass** | Complete — C1-C9 Critical + I1-I18 Important issues resolved across hero, sticky headers, session cards, sidebar nav, mobile bottom nav, admin tables, forms, buttons. Verified on 320/375/768/1024 viewports. Commit `cd3f250`. |
+| **Marketing Studio PNG render** | Complete — `imageToDataUri` gets a 5s AbortController; render route gets `maxDuration=60` + unresolved count logging. Fixes "Failed to fetch" where a single slow image URL stalled the whole render past the serverless timeout. Commit `dfb0ab3`. |
+| **System Health — SUPABASE_URL fallback** | Complete — env-check respects either `NEXT_PUBLIC_SUPABASE_URL` or `SUPABASE_URL` so the System Health card no longer false-alarms "Supabase URL (server) MISSING". Commit `886fa4d`. |
+| **Per-subdomain layout.tsx files** | Complete — added `layout.tsx` to each route group under `app/training/*` (`[courseId]`, `assessment`, `certificate`, `certificates`, `dashboard`, `live-sessions`, `material`, `transcript`, `watch`) + `app/refm/` so deep links inherit learn/app subdomain OG defaults and share previews show the correct card. |
+
+---
+
 ## Recently Completed — Share Templates + Verify Previews + OG canonicalization (2026-04-19 / 2026-04-20 session)
 
 | Feature | Status |
