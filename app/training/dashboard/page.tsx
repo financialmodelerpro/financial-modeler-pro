@@ -34,6 +34,7 @@ import {
 import { ShareExperienceModal } from '@/src/components/shared/ShareExperienceModal';
 import { LiveSessionsContent } from '@/src/components/training/dashboard/LiveSessionsContent';
 import { LiveSessionsSection } from '@/src/components/training/dashboard/LiveSessionsSection';
+import { formatShareDate } from '@/src/lib/training/shareTemplates';
 
 // ── Badge metadata ─────────────────────────────────────────────────────────────
 type LucideIcon = typeof Flame;
@@ -108,7 +109,9 @@ export default function TrainingDashboardPage() {
   // View mode: 'overview' (landing page), 'course' (course detail), or 'live-sessions'
   const [activeView, setActiveView]               = useState<'overview' | 'course' | 'live-sessions'>('overview');
   // share + testimonials
-  const [shareModal, setShareModal]               = useState<{ label: string; certUrl?: string } | null>(null);
+  // Structured event carrying everything the ShareModal forwarder needs to
+  // render the correct template (text + hashtags + @-mentions).
+  const [shareModal, setShareModal]               = useState<import('@/src/components/training/dashboard/CourseContent').DashboardShareEvent | null>(null);
   const [testimonialModal, setTestimonialModal]   = useState<'written' | 'video' | 'social' | null>(null);
   const [testimonialSubmitted, setTestimonialSubmitted] = useState(false);
   const [dashToast, setDashToast]                 = useState('');
@@ -139,8 +142,6 @@ export default function TrainingDashboardPage() {
   const [avatarUploading, setAvatarUploading]     = useState(false);
   // avatarPreview replaced by cropImageSrc + react-easy-crop
   const sidebarFileInputRef                       = useRef<HTMLInputElement>(null);
-  // share CMS text (fetched once, cached 10 min)
-  const [shareCms, setShareCms]                   = useState<{ title: string; messageTemplate: string }>({ title: '', messageTemplate: '' });
   // Live sessions data
   const [upcomingSessions, setUpcomingSessions]   = useState<LiveSession[]>([]);
   const [hasLiveNow, setHasLiveNow]               = useState(false);
@@ -167,18 +168,6 @@ export default function TrainingDashboardPage() {
   useEffect(() => {
     if (localStorage.getItem('fmp_sidebar_collapsed') === 'true') setSidebarCollapsed(true);
     setShareBannerDismissed(localStorage.getItem('fmp_share_banner_dismissed') === 'true');
-  }, []);
-
-  // Fetch share CMS text once on mount
-  useEffect(() => {
-    fetch('/api/cms?section=training&keys=share_achievement_title,share_default_message')
-      .then(r => r.json())
-      .then((j: { map?: Record<string, string> }) => {
-        const title = j.map?.['training__share_achievement_title'] ?? '';
-        const msg   = j.map?.['training__share_default_message'] ?? '';
-        if (title || msg) setShareCms({ title, messageTemplate: msg });
-      })
-      .catch(() => {});
   }, []);
 
   // Fetch upcoming-session counters for the sidebar + quick actions bar.
@@ -1277,7 +1266,21 @@ export default function TrainingDashboardPage() {
                         const courseLabel = cert.course === '3sfm' ? '3SFM' : cert.course.toUpperCase();
                         const learnUrl = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com') : '';
                         const verifyUrl = cert.certificateId ? `${learnUrl}/verify/${cert.certificateId}` : (cert.verificationUrl ?? '');
-                        const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(verifyUrl)}`;
+                        const shareEvent = {
+                          templateKey: 'certificate_earned',
+                          title:       '🎉 Share Your Certificate',
+                          url:         verifyUrl,
+                          cardImageUrl:     cert.certificateId ? `/api/og/certificate/${cert.certificateId}` : undefined,
+                          cardDownloadName: cert.certificateId ? `FMP-Certificate-${cert.certificateId}.png` : undefined,
+                          vars: {
+                            studentName: cert.studentName || studentName,
+                            course:      COURSES[cert.course]?.title ?? cert.course,
+                            grade:       cert.grade || 'Pass',
+                            date:        formatShareDate(cert.issuedAt),
+                            certId:      cert.certificateId,
+                            verifyUrl,
+                          },
+                        };
                         return (
                           <div key={cert.certificateId} style={{ textAlign: 'center', padding: '16px 12px', borderRadius: 12, background: '#FFFBF0', border: '1px solid #FDE68A' }}>
                             <div style={{ width: 80, height: 80, borderRadius: '50%', margin: '0 auto 10px', overflow: 'hidden', background: '#F3F4F6', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid #C9A84C' }}>
@@ -1305,10 +1308,15 @@ export default function TrainingDashboardPage() {
                                   <Download size={11} /> Download
                                 </a>
                               )}
-                              <a href={linkedInUrl} target="_blank" rel="noopener noreferrer"
-                                style={{ padding: '5px 10px', borderRadius: 6, background: '#0A66C2', color: '#fff', fontSize: 10, fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                                LinkedIn
-                              </a>
+                              {/* Share — opens the dashboard ShareModal (template-driven).
+                                  The modal itself has LinkedIn / WhatsApp / Twitter / Copy
+                                  buttons, so a single entry point gives the student every
+                                  platform while keeping the copy admin-editable via the
+                                  `certificate_earned` share template. */}
+                              <button onClick={() => setShareModal(shareEvent)}
+                                style={{ padding: '5px 10px', borderRadius: 6, background: '#0A66C2', color: '#fff', fontSize: 10, fontWeight: 700, border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                Share
+                              </button>
                             </div>
                           </div>
                         );
@@ -1433,7 +1441,7 @@ export default function TrainingDashboardPage() {
                 generating={generating}
                 studentName={progress?.student.name ?? ''}
                 studentEmail={progress?.student.email ?? ''}
-                onShare={(label, certUrl) => setShareModal({ label, certUrl })}
+                onShare={event => setShareModal(event)}
                 testimonialSubmitted={testimonialSubmitted}
                 onOpenTestimonial={type => setTestimonialModal(type)}
                 notes={notes}
@@ -1541,10 +1549,12 @@ export default function TrainingDashboardPage() {
       {/* ── Share Modal ─────────────────────────────────────────────────────── */}
       {shareModal && (
         <ShareModal
-          label={shareModal.label}
-          certUrl={shareModal.certUrl}
-          cmsTitle={shareCms.title}
-          cmsMessageTemplate={shareCms.messageTemplate}
+          templateKey={shareModal.templateKey}
+          vars={shareModal.vars}
+          title={shareModal.title}
+          url={shareModal.url}
+          cardImageUrl={shareModal.cardImageUrl}
+          cardDownloadName={shareModal.cardDownloadName}
           onClose={() => setShareModal(null)}
           onCopyDone={() => { setDashToast('Link copied to clipboard!'); setTimeout(() => setDashToast(''), 2500); }}
         />

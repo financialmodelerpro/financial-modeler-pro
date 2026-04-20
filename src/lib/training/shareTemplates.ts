@@ -26,6 +26,15 @@ export const DEFAULT_BRAND_MENTION   = 'FinancialModelerPro';
 export const DEFAULT_FOUNDER_MENTION = 'Ahmad Din, ACCA, FMVA®';
 
 /**
+ * Canonical Training Hub landing URL used to resolve `{hubUrl}` in share
+ * templates. `NEXT_PUBLIC_LEARN_URL` is inlined at build time for client
+ * bundles (Next.js public env), so this works on both server and client.
+ */
+export const DEFAULT_HUB_URL = (
+  process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'
+).replace(/\/+$/, '');
+
+/**
  * Resolve a course identifier to its full display title. Accepts any of:
  *   - the course id (`'3sfm'`, `'bvm'`)
  *   - the short title (`'3SFM'`, `'BVM'`)
@@ -133,10 +142,16 @@ export function renderShareTemplate(template: ShareTemplate, vars: ShareVars): R
 
   // Normalize well-known variables so the output always matches the admin
   // template preview: `course` ⇒ full title (resolves short codes like "3SFM"),
-  // date-ish keys ⇒ canonical "20 March 2026" format.
+  // `hubUrl` ⇒ Training Hub landing page (NEXT_PUBLIC_LEARN_URL). Callers
+  // never need to pass `hubUrl` — the engine fills it in so admins can
+  // reference `{hubUrl}` from any template without coordinating with every
+  // call site. Explicitly-passed values still win.
   const normalizedVars: ShareVars = { ...vars };
   if (typeof normalizedVars.course === 'string') {
     normalizedVars.course = resolveCourseName(normalizedVars.course);
+  }
+  if (normalizedVars.hubUrl === undefined || normalizedVars.hubUrl === null || normalizedVars.hubUrl === '') {
+    normalizedVars.hubUrl = DEFAULT_HUB_URL;
   }
 
   let text = template.template_text
@@ -178,20 +193,26 @@ export const SAMPLE_VARS: ShareVars = {
     '• https://learn.financialmodelerpro.com/verify/FMP-3SFM-2026-0001\n' +
     '• https://learn.financialmodelerpro.com/verify/FMP-BVM-2026-0002\n' +
     '• https://learn.financialmodelerpro.com/verify/FMP-3SFM-2026-0003',
+  hubUrl:             DEFAULT_HUB_URL,
 };
 
 /**
  * Known variables per template key — drives the admin variable-picker chips.
  * Extra variables in a template_text won't break anything, but they won't be
  * suggested in the UI.
+ *
+ * `hubUrl` is offered on every template. The render engine auto-fills it
+ * with `NEXT_PUBLIC_LEARN_URL` (falling back to `https://learn.financialmodelerpro.com`)
+ * so admins never need to paste the URL as plain text — inserting `{hubUrl}`
+ * from the chip picker is enough.
  */
 export const TEMPLATE_VARIABLES: Record<string, string[]> = {
-  certificate_earned:           ['studentName', 'course', 'grade', 'date', 'certId', 'verifyUrl'],
-  assessment_passed:            ['studentName', 'sessionName', 'score', 'course', 'date', 'regId'],
-  achievement_card:             ['studentName', 'sessionName', 'score', 'course', 'date', 'regId'],
-  live_session_watched:         ['studentName', 'sessionName', 'course', 'date'],
-  session_shared:               ['sessionName', 'sessionDescription', 'sessionUrl'],
-  daily_certifications_roundup: ['studentList', 'verifyLinks', 'count', 'date'],
+  certificate_earned:           ['studentName', 'course', 'grade', 'date', 'certId', 'verifyUrl', 'hubUrl'],
+  assessment_passed:            ['studentName', 'sessionName', 'score', 'course', 'date', 'regId', 'hubUrl'],
+  achievement_card:             ['studentName', 'sessionName', 'score', 'course', 'date', 'regId', 'hubUrl'],
+  live_session_watched:         ['studentName', 'sessionName', 'course', 'date', 'hubUrl'],
+  session_shared:               ['sessionName', 'sessionDescription', 'sessionUrl', 'hubUrl'],
+  daily_certifications_roundup: ['studentList', 'verifyLinks', 'count', 'date', 'hubUrl'],
 };
 
 type TemplateSeed = Omit<ShareTemplate, 'brand_mention' | 'founder_mention' | 'brand_prefix_at' | 'founder_prefix_at'>;
@@ -221,7 +242,8 @@ const TEMPLATE_SEEDS: Record<string, TemplateSeed> = {
       '📊 Score: {score}%\n' +
       '📘 Course: {course}\n' +
       '📅 Date: {date}\n\n' +
-      'Another milestone on the way to {course} Certification with {@founder}.',
+      'Another milestone on the way to {course} Certification with {@founder}.\n\n' +
+      'Learn more at {hubUrl}',
     hashtags:        ['FinancialModeling', 'FinancialModelerPro', 'CorporateFinance'],
     mention_brand:   true,
     mention_founder: true,
@@ -234,7 +256,8 @@ const TEMPLATE_SEEDS: Record<string, TemplateSeed> = {
       'Just completed "{sessionName}" on the {@brand} Training Hub!\n\n' +
       '📊 Score: {score}%\n' +
       '📘 {course}\n\n' +
-      'Thanks to {@founder} for the practitioner-led curriculum.',
+      'Thanks to {@founder} for the practitioner-led curriculum.\n\n' +
+      'Learn more at {hubUrl}',
     hashtags:        ['FinancialModeling', 'FinancialModelerPro', 'CorporateFinance'],
     mention_brand:   true,
     mention_founder: true,
@@ -245,7 +268,8 @@ const TEMPLATE_SEEDS: Record<string, TemplateSeed> = {
     title:           'Live Session Watched',
     template_text:
       'Just finished watching "{sessionName}" — part of FMP Real-World Financial Modeling from {@brand}.\n\n' +
-      'Practitioner-led, built on real deal work with {@founder}.',
+      'Practitioner-led, built on real deal work with {@founder}.\n\n' +
+      'Learn more at {hubUrl}',
     hashtags:        ['FinancialModeling', 'FinancialModelerPro', 'CorporateFinance'],
     mention_brand:   true,
     mention_founder: true,
@@ -257,7 +281,8 @@ const TEMPLATE_SEEDS: Record<string, TemplateSeed> = {
     template_text:
       'Check out "{sessionName}" on the {@brand} Training Hub.\n\n' +
       '{sessionDescription}\n\n' +
-      '{sessionUrl}',
+      '{sessionUrl}\n\n' +
+      'Learn more at {hubUrl}',
     hashtags:        ['FinancialModeling', 'FinancialModelerPro'],
     mention_brand:   true,
     mention_founder: false,
@@ -272,7 +297,8 @@ const TEMPLATE_SEEDS: Record<string, TemplateSeed> = {
       'Proud of the dedication and hard work from {count} students under the guidance of {@founder}.\n\n' +
       'View their credentials:\n' +
       '{verifyLinks}\n\n' +
-      'Structured Modeling. Real-World Finance.',
+      'Structured Modeling. Real-World Finance.\n\n' +
+      'Learn more at {hubUrl}',
     hashtags:        ['FinancialModeling', 'FinancialModelerPro', 'CorporateFinance'],
     mention_brand:   true,
     mention_founder: true,

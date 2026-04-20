@@ -9,6 +9,23 @@ import { calculateCourseProgress } from '@/src/lib/training/progressCalculator';
 import { AboutThisCourse } from './AboutThisCourse';
 import { SessionCard } from './SessionCard';
 import { FilePreviewModal } from './FilePreviewModal';
+import { formatShareDate, type ShareVars } from '@/src/lib/training/shareTemplates';
+
+/**
+ * Every share button raised from this component flows through the central
+ * share-template pipeline (`share_templates` table + `renderShareTemplate`).
+ * Callers receive the template key + the vars needed to fill it — the
+ * dashboard's ShareModal fetches the template and renders both the body
+ * text AND hashtags + @-mentions from the DB.
+ */
+export interface DashboardShareEvent {
+  templateKey: string;
+  vars: ShareVars;
+  title?: string;
+  url?: string;
+  cardImageUrl?: string;
+  cardDownloadName?: string;
+}
 
 export interface CourseContentProps {
   courseId: string;
@@ -22,7 +39,7 @@ export interface CourseContentProps {
   // share + testimonials
   studentName: string;
   studentEmail: string;
-  onShare: (label: string, certUrl?: string) => void;
+  onShare: (event: DashboardShareEvent) => void;
   testimonialSubmitted: boolean;
   onOpenTestimonial: (type: 'written' | 'video') => void;
   // notes + feedback
@@ -81,7 +98,13 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
   const recentlyPassed = useMemo(() => {
     const cutoff = Date.now() - 4 * 60 * 60 * 1000;
     const regularSess = course.sessions.filter(s => !s.isFinal);
-    let best: { key: string; label: string; certUrl?: string } | null = null;
+    let best: {
+      key:         string;
+      label:       string;
+      sessionTitle: string;
+      score:       number;
+      completedAt: string;
+    } | null = null;
     let bestTime = 0;
     for (const s of course.sessions) {
       const prog = progressMap.get(s.id);
@@ -90,7 +113,13 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
       if (t < cutoff || t <= bestTime) continue;
       const idx = regularSess.findIndex(r => r.id === s.id);
       const label = s.isFinal ? 'passed the Final Exam' : `passed Session ${idx + 1}`;
-      best = { key: `sess_${s.id}`, label };
+      best = {
+        key:          `sess_${s.id}`,
+        label,
+        sessionTitle: s.title,
+        score:        prog.score,
+        completedAt:  prog.completedAt,
+      };
       bestTime = t;
     }
     return best;
@@ -381,7 +410,18 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
             🎉 You {recentlyPassed.label} in <strong>{course.shortTitle}</strong>! Share Your Achievement
           </div>
           <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-            <button onClick={() => onShare(recentlyPassed.label)}
+            <button onClick={() => onShare({
+              templateKey: 'achievement_card',
+              title:       'Share Your Achievement',
+              vars: {
+                studentName,
+                sessionName: recentlyPassed.sessionTitle,
+                score:       recentlyPassed.score,
+                course:      course.title,
+                date:        formatShareDate(recentlyPassed.completedAt),
+                regId,
+              },
+            })}
               style={{ padding: '6px 14px', borderRadius: 20, background: '#1B4F8A', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
               Share
             </button>
@@ -393,7 +433,11 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
         </div>
       )}
 
-      {/* ── Progress milestone share banner ──────────────────────────────── */}
+      {/* ── Progress milestone banner ──────────────────────────────────────
+         Informational only — no share button. There is no dedicated share
+         template for "X% through a course" and forcing one of the existing
+         templates (achievement / certificate) to fit creates misleading
+         share copy ("Just completed 50%…"). Dismiss ✕ remains. */}
       {[25, 50, 75].map(m => {
         const key = `milestone_${courseId}_${m}`;
         const hit = progressPct >= m && progressPct < m + 25;
@@ -404,10 +448,6 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
               🚀 You are <strong>{m}% through</strong> the {course.shortTitle} course! Keep it up.
             </div>
             <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-              <button onClick={() => onShare(`reached ${m}% progress in ${course.shortTitle}`)}
-                style={{ padding: '6px 14px', borderRadius: 20, background: '#2EAA4A', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
-                Share Progress
-              </button>
               <button onClick={() => dismissBanner(key)}
                 style={{ padding: '6px 10px', borderRadius: 20, background: 'transparent', color: '#6B7280', border: '1px solid #D1D5DB', cursor: 'pointer', fontSize: 12 }}>
                 ✕
@@ -460,6 +500,10 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
         let body = '';
         let action = '';
         let actionUrl = '';
+        // When the "next step" is a share action we take the onShare branch
+        // instead of a raw href — keeps every share entry point routed through
+        // the share-templates pipeline.
+        let shareEvent: DashboardShareEvent | null = null;
         if (passedCount === 0) {
           title = '🚀 Start Your Journey';
           body = `Begin with Session 1 of ${course.shortTitle} - watch the video then take the assessment.`;
@@ -481,9 +525,24 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
           action = '🏆 Take Final Exam';
         } else if (finalPassed && courseCert) {
           title = '🎓 Share Your Certificate';
-          body = 'Congratulations! Add your certificate to LinkedIn to showcase your skills.';
-          actionUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(courseCert.certifierUrl)}`;
-          action = 'Add to LinkedIn';
+          body = 'Congratulations! Share your certificate to showcase your skills.';
+          action = '🎉 Share Certificate';
+          const verifyUrl = courseCert.verificationUrl || courseCert.certifierUrl;
+          shareEvent = {
+            templateKey: 'certificate_earned',
+            title:       '🎉 Share Your Certificate',
+            url:         verifyUrl,
+            cardImageUrl:     `/api/og/certificate/${courseCert.certificateId}`,
+            cardDownloadName: `FMP-Certificate-${courseCert.certificateId}.png`,
+            vars: {
+              studentName: courseCert.studentName || studentName,
+              course:      course.title,
+              grade:       courseCert.grade || 'Pass',
+              date:        formatShareDate(courseCert.issuedAt),
+              certId:      courseCert.certificateId,
+              verifyUrl,
+            },
+          };
         } else {
           title = '📈 Keep Going';
           body = 'Complete the remaining sessions to unlock your certificate.';
@@ -491,8 +550,13 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
         return (
           <div style={{ background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 12, padding: '16px 20px', marginBottom: 20 }}>
             <div style={{ fontSize: 12, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>{title}</div>
-            <div style={{ fontSize: 12, color: '#6B7280', marginBottom: actionUrl ? 10 : 0 }}>{body}</div>
-            {actionUrl && (
+            <div style={{ fontSize: 12, color: '#6B7280', marginBottom: (actionUrl || shareEvent) ? 10 : 0 }}>{body}</div>
+            {shareEvent ? (
+              <button onClick={() => onShare(shareEvent!)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 16px', borderRadius: 7, background: '#1B4F8A', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>
+                {action}
+              </button>
+            ) : actionUrl && (
               actionUrl.startsWith('/') ? (
                 <Link href={actionUrl}
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '7px 16px', borderRadius: 7, background: '#1B4F8A', color: '#fff', textDecoration: 'none', fontSize: 12, fontWeight: 700 }}>
@@ -532,41 +596,56 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
             </div>
             <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#C9A84C', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>🏆</div>
           </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            <a href={courseCert.certifierUrl} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#2EAA4A', color: '#fff', textDecoration: 'none' }}>
-              🏆 View Certificate
-            </a>
-            <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(courseCert.certifierUrl)}`}
-              target="_blank" rel="noopener noreferrer"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#0A66C2', color: '#fff', textDecoration: 'none' }}>
-              in LinkedIn
-            </a>
-            <a href={`https://wa.me/?text=${encodeURIComponent(`I just earned my ${course.shortTitle} certificate from Financial Modeler Pro! 🎓\n\nCheck out the free course: ${process.env.NEXT_PUBLIC_LEARN_URL || 'https://learn.financialmodelerpro.com'}/training\n\nVerify my certificate: ${courseCert.certifierUrl}`)}`}
-              target="_blank" rel="noopener noreferrer"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#25D366', color: '#fff', textDecoration: 'none' }}>
-              WhatsApp
-            </a>
-            <a href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(`Just earned my ${course.shortTitle} certification! 🏆\n\nFree course at ${process.env.NEXT_PUBLIC_LEARN_URL || 'https://learn.financialmodelerpro.com'}/training\n\n#FinancialModeling #Finance`)}`}
-              target="_blank" rel="noopener noreferrer"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#000', color: '#fff', textDecoration: 'none' }}>
-              𝕏 Twitter
-            </a>
-            <button
-              onClick={() => { navigator.clipboard.writeText(courseCert.certifierUrl).then(() => { setCopiedCert(true); setTimeout(() => setCopiedCert(false), 2500); }); }}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: copiedCert ? '#2EAA4A' : '#1B4F8A', color: '#fff', border: 'none', cursor: 'pointer' }}>
-              {copiedCert ? '✓ Copied!' : '🔗 Copy Link'}
-            </button>
-            <button onClick={() => onShare(`earned my ${course.shortTitle} certificate`, courseCert.certifierUrl)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: 'rgba(201,168,76,0.15)', color: '#92600A', border: '1px solid rgba(201,168,76,0.4)', cursor: 'pointer' }}>
-              🎉 Share Achievement
-            </button>
-            <a href={`https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${encodeURIComponent(course.title)}&organizationName=Financial+Modeler+Pro&issueYear=${new Date(courseCert.issuedAt).getFullYear()}&issueMonth=${new Date(courseCert.issuedAt).getMonth()+1}&certUrl=${encodeURIComponent(courseCert.certifierUrl)}&certId=${encodeURIComponent(courseCert.certificateId)}`}
-              target="_blank" rel="noopener noreferrer"
-              style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#0A66C2', color: '#fff', textDecoration: 'none' }}>
-              in Add Credential
-            </a>
-          </div>
+          {(() => {
+            // Build shared derivations once — used by View / Copy / Share /
+            // Add Credential buttons below. verifyUrl prefers the internal
+            // verificationUrl (learn.../verify/{id}); falls back to the
+            // legacy certifierUrl so pre-migration certs still work.
+            const verifyUrl = courseCert.verificationUrl || courseCert.certifierUrl;
+            const certPdfUrl = courseCert.certPdfUrl || courseCert.certifierUrl;
+            return (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                <a href={certPdfUrl} target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#2EAA4A', color: '#fff', textDecoration: 'none' }}>
+                  🏆 View Certificate
+                </a>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(verifyUrl).then(() => { setCopiedCert(true); setTimeout(() => setCopiedCert(false), 2500); }); }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: copiedCert ? '#2EAA4A' : '#1B4F8A', color: '#fff', border: 'none', cursor: 'pointer' }}>
+                  {copiedCert ? '✓ Copied!' : '🔗 Copy Verify Link'}
+                </button>
+                {/* Share Achievement — template-driven. LinkedIn/WhatsApp/Twitter
+                    all live inside the opened ShareModal; no more hardcoded
+                    per-platform deep-links bypassing the share-templates system. */}
+                <button onClick={() => onShare({
+                  templateKey: 'certificate_earned',
+                  title:       '🎉 Share Your Certificate',
+                  url:         verifyUrl,
+                  cardImageUrl: `/api/og/certificate/${courseCert.certificateId}`,
+                  cardDownloadName: `FMP-Certificate-${courseCert.certificateId}.png`,
+                  vars: {
+                    studentName: courseCert.studentName,
+                    course:      course.title,
+                    grade:       courseCert.grade || 'Pass',
+                    date:        formatShareDate(courseCert.issuedAt),
+                    certId:      courseCert.certificateId,
+                    verifyUrl,
+                  },
+                })}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: 'rgba(201,168,76,0.15)', color: '#92600A', border: '1px solid rgba(201,168,76,0.4)', cursor: 'pointer' }}>
+                  🎉 Share Achievement
+                </button>
+                {/* LinkedIn "Add to Profile" — a credential-claim flow, not a share
+                    post. LinkedIn renders its own credential form using these
+                    params, so there's no template text involved. */}
+                <a href={`https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${encodeURIComponent(course.title)}&organizationName=Financial+Modeler+Pro&issueYear=${new Date(courseCert.issuedAt).getFullYear()}&issueMonth=${new Date(courseCert.issuedAt).getMonth()+1}&certUrl=${encodeURIComponent(verifyUrl)}&certId=${encodeURIComponent(courseCert.certificateId)}`}
+                  target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#0A66C2', color: '#fff', textDecoration: 'none' }}>
+                  in Add Credential
+                </a>
+              </div>
+            );
+          })()}
           {/* QR Code */}
           <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid rgba(201,168,76,0.2)', display: 'flex', alignItems: 'center', gap: 14 }}>
             <img

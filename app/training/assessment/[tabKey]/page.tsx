@@ -1053,6 +1053,13 @@ export default function AssessmentPage() {
           });
           const shareText = rendered.text;
           const shareHashtags = rendered.hashtags;
+          // The readonly preview shows exactly what `shareTo()` puts on the
+          // clipboard — body + blank line + space-joined hashtags. Keeps
+          // "what I see" and "what I paste" in sync with every other
+          // share entry point across the platform.
+          const previewText = shareHashtags.length
+            ? `${shareText}\n\n${shareHashtags.map(h => `#${h.replace(/^#/, '')}`).join(' ')}`
+            : shareText;
           const onShared = () => { setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2500); };
           return (
             <div style={{ maxWidth: 780, margin: '0 auto 32px', padding: '0 24px' }}>
@@ -1072,8 +1079,9 @@ export default function AssessmentPage() {
                     ⬇️ Download Achievement Card
                   </a>
                 </div>
-                {/* Share text */}
-                <textarea readOnly value={shareText} rows={6}
+                {/* Share text — includes hashtags so the preview matches what
+                    the clipboard will contain after clicking Share on LinkedIn. */}
+                <textarea readOnly value={previewText} rows={7}
                   style={{ width: '100%', padding: '10px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 12, fontFamily: 'Inter,sans-serif', resize: 'none', lineHeight: 1.6, boxSizing: 'border-box', marginBottom: 12, color: '#374151', background: '#F9FAFB' }} />
                 {/* Instruction */}
                 <div style={{ fontSize: 12, color: '#6B7280', background: '#F0F9FF', border: '1px solid #BAE6FD', borderRadius: 8, padding: '10px 14px', marginBottom: 12, lineHeight: 1.5 }}>

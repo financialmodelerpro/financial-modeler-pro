@@ -9,6 +9,7 @@ import { getCertificateByRegId } from '@/src/lib/training/sheets';
 import type { SheetCertificate } from '@/src/lib/training/sheets';
 import { COURSES } from '@/src/config/courses';
 import { getServerClient } from '@/src/lib/shared/supabase';
+import { ShareCertificateButton } from './ShareCertificateButton';
 
 // ── Layout types (mirrored from API route) ────────────────────────────────────
 
@@ -152,8 +153,6 @@ export default async function CertificatePage({ searchParams }: Props) {
   const verifyUrl  = cert.certifierUrl.startsWith('http')
     ? cert.certifierUrl
     : `${learnUrl}/verify/${cert.certificateId}`;
-  const linkedInUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(verifyUrl)}`;
-
   return (
     <div style={{
       fontFamily: "'Inter', sans-serif", background: '#F5F7FA',
@@ -347,18 +346,14 @@ export default async function CertificatePage({ searchParams }: Props) {
           >
             Verify Certificate →
           </a>
-          <a
-            href={linkedInUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 7,
-              padding: '11px 22px', borderRadius: 8, fontSize: 13, fontWeight: 700,
-              background: '#0A66C2', color: '#fff', textDecoration: 'none',
-            }}
-          >
-            Share on LinkedIn →
-          </a>
+          <ShareCertificateButton
+            certId={cert.certificateId}
+            studentName={cert.studentName}
+            course={courseLabel(cert.course)}
+            issuedAt={cert.issuedAt}
+            verifyUrl={verifyUrl}
+          />
+
         </div>
 
       </div>

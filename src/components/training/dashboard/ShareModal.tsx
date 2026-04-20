@@ -3,39 +3,51 @@
 /**
  * Dashboard share modal.
  *
- * Thin forwarder around the universal ShareModal. Prop shape kept stable so
- * existing callers (dashboard banner, SessionCard) don't need to change.
- * New code should import `ShareModal` directly from
- * '@/src/components/training/share/ShareModal' and use the universal API.
+ * Template-driven forwarder around the universal ShareModal. Callers pass a
+ * `templateKey` (matching a row in `share_templates`) plus the `vars` needed
+ * to substitute placeholders — text, hashtags, and @-mentions all resolve
+ * through the same pipeline every other share button uses. Editing copy at
+ * /admin/training-hub/share-templates changes what this modal shows too.
+ *
+ * Prior versions of this file built a hardcoded string and ignored the
+ * template system entirely — that bypass is gone.
  */
 
 import { ShareModal as UniversalShareModal } from '@/src/components/training/share/ShareModal';
 import { FMP_TRAINING_URL } from '@/src/lib/training/share';
+import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
+import { renderShareTemplate, type ShareVars } from '@/src/lib/training/shareTemplates';
 
 interface ShareModalProps {
-  label: string;
-  certUrl?: string;
-  cmsTitle?: string;
-  cmsMessageTemplate?: string;
+  /** share_templates.template_key — e.g. `achievement_card`, `certificate_earned`. */
+  templateKey: string;
+  /** Variables substituted into the template body (studentName, course, etc.). */
+  vars: ShareVars;
+  title?: string;
+  /** URL shared alongside the text. Defaults to the Training Hub landing page. */
+  url?: string;
+  /** Optional achievement / certificate card preview image. */
+  cardImageUrl?: string;
+  cardDownloadName?: string;
   onClose: () => void;
-  onCopyDone: () => void;
+  /** Fired when the clipboard copy completes (used by the dashboard toast). */
+  onCopyDone?: () => void;
 }
 
-export function ShareModal({ label, certUrl, cmsTitle, cmsMessageTemplate, onClose, onCopyDone }: ShareModalProps) {
-  const trainingUrl = FMP_TRAINING_URL;
-  const shareUrl    = certUrl || trainingUrl;
-  const defaultMsg  = `I just ${label} at Financial Modeler Pro!\n\nBuilding institutional-grade financial models - Free certification program: ${trainingUrl}${certUrl ? `\n\nVerify certificate: ${certUrl}` : ''}`;
-  const initialText = cmsMessageTemplate
-    ? cmsMessageTemplate.replace('{action}', label) + (certUrl ? `\n\nVerify certificate: ${certUrl}` : '')
-    : defaultMsg;
+export function ShareModal({ templateKey, vars, title, url, cardImageUrl, cardDownloadName, onClose, onCopyDone }: ShareModalProps) {
+  const template = useShareTemplate(templateKey);
+  const rendered = renderShareTemplate(template, vars);
 
   return (
     <UniversalShareModal
       isOpen
-      onClose={() => { onCopyDone(); onClose(); }}
-      title={cmsTitle || '🎉 Share Your Achievement'}
-      text={initialText}
-      url={shareUrl}
+      onClose={() => { onCopyDone?.(); onClose(); }}
+      title={title || '🎉 Share Your Achievement'}
+      text={rendered.text}
+      url={url || FMP_TRAINING_URL}
+      hashtags={rendered.hashtags}
+      cardImageUrl={cardImageUrl}
+      cardDownloadName={cardDownloadName}
     />
   );
 }
