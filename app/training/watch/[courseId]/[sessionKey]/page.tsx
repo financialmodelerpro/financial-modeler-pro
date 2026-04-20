@@ -37,6 +37,10 @@ export default function CourseWatchPage() {
   const [baselineWatchedSec, setBaselineWatchedSec] = useState(0);
   const [liveWatchSec, setLiveWatchSec] = useState(0);
   const [liveTotalSec, setLiveTotalSec] = useState(0);
+  // Tracks the YT player's currentTime — used to evaluate the "last
+  // 20 seconds" near-end window. Always monotonic-max so a seek-back
+  // from pos 1700 → 200 can't collapse the gate once it's open.
+  const [liveCurrentPos, setLiveCurrentPos] = useState(0);
   const lastPostedRef = useRef<{ sec: number; at: number }>({ sec: 0, at: 0 });
 
   const course = COURSES[courseId];
@@ -226,6 +230,7 @@ export default function CourseWatchPage() {
     // floor and lets liveWatchSec only climb.
     setLiveWatchSec(prev => Math.max(prev, baselineWatchedSec, watchedSec));
     if (totalSec > 0) setLiveTotalSec(prev => Math.max(prev, totalSec));
+    if (currentPos > 0) setLiveCurrentPos(prev => Math.max(prev, currentPos));
 
     if (!studentSession || !course) return;
     const session = course.sessions.find(s => s.id === sessionKey);
@@ -347,22 +352,27 @@ export default function CourseWatchPage() {
   // Assessment URL - always use the internal route (Apps Script formUrl is deprecated)
   const assessmentUrl = `/training/assessment/${encodeURIComponent(tk)}`;
 
-  // Watch-enforcement gate — dead-simple: the button appears when the
-  // video has ended AND either the student watched enough of it, OR the
-  // bypass is active (admin role / global-off / per-session bypass).
+  // Watch-enforcement gate:
   //
-  //   canMarkComplete = videoEnded && (thresholdMet || bypassActive)
+  //   nearEnd         = (totalSec > 0) && (pos >= totalSec - 20 || videoEnded)
+  //   canMarkComplete = nearEnd && (thresholdMet || bypassActive)
   //
-  // Anti-skip is handled entirely at the tracker: `liveWatchSec` is the
-  // sum of real-time-clamped intervals, so dragging the playhead to the
-  // end will fire videoEnded but leave watchPct below threshold, leaving
-  // the button hidden. Server-side /certification-watch re-checks the
-  // threshold before accepting `status='completed'`, so client tampering
-  // doesn't issue a certificate either.
+  // `nearEnd` fires the moment the student crosses into the final 20s
+  // of the video OR the player signals end-of-video (ENDED / PAUSED-at-
+  // tail). Both paths funnel into the same gate so Mark Complete unlocks
+  // as soon as the student is genuinely approaching the end AND has
+  // accumulated enough real watched seconds to clear the threshold.
+  //
+  // Anti-skip stays at the tracker: `liveWatchSec` is the sum of real-
+  // time-clamped intervals, so dragging the playhead into the last 20s
+  // fires nearEnd but leaves watchPct below threshold → button hidden.
+  // Server-side /certification-watch re-checks the threshold before
+  // accepting `status='completed'`.
   const watchPct = liveTotalSec > 0 ? Math.min(100, Math.round((liveWatchSec / liveTotalSec) * 100)) : 0;
   const thresholdMet = watchPct >= enforcement.threshold;
   const bypassActive = !enforcement.enabled || enforcement.sessionBypass || enforcement.isAdmin;
-  const canMarkComplete = videoEnded && (thresholdMet || bypassActive);
+  const nearEnd = liveTotalSec > 0 && (liveCurrentPos >= liveTotalSec - 20 || videoEnded);
+  const canMarkComplete = nearEnd && (thresholdMet || bypassActive);
 
   // CourseTopBar hides the button entirely when `onMarkComplete` is undefined,
   // so we avoid visually-enabled-but-blocked UX.

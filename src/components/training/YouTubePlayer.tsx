@@ -88,15 +88,19 @@ export function YouTubePlayer({ videoId, title, sessionId, studentEmail, student
       tickInterval = setInterval(() => {
         const c = pos();
         tracker = onTick(tracker, c);
+        const d = dur();
         // End-of-video fallback. YT's PlayerState.ENDED is usually reliable,
         // but some videos (those with end-screen cards, mid-playback quality
         // switches, or when the player is auto-muted) skip the event. If
         // the playhead reaches the final second of a known duration, treat
-        // that as "ended" and fire. No 20-second early trigger — user must
-        // actually watch to the end.
-        const d = dur();
+        // that as "ended" and fire.
         if (d > 0 && c >= d - 1) fireEndedOnce();
-        report();
+        // Bypass the 9.5s report throttle during the last 20 seconds so
+        // the parent's `currentPos` state reflects the near-end window
+        // within ~1s of crossing it — Mark Complete unlocks snappily
+        // instead of waiting for the next throttled emit.
+        const nearEnd = d > 0 && c >= d - 20;
+        report(nearEnd);
       }, 1000);
     }
     function stopTickCheck() {

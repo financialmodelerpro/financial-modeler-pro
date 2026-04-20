@@ -111,6 +111,10 @@ export default function LiveSessionDetailPage() {
   const [baselineWatchedSec, setBaselineWatchedSec] = useState(0);
   const [liveWatchSec, setLiveWatchSec] = useState(0);
   const [liveTotalSec, setLiveTotalSec] = useState(0);
+  // Tracks the YT player's currentTime — used to evaluate the "last
+  // 20 seconds" near-end window. Monotonic-max so seeking backward
+  // doesn't collapse the gate once it's open.
+  const [liveCurrentPos, setLiveCurrentPos] = useState(0);
   const lastPostedRef = useRef<{ sec: number; at: number }>({ sec: 0, at: 0 });
 
   useEffect(() => {
@@ -215,6 +219,7 @@ export default function LiveSessionDetailPage() {
     // watchPct below threshold and keeping Mark Complete hidden.
     setLiveWatchSec(prev => Math.max(prev, baselineWatchedSec, watchedSec));
     if (totalSec > 0) setLiveTotalSec(prev => Math.max(prev, totalSec));
+    if (currentPos > 0) setLiveCurrentPos(prev => Math.max(prev, currentPos));
 
     if (!studentSession?.email) return;
 
@@ -333,22 +338,25 @@ export default function LiveSessionDetailPage() {
       } catch {}
     };
 
-    // Watch-enforcement gate — dead-simple: Mark Complete unlocks when
-    // the video has ended AND either the student watched enough of it,
-    // OR the bypass is active (admin / global-off / per-session bypass).
+    // Watch-enforcement gate:
     //
-    //   canMarkComplete = videoEnded && (thresholdMet || bypassActive)
+    //   nearEnd         = (totalSec > 0) && (pos >= totalSec - 20 || videoEnded)
+    //   canMarkComplete = nearEnd && (thresholdMet || bypassActive)
     //
-    // Skip-to-end attack is stopped at the tracker: dragging the playhead
-    // fires videoEnded but leaves watchPct low, so the button stays
-    // hidden. Server-side /watched re-checks too before accepting
-    // `status='completed'`.
+    // Mirrors the 3SFM watch page. Mark Complete unlocks once the
+    // student is within the last 20s of the video OR the player signals
+    // ended — AND their real-time-tracked watched seconds clear the
+    // threshold (or bypass is active). Dragging into the last 20s
+    // still leaves watchPct below threshold, so skip-to-end is blocked
+    // at the tracker. Server-side /watched re-checks threshold before
+    // accepting `status='completed'`.
     const watchPct = liveTotalSec > 0
       ? Math.min(100, Math.round((liveWatchSec / liveTotalSec) * 100))
       : 0;
     const thresholdMet = watchPct >= enforcement.threshold;
     const bypassActive = !enforcement.enabled || enforcement.sessionBypass || enforcement.isAdmin;
-    const canMarkComplete = videoEnded && (thresholdMet || bypassActive);
+    const nearEnd = liveTotalSec > 0 && (liveCurrentPos >= liveTotalSec - 20 || videoEnded);
+    const canMarkComplete = nearEnd && (thresholdMet || bypassActive);
 
     const markCompleteCallback = canMarkComplete && !isWatched ? handleMarkComplete : undefined;
 
