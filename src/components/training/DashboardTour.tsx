@@ -80,7 +80,7 @@ function buildSteps(studentName: string): DriveStep[] {
       popover: {
         title:       'Watch the Video',
         description:
-          'Every session starts with a video. Watch at least the threshold percentage (default 75%) to unlock the assessment — we track actual seconds watched, so skipping ahead doesn’t count.',
+          'Every session starts with a video. Watch it through to move on to the assessment.',
       },
     },
     {

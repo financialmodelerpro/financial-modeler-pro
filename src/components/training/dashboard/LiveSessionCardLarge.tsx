@@ -379,20 +379,12 @@ export function LiveSessionCardLarge(props: Props) {
             )}
           </div>
 
-          {/* Watch progress */}
-          {(inProgress || (!watched && hasAssessment && !assessmentPassed)) && (
-            <div style={{ marginBottom: 12 }}>
-              <div style={{ height: 6, background: '#F3F4F6', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
-                <div style={{ height: '100%', width: `${pct}%`, background: pct >= watchThreshold ? GREEN : GOLD, transition: 'width 0.3s' }} />
-                {hasAssessment && (
-                  <div style={{ position: 'absolute', top: -2, left: `${watchThreshold}%`, width: 1, height: 10, background: '#9CA3AF' }} />
-                )}
-              </div>
-              <div style={{ fontSize: 10.5, color: '#9CA3AF', marginTop: 4, fontWeight: 600 }}>
-                {pct}% watched{hasAssessment ? ` · ${watchThreshold}% unlocks assessment` : ''}
-              </div>
-            </div>
-          )}
+          {/* Watch-progress bar intentionally not rendered for students — the
+              threshold + watched % gate assessment unlock server-side but are
+              hidden from the UI so the rule can't be gamed. Status chips
+              above ("Has Assessment" / "Assessment Passed" / "Max Attempts
+              Reached") and the locked CTA below ("Keep watching to unlock")
+              are the only public signals. */}
 
           {/* CTAs */}
           <div style={{ display: 'flex', gap: 8, marginTop: 'auto', flexWrap: 'wrap' }}>
@@ -408,7 +400,7 @@ export function LiveSessionCardLarge(props: Props) {
                 </Link>
               ) : (
                 <span style={{ ...primaryBtn('#F3F4F6', '#9CA3AF'), cursor: 'default', flex: '1 1 140px' }}>
-                  <Lock size={13} /> Watch {watchThreshold}% to unlock
+                  <Lock size={13} /> Keep watching to unlock
                 </span>
               )
             )}

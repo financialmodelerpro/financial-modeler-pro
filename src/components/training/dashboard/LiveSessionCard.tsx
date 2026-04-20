@@ -303,18 +303,11 @@ export function LiveSessionCard(props: Props) {
             </div>
           )}
 
-          {inProgress && (
-            <div style={{ marginBottom: 12 }}>
-              <div style={{
-                height: 6, background: '#F3F4F6', borderRadius: 4, overflow: 'hidden',
-              }}>
-                <div style={{ height: '100%', width: `${pct}%`, background: GOLD, transition: 'width 0.3s' }} />
-              </div>
-              <div style={{ fontSize: 10.5, color: '#9CA3AF', marginTop: 4, fontWeight: 600 }}>
-                {pct}% watched
-              </div>
-            </div>
-          )}
+          {/* Watch-progress bar + percentage intentionally omitted — the
+              threshold-based assessment unlock rule is not surfaced to
+              students (see WatchProgressBar note). `inProgress` still
+              drives the CTA label ("Continue Watching") below, so the
+              student still knows where they left off. */}
 
           <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
             <Link href={href} style={{
