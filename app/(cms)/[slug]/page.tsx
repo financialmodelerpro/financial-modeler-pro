@@ -4,6 +4,7 @@ import { getCmsPage, getPageSections, getCmsContent, cms } from '@/src/lib/share
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
+import { canonicalUrl } from '@/src/lib/seo/canonical';
 
 export const revalidate = 60; // ISR: revalidate every 60 seconds
 
@@ -15,9 +16,19 @@ export async function generateMetadata(
   const { slug } = await params;
   const page = await getCmsPage(slug);
   if (!page) return {};
+  // CMS slugs in this route (privacy-policy, terms-of-service, confidentiality,
+  // refund-policy, etc.) are served on the main domain — set canonical to the
+  // matching main-domain URL so Google doesn't treat duplicate URLs as rivals.
+  const canonical = canonicalUrl(`/${slug}`, 'main');
   return {
     title:       page.seo_title || `${page.title} - Financial Modeler Pro`,
     description: page.seo_description || undefined,
+    alternates:  { canonical },
+    openGraph:   {
+      url:         canonical,
+      title:       page.seo_title || `${page.title} - Financial Modeler Pro`,
+      description: page.seo_description || undefined,
+    },
   };
 }
 

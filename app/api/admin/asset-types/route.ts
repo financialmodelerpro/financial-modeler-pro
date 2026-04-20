@@ -9,6 +9,7 @@ async function checkAdmin() {
 }
 
 export async function GET() {
+  if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const sb = getServerClient();
     const { data } = await sb.from('asset_types').select('*').order('display_order');

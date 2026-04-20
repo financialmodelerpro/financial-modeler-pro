@@ -9,7 +9,7 @@ import { CoursePlayerLayout, type SidebarSession } from '@/src/components/traini
 import { COURSES } from '@/src/config/courses';
 import { startTimer, getTimerStatus } from '@/src/lib/training/videoTimer';
 import { WatchProgressBar } from '@/src/components/training/WatchProgressBar';
-import type { LiveLinksMap, SessionProgress } from '@/src/components/training/dashboard/types';
+import { allRegularSessionsPassed, type LiveLinksMap, type SessionProgress } from '@/src/components/training/dashboard/types';
 
 function extractYouTubeId(url: string): string | null {
   if (!url) return null;
@@ -154,6 +154,20 @@ export default function CourseWatchPage() {
       setTimerComplete(true);
     }
   }, [progressMap, sessionKey]);
+
+  // BVM direct-URL gate. Same rule the dashboard applies to hide BVM content
+  // (all regular 3SFM sessions + the 3SFM final must be passed). Without this
+  // gate a student could deep-link past the prerequisite; the dashboard tile
+  // is locked but the URL isn't. Run only after loading completes so we don't
+  // false-redirect while the progress fetch is still in flight.
+  useEffect(() => {
+    if (loading) return;
+    if (courseId !== 'bvm') return;
+    const sfmFinal = COURSES['3sfm']?.sessions.find(s => s.isFinal);
+    const bvmUnlocked = allRegularSessionsPassed('3sfm', progressMap)
+      && !!sfmFinal && progressMap.get(sfmFinal.id)?.passed === true;
+    if (!bvmUnlocked) router.replace('/training/dashboard?course=bvm');
+  }, [loading, courseId, progressMap, router]);
 
   // Restore timer-complete from localStorage (timer is time-based, stays in localStorage)
   useEffect(() => {
@@ -326,19 +340,25 @@ export default function CourseWatchPage() {
 
   // Watch-enforcement gating.
   //
-  // Threshold met is the PRIMARY criterion — we never rely on `videoEnded`
-  // alone, because a user can drag the playhead to the end of the video to
-  // fire an ENDED event without actually watching. The interval-merging
-  // tracker guarantees `liveWatchSec` only grows from real-time playback, so
-  // this check + the server-side enforcement in /certification-watch together
-  // make skip-to-end attacks infeasible.
+  // Two conditions must BOTH hold before Mark Complete is offered:
+  //   1. Threshold met — interval-merged watched seconds ≥ required %.
+  //      The merging tracker only grows from real-time playback, so a
+  //      drag-to-end cannot satisfy this. Server-side /certification-watch
+  //      re-checks on its side, so a client bypass still wouldn't issue
+  //      a certificate.
+  //   2. videoEnded — fires when playback is within the last 20 seconds
+  //      (onNearEnd) or hits the ENDED state. This prevents the "hit
+  //      threshold → click → skip the rest" pattern: once they've crossed
+  //      the threshold the button is still held back until the video
+  //      has naturally played through to the end.
+  //
+  // Bypass path (admin role, global-off, or per-session bypass) keeps the
+  // legacy rule: Mark Complete available once the video has been opened
+  // and reached near-end — no threshold needed.
   const watchPct = liveTotalSec > 0 ? Math.min(100, Math.round((liveWatchSec / liveTotalSec) * 100)) : 0;
   const thresholdMet = watchPct >= enforcement.threshold;
   const bypassActive = !enforcement.enabled || enforcement.sessionBypass || enforcement.isAdmin;
-  // When bypass is active, Mark Complete shows up once the video has been
-  // opened at all (courtesy for admins/test accounts). Otherwise it strictly
-  // waits for the threshold.
-  const canMarkComplete = thresholdMet || (bypassActive && videoEnded);
+  const canMarkComplete = videoEnded && (bypassActive || thresholdMet);
 
   // CourseTopBar hides the button entirely when `onMarkComplete` is undefined,
   // so we avoid visually-enabled-but-blocked UX.

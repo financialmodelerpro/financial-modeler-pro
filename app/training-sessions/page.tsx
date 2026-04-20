@@ -3,11 +3,18 @@ import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { getAllPageSections } from '@/src/lib/shared/cms';
+import { canonicalUrl } from '@/src/lib/seo/canonical';
 import { SessionsClient, type PublicSession, type HeroContent } from './SessionsClient';
 
 export const metadata: Metadata = {
   title: 'Live Sessions | FMP Real-World Financial Modeling',
   description: 'Join live training sessions and access recorded content from Financial Modeler Pro. Practitioner-led courses on financial modeling, deal structuring, and corporate finance.',
+  alternates: { canonical: canonicalUrl('/training-sessions', 'main') },
+  openGraph: {
+    url: canonicalUrl('/training-sessions', 'main'),
+    title: 'Live Sessions | FMP Real-World Financial Modeling',
+    description: 'Join live training sessions and access recorded content from Financial Modeler Pro.',
+  },
 };
 
 export const dynamic = 'force-dynamic';

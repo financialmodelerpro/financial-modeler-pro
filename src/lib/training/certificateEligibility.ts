@@ -177,9 +177,13 @@ export async function checkEligibility(
   // 2. Watch threshold (with grandfathering + per-session bypass).
   const watchDetails: Record<string, { pct: number; bypassed: boolean; grandfathered: boolean }> = {};
   let watchMet = true;
+  // Hoisted so the failure reporter below can name exactly which sessions
+  // fell short. Defaults to 70 if enforcement isn't loaded (bypassWatch path).
+  let effectiveThreshold = 70;
 
   if (!options.bypassWatch) {
     const enforce = await loadWatchEnforcement(allTabKeys);
+    effectiveThreshold = enforce.threshold;
     if (enforce.enabled) {
       const { data: watchRows } = await sb
         .from('certification_watch_history')
@@ -205,7 +209,7 @@ export async function checkEligibility(
 
   if (!watchMet) {
     const failed = Object.entries(watchDetails)
-      .filter(([, d]) => !d.bypassed && !d.grandfathered && d.pct < 0) // placeholder
+      .filter(([, d]) => !d.bypassed && !d.grandfathered && d.pct < effectiveThreshold)
       .map(([tk]) => tk);
     return {
       ...empty,
@@ -214,7 +218,9 @@ export async function checkEligibility(
       watchDetails,
       finalScore,
       avgScore,
-      reason: `Watch threshold not met on ${failed.length || 'one or more'} session${failed.length === 1 ? '' : 's'}`,
+      reason: failed.length
+        ? `Watch threshold not met on ${failed.length} session${failed.length === 1 ? '' : 's'}: ${failed.join(', ')}`
+        : `Watch threshold not met on one or more sessions`,
     };
   }
 

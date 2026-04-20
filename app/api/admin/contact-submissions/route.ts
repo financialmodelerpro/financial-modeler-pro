@@ -1,7 +1,15 @@
 import { NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
 
+async function checkAdmin() {
+  const session = await getServerSession(authOptions);
+  return (session?.user as { role?: string } | undefined)?.role === 'admin';
+}
+
 export async function GET() {
+  if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const sb = getServerClient();
     const { data } = await sb.from('contact_submissions').select('*').order('created_at', { ascending: false });
@@ -12,6 +20,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: Request) {
+  if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const { id, read } = await req.json();
     const sb = getServerClient();

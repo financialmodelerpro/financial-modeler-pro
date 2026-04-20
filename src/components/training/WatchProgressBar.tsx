@@ -16,9 +16,9 @@ interface Props {
  * of those let the student skip the threshold, the bar is irrelevant and
  * we hide it entirely (no debug chatter in the student UI).
  *
- * When shown: displays current watched % / threshold + a colored bar with a
- * dashed threshold marker. Color ramps red → amber → green as progress
- * approaches the threshold.
+ * When shown: displays current watched % + a colored bar with a dashed
+ * threshold marker (visual only, no numeric target). Color ramps
+ * red → amber → green as progress approaches the threshold.
  */
 export function WatchProgressBar({ watchPct, threshold, enforcing, adminBypass, sessionBypass }: Props) {
   // Bypass = nothing to enforce. Don't render — student sees just the video.
@@ -38,7 +38,7 @@ export function WatchProgressBar({ watchPct, threshold, enforcing, adminBypass, 
           Watch progress
         </span>
         <span style={{ fontSize: 13, fontWeight: 700, color: barColor, fontVariantNumeric: 'tabular-nums' }}>
-          {pct}% <span style={{ fontSize: 11, fontWeight: 500, color: '#9CA3AF' }}>/ {threshold}%</span>
+          {pct}%
         </span>
       </div>
 
@@ -49,7 +49,6 @@ export function WatchProgressBar({ watchPct, threshold, enforcing, adminBypass, 
           transition: 'width 0.3s ease, background 0.3s ease',
         }} />
         <div
-          title={`Threshold ${threshold}%`}
           style={{
             position: 'absolute', top: -2, bottom: -2,
             left: `${threshold}%`, width: 0,
@@ -60,8 +59,8 @@ export function WatchProgressBar({ watchPct, threshold, enforcing, adminBypass, 
 
       <div style={{ marginTop: 8, fontSize: 11, color: met ? '#059669' : '#6B7280', fontWeight: met ? 600 : 500 }}>
         {met
-          ? `Threshold met — you can Mark Complete.`
-          : `Watch at least ${threshold}% to unlock Mark Complete · ${Math.max(0, threshold - pct)}% to go`}
+          ? `Threshold met, you can Mark Complete`
+          : `Watch at least ${threshold}% to unlock Mark Complete`}
       </div>
     </div>
   );

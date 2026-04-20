@@ -41,7 +41,7 @@ export async function POST(
       sessionDate: dt ? dt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '',
       sessionTime: dt ? dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : '',
       timezone: session.timezone ?? 'Asia/Riyadh',
-      sessionUrl: `https://learn.financialmodelerpro.com/training/live-sessions/${id}`,
+      sessionUrl: `${process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com'}/training/live-sessions/${id}`,
       liveUrl: session.live_url ?? undefined,
     });
     await sendEmail({ to: body.email, subject, html, from: FROM.training });

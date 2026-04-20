@@ -1,8 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
+
+async function checkAdmin() {
+  const session = await getServerSession(authOptions);
+  return (session?.user as { role?: string } | undefined)?.role === 'admin';
+}
 
 // GET - merge manual testimonials + student_testimonials
 export async function GET() {
+  if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const sb = getServerClient();
     const [{ data: manual }, { data: students }] = await Promise.all([
@@ -70,6 +78,7 @@ export async function GET() {
 
 // PATCH - update status, is_featured, hub, or show_on_landing, routes via source
 export async function PATCH(req: NextRequest) {
+  if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const { id, source, status, is_featured, hub, show_on_landing } = await req.json() as Record<string, string | boolean | undefined>;
     const sb = getServerClient();
@@ -105,6 +114,7 @@ export async function PATCH(req: NextRequest) {
 
 // DELETE - routes to correct table via ?source=
 export async function DELETE(req: NextRequest) {
+  if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   try {
     const { searchParams } = new URL(req.url);
     const id     = searchParams.get('id');

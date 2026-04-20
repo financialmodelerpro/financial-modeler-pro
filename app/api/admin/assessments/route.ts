@@ -9,6 +9,7 @@ async function checkAdmin(): Promise<boolean> {
 }
 
 export async function GET(req: NextRequest) {
+  if (!await checkAdmin()) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const courseId = req.nextUrl.searchParams.get('courseId');
   if (!courseId) return NextResponse.json({ error: 'courseId required' }, { status: 400 });
   const sb = getServerClient();

@@ -41,9 +41,11 @@ export async function POST(
   if (target === '3sfm') filteredStudents = filteredStudents.filter(s => (s.course ?? '').toUpperCase().includes('3SFM'));
   if (target === 'bvm') filteredStudents = filteredStudents.filter(s => (s.course ?? '').toUpperCase().includes('BVM'));
 
-  // Preview mode - send only to admin
+  // Preview mode - send only to the requesting admin's own inbox.
   if (body.preview) {
-    filteredStudents = [{ name: 'Admin Preview', email: 'meetahmadch@gmail.com', registrationId: 'PREVIEW', course: '', registeredAt: '' }];
+    const adminEmail = (session.user as { email?: string }).email;
+    if (!adminEmail) return NextResponse.json({ error: 'Admin email not available on session' }, { status: 400 });
+    filteredStudents = [{ name: 'Admin Preview', email: adminEmail, registrationId: 'PREVIEW', course: '', registeredAt: '' }];
   }
 
   const students = filteredStudents.map(s => ({ name: s.name || s.registrationId, email: s.email }));
@@ -55,7 +57,8 @@ export async function POST(
   const dt = liveSession.scheduled_datetime ? new Date(liveSession.scheduled_datetime) : null;
   const sessionDate = dt ? dt.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : '';
   const sessionTime = dt ? dt.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : '';
-  const sessionUrl = `https://learn.financialmodelerpro.com/training/live-sessions/${id}`;
+  const learnUrl = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+  const sessionUrl = `${learnUrl}/training/live-sessions/${id}`;
 
   // Send emails in batches of 10
   let sent = 0;
