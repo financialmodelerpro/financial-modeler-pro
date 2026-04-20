@@ -22,8 +22,12 @@ export function VerifySearchForm() {
         onChange={e => setCertId(e.target.value)}
         placeholder="e.g. FMP-3SFM-2026-0001"
         required
+        // C5: minWidth:200 forced wrap before button at 320px and left
+        // the input squeezed against the button. flex:1 1 100% with a
+        // small fallback keeps the input full-width on narrow screens;
+        // the button's whiteSpace:nowrap already keeps it from wrapping.
         style={{
-          flex: 1, minWidth: 200, padding: '14px 18px', fontSize: 15,
+          flex: '1 1 100%', minWidth: 0, padding: '14px 18px', fontSize: 15,
           border: '2px solid #D1D5DB', borderRadius: 10, outline: 'none',
           fontFamily: "'Inter', monospace", background: '#FFFBEB',
           boxSizing: 'border-box',

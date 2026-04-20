@@ -415,8 +415,11 @@ function ModelingSignInInner() {
                     </div>
                   </div>
 
-                  {/* hCaptcha */}
-                  <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  {/* hCaptcha — C7: widget is ~300px and overflows a
+                      narrow form box on 320px phones. overflow-x:auto
+                      gives a horizontal scroll fallback so the challenge
+                      is still reachable even when it exceeds the form. */}
+                  <div style={{ display: 'flex', justifyContent: 'center', overflowX: 'auto', maxWidth: '100%' }}>
                     <HCaptcha
                       sitekey={process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY ?? '10000000-ffff-ffff-ffff-000000000001'}
                       onVerify={(token) => setCaptchaToken(token)}

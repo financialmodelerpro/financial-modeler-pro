@@ -308,7 +308,10 @@ export default async function ModelingHubPage() {
                 field="body"
                 className="fmp-modeling-prose"
               />
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+              {/* C3: was a hardcoded 2-column grid that stayed 2-col on
+                  every viewport — cramped to unreadable on 320px phones.
+                  Now auto-collapses via minmax(min(100%, 200px), 1fr). */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 16 }}>
                 {audienceItems.map((a) => (
                   <div key={a.role} style={{
                     background: '#F9FAFB', borderRadius: 10,
@@ -353,7 +356,8 @@ export default async function ModelingHubPage() {
               />
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))', gap: 24 }}>
+            {/* I2: reduced 300→260 so platform cards breathe at 375px. */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 24 }}>
               {visiblePlatforms.map((platform) => {
                 const db = dbMap.get(platform.slug)!;
                 const displayName   = db.name        || platform.name;
@@ -443,7 +447,8 @@ export default async function ModelingHubPage() {
                 style={{ fontSize: 14, color: '#6B7280' }}
               />
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(280px,1fr))', gap: 24 }}>
+            {/* N9 polish: single-column at ≤320px; 280px stays comfortable at 375+ */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 24 }}>
               {testimonials.map(t => (
                 <div key={t.id} style={{ background: '#F9FAFB', border: `1px solid ${t.is_featured ? '#C9A84C' : '#E5E7EB'}`, borderRadius: 14, padding: 24, display: 'flex', flexDirection: 'column' }}>
                   <div style={{ display: 'flex', gap: 2, marginBottom: 12 }}>

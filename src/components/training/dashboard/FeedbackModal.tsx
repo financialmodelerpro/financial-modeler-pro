@@ -14,7 +14,8 @@ export function FeedbackModal({ sessionTitle, onClose, onSubmit }: FeedbackModal
   return (
     <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 650, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 420, padding: '24px 24px 20px', boxShadow: '0 16px 48px rgba(0,0,0,0.25)' }}>
+      {/* I16: viewport-aware maxWidth + overflowY guard for short phones. */}
+      <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 'min(420px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 48px)', overflowY: 'auto', padding: '24px 24px 20px', boxShadow: '0 16px 48px rgba(0,0,0,0.25)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
           <div style={{ fontSize: 15, fontWeight: 800, color: '#0D2E5A' }}>⭐ Rate This Session</div>
           <button onClick={onClose} style={{ fontSize: 18, background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}>✕</button>

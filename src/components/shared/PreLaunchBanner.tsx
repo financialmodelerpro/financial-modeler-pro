@@ -42,8 +42,11 @@ export function PreLaunchBanner({ enabled, launchDate, hubLabel }: Props) {
       color:         '#1E3A8A',
       lineHeight:    1.55,
     }}>
-      <div style={{ fontWeight: 800, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
-        🚀 {hubLabel} is launching {when ? <>on <span style={{ whiteSpace: 'nowrap' }}>{when}</span></> : 'soon'}
+      {/* C9: removed whiteSpace:nowrap — a long formatted date
+          ("Thursday, 15 May 2026 at 2:30 PM") was clipping at 320px.
+          flexWrap lets the date breathe onto a second line when needed. */}
+      <div style={{ fontWeight: 800, marginBottom: 2, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        🚀 {hubLabel} is launching {when ? <>on <span>{when}</span></> : 'soon'}
       </div>
       <div style={{ color: '#1E40AF' }}>
         Register now to be ready — your account will be waiting. Sign-in opens at launch.

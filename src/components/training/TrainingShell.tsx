@@ -209,10 +209,13 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
           .ts-hamburger { display: flex !important; }
           .ts-sidebar {
             position: fixed !important;
-            left: ${mobileSidebarOpen ? '0' : '-260px'} !important;
+            left: ${mobileSidebarOpen ? '0' : '-100%'} !important;
             top: 0 !important; bottom: 0 !important;
             z-index: 200 !important;
-            width: 240px !important;
+            /* C6: cap at 85vw so the sidebar never covers the full
+               screen on 320px phones (was fixed 240px, left little
+               tappable backdrop and overlapped the close button). */
+            width: min(240px, 85vw) !important;
             transition: left 0.3s ease !important;
             overflow-y: auto !important;
           }
@@ -243,7 +246,9 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
           <button
             className="ts-hamburger"
             onClick={() => setMobileSidebarOpen(true)}
-            style={{ width: 36, height: 36, borderRadius: 6, background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
+            aria-label="Open navigation menu"
+            // N5 polish: bumped 36→44 to clear the WCAG 2.1 AA tap-target minimum.
+            style={{ width: 44, height: 44, borderRadius: 6, background: 'rgba(255,255,255,0.1)', border: 'none', color: '#fff', fontSize: 18, cursor: 'pointer', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
           >
             &#9776;
           </button>

@@ -93,7 +93,8 @@ export function ProfileModal({ registrationId, initial, onClose, onSave }: Profi
   return (
     <div onClick={e => { if (e.target === e.currentTarget) onClose(); }}
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 650, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 460, maxHeight: '90vh', overflowY: 'auto', padding: '24px', boxShadow: '0 16px 48px rgba(0,0,0,0.25)' }}>
+      {/* I16: cap at viewport-minus-margin so modal never edges out on 320px. */}
+      <div style={{ background: '#fff', borderRadius: 14, width: '100%', maxWidth: 'min(460px, calc(100vw - 32px))', maxHeight: '90vh', overflowY: 'auto', padding: '24px', boxShadow: '0 16px 48px rgba(0,0,0,0.25)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A' }}>👤 Edit Profile</div>
           <button onClick={onClose} style={{ fontSize: 18, background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280' }}>✕</button>

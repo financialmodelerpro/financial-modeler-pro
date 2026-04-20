@@ -31,10 +31,13 @@ export function SharedFooter({
   const topPad    = paddingTop    ? `${paddingTop}px`    : heightPadding;
   const bottomPad = paddingBottom ? `${paddingBottom}px` : heightPadding;
 
+  // I17: footer padding + inter-column gap scale with viewport so
+  // phones don't have 80px of wasted horizontal gutter. The minmax
+  // drops to 160px so two columns fit at 375px instead of stacking.
   return (
-    <footer style={{ borderTop: '1px solid rgba(255,255,255,0.07)', background: '#0D2E5A', paddingTop: topPad, paddingBottom: bottomPad, paddingLeft: 40, paddingRight: 40, color: '#fff' }}>
+    <footer style={{ borderTop: '1px solid rgba(255,255,255,0.07)', background: '#0D2E5A', paddingTop: topPad, paddingBottom: bottomPad, paddingLeft: 'clamp(20px, 5vw, 40px)', paddingRight: 'clamp(20px, 5vw, 40px)', color: '#fff' }}>
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))', gap: 40, marginBottom: 40 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 160px), 1fr))', gap: 'clamp(20px, 4vw, 40px)', marginBottom: 40 }}>
 
           {/* Brand */}
           {showDescription && (

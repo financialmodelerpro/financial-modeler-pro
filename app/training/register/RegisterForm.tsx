@@ -392,8 +392,9 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
                   onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
               </div>
 
-              {/* hCaptcha */}
-              <div style={{ display: 'flex', justifyContent: 'center' }}>
+              {/* hCaptcha — C7: overflow-x:auto fallback so the ~300px
+                  widget stays reachable on 320px phones. */}
+              <div style={{ display: 'flex', justifyContent: 'center', overflowX: 'auto', maxWidth: '100%' }}>
                 <HCaptcha
                   sitekey={process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY ?? '10000000-ffff-ffff-ffff-000000000001'}
                   onVerify={(token) => setCaptchaToken(token)}

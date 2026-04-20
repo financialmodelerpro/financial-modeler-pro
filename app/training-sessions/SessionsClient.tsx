@@ -101,8 +101,9 @@ export function SessionsClient({ sessions, hero }: { sessions: PublicSession[]; 
           {hero?.badge && (
             <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 14 }}>{hero.badge}</div>
           )}
-          <h1 style={{ fontSize: 'clamp(26px,5vw,40px)', fontWeight: 800, margin: '0 0 12px' }}>{hero?.heading || 'FMP Real-World Financial Modeling'}</h1>
-          <p style={{ fontSize: 'clamp(14px,2.5vw,17px)', color: 'rgba(255,255,255,0.7)', margin: '0 0 24px', lineHeight: 1.6 }}>
+          {/* I18: relaxed clamp floor so hero doesn't feel shouty at 320px. */}
+          <h1 style={{ fontSize: 'clamp(22px, 4vw, 40px)', fontWeight: 800, margin: '0 0 12px' }}>{hero?.heading || 'FMP Real-World Financial Modeling'}</h1>
+          <p style={{ fontSize: 'clamp(13px, 2vw, 17px)', color: 'rgba(255,255,255,0.7)', margin: '0 0 24px', lineHeight: 1.6 }}>
             {hero?.subtitle || 'Live sessions and recorded content. Practitioner-led. Built on real deal work.'}
           </p>
           <div style={{ display: 'flex', gap: 20, justifyContent: 'center', marginBottom: 24, fontSize: 14, fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>

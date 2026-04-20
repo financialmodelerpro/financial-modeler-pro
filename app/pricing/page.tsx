@@ -215,7 +215,12 @@ export default async function PricingPage() {
                   {features.filter(f => f.platform_slug === platform.slug).length > 0 && (
                     <div style={{ marginTop: 64 }}>
                       <h2 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', textAlign: 'center', marginBottom: 40 }}>Feature Comparison</h2>
-                      <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 16, overflow: 'hidden', overflowX: 'auto' }}>
+                      {/* I1: the table has minWidth:600 and overflowX:auto,
+                          so narrow screens already scroll horizontally — but
+                          there's no visual hint that scrolling is possible.
+                          The inset right-edge gradient shadow makes the
+                          scrollable area discoverable. */}
+                      <div style={{ background: '#fff', border: '1px solid #E5E7EB', borderRadius: 16, overflow: 'hidden', overflowX: 'auto', boxShadow: 'inset -24px 0 18px -24px rgba(13,46,90,0.25)' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 600 }}>
                           <thead>
                             <tr style={{ background: '#1B4F8A' }}>

@@ -217,9 +217,12 @@ export default async function TrainingPage() {
         }}>
           <div style={{ maxWidth: 'min(1200px, 90vw)', margin: '0 auto' }}>
             {cmsVisible(h ?? {}, 'badge') && (
+              // I8: flexWrap so long badge copy breaks gracefully instead
+              // of forcing horizontal overflow on 320px phones. Content
+              // stays centered via the parent's text alignment.
               <div style={{
                 ...fw(h, 'badge'),
-                display: 'inline-flex', alignItems: 'center', gap: 7,
+                display: 'inline-flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', justifyContent: 'center',
                 background: 'rgba(46,170,74,0.18)', border: '1px solid rgba(46,170,74,0.45)',
                 borderRadius: 20, padding: '5px 16px', fontSize: 12,
                 color: '#6EE589', fontWeight: 700, marginBottom: 24, letterSpacing: '0.04em',
@@ -296,7 +299,10 @@ export default async function TrainingPage() {
               )}
             </div>
 
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(320px,1fr))', gap: 28 }}>
+            {/* I7: minmax(320px) was wider than 320px viewport after
+                padding, causing cards to clip. min(100%, 280px) drops
+                to full width ≤320 and admits 2 columns at 640+. */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: 28 }}>
               <CurriculumCard
                 course={sfm}
                 accentColor="#1B4F8A"

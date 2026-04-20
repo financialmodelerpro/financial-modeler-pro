@@ -33,7 +33,10 @@ export function ArticlesGrid({ articles, categories }: Props) {
 
       {/* Grid */}
       {filtered.length > 0 ? (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 24 }}>
+        // I4: minmax(300, 1fr) forced 1 column at 320px with 20px
+        // overhead — cards clipped. min(100%, 280px) drops to full-width
+        // on narrow viewports and 280+ otherwise.
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: 24 }}>
           {filtered.map(article => (
             <ArticleCard key={article.id} article={article} />
           ))}
@@ -72,16 +75,20 @@ export function NewsletterForm() {
     }
   }
 
+  // I5: inputs used flex:2 1 200px / 1 1 140px which stacked awkwardly
+  // at 320px with the nowrap button wrapping last. flex:1 1 100% makes
+  // each input a full row on mobile while staying flexible at desktop
+  // (the maxWidth:520 cap on the form still keeps things tidy).
   return (
     <form onSubmit={handleSubmit} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', maxWidth: 520, margin: '0 auto' }}>
       <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Your name" style={{
-        flex: '1 1 140px', padding: '12px 16px', fontSize: 14, border: '1.5px solid #D1D5DB', borderRadius: 8, outline: 'none', background: '#fff',
+        flex: '1 1 100%', minWidth: 0, padding: '12px 16px', fontSize: 14, border: '1.5px solid #D1D5DB', borderRadius: 8, outline: 'none', background: '#fff', boxSizing: 'border-box',
       }} />
       <input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="Email address" style={{
-        flex: '2 1 200px', padding: '12px 16px', fontSize: 14, border: '1.5px solid #D1D5DB', borderRadius: 8, outline: 'none', background: '#fff',
+        flex: '2 1 220px', minWidth: 0, padding: '12px 16px', fontSize: 14, border: '1.5px solid #D1D5DB', borderRadius: 8, outline: 'none', background: '#fff', boxSizing: 'border-box',
       }} />
       <button type="submit" disabled={status === 'loading'} style={{
-        padding: '12px 24px', fontSize: 14, fontWeight: 700, background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 8, cursor: status === 'loading' ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
+        flex: '1 1 auto', padding: '12px 24px', fontSize: 14, fontWeight: 700, background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 8, cursor: status === 'loading' ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap',
       }}>
         {status === 'loading' ? 'Subscribing...' : 'Subscribe →'}
       </button>

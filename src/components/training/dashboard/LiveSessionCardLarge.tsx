@@ -97,6 +97,8 @@ function minutesUntil(iso?: string | null): number {
 // Matches 3SFM SessionCard tokens: 8px radius, 4px border-left, 14-18px padding,
 // soft shadow, tinted background for state (white / green-bg if passed / amber
 // if in-progress).
+// I10 note: the banner further down now uses aspect-ratio instead of fixed
+// height so it scales proportionally with card width on 375px phones.
 const wrapperBase: React.CSSProperties = {
   borderRadius: 10,
   border: '1px solid #E5E7EB',
@@ -112,7 +114,11 @@ const wrapperBase: React.CSSProperties = {
 };
 
 const bannerStyle = (url?: string | null): React.CSSProperties => ({
-  height: 120,
+  // I10: aspect-ratio keeps the banner proportional on narrow card
+  // widths (280px card → ~70px banner, still readable) instead of
+  // the old fixed 120px that dominated small-card layouts.
+  aspectRatio: '16 / 5',
+  minHeight: 80,
   position: 'relative',
   display: 'flex',
   alignItems: 'center',

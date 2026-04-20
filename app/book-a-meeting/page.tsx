@@ -130,11 +130,14 @@ export default async function BookAMeetingPage() {
           {((cmsVisible(fc ?? {}, 'email') && email) || (cmsVisible(fc ?? {}, 'whatsapp_number') && whatsappDigits)) && (
             <div style={{ maxWidth: 560, margin: '0 auto' }}>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {/* I6: reduced flex-basis 180→150 so both buttons fit
+                    comfortably side-by-side at 375px instead of being
+                    forced to stack. */}
                 {cmsVisible(fc ?? {}, 'email') && email && (
                   <a
                     href={`mailto:${email}?subject=${encodeURIComponent('Consultation Inquiry')}`}
                     style={{
-                      flex: '1 1 180px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                      flex: '1 1 150px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                       background: '#1B4F8A', color: '#fff', fontWeight: 700, fontSize: 14,
                       padding: '12px 20px', borderRadius: 10, textDecoration: 'none',
                     }}
@@ -147,7 +150,7 @@ export default async function BookAMeetingPage() {
                     href={`https://wa.me/${whatsappDigits}?text=${waPrefill}`}
                     target="_blank" rel="noopener noreferrer"
                     style={{
-                      flex: '1 1 180px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+                      flex: '1 1 150px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 8,
                       background: '#25D366', color: '#fff', fontWeight: 700, fontSize: 14,
                       padding: '12px 20px', borderRadius: 10, textDecoration: 'none',
                     }}

@@ -82,8 +82,11 @@ export function CountdownTimer({
     <div style={{
       display: 'grid',
       gridTemplateColumns: 'repeat(4, 1fr)',
-      gap: 10,
-      maxWidth: 440,
+      // I15: small gap between the 4 digit cards; maxWidth honors the
+      // narrowest of 440px and viewport-minus-gutter so digits don't
+      // crush on 320px phones (each cell was ~65px; now 70-75px).
+      gap: 'clamp(6px, 2vw, 10px)',
+      maxWidth: 'min(440px, 100%)',
       margin: '0 auto',
     }}>
       {items.map(([label, value]) => (

@@ -159,7 +159,12 @@ function RegisterInner({ preLaunch, launchDate }: RegisterFormProps) {
                   />
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {/* I12: City + Country was hardcoded 2-col, leaving
+                    154px per input at 320px (after padding). The
+                    auto-fit + min(100%, Npx) pattern collapses to a
+                    single column on narrow phones and opens to 2 at
+                    tablet+. */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap: 12 }}>
                   <div>
                     <label style={labelStyle}>CITY <span style={{ color: '#DC2626' }}>*</span></label>
                     <input type="text" required value={city} onChange={e => setCity(e.target.value)}
@@ -208,8 +213,9 @@ function RegisterInner({ preLaunch, launchDate }: RegisterFormProps) {
                   </div>
                 </div>
 
-                {/* hCaptcha */}
-                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                {/* hCaptcha — C7: overflow-x:auto fallback for when the
+                    ~300px widget exceeds a narrow form on 320px phones. */}
+                <div style={{ display: 'flex', justifyContent: 'center', overflowX: 'auto', maxWidth: '100%' }}>
                   <HCaptcha
                     sitekey={process.env.NEXT_PUBLIC_HCAPTCHA_SITE_KEY ?? '10000000-ffff-ffff-ffff-000000000001'}
                     onVerify={token => setCaptchaToken(token)}

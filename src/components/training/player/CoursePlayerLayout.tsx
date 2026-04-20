@@ -318,9 +318,11 @@ export function CoursePlayerLayout({
 
         {/* Middle content */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Screen 1: Video NOT open - full session info */}
+          {/* Screen 1: Video NOT open - full session info.
+              I11: padding clamps down on narrow phones — 24/32px was
+              eating ~64px per side, leaving 256px content on 320px. */}
           {!videoOpen && (
-            <div style={{ padding: '24px 32px', maxWidth: 860 }}>
+            <div style={{ padding: 'clamp(14px, 4vw, 24px) clamp(14px, 4vw, 32px)', maxWidth: 860 }}>
               {/* Primary CTA at top */}
               {hasVideo ? (
                 <button

@@ -419,7 +419,11 @@ export default async function LandingPage() {
                 <h2 style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1F3864', marginBottom:16, lineHeight:1.2 }}>Our Mission</h2>
                 <p style={{ fontSize:15, color:'#374151', lineHeight:1.75 }}>To make professional financial modeling accessible to every finance professional worldwide.</p>
               </div>
-              <div style={{ flexShrink:0, width:'50%', minWidth:200, minHeight:220, borderRadius:12, background:'#F3F4F6', border:'2px solid #E5E7EB', display:'flex', alignItems:'center', justifyContent:'center', color:'#9CA3AF', fontSize:15, fontWeight:500 }}>Mission Image</div>
+              {/* C8: width:50% + minWidth:200 conflicted at 320px (50% = 160 < 200
+                  forced block wider than container). Removed minWidth + added
+                  flex-basis so image goes full-width when wrapping and 50% when
+                  it fits alongside the copy. */}
+              <div style={{ flex:'1 1 260px', minHeight:220, borderRadius:12, background:'#F3F4F6', border:'2px solid #E5E7EB', display:'flex', alignItems:'center', justifyContent:'center', color:'#9CA3AF', fontSize:15, fontWeight:500 }}>Mission Image</div>
             </div>
           </section>
           <section style={{ background:'#EFF6FF', padding:'64px 40px' }}>
@@ -428,7 +432,8 @@ export default async function LandingPage() {
                 <h2 style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1F3864', marginBottom:16, lineHeight:1.2 }}>Our Vision</h2>
                 <p style={{ fontSize:15, color:'#374151', lineHeight:1.75 }}>To become the world&apos;s leading financial modeling platform.</p>
               </div>
-              <div style={{ flexShrink:0, width:'50%', minWidth:200, minHeight:220, borderRadius:12, background:'#F3F4F6', border:'2px solid #E5E7EB', display:'flex', alignItems:'center', justifyContent:'center', color:'#9CA3AF', fontSize:15, fontWeight:500 }}>Vision Image</div>
+              {/* C8: same fix for the Vision block. */}
+              <div style={{ flex:'1 1 260px', minHeight:220, borderRadius:12, background:'#F3F4F6', border:'2px solid #E5E7EB', display:'flex', alignItems:'center', justifyContent:'center', color:'#9CA3AF', fontSize:15, fontWeight:500 }}>Vision Image</div>
             </div>
           </section>
         </>

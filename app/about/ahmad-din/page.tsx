@@ -84,9 +84,10 @@ export default async function FounderPage() {
       <NavbarServer />
       <div style={{ height: 64 }} />
 
-      {/* Hero */}
-      <section style={{ padding: '80px 40px 64px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-        <div style={{ maxWidth: 900, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 56, alignItems: 'center' }}>
+      {/* Hero — I3: reduced minmax 260→240 + scaled gap so image+bio fit
+          2-col at 375px instead of single-col with wasted space. */}
+      <section style={{ padding: 'clamp(40px, 8vw, 80px) clamp(16px, 4vw, 40px) clamp(32px, 6vw, 64px)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+        <div style={{ maxWidth: 900, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 'clamp(24px, 4vw, 56px)', alignItems: 'center' }}>
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             {photoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element

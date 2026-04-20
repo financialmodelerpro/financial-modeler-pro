@@ -181,7 +181,11 @@ export function PhoneInput({
           border: '1.5px solid #D1D5DB',
           borderRadius: 8,
           boxShadow: '0 8px 28px rgba(0,0,0,0.13)',
+          // C4: hardcoded width: 270 overflowed the viewport on 320px
+          // phones. Cap at viewport-width-minus-margin so the country
+          // picker stays readable without horizontal scroll.
           width: 270,
+          maxWidth: 'calc(100vw - 20px)',
           marginTop: 2,
           overflow: 'hidden',
           display: 'flex',

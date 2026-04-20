@@ -114,12 +114,16 @@ export function SessionCard({
     <div style={{
       borderRadius: 8, border: '1px solid #E5E7EB',
       borderLeft: `4px solid ${borderColor}`,
-      background: bgColor, padding: '14px 18px', marginBottom: 8,
+      // I9: padding clamps down on narrow phones so long titles + meta
+      // have more room to breathe within the card.
+      background: bgColor, padding: 'clamp(12px, 3vw, 14px) clamp(14px, 4vw, 18px)', marginBottom: 8,
       boxShadow: locked ? 'none' : '0 1px 4px rgba(0,0,0,0.04)',
       opacity: locked ? 0.65 : 1,
     }}>
-      {/* Row 1: number + title + badge */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 8 }}>
+      {/* Row 1: number + title + badge — flexWrap lets the status badge
+          drop below the title on narrow phones instead of pushing the
+          title to a cramped single column of characters. */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, flex: 1, minWidth: 0 }}>
           <span style={{ fontWeight: 700, color: '#9CA3AF', fontSize: 12, minWidth: 28, paddingTop: 2, flexShrink: 0, fontFamily: 'monospace' }}>
             {locked && !isFinal ? '🔒' : label}

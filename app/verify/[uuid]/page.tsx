@@ -320,11 +320,13 @@ export default async function VerifyPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Main Card */}
-      <div style={{ maxWidth: 760, margin: '16px auto 32px', borderRadius: 14, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden', background: '#fff' }}>
+      {/* Main Card — C2: responsive maxWidth so the 760px cap never
+          exceeds viewport on narrow phones (was overflowing at 320px). */}
+      <div style={{ maxWidth: 'min(760px, calc(100vw - 24px))', margin: '16px auto 32px', borderRadius: 14, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden', background: '#fff' }}>
 
-        {/* Top - navy header */}
-        <div style={{ background: '#0D2E5A', padding: '28px 36px', display: 'flex', alignItems: 'flex-start', gap: 28 }}>
+        {/* Top - navy header — I14: wrap + center-aligned when the
+            name+seal+QR would collide on narrow screens. */}
+        <div style={{ background: '#0D2E5A', padding: 'clamp(18px, 5vw, 28px) clamp(18px, 5vw, 36px)', display: 'flex', alignItems: 'flex-start', gap: 'clamp(14px, 3vw, 28px)', flexWrap: 'wrap' }}>
           <div style={{ flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#2EAA4A', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>✅</div>
@@ -351,12 +353,15 @@ export default async function VerifyPage({ params }: PageProps) {
           </div>
         </div>
 
-        {/* Details */}
-        <div style={{ padding: '24px 36px', background: '#fff' }}>
+        {/* Details — I13: grid collapses to single column ≤480px via the
+            `minmax(min(100%, Npx), 1fr)` CSS-only trick. At 320px the
+            lower bound becomes 100%, forcing one column; on wider
+            viewports the 200px minimum admits the usual 2-col. */}
+        <div style={{ padding: 'clamp(18px, 4vw, 24px) clamp(18px, 5vw, 36px)', background: '#fff' }}>
           {cert.course_description && (
             <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 20, lineHeight: 1.6 }}>{cert.course_description}</p>
           )}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 24px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: '12px 24px' }}>
             {[
               { label: 'Student Name',    value: cert.full_name ?? '-' },
               { label: 'Registration ID', value: cert.registration_id ?? '-' },
@@ -376,7 +381,7 @@ export default async function VerifyPage({ params }: PageProps) {
         {/* Document Previews — inline previews for Certificate + Badge + Transcript.
             Left column stacks the two landscape/square credential artifacts;
             right column holds the taller portrait transcript. */}
-        <div style={{ padding: '4px 36px 24px', background: '#fff', borderTop: '1px solid #F3F4F6' }}>
+        <div style={{ padding: '4px clamp(18px, 5vw, 36px) 24px', background: '#fff', borderTop: '1px solid #F3F4F6' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '20px 0 16px' }}>
             <div style={{ fontSize: 10, fontWeight: 800, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
               📄 Documents
@@ -384,7 +389,10 @@ export default async function VerifyPage({ params }: PageProps) {
             <div style={{ flex: 1, height: 1, background: '#F3F4F6' }} />
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 18 }}>
+          {/* C1: minmax(min(100%, 260px), 1fr) collapses to 1 column on
+              narrow viewports instead of keeping 3 cards side-by-side
+              (previously caused horizontal scroll ≤768px). */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 260px), 1fr))', gap: 18 }}>
             {/* Left column: Certificate + Badge stacked. */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
               {cert.cert_pdf_url && (
@@ -419,8 +427,9 @@ export default async function VerifyPage({ params }: PageProps) {
           </div>
         </div>
 
-        {/* QR + Actions */}
-        <div style={{ background: '#F9FAFB', padding: '24px 36px', display: 'flex', alignItems: 'flex-start', gap: 32, flexWrap: 'wrap' }}>
+        {/* QR + Actions — center the QR when wrap kicks in on narrow
+            screens so it doesn't hug the left edge alone. */}
+        <div style={{ background: '#F9FAFB', padding: 'clamp(18px, 4vw, 24px) clamp(18px, 5vw, 36px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: 'clamp(16px, 4vw, 32px)', flexWrap: 'wrap' }}>
           {/* QR */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6, flexShrink: 0 }}>
             <img src={qrSrc} alt="Verification QR Code" width={140} height={140} style={{ borderRadius: 8, border: '1px solid #E5E7EB' }} />
