@@ -63,9 +63,16 @@ export function RecordedLiveSessionRow({
   const watchMet = watchPct >= watchThreshold;
 
   // Build SessionCard's `prog` from either the quiz attempt (if there's an
-  // assessment) or the watch record (if there isn't). For sessions with no
-  // assessment, watching ≥ threshold counts as "passed" so the card renders
-  // the green state + Share/Card buttons.
+  // assessment) or the watch record (if there isn't).
+  //
+  // Issue 2 fix: for non-assessment sessions we now treat EITHER
+  // watchMet OR watchCompleted as "passed". Previously only watchMet
+  // qualified — so a student who completed via Mark Complete under
+  // a per-session / admin bypass (pct below threshold but status
+  // flipped to 'completed') was denied the Share + Achievement Card
+  // buttons even though the server had accepted the completion.
+  // watchCompleted captures that case. For normal (non-bypass) students
+  // both flags fire together so behavior is unchanged.
   const prog = hasAssessment
     ? (attempt && attempt.attempts > 0
         ? {
@@ -76,7 +83,7 @@ export function RecordedLiveSessionRow({
             completedAt: watch?.watched_at ?? null,
           }
         : undefined)
-    : (watchMet
+    : ((watchCompleted || watchMet)
         ? {
             sessionId: session.id,
             passed: true,
