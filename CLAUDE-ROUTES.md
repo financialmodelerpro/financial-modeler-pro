@@ -221,8 +221,7 @@ app/api/admin/
 ├── badge-layout/                # GET/POST badge field positions
 ├── badge-preview/               # POST: generate badge PNG preview
 ├── certificate-layout/ certificates/sync/ certificates/upload-template/
-├── certificates/settings/       # GET/POST auto_generation_enabled
-├── certificates/generate/       # POST: trigger processPendingCertificates()
+# certificates/settings and certificates/generate — REMOVED. They backed the legacy "Certificate Generation" tile on /admin/certificates which paired with the retired daily cron. Replaced by the inline trigger plus the safety-net panel on /admin/training-hub/certificates.
 ├── certificates/by-date/        # GET ?date=YYYY-MM-DD → every cert_status='Issued' row for the UTC calendar day (powers Daily Roundup admin page)
 ├── certificates/pending/        # GET: eligible-but-not-issued list (powers safety-net panel on /admin/training-hub/certificates)
 ├── certificates/issue-pending/  # POST { email, courseCode } | { all: true } — single-student or bulk issue via issueCertificateForStudent; idempotent via pre-check + unique index

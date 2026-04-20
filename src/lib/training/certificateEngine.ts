@@ -6,21 +6,23 @@
  *   1. Inline fire-and-forget from `/api/training/submit-assessment` the moment
  *      a student passes their final exam. Primary path, sub-minute latency.
  *   2. Admin force-issue at `/api/admin/certificates/force-issue` (single
- *      student + bypass watch threshold) or `/issue-pending` (bulk sweep of
- *      students the inline trigger somehow missed). Safety net.
+ *      student + bypass watch threshold) or `/api/admin/certificates/issue-pending`
+ *      (single student or `{ all: true }` bulk sweep via Supabase eligibility
+ *      view). Safety net.
  *
- * The old `/api/cron/certificates` daily cron was retired in favour of the
- * inline path. The unique index on `student_certificates (LOWER(email),
- * course_code)` from migration 111 is the idempotency guard if inline +
- * admin-force both fire for the same student.
+ * The old `/api/cron/certificates` daily cron and the `/api/admin/certificates/generate`
+ * admin button were retired in favour of the inline path plus the safety-net panel.
+ * The unique index on `student_certificates (LOWER(email), course_code)` from
+ * migration 111 is the idempotency guard if inline + admin-force both fire for
+ * the same student.
  */
 
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import sharp from 'sharp';
 import { getServerClient } from '@/src/lib/shared/supabase';
-import { getPendingCertificates, updateCertificateUrls, type PendingCertificate } from '@/src/lib/training/sheets';
+import { updateCertificateUrls, type PendingCertificate } from '@/src/lib/training/sheets';
 import { verifyWatchThresholdMet } from '@/src/lib/training/watchThresholdVerifier';
-import { findAllEligibleFromSupabase, checkEligibility, type EligibilityResult } from '@/src/lib/training/certificateEligibility';
+import { checkEligibility, type EligibilityResult } from '@/src/lib/training/certificateEligibility';
 import { COURSES } from '@/src/config/courses';
 import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
 import { certificateIssuedTemplate } from '@/src/lib/email/templates/certificateIssued';
@@ -662,55 +664,3 @@ async function pendingFromEligibility(result: EligibilityResult): Promise<Pendin
   };
 }
 
-/**
- * Processes every pending certificate from BOTH sources (deduped):
- *  - Apps Script `getPendingCertificates` (legacy flag)
- *  - Supabase eligibility view + course-config check (native)
- *
- * This makes issuance self-healing: a student who passed all requirements
- * but was never flagged by Apps Script will still be picked up on the next
- * cron tick.
- */
-export async function processPendingCertificates(): Promise<{ processed: number; errors: string[] }> {
-  const errors: string[] = [];
-  let processed = 0;
-
-  // 1. Apps Script pending list (best-effort — failure here doesn't block the Supabase pass)
-  let appsPending: PendingCertificate[] = [];
-  try {
-    appsPending = await getPendingCertificates();
-  } catch (e) {
-    errors.push(`apps_script_fetch_failed: ${String(e)}`);
-  }
-
-  // 2. Supabase-first scan — finds eligible students the Apps Script flag missed.
-  let supabasePending: PendingCertificate[] = [];
-  try {
-    const eligible = await findAllEligibleFromSupabase();
-    for (const e of eligible) {
-      if (!e.eligible) continue;
-      const pc = await pendingFromEligibility(e);
-      if (pc) supabasePending.push(pc);
-    }
-  } catch (e) {
-    errors.push(`supabase_scan_failed: ${String(e)}`);
-  }
-
-  // Dedup by (email|courseCode) — Apps Script wins first.
-  const seen = new Set<string>();
-  const combined: PendingCertificate[] = [];
-  for (const p of [...appsPending, ...supabasePending]) {
-    const key = `${p.email.toLowerCase()}|${p.courseCode.toUpperCase()}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    combined.push(p);
-  }
-
-  for (const cert of combined) {
-    const result = await issueCertificateForPending(cert, { issuedVia: 'auto' });
-    if (result.ok) processed++;
-    else errors.push(result.error);
-  }
-
-  return { processed, errors };
-}
