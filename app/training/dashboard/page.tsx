@@ -35,6 +35,7 @@ import { ShareExperienceModal } from '@/src/components/shared/ShareExperienceMod
 import { LiveSessionsContent } from '@/src/components/training/dashboard/LiveSessionsContent';
 import { LiveSessionsSection } from '@/src/components/training/dashboard/LiveSessionsSection';
 import { formatShareDate } from '@/src/lib/training/shareTemplates';
+import { DashboardTour } from '@/src/components/training/DashboardTour';
 
 // ── Badge metadata ─────────────────────────────────────────────────────────────
 type LucideIcon = typeof Flame;
@@ -106,6 +107,11 @@ export default function TrainingDashboardPage() {
   const [lastUpdated, setLastUpdated]             = useState<Date | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed]   = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  // Onboarding tour — runs automatically on first-login; restartable via
+  // the profile dropdown. `tourRun` gates the joyride UI; `tourReady`
+  // avoids a visual flash before we know the student's completion state.
+  const [tourRun,   setTourRun]   = useState(false);
+  const [tourReady, setTourReady] = useState(false);
   // View mode: 'overview' (landing page), 'course' (course detail), or 'live-sessions'
   const [activeView, setActiveView]               = useState<'overview' | 'course' | 'live-sessions'>('overview');
   // share + testimonials
@@ -169,6 +175,56 @@ export default function TrainingDashboardPage() {
     if (localStorage.getItem('fmp_sidebar_collapsed') === 'true') setSidebarCollapsed(true);
     setShareBannerDismissed(localStorage.getItem('fmp_share_banner_dismissed') === 'true');
   }, []);
+
+  // Onboarding tour: check completion state on mount. Auto-start the
+  // walkthrough only if the student hasn't seen it. Delayed until the
+  // dashboard has data + its layout has painted — react-joyride measures
+  // targets on step mount, so spotlight positions need the DOM settled.
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/training/tour-status')
+      .then(r => r.json())
+      .then((j: { completed?: boolean; authenticated?: boolean }) => {
+        if (cancelled) return;
+        if (j.authenticated === false) { setTourReady(true); return; }
+        setTourReady(true);
+        if (j.completed === false) {
+          // Wait one paint so data-tour targets exist when joyride starts.
+          setTimeout(() => { if (!cancelled) setTourRun(true); }, 600);
+        }
+      })
+      .catch(() => { if (!cancelled) setTourReady(true); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Handler used by the profile dropdown's Restart Tour entry. Resets the
+  // DB flag + starts the joyride immediately so the student sees the tour
+  // without a refresh.
+  async function handleRestartTour() {
+    setProfileDropdown(false);
+    try {
+      await fetch('/api/training/tour-status', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ completed: false }),
+      });
+    } catch { /* non-fatal — tour still runs locally */ }
+    setTourRun(true);
+  }
+
+  // Fires when the tour reaches a terminal state (finished / skipped / closed).
+  // Persist completion + stop the run. We treat skipped == completed so we
+  // don't re-harass the student who explicitly dismissed the tour.
+  async function handleTourComplete(_reason: 'finished' | 'skipped' | 'closed') {
+    setTourRun(false);
+    try {
+      await fetch('/api/training/tour-status', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ completed: true }),
+      });
+    } catch { /* non-fatal — next visit will still try to start, API will 401 if not authed */ }
+  }
 
   // Fetch upcoming-session counters for the sidebar + quick actions bar.
   // Per-card registration status is fetched by LiveSessionsSection.
@@ -767,7 +823,7 @@ export default function TrainingDashboardPage() {
             {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
           {/* Profile avatar dropdown */}
-          <div style={{ position: 'relative' }}>
+          <div style={{ position: 'relative' }} data-tour="help-menu">
             <button
               onClick={() => setProfileDropdown(v => !v)}
               style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '4px 10px 4px 4px', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: 20, cursor: 'pointer', color: '#fff' }}
@@ -791,6 +847,10 @@ export default function TrainingDashboardPage() {
                 <button onClick={() => { setProfileModal(true); setProfileDropdown(false); }}
                   style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: 'none', border: 'none', fontSize: 13, color: '#374151', cursor: 'pointer', fontWeight: 600, textAlign: 'left' }}>
                   <User size={14} /> Edit Profile
+                </button>
+                <button onClick={handleRestartTour}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: 'none', border: 'none', fontSize: 13, color: '#374151', cursor: 'pointer', fontWeight: 600, textAlign: 'left', borderTop: '1px solid #F3F4F6' }}>
+                  <Sparkles size={14} /> Restart Tour
                 </button>
                 <button onClick={() => { setProfileDropdown(false); handleLogout(); }}
                   style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: 'none', border: 'none', fontSize: 13, color: '#DC2626', cursor: 'pointer', fontWeight: 600, textAlign: 'left' }}>
@@ -867,7 +927,7 @@ export default function TrainingDashboardPage() {
                   )}
                 </div>
                 {!sidebarCollapsed && (
-                  <div>
+                  <div data-tour="overall-progress">
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                       <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>Overall Progress</span>
                       <span style={{ fontSize: 10, color: '#2EAA4A', fontWeight: 700 }}>{totalPassed}/{totalSessions}</span>
@@ -919,17 +979,19 @@ export default function TrainingDashboardPage() {
 
             {/* TRAINING SESSIONS */}
             <SidebarLabel text="Live Sessions" />
-            <SidebarItem
-              icon={<Video size={16} />}
-              label="Live Sessions"
-              active={activeView === 'live-sessions'}
-              onClick={() => { setMobileSidebarOpen(false); navigateTo('live-sessions'); }}
-              dot={hasLiveNow}
-              dotColor="#EF4444"
-              badge={upcomingCount > 0 ? upcomingCount : undefined}
-              badgeColor="#3B82F6"
-              tooltip={hasLiveNow ? 'LIVE NOW' : upcomingCount > 0 ? `${upcomingCount} upcoming` : 'Live Sessions'}
-            />
+            <div data-tour="live-sessions-nav">
+              <SidebarItem
+                icon={<Video size={16} />}
+                label="Live Sessions"
+                active={activeView === 'live-sessions'}
+                onClick={() => { setMobileSidebarOpen(false); navigateTo('live-sessions'); }}
+                dot={hasLiveNow}
+                dotColor="#EF4444"
+                badge={upcomingCount > 0 ? upcomingCount : undefined}
+                badgeColor="#3B82F6"
+                tooltip={hasLiveNow ? 'LIVE NOW' : upcomingCount > 0 ? `${upcomingCount} upcoming` : 'Live Sessions'}
+              />
+            </div>
 
             {/* MY ACHIEVEMENTS */}
             <SidebarLabel text="My Achievements" />
@@ -1062,7 +1124,7 @@ export default function TrainingDashboardPage() {
           {/* OVERVIEW LANDING PAGE                                               */}
           {/* ════════════════════════════════════════════════════════════════════ */}
           {!loading && progress && activeView === 'overview' && (
-            <div>
+            <div data-tour="dashboard-main">
               {/* ── HERO SECTION ───────────────────────────────────────────────── */}
               <div style={{ background: 'linear-gradient(135deg, #0D2E5A 0%, #1B4F8A 100%)', borderRadius: 16, padding: '28px 32px', marginBottom: 20, color: '#fff', position: 'relative', overflow: 'hidden' }}>
                 {/* Decorative circle */}
@@ -1145,17 +1207,20 @@ export default function TrainingDashboardPage() {
               <div style={{ marginBottom: 28 }}>
                 <h2 style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A', margin: '0 0 14px' }}>My Certification Courses</h2>
                 <div className="dash-courses-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
-                  {/* Enrolled course cards */}
-                  {enrolledCourses.map(cId => {
+                  {/* Enrolled course cards — tag the first one as the tour target.
+                      Using the index in the `.map()` below rather than editing
+                      each branch keeps the locked/unlocked variants aligned. */}
+                  {enrolledCourses.map((cId, cardIdx) => {
                     const c = COURSES[cId];
                     if (!c) return null;
                     const stats = getCourseStats(cId);
                     const isLocked = cId === 'bvm' && !bvmUnlocked;
                     const icon = c.shortTitle === '3SFM' ? '\u{1F4CA}' : '\u{1F3E2}';
+                    const tourAttr = cardIdx === 0 ? { 'data-tour': 'course-card' } : {};
 
                     if (isLocked) {
                       return (
-                        <div key={cId} style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', minHeight: 200, opacity: 0.7 }}>
+                        <div key={cId} {...tourAttr} style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', minHeight: 200, opacity: 0.7 }}>
                           <div style={{ marginBottom: 12 }}><Lock size={36} color="#9CA3AF" /></div>
                           <div style={{ fontSize: 15, fontWeight: 700, color: '#374151', marginBottom: 6 }}>{c.title}</div>
                           <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 14 }}>Complete 3SFM to unlock</div>
@@ -1168,7 +1233,7 @@ export default function TrainingDashboardPage() {
                     }
 
                     return (
-                      <div key={cId} style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', padding: '24px', position: 'relative', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
+                      <div key={cId} {...tourAttr} style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', padding: '24px', position: 'relative', overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.04)' }}>
                         {/* Top color band */}
                         <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, background: stats.pct === 100 ? '#C9A84C' : '#2EAA4A' }} />
 
@@ -1557,6 +1622,15 @@ export default function TrainingDashboardPage() {
           cardDownloadName={shareModal.cardDownloadName}
           onClose={() => setShareModal(null)}
           onCopyDone={() => { setDashToast('Link copied to clipboard!'); setTimeout(() => setDashToast(''), 2500); }}
+        />
+      )}
+
+      {/* ── Onboarding Tour ────────────────────────────────────────────────── */}
+      {tourReady && (
+        <DashboardTour
+          run={tourRun}
+          studentName={studentName}
+          onComplete={handleTourComplete}
         />
       )}
 
