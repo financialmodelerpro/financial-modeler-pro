@@ -17,39 +17,56 @@ import { validateStudent } from '@/src/lib/training/sheets';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { isDeviceTrusted } from '@/src/lib/shared/deviceTrust';
 import { getTrainingComingSoonState } from '@/src/lib/shared/trainingComingSoon';
+import { isTrainingIdentifierBypassed } from '@/src/lib/shared/hubBypassList';
 import bcrypt from 'bcryptjs';
 
 const SESSION_MAX_AGE = 60 * 60; // 1 hour
 
 export async function POST(req: NextRequest) {
+  let body: {
+    identifier?: string;
+    password?: string;
+    secondField?: string;
+    email?: string;
+    registrationId?: string;
+  };
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ success: false, error: 'Invalid request body.' }, { status: 400 });
+  }
+
+  const rawIdentifier = (body.identifier ?? body.email ?? '').trim();
+  const rawSecond     = (body.secondField ?? body.registrationId ?? '').trim();
+  const password      = body.password ?? '';
+
   // Pre-launch gate: signin is blocked while Coming Soon is ON even though
-  // registration stays open. Students register now and can log in once the
-  // hub goes live (manual toggle or auto-launch cron).
+  // registration stays open. Identifiers on the Training Hub bypass list
+  // (platform owner + testers, seeded in migration 121, edit via the
+  // `training_hub_bypass_list` key in training_settings) skip the gate so
+  // pre-launch QA can proceed without flipping the hub state. Match is
+  // case-insensitive against both the identifier field and the optional
+  // second field (so logging in with an email + regId combo works even
+  // if only one of them is listed).
   const comingSoon = await getTrainingComingSoonState();
   if (comingSoon.enabled) {
-    return NextResponse.json(
-      {
-        success:    false,
-        comingSoon: true,
-        launchDate: comingSoon.launchDate,
-        error:      'Sign-in opens at launch. You can register now and we\'ll have your account ready.',
-      },
-      { status: 403 },
-    );
+    const bypassed =
+      (await isTrainingIdentifierBypassed(rawIdentifier)) ||
+      (await isTrainingIdentifierBypassed(rawSecond));
+    if (!bypassed) {
+      return NextResponse.json(
+        {
+          success:    false,
+          comingSoon: true,
+          launchDate: comingSoon.launchDate,
+          error:      'Sign-in opens at launch. You can register now and we\'ll have your account ready.',
+        },
+        { status: 403 },
+      );
+    }
   }
 
   try {
-    const body = await req.json() as {
-      identifier?: string;
-      password?: string;
-      secondField?: string;
-      email?: string;
-      registrationId?: string;
-    };
-
-    const rawIdentifier = (body.identifier ?? body.email ?? '').trim();
-    const rawSecond     = (body.secondField ?? body.registrationId ?? '').trim();
-    const password      = body.password ?? '';
 
     if (!rawIdentifier) {
       return NextResponse.json({ success: false, error: 'Please enter your Registration ID or email.' }, { status: 400 });
