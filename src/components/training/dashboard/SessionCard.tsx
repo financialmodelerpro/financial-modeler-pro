@@ -62,6 +62,15 @@ export interface SessionCardProps {
   hideNotes?: boolean;
   /** Override for the session label shown on the far left (default: "S{idx+1}"). */
   labelOverride?: string;
+  /** Whether this session has a real assessment. Defaults to true to preserve
+   * the legacy score-circle achievement card for 3SFM/BVM. Set to false for
+   * live sessions without quizzes so the achievement-image route renders the
+   * duration circle + ATTENDED pill variant. */
+  hasAssessment?: boolean;
+  /** Session duration in minutes. When provided, added to the achievement-image
+   * URL so both the with-assessment and without-assessment variants show a
+   * duration chip / stat. */
+  durationMinutes?: number;
 }
 
 export function SessionCard({
@@ -70,6 +79,7 @@ export function SessionCard({
   tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
   bvmLocked, watchLocked, timerBypassed, courseId, isWatched, isInProgress, watchPercentage, watchThreshold, courseName, studentName,
   watchHref, assessmentHref, hideAssessment, hideNotes, labelOverride,
+  hasAssessment, durationMinutes,
 }: SessionCardProps) {
   const [notesOpen, setNotesOpen] = useState(false);
   const [noteText, setNoteText] = useState(noteContent);
@@ -109,6 +119,36 @@ export function SessionCard({
   const attemptsUsed = prog?.attempts ?? 0;
   const attemptsLeft = maxAttempts - attemptsUsed;
   const label = labelOverride ?? (isFinal ? '🏆' : `S${idx + 1}`);
+
+  /**
+   * Build the achievement-image URL. Context-aware:
+   *   - hasAssessment defaults to true for 3SFM/BVM backward compatibility.
+   *   - When hasAssessment === false, the score param is dropped entirely
+   *     (the route's without-assessment variant ignores it) and
+   *     has_assessment=false is sent so the route flips to the teal duration
+   *     circle + ATTENDED pill.
+   *   - durationMinutes is appended whenever provided so both variants can
+   *     show a duration chip.
+   */
+  function buildAchievementCardUrl(score: number, passDate: string): string {
+    const effectiveHasAssessment = hasAssessment !== false;
+    const params = new URLSearchParams({
+      session: sessionTitle,
+      course:  courseName ?? '',
+      date:    passDate,
+      name:    studentName ?? '',
+      regId,
+    });
+    if (effectiveHasAssessment) {
+      params.set('score', String(score));
+    } else {
+      params.set('has_assessment', 'false');
+    }
+    if (typeof durationMinutes === 'number' && durationMinutes > 0) {
+      params.set('duration', String(durationMinutes));
+    }
+    return `/api/training/achievement-image?${params.toString()}`;
+  }
 
   return (
     <div style={{
@@ -307,7 +347,7 @@ export function SessionCard({
       {/* Share achievement modal — universal ShareModal */}
       {showShareModal && prog?.passed && (() => {
         const passDate = formatShareDate(prog.completedAt ?? new Date());
-        const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName || '')}&regId=${encodeURIComponent(regId)}`;
+        const cardImgUrl = buildAchievementCardUrl(prog.score, passDate);
         const rendered = renderShareTemplate(shareTemplate, {
           studentName: studentName ?? '',
           sessionName: sessionTitle,
@@ -332,7 +372,7 @@ export function SessionCard({
       {/* Achievement card preview modal */}
       {showCardModal && prog?.passed && (() => {
         const passDate = formatShareDate(prog.completedAt ?? new Date());
-        const cardImgUrl = `/api/training/achievement-image?session=${encodeURIComponent(sessionTitle)}&score=${prog.score}&course=${encodeURIComponent(courseName || '')}&date=${encodeURIComponent(passDate)}&name=${encodeURIComponent(studentName || '')}&regId=${encodeURIComponent(regId)}`;
+        const cardImgUrl = buildAchievementCardUrl(prog.score, passDate);
         return (
           <div onClick={() => setShowCardModal(false)}
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>

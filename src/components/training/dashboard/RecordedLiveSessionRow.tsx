@@ -129,6 +129,8 @@ export function RecordedLiveSessionRow({
       hideAssessment={!hasAssessment}
       hideNotes={false}
       labelOverride={label}
+      hasAssessment={hasAssessment}
+      durationMinutes={session.duration_minutes ?? undefined}
     />
   );
 }
