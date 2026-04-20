@@ -22,6 +22,12 @@ interface CourseTopBarProps {
   assessmentUrl?: string;
   assessmentReady?: boolean;
   assessmentPassed?: boolean;
+  /** Ghost hint rendered in the action area when the Mark Complete
+   *  button isn't active and there's no Completed badge — e.g.
+   *  "Watching… 45%" or "Keep watching to finish". Previously the
+   *  area collapsed to empty, making it look like nothing was being
+   *  tracked. */
+  watchHint?: string;
 }
 
 const iconBtnStyle: React.CSSProperties = {
@@ -44,7 +50,7 @@ export function CourseTopBar({
   title, youtubeUrl, channelId, showLikeButton,
   sessionTitle, sessionDescription, sessionUrl,
   nextSessionHref, isWatched, onMarkComplete, isCompleted,
-  assessmentUrl, assessmentReady, assessmentPassed,
+  assessmentUrl, assessmentReady, assessmentPassed, watchHint,
 }: CourseTopBarProps) {
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -134,6 +140,21 @@ export function CourseTopBar({
             >
               ✓ Mark Complete
             </button>
+          )}
+
+          {/* Ghost hint — shown when neither the button nor the
+              Completed badge is active, but the parent passed a hint
+              (e.g. "Watching… 45%"). Prevents the action area from
+              collapsing to empty space mid-watch. */}
+          {!onMarkComplete && !isCompleted && watchHint && (
+            <span style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '6px 14px', fontSize: 12, fontWeight: 500,
+              color: 'rgba(255,255,255,0.55)',
+              whiteSpace: 'nowrap',
+            }}>
+              {watchHint}
+            </span>
           )}
 
           {/* Step 2 - Completed indicator */}

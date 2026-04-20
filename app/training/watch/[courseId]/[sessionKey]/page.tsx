@@ -378,6 +378,18 @@ export default function CourseWatchPage() {
   // so we avoid visually-enabled-but-blocked UX.
   const markCompleteCallback = canMarkComplete && !markedComplete ? handleMarkComplete : undefined;
 
+  // Ghost hint for the top bar — replaces the visual dead-space when
+  // neither Mark Complete nor Completed is active mid-watch.
+  const sessPassed = progressMap.get(sessionKey)?.passed === true;
+  let watchHint: string | undefined;
+  if (!markCompleteCallback && !markedComplete && !sessPassed && liveTotalSec > 0 && liveCurrentPos > 0) {
+    if (nearEnd && !thresholdMet && !bypassActive) {
+      watchHint = `Watched ${watchPct}% · keep watching to finish`;
+    } else if (!nearEnd) {
+      watchHint = `Watching… ${watchPct}%`;
+    }
+  }
+
   // Progress bar sits in the scroll area above the Mark Complete button (CourseTopBar).
   // We only show it while the student is watching (video opened, not yet completed).
   const progressBar = !markedComplete && !progressMap.get(sessionKey)?.passed ? (
@@ -402,6 +414,7 @@ export default function CourseWatchPage() {
         nextSessionHref={nextHref}
         isWatched={markedComplete || progressMap.get(sessionKey)?.passed}
         onMarkComplete={markCompleteCallback}
+        watchHint={watchHint}
         isCompleted={markedComplete || progressMap.get(sessionKey)?.passed === true}
         videoId={videoId || undefined}
         sessionId={sessionKey}

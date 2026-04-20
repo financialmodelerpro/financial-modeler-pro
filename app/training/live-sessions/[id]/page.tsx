@@ -332,7 +332,7 @@ export default function LiveSessionDetailPage() {
     const handleMarkComplete = async () => {
       if (!studentSession?.email) return;
       try {
-        await fetch(`/api/training/live-sessions/${session.id}/watched`, {
+        const res = await fetch(`/api/training/live-sessions/${session.id}/watched`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -343,9 +343,26 @@ export default function LiveSessionDetailPage() {
             total_seconds: liveTotalSec,
           }),
         });
+        // Don't flip isWatched=true on rejection — the previous code
+        // set it unconditionally, so a 403 ("threshold not met") would
+        // show "Completed" on the client but the DB row stayed
+        // in_progress. Next page-load would then show no button at
+        // all (my filter fix). Parsing the JSON gives the student a
+        // readable explanation.
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({})) as { error?: string; current?: number; required?: number };
+          const msg = err.current != null && err.required != null
+            ? `${err.error ?? 'Not complete yet'} (watched ${err.current}%, need ${err.required}%).`
+            : err.error ?? 'Could not mark complete. Please try again.';
+          alert(msg);
+          return;
+        }
         setIsWatched(true);
         setPlaylistSessions(prev => prev.map(s => s.id === session.id ? { ...s, watched: true } : s));
-      } catch {}
+      } catch (e) {
+        console.error('[LiveSession] handleMarkComplete failed', e);
+        alert('Network error — could not mark complete. Please try again.');
+      }
     };
 
     // Watch-enforcement gate:
@@ -369,6 +386,39 @@ export default function LiveSessionDetailPage() {
     const canMarkComplete = nearEnd && (thresholdMet || bypassActive);
 
     const markCompleteCallback = canMarkComplete && !isWatched ? handleMarkComplete : undefined;
+
+    // Ghost hint shown in the top bar when neither Mark Complete nor
+    // the Completed badge is active. Gives the student visual feedback
+    // that the session is being tracked instead of an empty toolbar.
+    let watchHint: string | undefined;
+    if (!markCompleteCallback && !isWatched && liveTotalSec > 0 && liveCurrentPos > 0) {
+      if (nearEnd && !thresholdMet && !bypassActive) {
+        watchHint = `Watched ${watchPct}% · keep watching to finish`;
+      } else if (!nearEnd) {
+        watchHint = `Watching… ${watchPct}%`;
+      }
+    }
+
+    // Diagnostic — surfaces the full state machine in devtools. Lets us
+    // pinpoint which gate is failing when a student reports "button
+    // never appeared". Dumps on every state change that matters.
+    if (typeof window !== 'undefined') {
+      console.log('[LiveSession state]', {
+        isWatched,
+        videoEnded,
+        liveWatchSec,
+        liveTotalSec,
+        liveCurrentPos,
+        watchPct,
+        threshold: enforcement.threshold,
+        thresholdMet,
+        bypassActive,
+        nearEnd,
+        canMarkComplete,
+        markCompleteCallback: markCompleteCallback ? 'SET' : 'UNDEFINED',
+        watchHint: watchHint ?? 'none',
+      });
+    }
 
     // Progress bar sits in the scroll area above Mark Complete (CourseTopBar).
     // Only render while the student is actively watching (not yet completed).
@@ -395,6 +445,7 @@ export default function LiveSessionDetailPage() {
         isWatched={isWatched}
         onMarkComplete={markCompleteCallback}
         isCompleted={isWatched}
+        watchHint={watchHint}
         videoId={hasVideo ? ytId! : undefined}
         sessionId={session.id}
         studentEmail={studentSession?.email}

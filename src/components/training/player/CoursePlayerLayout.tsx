@@ -101,6 +101,10 @@ interface CoursePlayerLayoutProps {
   assessmentUrl?: string;
   assessmentReady?: boolean;
   assessmentPassed?: boolean;
+  /** Ghost hint shown in the top bar's action area when neither the
+   *  Mark Complete button nor the Completed badge is active. See
+   *  CourseTopBar for details. */
+  watchHint?: string;
   onVideoPlaying?: () => void;
   onVideoEnded?: () => void;
   onVideoProgress?: (watchedSec: number, totalSec: number, currentPos: number) => void;
@@ -143,7 +147,7 @@ export function CoursePlayerLayout({
   title, youtubeUrl, channelId, showLikeButton,
   sessionTitle, sessionDescription, sessionUrl,
   nextSessionHref, isWatched, onMarkComplete, isCompleted,
-  assessmentUrl, assessmentReady, assessmentPassed, onVideoPlaying, onVideoEnded,
+  assessmentUrl, assessmentReady, assessmentPassed, watchHint, onVideoPlaying, onVideoEnded,
   onVideoProgress, baselineWatchedSeconds, belowVideoContent,
   videoId, sessionId, studentEmail, studentRegId,
   bannerUrl, instructorName, instructorTitle,
@@ -310,6 +314,7 @@ export function CoursePlayerLayout({
         assessmentUrl={assessmentUrl}
         assessmentReady={assessmentReady}
         assessmentPassed={assessmentPassed}
+        watchHint={watchHint}
       />
 
       {/* Body */}
