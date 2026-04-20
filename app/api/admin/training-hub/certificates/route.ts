@@ -28,6 +28,7 @@ interface AdminCert {
   badgeUrl?:       string;
   transcriptUrl?:  string;
   verificationUrl?: string;
+  emailSentAt?:    string | null;  // migration 124 — null means email never sent
   isRevoked:       boolean;
   revokeActionId:  string | null;
 }
@@ -36,7 +37,7 @@ async function loadSupabaseCerts(): Promise<AdminCert[]> {
   const sb = getServerClient();
   const { data } = await sb
     .from('student_certificates')
-    .select('certificate_id, registration_id, full_name, email, course, course_code, cert_status, cert_pdf_url, badge_url, transcript_url, verification_url, issued_at, issued_via, issued_by_admin')
+    .select('certificate_id, registration_id, full_name, email, course, course_code, cert_status, cert_pdf_url, badge_url, transcript_url, verification_url, issued_at, issued_via, issued_by_admin, email_sent_at')
     .eq('cert_status', 'Issued');
   return (data ?? []).map(r => ({
     certificateId:   (r.certificate_id as string) ?? '',
@@ -52,6 +53,7 @@ async function loadSupabaseCerts(): Promise<AdminCert[]> {
     badgeUrl:        (r.badge_url as string) ?? undefined,
     transcriptUrl:   (r.transcript_url as string) ?? undefined,
     verificationUrl: (r.verification_url as string) ?? undefined,
+    emailSentAt:     (r.email_sent_at as string | null) ?? null,
     isRevoked:       false,      // overlaid below
     revokeActionId:  null,
   }));
@@ -116,6 +118,7 @@ export async function GET() {
         verificationUrl: c.verificationUrl ?? prev.verificationUrl,
         issuedVia:       c.issuedVia       ?? prev.issuedVia,
         issuedByAdmin:   c.issuedByAdmin   ?? prev.issuedByAdmin,
+        emailSentAt:     c.emailSentAt     ?? prev.emailSentAt,
         issuedAt:        c.issuedAt        || prev.issuedAt,
         studentName:     c.studentName     || prev.studentName,
       });

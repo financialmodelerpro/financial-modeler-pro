@@ -1,7 +1,18 @@
 /**
  * certificateEngine.ts
  * Orchestrates certificate PDF + badge PNG generation for pending certificates.
- * Called by the cron job at /api/cron/certificates.
+ *
+ * Triggers (in order of precedence):
+ *   1. Inline fire-and-forget from `/api/training/submit-assessment` the moment
+ *      a student passes their final exam. Primary path, sub-minute latency.
+ *   2. Admin force-issue at `/api/admin/certificates/force-issue` (single
+ *      student + bypass watch threshold) or `/issue-pending` (bulk sweep of
+ *      students the inline trigger somehow missed). Safety net.
+ *
+ * The old `/api/cron/certificates` daily cron was retired in favour of the
+ * inline path. The unique index on `student_certificates (LOWER(email),
+ * course_code)` from migration 111 is the idempotency guard if inline +
+ * admin-force both fire for the same student.
  */
 
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
@@ -9,7 +20,7 @@ import sharp from 'sharp';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { getPendingCertificates, updateCertificateUrls, type PendingCertificate } from '@/src/lib/training/sheets';
 import { verifyWatchThresholdMet } from '@/src/lib/training/watchThresholdVerifier';
-import { findAllEligibleFromSupabase, type EligibilityResult } from '@/src/lib/training/certificateEligibility';
+import { findAllEligibleFromSupabase, checkEligibility, type EligibilityResult } from '@/src/lib/training/certificateEligibility';
 import { COURSES } from '@/src/config/courses';
 import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
 import { certificateIssuedTemplate } from '@/src/lib/email/templates/certificateIssued';
@@ -531,14 +542,30 @@ export async function issueCertificateForPending(
       certificateId, email: row.email, courseCode: row.course_code,
     });
 
+    let emailSentAt: string | null = null;
     try {
       const { subject, html } = await certificateIssuedTemplate({
         studentName: cert.studentName, courseName: cert.courseName,
         certPdfUrl, badgeUrl, verificationUrl, certificateId, grade,
       });
       await sendEmail({ to: cert.email, subject, html, from: FROM.training });
+      emailSentAt = new Date().toISOString();
     } catch (emailErr) {
       console.error(`[certEngine] Email failed for ${cert.email}:`, emailErr);
+    }
+
+    // Stamp email_sent_at on the cert row when delivery succeeded. Missing
+    // stamp = admin surfaces a "Resend Email" button on the certificates
+    // list. Best-effort update: a failure here just leaves the flag null.
+    if (emailSentAt) {
+      try {
+        await sb
+          .from('student_certificates')
+          .update({ email_sent_at: emailSentAt })
+          .eq('certificate_id', certificateId);
+      } catch (updErr) {
+        console.warn('[certEngine] email_sent_at update failed (non-fatal):', updErr);
+      }
     }
 
     return { ok: true, certificateId, certPdfUrl, badgeUrl, verificationUrl };
@@ -547,6 +574,66 @@ export async function issueCertificateForPending(
     console.error('[certEngine]', msg);
     return { ok: false, error: msg };
   }
+}
+
+/**
+ * Single-student entry point used by the inline trigger in submit-assessment
+ * and the per-row "Issue Now" button on the admin pending-certs list.
+ *
+ * Pipeline:
+ *   1. Skip when the student already has an Issued cert for this course. The
+ *      unique index on `(LOWER(email), course_code)` is the hard DB guard;
+ *      this check is just a cheap early-out so we don't regenerate PDFs for
+ *      already-issued students.
+ *   2. Run `checkEligibility()` against the Supabase-native rules — all
+ *      required sessions passed, final passed, watch threshold met (with
+ *      grandfathering + per-session bypass).
+ *   3. Build `PendingCertificate` from eligibility + training_registrations_meta.
+ *   4. Hand off to `issueCertificateForPending()` with `issuedVia: 'auto'`.
+ *
+ * Safe to call multiple times — the pre-check + DB unique index together
+ * prevent duplicates. Failure states surface as `{ ok: false, error }`.
+ */
+export async function issueCertificateForStudent(
+  email: string,
+  courseCode: string,
+  options: { issuedVia?: 'auto' | 'forced' | 'apps_script' } = {},
+): Promise<
+  | { ok: true; skipped: true; reason: 'already_issued'; certificateId: string }
+  | { ok: true; skipped: false; certificateId: string; certPdfUrl: string; badgeUrl: string; verificationUrl: string }
+  | { ok: false; error: string }
+> {
+  const cleanEmail = email.trim().toLowerCase();
+  const code = courseCode.trim().toUpperCase();
+  const course = Object.values(COURSES).find(c => c.shortTitle.toUpperCase() === code);
+  if (!course) return { ok: false, error: `Unknown course code: ${code}` };
+
+  const sb = getServerClient();
+
+  const { data: already } = await sb
+    .from('student_certificates')
+    .select('certificate_id, cert_status')
+    .ilike('email', cleanEmail)
+    .eq('course_code', code)
+    .maybeSingle();
+  if (already?.certificate_id && already.cert_status === 'Issued') {
+    return { ok: true, skipped: true, reason: 'already_issued', certificateId: already.certificate_id as string };
+  }
+
+  const eligibility = await checkEligibility(cleanEmail, course.id);
+  if (!eligibility.eligible) {
+    return { ok: false, error: `not_eligible: ${eligibility.reason ?? 'unknown'}` };
+  }
+
+  const pending = await pendingFromEligibility(eligibility);
+  if (!pending) {
+    return { ok: false, error: 'student_meta_not_found' };
+  }
+
+  const result = await issueCertificateForPending(pending, { issuedVia: options.issuedVia ?? 'auto' });
+  if (!result.ok) return result;
+  const { certificateId, certPdfUrl, badgeUrl, verificationUrl } = result;
+  return { ok: true, skipped: false, certificateId, certPdfUrl, badgeUrl, verificationUrl };
 }
 
 /** Build a PendingCertificate from a Supabase eligibility result + student meta. */

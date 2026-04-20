@@ -113,17 +113,23 @@
 
 ---
 
-## Certificate Issuance (Supabase-native, migration 109)
+## Certificate Issuance (Supabase-native, inline-triggered)
 
-Certificates are now issued from Supabase eligibility data. Apps Script's "pending" flag is no longer a prerequisite — any student who has all required passes + meets the watch threshold will be picked up by the next cron tick.
+Certificates are issued natively from Supabase eligibility data the instant a student passes their final exam. The old daily `/api/cron/certificates` route was retired — the cron was a holdover from Apps Script polling and is no longer the primary trigger.
 
 - **Eligibility view**: `certificate_eligibility_raw` (from `training_assessment_results`) — one row per (email, course_code) with pass counters + `final_passed` flag. Migration 109.
 - **Eligibility lib**: `src/lib/training/certificateEligibility.ts` — `checkEligibility(email, courseId)` runs the full course-config check (all regular + final sessions passed, watch threshold met with grandfathering + per-session bypass). `findAllEligibleFromSupabase()` returns every eligible student that doesn't already have an Issued row in `student_certificates`.
-- **Engine**: `src/lib/training/certificateEngine.ts` gained `issueCertificateForPending(cert, options)` — the single per-student issuance path. `processPendingCertificates()` now scans BOTH Apps Script AND Supabase, dedups by (email|course_code), and calls `issueCertificateForPending` for each. Apps Script sync (`updateCertificateUrls`) is best-effort — a failure there no longer blocks issuance. Self-healing: a student Apps Script missed gets picked up on the next cron.
-- **Force-issue**: `POST /api/admin/certificates/force-issue { email, courseCode }` — admin-only, bypasses the watch-threshold check, records the admin's email in `student_certificates.issued_by_admin` + sets `issued_via='forced'`.
-- **Check eligibility**: `POST /api/admin/certificates/check-eligibility { email, courseCode }` — returns the full `EligibilityResult` (passed sessions, missing sessions, watch details, blocking reason).
-- **Admin UI**: `/admin/training-hub/certificates` top card — email + course dropdown + `Check Eligibility` + `⚡ Force Issue` buttons. Shows eligibility breakdown inline; on success, links to the generated certificate PDF + badge PNG.
-- **Cron unchanged**: still hits `/api/cron/certificates` every 15 min, still calls `processPendingCertificates()` — the new Supabase-first pass runs inside that same call, so no Vercel cron re-config needed.
+- **Engine**: `src/lib/training/certificateEngine.ts`:
+  - `issueCertificateForPending(cert, options)` — the low-level per-student issuance primitive (PDF render + badge render + storage upload + DB write + email + `email_sent_at` stamp on success).
+  - `issueCertificateForStudent(email, courseCode, options)` — the high-level single-student entry point. Does a cheap "already Issued?" pre-check, runs `checkEligibility`, builds the `PendingCertificate`, and hands off to `issueCertificateForPending`. Called by the inline trigger and by the admin safety-net. Idempotent: the DB unique index on `(LOWER(email), course_code)` from migration 111 is the hard guard; the pre-check is just the early-out.
+  - `processPendingCertificates()` retained for the "Issue All Pending" bulk sweep — dedups across Apps Script + Supabase and issues every outstanding eligible row.
+- **Primary trigger (inline)**: `/api/training/submit-assessment` fires `issueCertificateForStudent(email, courseCode)` as fire-and-forget the moment a final-exam submission arrives with `didPass === true && isFinal === true`. Student's HTTP response returns immediately; cert generation runs in the background and the email lands within seconds. Errors are logged — the student still sees the pass screen and the safety-net panel surfaces the miss.
+- **Safety net (manual)**:
+  - `/admin/training-hub/certificates` top panel "🛟 Eligible but not issued" lists every (email, course_code) with `final_passed=true` and no `Issued` row in `student_certificates`. Per-row `⚡ Issue Now` + bulk `Issue All Pending`. Powered by `GET /api/admin/certificates/pending` + `POST /api/admin/certificates/issue-pending`.
+  - `/admin/training-hub/certificates` main table now has an `Email` column. When `email_sent_at` is null (migration 124), the row shows an "Unsent" pill + a `✉ Resend` button that calls `POST /api/admin/certificates/resend-email { certificateId }` and stamps `email_sent_at` on success.
+  - `POST /api/admin/certificates/force-issue { email, courseCode }` still exists as the explicit bypass-watch-threshold override. Audited via `issued_via='forced'` + `issued_by_admin`.
+  - `POST /api/admin/certificates/check-eligibility { email, courseCode }` returns the full `EligibilityResult` for ad-hoc debugging.
+- **No cron**: `vercel.json` no longer schedules `/api/cron/certificates`; the route file was deleted. `CRON_SECRET` is retained for the remaining crons (`/api/cron/session-reminders`, `/api/cron/auto-launch-check`).
 
 ## SEO
 
@@ -247,7 +253,7 @@ Use `/signin`, `/register`, `/forgot` for all training/modeling auth links.
 | `EMAIL_FROM_NOREPLY` | No-reply sender address |
 | `HCAPTCHA_SECRET_KEY` | hCaptcha server-side secret |
 | `NEXT_PUBLIC_HCAPTCHA_SITE_KEY` | hCaptcha client-side site key |
-| `CRON_SECRET` | Bearer token for Vercel cron job auth (`/api/cron/certificates`) |
+| `CRON_SECRET` | Bearer token for Vercel cron job auth (`/api/cron/session-reminders`, `/api/cron/auto-launch-check`). Certificate cron retired — certificates issue inline on final-exam submit. |
 | `YOUTUBE_API_KEY` | YouTube Data API v3 key (server-only, for comments fetch) |
 | `NEXT_PUBLIC_YOUTUBE_CHANNEL_ID` | YouTube channel ID for subscribe button (client-safe) |
 
@@ -463,7 +469,7 @@ All training sessions — current and future — enforce the watch threshold by 
 
 New sessions added to `src/config/courses.ts` automatically inherit global enforcement. They also appear in the admin Watch Enforcement per-session table on next page load (the table is a union of `COURSES` tab_keys + any tab_key observed in `certification_watch_history`).
 
-**Certificate issuance gate** (`src/lib/training/watchThresholdVerifier.ts`): before `processPendingCertificates` generates a cert, it calls `verifyWatchThresholdMet(email, courseCode)`. If any required session has `watch_percentage < threshold` and isn't bypassed, the cert is skipped (logged as `watch_threshold_not_met:` error). Rows that predate migration 103 (no watch data captured) are grandfathered so historical cert issuance isn't broken.
+**Certificate issuance gate** (`src/lib/training/watchThresholdVerifier.ts`): before `issueCertificateForPending` generates a cert, it calls `verifyWatchThresholdMet(email, courseCode)`. If any required session has `watch_percentage < threshold` and isn't bypassed, the cert is skipped (logged as `watch_threshold_not_met:` error). Rows that predate migration 103 (no watch data captured) are grandfathered so historical cert issuance isn't broken.
 
 Admin actions at `/admin/training-settings`:
 - Toggle global enforcement on/off

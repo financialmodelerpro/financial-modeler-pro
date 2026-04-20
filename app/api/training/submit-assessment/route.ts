@@ -4,6 +4,7 @@ import { getServerClient } from '@/src/lib/shared/supabase';
 import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
 import { quizResultTemplate } from '@/src/lib/email/templates/quizResult';
 import { lockedOutTemplate } from '@/src/lib/email/templates/lockedOut';
+import { issueCertificateForStudent } from '@/src/lib/training/certificateEngine';
 
 /**
  * POST /api/training/submit-assessment
@@ -159,6 +160,36 @@ export async function POST(req: NextRequest) {
         }
       }
     })();
+
+    // Inline certificate issuance — fires the moment a student passes a final
+    // exam. Fire-and-forget: the student's API response returns immediately,
+    // PDF generation + storage upload + issuance email run in the background.
+    // Idempotency is handled by the helper (skip-if-already-issued pre-check +
+    // unique index on student_certificates). Failures log here and surface on
+    // the admin "Eligible but not issued" safety-net panel.
+    if (didPass && (isFinal ?? false)) {
+      const courseCode = tabKey.toUpperCase().startsWith('BVM') ? 'BVM' : '3SFM';
+      (async () => {
+        try {
+          const res = await issueCertificateForStudent(cleanEmail, courseCode, { issuedVia: 'auto' });
+          if (res.ok) {
+            console.log('[submit-assessment] inline cert issuance:', {
+              email: cleanEmail, courseCode,
+              skipped: (res as { skipped?: boolean }).skipped === true,
+              certificateId: res.certificateId,
+            });
+          } else {
+            console.error('[submit-assessment] inline cert issuance FAILED (admin safety-net will surface):', {
+              email: cleanEmail, courseCode, error: res.error,
+            });
+          }
+        } catch (certErr) {
+          console.error('[submit-assessment] inline cert issuance threw (admin safety-net will surface):', {
+            email: cleanEmail, courseCode, err: String(certErr),
+          });
+        }
+      })();
+    }
 
     return NextResponse.json({ success: true, recorded: true });
   } catch (err) {

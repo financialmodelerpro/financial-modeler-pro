@@ -8,12 +8,20 @@ interface AdminCert {
   certificateId: string; studentName: string; email: string; course: string;
   issuedAt: string; certifierUrl: string;
   registrationId?: string;
+  emailSentAt?: string | null;
   isRevoked: boolean; revokeActionId: string | null;
 }
 interface CertsData {
   certificates: AdminCert[]; totalCerts: number; sfmCerts: number;
   bvmCerts: number; revokedCerts: number; dataAvailable: boolean;
   appsScriptConfigured: boolean; error?: string;
+}
+
+interface PendingEntry {
+  email: string; name: string; registrationId: string;
+  courseCode: string; courseName: string;
+  finalScore: number | null; avgScore: number | null;
+  passedAt: string | null;
 }
 
 function Skeleton({ h = 14, w = '100%', mb = 0 }: { h?: number; w?: number | string; mb?: number }) {
@@ -39,6 +47,12 @@ export default function CertificatesPage() {
   const [courseFilter, setCourseFilter] = useState<'all' | '3SFM' | 'BVM'>('all');
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [toast, setToast]   = useState('');
+
+  // Pending safety-net: eligible but not yet issued (migration 124 + inline trigger)
+  const [pending, setPending] = useState<PendingEntry[]>([]);
+  const [pendingLoading, setPendingLoading] = useState(true);
+  const [pendingBusy, setPendingBusy] = useState<Record<string, boolean>>({});
+  const [issuingAll, setIssuingAll] = useState(false);
 
   // Force-issue panel state
   const [fiEmail, setFiEmail] = useState('');
@@ -70,7 +84,69 @@ export default function CertificatesPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  const fetchPending = useCallback(async () => {
+    setPendingLoading(true);
+    try {
+      const res = await fetch('/api/admin/certificates/pending');
+      const j = await res.json();
+      if (res.ok) setPending(Array.isArray(j.pending) ? j.pending : []);
+    } catch { /* ignore, safety-net stays empty */ }
+    setPendingLoading(false);
+  }, []);
+
+  useEffect(() => { fetchData(); fetchPending(); }, [fetchData, fetchPending]);
+
+  const handleIssuePending = async (entry: PendingEntry) => {
+    const key = `${entry.email}|${entry.courseCode}`;
+    setPendingBusy(p => ({ ...p, [key]: true }));
+    try {
+      const res = await fetch('/api/admin/certificates/issue-pending', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: entry.email, courseCode: entry.courseCode }),
+      });
+      const j = await res.json();
+      if (!res.ok || !j.success) throw new Error(j.error ?? 'Issuance failed');
+      showToast(j.skipped ? 'Already issued' : `Issued: ${j.certificateId}`);
+      await Promise.all([fetchData(), fetchPending()]);
+    } catch (e) { showToast((e as Error).message); }
+    setPendingBusy(p => ({ ...p, [key]: false }));
+  };
+
+  const handleIssueAllPending = async () => {
+    if (pending.length === 0) return;
+    if (!confirm(`Issue certificates for all ${pending.length} eligible students?`)) return;
+    setIssuingAll(true);
+    try {
+      const res = await fetch('/api/admin/certificates/issue-pending', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ all: true }),
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error ?? 'Bulk issuance failed');
+      showToast(`Issued ${j.totals.issued}, skipped ${j.totals.skipped}, failed ${j.totals.failed}`);
+      await Promise.all([fetchData(), fetchPending()]);
+    } catch (e) { showToast((e as Error).message); }
+    setIssuingAll(false);
+  };
+
+  const handleResendEmail = async (cert: AdminCert) => {
+    const key = `resend_${cert.certificateId}`;
+    setAL(key, true);
+    try {
+      const res = await fetch('/api/admin/certificates/resend-email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ certificateId: cert.certificateId }),
+      });
+      const j = await res.json();
+      if (!res.ok || !j.success) throw new Error(j.error ?? 'Resend failed');
+      showToast(`Email resent to ${cert.email}`);
+      setData(d => d ? {
+        ...d,
+        certificates: d.certificates.map(c => c.certificateId === cert.certificateId ? { ...c, emailSentAt: j.email_sent_at } : c),
+      } : d);
+    } catch (e) { showToast((e as Error).message); }
+    setAL(key, false);
+  };
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
   const setAL = (key: string, val: boolean) => setActionLoading(p => ({ ...p, [key]: val }));
@@ -211,6 +287,72 @@ export default function CertificatesPage() {
           )}
         </div>
 
+        {/* Safety-Net: Eligible but not yet issued */}
+        <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '18px 22px', marginBottom: 24 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: '#1B3A6B' }}>
+                🛟 Eligible but not issued
+                {!pendingLoading && pending.length > 0 && (
+                  <span style={{ marginLeft: 8, padding: '2px 8px', borderRadius: 999, background: '#FEF3C7', color: '#92400E', fontSize: 11, fontWeight: 800 }}>{pending.length}</span>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2 }}>
+                Students who passed their final exam but have no certificate row yet. The inline trigger fires on final-exam submit, so this list should usually be empty. Anyone here fell through because the inline attempt errored out (network, storage, PDF lib). Click <strong>Issue Now</strong> to retry.
+              </div>
+            </div>
+            {pending.length > 1 && (
+              <button
+                onClick={handleIssueAllPending}
+                disabled={issuingAll}
+                style={{ padding: '8px 16px', fontSize: 12, fontWeight: 700, borderRadius: 6, background: '#1B4F8A', color: '#fff', border: 'none', cursor: issuingAll ? 'not-allowed' : 'pointer', opacity: issuingAll ? 0.6 : 1 }}
+              >
+                {issuingAll ? 'Issuing…' : `⚡ Issue All Pending (${pending.length})`}
+              </button>
+            )}
+          </div>
+
+          {pendingLoading ? (
+            <div style={{ fontSize: 12, color: '#9CA3AF', padding: '10px 0' }}>Checking eligibility view…</div>
+          ) : pending.length === 0 ? (
+            <div style={{ fontSize: 12, color: '#166534', background: '#F0FFF4', border: '1px solid #BBF7D0', borderRadius: 8, padding: '10px 14px' }}>
+              ✓ All caught up. Every eligible student has a certificate.
+            </div>
+          ) : (
+            <div style={{ border: '1px solid #E5E7EB', borderRadius: 8, overflow: 'hidden' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1.8fr 1fr 70px 110px 120px', padding: '8px 14px', background: '#F9FAFB', borderBottom: '1px solid #E5E7EB' }}>
+                {['Name', 'Email', 'Reg ID', 'Course', 'Passed', 'Action'].map(h => (
+                  <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
+                ))}
+              </div>
+              {pending.map(p => {
+                const key = `${p.email}|${p.courseCode}`;
+                const busy = !!pendingBusy[key];
+                return (
+                  <div key={key} style={{ display: 'grid', gridTemplateColumns: '1.4fr 1.8fr 1fr 70px 110px 120px', padding: '10px 14px', borderBottom: '1px solid #F3F4F6', alignItems: 'center', fontSize: 12 }}>
+                    <div style={{ fontWeight: 600, color: '#1B3A6B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.name || '-'}</div>
+                    <div style={{ color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>{p.email}</div>
+                    <div style={{ color: '#6B7280', fontFamily: 'monospace', fontSize: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.registrationId || '-'}</div>
+                    <div>
+                      <span style={{ background: p.courseCode === '3SFM' ? '#EFF6FF' : '#F0FDF4', color: p.courseCode === '3SFM' ? '#1D4ED8' : '#166534', borderRadius: 20, padding: '2px 7px', fontSize: 10, fontWeight: 700 }}>{p.courseCode}</span>
+                    </div>
+                    <div style={{ color: '#6B7280', fontSize: 11 }}>{p.passedAt ? fmt(p.passedAt) : '-'}</div>
+                    <div>
+                      <button
+                        onClick={() => handleIssuePending(p)}
+                        disabled={busy || issuingAll}
+                        style={{ padding: '5px 12px', fontSize: 11, fontWeight: 700, borderRadius: 5, background: '#B45309', color: '#fff', border: 'none', cursor: busy ? 'not-allowed' : 'pointer', opacity: busy || issuingAll ? 0.6 : 1, whiteSpace: 'nowrap' }}
+                      >
+                        {busy ? 'Issuing…' : '⚡ Issue Now'}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {/* Force-Issue + Check Eligibility panel */}
         <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '18px 22px', marginBottom: 24 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
@@ -301,16 +443,16 @@ export default function CertificatesPage() {
 
         {/* Table */}
         <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1.5fr 2fr 70px 110px 80px 140px', background: '#1B4F8A', padding: '10px 20px', gap: 0 }}>
-            {['Cert ID', 'Name', 'Email', 'Course', 'Issued', 'Status', 'Actions'].map(h => (
+          <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1.5fr 2fr 70px 110px 80px 100px 180px', background: '#1B4F8A', padding: '10px 20px', gap: 0 }}>
+            {['Cert ID', 'Name', 'Email', 'Course', 'Issued', 'Status', 'Email', 'Actions'].map(h => (
               <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
             ))}
           </div>
 
           {loading ? (
             [1,2,3,4,5].map(i => (
-              <div key={i} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1.5fr 2fr 70px 110px 80px 140px', padding: '14px 20px', borderBottom: '1px solid #F3F4F6', gap: 8, alignItems: 'center' }}>
-                {Array(7).fill(0).map((_, j) => <Skeleton key={j} h={14} />)}
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1.5fr 2fr 70px 110px 80px 100px 180px', padding: '14px 20px', borderBottom: '1px solid #F3F4F6', gap: 8, alignItems: 'center' }}>
+                {Array(8).fill(0).map((_, j) => <Skeleton key={j} h={14} />)}
               </div>
             ))
           ) : !data?.dataAvailable ? (
@@ -324,8 +466,10 @@ export default function CertificatesPage() {
           ) : (
             filtered.map(cert => {
               const busy = !!actionLoading[cert.certificateId];
+              const resendBusy = !!actionLoading[`resend_${cert.certificateId}`];
+              const emailSent = !!cert.emailSentAt;
               return (
-                <div key={cert.certificateId} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1.5fr 2fr 70px 110px 80px 140px', padding: '11px 20px', borderBottom: '1px solid #F3F4F6', alignItems: 'center', fontSize: 12, background: cert.isRevoked ? '#FFF5F5' : '#fff' }}>
+                <div key={cert.certificateId} style={{ display: 'grid', gridTemplateColumns: '1.5fr 1.5fr 2fr 70px 110px 80px 100px 180px', padding: '11px 20px', borderBottom: '1px solid #F3F4F6', alignItems: 'center', fontSize: 12, background: cert.isRevoked ? '#FFF5F5' : '#fff' }}>
                   <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cert.certificateId}</div>
                   <div style={{ fontWeight: 600, color: '#1B3A6B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cert.studentName || '-'}</div>
                   <div style={{ color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>{cert.email}</div>
@@ -338,12 +482,22 @@ export default function CertificatesPage() {
                       ? <span style={{ background: '#FEF2F2', color: '#DC2626', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700 }}>Revoked</span>
                       : <span style={{ background: '#DCFCE7', color: '#166534', borderRadius: 20, padding: '2px 10px', fontSize: 11, fontWeight: 700 }}>Active</span>}
                   </div>
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <div>
+                    {emailSent
+                      ? <span title={cert.emailSentAt ?? ''} style={{ background: '#ECFDF5', color: '#047857', borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>✓ Sent</span>
+                      : <span style={{ background: '#FEF3C7', color: '#92400E', borderRadius: 20, padding: '2px 8px', fontSize: 10, fontWeight: 700 }}>Unsent</span>}
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                     {cert.certifierUrl && (
                       <a href={cert.certifierUrl} target="_blank" rel="noopener noreferrer"
                         style={{ padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5, background: '#EFF6FF', color: '#1D4ED8', border: '1px solid #BFDBFE', textDecoration: 'none', whiteSpace: 'nowrap' }}>
                         View ↗
                       </a>
+                    )}
+                    {!emailSent && !cert.isRevoked && (
+                      <button onClick={() => handleResendEmail(cert)} disabled={resendBusy} style={{ padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5, background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A', cursor: 'pointer', opacity: resendBusy ? 0.6 : 1, whiteSpace: 'nowrap' }}>
+                        {resendBusy ? '…' : '✉ Resend'}
+                      </button>
                     )}
                     {cert.isRevoked ? (
                       <button onClick={() => handleRestore(cert)} disabled={busy} style={{ padding: '4px 8px', fontSize: 10, fontWeight: 700, borderRadius: 5, background: '#DCFCE7', color: '#166534', border: '1px solid #BBF7D0', cursor: 'pointer', opacity: busy ? 0.6 : 1, whiteSpace: 'nowrap' }}>

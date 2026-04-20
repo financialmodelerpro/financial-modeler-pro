@@ -224,6 +224,11 @@ app/api/admin/
 ├── certificates/settings/       # GET/POST auto_generation_enabled
 ├── certificates/generate/       # POST: trigger processPendingCertificates()
 ├── certificates/by-date/        # GET ?date=YYYY-MM-DD → every cert_status='Issued' row for the UTC calendar day (powers Daily Roundup admin page)
+├── certificates/pending/        # GET: eligible-but-not-issued list (powers safety-net panel on /admin/training-hub/certificates)
+├── certificates/issue-pending/  # POST { email, courseCode } | { all: true } — single-student or bulk issue via issueCertificateForStudent; idempotent via pre-check + unique index
+├── certificates/check-eligibility/ # POST { email, courseCode } → full EligibilityResult (passedSessions, missingSessions, watchThresholdMet, reason)
+├── certificates/force-issue/    # POST { email, courseCode, nameOverride?, regIdOverride? } — bypasses watch threshold; records issued_via='forced' + issued_by_admin
+├── certificates/resend-email/   # POST { certificateId } — rebuilds + resends certificateIssuedTemplate and stamps student_certificates.email_sent_at
 ├── share-templates/             # GET: list all templates + merged ShareSettings (admin editor)
 ├── share-templates/[key]/       # PATCH: update single template (title/template_text/hashtags/mention_brand/mention_founder/active)
 ├── share-templates/settings/    # PATCH: brand_mention / founder_mention / brand_prefix_at / founder_prefix_at — strips leading @ on mention inputs, re-reads full settings after write
@@ -274,7 +279,8 @@ app/api/admin/
 app/api/
 ├── agents/market-rates/ + research/
 ├── branding/                      # GET: public, PATCH: admin only
-├── cms/ contact/ cron/certificates/ cron/session-reminders/ cron/auto-launch-check/ email/send/
+├── cms/ contact/ cron/session-reminders/ cron/auto-launch-check/ email/send/
+# cron/certificates — REMOVED. Certificate issuance is now inline (fire-and-forget from /api/training/submit-assessment when a final-exam submission passes). Admin safety-net at /admin/training-hub/certificates covers any gaps.
 # cron/session-reminders — per-registration reminder flag model (migration 122): reads session_registrations.reminder_{24h,1h}_sent; CRON_SECRET bearer auth.
 # cron/auto-launch-check — (disabled UI) flips {hub}_coming_soon='false' + one-shot auto_launch='false' when launch_date <= now(). Gated by AUTO_LAUNCH_UI_ENABLED=false in LaunchStatusCard; Vercel Hobby only supports daily crons so vercel.json entry was rolled back.
 ├── export/excel/ + pdf/

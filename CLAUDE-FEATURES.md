@@ -15,7 +15,7 @@
 | **Training Hub — Inactivity Logout** | ✅ Complete | `useInactivityLogout` on dashboard |
 | **Training Hub — Dashboard** | ✅ Complete | Redesigned: overview + course views, collapsible sidebar, mobile bottom nav, badge download, attachment counts |
 | **Training Hub — Assessments / Quiz** | ✅ Complete | Client-side scoring, shuffle toggles, timer bypass |
-| **Training Hub — Certificate System** | ✅ Complete | Internal pdf-lib PDF gen, sharp badge overlay, Supabase storage, daily cron + manual Generate Now |
+| **Training Hub — Certificate System** | ✅ Complete | Inline fire-and-forget issuance the moment a final exam passes (no cron). Internal pdf-lib PDF gen, sharp badge overlay, Supabase storage, `email_sent_at` delivery tracking (migration 124), admin safety-net panel "Eligible but not issued" + `✉ Resend Email` for unsent rows |
 | **Training Hub — Transcript** | ✅ Complete | Token-gated HTML + PDF, QR code, Certificate ID, CMS-driven, ASCII-only |
 | **Training Hub — Profile** | ✅ Complete | Avatar upload, name/city/country |
 | **Training Hub — Live Sessions** | ✅ Complete | Full CRUD, registration/RSVP, public pages, watch tracking, email notifications, YouTube player + subscribe banner + like button + comments |
@@ -309,6 +309,20 @@ Full-page immersive layout for watching training sessions and certification vide
 ### Follow Popups (`src/components/shared/FollowPopup.tsx`)
 - LinkedIn + YouTube buttons in: main site footer, Training Hub sidebar, post-complete popup, 60s video popup, site-wide 60s popup
 - sessionStorage dedup, auto-dismiss, configurable
+
+### Certificate Issuance (inline-triggered, migration 124)
+
+Final-exam pass is the trigger. The old daily `/api/cron/certificates` route was deleted and its `vercel.json` schedule entry removed. Certificates now issue within seconds of the student clicking Submit on a passing final-exam attempt.
+
+- **Primary path**: `app/api/training/submit-assessment/route.ts` fires `issueCertificateForStudent(cleanEmail, courseCode, { issuedVia: 'auto' })` as fire-and-forget when `didPass && isFinal === true`. The student's HTTP response returns immediately; PDF + badge render, Supabase Storage upload, DB insert, and the `certificateIssuedTemplate` email all run in the background. The courseCode is derived from the tab_key prefix (`BVM_*` → `BVM`, else `3SFM`) to stay consistent with the `training_assessment_results.course_id` derivation a few lines above.
+- **Engine helper `issueCertificateForStudent(email, courseCode, options)`** lives in `src/lib/training/certificateEngine.ts`. Flow: skip if an `Issued` row already exists (cheap early-out), run `checkEligibility`, build the `PendingCertificate`, hand off to `issueCertificateForPending`. Safe to call multiple times because the unique index on `(LOWER(email), course_code)` from migration 111 is the hard DB guard.
+- **Email delivery tracking**: `student_certificates.email_sent_at TIMESTAMPTZ NULL` (migration 124) is stamped after `sendEmail` resolves successfully in `issueCertificateForPending`. A null stamp means the cert was generated but the email never went out (Resend outage, bad address, template error). Surfaces as a yellow "Unsent" pill + `✉ Resend` button on `/admin/training-hub/certificates`. Partial index keeps the "needs resend" lookup constant-time.
+- **Safety-net panel** at `/admin/training-hub/certificates`:
+  - **🛟 Eligible but not issued** — queries `GET /api/admin/certificates/pending` which reads `certificate_eligibility_raw` where `final_passed=true` minus rows already `Issued` in `student_certificates`. Per-row `⚡ Issue Now` button fires `POST /api/admin/certificates/issue-pending { email, courseCode }`. Bulk `Issue All Pending` fires `POST /api/admin/certificates/issue-pending { all: true }` and reports `{ issued, skipped, failed }`.
+  - **Email column** in the main cert table shows the `email_sent_at` pill state. `✉ Resend` button calls `POST /api/admin/certificates/resend-email { certificateId }` which rebuilds the template, sends, and stamps the column.
+  - **Force-Issue** remains for explicit overrides (bypasses watch threshold; records `issued_via='forced'` + `issued_by_admin`). Distinct from "Issue Now" on the pending list which still runs the full eligibility gate.
+- **Idempotency**: the inline trigger, the force-issue override, and the pending-list "Issue Now" button all resolve to `issueCertificateForPending` which does a SELECT-then-INSERT-or-UPDATE keyed by `(LOWER(email), course_code)`. Two concurrent calls are blocked by the unique index; the pre-check in `issueCertificateForStudent` avoids regenerating PDFs for already-issued students. Admin force-issue bypasses the pre-check because that entry point legitimately allows re-issuance.
+- **Fix addresses** the pre-launch diagnosis RED findings: latency (was up to 24 hours via daily cron, now sub-minute inline), observability (was zero, now `email_sent_at` + pending panel give full visibility), and Apps Script coupling (the cron was the last place Apps Script polling still drove timing; the engine's Apps Script sync remains best-effort and non-blocking).
 
 ### Live Session Achievement Card (context-aware)
 
