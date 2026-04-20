@@ -2,6 +2,18 @@
 
 import { useEffect, useState } from 'react';
 
+// Auto-launch UI feature flag.
+//
+// Vercel Hobby limits cron jobs to once-per-day schedules, so the
+// every-5-minutes auto-launch cron can't ship on the current plan.
+// The checkbox + status readout are hidden until the project upgrades
+// to Vercel Pro. On upgrade: flip this to `true` AND re-add the cron
+// entry to vercel.json (path: /api/cron/auto-launch-check, schedule
+// every 5 minutes). Backend (migration 118, settings keys, the
+// /api/cron/auto-launch-check endpoint, PATCH fields) stays intact
+// so the only required changes are this flag + vercel.json.
+const AUTO_LAUNCH_UI_ENABLED = false;
+
 interface Props {
   label: string;
   icon?: string;
@@ -184,12 +196,12 @@ export function LaunchStatusCard({ label, icon = '🚀', endpoint, previewUrl, o
         </div>
       )}
 
-      {/* ── Auto-launch row ─────────────────────────────────────────────────
-          Only meaningful while Coming Soon is on + a launch date exists.
-          When the launch date is empty the checkbox is disabled with a
-          tooltip prompting the admin to set one. Toggling is a single PATCH
-          (no Save button) so the state matches the checkbox instantly. */}
-      {enabled && (
+      {/* Auto-launch checkbox + status readout are gated behind
+          AUTO_LAUNCH_UI_ENABLED — see the flag comment at top of file for
+          the Vercel Hobby constraint. When the flag is off this collapses
+          to zero UI; the backend (migration 118, /api/cron/auto-launch-check,
+          PATCH fields) still exists and is ready when the flag flips. */}
+      {AUTO_LAUNCH_UI_ENABLED && enabled && (
         <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <label
             title={!launchDate ? 'Set a launch date first to enable auto-launch.' : ''}
@@ -211,25 +223,24 @@ export function LaunchStatusCard({ label, icon = '🚀', endpoint, previewUrl, o
         </div>
       )}
 
-      {/* ── Status readout ──────────────────────────────────────────────────
-          Always-visible, regardless of the enabled state, so admins see the
-          last-fired audit even after a successful auto-launch. */}
-      <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed #E5E7EB', display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {scheduled ? (
-          <div style={{ fontSize: 12, color: '#1B4F8A', fontWeight: 600 }}>
-            ⏱ Scheduled: auto-launch at <strong>{formatReadable(launchDate)}</strong>
-          </div>
-        ) : (
-          <div style={{ fontSize: 12, color: '#6B7280', fontWeight: 500 }}>
-            Manual control — admin must toggle this hub live.
-          </div>
-        )}
-        {lastAutoLaunchedAt && (
-          <div style={{ fontSize: 11, color: '#1A7A30', fontWeight: 500 }}>
-            ✅ Last auto-launched at <strong>{formatReadable(lastAutoLaunchedAt)}</strong> by system
-          </div>
-        )}
-      </div>
+      {AUTO_LAUNCH_UI_ENABLED && (
+        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed #E5E7EB', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {scheduled ? (
+            <div style={{ fontSize: 12, color: '#1B4F8A', fontWeight: 600 }}>
+              ⏱ Scheduled: auto-launch at <strong>{formatReadable(launchDate)}</strong>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: '#6B7280', fontWeight: 500 }}>
+              Manual control — admin must toggle this hub live.
+            </div>
+          )}
+          {lastAutoLaunchedAt && (
+            <div style={{ fontSize: 11, color: '#1A7A30', fontWeight: 500 }}>
+              ✅ Last auto-launched at <strong>{formatReadable(lastAutoLaunchedAt)}</strong> by system
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
