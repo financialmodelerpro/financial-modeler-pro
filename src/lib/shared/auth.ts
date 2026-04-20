@@ -4,6 +4,7 @@ import { cookies } from 'next/headers';
 import { serverClient } from '@/src/lib/shared/supabase';
 import { verifyPassword } from '@/src/lib/shared/password';
 import { isDeviceTrusted, DEVICE_COOKIE_NAME } from '@/src/lib/shared/deviceTrust';
+import { getModelingComingSoonState } from '@/src/lib/shared/modelingComingSoon';
 
 export const authOptions: AuthOptions = {
   session: { strategy: 'jwt', maxAge: 60 * 60 }, // 1 hour
@@ -32,6 +33,19 @@ export const authOptions: AuthOptions = {
 
         const valid = await verifyPassword(credentials.password, user.password_hash);
         if (!valid) return null;
+
+        // Pre-launch gate: sign-in is blocked while the Modeling Hub is in
+        // Coming Soon mode, even though registration stays open. Admins
+        // bypass (they always did) so the platform can be set up before
+        // launch. The thrown `ComingSoon` error is surfaced to the signin
+        // UI; the signin page itself is also server-gated, so this only
+        // matters for anyone calling /api/auth/callback/credentials directly.
+        if (user.role !== 'admin') {
+          const cs = await getModelingComingSoonState();
+          if (cs.enabled) {
+            throw new Error('ComingSoon');
+          }
+        }
 
         // Admin: skip email confirmation and device verification - return immediately
         if (user.role === 'admin') {

@@ -16,11 +16,28 @@ import { NextRequest, NextResponse } from 'next/server';
 import { validateStudent } from '@/src/lib/training/sheets';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { isDeviceTrusted } from '@/src/lib/shared/deviceTrust';
+import { getTrainingComingSoonState } from '@/src/lib/shared/trainingComingSoon';
 import bcrypt from 'bcryptjs';
 
 const SESSION_MAX_AGE = 60 * 60; // 1 hour
 
 export async function POST(req: NextRequest) {
+  // Pre-launch gate: signin is blocked while Coming Soon is ON even though
+  // registration stays open. Students register now and can log in once the
+  // hub goes live (manual toggle or auto-launch cron).
+  const comingSoon = await getTrainingComingSoonState();
+  if (comingSoon.enabled) {
+    return NextResponse.json(
+      {
+        success:    false,
+        comingSoon: true,
+        launchDate: comingSoon.launchDate,
+        error:      'Sign-in opens at launch. You can register now and we\'ll have your account ready.',
+      },
+      { status: 403 },
+    );
+  }
+
   try {
     const body = await req.json() as {
       identifier?: string;

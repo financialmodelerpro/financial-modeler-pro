@@ -10,6 +10,13 @@ import { useRouter } from 'next/navigation';
 // Navbar now rendered by server page.tsx via NavbarServer
 import HCaptcha from '@hcaptcha/react-hcaptcha';
 import { PhoneInput } from '@/src/components/shared/PhoneInput';
+import { PreLaunchBanner } from '@/src/components/shared/PreLaunchBanner';
+
+interface RegisterFormProps {
+  /** True while the Modeling Hub is in Coming Soon mode. */
+  preLaunch?:  boolean;
+  launchDate?: string | null;
+}
 
 const NAVY = '#0D2E5A';
 const BLUE = '#1B4F8A';
@@ -27,7 +34,7 @@ const labelStyle: React.CSSProperties = {
   color: '#374151', marginBottom: 6, letterSpacing: '0.03em',
 };
 
-function RegisterInner() {
+function RegisterInner({ preLaunch, launchDate }: RegisterFormProps) {
   const router = useRouter();
 
   const [name,       setName]       = useState('');
@@ -108,6 +115,12 @@ function RegisterInner() {
             </div>
 
             <div style={{ padding: '24px 36px 24px' }}>
+
+              <PreLaunchBanner
+                enabled={preLaunch ?? false}
+                launchDate={launchDate}
+                hubLabel="The Modeling Hub"
+              />
 
               {error && (
                 <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 13, color: '#DC2626' }}>
@@ -248,10 +261,10 @@ function RegisterInner() {
   );
 }
 
-export function RegisterForm() {
+export function RegisterForm({ preLaunch = false, launchDate = null }: RegisterFormProps = {}) {
   return (
     <Suspense>
-      <RegisterInner />
+      <RegisterInner preLaunch={preLaunch} launchDate={launchDate} />
     </Suspense>
   );
 }

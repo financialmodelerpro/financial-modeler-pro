@@ -5,6 +5,14 @@ import Link from 'next/link';
 import { Navbar } from '@/src/components/layout/Navbar';
 import HCaptcha from '@hcaptcha/react-hcaptcha';
 import { PhoneInput } from '@/src/components/shared/PhoneInput';
+import { PreLaunchBanner } from '@/src/components/shared/PreLaunchBanner';
+
+interface TrainingRegisterFormProps {
+  /** True while the Training Hub is in Coming Soon mode — shows a
+   *  "launching soon, sign-in opens at launch" banner above the form. */
+  preLaunch?:  boolean;
+  launchDate?: string | null;
+}
 
 type Step   = 'form' | 'verify' | 'done';
 type Status = 'idle' | 'loading' | 'error' | 'duplicate';
@@ -25,7 +33,7 @@ const labelStyle: React.CSSProperties = {
   color: '#374151', marginBottom: 6, letterSpacing: '0.03em',
 };
 
-export function TrainingRegisterForm() {
+export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: TrainingRegisterFormProps = {}) {
   const [step,   setStep]   = useState<Step>('form');
   const [status, setStatus] = useState<Status>('idle');
   const [errorMsg, setErrorMsg] = useState('');
@@ -281,6 +289,12 @@ export function TrainingRegisterForm() {
             <p style={{ fontSize: 12.5, color: '#6B7280', textAlign: 'center', marginBottom: 28, lineHeight: 1.5 }}>
               Your name will appear exactly as entered on your certificate.
             </p>
+
+            <PreLaunchBanner
+              enabled={preLaunch}
+              launchDate={launchDate}
+              hubLabel="The Training Hub"
+            />
 
             {status === 'duplicate' && (
               <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, padding: '14px 16px', marginBottom: 20, fontSize: 13, color: '#1D4ED8', lineHeight: 1.5 }}>
