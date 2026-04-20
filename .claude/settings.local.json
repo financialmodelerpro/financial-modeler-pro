@@ -98,7 +98,10 @@
       "Bash(\\\\\\\\[object\" | head -10)",
       "Bash(xargs basename *)",
       "Bash(cat)",
-      "Bash(bash /tmp/check_metadata.sh)"
+      "Bash(bash /tmp/check_metadata.sh)",
+      "Bash(npx next *)",
+      "Bash(npx eslint *)",
+      "Bash(git restore *)"
     ]
   }
 }
