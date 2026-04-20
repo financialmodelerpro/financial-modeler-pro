@@ -72,23 +72,39 @@ export function LiveSessionsSection({ studentEmail, courseId, limit = 3 }: Props
       {upcoming.length === 0 ? (
         <EmptyState />
       ) : (
-        <div style={{
-          display: 'grid',
-          // Max 3 cards per row on wide screens; auto-collapse to 2/1 as
-          // viewport narrows. 260px min keeps card meta readable.
-          gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-          gap: 16,
-        }}>
-          {upcoming.map(s => (
-            <LiveSessionCard
-              key={s.id}
-              variant="upcoming"
-              session={s}
-              reg={data?.regStatus[s.id]}
-              href={`/training/live-sessions/${s.id}`}
-            />
-          ))}
-        </div>
+        <>
+          {/* Fixed 3-slot grid on desktop, 2-slot tablet, 1-slot mobile.
+              Previously used auto-fit + minmax(260px, 1fr) which correctly
+              filled 3 slots with 3 cards but stretched a single card to
+              full width when only one upcoming session existed. Fixed
+              columns keep card width consistent regardless of count —
+              empty slots just stay empty. Inline <style> tag scopes the
+              media queries to this section without touching globals.css. */}
+          <style>{`
+            .dash-upcoming-grid {
+              display: grid;
+              grid-template-columns: repeat(3, minmax(0, 1fr));
+              gap: 16px;
+            }
+            @media (max-width: 900px) {
+              .dash-upcoming-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            }
+            @media (max-width: 600px) {
+              .dash-upcoming-grid { grid-template-columns: 1fr; }
+            }
+          `}</style>
+          <div className="dash-upcoming-grid">
+            {upcoming.map(s => (
+              <LiveSessionCard
+                key={s.id}
+                variant="upcoming"
+                session={s}
+                reg={data?.regStatus[s.id]}
+                href={`/training/live-sessions/${s.id}`}
+              />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
