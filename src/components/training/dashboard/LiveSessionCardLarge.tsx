@@ -58,6 +58,28 @@ function formatDateTime(iso?: string | null): string {
   return `${weekday}, ${datePart} at ${timePart}`;
 }
 
+/**
+ * Human readout of how far away a session is. Static — refreshed on next
+ * render. Good enough for card-level UX; precise time lives on the detail
+ * page. Negative values ("started 3 min ago") surface as "Live now".
+ */
+function describeTimeUntil(iso?: string | null): string {
+  if (!iso) return '';
+  const mins = (new Date(iso).getTime() - Date.now()) / 60000;
+  if (!Number.isFinite(mins)) return '';
+  if (mins <= 0)     return 'Live now';
+  if (mins < 60)     return `Starts in ${Math.max(1, Math.round(mins))} min`;
+  const totalH = mins / 60;
+  if (totalH < 24) {
+    const h = Math.floor(totalH);
+    const m = Math.round(mins - h * 60);
+    return m > 0 ? `Starts in ${h}h ${m}m` : `Starts in ${h}h`;
+  }
+  const days = Math.floor(totalH / 24);
+  const remH = Math.floor(totalH - days * 24);
+  return remH > 0 ? `Starts in ${days}d ${remH}h` : `Starts in ${days}d`;
+}
+
 function formatDateShort(iso?: string | null): string {
   if (!iso) return '';
   const d = new Date(iso);
@@ -171,6 +193,39 @@ export function LiveSessionCardLarge(props: Props) {
   const [hover, setHover] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [cardOpen, setCardOpen] = useState(false);
+  // Inline register state. Flips to true after a successful POST so the UI
+  // reflects the new status without a parent refetch. Parent-provided
+  // `reg.registered` is the source of truth on next remount.
+  const [localRegistered, setLocalRegistered] = useState(false);
+  const [registering, setRegistering] = useState(false);
+  const [registerError, setRegisterError] = useState<string | null>(null);
+
+  async function doRegister() {
+    if (registering) return;
+    setRegisterError(null);
+    setRegistering(true);
+    try {
+      const res = await fetch(`/api/training/live-sessions/${session.id}/register`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          regId: props.registrationId ?? '',
+          name:  props.studentName ?? '',
+          email: props.studentEmail,
+        }),
+      });
+      const json = await res.json().catch(() => ({})) as { error?: string; registered?: boolean };
+      if (!res.ok || !json.registered) {
+        setRegisterError(json.error ?? 'Could not register. Please try again.');
+      } else {
+        setLocalRegistered(true);
+      }
+    } catch {
+      setRegisterError('Network error — please retry.');
+    } finally {
+      setRegistering(false);
+    }
+  }
 
   // Status color accent on the left border
   let accentColor = '#E5E7EB';
@@ -212,11 +267,16 @@ export function LiveSessionCardLarge(props: Props) {
   if (props.variant === 'upcoming') {
     const reg = props.reg;
     const mins = minutesUntil(session.scheduled_datetime);
-    const startingSoon = reg?.registered && mins <= 15 && mins >= -180;
+    // Effective registration state: parent-provided + any inline register
+    // click the student just made. Prevents the card from flipping back
+    // to "Register" while the parent refetches.
+    const registered = localRegistered || !!reg?.registered;
+    const startingSoon = registered && mins <= 15 && mins >= -180;
     const canJoin = reg?.joinLinkAvailable;
     const isLiveNow = session.session_type === 'live';
-    const badgeLabel = isLiveNow ? 'LIVE NOW' : reg?.registered ? 'REGISTERED' : 'UPCOMING';
-    const badgeBg = isLiveNow ? RED : reg?.registered ? GREEN : ORANGE;
+    const badgeLabel = isLiveNow ? 'LIVE NOW' : registered ? 'REGISTERED' : 'UPCOMING';
+    const badgeBg = isLiveNow ? RED : registered ? GREEN : ORANGE;
+    const countdown = describeTimeUntil(session.scheduled_datetime);
 
     return (
       <div style={wrapper} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
@@ -260,8 +320,39 @@ export function LiveSessionCardLarge(props: Props) {
             </div>
           )}
 
+          {/* Registered pill + countdown. Only shown once the student is
+              actually registered — before that, the Register button below
+              is the whole CTA row. */}
+          {registered && !canJoin && !startingSoon && countdown && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap',
+              marginBottom: 10, fontSize: 12, color: '#374151',
+            }}>
+              <span style={chip('#DCFCE7', '#166534')}>
+                <CheckCircle2 size={11} /> Registered
+              </span>
+              <span style={{ color: NAVY, fontWeight: 600 }}>{countdown}</span>
+            </div>
+          )}
+
+          {registerError && (
+            <div style={{
+              marginBottom: 10, fontSize: 12, color: '#B91C1C',
+              background: '#FEF2F2', border: '1px solid #FECACA',
+              borderRadius: 6, padding: '6px 10px',
+            }}>
+              {registerError}
+            </div>
+          )}
+
+          {/* CTA row. Precedence:
+                live + registered   → Join Live (primary red)
+                ≤15 min + reg       → "Starting soon" (navigates to detail so
+                                        the student can get the join link)
+                registered, far out → View Details (secondary)
+                not registered      → Register button (inline, no redirect) */}
           <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
-            {canJoin ? (
+            {canJoin && registered ? (
               <Link href={href} style={primaryBtn(RED)}>
                 <Radio size={14} /> Join Live →
               </Link>
@@ -269,10 +360,21 @@ export function LiveSessionCardLarge(props: Props) {
               <Link href={href} style={primaryBtn(TEAL)}>
                 Starting soon →
               </Link>
-            ) : reg?.registered ? (
+            ) : registered ? (
               <Link href={href} style={primaryBtn(NAVY)}>View Details</Link>
             ) : (
-              <Link href={href} style={primaryBtn(GREEN)}>Register</Link>
+              <button
+                type="button"
+                onClick={doRegister}
+                disabled={registering}
+                style={{
+                  ...primaryBtn(GREEN),
+                  opacity: registering ? 0.65 : 1,
+                  cursor:  registering ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {registering ? 'Registering…' : 'Register'}
+              </button>
             )}
             <button
               type="button"

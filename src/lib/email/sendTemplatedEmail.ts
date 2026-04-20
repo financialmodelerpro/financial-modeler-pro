@@ -99,16 +99,16 @@ export async function sendTemplatedEmail(params: {
 // ── Helper: build session placeholders from a live_sessions row ────────────
 
 export function buildSessionPlaceholders(session: {
-  id: string;
-  title: string;
-  description?: string;
-  scheduled_datetime?: string;
-  timezone?: string;
-  duration_minutes?: number;
-  instructor_name?: string;
-  live_url?: string;
-  youtube_url?: string;
-  registration_count?: number;
+  id:                   string;
+  title?:               string | null;
+  description?:         string | null;
+  scheduled_datetime?:  string | null;
+  timezone?:            string | null;
+  duration_minutes?:    number | null;
+  instructor_name?:     string | null;
+  live_url?:            string | null;
+  youtube_url?:         string | null;
+  registration_count?: number | null;
 }): Record<string, string> {
   const mainUrl = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
   const learnUrl = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';

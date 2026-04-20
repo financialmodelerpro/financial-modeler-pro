@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { sendAutoNewsletter } from '@/src/lib/newsletter/autoNotify';
+import { sendSessionAnnouncement } from '@/src/lib/training/sessionAnnouncement';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
@@ -90,6 +91,16 @@ export async function POST(req: NextRequest) {
   }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   if (data && data.is_published) {
+    // Direct announcement to every confirmed training student. Previously
+    // POST only fired the newsletter (which targets subscribers, not the
+    // full training roster) so new upcoming sessions went out silently to
+    // everyone who'd registered. PATCH already had this flow — POST was
+    // the asymmetric gap, fixed here by sharing one helper. Fire-and-
+    // forget so Resend latency never blocks the admin's create.
+    void sendSessionAnnouncement(sb, data).catch((err: unknown) =>
+      console.error('[live-sessions POST] announcement failed:', err),
+    );
+
     const dt = data.scheduled_datetime ? new Date(data.scheduled_datetime) : null;
     void sendAutoNewsletter('live_session_scheduled', data.id, {
       title: data.title, description: data.description ?? '',
