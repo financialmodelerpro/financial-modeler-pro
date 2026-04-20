@@ -103,7 +103,6 @@ interface CoursePlayerLayoutProps {
   assessmentPassed?: boolean;
   onVideoPlaying?: () => void;
   onVideoEnded?: () => void;
-  onVideoNearEnd?: () => void;
   onVideoProgress?: (watchedSec: number, totalSec: number, currentPos: number) => void;
   /** Seed the player's tracker with seconds already persisted to DB. */
   baselineWatchedSeconds?: number;
@@ -144,7 +143,7 @@ export function CoursePlayerLayout({
   title, youtubeUrl, channelId, showLikeButton,
   sessionTitle, sessionDescription, sessionUrl,
   nextSessionHref, isWatched, onMarkComplete, isCompleted,
-  assessmentUrl, assessmentReady, assessmentPassed, onVideoPlaying, onVideoEnded, onVideoNearEnd,
+  assessmentUrl, assessmentReady, assessmentPassed, onVideoPlaying, onVideoEnded,
   onVideoProgress, baselineWatchedSeconds, belowVideoContent,
   videoId, sessionId, studentEmail, studentRegId,
   bannerUrl, instructorName, instructorTitle,
@@ -454,7 +453,6 @@ export function CoursePlayerLayout({
                   baselineWatchedSeconds={baselineWatchedSeconds}
                   onPlaying={onVideoPlaying}
                   onEnded={onVideoEnded}
-                  onNearEnd={onVideoNearEnd}
                   onProgress={onVideoProgress}
                 />
               </div>

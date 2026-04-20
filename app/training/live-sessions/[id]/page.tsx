@@ -236,7 +236,6 @@ export default function LiveSessionDetailPage() {
   }, [studentSession, params.id, isWatched]);
 
   const handleVideoEnded = useCallback(() => { setVideoEnded(true); }, []);
-  const handleVideoNearEnd = useCallback(() => { setVideoEnded(true); }, []);
 
   async function handleRegister() {
     if (!studentSession) return;
@@ -328,18 +327,22 @@ export default function LiveSessionDetailPage() {
       } catch {}
     };
 
-    // Watch-enforcement gating. Threshold met is the PRIMARY criterion so a
-    // user who drags the playhead to the end (firing ENDED without real
-    // playback) cannot unlock Mark Complete. The interval-merging tracker
-    // caps each interval by wall-clock elapsed time, and the server-side
-    // check in /watched refuses `status='completed'` when watch_percentage
-    // is still below threshold.
+    // Watch-enforcement gate — dead-simple: Mark Complete unlocks when
+    // the video has ended AND either the student watched enough of it,
+    // OR the bypass is active (admin / global-off / per-session bypass).
+    //
+    //   canMarkComplete = videoEnded && (thresholdMet || bypassActive)
+    //
+    // Skip-to-end attack is stopped at the tracker: dragging the playhead
+    // fires videoEnded but leaves watchPct low, so the button stays
+    // hidden. Server-side /watched re-checks too before accepting
+    // `status='completed'`.
     const watchPct = liveTotalSec > 0
       ? Math.min(100, Math.round((liveWatchSec / liveTotalSec) * 100))
       : 0;
     const thresholdMet = watchPct >= enforcement.threshold;
     const bypassActive = !enforcement.enabled || enforcement.sessionBypass || enforcement.isAdmin;
-    const canMarkComplete = thresholdMet || (bypassActive && videoEnded);
+    const canMarkComplete = videoEnded && (thresholdMet || bypassActive);
 
     const markCompleteCallback = canMarkComplete && !isWatched ? handleMarkComplete : undefined;
 
@@ -376,7 +379,6 @@ export default function LiveSessionDetailPage() {
         belowVideoContent={progressBar}
         onVideoProgress={handleProgress}
         onVideoEnded={handleVideoEnded}
-        onVideoNearEnd={handleVideoNearEnd}
         bannerUrl={session.banner_url}
         instructorName={session.instructor_name}
         instructorTitle={session.instructor_title}

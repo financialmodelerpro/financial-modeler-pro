@@ -34,8 +34,16 @@ interface YouTubePlayerProps {
   onReady?: () => void;
   onPlaying?: () => void;
   onPaused?: () => void;
+  /**
+   * Fires exactly once per mount when the video reaches its end. Two
+   * triggers cover the common YouTube edge cases:
+   *   - YT PlayerState.ENDED (the reliable path for most videos)
+   *   - tick fallback: when `currentTime >= duration - 1`, which catches
+   *     videos where ENDED doesn't emit (end-screen cards, quality
+   *     switch at the tail, autoplay-then-stop behavior). Both paths
+   *     guard against double-fire via `endedFiredRef`.
+   */
   onEnded?: () => void;
-  onNearEnd?: () => void;
   /**
    * Fires periodically (≈10s during playback + on pause/end) with interval-merged
    * watched seconds. `totalSeconds` may be 0 before metadata loads.
@@ -43,21 +51,28 @@ interface YouTubePlayerProps {
   onProgress?: (watchedSec: number, totalSec: number, currentPos: number) => void;
 }
 
-export function YouTubePlayer({ videoId, title, sessionId, studentEmail, studentRegId, baselineWatchedSeconds, onReady, onPlaying, onPaused, onEnded, onNearEnd, onProgress }: YouTubePlayerProps) {
+export function YouTubePlayer({ videoId, title, sessionId, studentEmail, studentRegId, baselineWatchedSeconds, onReady, onPlaying, onPaused, onEnded, onProgress }: YouTubePlayerProps) {
   const playerRef = useRef<YTPlayer | null>(null);
   const containerIdRef = useRef(`yt-player-${videoId}`);
   const reportedRef = useRef(false);
 
   useEffect(() => {
     let destroyed = false;
-    let nearEndInterval: ReturnType<typeof setInterval> | null = null;
     let tickInterval: ReturnType<typeof setInterval> | null = null;
-    let nearEndFired = false;
     let tracker: WatchTrackerState = makeWatchTracker(baselineWatchedSeconds ?? 0);
     let lastReportAt = 0;
+    // Single-fire flag so both the ENDED state change AND the tick-fallback
+    // can't double-fire onEnded. Whichever arrives first wins.
+    let endedFired = false;
 
     function pos(): number { try { return playerRef.current?.getCurrentTime?.() ?? 0; } catch { return 0; } }
     function dur(): number { try { return playerRef.current?.getDuration?.() ?? 0; } catch { return 0; } }
+
+    function fireEndedOnce() {
+      if (endedFired) return;
+      endedFired = true;
+      try { onEnded?.(); } catch { /* caller error is not our problem */ }
+    }
 
     function report(force = false) {
       const now = Date.now();
@@ -73,30 +88,19 @@ export function YouTubePlayer({ videoId, title, sessionId, studentEmail, student
       tickInterval = setInterval(() => {
         const c = pos();
         tracker = onTick(tracker, c);
+        // End-of-video fallback. YT's PlayerState.ENDED is usually reliable,
+        // but some videos (those with end-screen cards, mid-playback quality
+        // switches, or when the player is auto-muted) skip the event. If
+        // the playhead reaches the final second of a known duration, treat
+        // that as "ended" and fire. No 20-second early trigger — user must
+        // actually watch to the end.
+        const d = dur();
+        if (d > 0 && c >= d - 1) fireEndedOnce();
         report();
       }, 1000);
     }
     function stopTickCheck() {
       if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
-    }
-
-    function startNearEndCheck() {
-      if (nearEndFired || !onNearEnd || nearEndInterval) return;
-      nearEndInterval = setInterval(() => {
-        const p = playerRef.current;
-        if (!p?.getDuration || !p?.getCurrentTime) return;
-        const d = p.getDuration();
-        const cur = p.getCurrentTime();
-        if (d > 0 && (d - cur) <= 20) {
-          nearEndFired = true;
-          onNearEnd();
-          if (nearEndInterval) { clearInterval(nearEndInterval); nearEndInterval = null; }
-        }
-      }, 1000);
-    }
-
-    function stopNearEndCheck() {
-      if (nearEndInterval) { clearInterval(nearEndInterval); nearEndInterval = null; }
     }
 
     function reportCompletion() {
@@ -106,7 +110,10 @@ export function YouTubePlayer({ videoId, title, sessionId, studentEmail, student
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: studentEmail, regId: studentRegId ?? '' }),
-      }).catch(() => { reportedRef.current = false; });
+      }).catch(e => {
+        console.error('[YouTubePlayer] completion report failed:', e);
+        reportedRef.current = false;
+      });
     }
 
     function initPlayer() {
@@ -126,21 +133,18 @@ export function YouTubePlayer({ videoId, title, sessionId, studentEmail, student
               onPlaying?.();
               tracker = onPlay(tracker, pos());
               startTickCheck();
-              startNearEndCheck();
               report(true);
             }
             if (event.data === PS.PAUSED) {
               onPaused?.();
               tracker = onClose(tracker, pos());
               stopTickCheck();
-              stopNearEndCheck();
               report(true);
             }
             if (event.data === PS.ENDED) {
               tracker = onClose(tracker, pos());
               stopTickCheck();
-              stopNearEndCheck();
-              onEnded?.();
+              fireEndedOnce();
               report(true);
               reportCompletion();
             }
@@ -173,7 +177,6 @@ export function YouTubePlayer({ videoId, title, sessionId, studentEmail, student
       try { tracker = onClose(tracker, playerRef.current?.getCurrentTime?.() ?? 0); } catch { /* ignore */ }
       report(true);
       stopTickCheck();
-      stopNearEndCheck();
       try { playerRef.current?.destroy(); } catch { /* already gone */ }
       playerRef.current = null;
     };
