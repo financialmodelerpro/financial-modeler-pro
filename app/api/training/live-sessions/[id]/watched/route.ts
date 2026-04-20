@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { getWatchEnforcement, canCompleteWith } from '@/src/lib/training/watchEnforcementCheck';
+import { detectVideoChange } from '@/src/lib/training/detectVideoChange';
 
 export const dynamic = 'force-dynamic';
 
@@ -51,12 +52,23 @@ export async function POST(
     const incomingWatchSec = Math.max(0, Math.round(watch_seconds ?? 0));
     const incomingTotalSec = Math.max(0, Math.round(total_seconds ?? 0));
     const incomingPos      = Math.max(0, Math.round(last_position ?? 0));
+    const existingWatchSec = Math.max(0, Math.round(existing?.watch_seconds ?? 0));
+    const existingTotalSec = Math.max(0, Math.round(existing?.total_seconds ?? 0));
+
+    // Auto-detect video swap. If the admin replaced this session's video
+    // the stored total_seconds will disagree meaningfully from what the
+    // new YT player reports. Keeping the stale progress would make
+    // watch_percentage nonsense — reset to the incoming values so the
+    // student starts fresh on the new video. Shared helper so 3SFM /
+    // BVM sessions and any future session type inherit the same rule.
+    const verdict = incomingTotalSec > 0
+      ? detectVideoChange(existingTotalSec, incomingTotalSec)
+      : { changed: false };
 
     // Wall-clock rate limit: watch_seconds can't grow faster than real time
     // between updates. Defeats tampered clients that POST a huge watch_seconds
     // in one shot — they now have to pace their fabricated updates to real
     // elapsed wall time, at which point they might as well have been watching.
-    const existingWatchSec = Math.max(0, Math.round(existing?.watch_seconds ?? 0));
     const existingUpdatedAt = existing?.updated_at ? new Date(existing.updated_at).getTime() : null;
     let clampedIncoming = incomingWatchSec;
     if (existingUpdatedAt && incomingWatchSec > existingWatchSec) {
@@ -72,17 +84,30 @@ export async function POST(
       }
     }
 
-    const mergedWatchSec = Math.max(existingWatchSec, clampedIncoming);
-    const mergedTotalSec = Math.max(existing?.total_seconds ?? 0, incomingTotalSec);
+    let mergedWatchSec: number;
+    let mergedTotalSec: number;
+    if (verdict.changed) {
+      console.log('[video-change-detected] live-session watched reset', {
+        session_id: id, email, reason: verdict.reason,
+      });
+      // Reset to incoming values — new video, fresh start. The completion
+      // guard below still runs, so a reset row won't flip to 'completed'
+      // unless the new incoming values clear threshold.
+      mergedWatchSec = incomingWatchSec;
+      mergedTotalSec = incomingTotalSec;
+    } else {
+      mergedWatchSec = Math.max(existingWatchSec, clampedIncoming);
+      mergedTotalSec = Math.max(existingTotalSec, incomingTotalSec);
+    }
+
     // Always compute pct from ACTUAL seconds — never trust `status='completed'`
-    // alone to imply 100%. A client that sends completed without total_seconds
-    // (e.g. trying to short-circuit enforcement) now gets pct=0 and is
-    // rejected below by canCompleteWith(). If total_seconds is unknown we fall
-    // back to the stored percentage so we never accidentally demote a valid
-    // prior completion.
+    // alone to imply 100%. If total_seconds is unknown we fall back to the
+    // stored percentage so we never accidentally demote a valid prior
+    // completion — except on a detected video swap, where we deliberately
+    // reset against the new total.
     const pct = mergedTotalSec > 0
       ? Math.min(100, Math.max(0, Math.round((mergedWatchSec / mergedTotalSec) * 100)))
-      : existing?.watch_percentage ?? 0;
+      : verdict.changed ? 0 : existing?.watch_percentage ?? 0;
 
     // Server-side enforcement: reject an attempt to flip this row to
     // `completed` when the actual stored watch percentage is still below the
@@ -111,7 +136,12 @@ export async function POST(
     });
 
     // Once completed, stay completed — progress ticks shouldn't demote back.
-    const mergedStatus = existing?.status === 'completed' || status === 'completed' ? 'completed' : 'in_progress';
+    // EXCEPT on a detected video swap: the old completion was against a
+    // different video and is no longer valid. Demote to in_progress so
+    // the student has to watch the new video past the threshold.
+    const mergedStatus = verdict.changed
+      ? 'in_progress'
+      : (existing?.status === 'completed' || status === 'completed' ? 'completed' : 'in_progress');
 
     const shouldAwardPoints =
       mergedStatus === 'completed' && (!existing || (existing.points_awarded ?? 0) === 0);
@@ -132,6 +162,12 @@ export async function POST(
     if (shouldAwardPoints) {
       upsertRow.points_awarded = 50;
       upsertRow.watched_at = nowIso;
+    }
+    // Video-swap reset: clear the legacy completion timestamp + points
+    // flag so the new video's completion re-awards cleanly.
+    if (verdict.changed) {
+      upsertRow.watched_at     = null;
+      upsertRow.points_awarded = 0;
     }
 
     const { error: upsertErr } = await sb

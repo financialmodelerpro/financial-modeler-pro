@@ -1546,6 +1546,38 @@ export default function LiveSessionsPage() {
               </div>
             )}
 
+            {/* Reset watch progress — only available on an existing
+                session (need the id to key the reset). Use after
+                swapping youtube_url so stale completions don't count
+                against the new video. */}
+            {editSession?.id && (
+              <div style={{ marginTop: 16, paddingTop: 14, borderTop: `1px dashed ${BORDER}` }}>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!editSession?.id) return;
+                    // `confirm` is shadowed by a state variable in this
+                    // file — use window.confirm explicitly.
+                    if (!window.confirm(`Reset watch progress for EVERY student on "${editSession.title ?? 'this session'}"?\n\nAll stored watch_seconds / completion flags for this live session are deleted. Students will need to re-watch to re-unlock the assessment.`)) return;
+                    try {
+                      const res = await fetch(`/api/admin/sessions/${encodeURIComponent('LIVE_' + editSession.id)}/reset-watch-progress`, { method: 'POST' });
+                      const j = await res.json().catch(() => ({}));
+                      if (!res.ok) { alert(j.error ?? 'Reset failed'); return; }
+                      alert(`Reset ${j.deleted ?? 0} row(s).`);
+                    } catch (e) {
+                      alert(e instanceof Error ? e.message : 'Reset failed');
+                    }
+                  }}
+                  style={{ padding: '8px 14px', borderRadius: 7, border: '1px solid #FECACA', background: '#FEF2F2', color: '#B91C1C', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                >
+                  🔁 Reset watch progress for all students
+                </button>
+                <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 6 }}>
+                  Safe to use after swapping the YouTube URL. Existing watch rows get deleted — next tick rebuilds fresh.
+                </div>
+              </div>
+            )}
+
             {/* ── Save bar ── */}
             <div style={{ display: 'flex', gap: 10, paddingTop: 12, borderTop: `1px solid ${BORDER}` }}>
               <button style={btnPrimary} onClick={saveSession} disabled={saving}>

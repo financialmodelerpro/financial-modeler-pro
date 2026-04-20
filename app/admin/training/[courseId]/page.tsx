@@ -1192,6 +1192,37 @@ export default function AdminCourseLessonsPage() {
 
             {/* Form URL removed from UI - stored silently in Apps Script Form Registry */}
 
+            {/* Reset watch progress — wipes all students' watch-history
+                rows for this session. Use after swapping the YouTube
+                URL so stale progress doesn't stick against the new
+                video. (Per-student auto-detect on the watch endpoint
+                already handles students who come back and re-play; this
+                is the nuclear option for completed rows that won't get
+                another tick.) */}
+            <div style={{ marginBottom: 16, paddingTop: 16, borderTop: '1px dashed #E5E7EB' }}>
+              <button
+                type="button"
+                onClick={async () => {
+                  if (!editSessionLink) return;
+                  if (!confirm(`Reset watch progress for EVERY student on "${editSessionLink.sessionName}"?\n\nThis deletes all stored watch_seconds / completed flags for this session. Students will need to re-watch to unlock the assessment.`)) return;
+                  try {
+                    const res = await fetch(`/api/admin/sessions/${encodeURIComponent(editSessionLink.tabKey)}/reset-watch-progress`, { method: 'POST' });
+                    const j = await res.json().catch(() => ({}));
+                    if (!res.ok) { alert(j.error ?? 'Reset failed'); return; }
+                    alert(`Reset ${j.deleted ?? 0} row(s).`);
+                  } catch (e) {
+                    alert(e instanceof Error ? e.message : 'Reset failed');
+                  }
+                }}
+                style={{ padding: '8px 14px', borderRadius: 7, border: '1px solid #FECACA', background: '#FEF2F2', color: '#B91C1C', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+              >
+                🔁 Reset watch progress for all students
+              </button>
+              <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 6 }}>
+                Safe to use after swapping the YouTube URL. Existing rows get deleted — next tick rebuilds fresh from zero.
+              </div>
+            </div>
+
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button onClick={() => setShowSessionModal(false)} style={ghostBtn}>Cancel</button>
               <button onClick={saveSessionLink} disabled={savingSessionLink} style={primaryBtn}>{savingSessionLink ? 'Saving…' : 'Save'}</button>

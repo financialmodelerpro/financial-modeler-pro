@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { getWatchEnforcement, canCompleteWith } from '@/src/lib/training/watchEnforcementCheck';
+import { detectVideoChange } from '@/src/lib/training/detectVideoChange';
 
 /**
  * GET /api/training/certification-watch?email=x
@@ -63,31 +64,53 @@ export async function POST(req: NextRequest) {
     .maybeSingle();
 
   // Guard: don't downgrade 'completed' → 'in_progress'. Still merge progress fields though.
-  const effectiveStatus = existing?.status === 'completed' ? 'completed' : status;
+  let effectiveStatus = existing?.status === 'completed' ? 'completed' : status;
 
-  const existingSec = Number(existing?.watch_seconds ?? 0);
-  const incomingSec = typeof body.watch_seconds === 'number' ? Math.max(0, Math.round(body.watch_seconds)) : null;
-
-  // Wall-clock rate limit: watch_seconds can't grow faster than real time
-  // between updates (same defence as the live-session endpoint).
-  let clampedIncoming = incomingSec;
-  const existingUpdatedAt = existing?.updated_at ? new Date(existing.updated_at).getTime() : null;
-  if (clampedIncoming !== null && existingUpdatedAt && clampedIncoming > existingSec) {
-    const realElapsedSec = Math.max(0, (Date.now() - existingUpdatedAt) / 1000) + 5; // 5s buffer
-    const maxAllowed = existingSec + realElapsedSec;
-    if (clampedIncoming > maxAllowed) {
-      console.warn('[certification-watch] clamped watch_seconds (too fast)', {
-        tab_key, email, existingSec, incomingSec: clampedIncoming, clampedTo: Math.round(maxAllowed), realElapsedSec,
-      });
-      clampedIncoming = Math.round(maxAllowed);
-    }
-  }
-
-  const mergedWatch = clampedIncoming === null ? existingSec : Math.max(existingSec, clampedIncoming);
-
+  const existingSec   = Number(existing?.watch_seconds ?? 0);
   const existingTotal = Number(existing?.total_seconds ?? 0);
+  const incomingSec   = typeof body.watch_seconds === 'number' ? Math.max(0, Math.round(body.watch_seconds)) : null;
   const incomingTotal = typeof body.total_seconds === 'number' ? Math.max(0, Math.round(body.total_seconds)) : null;
-  const mergedTotal = incomingTotal === null ? existingTotal : Math.max(existingTotal, incomingTotal);
+
+  // Auto-detect video swap: if the admin replaced this session's video,
+  // the stored total_seconds will disagree meaningfully from what the
+  // new YT player reports. In that case, keeping the stale progress
+  // would make watch_percentage nonsense — reset to the incoming
+  // values so this student starts fresh on the new video. Works for
+  // any session_type (3SFM, BVM, future courses) since the detection
+  // lives in a shared helper.
+  const verdict = incomingTotal !== null
+    ? detectVideoChange(existingTotal, incomingTotal)
+    : { changed: false };
+
+  let mergedWatch: number;
+  let mergedTotal: number;
+
+  if (verdict.changed) {
+    console.log('[video-change-detected] certification-watch reset', {
+      email, tab_key, reason: verdict.reason,
+    });
+    mergedWatch     = incomingSec ?? 0;
+    mergedTotal     = incomingTotal!;
+    effectiveStatus = 'in_progress'; // demote even if previously completed — new video = new requirement
+  } else {
+    // Same video (or can't tell) — MAX merge as before. Wall-clock rate
+    // limit keeps a tampered client from posting a huge watch_seconds
+    // in one shot.
+    let clampedIncoming = incomingSec;
+    const existingUpdatedAt = existing?.updated_at ? new Date(existing.updated_at).getTime() : null;
+    if (clampedIncoming !== null && existingUpdatedAt && clampedIncoming > existingSec) {
+      const realElapsedSec = Math.max(0, (Date.now() - existingUpdatedAt) / 1000) + 5; // 5s buffer
+      const maxAllowed = existingSec + realElapsedSec;
+      if (clampedIncoming > maxAllowed) {
+        console.warn('[certification-watch] clamped watch_seconds (too fast)', {
+          tab_key, email, existingSec, incomingSec: clampedIncoming, clampedTo: Math.round(maxAllowed), realElapsedSec,
+        });
+        clampedIncoming = Math.round(maxAllowed);
+      }
+    }
+    mergedWatch = clampedIncoming === null ? existingSec : Math.max(existingSec, clampedIncoming);
+    mergedTotal = incomingTotal === null ? existingTotal : Math.max(existingTotal, incomingTotal);
+  }
 
   const pct = mergedTotal > 0 ? Math.min(100, Math.max(0, Math.round((mergedWatch / mergedTotal) * 100))) : 0;
 
@@ -128,6 +151,12 @@ export async function POST(req: NextRequest) {
   if (typeof body.last_position === 'number') record.last_position = Math.max(0, Math.round(body.last_position));
   if (effectiveStatus === 'completed' && existing?.status !== 'completed') {
     record.completed_at = new Date().toISOString();
+  }
+  // On a detected video swap, clear the old completed_at so the row
+  // doesn't present as "still completed" on the new video.
+  if (verdict.changed) {
+    record.completed_at = null;
+    record.last_position = typeof body.last_position === 'number' ? Math.max(0, Math.round(body.last_position)) : 0;
   }
 
   const { error } = await sb
