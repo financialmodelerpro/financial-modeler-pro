@@ -184,22 +184,20 @@ export function LiveSessionsPanel({ studentEmail, studentName = '', registration
             Upcoming Sessions
             <span style={{ fontSize: 11, color: '#6B7280', fontWeight: 600 }}>({upcoming.length})</span>
           </h2>
-          {/* Fixed 3-slot grid (2 tablet, 1 mobile) with a 280px per-column
-              cap + justify-content: start so cards don't stretch when only
-              1 or 2 are present. Matches the dashboard preview. Previously
-              used auto-fit which stretched singles to full width. Shared
-              `fmp-upcoming-grid` class keeps both entry points visually
-              identical — each component ships the same rules via a scoped
-              <style> tag so the CSS stays colocated with its consumer. */}
+          {/* Fixed 3-slot grid (2 tablet, 1 mobile). Cards stretch to
+              their 1/3 column slot. Previous 280px width cap reverted
+              per user request — height reduction happens at the card
+              level (bannerStyle + bodyStyle). Shared
+              `fmp-upcoming-grid` class keeps dashboard preview and
+              Live Sessions tab visually consistent. */}
           <style>{`
             .fmp-upcoming-grid {
               display: grid;
-              grid-template-columns: repeat(3, minmax(0, 280px));
+              grid-template-columns: repeat(3, minmax(0, 1fr));
               gap: 16px;
-              justify-content: start;
             }
             @media (max-width: 900px) {
-              .fmp-upcoming-grid { grid-template-columns: repeat(2, minmax(0, 280px)); }
+              .fmp-upcoming-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             }
             @media (max-width: 600px) {
               .fmp-upcoming-grid { grid-template-columns: 1fr; }

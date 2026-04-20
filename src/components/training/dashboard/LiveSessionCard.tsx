@@ -72,7 +72,9 @@ const cardWrapper: React.CSSProperties = {
 };
 
 const bannerBase: React.CSSProperties = {
-  height: 120,
+  // Height reduced 120 → 90 (~25% shorter) per user request — card
+  // width stays fluid (1/3 column), only the vertical footprint shrinks.
+  height: 90,
   position: 'relative',
   display: 'flex',
   alignItems: 'center',
@@ -90,9 +92,11 @@ const badge = (bg: string, color: string): React.CSSProperties => ({
 });
 
 const metaRow: React.CSSProperties = {
+  // Vertical rhythm tightened to fit the shorter card height —
+  // marginBottom 6 → 4, lineHeight 1.4 → 1.3 trims ~20px total.
   display: 'flex', alignItems: 'center', gap: 6,
   fontSize: 12, color: '#4B5563',
-  marginBottom: 6, lineHeight: 1.4,
+  marginBottom: 4, lineHeight: 1.3,
 };
 
 const iconBtn = (accent: string): React.CSSProperties => ({
@@ -149,7 +153,7 @@ export function LiveSessionCard(props: Props) {
           </div>
         </Link>
 
-        <div style={{ padding: '14px 16px 16px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '10px 14px 12px', flex: 1, display: 'flex', flexDirection: 'column' }}>
           <Link href={href} style={{ textDecoration: 'none', color: 'inherit' }}>
             <div style={{
               fontSize: 15, fontWeight: 700, color: NAVY,
@@ -273,7 +277,7 @@ export function LiveSessionCard(props: Props) {
           </div>
         </Link>
 
-        <div style={{ padding: '14px 16px 16px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '10px 14px 12px', flex: 1, display: 'flex', flexDirection: 'column' }}>
           <Link href={href} style={{ textDecoration: 'none', color: 'inherit' }}>
             <div style={{
               fontSize: 15, fontWeight: 700, color: NAVY,

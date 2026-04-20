@@ -73,21 +73,18 @@ export function LiveSessionsSection({ studentEmail, courseId, limit = 3 }: Props
         <EmptyState />
       ) : (
         <>
-          {/* Fixed 3-slot grid (2 tablet, 1 mobile) with a 280px per-column
-              cap + justify-content: start so cards don't stretch when
-              fewer than 3 are present. Shared `fmp-upcoming-grid` class
-              matches the rule shipped by LiveSessionsPanel's Upcoming
-              section — dashboard preview and Live Sessions tab render
-              pixel-identical card widths. */}
+          {/* Fixed 3-slot grid (2 tablet, 1 mobile). Cards stretch to
+              fill their column slot — width shrink-cap was reverted per
+              user request; card HEIGHT is reduced at the card level
+              (LiveSessionCard bannerBase + body padding) instead. */}
           <style>{`
             .fmp-upcoming-grid {
               display: grid;
-              grid-template-columns: repeat(3, minmax(0, 280px));
+              grid-template-columns: repeat(3, minmax(0, 1fr));
               gap: 16px;
-              justify-content: start;
             }
             @media (max-width: 900px) {
-              .fmp-upcoming-grid { grid-template-columns: repeat(2, minmax(0, 280px)); }
+              .fmp-upcoming-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             }
             @media (max-width: 600px) {
               .fmp-upcoming-grid { grid-template-columns: 1fr; }

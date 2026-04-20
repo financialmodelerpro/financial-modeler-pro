@@ -114,11 +114,11 @@ const wrapperBase: React.CSSProperties = {
 };
 
 const bannerStyle = (url?: string | null): React.CSSProperties => ({
-  // I10: aspect-ratio keeps the banner proportional on narrow card
-  // widths (280px card → ~70px banner, still readable) instead of
-  // the old fixed 120px that dominated small-card layouts.
-  aspectRatio: '16 / 5',
-  minHeight: 80,
+  // Height reduced 120 → 90 (~25% shorter) per user request. Fixed
+  // height instead of aspectRatio so the vertical footprint is
+  // predictable regardless of card width. Still below the 120px
+  // default-card-crowd threshold on narrow phones in the 1-col grid.
+  height: 90,
   position: 'relative',
   display: 'flex',
   alignItems: 'center',
@@ -140,22 +140,28 @@ const badge = (bg: string, color: string): React.CSSProperties => ({
 });
 
 const bodyStyle: React.CSSProperties = {
-  padding: '14px 16px 16px',
+  // Vertical padding tightened (14/16 → 10/12) to match the 25%
+  // height-reduction target; horizontal padding unchanged so the
+  // content doesn't visually re-flow at the text edges.
+  padding: '10px 16px 12px',
   flex: 1,
   display: 'flex',
   flexDirection: 'column',
 };
 
 const titleStyle: React.CSSProperties = {
+  // marginBottom 10 → 6 to tighten rhythm under shorter banner.
   fontSize: 15, fontWeight: 700, color: NAVY,
-  marginBottom: 10, lineHeight: 1.35,
+  marginBottom: 6, lineHeight: 1.3,
   display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const, overflow: 'hidden',
 };
 
 const metaRow: React.CSSProperties = {
+  // marginBottom 6 → 4, lineHeight 1.4 → 1.3 — saves ~10-14px across
+  // the date / duration / instructor rows combined.
   display: 'flex', alignItems: 'center', gap: 6,
   fontSize: 12, color: '#4B5563',
-  marginBottom: 6, lineHeight: 1.4,
+  marginBottom: 4, lineHeight: 1.3,
 };
 
 const primaryBtn = (bg: string, color = '#fff'): React.CSSProperties => ({
