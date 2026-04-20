@@ -73,27 +73,27 @@ export function LiveSessionsSection({ studentEmail, courseId, limit = 3 }: Props
         <EmptyState />
       ) : (
         <>
-          {/* Fixed 3-slot grid on desktop, 2-slot tablet, 1-slot mobile.
-              Previously used auto-fit + minmax(260px, 1fr) which correctly
-              filled 3 slots with 3 cards but stretched a single card to
-              full width when only one upcoming session existed. Fixed
-              columns keep card width consistent regardless of count —
-              empty slots just stay empty. Inline <style> tag scopes the
-              media queries to this section without touching globals.css. */}
+          {/* Fixed 3-slot grid (2 tablet, 1 mobile) with a 280px per-column
+              cap + justify-content: start so cards don't stretch when
+              fewer than 3 are present. Shared `fmp-upcoming-grid` class
+              matches the rule shipped by LiveSessionsPanel's Upcoming
+              section — dashboard preview and Live Sessions tab render
+              pixel-identical card widths. */}
           <style>{`
-            .dash-upcoming-grid {
+            .fmp-upcoming-grid {
               display: grid;
-              grid-template-columns: repeat(3, minmax(0, 1fr));
+              grid-template-columns: repeat(3, minmax(0, 280px));
               gap: 16px;
+              justify-content: start;
             }
             @media (max-width: 900px) {
-              .dash-upcoming-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+              .fmp-upcoming-grid { grid-template-columns: repeat(2, minmax(0, 280px)); }
             }
             @media (max-width: 600px) {
-              .dash-upcoming-grid { grid-template-columns: 1fr; }
+              .fmp-upcoming-grid { grid-template-columns: 1fr; }
             }
           `}</style>
-          <div className="dash-upcoming-grid">
+          <div className="fmp-upcoming-grid">
             {upcoming.map(s => (
               <LiveSessionCard
                 key={s.id}
