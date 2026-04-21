@@ -115,7 +115,7 @@ export default function TrainingDashboardPage() {
   const [lastUpdated, setLastUpdated]             = useState<Date | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed]   = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  // Onboarding tour — runs automatically on first-login; restartable via
+  // Onboarding tour - runs automatically on first-login; restartable via
   // the profile dropdown. `tourRun` gates the joyride UI; `tourReady`
   // avoids a visual flash before we know the student's completion state.
   const [tourRun,   setTourRun]   = useState(false);
@@ -197,7 +197,7 @@ export default function TrainingDashboardPage() {
 
   // Onboarding tour: check completion state on mount. Auto-start the
   // walkthrough only if the student hasn't seen it. Delayed until the
-  // dashboard has data + its layout has painted — react-joyride measures
+  // dashboard has data + its layout has painted - react-joyride measures
   // targets on step mount, so spotlight positions need the DOM settled.
   useEffect(() => {
     let cancelled = false;
@@ -227,7 +227,7 @@ export default function TrainingDashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ completed: false }),
       });
-    } catch { /* non-fatal — tour still runs locally */ }
+    } catch { /* non-fatal - tour still runs locally */ }
     setTourRun(true);
   }
 
@@ -242,7 +242,7 @@ export default function TrainingDashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ completed: true }),
       });
-    } catch { /* non-fatal — next visit will still try to start, API will 401 if not authed */ }
+    } catch { /* non-fatal - next visit will still try to start, API will 401 if not authed */ }
   }
 
   // Fetch upcoming-session counters for the sidebar + quick actions bar.
@@ -391,7 +391,7 @@ export default function TrainingDashboardPage() {
           }
         }).catch(() => {});
         if (json.fallback) setIsFallback(true);
-        // Always fetch certificates — the progress endpoint's
+        // Always fetch certificates - the progress endpoint's
         // `certificateIssued` flag is sourced from Apps Script, so
         // force-issued certs (which only land in Supabase) would never
         // flip that flag and the card never rendered. The certificate API
@@ -1036,16 +1036,6 @@ export default function TrainingDashboardPage() {
             <SidebarItem icon={<Medal size={16} />} label="Badges" active={false}
               onClick={() => { if (activeView !== 'overview') navigateTo('overview'); setTimeout(() => document.getElementById('dash-badges')?.scrollIntoView({ behavior: 'smooth' }), 100); }}
               badge={badges.length > 0 ? badges.length : undefined} badgeColor="#F59E0B" />
-            {enrolledCourses.map(cId => {
-              const cConfig = COURSES[cId];
-              if (!cConfig) return null;
-              const cPassed = cConfig.sessions.filter(s => progressMap.get(s.id)?.passed).length;
-              return (
-                <SidebarItem key={`tr-${cId}`} icon={<FileText size={16} />} label={`${cConfig.shortTitle} Transcript`}
-                  onClick={() => downloadTranscript(cId)}
-                  tooltip={cPassed === 0 ? 'Complete sessions first' : undefined} />
-              );
-            })}
 
             {/* ACCOUNT */}
             <SidebarLabel text="Account" />
@@ -1418,7 +1408,7 @@ export default function TrainingDashboardPage() {
                                   <Download size={11} /> Download
                                 </a>
                               )}
-                              {/* Share — opens the dashboard ShareModal (template-driven).
+                              {/* Share - opens the dashboard ShareModal (template-driven).
                                   The modal itself has LinkedIn / WhatsApp / Twitter / Copy
                                   buttons, so a single entry point gives the student every
                                   platform while keeping the copy admin-editable via the
@@ -1568,15 +1558,6 @@ export default function TrainingDashboardPage() {
                 watchPctMap={watchPctMap}
                 watchThreshold={watchThreshold}
               />
-
-              {/* Certificate cards in course view */}
-              {certificates.length > 0 && (
-                <div>
-                  {certificates.map(cert => (
-                    <CertificateImageCard key={cert.certificateId} cert={cert} />
-                  ))}
-                </div>
-              )}
             </>
           )}
 

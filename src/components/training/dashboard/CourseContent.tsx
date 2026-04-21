@@ -14,7 +14,7 @@ import { formatShareDate, type ShareVars } from '@/src/lib/training/shareTemplat
 /**
  * Every share button raised from this component flows through the central
  * share-template pipeline (`share_templates` table + `renderShareTemplate`).
- * Callers receive the template key + the vars needed to fill it — the
+ * Callers receive the template key + the vars needed to fill it - the
  * dashboard's ShareModal fetches the template and renders both the body
  * text AND hashtags + @-mentions from the DB.
  */
@@ -73,7 +73,6 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
     if (typeof window === 'undefined') return new Set();
     try { return new Set(JSON.parse(sessionStorage.getItem('fmp_banners') || '[]')); } catch { return new Set(); }
   });
-  const [copiedCert, setCopiedCert] = useState(false);
   const [previewFile, setPreviewFile] = useState<{ file_name: string; file_url: string; file_type: string; file_size: number } | null>(null);
 
   // Course-level attachments
@@ -434,7 +433,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
       )}
 
       {/* ── Progress milestone banner ──────────────────────────────────────
-         Informational only — no share button. There is no dedicated share
+         Informational only - no share button. There is no dedicated share
          template for "X% through a course" and forcing one of the existing
          templates (achievement / certificate) to fit creates misleading
          share copy ("Just completed 50%…"). Dismiss ✕ remains. */}
@@ -501,7 +500,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
         let action = '';
         let actionUrl = '';
         // When the "next step" is a share action we take the onShare branch
-        // instead of a raw href — keeps every share entry point routed through
+        // instead of a raw href - keeps every share entry point routed through
         // the share-templates pipeline.
         let shareEvent: DashboardShareEvent | null = null;
         if (passedCount === 0) {
@@ -573,7 +572,18 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
         );
       })()}
 
-      {/* Certificate Card - locked state when bvmLocked */}
+      {/* Certificate status placeholder.
+          The fully-styled "Certificate Earned" card that used to live here
+          was removed in favour of the single source of truth on the main
+          dashboard's My Achievements section, which has the real download
+          + share + QR + LinkedIn-credential flow plus transcripts. Course
+          view now only shows the two status placeholders that are
+          genuinely helpful for learners in-flight:
+            - Locked (BVM before 3SFM is cleared)
+            - Not Yet Earned (regular / final still pending)
+          When the cert IS earned, this block renders nothing and the
+          student is directed to the dashboard via the Certificates
+          sidebar link. */}
       {bvmLocked && (
         <div style={{ border: '2px dashed #D1D5DB', borderRadius: 12, padding: '24px', background: '#FAFAFA', textAlign: 'center', opacity: 0.6 }}>
           <div style={{ fontSize: 28, marginBottom: 10 }}>🔒</div>
@@ -583,84 +593,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
           </div>
         </div>
       )}
-      {!bvmLocked && (
-        (finalPassed && courseCert) ? (
-        <div style={{ border: '2px solid #C9A84C', borderRadius: 12, padding: '24px 28px', background: 'linear-gradient(135deg, #FFFBF0 0%, #FFF8E1 100%)', boxShadow: '0 4px 20px rgba(201,168,76,0.15)' }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 16 }}>
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#C9A84C', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 6 }}>🏆 Certificate Earned</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: '#0D2E5A', marginBottom: 2 }}>{courseCert.studentName}</div>
-              <div style={{ fontSize: 14, fontWeight: 600, color: '#374151', marginBottom: 2 }}>{course.title}</div>
-              <div style={{ fontSize: 12, color: '#6B7280' }}>Issued: {new Date(courseCert.issuedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}</div>
-              <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4, fontFamily: 'monospace' }}>ID: {courseCert.certificateId}</div>
-            </div>
-            <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#C9A84C', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 22, flexShrink: 0 }}>🏆</div>
-          </div>
-          {(() => {
-            // Build shared derivations once — used by View / Copy / Share /
-            // Add Credential buttons below. verifyUrl prefers the internal
-            // verificationUrl (learn.../verify/{id}); falls back to the
-            // legacy certifierUrl so pre-migration certs still work.
-            const verifyUrl = courseCert.verificationUrl || courseCert.certifierUrl;
-            const certPdfUrl = courseCert.certPdfUrl || courseCert.certifierUrl;
-            return (
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <a href={certPdfUrl} target="_blank" rel="noopener noreferrer"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#2EAA4A', color: '#fff', textDecoration: 'none' }}>
-                  🏆 View Certificate
-                </a>
-                <button
-                  onClick={() => { navigator.clipboard.writeText(verifyUrl).then(() => { setCopiedCert(true); setTimeout(() => setCopiedCert(false), 2500); }); }}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: copiedCert ? '#2EAA4A' : '#1B4F8A', color: '#fff', border: 'none', cursor: 'pointer' }}>
-                  {copiedCert ? '✓ Copied!' : '🔗 Copy Verify Link'}
-                </button>
-                {/* Share Achievement — template-driven. LinkedIn/WhatsApp/Twitter
-                    all live inside the opened ShareModal; no more hardcoded
-                    per-platform deep-links bypassing the share-templates system. */}
-                <button onClick={() => onShare({
-                  templateKey: 'certificate_earned',
-                  title:       '🎉 Share Your Certificate',
-                  url:         verifyUrl,
-                  cardImageUrl: `/api/og/certificate/${courseCert.certificateId}`,
-                  cardDownloadName: `FMP-Certificate-${courseCert.certificateId}.png`,
-                  vars: {
-                    studentName: courseCert.studentName,
-                    course:      course.title,
-                    grade:       courseCert.grade || 'Pass',
-                    date:        formatShareDate(courseCert.issuedAt),
-                    certId:      courseCert.certificateId,
-                    verifyUrl,
-                  },
-                })}
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: 'rgba(201,168,76,0.15)', color: '#92600A', border: '1px solid rgba(201,168,76,0.4)', cursor: 'pointer' }}>
-                  🎉 Share Achievement
-                </button>
-                {/* LinkedIn "Add to Profile" — a credential-claim flow, not a share
-                    post. LinkedIn renders its own credential form using these
-                    params, so there's no template text involved. */}
-                <a href={`https://www.linkedin.com/profile/add?startTask=CERTIFICATION_NAME&name=${encodeURIComponent(course.title)}&organizationName=Financial+Modeler+Pro&issueYear=${new Date(courseCert.issuedAt).getFullYear()}&issueMonth=${new Date(courseCert.issuedAt).getMonth()+1}&certUrl=${encodeURIComponent(verifyUrl)}&certId=${encodeURIComponent(courseCert.certificateId)}`}
-                  target="_blank" rel="noopener noreferrer"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '8px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#0A66C2', color: '#fff', textDecoration: 'none' }}>
-                  in Add Credential
-                </a>
-              </div>
-            );
-          })()}
-          {/* QR Code */}
-          <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid rgba(201,168,76,0.2)', display: 'flex', alignItems: 'center', gap: 14 }}>
-            <img
-              src={`https://api.qrserver.com/v1/create-qr-code/?size=80x80&data=${encodeURIComponent(courseCert.certifierUrl)}`}
-              alt="Certificate QR"
-              width={80} height={80}
-              style={{ borderRadius: 6, border: '1px solid #E5E7EB' }}
-            />
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 3 }}>Certificate QR Code</div>
-              <div style={{ fontSize: 11, color: '#6B7280', lineHeight: 1.5 }}>Scan to verify your certificate instantly.<br />Share on your resume or LinkedIn profile.</div>
-            </div>
-          </div>
-        </div>
-      ) : (
+      {!bvmLocked && !(finalPassed && courseCert) && (
         <div style={{ border: '2px dashed #D1D5DB', borderRadius: 12, padding: '24px', background: '#FAFAFA', textAlign: 'center' }}>
           <div style={{ fontSize: 28, marginBottom: 10 }}>🎓</div>
           <div style={{ fontSize: 14, fontWeight: 700, color: '#374151', marginBottom: 4 }}>Certificate Not Yet Earned</div>
@@ -668,7 +601,6 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
             {passedCount} of {regularSessions.length} sessions passed - complete all sessions and pass the Final Exam.
           </div>
         </div>
-        )
       )}
       {/* File preview modal */}
       {previewFile && (
