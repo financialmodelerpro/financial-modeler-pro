@@ -87,13 +87,39 @@ export async function GET(req: NextRequest) {
           return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=registration-failed`);
         }
 
-        const { error: pwErr } = await sb.from('training_passwords').upsert({
-          registration_id: meta.registration_id,
-          password_hash: pending.password_hash,
-        }, { onConflict: 'registration_id' });
+        // SELECT-then-decide for password to match the shape in the main
+        // success branch and sidestep any blind-upsert conflict on
+        // training_passwords we haven't characterized yet.
+        const { data: existingPw, error: pwLookupErr } = await sb
+          .from('training_passwords')
+          .select('registration_id')
+          .eq('registration_id', meta.registration_id)
+          .maybeSingle();
+        if (pwLookupErr) {
+          console.error('[confirm-email] duplicate-branch password lookup failed', {
+            email, registration_id: meta.registration_id, error: pwLookupErr.message,
+          });
+          return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=password-failed`);
+        }
+
+        let pwErr: { message: string } | null = null;
+        if (existingPw) {
+          const { error } = await sb
+            .from('training_passwords')
+            .update({ password_hash: pending.password_hash })
+            .eq('registration_id', meta.registration_id);
+          pwErr = error;
+        } else {
+          const { error } = await sb
+            .from('training_passwords')
+            .insert({ registration_id: meta.registration_id, password_hash: pending.password_hash });
+          pwErr = error;
+        }
         if (pwErr) {
-          console.error('[confirm-email] duplicate-branch password upsert failed', {
-            email, registration_id: meta.registration_id, error: pwErr.message,
+          console.error('[confirm-email] duplicate-branch password write failed', {
+            email, registration_id: meta.registration_id,
+            mode: existingPw ? 'update' : 'insert',
+            error: pwErr.message,
           });
           return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=password-failed`);
         }
@@ -101,7 +127,18 @@ export async function GET(req: NextRequest) {
         await sb.from('training_pending_registrations').delete().eq('email', email);
         return NextResponse.redirect(`${LEARN_URL}/signin?confirmed=true`);
       }
+
+      // Apps Script said duplicate but we couldn't find the matching meta
+      // row by email. That used to fall through silently; log it so the
+      // scenario shows up in Vercel rather than hiding behind a generic
+      // "Link Invalid or Expired" page.
+      console.error('[confirm-email] Apps Script reported duplicate but meta row not found by email', {
+        email,
+      });
     }
+    console.error('[confirm-email] Apps Script returned non-success', {
+      email, success: result.success, duplicate: result.duplicate, error: result.error,
+    });
     return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=registration-failed`);
   }
 
@@ -120,22 +157,62 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=registration-failed`);
   }
 
-  // Store in lookup table as confirmed. Only columns that actually exist on
-  // training_registrations_meta are written here: registration_id, email,
-  // phone, city, country, email_confirmed, confirmed_at. Name and course
-  // live in Apps Script (the source of truth for those), not in Supabase.
-  const { error: metaErr } = await sb.from('training_registrations_meta').upsert({
-    registration_id: registrationId,
-    email,
-    phone:           pending.phone ?? null,
-    city:            pending.city  ?? null,
-    country:         pending.country ?? null,
-    email_confirmed: true,
-    confirmed_at:    new Date().toISOString(),
-  }, { onConflict: 'registration_id' });
+  // Store in lookup table as confirmed. training_registrations_meta has
+  // UNIQUE constraints on BOTH registration_id (migration 129) and email
+  // (pre-existing). A blind upsert with onConflict:'registration_id' can
+  // still fail with "duplicate key violates unique constraint ..._email_key"
+  // when the row actually collides on email (e.g., a retry after an earlier
+  // partial failure, or Apps Script re-issuing a RegID for a known email).
+  // SELECT-then-decide sidesteps Postgres's inability to catch two different
+  // conflict targets in one statement.
+  const { data: existingMeta, error: metaLookupErr } = await sb
+    .from('training_registrations_meta')
+    .select('registration_id, email')
+    .or(`registration_id.eq.${registrationId},email.eq.${email}`)
+    .maybeSingle();
+  if (metaLookupErr) {
+    console.error('[confirm-email] meta lookup failed', {
+      email, registration_id: registrationId, error: metaLookupErr.message,
+    });
+    return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=registration-failed`);
+  }
+
+  let metaErr: { message: string } | null = null;
+  if (existingMeta) {
+    // Re-sync registration_id onto the row we keyed off of, in case the
+    // match came via email and the RegID drifted between attempts.
+    const { error } = await sb
+      .from('training_registrations_meta')
+      .update({
+        registration_id: registrationId,
+        email,
+        phone:           pending.phone ?? null,
+        city:            pending.city  ?? null,
+        country:         pending.country ?? null,
+        email_confirmed: true,
+        confirmed_at:    new Date().toISOString(),
+      })
+      .eq('registration_id', existingMeta.registration_id);
+    metaErr = error;
+  } else {
+    const { error } = await sb
+      .from('training_registrations_meta')
+      .insert({
+        registration_id: registrationId,
+        email,
+        phone:           pending.phone ?? null,
+        city:            pending.city  ?? null,
+        country:         pending.country ?? null,
+        email_confirmed: true,
+        confirmed_at:    new Date().toISOString(),
+      });
+    metaErr = error;
+  }
   if (metaErr) {
-    console.error('[confirm-email] meta upsert failed', {
-      email, registration_id: registrationId, error: metaErr.message,
+    console.error('[confirm-email] meta write failed', {
+      email, registration_id: registrationId,
+      mode: existingMeta ? 'update' : 'insert',
+      error: metaErr.message,
     });
     // Keep the pending row so a retry has something to work with. The Apps
     // Script row already exists and is idempotent under its own duplicate
@@ -143,14 +220,39 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=registration-failed`);
   }
 
-  // Store password.
-  const { error: pwErr } = await sb.from('training_passwords').upsert({
-    registration_id: registrationId,
-    password_hash:   pending.password_hash,
-  }, { onConflict: 'registration_id' });
+  // Store password. Same SELECT-then-decide shape in case training_passwords
+  // has other constraints beyond registration_id that could reject a blind
+  // upsert.
+  const { data: existingPw, error: pwLookupErr } = await sb
+    .from('training_passwords')
+    .select('registration_id')
+    .eq('registration_id', registrationId)
+    .maybeSingle();
+  if (pwLookupErr) {
+    console.error('[confirm-email] password lookup failed', {
+      email, registration_id: registrationId, error: pwLookupErr.message,
+    });
+    return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=password-failed`);
+  }
+
+  let pwErr: { message: string } | null = null;
+  if (existingPw) {
+    const { error } = await sb
+      .from('training_passwords')
+      .update({ password_hash: pending.password_hash })
+      .eq('registration_id', registrationId);
+    pwErr = error;
+  } else {
+    const { error } = await sb
+      .from('training_passwords')
+      .insert({ registration_id: registrationId, password_hash: pending.password_hash });
+    pwErr = error;
+  }
   if (pwErr) {
-    console.error('[confirm-email] password upsert failed', {
-      email, registration_id: registrationId, error: pwErr.message,
+    console.error('[confirm-email] password write failed', {
+      email, registration_id: registrationId,
+      mode: existingPw ? 'update' : 'insert',
+      error: pwErr.message,
     });
     return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=password-failed`);
   }
