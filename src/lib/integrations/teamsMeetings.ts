@@ -21,6 +21,20 @@ interface TokenCache {
 
 let _tokenCache: TokenCache | null = null;
 
+// Host-user Azure AD object ID, resolved once per process from the configured
+// UPN. Required because `POST /users/{upn}/onlineMeetings` returns HTTP 404
+// UnknownError under application permissions even when the Application
+// Access Policy is correctly granted; `POST /users/{objectId}/onlineMeetings`
+// against the same user + same token + same policy succeeds. GET paths
+// accept either form, which is why testTeamsConnection passed while meeting
+// creation failed. 1h TTL matches the typical token lifetime.
+interface HostIdCache {
+  id:         string;
+  resolvedAt: number;
+}
+let _hostIdCache: HostIdCache | null = null;
+const HOST_ID_TTL_MS = 60 * 60 * 1000;
+
 export function isTeamsConfigured(): boolean {
   return (
     !!process.env.AZURE_TENANT_ID &&
@@ -96,6 +110,31 @@ async function getToken(): Promise<string> {
     expiresAt: Date.now() + json.expires_in * 1000,
   };
   return json.access_token;
+}
+
+/**
+ * Resolve TEAMS_HOST_USER_EMAIL (a UPN) to the user's Azure AD object ID
+ * and cache it in-memory. Every mutation path (create/update/delete) uses
+ * the GUID because the UPN form of `/users/{id}/onlineMeetings` fails with
+ * HTTP 404 UnknownError on the POST surface.
+ */
+async function getHostUserId(): Promise<string> {
+  if (_hostIdCache && Date.now() - _hostIdCache.resolvedAt < HOST_ID_TTL_MS) {
+    return _hostIdCache.id;
+  }
+  const upn = process.env.TEAMS_HOST_USER_EMAIL!;
+  const res = await graphFetch('GET', `/users/${encodeURIComponent(upn)}?$select=id`);
+  if (!res.ok) {
+    const detail = await buildGraphErrorDetail(res);
+    console.error('[teamsMeetings] getHostUserId failed', { upn, detail });
+    throw new TeamsIntegrationError('Could not resolve Teams host user id', { status: res.status, detail });
+  }
+  const j = (await res.json()) as { id?: string };
+  if (!j.id) {
+    throw new TeamsIntegrationError('Teams host user resolved but id field was empty');
+  }
+  _hostIdCache = { id: j.id, resolvedAt: Date.now() };
+  return j.id;
 }
 
 function extractDialIn(mtg: Record<string, unknown>): TeamsDialIn {
@@ -194,9 +233,9 @@ export async function createTeamsMeeting(params: {
   startDateTime: string;
   endDateTime:   string;
 }): Promise<TeamsMeeting> {
-  const host = process.env.TEAMS_HOST_USER_EMAIL!;
-  const path = `/users/${encodeURIComponent(host)}/onlineMeetings`;
-  const res  = await graphFetch('POST', path, {
+  const hostId = await getHostUserId();
+  const path   = `/users/${encodeURIComponent(hostId)}/onlineMeetings`;
+  const res    = await graphFetch('POST', path, {
     subject:       params.subject,
     startDateTime: params.startDateTime,
     endDateTime:   params.endDateTime,
@@ -223,13 +262,13 @@ export async function updateTeamsMeeting(
   meetingId: string,
   updates:   { subject?: string; startDateTime?: string; endDateTime?: string },
 ): Promise<TeamsMeeting> {
-  const host = process.env.TEAMS_HOST_USER_EMAIL!;
+  const hostId = await getHostUserId();
   const payload: Record<string, unknown> = {};
   if (updates.subject        !== undefined) payload.subject        = updates.subject;
   if (updates.startDateTime  !== undefined) payload.startDateTime  = updates.startDateTime;
   if (updates.endDateTime    !== undefined) payload.endDateTime    = updates.endDateTime;
 
-  const res = await graphFetch('PATCH', `/users/${encodeURIComponent(host)}/onlineMeetings/${encodeURIComponent(meetingId)}`, payload);
+  const res = await graphFetch('PATCH', `/users/${encodeURIComponent(hostId)}/onlineMeetings/${encodeURIComponent(meetingId)}`, payload);
   if (!res.ok) {
     const detail = await buildGraphErrorDetail(res);
     console.error('[teamsMeetings] updateTeamsMeeting failed', { meetingId, detail });
@@ -239,8 +278,8 @@ export async function updateTeamsMeeting(
 }
 
 export async function deleteTeamsMeeting(meetingId: string): Promise<void> {
-  const host = process.env.TEAMS_HOST_USER_EMAIL!;
-  const res  = await graphFetch('DELETE', `/users/${encodeURIComponent(host)}/onlineMeetings/${encodeURIComponent(meetingId)}`);
+  const hostId = await getHostUserId();
+  const res  = await graphFetch('DELETE', `/users/${encodeURIComponent(hostId)}/onlineMeetings/${encodeURIComponent(meetingId)}`);
   // 204 No Content on success; 404 is treated as already-deleted (idempotent)
   if (!res.ok && res.status !== 404) {
     const detail = await buildGraphErrorDetail(res);
@@ -249,19 +288,20 @@ export async function deleteTeamsMeeting(meetingId: string): Promise<void> {
   }
 }
 
-export async function testTeamsConnection(): Promise<{ ok: true; host: string } | { ok: false; error: string; detail?: string }> {
+export async function testTeamsConnection(): Promise<{ ok: true; host: string; hostId?: string } | { ok: false; error: string; detail?: string }> {
   if (!isTeamsConfigured()) {
     return { ok: false, error: 'Missing one or more env vars: AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, TEAMS_HOST_USER_EMAIL' };
   }
   try {
     await getToken();
     const host = process.env.TEAMS_HOST_USER_EMAIL!;
-    const res  = await graphFetch('GET', `/users/${encodeURIComponent(host)}?$select=id,userPrincipalName,displayName`);
-    if (!res.ok) {
-      const detail = await buildGraphErrorDetail(res);
-      return { ok: false, error: `Host user lookup failed (HTTP ${res.status})`, detail };
-    }
-    return { ok: true, host };
+    // Prime / refresh the host-id cache. If the UPN resolves here but
+    // meeting creation still fails later, the remaining suspects are the
+    // Application Access Policy assignment, the Teams-enabled license, or
+    // an audio-conferencing add-on requirement - none of which this GET
+    // endpoint exercises, but all of which produce a distinct error.
+    const hostId = await getHostUserId();
+    return { ok: true, host, hostId };
   } catch (e) {
     if (e instanceof TeamsIntegrationError) {
       return { ok: false, error: e.message, detail: e.detail };
