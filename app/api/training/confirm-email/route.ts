@@ -207,10 +207,32 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Welcome email (fire-and-forget) ───────────────────────────────────────
-  // Course name is omitted from the generic welcome since we no longer
-  // know at this point - enrollment happens post-login. Template accepts
-  // empty courseName.
-  registrationConfirmationTemplate({ name: pending.name ?? '', registrationId, courseName: '' })
+  // ── Auto-enroll in 3SFM ───────────────────────────────────────────────────
+  // Every new student starts with the 3-Statement Financial Modeling course.
+  // BVM unlocks automatically when they pass the 3SFM final exam (handled in
+  // /api/training/submit-assessment). The UNIQUE(registration_id, course_code)
+  // constraint from migration 132 makes this idempotent.
+  const { error: enrollErr } = await sb
+    .from('training_enrollments')
+    .insert({ registration_id: registrationId, course_code: '3SFM' });
+  if (enrollErr && !enrollErr.message.toLowerCase().includes('duplicate')) {
+    console.error('[confirm-email] auto-enroll 3SFM failed (non-fatal)', {
+      email, registration_id: registrationId, error: enrollErr.message,
+    });
+    // Non-fatal: the student can still sign in. Log for admin triage but
+    // don't block the flow. Backfill via migration 134 can repair any
+    // row we miss here.
+  }
+
+  // ── Welcome email ─────────────────────────────────────────────────────────
+  // Now that enrollment is always 3SFM, the welcome email can name the
+  // course on first signup. BVM-unlock emails ship separately from the
+  // final-pass path.
+  registrationConfirmationTemplate({
+    name: pending.name ?? '',
+    registrationId,
+    courseName: '3-Statement Financial Modeling',
+  })
     .then(({ subject, html, text }) => sendEmail({ to: email, subject, html, text, from: FROM.training }))
     .catch(err => console.error('[confirm-email] Welcome email failed:', err));
 

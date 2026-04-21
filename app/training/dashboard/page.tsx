@@ -418,19 +418,11 @@ export default function TrainingDashboardPage() {
     if (!sess) { router.replace('/signin'); return; }
     setLocalSession(sess);
 
-    // Enrollment gate: new Supabase-native students land here with zero
-    // training_enrollments rows. Send them to the enroll page to pick a
-    // course before we load progress data. Existing students have rows
-    // backfilled by scripts/backup_apps_script_students.ts, so the
-    // redirect only fires for truly fresh signups.
-    fetch('/api/training/enroll')
-      .then(r => r.json() as Promise<{ enrollments?: { course_code: string }[] }>)
-      .then(j => {
-        if ((j.enrollments ?? []).length === 0) {
-          router.replace('/training/enroll');
-        }
-      })
-      .catch(() => { /* non-fatal; let the normal load flow continue */ });
+    // Enrollment is now automatic: every new student gets 3SFM on email
+    // confirmation (in /api/training/confirm-email), and BVM gets added
+    // automatically when they pass the 3SFM final in /api/training/submit-assessment.
+    // No enroll screen; dashboard renders whichever courses the student
+    // has enrollments for via getEnrolledCourses(progress.student.course).
 
     const params = new URLSearchParams(window.location.search);
     const needsRefresh = params.get('refresh') === '1';

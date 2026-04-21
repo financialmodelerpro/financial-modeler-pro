@@ -189,6 +189,44 @@ export async function POST(req: NextRequest) {
           });
         }
       })();
+
+      // BVM auto-unlock when a student passes 3SFM Final. Students enroll
+      // in 3SFM automatically at signup; BVM only appears on their
+      // dashboard after this gate. Idempotent via the UNIQUE constraint
+      // on (registration_id, course_code) from migration 132.
+      if (courseCode === '3SFM') {
+        (async () => {
+          try {
+            const sb = getServerClient();
+            const { data: metaRow } = await sb
+              .from('training_registrations_meta')
+              .select('registration_id')
+              .eq('email', cleanEmail)
+              .maybeSingle();
+            if (!metaRow?.registration_id) {
+              console.warn('[submit-assessment] BVM auto-unlock skipped; no meta row for', cleanEmail);
+              return;
+            }
+            const { error } = await sb
+              .from('training_enrollments')
+              .insert({
+                registration_id: metaRow.registration_id,
+                course_code:     'BVM',
+              });
+            if (error && !error.message.toLowerCase().includes('duplicate')) {
+              console.error('[submit-assessment] BVM auto-unlock failed', {
+                email: cleanEmail,
+                registration_id: metaRow.registration_id,
+                error: error.message,
+              });
+            } else {
+              console.log('[submit-assessment] BVM auto-unlocked for', cleanEmail);
+            }
+          } catch (enrollErr) {
+            console.error('[submit-assessment] BVM auto-unlock threw:', enrollErr);
+          }
+        })();
+      }
     }
 
     return NextResponse.json({ success: true, recorded: true });
