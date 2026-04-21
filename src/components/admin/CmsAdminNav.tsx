@@ -22,6 +22,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Marketing Studio',  href: '/admin/marketing-studio',               icon: '🎨' },
   { type: 'divider',            label: 'Modeling Hub' },
   { label: 'Modules',           href: '/admin/modules',                        icon: '🧩' },
+  { label: 'Access Whitelist',  href: '/admin/modeling-access',                icon: '🔑' },
   { label: 'Users',             href: '/admin/users',                          icon: '👥' },
   { label: 'Pricing',           href: '/admin/pricing',                        icon: '💰' },
   { label: 'User Overrides',    href: '/admin/overrides',                      icon: '🎯' },

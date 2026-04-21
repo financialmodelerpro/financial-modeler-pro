@@ -15,6 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyConfirmationToken, markTokenUsed } from '@/src/lib/shared/emailConfirmation';
 import { serverClient } from '@/src/lib/shared/supabase';
+import { canEmailRegisterModeling } from '@/src/lib/shared/modelingAccess';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
 
@@ -29,6 +30,15 @@ export async function GET(req: NextRequest) {
 
   if (!result.valid || !result.email || !result.tokenId) {
     return NextResponse.redirect(`${APP_URL}/signin?error=invalid-token`);
+  }
+
+  // Pre-launch gate (migration 136): if the register toggle flipped on
+  // between registration and confirmation, block the confirmation unless
+  // this email is admin or on the whitelist. Defense-in-depth against
+  // stale tokens issued before the lockdown.
+  const access = await canEmailRegisterModeling(result.email);
+  if (!access.allowed) {
+    return NextResponse.redirect(`${APP_URL}/signin?error=invite-only`);
   }
 
   // Update user record

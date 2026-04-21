@@ -41,3 +41,67 @@ export async function isModelingComingSoon(): Promise<boolean> {
   const s = await getModelingComingSoonState();
   return s.enabled;
 }
+
+/**
+ * Split signin + register Coming Soon toggles (migration 136). Admins can
+ * gate the two pages independently so pre-launch can be "signin open for
+ * early-whitelisted users, register closed to everyone" or vice versa.
+ * The legacy single-toggle state above is retained for backward compat
+ * with anything still reading `modeling_hub_coming_soon`; the signin and
+ * register pages themselves plus `auth.ts` now read the split keys.
+ */
+export interface ModelingSigninComingSoonState {
+  enabled:    boolean;
+  launchDate: string | null;
+}
+
+const SIGNIN_KEYS = [
+  'modeling_hub_signin_coming_soon',
+  'modeling_hub_signin_launch_date',
+] as const;
+
+export async function getModelingSigninComingSoonState(): Promise<ModelingSigninComingSoonState> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('training_settings')
+      .select('key,value')
+      .in('key', SIGNIN_KEYS as unknown as string[]);
+    const map = new Map((data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
+    const rawDate = (map.get('modeling_hub_signin_launch_date') ?? '').trim();
+    return {
+      enabled:    map.get('modeling_hub_signin_coming_soon') === 'true',
+      launchDate: rawDate || null,
+    };
+  } catch {
+    return { enabled: false, launchDate: null };
+  }
+}
+
+export interface ModelingRegisterComingSoonState {
+  enabled:    boolean;
+  launchDate: string | null;
+}
+
+const REGISTER_KEYS = [
+  'modeling_hub_register_coming_soon',
+  'modeling_hub_register_launch_date',
+] as const;
+
+export async function getModelingRegisterComingSoonState(): Promise<ModelingRegisterComingSoonState> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('training_settings')
+      .select('key,value')
+      .in('key', REGISTER_KEYS as unknown as string[]);
+    const map = new Map((data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
+    const rawDate = (map.get('modeling_hub_register_launch_date') ?? '').trim();
+    return {
+      enabled:    map.get('modeling_hub_register_coming_soon') === 'true',
+      launchDate: rawDate || null,
+    };
+  } catch {
+    return { enabled: false, launchDate: null };
+  }
+}

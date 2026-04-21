@@ -161,7 +161,34 @@ export default function AdminUsersPage() {
       <CmsAdminNav active="/admin/users" />
       <main style={{ flex: 1, padding: 40, overflowY: 'auto' }}>
         <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 6 }}>User Management</h1>
-        <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 24 }}>{total} total users</p>
+        <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>{total} total users</p>
+
+        {/* Modeling Hub access banner (migration 136) */}
+        <div style={{
+          background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10,
+          padding: '14px 18px', marginBottom: 24,
+          display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+        }}>
+          <span style={{ fontSize: 20 }}>🔒</span>
+          <div style={{ flex: 1, minWidth: 240 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B', marginBottom: 2 }}>
+              Modeling Hub is in pre-launch lockdown
+            </div>
+            <div style={{ fontSize: 12, color: '#1B4F8A' }}>
+              Only admins and whitelisted emails can register or sign in. Adding a user here does NOT grant Modeling Hub access - use the Access Whitelist.
+            </div>
+          </div>
+          <Link
+            href="/admin/modeling-access"
+            style={{
+              fontSize: 12, fontWeight: 700, padding: '8px 16px',
+              borderRadius: 7, border: '1px solid #1B4F8A',
+              background: '#fff', color: '#1B4F8A', textDecoration: 'none',
+            }}
+          >
+            Manage Whitelist →
+          </Link>
+        </div>
 
         {/* Filters */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>

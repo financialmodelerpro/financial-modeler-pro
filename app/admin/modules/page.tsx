@@ -122,14 +122,51 @@ export default function AdminModulesPage() {
       <CmsAdminNav active="/admin/modules" />
       <main style={{ flex: 1, padding: 40, overflowY: 'auto' }}>
 
-        {/* ── Launch Settings — Modeling Hub ── */}
+        {/* ── Launch Settings - Modeling Hub (split signin + register, migration 136) ── */}
         <LaunchStatusCard
-          label="Modeling Hub"
-          icon="🚀"
-          endpoint="/api/admin/modeling-coming-soon"
+          label="Modeling Hub - Sign In"
+          icon="🔐"
+          endpoint="/api/admin/modeling-signin-coming-soon"
           previewUrl={(process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com') + '/signin'}
           onMessage={showToast}
         />
+
+        <LaunchStatusCard
+          label="Modeling Hub - Register"
+          icon="📝"
+          endpoint="/api/admin/modeling-register-coming-soon"
+          previewUrl={(process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com') + '/register'}
+          onMessage={showToast}
+        />
+
+        {/* Banner: the two toggles above are bypassable per-email via the
+            whitelist. Short sentence + link so admins find their way to
+            the add/revoke UI without hunting through the sidebar. */}
+        <div style={{
+          background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10,
+          padding: '14px 18px', marginBottom: 28,
+          display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+        }}>
+          <span style={{ fontSize: 20 }}>🔑</span>
+          <div style={{ flex: 1, minWidth: 220 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B', marginBottom: 2 }}>
+              Grant early access to specific emails
+            </div>
+            <div style={{ fontSize: 12, color: '#1B4F8A' }}>
+              Whitelisted emails bypass both Coming Soon toggles above. Admins are always allowed.
+            </div>
+          </div>
+          <a
+            href="/admin/modeling-access"
+            style={{
+              fontSize: 12, fontWeight: 700, padding: '8px 16px',
+              borderRadius: 7, border: '1px solid #1B4F8A',
+              background: '#fff', color: '#1B4F8A', textDecoration: 'none',
+            }}
+          >
+            Manage Whitelist →
+          </a>
+        </div>
 
         {/* ── Platforms ── */}
         <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>Module Manager</h1>

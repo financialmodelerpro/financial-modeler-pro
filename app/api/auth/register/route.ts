@@ -5,6 +5,7 @@ import { verifyCaptcha } from '@/src/lib/shared/captcha';
 import { createConfirmationToken } from '@/src/lib/shared/emailConfirmation';
 import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
 import { confirmEmailTemplate } from '@/src/lib/email/templates/confirmEmail';
+import { canEmailRegisterModeling } from '@/src/lib/shared/modelingAccess';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
 
@@ -36,6 +37,18 @@ export async function POST(req: NextRequest) {
   }
 
   const email = (body.email as string).toLowerCase().trim();
+
+  // Pre-launch gate (migration 136): when the register toggle is on, only
+  // admins + whitelisted emails can create an account. Ordering matters -
+  // we check access BEFORE the existing-email lookup so an unauthorized
+  // retry never reveals whether the email is already taken.
+  const access = await canEmailRegisterModeling(email);
+  if (!access.allowed) {
+    return NextResponse.json(
+      { error: 'Registration is invite-only right now. Contact us if you were expecting access.' },
+      { status: 403 },
+    );
+  }
 
   // Check duplicate
   const { data: existing } = await serverClient
