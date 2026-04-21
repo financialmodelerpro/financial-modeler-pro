@@ -1,11 +1,19 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { TrainingShell } from '@/src/components/training/TrainingShell';
-import { ArrowLeft, Clock, CheckCircle2, XCircle, Award, Lock } from 'lucide-react';
+import { ArrowLeft, Clock, CheckCircle2, XCircle, Award, Lock, Pause } from 'lucide-react';
 import type { StudentAssessmentView } from '@/src/lib/training/liveSessionAssessments';
+import {
+  type ServerAttemptState,
+  startAttemptApi,
+  pauseAttemptApi,
+  resumeAttemptApi,
+  getAttemptStateApi,
+  firePauseOnUnload,
+} from '@/src/lib/training/attemptInProgressClient';
 
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
@@ -76,11 +84,23 @@ export function AssessmentClient({
 
   const [phase, setPhase] = useState<'intro' | 'quiz' | 'result'>('intro');
   const [answers, setAnswers] = useState<Record<string, number>>({});
-  const [startedAt, setStartedAt] = useState<number | null>(null);
   const [timeLeft, setTimeLeft] = useState<number | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<SubmitResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Server-anchored attempt state (migration 126). Drives the countdown,
+  // the pause overlay, and the visibility-change pause/resume flow. Server
+  // is the deadline source of truth.
+  const [attemptState, setAttemptState] = useState<ServerAttemptState | null>(null);
+  const attemptStateRef = useRef<ServerAttemptState | null>(null);
+  attemptStateRef.current = attemptState;
+
+  // Next attempt number is the count of finished attempts + 1. Live sessions
+  // never key on `is_final`, so the pause endpoints always allow up to the
+  // global cap (1 pause / 120s grace).
+  const nextAttemptNumber = previousAttempts.length + 1;
+  const answersKey = `live_assessment_answers_${session.id}_${nextAttemptNumber}`;
 
   // Global shuffle settings (shared with 3SFM/BVM via migration 108)
   const [shuffleSettings, setShuffleSettings] = useState<{ shuffleQuestions: boolean; shuffleOptions: boolean } | null>(null);
@@ -135,27 +155,113 @@ export function AssessmentClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assessment.questions, shuffleSettings]);
 
+  // Restore in-progress attempt on mount: if the server still has a row for
+  // (email, sessionId, nextAttemptNumber), jump straight to the quiz phase
+  // and replay the answers persisted to localStorage so reload preserves
+  // progress.
   useEffect(() => {
-    if (phase !== 'quiz' || !assessment.timer_minutes || !startedAt) return;
-    const deadline = startedAt + assessment.timer_minutes * 60 * 1000;
-    const tick = () => {
-      const left = Math.max(0, Math.floor((deadline - Date.now()) / 1000));
-      setTimeLeft(left);
-      if (left <= 0) {
-        void handleSubmit();
+    if (!canStart) return;
+    let cancelled = false;
+    (async () => {
+      const existing = await getAttemptStateApi({ sessionId: session.id, attemptNumber: nextAttemptNumber });
+      if (cancelled || !existing) return;
+      setAttemptState(existing);
+      try {
+        const raw = localStorage.getItem(answersKey);
+        if (raw) setAnswers(JSON.parse(raw) as Record<string, number>);
+      } catch { /* ignore */ }
+      setTimeLeft(existing.secondsRemaining);
+      setPhase('quiz');
+      if (existing.secondsRemaining <= 0 && !existing.paused) {
+        setTimeout(() => void handleSubmit(), 50);
       }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id, nextAttemptNumber, canStart]);
+
+  // Display tick. Re-derives every second from attemptState.expiresAt while
+  // not paused; freezes at the paused-time value when paused.
+  useEffect(() => {
+    if (phase !== 'quiz' || !attemptState) return;
+    if (attemptState.paused) {
+      setTimeLeft(attemptState.secondsRemaining);
+      return;
+    }
+    if (!assessment.timer_minutes) return;
+    const expiresMs = new Date(attemptState.expiresAt).getTime();
+    const tick = () => {
+      const left = Math.max(0, Math.floor((expiresMs - Date.now()) / 1000));
+      setTimeLeft(left);
+      if (left <= 0) void handleSubmit();
     };
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, startedAt, assessment.timer_minutes]);
+  }, [phase, attemptState, assessment.timer_minutes]);
 
-  function startQuiz() {
+  // Visibility change pause/resume + beforeunload pause on intentional close.
+  // Live-session quizzes are never marked is_final, so pauseAllowed gates
+  // the call (1 pause / 120s grace per attempt).
+  useEffect(() => {
+    if (phase !== 'quiz') return;
+    const idn = { sessionId: session.id, attemptNumber: nextAttemptNumber };
+
+    const onVis = async () => {
+      const cur = attemptStateRef.current;
+      if (document.visibilityState === 'hidden') {
+        if (!cur || cur.isFinal || !cur.pauseAllowed || cur.paused) return;
+        const res = await pauseAttemptApi(idn);
+        if (res.ok && res.state) setAttemptState(res.state);
+      } else {
+        const resumed = await resumeAttemptApi(idn);
+        if (resumed) {
+          setAttemptState(resumed);
+        } else {
+          const fresh = await getAttemptStateApi(idn);
+          if (fresh) setAttemptState(fresh);
+        }
+      }
+    };
+    const onUnload = () => {
+      const cur = attemptStateRef.current;
+      if (cur && !cur.isFinal && cur.pauseAllowed && !cur.paused) {
+        firePauseOnUnload(idn);
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('beforeunload', onUnload);
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('beforeunload', onUnload);
+    };
+  }, [phase, session.id, nextAttemptNumber]);
+
+  // Persist answers on every change so a reload mid-quiz never loses progress.
+  useEffect(() => {
+    if (phase !== 'quiz') return;
+    try { localStorage.setItem(answersKey, JSON.stringify(answers)); } catch { /* ignore */ }
+  }, [answers, phase, answersKey]);
+
+  async function startQuiz() {
     setError(null);
     setAnswers({});
-    setStartedAt(Date.now());
-    if (assessment.timer_minutes) setTimeLeft(assessment.timer_minutes * 60);
+    try { localStorage.removeItem(answersKey); } catch { /* ignore */ }
+    const state = await startAttemptApi(
+      { sessionId: session.id, attemptNumber: nextAttemptNumber },
+      assessment.timer_minutes ?? null,
+      false, // live sessions never carry a final-exam flag
+    );
+    if (state) {
+      setAttemptState(state);
+      setTimeLeft(state.secondsRemaining);
+    } else if (assessment.timer_minutes) {
+      // Fallback: the server side errored. Continue with a client-only clock
+      // so the quiz still functions; pause/resume just won't work this run.
+      setTimeLeft(assessment.timer_minutes * 60);
+    }
     setPhase('quiz');
   }
 
@@ -164,7 +270,8 @@ export function AssessmentClient({
     setSubmitting(true);
     setError(null);
     try {
-      const timeTakenSeconds = startedAt ? Math.floor((Date.now() - startedAt) / 1000) : null;
+      const startedAtMs = attemptState ? new Date(attemptState.startedAt).getTime() : null;
+      const timeTakenSeconds = startedAtMs ? Math.floor((Date.now() - startedAtMs) / 1000) : null;
 
       // Translate shuffled-option answers back to DB-ordered indices before
       // POSTing. Server scores against the stored `correct_index` which is
@@ -188,6 +295,7 @@ export function AssessmentClient({
       }
       setResult(json as SubmitResponse);
       setPhase('result');
+      try { localStorage.removeItem(answersKey); } catch { /* ignore */ }
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -285,19 +393,63 @@ export function AssessmentClient({
         )}
 
         {phase === 'quiz' && (
-          <div>
+          <div style={{ position: 'relative' }}>
+            {/* Paused overlay blocks interaction while server-side pause is active. */}
+            {attemptState?.paused && (
+              <div style={{
+                position: 'fixed', inset: 0, zIndex: 50,
+                background: 'rgba(15, 23, 42, 0.55)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                backdropFilter: 'blur(2px)',
+              }}>
+                <div style={{
+                  background: '#fff', borderRadius: 14, padding: '28px 36px', maxWidth: 420,
+                  textAlign: 'center', boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+                  border: '2px solid #FDE68A',
+                }}>
+                  <Pause size={36} style={{ color: '#92400E', marginBottom: 8 }} />
+                  <h3 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 8px' }}>Assessment Paused</h3>
+                  <p style={{ fontSize: 14, color: '#475569', margin: '0 0 14px', lineHeight: 1.5 }}>
+                    Your timer is paused while this tab is in the background.
+                    It will resume automatically when you return.
+                  </p>
+                  <div style={{
+                    display: 'inline-block', fontSize: 14, fontWeight: 700, color: '#92400E',
+                    background: '#FEF3C7', padding: '8px 14px', borderRadius: 6,
+                    fontVariantNumeric: 'tabular-nums',
+                  }}>
+                    Grace remaining: {fmtTime(attemptState.graceSecondsRemaining)}
+                  </div>
+                </div>
+              </div>
+            )}
+
             {timeLeft != null && (
               <div style={{
                 position: 'sticky', top: 0, zIndex: 10,
-                background: timeLeft < 60 ? RED : BLUE,
+                background: attemptState?.paused ? '#92400E' : (timeLeft < 60 ? RED : BLUE),
                 color: '#fff', padding: '10px 16px', borderRadius: 8,
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                marginBottom: 16, fontSize: 13, fontWeight: 700,
+                marginBottom: 16, fontSize: 13, fontWeight: 700, gap: 12, flexWrap: 'wrap',
               }}>
                 <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                  <Clock size={14} /> Time remaining
+                  {attemptState?.paused ? <Pause size={14} /> : <Clock size={14} />}
+                  {attemptState?.paused ? `PAUSED - Grace remaining` : 'Time remaining'}
                 </span>
-                <span style={{ fontSize: 18, fontVariantNumeric: 'tabular-nums' }}>{fmtTime(timeLeft)}</span>
+                <span style={{ fontSize: 18, fontVariantNumeric: 'tabular-nums' }}>
+                  {attemptState?.paused ? fmtTime(attemptState.graceSecondsRemaining) : fmtTime(timeLeft)}
+                </span>
+              </div>
+            )}
+
+            {attemptState && !attemptState.paused && attemptState.pauseCount > 0 && (
+              <div style={{
+                fontSize: 11, color: '#64748B', textAlign: 'right',
+                marginTop: -8, marginBottom: 12,
+              }}>
+                {attemptState.graceSecondsRemaining > 0
+                  ? `${attemptState.pauseCount} pause used (${fmtTime(attemptState.graceSecondsRemaining)} grace remaining)`
+                  : 'Grace exhausted'}
               </div>
             )}
 

@@ -5,6 +5,7 @@ import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
 import { quizResultTemplate } from '@/src/lib/email/templates/quizResult';
 import { lockedOutTemplate } from '@/src/lib/email/templates/lockedOut';
 import { issueCertificateForStudent } from '@/src/lib/training/certificateEngine';
+import { deleteInProgressForKey } from '@/src/lib/training/attemptInProgress';
 
 /**
  * POST /api/training/submit-assessment
@@ -122,6 +123,17 @@ export async function POST(req: NextRequest) {
     } catch (sbErr) {
       console.error('[submit-assessment] Supabase write failed:', sbErr);
       // Non-fatal - Apps Script is the backup
+    }
+
+    // Best-effort cleanup of the in-progress attempt row (migration 126).
+    // Failure here doesn't affect the student's submission; the row is
+    // harmless if left behind because attempt_number is server-incremented
+    // on the next start.
+    try {
+      const sb = getServerClient();
+      await deleteInProgressForKey(sb, cleanEmail, { kind: 'cert', tabKey });
+    } catch (cleanupErr) {
+      console.warn('[submit-assessment] in-progress cleanup failed:', cleanupErr);
     }
 
     // Send quiz result email (fire-and-forget - don't block the response)

@@ -35,6 +35,9 @@ export interface LiveSessionAttempt {
   question_results: Record<string, boolean>;
   time_taken_seconds: number | null;
   submitted_at: string;
+  pause_count: number;
+  total_paused_seconds: number;
+  pause_log: Array<{ pausedAt: string; resumedAt: string; durationSeconds: number }>;
 }
 
 export interface StudentAssessmentView {
@@ -193,6 +196,10 @@ export async function isWatchRequirementMet(
 /**
  * Score + persist a new attempt. Throws if max_attempts reached or assessment
  * is disabled. Returns the saved attempt plus whether the student may retry.
+ *
+ * Optional `pauseSnapshot` denormalizes pause history (migration 126) onto
+ * the resulting `live_session_attempts` row so the admin attempts viewer
+ * can surface pause counts after the in-progress row has been deleted.
  */
 export async function submitAttempt(params: {
   sessionId: string;
@@ -200,8 +207,13 @@ export async function submitAttempt(params: {
   regId: string | null;
   answers: Record<string, number>;
   timeTakenSeconds: number | null;
+  pauseSnapshot?: {
+    pauseCount:         number;
+    totalPausedSeconds: number;
+    pauseLog:           unknown[];
+  };
 }): Promise<{ attempt: LiveSessionAttempt; canRetry: boolean; assessment: LiveSessionAssessment }> {
-  const { sessionId, email, regId, answers, timeTakenSeconds } = params;
+  const { sessionId, email, regId, answers, timeTakenSeconds, pauseSnapshot } = params;
   const normalizedEmail = email.toLowerCase();
 
   const assessment = await getAssessment(sessionId);
@@ -247,6 +259,9 @@ export async function submitAttempt(params: {
       answers,
       question_results: questionResults,
       time_taken_seconds: timeTakenSeconds,
+      pause_count:          pauseSnapshot?.pauseCount         ?? 0,
+      total_paused_seconds: pauseSnapshot?.totalPausedSeconds ?? 0,
+      pause_log:            pauseSnapshot?.pauseLog           ?? [],
     })
     .select('*')
     .single();

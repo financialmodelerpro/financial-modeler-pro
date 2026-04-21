@@ -61,39 +61,17 @@ function clearSavedAnswers(tabKey: string) {
   } catch { /* ignore */ }
 }
 
-// ── Timer persistence (start time per attempt) ──────────────────────────────
-//
-// Keyed by tabKey + attempt number so a retry starts a fresh clock but a
-// navigate-away-and-return within the same attempt resumes the existing clock.
-// If the clock has already expired when the student returns, the page
-// auto-submits whatever answers were saved in localStorage.
-
-function timerKeyFor(tabKey: string, attemptNo: number): string {
-  return `assessment_timer_${tabKey}_${attemptNo}`;
-}
-
-function getTimerStart(tabKey: string, attemptNo: number): number | null {
-  try {
-    const raw = localStorage.getItem(timerKeyFor(tabKey, attemptNo));
-    if (!raw) return null;
-    const n = parseInt(raw, 10);
-    return Number.isFinite(n) ? n : null;
-  } catch {
-    return null;
-  }
-}
-
-function setTimerStart(tabKey: string, attemptNo: number, startMs: number): void {
-  try {
-    localStorage.setItem(timerKeyFor(tabKey, attemptNo), String(startMs));
-  } catch { /* ignore */ }
-}
-
-function clearTimerStart(tabKey: string, attemptNo: number): void {
-  try {
-    localStorage.removeItem(timerKeyFor(tabKey, attemptNo));
-  } catch { /* ignore */ }
-}
+// Server-anchored attempt timer (migration 126). Authoritative state lives in
+// assessment_attempts_in_progress; the client mirrors it for display + re-syncs
+// on visibility change. See src/lib/training/attemptInProgressClient.ts.
+import {
+  type ServerAttemptState,
+  startAttemptApi,
+  pauseAttemptApi,
+  resumeAttemptApi,
+  getAttemptStateApi,
+  firePauseOnUnload,
+} from '@/src/lib/training/attemptInProgressClient';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -180,10 +158,12 @@ export default function AssessmentPage() {
   const [currentQ, setCurrentQ]     = useState(0);
   const [timeLeft, setTimeLeft]     = useState<number | null>(null);
   const timerRef                    = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Attempt number for THIS run (status.attempts at load + 1). Captured here so
-  // the timer key is stable across a single attempt even if `status.attempts`
-  // changes (e.g. after submit bumps it).
+  // Attempt number for THIS run (status.attempts at load + 1). Stable across a
+  // single attempt even if `status.attempts` changes (e.g. after submit).
   const [attemptForRun, setAttemptForRun] = useState<number | null>(null);
+  // Server-anchored timer state (migration 126). Drives countdown, pause UI,
+  // and the visibility-change pause/resume flow.
+  const [attemptState, setAttemptState] = useState<ServerAttemptState | null>(null);
   // Shuffle settings
   const [shuffleOptions, setShuffleOptions] = useState(false);
   // Maps: for each question index, stores the mapping from shuffled option index → original option index
@@ -321,28 +301,24 @@ export default function AssessmentPage() {
     setAnswers(savedAnswers);
     setCurrentQ(0);
 
-    // Capture attempt number for THIS run so timer key stays stable through it
+    // Capture attempt number for THIS run; used as the in-progress key
+    // alongside tabKey on every server call.
     const runAttempt = (statusData.data?.attempts ?? 0) + 1;
     setAttemptForRun(runAttempt);
 
-    // ── Timer resume: if an unsubmitted timer exists for this attempt, skip the
-    // ready screen and either resume the clock or auto-submit if expired. ────
-    const timeLimitMin = q.timeLimit || q.questions.length;
-    const timeLimitSec = timeLimitMin * 60;
-    const storedStart  = getTimerStart(tabKey, runAttempt);
-    if (storedStart && timeLimitSec > 0) {
-      const elapsedSec  = Math.floor((Date.now() - storedStart) / 1000);
-      const remaining   = timeLimitSec - elapsedSec;
-      if (remaining <= 0) {
-        // Expired while the student was away → auto-submit with saved answers
-        setTimeLeft(0);
-        setPageState('taking');
-        // Defer one tick so handleSubmitRef picks up the latest closure
-        setTimeout(() => handleSubmitRef.current(), 50);
-        return;
-      }
-      setTimeLeft(remaining);
+    // ── Timer resume: ask the server whether an in-progress row already
+    // exists for this (email, tabKey, attempt). If yes, jump straight to
+    // taking state and use the server's authoritative remaining seconds.
+    // If the row says expired or grace exhausted with no time left, auto
+    // submit with whatever answers were saved in localStorage. ──────────
+    const existing = await getAttemptStateApi({ tabKey, attemptNumber: runAttempt });
+    if (existing) {
+      setAttemptState(existing);
+      setTimeLeft(existing.secondsRemaining);
       setPageState('taking');
+      if (existing.secondsRemaining <= 0 && !existing.paused) {
+        setTimeout(() => handleSubmitRef.current(), 50);
+      }
       return;
     }
 
@@ -352,64 +328,92 @@ export default function AssessmentPage() {
   useEffect(() => { load(); }, [load]);
 
   // Warn students about losing their attempt if they try to leave mid-assessment.
-  // The timer keeps running regardless (see timer useEffect above), so even if
-  // they confirm leave, navigating back within the window will resume.
   useEffect(() => {
     if (pageState !== 'taking') return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = '';
+      // Best-effort fire-and-forget pause on intentional close. Browsers
+      // throttle synchronous fetches in beforeunload; keepalive lets the
+      // request survive page tear-down. Nothing depends on the response.
+      if (attemptForRun !== null && attemptState && !attemptState.isFinal && attemptState.pauseAllowed && !attemptState.paused) {
+        firePauseOnUnload({ tabKey, attemptNumber: attemptForRun });
+      }
     };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
-  }, [pageState]);
+  }, [pageState, attemptForRun, attemptState, tabKey]);
 
   // ── Timer ──────────────────────────────────────────────────────────────────
 
   // Keep a stable ref to handleSubmit so the timer closure never captures a stale copy
   const handleSubmitRef = useRef<() => void>(() => { /* placeholder */ });
 
+  // Display tick: re-computes timeLeft from attemptState.expiresAt every
+  // second (when not paused). Server is the deadline source of truth, the
+  // client just animates toward it. Auto-submits at zero.
   useEffect(() => {
-    if (pageState !== 'taking' || !effectiveTimeLimit || attemptForRun === null) return;
+    if (pageState !== 'taking' || !attemptState) return;
 
-    const totalSeconds = effectiveTimeLimit * 60;
-
-    // Derive remaining from stored start time if present (handles navigate-away,
-    // reload, and resume-mid-attempt). Otherwise start a fresh clock.
-    let startMs = getTimerStart(tabKey, attemptForRun);
-    if (!startMs) {
-      startMs = Date.now();
-      setTimerStart(tabKey, attemptForRun, startMs);
-    }
-    const initialRemaining = Math.max(0, totalSeconds - Math.floor((Date.now() - startMs) / 1000));
-    setTimeLeft(initialRemaining);
-
-    if (initialRemaining <= 0) {
-      setTimeout(() => handleSubmitRef.current(), 0);
+    if (attemptState.paused) {
+      // Display freezes at the value secondsRemaining had when the row was
+      // paused on the server. No tick needed.
+      setTimeLeft(attemptState.secondsRemaining);
       return;
     }
 
-    timerRef.current = setInterval(() => {
-      // Always re-derive from the stored start time so background tabs and
-      // clock drift can't let a student run past the cutoff.
-      const stored = getTimerStart(tabKey, attemptForRun!);
-      const elapsed = stored ? Math.floor((Date.now() - stored) / 1000) : 0;
-      const remaining = Math.max(0, totalSeconds - elapsed);
+    const expiresMs = new Date(attemptState.expiresAt).getTime();
+    const recompute = () => {
+      const remaining = Math.max(0, Math.floor((expiresMs - Date.now()) / 1000));
       setTimeLeft(remaining);
       if (remaining <= 0) {
         if (timerRef.current) clearInterval(timerRef.current);
         setTimeout(() => handleSubmitRef.current(), 0);
       }
-    }, 1000);
-
+    };
+    recompute();
+    timerRef.current = setInterval(recompute, 1000);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pageState, attemptForRun]);
+  }, [pageState, attemptState]);
+
+  // Visibility-change pause/resume. Tab hidden = best-effort POST /pause; tab
+  // visible = POST /resume + sync state. Final exams skip pause; the wall
+  // clock keeps running and we only re-fetch state on visible.
+  useEffect(() => {
+    if (pageState !== 'taking' || attemptForRun === null) return;
+    const idn = { tabKey, attemptNumber: attemptForRun };
+
+    const onVisChange = async () => {
+      if (document.visibilityState === 'hidden') {
+        if (!attemptState || attemptState.isFinal || !attemptState.pauseAllowed || attemptState.paused) return;
+        const res = await pauseAttemptApi(idn);
+        if (res.ok && res.state) setAttemptState(res.state);
+      } else {
+        // Whether or not we ever paused, sync state to the server view on focus.
+        // Server returns updated row (with new expiresAt if a pause was in flight).
+        const resumed = await resumeAttemptApi(idn);
+        if (resumed) {
+          setAttemptState(resumed);
+        } else {
+          const fresh = await getAttemptStateApi(idn);
+          if (fresh) setAttemptState(fresh);
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', onVisChange);
+    return () => document.removeEventListener('visibilitychange', onVisChange);
+  }, [pageState, attemptForRun, tabKey, attemptState]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  function startAssessment() {
+  async function startAssessment() {
+    if (attemptForRun === null) return;
     setCurrentQ(0);
+    const timerMin = questions ? (questions.timeLimit || questions.questions.length) : null;
+    const isFinalExam = questions?.isFinal ?? false;
+    const state = await startAttemptApi({ tabKey, attemptNumber: attemptForRun }, timerMin, isFinalExam);
+    if (state) setAttemptState(state);
     setPageState('taking');
   }
 
@@ -499,8 +503,9 @@ export default function AssessmentPage() {
     }
 
     // ── Step 3: Show results - NEVER re-fetch questions ──
+    // Server-side cleanup of the in-progress row happens inside
+    // /api/training/submit-assessment after the score is recorded.
     clearSavedAnswers(tabKey);
-    if (attemptForRun !== null) clearTimerStart(tabKey, attemptForRun);
     setResult({
       tabKey,
       score,
@@ -751,12 +756,44 @@ export default function AssessmentPage() {
 
     return (
       <div
-        style={{ minHeight: '100vh', background: LIGHT_BG }}
+        style={{ minHeight: '100vh', background: LIGHT_BG, position: 'relative' }}
         onCopy={e => e.preventDefault()}
         onCut={e => e.preventDefault()}
         onContextMenu={e => e.preventDefault()}
       >
         <NavBar isFinal={isFinal} sessionName={sessionName} dashUrl={dashUrl} />
+
+        {/* Paused overlay — blocks interaction while attempt is paused on the
+            server. Auto-dismisses when the visibility-change resume completes
+            and attemptState.paused flips back to false. */}
+        {attemptState?.paused && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 50,
+            background: 'rgba(15, 23, 42, 0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            backdropFilter: 'blur(2px)',
+          }}>
+            <div style={{
+              background: WHITE, borderRadius: 14, padding: '28px 36px',
+              maxWidth: 420, textAlign: 'center', boxShadow: '0 12px 40px rgba(0,0,0,0.25)',
+              border: `2px solid #FDE68A`,
+            }}>
+              <div style={{ fontSize: 36, marginBottom: 8 }}>⏸</div>
+              <h3 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 8px' }}>Assessment Paused</h3>
+              <p style={{ fontSize: 14, color: '#475569', margin: '0 0 14px', lineHeight: 1.5 }}>
+                Your timer is paused while this tab is in the background.
+                It will resume automatically when you return.
+              </p>
+              <div style={{
+                display: 'inline-block', fontSize: 14, fontWeight: 700, color: '#92400E',
+                background: '#FEF3C7', padding: '8px 14px', borderRadius: 6,
+                fontVariantNumeric: 'tabular-nums',
+              }}>
+                Grace remaining: {formatTime(attemptState.graceSecondsRemaining)}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Progress + timer bar - sticky below navbar */}
         <div style={{
@@ -774,11 +811,34 @@ export default function AssessmentPage() {
             </div>
           </div>
           {timeLeft !== null && (
-            <div style={{
-              fontSize: 20, fontWeight: 800, color: timeLeft < 120 ? '#DC2626' : NAVY,
-              fontVariantNumeric: 'tabular-nums',
-            }}>
-              ⏱ {formatTime(timeLeft)}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+              {attemptState?.paused ? (
+                <div style={{
+                  fontSize: 14, fontWeight: 800, color: '#92400E', background: '#FEF3C7',
+                  border: '1px solid #FDE68A', padding: '6px 12px', borderRadius: 8,
+                  fontVariantNumeric: 'tabular-nums',
+                }}>
+                  PAUSED (Grace remaining: {formatTime(attemptState.graceSecondsRemaining)})
+                </div>
+              ) : (
+                <div style={{
+                  fontSize: 20, fontWeight: 800, color: timeLeft < 120 ? '#DC2626' : NAVY,
+                  fontVariantNumeric: 'tabular-nums',
+                }}>
+                  Time remaining: {formatTime(timeLeft)}
+                </div>
+              )}
+              {attemptState && (
+                <div style={{ fontSize: 11, color: '#64748B' }}>
+                  {attemptState.isFinal
+                    ? 'Final exam, no pauses allowed'
+                    : attemptState.pauseCount > 0 && attemptState.graceSecondsRemaining > 0
+                      ? `${attemptState.pauseCount} pause used (${formatTime(attemptState.graceSecondsRemaining)} grace remaining)`
+                      : !attemptState.pauseAllowed && attemptState.pauseCount > 0
+                        ? 'Grace exhausted'
+                        : null}
+                </div>
+              )}
             </div>
           )}
         </div>
