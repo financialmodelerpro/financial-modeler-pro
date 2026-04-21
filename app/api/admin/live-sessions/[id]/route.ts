@@ -4,21 +4,14 @@ import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { sendTemplatedEmail, buildSessionPlaceholders } from '@/src/lib/email/sendTemplatedEmail';
 import { sendAutoNewsletter } from '@/src/lib/newsletter/autoNotify';
+import { updateTeamsMeeting, deleteTeamsMeeting, isTeamsConfigured } from '@/src/lib/integrations/teamsMeetings';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+const AUTO_DELETE_TEAMS_MEETING_ON_SESSION_DELETE = true;
 
 async function checkAdmin() {
   const session = await getServerSession(authOptions);
   return !!(session?.user && (session.user as { role?: string }).role === 'admin');
-}
-
-/** Fetch all confirmed training students */
-async function getAllConfirmedStudents(sb: ReturnType<typeof getServerClient>) {
-  const { data } = await sb
-    .from('training_registrations_meta')
-    .select('email, name')
-    .or('email_confirmed.eq.true,email_confirmed.is.null'); // null = pre-migration, treat as confirmed
-  return (data ?? []).map(r => ({ email: r.email, name: r.name ?? '' }));
 }
 
 /** PATCH - update session */
@@ -31,8 +24,11 @@ export async function PATCH(
   const body = await req.json() as Record<string, unknown>;
   const sb = getServerClient();
 
-  // Fetch current state before update (for detecting transitions)
-  const { data: before } = await sb.from('live_sessions').select('is_published, session_type, announcement_sent, announcement_send_mode, recording_email_sent').eq('id', id).single();
+  const { data: before } = await sb
+    .from('live_sessions')
+    .select('is_published, session_type, scheduled_datetime, recording_email_sent, teams_meeting_id, meeting_provider, title, duration_minutes')
+    .eq('id', id)
+    .single();
 
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   const allowed = [
@@ -41,6 +37,7 @@ export async function PATCH(
     'duration_minutes', 'max_attendees', 'difficulty_level', 'prerequisites', 'instructor_name',
     'tags', 'is_featured', 'live_password', 'registration_url',
     'announcement_send_mode', 'youtube_embed', 'instructor_title', 'instructor_id',
+    'meeting_provider',
   ];
   for (const k of allowed) {
     if (body[k] !== undefined) {
@@ -52,8 +49,6 @@ export async function PATCH(
     }
   }
 
-  // When instructor_id is set, denormalize name/title from the instructors row
-  // so legacy readers (cards, emails, detail pages) keep working unchanged.
   if (updates.instructor_id) {
     const { data: inst } = await sb
       .from('instructors')
@@ -69,33 +64,37 @@ export async function PATCH(
   const { error } = await sb.from('live_sessions').update(updates).eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  let emailResult: { sent?: number } | undefined;
-
-  // ── Trigger: auto-announcement on publish ────────────────────────────────
+  // Sync the linked Teams meeting when the schedule changes (or title did).
+  // Best-effort: a failure doesn't roll back the session save — the admin can
+  // retry via the Test Teams Connection button or re-edit.
   if (
-    before &&
-    !before.is_published &&
-    body.is_published === true &&
-    !before.announcement_sent
+    before?.teams_meeting_id &&
+    before.meeting_provider === 'teams' &&
+    isTeamsConfigured()
   ) {
-    const mode = (body.announcement_send_mode as string) ?? before.announcement_send_mode ?? 'auto';
-    if (mode === 'auto') {
-      // Fetch updated session for placeholders
-      const { data: session } = await sb.from('live_sessions').select('*').eq('id', id).single();
-      if (session) {
-        const students = await getAllConfirmedStudents(sb);
-        const placeholders = buildSessionPlaceholders(session);
-        emailResult = await sendTemplatedEmail({
-          templateKey: 'session_announcement',
-          recipients: students,
-          placeholders,
-        });
-        await sb.from('live_sessions').update({ announcement_sent: true }).eq('id', id);
+    const titleChanged    = updates.title !== undefined && updates.title !== before.title;
+    const scheduleChanged = updates.scheduled_datetime !== undefined && updates.scheduled_datetime !== before.scheduled_datetime;
+    const durationChanged = updates.duration_minutes !== undefined && updates.duration_minutes !== before.duration_minutes;
+    if (titleChanged || scheduleChanged || durationChanged) {
+      const start = (updates.scheduled_datetime as string | null) ?? before.scheduled_datetime;
+      const dur   = (updates.duration_minutes as number | null) ?? before.duration_minutes ?? 90;
+      if (start) {
+        try {
+          const end = new Date(new Date(start).getTime() + dur * 60 * 1000).toISOString();
+          await updateTeamsMeeting(before.teams_meeting_id, {
+            subject:       (updates.title as string | undefined) ?? before.title ?? undefined,
+            startDateTime: start,
+            endDateTime:   end,
+          });
+        } catch (err) {
+          console.error('[live-sessions PATCH] Teams update failed:', err);
+        }
       }
     }
   }
 
-  // ── Trigger: recording available email ───────────────────────────────────
+  // ── Trigger: recording available email (kept — fires once when a past
+  // session gets marked recorded, targets only those who didn't attend) ───
   if (
     before &&
     before.session_type !== 'recorded' &&
@@ -104,7 +103,6 @@ export async function PATCH(
   ) {
     const { data: session } = await sb.from('live_sessions').select('*').eq('id', id).single();
     if (session) {
-      // Get registered students who did NOT attend
       const { data: regs } = await sb
         .from('session_registrations')
         .select('student_email, student_name')
@@ -123,7 +121,7 @@ export async function PATCH(
     }
   }
 
-  // ── Newsletter auto-notifications ─────────────────────────────────────────
+  // ── Newsletter auto-notifications (opt-in subscribers, not training roster)
   if (before && !before.is_published && body.is_published === true) {
     const { data: sess } = await sb.from('live_sessions').select('*').eq('id', id).single();
     if (sess) {
@@ -145,10 +143,10 @@ export async function PATCH(
     }
   }
 
-  return NextResponse.json({ ok: true, emailResult });
+  return NextResponse.json({ ok: true });
 }
 
-/** DELETE - delete session + attachments */
+/** DELETE - delete session + attachments + optionally the linked Teams meeting */
 export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -156,6 +154,19 @@ export async function DELETE(
   if (!await checkAdmin()) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const { id } = await params;
   const sb = getServerClient();
+
+  if (AUTO_DELETE_TEAMS_MEETING_ON_SESSION_DELETE && isTeamsConfigured()) {
+    const { data: row } = await sb
+      .from('live_sessions')
+      .select('teams_meeting_id, meeting_provider')
+      .eq('id', id)
+      .maybeSingle();
+    if (row?.teams_meeting_id && row.meeting_provider === 'teams') {
+      try { await deleteTeamsMeeting(row.teams_meeting_id); }
+      catch (err) { console.error('[live-sessions DELETE] Teams delete failed:', err); }
+    }
+  }
+
   await sb.from('course_attachments').delete().eq('tab_key', `LIVE_${id}`);
   const { error } = await sb.from('live_sessions').delete().eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -13,10 +13,13 @@ interface NotificationParams {
   sessionTime: string;
   timezone: string;
   sessionUrl: string;
+  joinUrl?: string;
   description?: string;
   attachments?: { name: string; url: string }[];
   isReminder: boolean;
   registrationCount?: number;
+  dialInTollNumber?: string;
+  dialInConferenceId?: string;
 }
 
 interface ConfirmationParams {
@@ -67,6 +70,11 @@ export async function liveSessionNotificationTemplate(p: NotificationParams): Pr
     ? `Reminder: ${p.sessionTitle} starts in 1 hour`
     : `New Live Session: ${p.sessionTitle} - ${p.sessionDate}`;
 
+  const dialInBlock = (p.dialInTollNumber || p.dialInConferenceId) ? `
+      <p style="margin:12px 0 0;font-size:12px;color:#888;">
+        Phone dial-in:${p.dialInTollNumber ? ` ${p.dialInTollNumber}` : ''}${p.dialInConferenceId ? ` (Conference ID: ${p.dialInConferenceId})` : ''}
+      </p>` : '';
+
   const dateBlock = `
     <div style="background:#f0f4ff;border-left:4px solid #2E75B6;padding:20px 24px;border-radius:6px;margin:24px 0;">
       <p style="margin:0 0 8px;font-weight:bold;color:#1F3864;">
@@ -78,7 +86,8 @@ export async function liveSessionNotificationTemplate(p: NotificationParams): Pr
           View & Register for This Session
         </a>
       </div>
-      <p style="margin:12px 0 0;font-size:12px;color:#888;">Log in to your account to register and get the join link</p>
+      ${p.joinUrl ? `<p style="margin:12px 0 0;font-size:12px;color:#888;">Direct join link: <a href="${p.joinUrl}" style="color:#2E75B6;">${p.joinUrl}</a></p>` : `<p style="margin:12px 0 0;font-size:12px;color:#888;">Log in to your account to register and get the join link</p>`}
+      ${dialInBlock}
     </div>`;
 
   const attachBlock = p.attachments?.length ? `

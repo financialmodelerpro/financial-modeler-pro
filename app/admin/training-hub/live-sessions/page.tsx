@@ -30,8 +30,9 @@ interface LiveSession {
   youtube_url?: string;
   published: boolean;
   announcement_sent?: boolean;
-  announcement_count?: number;
-  announcement_date?: string;
+  announcement_sent_at?: string | null;
+  announcement_sent_by?: string | null;
+  announcement_sent_count?: number;
   reminder_sent?: boolean;
   reminder_count?: number;
   reminder_date?: string;
@@ -51,6 +52,9 @@ interface LiveSession {
   youtube_embed?: boolean;
   show_like_button?: boolean;
   announcement_send_mode?: string;
+  meeting_provider?: 'manual' | 'teams' | 'zoom' | 'meet';
+  teams_meeting_id?: string | null;
+  teams_dial_in?: { tollNumber?: string; conferenceId?: string; tollFreeNumber?: string; dialInUrl?: string } | null;
 }
 
 interface Attachment {
@@ -272,6 +276,8 @@ interface FormState {
   youtube_embed: boolean;
   show_like_button: boolean;
   announcement_send_mode: 'auto' | 'manual';
+  meeting_provider: 'manual' | 'teams' | 'zoom' | 'meet';
+  auto_generate_teams: boolean;
 }
 
 const defaultForm: FormState = {
@@ -282,6 +288,7 @@ const defaultForm: FormState = {
   prerequisites: '', instructor_id: '', instructor_name: '', instructor_title: '', tags: [],
   is_featured: false, live_password: '', registration_url: '',
   youtube_embed: false, show_like_button: true, announcement_send_mode: 'auto',
+  meeting_provider: 'manual', auto_generate_teams: false,
 };
 
 /* ── Component ─────────────────────────────────────────────────── */
@@ -327,6 +334,13 @@ export default function LiveSessionsPage() {
   /* ── Notification targeting ── */
   const [notifyTarget, setNotifyTarget] = useState<'all' | '3sfm' | 'bvm'>('all');
   const [previewSent, setPreviewSent] = useState(false);
+
+  /* ── Announcement dispatch ── */
+  const [announceBusyId, setAnnounceBusyId] = useState<string | null>(null);
+  const [announceModal, setAnnounceModal]   = useState<{ session: LiveSession; target: 'all' | '3sfm' | 'bvm'; count: number | null } | null>(null);
+
+  /* ── Teams integration test ── */
+  const [teamsTest, setTeamsTest] = useState<{ loading: boolean; result: { ok: boolean; configured?: boolean; error?: string; detail?: string; host?: string } | null }>({ loading: false, result: null });
 
   /* ── Mark as Recorded ── */
   const [markRecordedOpen, setMarkRecordedOpen] = useState(false);
@@ -404,9 +418,10 @@ export default function LiveSessionsPage() {
           date: s.scheduled_datetime ? new Date(s.scheduled_datetime as string).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : undefined,
           time: s.scheduled_datetime ? new Date(s.scheduled_datetime as string).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }) : undefined,
           playlist_name: (s.live_playlists as Record<string, unknown> | null)?.name ?? undefined,
-          announcement_sent: s.notification_sent,
-          announcement_count: s.notification_sent_count,
-          announcement_date: s.notification_sent_at,
+          announcement_sent:       s.announcement_sent ?? false,
+          announcement_sent_at:    s.announcement_sent_at ?? null,
+          announcement_sent_by:    s.announcement_sent_by ?? null,
+          announcement_sent_count: s.announcement_sent_count ?? 0,
           reminder_count: s.reminder_sent_count,
           reminder_date: s.reminder_sent_at,
         })) as LiveSession[];
@@ -543,6 +558,8 @@ export default function LiveSessionsPage() {
     youtube_embed: s.youtube_embed ?? false,
     show_like_button: s.show_like_button ?? true,
     announcement_send_mode: (s.announcement_send_mode === 'manual' ? 'manual' : 'auto') as 'auto' | 'manual',
+    meeting_provider: (s.meeting_provider ?? 'manual') as 'manual' | 'teams' | 'zoom' | 'meet',
+    auto_generate_teams: s.meeting_provider === 'teams',
   };};
 
   const openNewSession = () => {
@@ -601,7 +618,7 @@ export default function LiveSessionsPage() {
         description:        form.description,
         category:           form.category,
         playlist_id:        form.playlist_id || null,
-        session_type:       form.type.toLowerCase(),  // UPCOMING → upcoming
+        session_type:       form.type.toLowerCase(),  // UPCOMING -> upcoming
         scheduled_datetime: scheduled,
         timezone:           form.timezone,
         live_url:           form.live_url,
@@ -621,7 +638,15 @@ export default function LiveSessionsPage() {
         youtube_embed:      form.youtube_embed,
         show_like_button:   form.show_like_button,
         announcement_send_mode: form.announcement_send_mode,
+        meeting_provider:   form.meeting_provider,
       };
+
+      // Teams auto-generation only runs on create (POST) when the toggle is on
+      // and the admin hasn't pasted a URL. PATCH never regenerates.
+      if (!editSession && form.auto_generate_teams && form.type === 'UPCOMING' && !form.live_url.trim()) {
+        payload.auto_generate_teams = true;
+        payload.meeting_provider    = 'teams';
+      }
 
       // For recorded sessions: keep scheduled_datetime (original live date) but clear live_url
       if (form.type === 'RECORDED') {
@@ -642,10 +667,18 @@ export default function LiveSessionsPage() {
       }
       if (res.ok) {
         const j = await res.json();
-        toast(editSession ? 'Session updated' : 'Session created');
+        if (j.teamsWarning) {
+          toast(j.teamsWarning, 'err');
+        } else {
+          toast(editSession ? 'Session updated' : 'Session created');
+        }
         await fetchSessions();
         if (!editSession && j.session?.id) {
           setEditSession(j.session);
+          // Pull the freshly saved row back into the form so the Teams link
+          // surfaces in the read-only URL field with a copy button.
+          if (j.session.live_url)         setForm(f => ({ ...f, live_url: j.session.live_url }));
+          if (j.session.meeting_provider) setForm(f => ({ ...f, meeting_provider: j.session.meeting_provider, auto_generate_teams: j.session.meeting_provider === 'teams' }));
         }
       } else {
         const j = await res.json().catch(() => ({}));
@@ -718,7 +751,11 @@ export default function LiveSessionsPage() {
     setMarkingRecorded(false);
   };
 
-  /* ── Notifications ── */
+  /* ── Notifications ──
+     sendNotify stays for the reminder + admin preview paths. The dedicated
+     announcement path routes through openAnnounceModal -> confirmAnnounce
+     so the admin sees the live recipient count before committing and the
+     Sent toast carries the actual number Resend accepted. */
   const sendNotify = (s: LiveSession, type: 'announcement' | 'reminder', target?: string, preview?: boolean) => {
     const label = type === 'announcement' ? 'Announcement' : 'Reminder';
     const doSend = async () => {
@@ -728,11 +765,12 @@ export default function LiveSessionsPage() {
           body: JSON.stringify({ type, target: target ?? 'all', preview: preview ?? false }),
         });
         if (res.ok) {
+          const j = await res.json().catch(() => ({}));
           if (preview) {
-            toast('Preview sent to meetahmadch@gmail.com');
+            toast('Preview sent to your inbox');
             setPreviewSent(true);
           } else {
-            toast(`${label} sent`);
+            toast(`${label} sent to ${j.sent ?? 0} recipients${j.failed ? ` (${j.failed} failed)` : ''}`);
           }
           await fetchSessions();
         } else {
@@ -750,6 +788,53 @@ export default function LiveSessionsPage() {
         msg: `Send ${label} for "${s.title}" to ${targetLabel}?`,
         onOk: async () => { setConfirm(null); await doSend(); },
       });
+    }
+  };
+
+  /* ── Announcement flow (explicit, confirm-modal gated) ── */
+  const openAnnounceModal = async (s: LiveSession, target: 'all' | '3sfm' | 'bvm' = 'all') => {
+    setAnnounceModal({ session: s, target, count: null });
+    try {
+      const res = await fetch(`/api/admin/live-sessions/${s.id}/notify?target=${target}`);
+      if (res.ok) {
+        const j = await res.json();
+        setAnnounceModal(m => m ? { ...m, count: j.recipientCount ?? 0 } : m);
+      }
+    } catch { /* modal still usable without a count */ }
+  };
+
+  const confirmAnnounce = async () => {
+    if (!announceModal) return;
+    const { session: s, target } = announceModal;
+    setAnnounceBusyId(s.id);
+    try {
+      const res = await fetch(`/api/admin/live-sessions/${s.id}/notify`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'announcement', target, preview: false }),
+      });
+      if (res.ok) {
+        const j = await res.json();
+        toast(`Announcement sent to ${j.sent ?? 0} students${j.failed ? ` (${j.failed} failed)` : ''}`);
+        setAnnounceModal(null);
+        await fetchSessions();
+      } else {
+        const j = await res.json().catch(() => ({}));
+        toast(j.error ?? 'Failed to send announcement', 'err');
+      }
+    } catch {
+      toast('Error sending announcement', 'err');
+    }
+    setAnnounceBusyId(null);
+  };
+
+  const runTeamsTest = async () => {
+    setTeamsTest({ loading: true, result: null });
+    try {
+      const res = await fetch('/api/admin/teams/test-connection');
+      const j   = await res.json().catch(() => ({}));
+      setTeamsTest({ loading: false, result: j });
+    } catch (e) {
+      setTeamsTest({ loading: false, result: { ok: false, error: e instanceof Error ? e.message : String(e) } });
     }
   };
 
@@ -845,6 +930,55 @@ export default function LiveSessionsPage() {
           </div>
         )}
 
+        {/* ── Announce Confirm Modal ── */}
+        {announceModal && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 10000,
+            background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 480, width: '90%', boxShadow: '0 10px 36px rgba(0,0,0,0.2)' }}>
+              <h3 style={{ fontSize: 16, fontWeight: 700, color: NAVY, margin: '0 0 12px' }}>
+                {'\u2709'} Send Announcement Email
+              </h3>
+              <p style={{ fontSize: 14, color: '#1F2937', margin: '0 0 12px', lineHeight: 1.5 }}>
+                Send announcement email to{' '}
+                <strong>
+                  {announceModal.count === null ? 'all confirmed students' : `${announceModal.count} confirmed student${announceModal.count === 1 ? '' : 's'}`}
+                </strong>
+                {' '}for <em>"{announceModal.session.title}"</em>?
+              </p>
+              {announceModal.session.announcement_sent && (
+                <p style={{ fontSize: 12, color: '#92400E', background: '#FEF3C7', padding: '8px 12px', borderRadius: 6, margin: '0 0 14px' }}>
+                  This session was already announced on{' '}
+                  {announceModal.session.announcement_sent_at ? new Date(announceModal.session.announcement_sent_at).toLocaleString('en-GB') : 'an earlier date'}
+                  . Sending again will deliver an updated copy to every recipient on the target list.
+                </p>
+              )}
+              <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
+                Target audience: <strong>{announceModal.target === 'all' ? 'All students' : announceModal.target === '3sfm' ? '3SFM students' : 'BVM students'}</strong>
+              </div>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+                <button
+                  style={btnSecondary}
+                  onClick={() => setAnnounceModal(null)}
+                  disabled={announceBusyId === announceModal.session.id}
+                >Cancel</button>
+                <button
+                  style={{
+                    ...btnPrimary, background: BLUE,
+                    opacity: announceBusyId === announceModal.session.id ? 0.6 : 1,
+                    cursor: announceBusyId === announceModal.session.id ? 'wait' : 'pointer',
+                  }}
+                  onClick={confirmAnnounce}
+                  disabled={announceBusyId === announceModal.session.id}
+                >
+                  {announceBusyId === announceModal.session.id ? 'Sending...' : 'Send Now'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── HEADER ── */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: NAVY, margin: 0 }}>Live Sessions</h1>
@@ -856,9 +990,46 @@ export default function LiveSessionsPage() {
             <button style={btnSecondary} onClick={() => { setShowNewPlaylist(v => !v); setEditingPlaylist(null); }}>
               + New Playlist
             </button>
+            <button
+              style={btnSecondary}
+              onClick={runTeamsTest}
+              disabled={teamsTest.loading}
+              title="Verify Microsoft Teams / Azure AD credentials"
+            >
+              {teamsTest.loading ? 'Testing...' : '\u{1F50C} Test Teams Connection'}
+            </button>
             <button style={btnPrimary} onClick={openNewSession}>+ New Session</button>
           </div>
         </div>
+
+        {/* ── Teams test result ── */}
+        {teamsTest.result && (
+          <div style={{
+            ...cardStyle,
+            borderLeft: `4px solid ${teamsTest.result.ok ? GREEN : '#DC2626'}`,
+            background: teamsTest.result.ok ? '#F0FDF4' : '#FEF2F2',
+            padding: '12px 16px',
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12,
+          }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: teamsTest.result.ok ? '#166534' : '#991B1B' }}>
+                {teamsTest.result.ok ? '\u2713 Teams Connection OK' : '\u2717 Teams Connection Failed'}
+                {teamsTest.result.configured === false && ' (credentials missing)'}
+              </div>
+              <div style={{ fontSize: 11, color: '#4B5563', marginTop: 4 }}>
+                {teamsTest.result.ok ? (
+                  <>Host user: <strong>{teamsTest.result.host}</strong></>
+                ) : (
+                  <>
+                    {teamsTest.result.error}
+                    {teamsTest.result.detail && <div style={{ marginTop: 4, color: '#6B7280', fontFamily: 'monospace', fontSize: 10 }}>{teamsTest.result.detail}</div>}
+                  </>
+                )}
+              </div>
+            </div>
+            <button style={{ ...btnSecondary, padding: '3px 10px', fontSize: 11 }} onClick={() => setTeamsTest({ loading: false, result: null })}>Dismiss</button>
+          </div>
+        )}
 
         {/* ── NEW PLAYLIST FORM ── */}
         {showNewPlaylist && (
@@ -993,7 +1164,7 @@ export default function LiveSessionsPage() {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ borderBottom: `2px solid ${BORDER}` }}>
-                  {['Title', 'Type', 'Date / Time', 'Playlist', 'Registered', 'YouTube', 'Published', 'Actions'].map(h => (
+                  {['Title', 'Type', 'Date / Time', 'Playlist', 'Registered', 'YouTube', 'Published', 'Announced', 'Actions'].map(h => (
                     <th key={h} style={{ textAlign: 'left', padding: '8px 10px', color: NAVY, fontWeight: 700, fontSize: 11, textTransform: 'uppercase' as const }}>{h}</th>
                   ))}
                 </tr>
@@ -1061,11 +1232,48 @@ export default function LiveSessionsPage() {
                         }}>{s.published ? 'Yes' : 'No'}</span>
                       </td>
                       <td style={{ padding: '10px 10px' }}>
+                        {(() => {
+                          const sent  = s.announcement_sent === true;
+                          const when  = s.announcement_sent_at ? new Date(s.announcement_sent_at).toLocaleString('en-GB') : '';
+                          const by    = s.announcement_sent_by ?? '';
+                          const count = s.announcement_sent_count ?? 0;
+                          const tooltip = sent
+                            ? `Sent ${count ? `to ${count} students ` : ''}${when ? `on ${when}` : ''}${by ? ` by ${by}` : ''}`.trim()
+                            : 'No announcement has been sent for this session yet';
+                          return (
+                            <span
+                              title={tooltip}
+                              style={{
+                                display: 'inline-block', fontSize: 11, fontWeight: 700, padding: '3px 10px',
+                                borderRadius: 20,
+                                background: sent ? '#D1FAE5' : '#FEF3C7',
+                                color:      sent ? '#065F46' : '#92400E',
+                                border:     sent ? '1px solid #A7F3D0' : '1px solid #FDE68A',
+                              }}
+                            >
+                              {sent ? '\u2713 Announced' : '\u26A0 Not Announced'}
+                            </span>
+                          );
+                        })()}
+                      </td>
+                      <td style={{ padding: '10px 10px' }}>
                         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => setPreviewSession(s)}>Preview</button>
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => openEditSession(s)}>Edit</button>
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => duplicateSession(s)}>Duplicate</button>
-                          <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => sendNotify(s, 'announcement')}>Notify</button>
+                          <button
+                            style={{
+                              ...btnPrimary, padding: '4px 10px', fontSize: 11,
+                              background: s.announcement_sent ? '#6B7280' : BLUE,
+                              opacity: announceBusyId === s.id ? 0.6 : 1,
+                              cursor: announceBusyId === s.id ? 'wait' : 'pointer',
+                            }}
+                            disabled={announceBusyId === s.id}
+                            onClick={() => openAnnounceModal(s, 'all')}
+                            title={s.announcement_sent ? 'Re-send announcement to all confirmed students' : 'Send announcement to all confirmed students'}
+                          >
+                            {s.announcement_sent ? '\u2709 Re-announce' : '\u2709 Announce'}
+                          </button>
                           <button style={{ ...btnSecondary, padding: '4px 10px', fontSize: 11 }} onClick={() => {
                             const next = !s.published;
                             fetch(`/api/admin/live-sessions/${s.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_published: next }) })
@@ -1286,10 +1494,63 @@ export default function LiveSessionsPage() {
                 {form.type !== 'RECORDED' && (
                   <div>
                     <label style={labelStyle}>Live URL</label>
-                    <input style={inputStyle} value={form.live_url} onChange={e => setForm(f => ({ ...f, live_url: e.target.value }))} placeholder="https://zoom.us/..." />
+                    {form.auto_generate_teams && !form.live_url ? (
+                      <div style={{ ...inputStyle, display: 'flex', alignItems: 'center', color: '#6B7280', fontStyle: 'italic', background: '#F0F9FF', border: '1px dashed #93C5FD' }}>
+                        Will be auto-generated on save
+                      </div>
+                    ) : form.auto_generate_teams && form.live_url ? (
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <input style={{ ...inputStyle, flex: 1, background: '#F9FAFB' }} value={form.live_url} readOnly />
+                        <button
+                          type="button"
+                          style={{ ...btnSecondary, padding: '0 10px' }}
+                          onClick={() => { navigator.clipboard.writeText(form.live_url); toast('Teams link copied'); }}
+                        >Copy</button>
+                      </div>
+                    ) : (
+                      <input style={inputStyle} value={form.live_url} onChange={e => setForm(f => ({ ...f, live_url: e.target.value }))} placeholder="https://teams.microsoft.com/... or https://zoom.us/..." />
+                    )}
                   </div>
                 )}
               </div>
+
+              {/* Teams auto-generate toggle — only meaningful on new upcoming sessions */}
+              {form.type !== 'RECORDED' && (
+                <div style={{ maxWidth: 600, marginTop: 14, padding: '12px 16px', borderRadius: 10, background: '#F0F9FF', border: '1px solid #BAE6FD' }}>
+                  <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={form.auto_generate_teams}
+                      onChange={e => {
+                        const on = e.target.checked;
+                        setForm(f => ({
+                          ...f,
+                          auto_generate_teams: on,
+                          meeting_provider: on ? 'teams' : 'manual',
+                          live_url: on ? '' : f.live_url,
+                        }));
+                      }}
+                      style={{ marginTop: 3 }}
+                      disabled={!!editSession}
+                    />
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: '#0369A1' }}>
+                        {'\u{1F4BB}'} Auto-generate Microsoft Teams meeting link
+                      </div>
+                      <div style={{ fontSize: 11, color: '#475569', marginTop: 3, lineHeight: 1.5 }}>
+                        When enabled on a new upcoming session, the platform will create a Teams meeting via Microsoft Graph and store its join URL here. Requires Azure credentials on the server. Turn off to paste a meeting URL manually.
+                        {editSession && ' (Editing an existing session: the linked Teams meeting will sync schedule changes automatically. Toggle state cannot be changed after creation.)'}
+                      </div>
+                    </div>
+                  </label>
+                  {form.meeting_provider === 'teams' && editSession?.teams_dial_in?.tollNumber && (
+                    <div style={{ fontSize: 11, color: '#475569', marginTop: 8, paddingTop: 8, borderTop: '1px dashed #BAE6FD' }}>
+                      Dial-in: <strong>{editSession.teams_dial_in.tollNumber}</strong>
+                      {editSession.teams_dial_in.conferenceId && <> — Conference ID <strong>{editSession.teams_dial_in.conferenceId}</strong></>}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* YouTube URL - always visible */}
               <div style={{ maxWidth: 500, marginTop: 14 }}>
@@ -1483,40 +1744,48 @@ export default function LiveSessionsPage() {
                     <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Announcement</div>
                     <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 10 }}>
                       {editSession.announcement_sent
-                        ? `Sent to ${editSession.announcement_count ?? 0} students${editSession.announcement_date ? ` on ${editSession.announcement_date}` : ''}`
-                        : 'Not sent yet'}
+                        ? (
+                          <>
+                            <span style={{ color: '#065F46', fontWeight: 700 }}>{'\u2713 Sent'}</span>
+                            {' '}to {editSession.announcement_sent_count ?? 0} students
+                            {editSession.announcement_sent_at ? ` on ${new Date(editSession.announcement_sent_at).toLocaleString('en-GB')}` : ''}
+                            {editSession.announcement_sent_by ? ` by ${editSession.announcement_sent_by}` : ''}
+                          </>
+                        )
+                        : <span style={{ color: '#92400E', fontWeight: 700 }}>{'\u26A0 Not sent yet'}</span>}
                     </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                       <button
                         style={{ ...btnSecondary, padding: '5px 12px', fontSize: 11 }}
                         onClick={() => sendNotify(editSession, 'announcement', notifyTarget, true)}
+                        disabled={announceBusyId === editSession.id}
                       >
                         Preview Email
                       </button>
                       <button
                         style={{
                           ...btnPrimary, padding: '5px 12px', fontSize: 11,
-                          opacity: previewSent ? 1 : 0.5,
-                          cursor: previewSent ? 'pointer' : 'not-allowed',
+                          background: editSession.announcement_sent ? '#6B7280' : BLUE,
+                          opacity: announceBusyId === editSession.id ? 0.6 : 1,
+                          cursor: announceBusyId === editSession.id ? 'wait' : 'pointer',
                         }}
-                        onClick={() => previewSent && sendNotify(editSession, 'announcement', notifyTarget)}
-                        disabled={!previewSent}
-                        title={!previewSent ? 'Send a Preview Email first' : ''}
+                        onClick={() => openAnnounceModal(editSession, notifyTarget)}
+                        disabled={announceBusyId === editSession.id}
                       >
-                        Send Announcement
+                        {editSession.announcement_sent ? '\u2709 Resend Announcement' : '\u2709 Send Announcement'}
                       </button>
                     </div>
-                    {!previewSent && (
-                      <p style={{ fontSize: 10, color: '#9CA3AF', marginTop: 6 }}>Send a preview first to enable Send All.</p>
-                    )}
+                    <p style={{ fontSize: 10, color: '#9CA3AF', marginTop: 6 }}>
+                      Students never receive an announcement until you click Send. Resend is safe, it always uses the latest session details.
+                    </p>
                   </div>
                   {/* Reminder */}
                   <div style={{ background: LIGHT_BG, borderRadius: 8, padding: '12px 16px', minWidth: 260 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Reminder</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Manual Reminder</div>
                     <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 10 }}>
                       {editSession.reminder_sent
                         ? `Sent to ${editSession.reminder_count ?? 0} students${editSession.reminder_date ? ` on ${editSession.reminder_date}` : ''}`
-                        : 'Not sent yet'}
+                        : '24h and 1h reminders fire automatically via cron (per-registration flags).'}
                     </div>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button
@@ -1526,21 +1795,12 @@ export default function LiveSessionsPage() {
                         Preview Email
                       </button>
                       <button
-                        style={{
-                          ...btnPrimary, background: BLUE, padding: '5px 12px', fontSize: 11,
-                          opacity: previewSent ? 1 : 0.5,
-                          cursor: previewSent ? 'pointer' : 'not-allowed',
-                        }}
-                        onClick={() => previewSent && sendNotify(editSession, 'reminder', notifyTarget)}
-                        disabled={!previewSent}
-                        title={!previewSent ? 'Send a Preview Email first' : ''}
+                        style={{ ...btnPrimary, background: BLUE, padding: '5px 12px', fontSize: 11 }}
+                        onClick={() => sendNotify(editSession, 'reminder', notifyTarget)}
                       >
-                        Send Reminder
+                        Send Reminder Now
                       </button>
                     </div>
-                    {!previewSent && (
-                      <p style={{ fontSize: 10, color: '#9CA3AF', marginTop: 6 }}>Send a preview first to enable Send All.</p>
-                    )}
                   </div>
                 </div>
               </div>

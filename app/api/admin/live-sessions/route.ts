@@ -3,9 +3,10 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { sendAutoNewsletter } from '@/src/lib/newsletter/autoNotify';
-import { sendSessionAnnouncement } from '@/src/lib/training/sessionAnnouncement';
+import { createTeamsMeeting, isTeamsConfigured, TeamsIntegrationError } from '@/src/lib/integrations/teamsMeetings';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+const DEFAULT_SESSION_DURATION_MINUTES = 90;
 
 async function checkAdmin() {
   const session = await getServerSession(authOptions);
@@ -64,20 +65,62 @@ export async function POST(req: NextRequest) {
   }
   if (!instructorName) instructorName = 'Ahmad Din';
 
+  // Auto-generate a Teams meeting when the admin toggled it on, we're making
+  // an upcoming session, no manual URL was supplied, and credentials exist.
+  // Teams failures return a warning but never block the save — the admin
+  // can still paste a URL manually after the fact.
+  const sessionType         = (body.session_type as string | undefined) ?? 'recorded';
+  const scheduledDatetime   = (body.scheduled_datetime as string | null | undefined) ?? null;
+  const durationMinutes     = (body.duration_minutes as number | null | undefined) ?? null;
+  const wantsTeams          = body.meeting_provider === 'teams' || body.auto_generate_teams === true;
+  const manualLiveUrl       = ((body.live_url as string | undefined) ?? '').trim();
+
+  let teamsMeetingId: string | null = null;
+  let teamsDialIn:    unknown | null = null;
+  let liveUrl         = manualLiveUrl;
+  let meetingProvider = (body.meeting_provider as string | undefined) ?? 'manual';
+  let teamsWarning: string | null = null;
+
+  if (wantsTeams && sessionType === 'upcoming' && scheduledDatetime && !manualLiveUrl) {
+    if (!isTeamsConfigured()) {
+      teamsWarning = 'Teams integration not configured. Session saved without an auto-generated meeting link.';
+      meetingProvider = 'manual';
+    } else {
+      try {
+        const dur = durationMinutes && durationMinutes > 0 ? durationMinutes : DEFAULT_SESSION_DURATION_MINUTES;
+        const end = new Date(new Date(scheduledDatetime).getTime() + dur * 60 * 1000).toISOString();
+        const mtg = await createTeamsMeeting({
+          subject:       (body.title as string | undefined) ?? 'Live Session',
+          startDateTime: scheduledDatetime,
+          endDateTime:   end,
+        });
+        teamsMeetingId = mtg.meetingId;
+        teamsDialIn    = mtg.dialIn;
+        liveUrl        = mtg.joinUrl;
+        meetingProvider = 'teams';
+      } catch (err) {
+        const detail = err instanceof TeamsIntegrationError ? `${err.message}: ${err.detail ?? ''}`.trim() : String(err);
+        console.error('[live-sessions POST] Teams create failed:', detail);
+        teamsWarning = `Teams meeting auto-generation failed (${detail}). Session saved without a meeting link.`;
+        meetingProvider = 'manual';
+      }
+    }
+  }
+
   const { data, error } = await sb.from('live_sessions').insert({
     title:              body.title ?? '',
     description:        body.description ?? '',
     youtube_url:        body.youtube_url ?? '',
-    live_url:           body.live_url ?? '',
-    session_type:       body.session_type ?? 'recorded',
-    scheduled_datetime: body.scheduled_datetime ?? null,
+    live_url:           liveUrl,
+    session_type:       sessionType,
+    scheduled_datetime: scheduledDatetime,
     timezone:           body.timezone ?? 'Asia/Riyadh',
     category:           body.category ?? '',
     playlist_id:        body.playlist_id || null,
     is_published:       body.is_published ?? false,
     display_order:      body.display_order ?? 0,
     banner_url:         body.banner_url ?? null,
-    duration_minutes:   body.duration_minutes ?? null,
+    duration_minutes:   durationMinutes,
     max_attendees:      body.max_attendees ?? null,
     difficulty_level:   body.difficulty_level ?? 'All Levels',
     prerequisites:      body.prerequisites ?? '',
@@ -88,19 +131,20 @@ export async function POST(req: NextRequest) {
     is_featured:        body.is_featured ?? false,
     live_password:      body.live_password ?? '',
     registration_url:   body.registration_url ?? '',
+    teams_meeting_id:   teamsMeetingId,
+    teams_dial_in:      teamsDialIn,
+    meeting_provider:   meetingProvider,
   }).select().single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  if (data && data.is_published) {
-    // Direct announcement to every confirmed training student. Previously
-    // POST only fired the newsletter (which targets subscribers, not the
-    // full training roster) so new upcoming sessions went out silently to
-    // everyone who'd registered. PATCH already had this flow — POST was
-    // the asymmetric gap, fixed here by sharing one helper. Fire-and-
-    // forget so Resend latency never blocks the admin's create.
-    void sendSessionAnnouncement(sb, data).catch((err: unknown) =>
-      console.error('[live-sessions POST] announcement failed:', err),
-    );
 
+  // Creating a published upcoming session no longer auto-blasts the student
+  // roster. Announcements are now triggered exclusively by the admin via the
+  // "Send Announcement" button, which hits /api/admin/live-sessions/[id]/notify
+  // (has maxDuration=300 so mass Resend batches don't get killed mid-flight).
+  //
+  // The newsletter auto-notify still fires because it targets opt-in
+  // subscribers, not the training roster, and has its own duplicate-prevention.
+  if (data && data.is_published) {
     const dt = data.scheduled_datetime ? new Date(data.scheduled_datetime) : null;
     void sendAutoNewsletter('live_session_scheduled', data.id, {
       title: data.title, description: data.description ?? '',
@@ -112,5 +156,5 @@ export async function POST(req: NextRequest) {
       },
     });
   }
-  return NextResponse.json({ session: data });
+  return NextResponse.json({ session: data, teamsWarning });
 }
