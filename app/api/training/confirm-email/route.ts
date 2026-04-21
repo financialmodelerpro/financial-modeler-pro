@@ -11,7 +11,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyConfirmationToken } from '@/src/lib/shared/emailConfirmation';
+import { verifyConfirmationToken, markTokenUsed } from '@/src/lib/shared/emailConfirmation';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { registerStudent } from '@/src/lib/training/sheets';
 import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
@@ -28,9 +28,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${LEARN_URL}/signin?error=link-expired`);
   }
 
-  const { valid, email } = await verifyConfirmationToken(token, 'training');
-  if (!valid || !email) {
-    console.error('[confirm-email] Token invalid or expired. token_prefix=', token.slice(0, 8));
+  // Verify-only. The token is consumed via markTokenUsed below, AFTER every
+  // downstream write has succeeded. A failure in any of those writes leaves
+  // the token live so the user can click the same link again once the
+  // underlying issue is resolved. The prior eager-consume shape is what
+  // turned transient write failures into permanent "Link Invalid or Expired"
+  // pages for the user.
+  const { valid, email, tokenId, reason } = await verifyConfirmationToken(token, 'training');
+  if (!valid || !email || !tokenId) {
+    console.error('[confirm-email] Token verification failed', { token_prefix: token.slice(0, 8), reason });
     return NextResponse.redirect(`${LEARN_URL}/signin?error=link-expired`);
   }
 
@@ -51,6 +57,7 @@ export async function GET(req: NextRequest) {
       .update({ email_confirmed: true, confirmed_at: new Date().toISOString() })
       .eq('email', email)
       .is('email_confirmed', false); // only update if currently false - don't touch already-confirmed
+    await markTokenUsed(tokenId);
     return NextResponse.redirect(`${LEARN_URL}/signin?confirmed=true`);
   }
 
@@ -124,6 +131,8 @@ export async function GET(req: NextRequest) {
           return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=password-failed`);
         }
 
+        // All writes succeeded. Consume the token + clean up pending.
+        await markTokenUsed(tokenId);
         await sb.from('training_pending_registrations').delete().eq('email', email);
         return NextResponse.redirect(`${LEARN_URL}/signin?confirmed=true`);
       }
@@ -265,7 +274,8 @@ export async function GET(req: NextRequest) {
     .then(({ subject, html, text }) => sendEmail({ to: email, subject, html, text, from: FROM.training }))
     .catch(err => console.error('[confirm-email] Welcome email failed:', err));
 
-  // Clean up pending row only after both writes have actually succeeded.
+  // All writes succeeded. Consume the token + clean up pending.
+  await markTokenUsed(tokenId);
   await sb.from('training_pending_registrations').delete().eq('email', email);
 
   return NextResponse.redirect(`${LEARN_URL}/signin?confirmed=true`);
