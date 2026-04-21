@@ -107,6 +107,7 @@
 | **hCaptcha** | Spam protection on signup forms (both hubs) | `HCAPTCHA_SECRET_KEY`, `NEXT_PUBLIC_HCAPTCHA_SITE_KEY` |
 | **Anthropic Claude API** | AI market research + contextual help agents | `ANTHROPIC_API_KEY` |
 | **YouTube Data API v3** | Fetch video comments (cached 24h in DB) | `YOUTUBE_API_KEY` |
+| **Microsoft Graph (Teams)** | Auto-generate Teams meeting links for upcoming live sessions | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `TEAMS_HOST_USER_EMAIL` (full setup in **External Integrations**) |
 | **Vercel** | Hosting + edge middleware | Auto-deploy on `main` push |
 | **Vercel Web Analytics** | Page views, unique visitors, referrers, device/browser, geography | Zero-config via `@vercel/analytics` in `app/layout.tsx` |
 | **Vercel Speed Insights** | Core Web Vitals (LCP, FID, CLS) for SEO | Zero-config via `@vercel/speed-insights` in `app/layout.tsx` |
@@ -255,6 +256,10 @@ Use `/signin`, `/register`, `/forgot` for all training/modeling auth links.
 | `CRON_SECRET` | Bearer token for Vercel cron job auth (`/api/cron/session-reminders`, `/api/cron/auto-launch-check`). Certificate cron retired — certificates issue inline on final-exam submit. |
 | `YOUTUBE_API_KEY` | YouTube Data API v3 key (server-only, for comments fetch) |
 | `NEXT_PUBLIC_YOUTUBE_CHANNEL_ID` | YouTube channel ID for subscribe button (client-safe) |
+| `AZURE_TENANT_ID` | Azure AD directory tenant ID (GUID). Used by Teams meeting auto-generation via Microsoft Graph. See **External Integrations → Microsoft Teams** for setup. |
+| `AZURE_CLIENT_ID` | Azure AD app registration client ID (GUID) for the FMP Training Hub app. |
+| `AZURE_CLIENT_SECRET` | Client secret VALUE (not the secret ID) from the Azure AD app registration. 24-month expiry; rotate before expiration. |
+| `TEAMS_HOST_USER_EMAIL` | UPN of the Microsoft 365 user who owns auto-generated Teams meetings. Casing must match the user's Azure AD record exactly (e.g. `Ahmad.din@pacemakersglobal.com`). |
 
 ### Scripts
 ```bash
@@ -282,6 +287,104 @@ npm run verify       # type-check + lint + build
 | `eum` | Energy & Utilities Modeling | Coming Soon |
 | `svm` | Startup & Venture Modeling | Coming Soon |
 | `bcm` | Banking & Credit Modeling | Coming Soon |
+
+---
+
+## External Integrations
+
+### Microsoft Teams (Live Sessions Auto-Generation)
+
+The platform auto-generates Microsoft Teams meeting links when an admin creates an upcoming live session with the auto-generate toggle ON. Implementation lives in `src/lib/integrations/teamsMeetings.ts` and uses the Microsoft Graph API with the client-credentials OAuth flow (application permissions, no user sign-in at runtime). Wired into `POST /api/admin/live-sessions` (create), `PATCH /api/admin/live-sessions/[id]` (sync title/schedule/duration changes), and `DELETE /api/admin/live-sessions/[id]` (idempotent meeting delete). A `GET /api/admin/teams/test-connection` route powers the **Test Teams Connection** button on the admin live-sessions page.
+
+#### Tenant-Level Configuration (one-time, already done)
+
+These steps live in Microsoft 365 cloud configuration. They persist across deploys, laptop swaps, and Vercel redeploys. Do NOT need to be redone unless one of the trigger conditions in **When PowerShell setup needs to be redone** below applies.
+
+**Azure AD App Registration**
+- Tenant: PaceMakers Business Consultants
+- Tenant ID: `f18ccb05-e3c6-460e-afdf-12340018301a`
+- App Name: `FMP Training Hub`
+- App (Client) ID: `ab228da6-74b7-4267-ba08-4b1b953ad700`
+- API Permissions (all **Application** type, admin consent granted):
+  - Microsoft Graph → `OnlineMeetings.ReadWrite.All`
+  - Microsoft Graph → `User.Read.All`
+- Client Secret value: stored in Vercel as `AZURE_CLIENT_SECRET`. 24-month expiry from creation, set a calendar reminder to rotate before expiry.
+
+**Microsoft Teams Application Access Policy**
+- Policy Name: `FMP-teams-policy`
+- App ID linked: `ab228da6-74b7-4267-ba08-4b1b953ad700`
+- Granted to user: `Ahmad.din@pacemakersglobal.com` (the meeting host)
+- Created via PowerShell on 2026-04-21
+- Required because `OnlineMeetings.ReadWrite.All` alone is not enough. Without this Teams-side policy the Graph API returns the famous `UnknownError` with empty message body when creating meetings.
+
+#### Required Vercel Environment Variables
+
+- `AZURE_TENANT_ID` (Directory tenant ID)
+- `AZURE_CLIENT_ID` (Application client ID)
+- `AZURE_CLIENT_SECRET` (Client secret VALUE, not the secret ID)
+- `TEAMS_HOST_USER_EMAIL` (must match casing exactly: `Ahmad.din@pacemakersglobal.com`)
+
+The service degrades gracefully if any of these are missing: `isTeamsConfigured()` returns false, the admin UI surfaces a warning toast, and the session saves with a manual-URL fallback.
+
+#### When PowerShell Setup Needs to Be Redone
+
+Only in these cases:
+- Switching the host user (e.g., to a colleague's account or a service account)
+- Adding additional host users (each user needs their own grant)
+- Rotating the Azure Client ID (only if the app registration is deleted and recreated; rotating the secret alone does NOT require redoing the policy)
+- Cleaning up or removing the integration entirely
+
+#### PowerShell Commands Reference
+
+Run the PowerShell commands below from a Windows machine signed in with a Teams admin (or Global admin) account. The Teams PowerShell module is the only supported way to manage `CsApplicationAccessPolicy`; the Azure Portal does not expose it.
+
+**Install Teams PowerShell module on a new admin machine:**
+```powershell
+Install-Module -Name MicrosoftTeams -Force -AllowClobber -Scope CurrentUser
+Import-Module MicrosoftTeams
+Connect-MicrosoftTeams
+```
+
+**Verify the policy exists (read-only, safe to re-run):**
+```powershell
+Get-CsApplicationAccessPolicy -Identity "FMP-teams-policy"
+```
+
+**Verify the host user has the policy granted:**
+```powershell
+Get-CsOnlineUser -Identity "Ahmad.din@pacemakersglobal.com" | Format-List *AccessPolicy*
+```
+
+**Recreate the policy from scratch** (only if accidentally deleted, or if the Azure app registration was rotated and got a new Client ID):
+```powershell
+New-CsApplicationAccessPolicy -Identity "FMP-teams-policy" `
+  -AppIds "ab228da6-74b7-4267-ba08-4b1b953ad700" `
+  -Description "FMP Training Hub Teams meeting auto-generation"
+```
+
+**Grant the policy to a new or replacement host user:**
+```powershell
+Grant-CsApplicationAccessPolicy -PolicyName "FMP-teams-policy" `
+  -Identity "<new-host-user@pacemakersglobal.com>"
+```
+After running, also update `TEAMS_HOST_USER_EMAIL` in Vercel to match. Casing must be exact.
+
+**Remove the policy from a user (cleanup or revocation):**
+```powershell
+Grant-CsApplicationAccessPolicy -PolicyName $null -Identity "<user-email>"
+```
+
+**Delete the policy entirely (full integration teardown):**
+```powershell
+Remove-CsApplicationAccessPolicy -Identity "FMP-teams-policy"
+```
+
+#### Operational Notes
+
+- **Propagation delay:** policy grants and revocations can take up to 30 minutes to take effect across the Teams service. The Test Teams Connection button reads the user record (which is instant), so it can return OK while meeting creation still 401s. If a fresh grant is failing, wait 30 minutes before re-testing.
+- **Test scope:** `GET /api/admin/teams/test-connection` only confirms the token is valid and the host user record is reachable. It does NOT exercise meeting creation. To prove end-to-end works, create a draft upcoming session with the auto-generate toggle on; the resulting meeting can be deleted from the editor and Teams cleans up via the DELETE-on-session-delete hook.
+- **Diagnostic logging:** every Graph API failure logs a structured `[live-sessions POST] Teams create failed:` line to Vercel with the response body and HTTP status. The admin UI surfaces a truncated version in the toast.
+- **Token cache:** `teamsMeetings.ts` caches the bearer token in memory with a 60-second safety margin before expiry. Cold serverless invocations re-fetch a fresh token. No persistence in Supabase.
 
 ---
 
