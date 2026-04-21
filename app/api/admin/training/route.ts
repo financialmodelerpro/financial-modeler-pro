@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
-import { listAllStudents } from '@/src/lib/training/sheets';
 
 async function checkAdmin() {
   const session = await getServerSession(authOptions);
@@ -27,8 +26,9 @@ export async function GET(req: NextRequest) {
   if (counts) for (const l of counts as any[]) countMap[l.course_id] = (countMap[l.course_id] ?? 0) + 1;
 
   // Bundle enrollment count so the page doesn't need a second auth-gated fetch
-  const studentsRes = await listAllStudents();
-  const enrollments = studentsRes.success && Array.isArray(studentsRes.data) ? studentsRes.data.length : null;
+  const { count: enrollments } = await sb
+    .from('training_registrations_meta')
+    .select('*', { count: 'exact', head: true });
 
   return NextResponse.json({ courses: courses.map((c: any) => ({ ...c, _lesson_count: countMap[c.id] ?? 0 })), enrollments });
 }

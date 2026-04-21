@@ -15,7 +15,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json() as {
       name?: string;
       email?: string;
-      course?: string;
+      course?: string; // optional, retained for backward compat; new form doesn't send it
       phone?: string;
       city?: string;
       country?: string;
@@ -24,8 +24,8 @@ export async function POST(req: NextRequest) {
     };
     const { name, email, course, phone, city, country, password, captchaToken } = body;
 
-    if (!name || !email || !course) {
-      return NextResponse.json({ success: false, error: 'name, email, and course are required' }, { status: 400 });
+    if (!name || !email) {
+      return NextResponse.json({ success: false, error: 'name and email are required' }, { status: 400 });
     }
     if (!password || password.length < 8) {
       return NextResponse.json({ success: false, error: 'Password must be at least 8 characters.' }, { status: 400 });
@@ -78,14 +78,17 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, duplicate: true });
     }
 
-    // Upsert pending registration (replace any previous unconfirmed attempt)
+    // Upsert pending registration (replace any previous unconfirmed attempt).
+    // Course is nullable (migration 131); the new form doesn't collect it
+    // but we persist whatever the client sent for backward compat with any
+    // old cached form.
     const password_hash = await bcrypt.hash(password, 10);
     const { error: pendingErr } = await sb.from('training_pending_registrations').upsert({
       email:         normalEmail,
       name:          name.trim(),
-      course:        course.trim(),
-      phone:         phone?.trim() || null,
-      city:          city?.trim()  || null,
+      course:        course?.trim() || null,
+      phone:         phone?.trim()  || null,
+      city:          city?.trim()   || null,
       country:       country?.trim() || null,
       password_hash,
     }, { onConflict: 'email' });

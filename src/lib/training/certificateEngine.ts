@@ -20,7 +20,26 @@
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import sharp from 'sharp';
 import { getServerClient } from '@/src/lib/shared/supabase';
-import { updateCertificateUrls, type PendingCertificate } from '@/src/lib/training/sheets';
+// PendingCertificate shape ported inline so the engine doesn't import
+// anything from sheets.ts post-Apps-Script-migration. Fields match what
+// findAllEligibleFromSupabase() + the admin force-issue branch produce.
+export interface PendingCertificate {
+  registrationId:    string;
+  email:             string;
+  studentName:       string;
+  courseName:        string;
+  courseCode:        string;        // '3SFM' | 'BVM'
+  courseSubheading:  string;
+  courseDescription: string;
+  finalScore:        number;
+  avgScore:          number;
+  grade:             string;
+  completionDate:    string;
+  certificateId?:    string;
+  issueDate?:        string;
+  verificationUrl?:  string;
+  qrCodeUrl?:        string;
+}
 import { verifyWatchThresholdMet } from '@/src/lib/training/watchThresholdVerifier';
 import { checkEligibility, type EligibilityResult } from '@/src/lib/training/certificateEligibility';
 import { COURSES } from '@/src/config/courses';
@@ -459,13 +478,9 @@ export async function issueCertificateForPending(
     });
     const badgeUrl = await generateBadgePng({ certificateId, issueDate, courseCode: cert.courseCode });
 
-    // Best-effort sync back to Apps Script (still the source of truth for
-    // legacy admin UIs). Failures here don't block issuance.
-    try {
-      await updateCertificateUrls({ certificateId, certPdfUrl, badgeUrl, transcriptUrl: '', status: 'Issued' });
-    } catch (e) {
-      console.warn('[certEngine] Apps Script updateCertificateUrls failed (non-fatal):', e);
-    }
+    // Apps Script sync removed - student_certificates in Supabase is the
+    // single source of truth for certificate records post-migration. The
+    // write below is authoritative.
 
     /**
      * Persist the row to `student_certificates`.

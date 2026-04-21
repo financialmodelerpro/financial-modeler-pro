@@ -45,7 +45,6 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
   const [phoneLocal, setPhoneLocal] = useState('');
   const [city,     setCity]     = useState('');
   const [country,  setCountry]  = useState('');
-  const [course,   setCourse]   = useState('3sfm');
   const [password, setPassword] = useState('');
   const [confirm,  setConfirm]  = useState('');
 
@@ -115,7 +114,6 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
         body: JSON.stringify({
           name:         name.trim(),
           email:        email.trim().toLowerCase(),
-          course,
           phone:        phoneLocal.trim() ? phoneCode + phoneLocal.trim() : undefined,
           city:         city.trim() || undefined,
           country:      country.trim() || undefined,
@@ -360,19 +358,6 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
                     onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
                     onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
                 </div>
-              </div>
-
-              {/* Course */}
-              <div>
-                <label style={labelStyle}>COURSE <span style={{ color: '#DC2626' }}>*</span></label>
-                <select required value={course} onChange={e => setCourse(e.target.value)}
-                  style={{ ...inputStyle, background: '#fff', cursor: 'pointer' }}
-                  onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
-                  onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }}>
-                  <option value="3sfm">3-Statement Financial Modeling</option>
-                  <option value="bvm">Business Valuation Methods</option>
-                  <option value="both">Both Courses</option>
-                </select>
               </div>
 
               {/* Password */}

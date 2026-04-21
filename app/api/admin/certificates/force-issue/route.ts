@@ -3,9 +3,22 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { issueCertificateForPending } from '@/src/lib/training/certificateEngine';
-import { listAllStudents } from '@/src/lib/training/sheets';
 import { COURSES } from '@/src/config/courses';
-import type { PendingCertificate } from '@/src/lib/training/sheets';
+
+// Local type to avoid depending on the Apps Script module's re-exports.
+interface PendingCertificate {
+  registrationId:    string;
+  email:             string;
+  studentName:       string;
+  courseName:        string;
+  courseCode:        string;
+  courseSubheading:  string;
+  courseDescription: string;
+  finalScore:        number;
+  avgScore:          number;
+  grade:             string;
+  completionDate:    string;
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -13,18 +26,14 @@ interface ResolvedStudent {
   email: string;
   name: string;
   registrationId: string;
-  source: 'supabase' | 'apps_script' | 'admin_override';
+  source: 'supabase' | 'admin_override';
 }
 
 /**
- * Resolve a student across both data sources. Order:
- *   1. Supabase `training_registrations_meta` (case-insensitive `ilike` — a
- *      plain `.eq` was missing rows stored with mixed casing).
- *   2. Apps Script `listStudents` — catches students that never had a
- *      Supabase row written (pre-migration-027 history).
- *   3. Admin override: if the caller supplied `nameOverride` / `regIdOverride`
- *      in the body, accept them. Last resort so a force-issue is never
- *      impossible for a legitimate case.
+ * Resolve a student from Supabase training_registrations_meta. If the row
+ * doesn't exist and the admin supplied name/regId overrides, accept those
+ * as a last-resort override (useful when force-issuing for a paper record
+ * that never made it into the normal flow).
  */
 async function resolveStudent(
   email: string,
@@ -48,25 +57,6 @@ async function resolveStudent(
     };
   }
 
-  // Apps Script fallback
-  try {
-    const list = await listAllStudents();
-    if (list.success && Array.isArray(list.data)) {
-      const match = list.data.find(s => (s.email ?? '').toLowerCase().trim() === normalized);
-      if (match) {
-        return {
-          email:          match.email ?? normalized,
-          name:           match.name ?? '',
-          registrationId: match.registrationId ?? '',
-          source:         'apps_script',
-        };
-      }
-    }
-  } catch (e) {
-    console.warn('[force-issue] listAllStudents failed:', e);
-  }
-
-  // Admin override — accept whatever the admin supplied.
   if (overrides.nameOverride?.trim() || overrides.regIdOverride?.trim()) {
     return {
       email:          normalized,

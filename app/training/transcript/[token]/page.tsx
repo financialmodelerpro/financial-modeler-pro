@@ -1,7 +1,7 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getServerClient } from '@/src/lib/shared/supabase';
-import { getStudentProgress } from '@/src/lib/training/sheets';
+import { getStudentProgressFromSupabase as getStudentProgress } from '@/src/lib/training/progressFromSupabase';
 import { COURSES } from '@/src/config/courses';
 import type { Metadata } from 'next';
 

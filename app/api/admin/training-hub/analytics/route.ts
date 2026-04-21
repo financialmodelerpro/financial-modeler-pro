@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
-import { listAllStudents } from '@/src/lib/training/sheets';
+import { getStudentRoster } from '@/src/lib/training/studentRoster';
 import { getServerClient } from '@/src/lib/shared/supabase';
 
 export const revalidate = 0;
@@ -14,15 +14,14 @@ export async function GET(req: NextRequest) {
 
   const range = req.nextUrl.searchParams.get('range') ?? '90'; // days
 
-  const [studentsRes, profilesRes, activeRes] = await Promise.all([
-    listAllStudents(),
+  const [allStudents, profilesRes, activeRes] = await Promise.all([
+    getStudentRoster(),
     getServerClient().from('student_profiles').select('registration_id,location,last_active_at,streak_days,total_points'),
     getServerClient().from('student_profiles')
       .select('registration_id')
       .gte('last_active_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
   ]);
 
-  const allStudents  = studentsRes.data ?? [];
   const profiles     = profilesRes.data ?? [];
   const activeIds    = new Set((activeRes.data ?? []).map((r: { registration_id: string }) => r.registration_id));
 
@@ -31,8 +30,9 @@ export async function GET(req: NextRequest) {
   const activeWeek = activeIds.size;
   const certified = allStudents.filter(s => s.finalPassed || s.certificateIssued).length;
   const completionRate = total > 0 ? Math.round((certified / total) * 100) : 0;
-  const sfm = allStudents.filter(s => s.course === '3SFM');
-  const bvm = allStudents.filter(s => s.course === 'BVM');
+  const courseCodes = (s: { course: string }) => s.course.split(',').map(c => c.trim());
+  const sfm = allStudents.filter(s => courseCodes(s).includes('3SFM'));
+  const bvm = allStudents.filter(s => courseCodes(s).includes('BVM'));
 
   // ── Registration trends (last 12 weeks) ───────────────────────────────────
   const now = new Date();
@@ -105,6 +105,6 @@ export async function GET(req: NextRequest) {
     sessionCompletion,
     geo,
     funnel,
-    dataAvailable: studentsRes.success,
+    dataAvailable: true,
   });
 }

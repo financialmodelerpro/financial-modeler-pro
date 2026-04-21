@@ -1,16 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import { getStudentProgress } from '@/src/lib/training/sheets';
 import { getServerClient } from '@/src/lib/shared/supabase';
 
-// ── 2-minute server-side cache ────────────────────────────────────────────────
+/**
+ * GET /api/training/progress
+ *
+ * Supabase-native. Reads:
+ *   - training_registrations_meta for student identity
+ *   - training_enrollments for course(s) the student is in
+ *   - training_assessment_results for per-session scores
+ *   - student_certificates for issued-cert state
+ *
+ * Returns the same ProgressData shape the dashboard already expects so
+ * the client side is unchanged. Apps Script is no longer consulted.
+ */
+
 const _cache = new Map<string, { data: unknown; at: number }>();
 const TTL_MS = 2 * 60 * 1000;
 
-function emptyProgress(email: string, registrationId: string) {
+interface SessionProgress {
+  sessionId:   string;
+  passed:      boolean;
+  score:       number;
+  attempts:    number;
+  completedAt: string | null;
+}
+
+interface ProgressData {
+  student: {
+    name: string;
+    email: string;
+    registrationId: string;
+    course: string;       // 'both' | 'bvm' | '3sfm' - derived from enrollments
+    registeredAt: string;
+  };
+  sessions: SessionProgress[];
+  finalPassed: boolean;
+  certificateIssued: boolean;
+}
+
+function emptyProgress(email: string, registrationId: string): ProgressData {
   return {
     student: {
-      name: registrationId,
+      name: '',
       email,
       registrationId,
       course: '3sfm',
@@ -23,7 +55,6 @@ function emptyProgress(email: string, registrationId: string) {
 }
 
 export async function GET(req: NextRequest) {
-  // ── Resolve credentials (cookie first, query param fallback) ─────────────────
   let email = '';
   let registrationId = '';
 
@@ -43,19 +74,14 @@ export async function GET(req: NextRequest) {
   }
 
   if (!email || !registrationId) {
-    return NextResponse.json(
-      { success: false, error: 'Not authenticated.' },
-      { status: 401 },
-    );
+    return NextResponse.json({ success: false, error: 'Not authenticated.' }, { status: 401 });
   }
 
   const cleanEmail = email.trim().toLowerCase();
   const cleanRegId = registrationId.trim();
-  // `refresh=1` busts cache - dashboard calls this after assessment submission
   const refresh    = req.nextUrl.searchParams.get('refresh') === '1';
   const cacheKey   = `${cleanEmail}:${cleanRegId}`;
 
-  // ── Serve from cache if fresh ─────────────────────────────────────────────
   if (!refresh) {
     const hit = _cache.get(cacheKey);
     if (hit && Date.now() - hit.at < TTL_MS) {
@@ -63,66 +89,72 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── Fetch progress - always return 200, never hard-error ────────────────────
   try {
-    const debug  = req.nextUrl.searchParams.get('debug') === '1';
-    const result = await getStudentProgress(cleanEmail, cleanRegId);
-    console.log('[training/progress] getProgress response:', JSON.stringify(result));
-    if (debug) return NextResponse.json({ _raw: result });
+    const sb = getServerClient();
 
-    if (result.success && result.data) {
-      // Merge Supabase assessment results (instant, accurate) over Apps Script data (may be stale)
-      try {
-        const sb = getServerClient();
-        const { data: sbResults } = await sb
-          .from('training_assessment_results')
-          .select('tab_key, score, passed, attempts, completed_at')
-          .eq('email', cleanEmail);
-        if (sbResults && sbResults.length > 0) {
-          const sbMap = new Map(sbResults.map(r => {
-            // tab_key "3SFM_S1" → sessionId "S1"; "3SFM_Final" → "S18"; "BVM_Final" → "L7"
-            const sep = r.tab_key.indexOf('_');
-            const sessId = sep >= 0 ? r.tab_key.slice(sep + 1) : r.tab_key;
-            // Map _Final back to the actual session ID used in COURSES config
-            const finalId = r.tab_key.toUpperCase().startsWith('BVM') ? 'L7' : 'S18';
-            const resolvedId = sessId === 'Final' ? finalId : sessId;
-            return [resolvedId, r] as const;
-          }));
-          for (const sess of result.data.sessions) {
-            const sbr = sbMap.get(sess.sessionId);
-            if (sbr) {
-              sess.score = sbr.score;
-              sess.passed = sbr.passed;
-              sess.attempts = sbr.attempts;
-              sess.completedAt = sbr.completed_at;
-              sbMap.delete(sess.sessionId);
-            }
-          }
-          // Add sessions that exist in Supabase but not in Apps Script response
-          for (const [sessId, sbr] of sbMap) {
-            result.data.sessions.push({
-              sessionId: sessId,
-              score: sbr.score,
-              passed: sbr.passed,
-              attempts: sbr.attempts,
-              completedAt: sbr.completed_at,
-            });
-          }
-        }
-      } catch (sbErr) {
-        console.warn('[training/progress] Supabase merge failed, using Apps Script only:', sbErr);
-      }
-      _cache.set(cacheKey, { data: result.data, at: Date.now() });
-      return NextResponse.json({ success: true, data: result.data });
-    }
+    const [metaRes, enrollRes, resultsRes, certsRes] = await Promise.all([
+      sb.from('training_registrations_meta')
+        .select('registration_id, email, name, created_at')
+        .eq('registration_id', cleanRegId)
+        .maybeSingle(),
+      sb.from('training_enrollments')
+        .select('course_code')
+        .eq('registration_id', cleanRegId),
+      sb.from('training_assessment_results')
+        .select('tab_key, score, passed, attempts, is_final, completed_at')
+        .eq('email', cleanEmail),
+      sb.from('student_certificates')
+        .select('course_code, cert_status')
+        .eq('email', cleanEmail),
+    ]);
 
-    // Apps Script returned success:false or data was empty - serve empty progress
-    console.warn('[training/progress] Apps Script returned:', result.success, result.error);
-    return NextResponse.json({
-      success: true,
-      fallback: true,
-      data: emptyProgress(cleanEmail, cleanRegId),
+    const meta         = metaRes.data;
+    const enrollments  = enrollRes.data ?? [];
+    const results      = resultsRes.data ?? [];
+    const certs        = certsRes.data ?? [];
+
+    // Derive enrolled-course signal for legacy callers. Dashboard uses
+    // this to decide which course to show; /verify UI doesn't care.
+    const enrolledCodes = new Set(enrollments.map(e => (e.course_code ?? '').toUpperCase()));
+    const course = enrolledCodes.has('3SFM') && enrolledCodes.has('BVM') ? 'both'
+      : enrolledCodes.has('BVM') ? 'bvm'
+      : '3sfm';
+
+    // Normalize each training_assessment_results row into SessionProgress.
+    // tab_key shape: "3SFM_S1" | "3SFM_Final" | "BVM_L2" | "BVM_Final".
+    //   3SFM_Final -> sessionId "S18", BVM_Final -> "L7".
+    const sessions: SessionProgress[] = results.map(r => {
+      const sep = r.tab_key.indexOf('_');
+      const rawId = sep >= 0 ? r.tab_key.slice(sep + 1) : r.tab_key;
+      const isBvm = r.tab_key.toUpperCase().startsWith('BVM');
+      const sessionId = rawId === 'Final' ? (isBvm ? 'L7' : 'S18') : rawId;
+      return {
+        sessionId,
+        passed:      Boolean(r.passed),
+        score:       Number(r.score ?? 0),
+        attempts:    Number(r.attempts ?? 0),
+        completedAt: (r.completed_at as string | null) ?? null,
+      };
     });
+
+    const finalPassed       = results.some(r => r.is_final && r.passed);
+    const certificateIssued = certs.some(c => c.cert_status === 'Issued');
+
+    const data: ProgressData = {
+      student: {
+        name:           meta?.name ?? '',
+        email:          cleanEmail,
+        registrationId: cleanRegId,
+        course,
+        registeredAt:   (meta?.created_at as string | null) ?? '',
+      },
+      sessions,
+      finalPassed,
+      certificateIssued,
+    };
+
+    _cache.set(cacheKey, { data, at: Date.now() });
+    return NextResponse.json({ success: true, data });
   } catch (err) {
     console.error('[training/progress] Unexpected error:', err);
     return NextResponse.json({

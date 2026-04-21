@@ -417,6 +417,21 @@ export default function TrainingDashboardPage() {
     const sess = getTrainingSession();
     if (!sess) { router.replace('/signin'); return; }
     setLocalSession(sess);
+
+    // Enrollment gate: new Supabase-native students land here with zero
+    // training_enrollments rows. Send them to the enroll page to pick a
+    // course before we load progress data. Existing students have rows
+    // backfilled by scripts/backup_apps_script_students.ts, so the
+    // redirect only fires for truly fresh signups.
+    fetch('/api/training/enroll')
+      .then(r => r.json() as Promise<{ enrollments?: { course_code: string }[] }>)
+      .then(j => {
+        if ((j.enrollments ?? []).length === 0) {
+          router.replace('/training/enroll');
+        }
+      })
+      .catch(() => { /* non-fatal; let the normal load flow continue */ });
+
     const params = new URLSearchParams(window.location.search);
     const needsRefresh = params.get('refresh') === '1';
     if (needsRefresh) {

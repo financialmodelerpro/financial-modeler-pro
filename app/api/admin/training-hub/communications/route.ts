@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
-import { listAllStudents } from '@/src/lib/training/sheets';
+import { getStudentRoster } from '@/src/lib/training/studentRoster';
 import { getServerClient } from '@/src/lib/shared/supabase';
 
 export const revalidate = 0;
@@ -25,8 +25,7 @@ export async function GET(req: NextRequest) {
   }
 
   if (type === 'dropout') {
-    const res = await listAllStudents();
-    const students = res.data ?? [];
+    const students = await getStudentRoster();
     const now = Date.now();
     const DAY = 86400000;
 

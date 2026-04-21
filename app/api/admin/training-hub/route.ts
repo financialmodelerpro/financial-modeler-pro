@@ -1,29 +1,35 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
-import { listAllStudents, listAllCertificates } from '@/src/lib/training/sheets';
+import { getStudentRoster } from '@/src/lib/training/studentRoster';
+import { getServerClient } from '@/src/lib/shared/supabase';
 
 export const revalidate = 0;
 
 export async function GET() {
   const session = await getServerSession(authOptions);
-  if (!session?.user || (session.user as any).role !== 'admin') {
+  if (!session?.user || (session.user as { role?: string }).role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const [studentsRes, certsRes] = await Promise.all([
-    listAllStudents(),
-    listAllCertificates(),
+  const sb = getServerClient();
+  const [allStudents, certsRes] = await Promise.all([
+    getStudentRoster(),
+    sb.from('student_certificates')
+      .select('certificate_id, course_code, cert_status, email, issued_at')
+      .eq('cert_status', 'Issued'),
   ]);
 
-  const allStudents = studentsRes.data ?? [];
-  const allCerts    = certsRes.data ?? [];
-  const dataAvailable = studentsRes.success && studentsRes.error !== 'APPS_SCRIPT_URL not configured';
+  interface CertRow { certificate_id: string; course_code: string; email: string; issued_at: string | null }
+  const allCerts = (certsRes.data ?? []) as CertRow[];
+  const dataAvailable = true;
 
-  const sfmStudents = allStudents.filter(s => s.course === '3SFM');
-  const bvmStudents = allStudents.filter(s => s.course === 'BVM');
-  const sfmCerts    = allCerts.filter(c => c.course === '3SFM');
-  const bvmCerts    = allCerts.filter(c => c.course === 'BVM');
+  // "course" on StudentSummary is now a comma-joined list of enrolled
+  // course codes - ADaptt the legacy single-string filter into membership.
+  const sfmStudents = allStudents.filter(s => s.course.split(',').map(c => c.trim()).includes('3SFM'));
+  const bvmStudents = allStudents.filter(s => s.course.split(',').map(c => c.trim()).includes('BVM'));
+  const sfmCerts    = allCerts.filter(c => (c.course_code ?? '').toUpperCase() === '3SFM');
+  const bvmCerts    = allCerts.filter(c => (c.course_code ?? '').toUpperCase() === 'BVM');
 
   // 3SFM stats
   const sfmWithFinal   = sfmStudents.filter(s => s.finalPassed !== undefined);
@@ -55,6 +61,6 @@ export async function GET() {
     bvmCertsIssued:   n(bvmCerts.length),
     recentRegistrations,
     dataAvailable,
-    appsScriptConfigured: studentsRes.error !== 'APPS_SCRIPT_URL not configured',
+    appsScriptConfigured: true,
   });
 }

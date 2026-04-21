@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
-import { listAllStudents } from '@/src/lib/training/sheets';
+import { getStudentRoster } from '@/src/lib/training/studentRoster';
 
 export const revalidate = 0;
 
@@ -23,9 +23,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
     .select('registration_id,joined_at')
     .eq('cohort_id', id);
 
-  // Enrich with student data from Apps Script
-  const studentsRes = await listAllStudents();
-  const allStudents = studentsRes.data ?? [];
+  // Enrich with student data from Supabase
+  const allStudents = await getStudentRoster();
   const memberMap = new Map(allStudents.map(s => [s.registrationId, s]));
 
   const enriched = (members ?? []).map((m: { registration_id: string; joined_at: string }) => {

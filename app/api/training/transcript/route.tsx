@@ -3,7 +3,7 @@ import React from 'react';
 import {
   renderToBuffer, Document, Page, View, Text, Link, StyleSheet, Image,
 } from '@react-pdf/renderer';
-import { getStudentProgress } from '@/src/lib/training/sheets';
+import { getStudentProgressFromSupabase as getStudentProgress } from '@/src/lib/training/progressFromSupabase';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { COURSES } from '@/src/config/courses';
 

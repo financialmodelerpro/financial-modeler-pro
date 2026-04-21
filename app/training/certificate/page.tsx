@@ -5,8 +5,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { cache } from 'react';
-import { getCertificateByRegId } from '@/src/lib/training/sheets';
-import type { SheetCertificate } from '@/src/lib/training/sheets';
+interface SheetCertificate {
+  certificateId: string;
+  studentName:   string;
+  email:         string;
+  course:        string;
+  issuedAt:      string;
+  certifierUrl:  string;
+}
 import { COURSES } from '@/src/config/courses';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { ShareCertificateButton } from './ShareCertificateButton';
@@ -59,8 +65,22 @@ const fetchCertificate = cache(async (
   regId: string,
   course: string,
 ): Promise<SheetCertificate | null> => {
-  const result = await getCertificateByRegId(regId, course);
-  return result.success && result.data ? result.data : null;
+  const sb = getServerClient();
+  const { data } = await sb
+    .from('student_certificates')
+    .select('certificate_id, full_name, email, course, issued_at, verification_url, cert_status')
+    .eq('registration_id', regId)
+    .ilike('course', course)
+    .maybeSingle();
+  if (!data || data.cert_status !== 'Issued') return null;
+  return {
+    certificateId: (data.certificate_id as string) ?? '',
+    studentName:   (data.full_name as string) ?? '',
+    email:         (data.email as string) ?? '',
+    course:        (data.course as string) ?? '',
+    issuedAt:      (data.issued_at as string) ?? '',
+    certifierUrl:  (data.verification_url as string) ?? '',
+  };
 });
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { submitAssessmentToAppsScript } from '@/src/lib/training/sheets';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
 import { quizResultTemplate } from '@/src/lib/email/templates/quizResult';
@@ -80,28 +79,11 @@ export async function POST(req: NextRequest) {
     }
     const attempt = serverAttempt;
 
-    const recordRes = await submitAssessmentToAppsScript({
-      tabKey,
-      regId,
-      email,
-      score:     numScore,
-      passed:    didPass,
-      isFinal:   isFinal ?? false,
-      attemptNo: attempt,
-    });
-
-    if (!recordRes.success) {
-      console.error('[submit-assessment] Apps Script record failed:', recordRes.error, { tabKey, email });
-      // Return success anyway - the score was calculated correctly client-side
-      // The student should see their result even if the write-back fails
-      return NextResponse.json({
-        success: true,
-        recorded: false,
-        warning: 'Score calculated but failed to save to server. It will sync on next attempt.',
-      });
-    }
-
-    console.log('[submit-assessment] Recorded successfully:', { tabKey, email, score, passed, attemptNo });
+    // Apps Script dual-write removed. training_assessment_results is the
+    // single source of truth for per-session scores; the upsert below is
+    // what drives the dashboard, attempt-status, progress, and certificate
+    // eligibility paths.
+    console.log('[submit-assessment] Recording score:', { tabKey, email, score, passed, attempt });
 
     // Write to Supabase (primary source for dashboard - instant reads).
     // The `attempts` column records server-incremented attempt count — every
@@ -122,7 +104,13 @@ export async function POST(req: NextRequest) {
       }, { onConflict: 'email,tab_key' });
     } catch (sbErr) {
       console.error('[submit-assessment] Supabase write failed:', sbErr);
-      // Non-fatal - Apps Script is the backup
+      // Supabase is now the single source of truth. A write failure here
+      // means the score isn't recorded anywhere durable; surface it.
+      return NextResponse.json({
+        success:  true,
+        recorded: false,
+        warning:  'Score calculated but failed to save. Please refresh and try submitting again.',
+      });
     }
 
     // Best-effort cleanup of the in-progress attempt row (migration 126).

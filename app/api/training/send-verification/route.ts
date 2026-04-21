@@ -16,7 +16,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/lib/shared/supabase';
-import { validateStudent } from '@/src/lib/training/sheets';
 import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
 import { otpVerificationTemplate } from '@/src/lib/email/templates/otpVerification';
 import crypto from 'crypto';
@@ -36,10 +35,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'email is required' }, { status: 400 });
     }
 
-    // If a registration ID is supplied (password-reset flow), verify identity first
+    const sb = getServerClient();
+
+    // If a registration ID is supplied (password-reset flow), verify
+    // identity against Supabase before issuing an OTP.
     if (regId) {
-      const check = await validateStudent(email, regId);
-      if (!check.success) {
+      const { data: match } = await sb
+        .from('training_registrations_meta')
+        .select('registration_id')
+        .eq('registration_id', regId)
+        .eq('email', email)
+        .maybeSingle();
+      if (!match) {
         return NextResponse.json(
           { success: false, error: 'We could not verify your identity. Check your Registration ID and email.' },
           { status: 401 },
@@ -49,8 +56,6 @@ export async function POST(req: NextRequest) {
 
     const code      = generateOTP();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes
-
-    const sb = getServerClient();
 
     // Invalidate any previous unused OTPs for this email
     await sb.from('training_email_otps')

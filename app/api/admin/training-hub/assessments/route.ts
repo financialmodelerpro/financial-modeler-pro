@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
-import { listAllStudents } from '@/src/lib/training/sheets';
+import { getStudentRoster } from '@/src/lib/training/studentRoster';
 import { getServerClient } from '@/src/lib/shared/supabase';
 
 export const revalidate = 0;
@@ -14,15 +14,15 @@ export async function GET() {
 
   const sb = getServerClient();
 
-  const [studentsRes, feedbackRes] = await Promise.all([
-    listAllStudents(),
+  const [students, feedbackRes] = await Promise.all([
+    getStudentRoster(),
     sb.from('session_feedback').select('session_key,rating,comment,registration_id'),
   ]);
 
-  const students = studentsRes.data ?? [];
-  // 'BOTH' = enrolled in 3SFM + BVM; include them in each course's cohort
-  const sfm = students.filter(s => s.course === '3SFM' || s.course === 'BOTH');
-  const bvm = students.filter(s => s.course === 'BVM'  || s.course === 'BOTH');
+  // course is now a comma-joined list of enrolled course codes.
+  const codes = (s: { course: string }) => s.course.split(',').map(c => c.trim());
+  const sfm = students.filter(s => codes(s).includes('3SFM'));
+  const bvm = students.filter(s => codes(s).includes('BVM'));
   const feedbacks = feedbackRes.data ?? [];
 
   // Aggregate feedback by session_key
@@ -87,5 +87,5 @@ export async function GET() {
   const allSessions = [...sessions, ...bvmSessions];
   const problemSessions = allSessions.filter(s => s.passRate < 60 && s.base > 0);
 
-  return NextResponse.json({ sessions, bvmSessions, problemSessions, dataAvailable: studentsRes.success });
+  return NextResponse.json({ sessions, bvmSessions, problemSessions, dataAvailable: true });
 }

@@ -13,7 +13,6 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { validateStudent } from '@/src/lib/training/sheets';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { isDeviceTrusted } from '@/src/lib/shared/deviceTrust';
 import { getTrainingComingSoonState } from '@/src/lib/shared/trainingComingSoon';
@@ -148,9 +147,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Validate against Apps Script
-    const result = await validateStudent(email, regId);
-    if (!result.success) {
+    // Supabase-native credential lookup. The email / regId resolution
+    // earlier in this handler already proved both exist in
+    // training_registrations_meta; the final validation is the password
+    // bcrypt check below.
+    const { data: idCheck } = await sb
+      .from('training_registrations_meta')
+      .select('registration_id, email')
+      .eq('registration_id', regId)
+      .eq('email', email)
+      .maybeSingle();
+    if (!idCheck) {
       return NextResponse.json(
         { success: false, error: 'Invalid credentials. Please check your details.' },
         { status: 401 },

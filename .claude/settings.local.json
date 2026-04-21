@@ -101,7 +101,10 @@
       "Bash(bash /tmp/check_metadata.sh)",
       "Bash(npx next *)",
       "Bash(npx eslint *)",
-      "Bash(git restore *)"
+      "Bash(git restore *)",
+      "Bash(git show *)",
+      "Bash(rm D:/FMP/financial-modeler-pro/app/api/admin/live-sessions/[id]/announce/route.ts)",
+      "Bash(rmdir D:/FMP/financial-modeler-pro/app/api/admin/live-sessions/\\\\[id\\\\]/announce)"
     ]
   }
 }
