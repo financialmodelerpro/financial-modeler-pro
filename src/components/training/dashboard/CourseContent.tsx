@@ -593,7 +593,16 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
           </div>
         </div>
       )}
-      {!bvmLocked && !(finalPassed && courseCert) && (
+      {/* Hide this placeholder once the student has an Issued cert for this
+          course. `certificates` is pre-filtered server-side to cert_status=
+          'Issued' (see /api/training/certificate), so `!courseCert` is the
+          same check as "no Issued row exists for this email + course_code".
+          The older `finalPassed && courseCert` gate depended on
+          progressMap.get(finalSession.id)?.passed, which can be false for
+          pre-migration students whose Final session row never backfilled
+          into Supabase - leaving the Not Yet Earned card showing even
+          after they had the cert in hand. */}
+      {!bvmLocked && !courseCert && (
         <div style={{ border: '2px dashed #D1D5DB', borderRadius: 12, padding: '24px', background: '#FAFAFA', textAlign: 'center' }}>
           <div style={{ fontSize: 28, marginBottom: 10 }}>🎓</div>
           <div style={{ fontSize: 14, fontWeight: 700, color: '#374151', marginBottom: 4 }}>Certificate Not Yet Earned</div>

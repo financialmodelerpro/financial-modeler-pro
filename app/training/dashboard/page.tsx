@@ -111,7 +111,6 @@ export default function TrainingDashboardPage() {
   const [liveLinks, setLiveLinks]                 = useState<LiveLinksMap>({});
   const [courseDescs, setCourseDescs]             = useState<CourseDescsMap>({});
   const [generating, setGenerating]               = useState(false);
-  const [transcriptToast, setTranscriptToast]     = useState('');
   const [lastUpdated, setLastUpdated]             = useState<Date | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed]   = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -476,7 +475,6 @@ export default function TrainingDashboardPage() {
   async function downloadTranscript(courseId: string) {
     if (!localSession || !progress) return;
     setGenerating(true);
-    setTranscriptToast('');
     try {
       const courseCode = (COURSES[courseId]?.shortTitle ?? courseId).toUpperCase();
       const regParts  = localSession.registrationId.split('-');
@@ -492,8 +490,8 @@ export default function TrainingDashboardPage() {
       a.click();
       window.URL.revokeObjectURL(url);
     } catch {
-      setTranscriptToast('Could not generate transcript. Please try again.');
-      setTimeout(() => setTranscriptToast(''), 4000);
+      setDashToast('Could not generate transcript. Please try again.');
+      setTimeout(() => setDashToast(''), 4000);
     } finally {
       setGenerating(false);
     }
@@ -1468,24 +1466,14 @@ export default function TrainingDashboardPage() {
                   )}
                 </div>
 
-                {/* Transcript download buttons */}
-                <div style={{ marginTop: 14, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                  {enrolledCourses.map(cId => {
-                    const cConfig = COURSES[cId];
-                    if (!cConfig) return null;
-                    const cPassed = cConfig.sessions.filter(s => progressMap.get(s.id)?.passed).length;
-                    const disabled = cPassed === 0 || generating;
-                    return (
-                      <button key={cId} onClick={() => downloadTranscript(cId)} disabled={disabled}
-                        style={{ padding: '10px 18px', borderRadius: 8, background: disabled ? '#F3F4F6' : '#0D2E5A', color: disabled ? '#9CA3AF' : '#fff', border: '1px solid #E5E7EB', fontSize: 12, fontWeight: 700, cursor: disabled ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        &#128196; {generating ? 'Generating...' : `Download ${cConfig.shortTitle} Transcript`}
-                      </button>
-                    );
-                  })}
-                </div>
-                {transcriptToast && (
-                  <div style={{ fontSize: 11, color: '#DC2626', marginTop: 6 }}>{transcriptToast}</div>
-                )}
+                {/* Transcript download buttons retired from the achievements
+                    section. Transcripts are now downloaded exclusively via
+                    the Download Transcript link inside each CertificateImageCard
+                    (which routes through /api/training/transcript-cached/[id]
+                    with the proper cached URL), plus the per-course Progress
+                    Transcript button in the course header. Error toasts from
+                    downloadTranscript() now surface through the shared
+                    dashToast overlay at the bottom of the page. */}
 
                 {/* Testimonial shortcut */}
                 {totalPassed >= 1 && !testimonialSubmitted && (
