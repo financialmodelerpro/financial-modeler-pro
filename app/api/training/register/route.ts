@@ -4,6 +4,8 @@ import { verifyCaptcha } from '@/src/lib/shared/captcha';
 import { createConfirmationToken } from '@/src/lib/shared/emailConfirmation';
 import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
 import { confirmEmailTemplate } from '@/src/lib/email/templates/confirmEmail';
+import { getTrainingComingSoonState } from '@/src/lib/shared/trainingComingSoon';
+import { isTrainingIdentifierBypassed } from '@/src/lib/shared/hubBypassList';
 import bcrypt from 'bcryptjs';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
@@ -39,6 +41,30 @@ export async function POST(req: NextRequest) {
     }
 
     const normalEmail = email.trim().toLowerCase();
+
+    // Pre-launch gate: registration closes during Coming Soon alongside
+    // signin. Identifiers on the Training Hub bypass list (the same one
+    // /api/training/validate checks, seeded in migration 121) skip the
+    // gate so pre-launch QA can register test accounts. Matches the
+    // triple-defence shape used on the signin page: server-gated page
+    // renders the countdown, client wrapper accepts ?bypass=true, API
+    // rejects direct POSTs with a comingSoon flag.
+    const comingSoon = await getTrainingComingSoonState();
+    if (comingSoon.enabled) {
+      const bypassed = await isTrainingIdentifierBypassed(normalEmail);
+      if (!bypassed) {
+        return NextResponse.json(
+          {
+            success:    false,
+            comingSoon: true,
+            launchDate: comingSoon.launchDate,
+            error:      'Registration opens at launch. Join the waitlist from the launch page and we\'ll notify you.',
+          },
+          { status: 403 },
+        );
+      }
+    }
+
     const sb = getServerClient();
 
     // Check if already confirmed (existing account)
