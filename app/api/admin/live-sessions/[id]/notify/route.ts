@@ -30,32 +30,49 @@ async function requireAdmin() {
   return user;
 }
 
-/** Returns confirmed training students matching the target filter. */
+/**
+ * Returns confirmed training students.
+ *
+ * Schema note: training_registrations_meta does NOT carry `name` or `course`.
+ * An earlier version of this query SELECT-ed those columns, which caused
+ * Supabase to error on every call and silently return zero rows because
+ * the error was discarded by the destructure. That's what produced the
+ * "0 confirmed students" symptom in the Announce modal.
+ *
+ * Course-based targeting (3sfm / bvm) is therefore not currently possible
+ * against Supabase alone - that data lives in Apps Script. Until a course
+ * enrollment column or join table is added here, the target parameter is
+ * retained for API compatibility but does not narrow the recipient set;
+ * the caller should hard-code target='all' (as the list-row Announce
+ * button does). The reminder flow's 3sfm/bvm radio in the editor is
+ * effectively a no-op on the Supabase side.
+ */
 async function fetchRecipients(
-  sb:     ReturnType<typeof getServerClient>,
-  target: Target,
+  sb:      ReturnType<typeof getServerClient>,
+  _target: Target,
 ): Promise<{ email: string; name: string }[]> {
-  let query = sb
+  const { data, error } = await sb
     .from('training_registrations_meta')
-    .select('email, name, course')
+    .select('email')
     .or('email_confirmed.eq.true,email_confirmed.is.null');
 
-  const { data } = await query;
-  let rows = (data ?? []) as { email: string | null; name: string | null; course: string | null }[];
-  rows = rows.filter(r => !!r.email);
+  if (error) {
+    console.error('[notify/fetchRecipients] query failed', error.message);
+    return [];
+  }
 
-  if (target === '3sfm') rows = rows.filter(r => (r.course ?? '').toUpperCase().includes('3SFM'));
-  if (target === 'bvm')  rows = rows.filter(r => (r.course ?? '').toUpperCase().includes('BVM'));
+  const rows = (data ?? []) as { email: string | null }[];
 
-  // De-dupe by lowercased email (same person registered on multiple courses
-  // shouldn't receive the same announcement twice).
+  // De-dupe by lowercased email.
   const seen = new Set<string>();
   const out: { email: string; name: string }[] = [];
   for (const r of rows) {
     const key = (r.email ?? '').toLowerCase();
     if (!key || seen.has(key)) continue;
     seen.add(key);
-    out.push({ email: r.email!, name: r.name ?? '' });
+    // `name` isn't in Supabase - pass empty string; the template falls
+    // back to the email address when name is blank.
+    out.push({ email: r.email!, name: '' });
   }
   return out;
 }

@@ -120,15 +120,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=registration-failed`);
   }
 
-  // Store in lookup table as confirmed. name + course were previously dropped
-  // from this upsert; their NOT NULL constraints caused every new INSERT to
-  // fail silently (UPDATE branch doesn't need them, which is why the handful
-  // of pre-existing rows kept working). Restored here.
+  // Store in lookup table as confirmed. Only columns that actually exist on
+  // training_registrations_meta are written here: registration_id, email,
+  // phone, city, country, email_confirmed, confirmed_at. Name and course
+  // live in Apps Script (the source of truth for those), not in Supabase.
   const { error: metaErr } = await sb.from('training_registrations_meta').upsert({
     registration_id: registrationId,
     email,
-    name:            pending.name,
-    course:          pending.course,
     phone:           pending.phone ?? null,
     city:            pending.city  ?? null,
     country:         pending.country ?? null,
