@@ -128,16 +128,72 @@ export default function StudentsPage() {
     setProgressLoading(false);
   };
 
+  type SortField = 'registrationId' | 'name' | 'registeredAt' | 'sessionsPassedCount' | 'finalPassed' | 'certificateIssued';
+  type SortDir   = 'asc' | 'desc';
+
+  const [sortField, setSortField] = useState<SortField>('registrationId');
+  const [sortDir,   setSortDir]   = useState<SortDir>('asc');
+
+  function toggleSort(field: SortField) {
+    if (sortField === field) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortField(field); setSortDir('asc'); }
+  }
+
+  // Comparator for a given field. Name sorts with empty names last in asc
+  // order (the "NULL last" rule); other fields rely on natural ordering
+  // with defaults so nothing throws on undefined.
+  function compareBy(a: AdminStudent, b: AdminStudent, field: SortField): number {
+    switch (field) {
+      case 'registrationId':
+        return a.registrationId.localeCompare(b.registrationId);
+      case 'name': {
+        const an = (a.name ?? '').trim().toLowerCase();
+        const bn = (b.name ?? '').trim().toLowerCase();
+        if (!an && bn) return 1;
+        if (an && !bn) return -1;
+        return an.localeCompare(bn);
+      }
+      case 'registeredAt': {
+        const at = a.registeredAt ? new Date(a.registeredAt).getTime() : 0;
+        const bt = b.registeredAt ? new Date(b.registeredAt).getTime() : 0;
+        return at - bt;
+      }
+      case 'sessionsPassedCount':
+        return (a.sessionsPassedCount ?? 0) - (b.sessionsPassedCount ?? 0);
+      case 'finalPassed':
+        return Number(a.finalPassed ?? false) - Number(b.finalPassed ?? false);
+      case 'certificateIssued':
+        return Number(a.certificateIssued ?? false) - Number(b.certificateIssued ?? false);
+    }
+  }
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
-    return students.filter(s => {
-      if (courseFilter !== 'all' && s.course !== courseFilter) return false;
+
+    // getStudentRoster returns `course` as a comma-joined list of enrolled
+    // codes ("3SFM", "BVM", or "3SFM, BVM"). Membership check so
+    // dual-enrolled students aren't dropped by the per-course filter.
+    const filteredList = students.filter(s => {
+      if (courseFilter !== 'all') {
+        const codes = (s.course ?? '').split(',').map(c => c.trim()).filter(Boolean);
+        if (!codes.includes(courseFilter)) return false;
+      }
       if (statusFilter === 'active'  && s.isBlocked) return false;
       if (statusFilter === 'blocked' && !s.isBlocked) return false;
       if (q && !s.name.toLowerCase().includes(q) && !s.email.toLowerCase().includes(q) && !s.registrationId.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [students, search, courseFilter, statusFilter]);
+
+    // Stable sort: RegID secondary key so ties (e.g. two students with the
+    // same name) fall back to deterministic order.
+    const sorted = [...filteredList].sort((a, b) => {
+      const primary = compareBy(a, b, sortField);
+      if (primary !== 0) return sortDir === 'asc' ? primary : -primary;
+      return a.registrationId.localeCompare(b.registrationId);
+    });
+
+    return sorted;
+  }, [students, search, courseFilter, statusFilter, sortField, sortDir]);
 
   const fmt = (iso: string) => {
     try { return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }); }
@@ -202,9 +258,42 @@ export default function StudentsPage() {
         {/* Table */}
         <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, overflow: 'hidden' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 2fr 70px 80px 80px 80px 80px 160px', background: '#1B4F8A', padding: '10px 20px', gap: 0 }}>
-            {['Reg ID', 'Name', 'Email', 'Course', 'Sessions', 'Final', 'Cert', 'Joined', 'Actions'].map(h => (
-              <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
-            ))}
+            {([
+              { label: 'Reg ID',   field: 'registrationId'      as const },
+              { label: 'Name',     field: 'name'                as const },
+              { label: 'Email',    field: null                             },
+              { label: 'Course',   field: null                             },
+              { label: 'Sessions', field: 'sessionsPassedCount' as const },
+              { label: 'Final',    field: 'finalPassed'         as const },
+              { label: 'Cert',     field: 'certificateIssued'   as const },
+              { label: 'Joined',   field: 'registeredAt'        as const },
+              { label: 'Actions',  field: null                             },
+            ]).map(h => {
+              const sortable = h.field !== null;
+              const active = sortable && sortField === h.field;
+              const arrow  = active ? (sortDir === 'asc' ? ' \u2191' : ' \u2193') : '';
+              const base: React.CSSProperties = {
+                fontSize: 10, fontWeight: 700, color: '#fff',
+                textTransform: 'uppercase', letterSpacing: '0.06em',
+                cursor: sortable ? 'pointer' : 'default',
+                userSelect: 'none',
+                opacity: !sortable ? 0.9 : active ? 1 : 0.85,
+              };
+              if (!sortable) {
+                return <div key={h.label} style={base}>{h.label}</div>;
+              }
+              return (
+                <button
+                  key={h.label}
+                  type="button"
+                  onClick={() => toggleSort(h.field!)}
+                  style={{ ...base, background: 'transparent', border: 'none', padding: 0, textAlign: 'left', font: 'inherit' }}
+                  title={`Sort by ${h.label}`}
+                >
+                  {h.label}{arrow}
+                </button>
+              );
+            })}
           </div>
 
           {loading ? (
