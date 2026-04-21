@@ -65,6 +65,19 @@ export async function GET(req: NextRequest) {
   const result = await registerStudent(pending.name, pending.email, pending.course);
 
   if (!result.success) {
+    // Capture the full response before we branch on it. Historical
+    // assumptions about the Apps Script register response shape keep
+    // biting us; logging result.data here tells us exactly whether the
+    // RegID is recoverable from a duplicate response or whether we need
+    // a separate "getStudentByEmail" action.
+    console.log('[confirm-email] Apps Script non-success response detail', {
+      email,
+      success:   result.success,
+      duplicate: result.duplicate,
+      error:     result.error,
+      data:      result.data,
+    });
+
     const errorLower = (result.error ?? '').toLowerCase();
     const isDuplicate =
       result.duplicate === true ||
@@ -138,11 +151,126 @@ export async function GET(req: NextRequest) {
       }
 
       // Apps Script said duplicate but we couldn't find the matching meta
-      // row by email. That used to fall through silently; log it so the
-      // scenario shows up in Vercel rather than hiding behind a generic
-      // "Link Invalid or Expired" page.
-      console.error('[confirm-email] Apps Script reported duplicate but meta row not found by email', {
+      // row by email. This is the "half-migrated student" state: they got
+      // a RegID from Apps Script in an earlier (buggy) attempt but the
+      // Supabase write never completed. If Apps Script returned the
+      // existing student record in result.data (common shape for register
+      // actions), recover them by writing meta + password using that
+      // RegID. Otherwise fall through to the explicit error.
+      const recoveredRegId = (result.data as { registrationId?: string } | undefined)?.registrationId ?? '';
+      if (recoveredRegId) {
+        console.log('[confirm-email] Recovering half-migrated student from Apps Script duplicate response', {
+          email, recoveredRegId,
+        });
+
+        // Meta: SELECT-then-decide keyed on either registration_id or email
+        // so a retry never hits a dual-UNIQUE collision.
+        const { data: existingMeta, error: recoverMetaLookupErr } = await sb
+          .from('training_registrations_meta')
+          .select('registration_id, email')
+          .or(`registration_id.eq.${recoveredRegId},email.eq.${email}`)
+          .maybeSingle();
+        if (recoverMetaLookupErr) {
+          console.error('[confirm-email] half-migrated meta lookup failed', {
+            email, registration_id: recoveredRegId, error: recoverMetaLookupErr.message,
+          });
+          return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=registration-failed`);
+        }
+
+        let metaErr: { message: string } | null = null;
+        if (existingMeta) {
+          const { error } = await sb
+            .from('training_registrations_meta')
+            .update({
+              registration_id: recoveredRegId,
+              email,
+              phone:           pending.phone ?? null,
+              city:            pending.city  ?? null,
+              country:         pending.country ?? null,
+              email_confirmed: true,
+              confirmed_at:    new Date().toISOString(),
+            })
+            .eq('registration_id', existingMeta.registration_id);
+          metaErr = error;
+        } else {
+          const { error } = await sb
+            .from('training_registrations_meta')
+            .insert({
+              registration_id: recoveredRegId,
+              email,
+              phone:           pending.phone ?? null,
+              city:            pending.city  ?? null,
+              country:         pending.country ?? null,
+              email_confirmed: true,
+              confirmed_at:    new Date().toISOString(),
+            });
+          metaErr = error;
+        }
+        if (metaErr) {
+          console.error('[confirm-email] half-migrated meta write failed', {
+            email, registration_id: recoveredRegId,
+            mode: existingMeta ? 'update' : 'insert',
+            error: metaErr.message,
+          });
+          return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=registration-failed`);
+        }
+
+        // Password: same SELECT-then-decide shape.
+        const { data: existingPw, error: recoverPwLookupErr } = await sb
+          .from('training_passwords')
+          .select('registration_id')
+          .eq('registration_id', recoveredRegId)
+          .maybeSingle();
+        if (recoverPwLookupErr) {
+          console.error('[confirm-email] half-migrated password lookup failed', {
+            email, registration_id: recoveredRegId, error: recoverPwLookupErr.message,
+          });
+          return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=password-failed`);
+        }
+
+        let pwErr: { message: string } | null = null;
+        if (existingPw) {
+          const { error } = await sb
+            .from('training_passwords')
+            .update({ password_hash: pending.password_hash })
+            .eq('registration_id', recoveredRegId);
+          pwErr = error;
+        } else {
+          const { error } = await sb
+            .from('training_passwords')
+            .insert({ registration_id: recoveredRegId, password_hash: pending.password_hash });
+          pwErr = error;
+        }
+        if (pwErr) {
+          console.error('[confirm-email] half-migrated password write failed', {
+            email, registration_id: recoveredRegId,
+            mode: existingPw ? 'update' : 'insert',
+            error: pwErr.message,
+          });
+          return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=password-failed`);
+        }
+
+        // Fire-and-forget welcome email using the recovered RegID.
+        const courseName = pending.course === 'bvm' ? 'Business Valuation Modeling'
+          : pending.course === 'both' ? '3-Statement Financial Modeling & Business Valuation Modeling'
+          : '3-Statement Financial Modeling';
+        registrationConfirmationTemplate({ name: pending.name, registrationId: recoveredRegId, courseName })
+          .then(({ subject, html, text }) => sendEmail({ to: email, subject, html, text, from: FROM.training }))
+          .catch(err => console.error('[confirm-email] Welcome email failed:', err));
+
+        await markTokenUsed(tokenId);
+        await sb.from('training_pending_registrations').delete().eq('email', email);
+        return NextResponse.redirect(`${LEARN_URL}/signin?confirmed=true`);
+      }
+
+      // Apps Script said duplicate, Supabase has no row, AND Apps Script
+      // did not include a RegID in its response. Can't recover from here
+      // without an external lookup; fall through to the explicit error
+      // and log everything we got so the response shape is captured.
+      console.error('[confirm-email] duplicate but no RegID recoverable', {
         email,
+        dataFromScript: result.data,
+        resultKeys:     result.data && typeof result.data === 'object' ? Object.keys(result.data) : [],
       });
     }
     console.error('[confirm-email] Apps Script returned non-success', {
