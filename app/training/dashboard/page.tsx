@@ -652,9 +652,20 @@ export default function TrainingDashboardPage() {
 
   const isEnrolledInBvm = enrolledCourses.includes('bvm');
 
-  // What to show in main area
-  const showLockedBvm = activeCourse === 'bvm' && !bvmUnlocked;
-  const displayCourse = enrolledCourses.includes(activeCourse) ? activeCourse : (enrolledCourses[0] ?? '3sfm');
+  // BVM access is gated on having a BVM enrollment row, not on the derived
+  // 3SFM-final-passed signal. The two are aligned in practice (enrollment
+  // auto-created on 3SFM Final pass in /api/training/submit-assessment) but
+  // using the enrollment check directly means admin backfills + manual
+  // overrides flip the gate instantly without round-tripping through
+  // assessment state. Also catches Ahmad-style students whose pre-migration
+  // 3SFM history isn't in Supabase: they have the BVM enrollment row from
+  // migration 134, so BVM shows unlocked even though bvmUnlocked would be
+  // false for them.
+  const showLockedBvm = activeCourse === 'bvm' && !isEnrolledInBvm;
+  // If the active course is 3SFM: show 3SFM. If active is BVM: always show
+  // BVM (locked view if they aren't enrolled). Prevents the previous
+  // fall-through that forced locked BVM-clickers back to 3SFM.
+  const displayCourse = activeCourse === 'bvm' ? 'bvm' : '3sfm';
 
   const sidebarW = sidebarCollapsed ? 56 : 240;
 
@@ -973,14 +984,18 @@ export default function TrainingDashboardPage() {
             {/* Dashboard */}
             <SidebarItem icon={<LayoutDashboard size={16} />} label="Dashboard" active={activeView === 'overview'} onClick={() => navigateTo('overview')} />
 
-            {/* MY COURSES */}
+            {/* MY COURSES - always list both; BVM is locked until the student
+                has a BVM enrollment row (auto-created on 3SFM Final pass). */}
             <SidebarLabel text="My Courses" />
-            {enrolledCourses.map(cId => {
+            {(['3sfm', 'bvm'] as const).map(cId => {
               const c = COURSES[cId];
               if (!c) return null;
-              const cStats = getCourseStats(cId);
+              const isEnrolled = enrolledCourses.includes(cId);
+              const cStats = isEnrolled
+                ? getCourseStats(cId)
+                : { passed: 0, total: c.sessions.length, pct: 0, avgScore: 0, bestScore: 0, bestSession: null as string | null };
               const isActive = activeView === 'course' && activeCourse === cId;
-              const isLocked = cId === 'bvm' && !bvmUnlocked;
+              const isLocked = cId === 'bvm' && !isEnrolled;
 
               return (
                 <SidebarItem
@@ -991,17 +1006,11 @@ export default function TrainingDashboardPage() {
                   onClick={() => navigateTo('course', cId)}
                   badge={isLocked ? 'LOCKED' : `${cStats.passed}/${cStats.total}`}
                   badgeColor={isLocked ? 'rgba(255,255,255,0.15)' : cStats.pct === 100 ? '#C9A84C' : '#2EAA4A'}
-                  tooltip={isLocked ? `${c.title} - Complete 3SFM first` : `${c.title}: ${cStats.passed}/${cStats.total} sessions`}
+                  tooltip={isLocked ? `${c.title} - complete the 3SFM Final Exam to unlock` : `${c.title}: ${cStats.passed}/${cStats.total} sessions`}
                   wrapLabel
                 />
               );
             })}
-            {!isEnrolledInBvm && !sidebarCollapsed && bvmUnlocked && (
-              <a href="/register?course=bvm"
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderRadius: 6, background: 'rgba(46,170,74,0.1)', border: '1px dashed rgba(46,170,74,0.35)', color: '#2EAA4A', textDecoration: 'none', fontSize: 11, fontWeight: 700, marginBottom: 2 }}>
-                + Enrol in BVM
-              </a>
-            )}
 
             {/* TRAINING SESSIONS */}
             <SidebarLabel text="Live Sessions" />
@@ -1245,25 +1254,38 @@ export default function TrainingDashboardPage() {
               <div style={{ marginBottom: 28 }}>
                 <h2 style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A', margin: '0 0 14px' }}>My Certification Courses</h2>
                 <div className="dash-courses-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
-                  {/* Enrolled course cards — tag the first one as the tour target.
-                      Using the index in the `.map()` below rather than editing
-                      each branch keeps the locked/unlocked variants aligned. */}
-                  {enrolledCourses.map((cId, cardIdx) => {
+                  {/* Both 3SFM and BVM always render so students see the full
+                      path. BVM is locked until the student has a BVM enrollment
+                      row (auto-created on 3SFM Final pass in submit-assessment).
+                      The locked card is click-through-safe: no link into the
+                      course, no sessions exposed, CTA redirects to 3SFM. */}
+                  {(['3sfm', 'bvm'] as const).map((cId, cardIdx) => {
                     const c = COURSES[cId];
                     if (!c) return null;
-                    const stats = getCourseStats(cId);
-                    const isLocked = cId === 'bvm' && !bvmUnlocked;
+                    const isEnrolled = enrolledCourses.includes(cId);
+                    const stats = isEnrolled ? getCourseStats(cId) : { passed: 0, total: c.sessions.length, pct: 0, avgScore: 0, bestScore: 0, bestSession: '' as string | null };
+                    const isLocked = cId === 'bvm' && !isEnrolled;
                     const icon = c.shortTitle === '3SFM' ? '\u{1F4CA}' : '\u{1F3E2}';
                     const tourAttr = cardIdx === 0 ? { 'data-tour': 'course-card' } : {};
 
                     if (isLocked) {
                       return (
-                        <div key={cId} {...tourAttr} style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', minHeight: 200, opacity: 0.7 }}>
+                        <div
+                          key={cId}
+                          {...tourAttr}
+                          title="Complete 3SFM Final Exam to unlock Business Valuation Modeling"
+                          style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', minHeight: 200, opacity: 0.72 }}
+                        >
                           <div style={{ marginBottom: 12 }}><Lock size={36} color="#9CA3AF" /></div>
                           <div style={{ fontSize: 15, fontWeight: 700, color: '#374151', marginBottom: 6 }}>{c.title}</div>
-                          <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 14 }}>Complete 3SFM to unlock</div>
-                          <button onClick={() => navigateTo('course', '3sfm')}
-                            style={{ padding: '8px 20px', borderRadius: 8, background: '#F3F4F6', border: '1px solid #E5E7EB', color: '#6B7280', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                          <div style={{ fontSize: 11, color: '#9CA3AF', marginBottom: 4 }}>{c.shortTitle} &middot; {c.sessions.length} {c.sessions.length === 1 ? 'lesson' : 'lessons'}</div>
+                          <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 14, maxWidth: 260 }}>
+                            Complete the 3SFM Final Exam to unlock.
+                          </div>
+                          <button
+                            onClick={() => navigateTo('course', '3sfm')}
+                            style={{ padding: '8px 20px', borderRadius: 8, background: '#F3F4F6', border: '1px solid #E5E7EB', color: '#6B7280', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                          >
                             Go to 3SFM
                           </button>
                         </div>
@@ -1317,26 +1339,11 @@ export default function TrainingDashboardPage() {
                     );
                   })}
 
-                  {/* BVM card if not enrolled */}
-                  {!isEnrolledInBvm && (
-                    <div style={{ background: '#fff', borderRadius: 14, border: '1px dashed #D1D5DB', padding: '24px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', minHeight: 200, opacity: bvmUnlocked ? 1 : 0.6 }}>
-                      <div style={{ fontSize: 36, marginBottom: 12 }}>{bvmUnlocked ? '\u{1F3E2}' : '\u{1F512}'}</div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Business Valuation Modeling</div>
-                      <div style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 14 }}>
-                        {bvmUnlocked ? 'Ready to enrol!' : 'Complete 3SFM to unlock'}
-                      </div>
-                      {bvmUnlocked ? (
-                        <a href="/register?course=bvm"
-                          style={{ padding: '8px 20px', borderRadius: 8, background: '#2EAA4A', color: '#fff', fontSize: 12, fontWeight: 700, textDecoration: 'none' }}>
-                          Enrol Now &#8594;
-                        </a>
-                      ) : (
-                        <div style={{ fontSize: 11, color: '#9CA3AF' }}>
-                          {sfmPassedCount}/{sfmRegular.length} 3SFM sessions completed
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  {/* Previous "Enrol in BVM" call-to-action card retired. BVM
+                      now renders unconditionally inside the main map above
+                      with a locked state when the student isn't yet enrolled;
+                      enrollment happens automatically on 3SFM Final pass in
+                      /api/training/submit-assessment. */}
                 </div>
               </div>
 
