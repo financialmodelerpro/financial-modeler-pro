@@ -29,7 +29,7 @@
  * original course(s) by scripts/backup_apps_script_students.ts.
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { verifyConfirmationToken, markTokenUsed } from '@/src/lib/shared/emailConfirmation';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { allocateRegistrationId } from '@/src/lib/training/regIdAllocator';
@@ -228,13 +228,22 @@ export async function GET(req: NextRequest) {
   // Now that enrollment is always 3SFM, the welcome email can name the
   // course on first signup. BVM-unlock emails ship separately from the
   // final-pass path.
-  registrationConfirmationTemplate({
-    name: pending.name ?? '',
-    registrationId,
-    courseName: '3-Statement Financial Modeling',
-  })
-    .then(({ subject, html, text }) => sendEmail({ to: email, subject, html, text, from: FROM.training }))
-    .catch(err => console.error('[confirm-email] Welcome email failed:', err));
+  // Welcome email runs after the redirect response. `after()` keeps the
+  // Lambda alive until the callback completes - the previous bare
+  // .then().catch() was subject to Vercel tearing the instance down
+  // before Resend replied.
+  after(async () => {
+    try {
+      const { subject, html, text } = await registrationConfirmationTemplate({
+        name: pending.name ?? '',
+        registrationId,
+        courseName: '3-Statement Financial Modeling',
+      });
+      await sendEmail({ to: email, subject, html, text, from: FROM.training });
+    } catch (err) {
+      console.error('[confirm-email] Welcome email failed:', err);
+    }
+  });
 
   // ── Final cleanup ─────────────────────────────────────────────────────────
   await markTokenUsed(tokenId);

@@ -1,10 +1,15 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
 import { quizResultTemplate } from '@/src/lib/email/templates/quizResult';
 import { lockedOutTemplate } from '@/src/lib/email/templates/lockedOut';
 import { issueCertificateForStudent } from '@/src/lib/training/certificateEngine';
 import { deleteInProgressForKey } from '@/src/lib/training/attemptInProgress';
+
+// Cert generation (PDF render + satori/sharp badge + Storage upload + DB write
+// + email) averages 5-10s. Default of 10s on Hobby was right at the edge; 60s
+// gives comfortable headroom so `after()` callbacks below can finish cleanly.
+export const maxDuration = 60;
 
 /**
  * POST /api/training/submit-assessment
@@ -124,12 +129,14 @@ export async function POST(req: NextRequest) {
       console.warn('[submit-assessment] in-progress cleanup failed:', cleanupErr);
     }
 
-    // Send quiz result email (fire-and-forget - don't block the response)
+    // Post-response work runs via `after()` so Vercel keeps the Lambda alive
+    // until the callback resolves. The previous bare IIFE could be torn down
+    // before the email send + cert generation completed.
     const label = sessionName || tabKey;
     const passMark = passingScore ?? 70;
     const maxAtt = maxAttempts ?? (isFinal ? 1 : 3);
 
-    (async () => {
+    after(async () => {
       try {
         const { subject, html, text } = await quizResultTemplate({
           name: studentName,
@@ -159,17 +166,26 @@ export async function POST(req: NextRequest) {
           console.error('[submit-assessment] Locked-out email failed:', lockErr);
         }
       }
-    })();
+    });
 
-    // Inline certificate issuance — fires the moment a student passes a final
-    // exam. Fire-and-forget: the student's API response returns immediately,
-    // PDF generation + storage upload + issuance email run in the background.
+    // Inline certificate issuance fires the moment a student passes a final
+    // exam. `after()` keeps the Lambda alive until the callback resolves, so
+    // PDF generation + storage upload + DB write + issuance email all run to
+    // completion even though the student's HTTP response returned immediately.
     // Idempotency is handled by the helper (skip-if-already-issued pre-check +
     // unique index on student_certificates). Failures log here and surface on
     // the admin "Eligible but not issued" safety-net panel.
     if (didPass && (isFinal ?? false)) {
       const courseCode = tabKey.toUpperCase().startsWith('BVM') ? 'BVM' : '3SFM';
-      (async () => {
+      after(async () => {
+        // Definitive "trigger fired" signal - distinct from the success /
+        // failure logs below, which only fire once the whole pipeline has
+        // reached its end. If this line doesn't show up in Vercel logs,
+        // the trigger never ran. If it shows up but neither success nor
+        // failure does, the runtime killed the Lambda mid-pipeline.
+        console.log('[submit-assessment] cert trigger entering issueCertificateForStudent', {
+          email: cleanEmail, courseCode,
+        });
         try {
           const res = await issueCertificateForStudent(cleanEmail, courseCode, { issuedVia: 'auto' });
           if (res.ok) {
@@ -188,14 +204,14 @@ export async function POST(req: NextRequest) {
             email: cleanEmail, courseCode, err: String(certErr),
           });
         }
-      })();
+      });
 
       // BVM auto-unlock when a student passes 3SFM Final. Students enroll
       // in 3SFM automatically at signup; BVM only appears on their
       // dashboard after this gate. Idempotent via the UNIQUE constraint
       // on (registration_id, course_code) from migration 132.
       if (courseCode === '3SFM') {
-        (async () => {
+        after(async () => {
           try {
             const sb = getServerClient();
             const { data: metaRow } = await sb
@@ -225,7 +241,7 @@ export async function POST(req: NextRequest) {
           } catch (enrollErr) {
             console.error('[submit-assessment] BVM auto-unlock threw:', enrollErr);
           }
-        })();
+        });
       }
     }
 
