@@ -30,10 +30,27 @@ export function CertificateImageCard({ cert }: CertificateImageCardProps) {
   const mainUrl  = process.env.NEXT_PUBLIC_MAIN_URL  ?? 'https://financialmodelerpro.com';
 
   useEffect(() => {
-    // Fetch internal cert data from Supabase
-    const param = cert.email
-      ? `email=${encodeURIComponent(cert.email)}`
-      : `certId=${encodeURIComponent(cert.certificateId)}`;
+    // CRITICAL: fetch by certificateId, NOT email. A student with both
+    // 3SFM + BVM certs has the same email on both card instances; the
+    // email path on /api/training/certificate-image returns the newest
+    // single row (order by issued_at desc, limit 1), which means every
+    // card mounted for the same student would overwrite its own cert
+    // with the BVM row (issued later than 3SFM). Preferring certId -
+    // which is unique per cert - guarantees each card loads its own
+    // supaData. Email fallback stays for legacy certs that lack an ID.
+    let param: string;
+    if (cert.certificateId) {
+      param = `certId=${encodeURIComponent(cert.certificateId)}`;
+    } else if (cert.email) {
+      // Email fallback for pre-migration certs without an ID. Pass the
+      // course code alongside so the API can scope the row when the
+      // student has more than one cert.
+      param = `email=${encodeURIComponent(cert.email)}`;
+      if (cert.courseCode) param += `&courseCode=${encodeURIComponent(cert.courseCode)}`;
+    } else {
+      setLoading(false);
+      return;
+    }
     fetch(`/api/training/certificate-image?${param}`)
       .then(r => r.json())
       .then((j: { cert?: SupaCertData }) => {

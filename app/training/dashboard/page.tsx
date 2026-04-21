@@ -616,6 +616,22 @@ export default function TrainingDashboardPage() {
   const enrolledCourses = progress ? getEnrolledCourses(progress.student.course) : [];
   const progressMap     = progress ? buildProgressMap(progress.sessions) : new Map<string, SessionProgress>();
 
+  // Canonical display order for cert cards + the cert-badges grid.
+  // student_certificates.course_code is the authoritative short code
+  // ('3SFM', 'BVM'); anything else falls to the end so future courses
+  // still render but don't jump ahead of 3SFM / BVM until they're
+  // explicitly ranked. Falls back to the free-form `course` string
+  // when courseCode isn't populated (legacy rows).
+  const COURSE_DISPLAY_ORDER: Record<string, number> = { '3SFM': 0, 'BVM': 1 };
+  const sortedCertificates = [...certificates].sort((a, b) => {
+    const codeA = (a.courseCode ?? a.course ?? '').toUpperCase();
+    const codeB = (b.courseCode ?? b.course ?? '').toUpperCase();
+    const rankA = COURSE_DISPLAY_ORDER[codeA] ?? 99;
+    const rankB = COURSE_DISPLAY_ORDER[codeB] ?? 99;
+    if (rankA !== rankB) return rankA - rankB;
+    return codeA.localeCompare(codeB);
+  });
+
   // BVM unlock: all 17 3SFM sessions + S18 final must be passed
   const sfmFinalSession = COURSES['3sfm']?.sessions.find(s => s.isFinal);
   const bvmUnlocked     = allRegularSessionsPassed('3sfm', progressMap) &&
@@ -1342,7 +1358,7 @@ export default function TrainingDashboardPage() {
                 {/* Certificates */}
                 {certificates.length > 0 ? (
                   <div style={{ marginBottom: 16 }}>
-                    {certificates.map(cert => (
+                    {sortedCertificates.map(cert => (
                       <CertificateImageCard key={cert.certificateId} cert={cert} />
                     ))}
                   </div>
@@ -1359,9 +1375,17 @@ export default function TrainingDashboardPage() {
                   <div id="dash-badges" style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: '20px 24px', marginBottom: 16 }}>
                     <h3 style={{ fontSize: 14, fontWeight: 700, color: '#0D2E5A', margin: '0 0 14px' }}>Certificate Badges</h3>
                     <div className="dash-badges-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-                      {certificates.map(cert => {
+                      {sortedCertificates.map(cert => {
                         const badgeImgUrl = cert.badgeUrl || '';
-                        const courseLabel = cert.course === '3sfm' ? '3SFM' : cert.course.toUpperCase();
+                        // cert.course is the full title ("3-Statement Financial
+                        // Modeling"); uppercase-ing it renders a wall of text
+                        // in the tiny badge tile. Prefer the canonical short
+                        // code from course_code; fall back to a best-effort
+                        // match against the free-form title for legacy rows.
+                        const courseLabel = cert.courseCode?.toUpperCase()
+                          ?? (/\b3SFM|3-statement/i.test(cert.course) ? '3SFM'
+                              : /\bBVM|business valuation/i.test(cert.course) ? 'BVM'
+                              : cert.course.toUpperCase());
                         const learnUrl = typeof window !== 'undefined' ? (process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com') : '';
                         const verifyUrl = cert.certificateId ? `${learnUrl}/verify/${cert.certificateId}` : (cert.verificationUrl ?? '');
                         const shareEvent = {
