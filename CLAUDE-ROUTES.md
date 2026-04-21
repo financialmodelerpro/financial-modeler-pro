@@ -56,7 +56,8 @@ app/admin/
 ├── health/page.tsx
 # NOTE: app/admin/founder/page.tsx DELETED 2026-04-18 — founder editing moved to Page Builder → Founder section (team)
 ├── media/page.tsx
-├── modules/page.tsx
+├── modeling-access/page.tsx       # Modeling Hub access whitelist admin (migration 136): add-email form + per-row Revoke + toggle-state summary. Sidebar nav entry 🔑 Access Whitelist under Modeling Hub.
+├── modules/page.tsx                # Modeling Hub modules; two LaunchStatusCards (Sign In + Register, migration 136) + banner linking to /admin/modeling-access at the top.
 ├── overrides/page.tsx
 ├── page-builder/page.tsx         # CMS page list
 ├── page-builder/[slug]/page.tsx  # Section editor with drag-and-drop
@@ -138,9 +139,10 @@ app/modeling/
 ├── [slug]/page.tsx              # CMS platform sub-pages (071-072), revalidate=0
 ├── confirm-email/page.tsx
 ├── dashboard/page.tsx
-├── register/page.tsx            # Server component → RegisterForm or ComingSoon
-├── register/RegisterForm.tsx    # Client signup form (extracted)
-├── signin/page.tsx              # Server component → ComingSoonWrapper or SignInForm
+├── register/page.tsx            # Server component - gates on modeling_hub_register_coming_soon (migration 136); supports ?email=whitelisted@address shortcut that server-verifies the whitelist and renders the form with the email locked; otherwise renders ModelingRegisterComingSoonWrapper
+├── register/RegisterForm.tsx    # Client signup form; accepts optional invitedEmail prop that pre-fills + locks the email input with a green "✓ Invited" affordance
+├── register/ComingSoonWrapper.tsx # Register-side Coming Soon wrapper: reads ?bypass=true for QA, otherwise renders ModelingComingSoon(variant='register')
+├── signin/page.tsx              # Server component - gates on modeling_hub_signin_coming_soon (migration 136); renders ModelingComingSoonWrapper when toggle is on
 ├── signin/SignInForm.tsx        # Client sign-in + signup + device OTP (extracted)
 ├── signin/ComingSoonWrapper.tsx # Handles ?bypass=true for admin access
 └── submit-testimonial/page.tsx
@@ -233,7 +235,11 @@ app/api/admin/
 ├── share-templates/settings/    # PATCH: brand_mention / founder_mention / brand_prefix_at / founder_prefix_at — strips leading @ on mention inputs, re-reads full settings after write
 ├── contact-submissions/ content/ env-check/ media/ modules/ modules/cms-status/ pages/ permissions/
 # NOTE: app/api/admin/founder/route.ts DELETED 2026-04-18 — founder data written via /api/admin/page-sections
-├── modeling-coming-soon/        # GET/PATCH: toggle coming soon mode
+├── modeling-coming-soon/        # GET/PATCH: legacy single-toggle endpoint (kept for backward compat)
+├── modeling-signin-coming-soon/ # GET/PATCH: Modeling Hub signin-side Coming Soon toggle (migration 136)
+├── modeling-register-coming-soon/ # GET/PATCH: Modeling Hub register-side Coming Soon toggle (migration 136)
+├── modeling-access/             # GET (list entries), POST { email, note } add - modeling_access_whitelist CRUD, admin-gated
+├── modeling-access/[id]/        # DELETE: revoke whitelist entry by id
 ├── pricing/features/ + modules/ + plans/
 ├── projects/ testimonials/ training/ + [courseId]/lessons/
 ├── training-actions/ + [id]/
@@ -415,7 +421,8 @@ src/lib/
 ├── shared/
 │   ├── audit.ts  auth.ts  captcha.ts  cms.ts (getAllPageSections, getPageSections, getTestimonialsForPage)  deviceTrust.ts
 │   ├── emailConfirmation.ts  htmlUtils.ts(isHtml detection)  modelingComingSoon.ts  trainingComingSoon.ts  ogFonts.ts(Inter font loader)
-│   ├── comingSoonGuard.ts        # Centralizes signin/register Coming-Soon gate (Training Hub) — checks hub state → bypass list → ?bypass=true query. Used by both /training/signin + /training/register server components.
+│   ├── modelingAccess.ts         # Modeling Hub access gate (migration 136): isEmailWhitelisted + isEmailAdmin primitives + canEmailSigninModeling / canEmailRegisterModeling high-level checks + listWhitelist (admin UI). All queries are case-insensitive on email. Threaded into /api/auth/register, /api/auth/confirm-email, auth.ts authorize(), and /modeling/register server page's ?email= invite path.
+│   ├── comingSoonGuard.ts        # Centralizes signin/register Coming-Soon gate (Training Hub) - checks hub state → bypass list → ?bypass=true query. Used by both /training/signin + /training/register server components.
 │   ├── hubBypassList.ts          # isIdentifierAllowed(identifier) reads training_settings.training_hub_bypass_list (migration 121), case-insensitive, matches email OR registration_id.
 │   ├── password.ts  permissions.ts  storage.ts  supabase.ts  urls.ts
 └── training/

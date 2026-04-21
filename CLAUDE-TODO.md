@@ -1,10 +1,69 @@
 # Pending Work & Backlog
 
-> Referenced from CLAUDE.md — features not yet started or in progress.
+> Referenced from CLAUDE.md - features not yet started or in progress.
 
 ---
 
-## Recently Completed — Launch Readiness (2026-04-21 session, commits `c37dde9` → `8fb0a77`)
+## Recently Completed - Modeling Hub Lockdown + Dashboard UI Cleanup (2026-04-21 session continuation, commits `c988518` → `bf20a59`)
+
+| Feature | Status |
+|---------|--------|
+| **Modeling Hub pre-launch lockdown** | Complete (migrations 136 + 137, commits `c988518`, `4de63b5`, `1f6e734`). Splits the single `modeling_hub_coming_soon` toggle into independent `modeling_hub_signin_coming_soon` + `modeling_hub_register_coming_soon` with their own launch dates. Creates `modeling_access_whitelist` table (`email UNIQUE`, `note`, `added_by`, `added_at`) pre-seeded with the admin. Purges six unauthorized accounts that slipped in through the previously-unguarded `/modeling/register` page with full `admin_audit_log` trail (subquery resolves `admin_id` to the admin UUID since the live schema has `admin_id NOT NULL`; initial commit without the lookup failed with 23502, fixed in `4de63b5`). Migration 137 force-upserts both toggles to `'true'`. Gating threads through `src/lib/shared/modelingAccess.ts` into `/api/auth/register`, `/api/auth/confirm-email`, NextAuth `authorize()`, and both server pages. Admin UI: two `LaunchStatusCard`s on `/admin/modules`, new `/admin/modeling-access` page with add-email form + per-row Revoke + toggle-state summary, sidebar nav entry 🔑 Access Whitelist, warning banner on `/admin/users`. |
+| **Register page UX with invite links** | Complete (commit `1f6e734`). `/modeling/register` now server-gates identically to signin: toggle OFF → form; toggle ON + no params → Coming Soon UI with "Have an invite? Register here →" link; `?bypass=true` → form (QA escape); `?email=whitelisted@address` → server-verifies whitelist and renders form with pre-filled, locked email showing green "✓ Invited" pill. New files: `app/modeling/register/ComingSoonWrapper.tsx`. `RegisterForm` gained optional `invitedEmail` prop. Copy avoids exposing the bypass mechanism to strangers. |
+| **Sidebar + course view UI cleanup** | Complete (commit `af2eab2`). Sidebar 3SFM/BVM Transcript items retired. Course view (`?course=3sfm\|bvm`): extra `CertificateImageCard` below `CourseContent` removed (was showing every cert regardless of course). Inside `CourseContent` the fully-styled "Certificate Earned" card block removed; only Locked (BVM pre-unlock) + Not-Yet-Earned placeholders remain. |
+| **Hide Not-Yet-Earned card + drop badges transcripts** | Complete (commit `9ead65f`). Main dashboard `#dash-achievements` transcript buttons block removed - `transcriptToast` state retired, errors now route through the shared `dashToast` overlay. Not-Yet-Earned gate changed from `!(finalPassed && courseCert)` to just `!courseCert` (first attempt). |
+| **Cert-Aware course view + course_code threading** | Complete (commit `6203a5e`). Root cause of the Not-Yet-Earned fix not landing: `/api/training/certificate` was returning `course` as the free-form full title ("3-Statement Financial Modeling") but the client was matching against the short code ('3sfm'). API now exposes `courseCode` in `DashboardCert`. `Certificate` type gains optional `courseCode`. `CourseContent.find()` prefers `courseCode` case-insensitive with a free-form fallback. Everywhere that used `finalPassed && courseCert` downgraded to just `courseCert` (pre-migration students lack the Final session row). `certStatus` returns `'Earned'` on cert presence; `isOfficial` label true for cert-holders; View Certificate button renders with cascading href (`certPdfUrl` → `verificationUrl` → `certifierUrl` → `/verify/<id>`); Exam Prep Mode hidden; banner waterfall reordered so `courseCert` branch is first. |
+| **Two-column certificate card layout** | Complete (commit `44eed1e`). `CertificateImageCard` body reshaped to a CSS grid with `repeat(auto-fit, minmax(240px, 1fr))`, 20px gap. Left column: meta + QR. Right column: Download PDF / Badge / Transcript / Share / Verify stacked full-width. Collapses to 1 column under ~500px without a viewport media query. Header, Distinction pill, gradient body, Pending-state card unchanged. Height dropped from ~620px to ~280-320px per issued cert. |
+| **Footer double-© fix** | Complete (commit `ff3e1b4`). `SharedFooter` defensively strips any leading `©` / `&copy;` / `&#169;` plus whitespace from the rendered value (case-insensitive). Template still owns the literal `©` character so values without one still render correctly. Admin edits through `InlineEdit` save what they type and the strip re-applies on the next render - single-© invariant is self-healing, zero caller/CMS changes needed. |
+| **Cert card per-card data binding fix** | Complete (commit `bf20a59`). Critical launch blocker: `CertificateImageCard` fetched `/api/training/certificate-image?email=X` on mount and overwrote its own `cert` prop with the newest single row the endpoint returns (`order by issued_at desc limit 1`). For students with multiple certs both cards rendered the BVM row (same certificate_id, QR, PDF, badge, transcript, verify link). Fix: card now fetches by `certId` (globally unique); email fallback threads `courseCode`. API gained optional `?courseCode=` filter for email-path defense. Dashboard caller adds `sortedCertificates` (`{'3SFM': 0, 'BVM': 1}`) used in both the cert-cards map and the Certificate Badges grid. Tile `courseLabel` also fixed - was `cert.course === '3sfm'` which never matched; now uses `courseCode` with regex fallback. |
+
+**Packages installed this session: none.** All changes reused existing deps.
+
+**Schema changes this session:**
+- Migration 136 (`136_modeling_hub_lockdown.sql`): seeds 4 new `training_settings` keys (`modeling_hub_signin_coming_soon`/`_launch_date`, `modeling_hub_register_coming_soon`/`_launch_date`); creates `modeling_access_whitelist` table with `idx_modeling_wl_email_lower` partial index; seeds admin whitelist row; captures audit trail for 6 user deletions in `admin_audit_log`; deletes email-keyed `trusted_devices` rows; deletes 6 users.
+- Migration 137 (`137_force_modeling_toggles_coming_soon.sql`): force-upserts both modeling hub toggles to `'true'` via `ON CONFLICT DO UPDATE`.
+
+**New API routes this session:**
+- `GET/PATCH /api/admin/modeling-signin-coming-soon` (admin)
+- `GET/PATCH /api/admin/modeling-register-coming-soon` (admin)
+- `GET /api/admin/modeling-access` (list entries, admin)
+- `POST /api/admin/modeling-access` (add entry, admin)
+- `DELETE /api/admin/modeling-access/[id]` (revoke, admin)
+
+**New non-route files this session:**
+- `supabase/migrations/136_modeling_hub_lockdown.sql`
+- `supabase/migrations/137_force_modeling_toggles_coming_soon.sql`
+- `src/lib/shared/modelingAccess.ts` (whitelist + admin + signin/register access predicates)
+- `app/admin/modeling-access/page.tsx` (whitelist admin UI)
+- `app/api/admin/modeling-access/route.ts`
+- `app/api/admin/modeling-access/[id]/route.ts`
+- `app/api/admin/modeling-signin-coming-soon/route.ts`
+- `app/api/admin/modeling-register-coming-soon/route.ts`
+- `app/modeling/register/ComingSoonWrapper.tsx`
+
+**Modified files (gating + UI):**
+- `src/lib/shared/modelingComingSoon.ts` (adds `getModelingSigninComingSoonState` + `getModelingRegisterComingSoonState`; legacy helper kept)
+- `src/lib/shared/auth.ts` (NextAuth `authorize` uses new signin key + whitelist bypass)
+- `app/api/auth/register/route.ts` (`canEmailRegisterModeling` gate before existing-email lookup)
+- `app/api/auth/confirm-email/route.ts` (`canEmailRegisterModeling` gate for stale tokens)
+- `app/modeling/signin/page.tsx` (reads new signin key)
+- `app/modeling/register/page.tsx` (whitelist ?email= short-circuit + `ModelingRegisterComingSoonWrapper`)
+- `app/modeling/register/RegisterForm.tsx` (`invitedEmail` prop, locked input)
+- `app/modeling/ComingSoon.tsx` (register variant gets "Have an invite? Register here →" link)
+- `app/admin/modules/page.tsx` (two `LaunchStatusCard`s + whitelist banner)
+- `app/admin/users/page.tsx` (info banner re: Modeling Hub access lockdown)
+- `src/components/admin/CmsAdminNav.tsx` (🔑 Access Whitelist nav entry under Modeling Hub)
+- `app/api/training/certificate/route.ts` (DashboardCert exposes `courseCode`)
+- `app/api/training/certificate-image/route.ts` (optional `courseCode` email-path filter + response includes `course_code`)
+- `src/components/training/dashboard/types.ts` (Certificate gains optional `courseCode`)
+- `src/components/training/dashboard/CourseContent.tsx` (courseCode matching, banner waterfall reorder, View Cert href cascade, Exam Prep Mode cert-aware, Not-Yet-Earned gate = `!courseCert`, "Certificate Earned" inline card removed)
+- `src/components/training/dashboard/CertificateImageCard.tsx` (fetch by certId, two-column grid layout, courseCode threaded into email fallback)
+- `app/training/dashboard/page.tsx` (sidebar transcripts removed, inline cert card below CourseContent removed, achievements transcript block removed, `transcriptToast` retired → `dashToast`, `sortedCertificates` memo, tile courseLabel uses courseCode)
+- `src/components/landing/SharedFooter.tsx` (defensive leading-© strip)
+
+---
+
+## Recently Completed - Launch Readiness (2026-04-21 session, commits `c37dde9` → `8fb0a77`)
 
 | Feature | Status |
 |---------|--------|
