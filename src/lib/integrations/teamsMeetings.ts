@@ -137,20 +137,82 @@ async function graphFetch(
   return res;
 }
 
+/**
+ * Build a structured detail string for a failed Graph response. Captures
+ * everything Microsoft's support team needs to triage:
+ *   HTTP status, error.code, error.message, innerError.code, request-id
+ *   (and client-request-id), plus the raw body as a fallback.
+ *
+ * The Graph error shape is `{ error: { code, message, innerError: { code,
+ * date, request-id, client-request-id } } }`. Some failures (notably the
+ * known UnknownError-with-empty-body case on `POST /users/{upn}/onlineMeetings`)
+ * carry a useful innerError even when the outer message is blank.
+ */
+async function buildGraphErrorDetail(res: Response): Promise<string> {
+  const status            = res.status;
+  const requestId         = res.headers.get('request-id')        ?? '';
+  const clientRequestId   = res.headers.get('client-request-id') ?? '';
+  const bodyText          = await res.text().catch(() => '');
+
+  let parsedCode    = '';
+  let parsedMessage = '';
+  let innerCode     = '';
+  let innerReqId    = '';
+  if (bodyText) {
+    try {
+      const j = JSON.parse(bodyText) as {
+        error?: {
+          code?: string;
+          message?: string;
+          innerError?: { code?: string; 'request-id'?: string };
+        };
+      };
+      parsedCode    = j.error?.code    ?? '';
+      parsedMessage = j.error?.message ?? '';
+      innerCode     = j.error?.innerError?.code           ?? '';
+      innerReqId    = j.error?.innerError?.['request-id'] ?? '';
+    } catch { /* body wasn't JSON */ }
+  }
+
+  // Single-line detail keeps the existing route-side formatter readable in
+  // toast strings; full parts available in Vercel logs.
+  const parts: string[] = [`HTTP ${status}`];
+  if (parsedCode)    parts.push(`code=${parsedCode}`);
+  if (parsedMessage) parts.push(`msg="${parsedMessage}"`);
+  if (innerCode)     parts.push(`innerCode=${innerCode}`);
+  if (requestId)     parts.push(`request-id=${requestId}`);
+  if (clientRequestId) parts.push(`client-request-id=${clientRequestId}`);
+  if (innerReqId && innerReqId !== requestId) parts.push(`inner-request-id=${innerReqId}`);
+  if (!parsedCode && !parsedMessage && bodyText) {
+    parts.push(`body=${bodyText.length > 240 ? bodyText.slice(0, 240) + '...' : bodyText}`);
+  }
+  return parts.join(' ');
+}
+
 export async function createTeamsMeeting(params: {
   subject:       string;
   startDateTime: string;
   endDateTime:   string;
 }): Promise<TeamsMeeting> {
   const host = process.env.TEAMS_HOST_USER_EMAIL!;
-  const res  = await graphFetch('POST', `/users/${encodeURIComponent(host)}/onlineMeetings`, {
+  const path = `/users/${encodeURIComponent(host)}/onlineMeetings`;
+  const res  = await graphFetch('POST', path, {
     subject:       params.subject,
     startDateTime: params.startDateTime,
     endDateTime:   params.endDateTime,
   });
 
   if (!res.ok) {
-    const detail = await res.text().catch(() => '');
+    const detail = await buildGraphErrorDetail(res);
+    // Mirror to Vercel logs explicitly: route-side formatters truncate
+    // long detail strings, and Microsoft request-ids are essential for
+    // support tickets when the outer error code is generic (e.g.
+    // UnknownError with empty message body).
+    console.error('[teamsMeetings] createTeamsMeeting failed', {
+      path,
+      payload: { subject: params.subject, startDateTime: params.startDateTime, endDateTime: params.endDateTime },
+      detail,
+    });
     throw new TeamsIntegrationError('Graph API: createTeamsMeeting failed', { status: res.status, detail });
   }
 
@@ -169,7 +231,8 @@ export async function updateTeamsMeeting(
 
   const res = await graphFetch('PATCH', `/users/${encodeURIComponent(host)}/onlineMeetings/${encodeURIComponent(meetingId)}`, payload);
   if (!res.ok) {
-    const detail = await res.text().catch(() => '');
+    const detail = await buildGraphErrorDetail(res);
+    console.error('[teamsMeetings] updateTeamsMeeting failed', { meetingId, detail });
     throw new TeamsIntegrationError('Graph API: updateTeamsMeeting failed', { status: res.status, detail });
   }
   return normalizeMeeting((await res.json()) as Record<string, unknown>);
@@ -180,7 +243,8 @@ export async function deleteTeamsMeeting(meetingId: string): Promise<void> {
   const res  = await graphFetch('DELETE', `/users/${encodeURIComponent(host)}/onlineMeetings/${encodeURIComponent(meetingId)}`);
   // 204 No Content on success; 404 is treated as already-deleted (idempotent)
   if (!res.ok && res.status !== 404) {
-    const detail = await res.text().catch(() => '');
+    const detail = await buildGraphErrorDetail(res);
+    console.error('[teamsMeetings] deleteTeamsMeeting failed', { meetingId, detail });
     throw new TeamsIntegrationError('Graph API: deleteTeamsMeeting failed', { status: res.status, detail });
   }
 }
@@ -194,7 +258,7 @@ export async function testTeamsConnection(): Promise<{ ok: true; host: string } 
     const host = process.env.TEAMS_HOST_USER_EMAIL!;
     const res  = await graphFetch('GET', `/users/${encodeURIComponent(host)}?$select=id,userPrincipalName,displayName`);
     if (!res.ok) {
-      const detail = await res.text().catch(() => '');
+      const detail = await buildGraphErrorDetail(res);
       return { ok: false, error: `Host user lookup failed (HTTP ${res.status})`, detail };
     }
     return { ok: true, host };
