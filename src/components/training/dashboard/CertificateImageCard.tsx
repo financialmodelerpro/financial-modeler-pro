@@ -47,7 +47,7 @@ export function CertificateImageCard({ cert }: CertificateImageCardProps) {
   const certId      = supaData?.certificate_id ?? cert.certificateId ?? '';
   const certPdfUrl  = supaData?.cert_pdf_url ?? cert.certPdfUrl ?? cert.certifierUrl ?? '';
   const badgeUrl    = supaData?.badge_url ?? cert.badgeUrl ?? '';
-  // Transcript always goes through the cached endpoint — it 302-redirects
+  // Transcript always goes through the cached endpoint - it 302-redirects
   // to a stored URL when present, else generates + caches on first click.
   // Students never wait through a regeneration twice.
   const transcriptUrl = certId ? `/api/training/transcript-cached/${certId}` : (supaData?.transcript_url ?? cert.transcriptUrl ?? '');
@@ -112,73 +112,82 @@ export function CertificateImageCard({ cert }: CertificateImageCardProps) {
         )}
       </div>
 
+      {/* Two-column body: meta + QR on the left, action buttons on the right.
+          Uses auto-fit + minmax(240px, 1fr) so the grid collapses to a single
+          column when the card's container is narrower than ~500px (mobile
+          phones + narrow sidebars), without needing a viewport media query.
+          Below that threshold the left column renders first, buttons fall
+          underneath, matching the old vertical order. */}
       <div style={{ padding: '20px' }}>
-        {/* Meta */}
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: '#0D2E5A', marginBottom: 2 }}>{cert.studentName}</div>
-          <div style={{ fontSize: 13, color: '#374151', marginBottom: 2 }}>{cert.course}</div>
-          {certId && (
-            <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: 'monospace', marginBottom: 2 }}>
-              ID: {certId}
-            </div>
-          )}
-          <div style={{ fontSize: 12, color: '#6B7280' }}>
-            Issued: {issuedLabel || '-'}
-          </div>
-        </div>
-
-        {/* QR code */}
-        {verifyUrl && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16, padding: 12, borderRadius: 8, background: '#fff', border: '1px solid #E5E7EB' }}>
-            <img
-              src={`/api/qr?url=${encodeURIComponent(verifyUrl)}`}
-              alt="Verification QR"
-              width={80}
-              height={80}
-              style={{ borderRadius: 6, flexShrink: 0 }}
-            />
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 4 }}>Scan to verify</div>
-              <div style={{ fontSize: 10, color: '#9CA3AF', wordBreak: 'break-all', lineHeight: 1.4 }}>
-                {learnUrl}/verify/{certId}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 20, alignItems: 'start' }}>
+          {/* LEFT: meta + QR */}
+          <div>
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#0D2E5A', marginBottom: 2 }}>{cert.studentName}</div>
+              <div style={{ fontSize: 13, color: '#374151', marginBottom: 2 }}>{cert.course}</div>
+              {certId && (
+                <div style={{ fontSize: 11, color: '#9CA3AF', fontFamily: 'monospace', marginBottom: 2 }}>
+                  ID: {certId}
+                </div>
+              )}
+              <div style={{ fontSize: 12, color: '#6B7280' }}>
+                Issued: {issuedLabel || '-'}
               </div>
             </div>
-          </div>
-        )}
 
-        {/* Action buttons */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {certPdfUrl && (
-            <a href={certPdfUrl} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'block', padding: '9px 16px', borderRadius: 7, background: '#0D2E5A', color: '#fff', textDecoration: 'none', fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
-              ⬇ Download Certificate PDF
-            </a>
-          )}
-          {badgeUrl && (
-            <a href={badgeUrl} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'block', padding: '9px 16px', borderRadius: 7, background: '#C9A84C', color: '#fff', textDecoration: 'none', fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
-              🎖 Download Badge
-            </a>
-          )}
-          {transcriptUrl && (
-            <a href={transcriptUrl} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'block', padding: '9px 16px', borderRadius: 7, background: '#1B4F8A', color: '#fff', textDecoration: 'none', fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
-              📄 Download Transcript
-            </a>
-          )}
-          <button
-            type="button"
-            onClick={() => setShowShare(true)}
-            style={{ display: 'block', padding: '9px 16px', borderRadius: 7, background: '#0A66C2', color: '#fff', border: 'none', fontSize: 12, fontWeight: 700, textAlign: 'center', cursor: 'pointer', width: '100%' }}
-          >
-            🔗 Share Certificate
-          </button>
-          {verifyUrl && (
-            <a href={verifyUrl} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'block', padding: '9px 16px', borderRadius: 7, background: '#fff', color: '#374151', textDecoration: 'none', fontSize: 12, fontWeight: 700, textAlign: 'center', border: '1px solid #D1D5DB' }}>
-              ✅ Verify Certificate ↗
-            </a>
-          )}
+            {verifyUrl && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 12, borderRadius: 8, background: '#fff', border: '1px solid #E5E7EB' }}>
+                <img
+                  src={`/api/qr?url=${encodeURIComponent(verifyUrl)}`}
+                  alt="Verification QR"
+                  width={80}
+                  height={80}
+                  style={{ borderRadius: 6, flexShrink: 0 }}
+                />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 4 }}>Scan to verify</div>
+                  <div style={{ fontSize: 10, color: '#9CA3AF', wordBreak: 'break-all', lineHeight: 1.4 }}>
+                    {learnUrl}/verify/{certId}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* RIGHT: action buttons, each full-width of the column */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {certPdfUrl && (
+              <a href={certPdfUrl} target="_blank" rel="noopener noreferrer"
+                style={{ display: 'block', padding: '9px 16px', borderRadius: 7, background: '#0D2E5A', color: '#fff', textDecoration: 'none', fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
+                ⬇ Download Certificate PDF
+              </a>
+            )}
+            {badgeUrl && (
+              <a href={badgeUrl} target="_blank" rel="noopener noreferrer"
+                style={{ display: 'block', padding: '9px 16px', borderRadius: 7, background: '#C9A84C', color: '#fff', textDecoration: 'none', fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
+                🎖 Download Badge
+              </a>
+            )}
+            {transcriptUrl && (
+              <a href={transcriptUrl} target="_blank" rel="noopener noreferrer"
+                style={{ display: 'block', padding: '9px 16px', borderRadius: 7, background: '#1B4F8A', color: '#fff', textDecoration: 'none', fontSize: 12, fontWeight: 700, textAlign: 'center' }}>
+                📄 Download Transcript
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowShare(true)}
+              style={{ display: 'block', padding: '9px 16px', borderRadius: 7, background: '#0A66C2', color: '#fff', border: 'none', fontSize: 12, fontWeight: 700, textAlign: 'center', cursor: 'pointer', width: '100%' }}
+            >
+              🔗 Share Certificate
+            </button>
+            {verifyUrl && (
+              <a href={verifyUrl} target="_blank" rel="noopener noreferrer"
+                style={{ display: 'block', padding: '9px 16px', borderRadius: 7, background: '#fff', color: '#374151', textDecoration: 'none', fontSize: 12, fontWeight: 700, textAlign: 'center', border: '1px solid #D1D5DB' }}>
+                ✅ Verify Certificate ↗
+              </a>
+            )}
+          </div>
         </div>
       </div>
 
