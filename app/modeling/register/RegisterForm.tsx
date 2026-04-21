@@ -16,6 +16,14 @@ interface RegisterFormProps {
   /** True while the Modeling Hub is in Coming Soon mode. */
   preLaunch?:  boolean;
   launchDate?: string | null;
+  /**
+   * When the register page receives `?email=whitelisted@address` and the
+   * server verifies the email is on the Modeling Hub whitelist, the value
+   * lands here. We pre-fill the input and lock it so the API-side gate
+   * (which also checks the whitelist) can't be sidestepped by editing the
+   * input post-hydration.
+   */
+  invitedEmail?: string;
 }
 
 const NAVY = '#0D2E5A';
@@ -34,11 +42,11 @@ const labelStyle: React.CSSProperties = {
   color: '#374151', marginBottom: 6, letterSpacing: '0.03em',
 };
 
-function RegisterInner({ preLaunch, launchDate }: RegisterFormProps) {
+function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProps) {
   const router = useRouter();
 
   const [name,       setName]       = useState('');
-  const [email,      setEmail]      = useState('');
+  const [email,      setEmail]      = useState(invitedEmail ?? '');
   const [phoneCode,  setPhoneCode]  = useState('+1');
   const [phoneLocal, setPhoneLocal] = useState('');
   const [city,       setCity]       = useState('');
@@ -143,11 +151,34 @@ function RegisterInner({ preLaunch, launchDate }: RegisterFormProps) {
                 </div>
 
                 <div>
-                  <label style={labelStyle}>EMAIL ADDRESS <span style={{ color: '#DC2626' }}>*</span></label>
-                  <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
-                    placeholder="you@example.com" style={inputStyle}
-                    onFocus={e => { e.currentTarget.style.borderColor = BLUE; }}
-                    onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
+                  <label style={labelStyle}>
+                    EMAIL ADDRESS <span style={{ color: '#DC2626' }}>*</span>
+                    {invitedEmail && (
+                      <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, color: '#1A7A30', textTransform: 'none', letterSpacing: 0 }}>
+                        ✓ Invited
+                      </span>
+                    )}
+                  </label>
+                  <input
+                    type="email" required
+                    value={email}
+                    onChange={e => { if (!invitedEmail) setEmail(e.target.value); }}
+                    readOnly={!!invitedEmail}
+                    placeholder="you@example.com"
+                    style={{
+                      ...inputStyle,
+                      background: invitedEmail ? '#F0FDF4' : inputStyle.background,
+                      color:      invitedEmail ? '#166534' : undefined,
+                      cursor:     invitedEmail ? 'not-allowed' : 'text',
+                    }}
+                    onFocus={e => { if (!invitedEmail) e.currentTarget.style.borderColor = BLUE; }}
+                    onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }}
+                  />
+                  {invitedEmail && (
+                    <div style={{ marginTop: 4, fontSize: 11, color: '#6B7280' }}>
+                      This invite link is tied to <strong>{invitedEmail}</strong>. Ask the admin for a new link if you need a different address.
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -213,7 +244,7 @@ function RegisterInner({ preLaunch, launchDate }: RegisterFormProps) {
                   </div>
                 </div>
 
-                {/* hCaptcha — C7: overflow-x:auto fallback for when the
+                {/* hCaptcha - C7: overflow-x:auto fallback for when the
                     ~300px widget exceeds a narrow form on 320px phones. */}
                 <div style={{ display: 'flex', justifyContent: 'center', overflowX: 'auto', maxWidth: '100%' }}>
                   <HCaptcha
@@ -267,10 +298,10 @@ function RegisterInner({ preLaunch, launchDate }: RegisterFormProps) {
   );
 }
 
-export function RegisterForm({ preLaunch = false, launchDate = null }: RegisterFormProps = {}) {
+export function RegisterForm({ preLaunch = false, launchDate = null, invitedEmail }: RegisterFormProps = {}) {
   return (
     <Suspense>
-      <RegisterInner preLaunch={preLaunch} launchDate={launchDate} />
+      <RegisterInner preLaunch={preLaunch} launchDate={launchDate} invitedEmail={invitedEmail} />
     </Suspense>
   );
 }

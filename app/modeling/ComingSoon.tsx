@@ -75,6 +75,14 @@ export function ModelingComingSoon({ variant, launchDate }: Props) {
               Already have access? Sign in →
             </Link>
           )}
+
+          {variant === 'register' && (
+            <Link href="/register?bypass=true" style={{
+              fontSize: 13, color: 'rgba(255,255,255,0.35)', textDecoration: 'none', marginTop: 8,
+            }}>
+              Have an invite? Register here →
+            </Link>
+          )}
         </div>
 
         <p style={{ marginTop: 32, fontSize: 13, color: 'rgba(255,255,255,0.25)' }}>

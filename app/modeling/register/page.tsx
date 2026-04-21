@@ -1,22 +1,67 @@
 import { getModelingRegisterComingSoonState } from '@/src/lib/shared/modelingComingSoon';
+import { isEmailWhitelisted } from '@/src/lib/shared/modelingAccess';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
 import { RegisterForm } from './RegisterForm';
+import { ModelingRegisterComingSoonWrapper } from './ComingSoonWrapper';
 
 export const revalidate = 0;
 
 /**
- * Register page stays rendered even while the register Coming Soon toggle
- * is on so whitelisted invitees can still see and submit the form. The
- * /api/auth/register endpoint is the actual gate (migration 136): it
- * rejects non-admin, non-whitelisted submissions with a 403. When the
- * toggle is off, the banner disappears and anyone can register.
+ * Register page gating (migration 136 + 137):
+ *
+ * 1. Toggle OFF (register CS disabled)
+ *      -> everyone sees the form.
+ *
+ * 2. Toggle ON + `?email=whitelisted@address`
+ *      -> whitelisted invitee arrived via admin-shared link. Render the
+ *         form with the email pre-filled and locked, so the API-side
+ *         whitelist check can't be sidestepped by editing the input.
+ *
+ * 3. Toggle ON, no `?email=` (or email not whitelisted)
+ *      -> render the Coming Soon wrapper. The wrapper still honours
+ *         `?bypass=true` so admins can preview the form during testing
+ *         and whitelisted users who forgot the email-prefilled link can
+ *         still reach the form (the API is the real gate in that case).
+ *
+ * In all paths, /api/auth/register + /api/auth/confirm-email also run
+ * the whitelist check so none of the above is a single point of failure.
  */
-export default async function ModelingRegisterPage() {
+interface PageProps {
+  searchParams: Promise<{ email?: string | string[]; bypass?: string | string[] }>;
+}
+
+export default async function ModelingRegisterPage({ searchParams }: PageProps) {
+  const sp = await searchParams;
   const state = await getModelingRegisterComingSoonState();
+
+  if (!state.enabled) {
+    return (
+      <>
+        <NavbarServer />
+        <RegisterForm preLaunch={false} launchDate={null} />
+      </>
+    );
+  }
+
+  const rawEmail = Array.isArray(sp.email) ? sp.email[0] : sp.email;
+  const invitedEmail = (rawEmail ?? '').trim().toLowerCase();
+  if (invitedEmail && await isEmailWhitelisted(invitedEmail)) {
+    return (
+      <>
+        <NavbarServer />
+        <RegisterForm
+          preLaunch={true}
+          launchDate={state.launchDate}
+          invitedEmail={invitedEmail}
+        />
+      </>
+    );
+  }
+
   return (
     <>
       <NavbarServer />
-      <RegisterForm preLaunch={state.enabled} launchDate={state.launchDate} />
+      <ModelingRegisterComingSoonWrapper launchDate={state.launchDate} />
     </>
   );
 }
