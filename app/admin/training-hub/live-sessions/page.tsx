@@ -51,7 +51,6 @@ interface LiveSession {
   registration_url?: string;
   youtube_embed?: boolean;
   show_like_button?: boolean;
-  announcement_send_mode?: string;
   meeting_provider?: 'manual' | 'teams' | 'zoom' | 'meet';
   teams_meeting_id?: string | null;
   teams_dial_in?: { tollNumber?: string; conferenceId?: string; tollFreeNumber?: string; dialInUrl?: string } | null;
@@ -275,7 +274,6 @@ interface FormState {
   registration_url: string;
   youtube_embed: boolean;
   show_like_button: boolean;
-  announcement_send_mode: 'auto' | 'manual';
   meeting_provider: 'manual' | 'teams' | 'zoom' | 'meet';
   auto_generate_teams: boolean;
 }
@@ -287,7 +285,7 @@ const defaultForm: FormState = {
   duration_minutes: '', max_attendees: '', difficulty_level: 'All Levels',
   prerequisites: '', instructor_id: '', instructor_name: '', instructor_title: '', tags: [],
   is_featured: false, live_password: '', registration_url: '',
-  youtube_embed: false, show_like_button: true, announcement_send_mode: 'auto',
+  youtube_embed: false, show_like_button: true,
   meeting_provider: 'manual', auto_generate_teams: false,
 };
 
@@ -333,7 +331,6 @@ export default function LiveSessionsPage() {
 
   /* ── Notification targeting ── */
   const [notifyTarget, setNotifyTarget] = useState<'all' | '3sfm' | 'bvm'>('all');
-  const [previewSent, setPreviewSent] = useState(false);
 
   /* ── Announcement dispatch ── */
   const [announceBusyId, setAnnounceBusyId] = useState<string | null>(null);
@@ -557,7 +554,6 @@ export default function LiveSessionsPage() {
     registration_url: s.registration_url ?? '',
     youtube_embed: s.youtube_embed ?? false,
     show_like_button: s.show_like_button ?? true,
-    announcement_send_mode: (s.announcement_send_mode === 'manual' ? 'manual' : 'auto') as 'auto' | 'manual',
     meeting_provider: (s.meeting_provider ?? 'manual') as 'manual' | 'teams' | 'zoom' | 'meet',
     auto_generate_teams: s.meeting_provider === 'teams',
   };};
@@ -567,7 +563,6 @@ export default function LiveSessionsPage() {
     setForm({ ...defaultForm, playlist_id: selectedPlaylist ?? '' });
     setAttachments([]);
     setBannerPreview(null);
-    setPreviewSent(false);
     setNotifyTarget('all');
     setMarkRecordedOpen(false);
     setInlinePlaylistOpen(false);
@@ -578,7 +573,6 @@ export default function LiveSessionsPage() {
     setEditSession(s);
     setForm(sessionToForm(s));
     setBannerPreview(s.banner_url ?? null);
-    setPreviewSent(false);
     setNotifyTarget('all');
     setMarkRecordedOpen(false);
     setInlinePlaylistOpen(false);
@@ -596,7 +590,6 @@ export default function LiveSessionsPage() {
     setForm(dup);
     setAttachments([]);
     setBannerPreview(null);
-    setPreviewSent(false);
     setNotifyTarget('all');
     setMarkRecordedOpen(false);
     setInlinePlaylistOpen(false);
@@ -637,7 +630,6 @@ export default function LiveSessionsPage() {
         registration_url:   form.registration_url,
         youtube_embed:      form.youtube_embed,
         show_like_button:   form.show_like_button,
-        announcement_send_mode: form.announcement_send_mode,
         meeting_provider:   form.meeting_provider,
       };
 
@@ -768,7 +760,6 @@ export default function LiveSessionsPage() {
           const j = await res.json().catch(() => ({}));
           if (preview) {
             toast('Preview sent to your inbox');
-            setPreviewSent(true);
           } else {
             toast(`${label} sent to ${j.sent ?? 0} recipients${j.failed ? ` (${j.failed} failed)` : ''}`);
           }
@@ -1440,15 +1431,6 @@ export default function LiveSessionsPage() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 20, paddingTop: 8, flexWrap: 'wrap' }}>
                   <ToggleSwitch label="Published" value={form.published} onChange={v => setForm(f => ({ ...f, published: v }))} />
                   <ToggleSwitch label="Featured" value={form.is_featured} onChange={v => setForm(f => ({ ...f, is_featured: v }))} />
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <label style={{ fontSize: 11, fontWeight: 600, color: '#374151' }}>Announce on publish:</label>
-                    <select style={{ padding: '3px 8px', fontSize: 11, borderRadius: 4, border: '1px solid #D1D5DB' }}
-                      value={form.announcement_send_mode}
-                      onChange={e => setForm(f => ({ ...f, announcement_send_mode: e.target.value as 'auto' | 'manual' }))}>
-                      <option value="auto">Auto</option>
-                      <option value="manual">Manual</option>
-                    </select>
-                  </div>
                 </div>
               </div>
             </div>
@@ -1729,7 +1711,7 @@ export default function LiveSessionsPage() {
                           type="radio"
                           name="notifyTarget"
                           checked={notifyTarget === opt.value}
-                          onChange={() => { setNotifyTarget(opt.value); setPreviewSent(false); }}
+                          onChange={() => setNotifyTarget(opt.value)}
                           style={{ accentColor: BLUE }}
                         />
                         {opt.label}
@@ -1739,9 +1721,9 @@ export default function LiveSessionsPage() {
                 </div>
 
                 <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                  {/* Announcement */}
+                  {/* Announcement (read-only status; dispatch lives on the list row) */}
                   <div style={{ background: LIGHT_BG, borderRadius: 8, padding: '12px 16px', minWidth: 260 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Announcement</div>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: '#374151', marginBottom: 6 }}>Announcement Status</div>
                     <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 10 }}>
                       {editSession.announcement_sent
                         ? (
@@ -1754,29 +1736,8 @@ export default function LiveSessionsPage() {
                         )
                         : <span style={{ color: '#92400E', fontWeight: 700 }}>{'\u26A0 Not sent yet'}</span>}
                     </div>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      <button
-                        style={{ ...btnSecondary, padding: '5px 12px', fontSize: 11 }}
-                        onClick={() => sendNotify(editSession, 'announcement', notifyTarget, true)}
-                        disabled={announceBusyId === editSession.id}
-                      >
-                        Preview Email
-                      </button>
-                      <button
-                        style={{
-                          ...btnPrimary, padding: '5px 12px', fontSize: 11,
-                          background: editSession.announcement_sent ? '#6B7280' : BLUE,
-                          opacity: announceBusyId === editSession.id ? 0.6 : 1,
-                          cursor: announceBusyId === editSession.id ? 'wait' : 'pointer',
-                        }}
-                        onClick={() => openAnnounceModal(editSession, notifyTarget)}
-                        disabled={announceBusyId === editSession.id}
-                      >
-                        {editSession.announcement_sent ? '\u2709 Resend Announcement' : '\u2709 Send Announcement'}
-                      </button>
-                    </div>
-                    <p style={{ fontSize: 10, color: '#9CA3AF', marginTop: 6 }}>
-                      Students never receive an announcement until you click Send. Resend is safe, it always uses the latest session details.
+                    <p style={{ fontSize: 10, color: '#9CA3AF', marginTop: 6, lineHeight: 1.5 }}>
+                      Save and close the editor to send an announcement. The Announce button on the session&apos;s row in the list view is the single entry point, so you can finish banner uploads and final review before emailing students.
                     </p>
                   </div>
                   {/* Reminder */}

@@ -36,7 +36,7 @@ export async function PATCH(
     'timezone', 'category', 'playlist_id', 'is_published', 'display_order', 'banner_url',
     'duration_minutes', 'max_attendees', 'difficulty_level', 'prerequisites', 'instructor_name',
     'tags', 'is_featured', 'live_password', 'registration_url',
-    'announcement_send_mode', 'youtube_embed', 'instructor_title', 'instructor_id',
+    'youtube_embed', 'instructor_title', 'instructor_id',
     'meeting_provider',
   ];
   for (const k of allowed) {
