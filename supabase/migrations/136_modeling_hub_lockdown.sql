@@ -62,19 +62,25 @@ ON CONFLICT (email) DO NOTHING;
 -- and is untouched by this migration.
 
 -- 3a. Audit trail FIRST so target_user_id is captured before the row vanishes.
-INSERT INTO admin_audit_log (action, target_user_id, before_value, reason)
+-- admin_audit_log.admin_id is NOT NULL in the live schema (tightened after
+-- migration 007), so we resolve the admin's UUID via subquery and attribute
+-- the action to meetahmadch@gmail.com. The migration fails loudly if the
+-- admin account isn't present, which is the right behaviour - nothing
+-- about this migration makes sense without an admin to attribute it to.
+INSERT INTO admin_audit_log (admin_id, action, target_user_id, before_value, reason)
 SELECT
+  (SELECT id FROM users WHERE email = 'meetahmadch@gmail.com' AND role = 'admin' LIMIT 1),
   'modeling_hub_lockdown_delete',
-  id,
+  u.id,
   jsonb_build_object(
-    'email',      email,
-    'name',       name,
-    'role',       role,
-    'created_at', created_at
+    'email',      u.email,
+    'name',       u.name,
+    'role',       u.role,
+    'created_at', u.created_at
   ),
   'Unauthorized modeling hub account removed during pre-launch lockdown (migration 136)'
-FROM users
-WHERE email = ANY(ARRAY[
+FROM users u
+WHERE u.email = ANY(ARRAY[
   'waqarpersonal45@gmail.com',
   'usamanawaz253@gmail.com',
   'mohammad.ismail536@gmail.com',
@@ -82,7 +88,7 @@ WHERE email = ANY(ARRAY[
   'smjhassan82@gmail.com',
   'ahmaddin.ch@gmail.com'
 ])
-AND role <> 'admin';
+AND u.role <> 'admin';
 
 -- 3b. Clean up email-keyed satellite tables that don't cascade from users.id.
 -- trusted_devices stores email in the `identifier` column (per CLAUDE.md),
