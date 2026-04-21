@@ -31,6 +31,16 @@ export function SharedFooter({
   const topPad    = paddingTop    ? `${paddingTop}px`    : heightPadding;
   const bottomPad = paddingBottom ? `${paddingBottom}px` : heightPadding;
 
+  // Some CMS rows (footer.copyright) and hardcoded callers (training-sessions
+  // pages pass \u00A9) already include a leading copyright symbol. The bottom
+  // row then prefixes its own literal ©, producing "© © 2026 ...". Stripping
+  // any leading © / &copy; / &#169; plus whitespace from the value keeps a
+  // single symbol on render regardless of where the string came from. Matches
+  // the user-facing display only; admin edits through InlineEdit still save
+  // whatever they type, and this strip is re-applied the next time the value
+  // is rendered so the footer stays single-© forever.
+  const copyrightDisplay = (copyright ?? '').replace(/^\s*(?:©|&copy;|&#169;)\s*/i, '');
+
   // I17: footer padding + inter-column gap scale with viewport so
   // phones don't have 80px of wasted horizontal gutter. The minmax
   // drops to 160px so two columns fit at 375px instead of stacking.
@@ -114,7 +124,7 @@ export function SharedFooter({
         {/* Bottom row */}
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
           <span style={{ fontSize: 12, color: 'rgba(255,255,255,0.25)' }}>
-            © <InlineEdit tag="span" section="footer" fieldKey="copyright" value={copyright} isAdmin={isAdmin} darkBg />
+            © <InlineEdit tag="span" section="footer" fieldKey="copyright" value={copyrightDisplay} isAdmin={isAdmin} darkBg />
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
             {showPrivacy && (
