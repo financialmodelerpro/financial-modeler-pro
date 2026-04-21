@@ -817,13 +817,24 @@ export default function TrainingSettingsPage() {
               </div>
             </div>
 
-            {/* Training Hub Launch Status (moved from Course Manager) */}
-            <div style={{ maxWidth: 780 }}>
+            {/* Training Hub Launch Status - two independent toggles so
+                signin + register can be controlled separately (migration 135).
+                Typical pre-launch: signin OFF (existing students can log in),
+                register ON (block new signups during QA). Bypass list
+                applies to both independently. */}
+            <div style={{ maxWidth: 780, display: 'flex', flexDirection: 'column', gap: 16 }}>
               <LaunchStatusCard
-                label="Training Hub"
+                label="Training Hub - Sign In"
                 icon="🎓"
                 endpoint="/api/admin/training-coming-soon"
                 previewUrl={(process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com') + '/signin'}
+                onMessage={(msg) => showToast(msg)}
+              />
+              <LaunchStatusCard
+                label="Training Hub - Register"
+                icon="📝"
+                endpoint="/api/admin/training-register-coming-soon"
+                previewUrl={(process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com') + '/register'}
                 onMessage={(msg) => showToast(msg)}
               />
             </div>

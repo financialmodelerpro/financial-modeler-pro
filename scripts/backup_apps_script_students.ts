@@ -29,10 +29,12 @@
  *   SUPABASE_SERVICE_ROLE_KEY
  *
  * Usage:
- *   npx tsx scripts/backup_apps_script_students.ts
+ *   npx tsx --env-file=.env.local scripts/backup_apps_script_students.ts
+ *
+ * Env loading uses Node/tsx's native --env-file flag so no `dotenv`
+ * package is required. Node 20.6+ / tsx 4.8+.
  */
 
-import 'dotenv/config';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { listAllStudents, getAllCertificates, type StudentSummary, type CertRow } from '../src/lib/training/sheets';

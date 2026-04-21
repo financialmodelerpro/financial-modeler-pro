@@ -41,3 +41,37 @@ export async function isTrainingComingSoon(): Promise<boolean> {
   const s = await getTrainingComingSoonState();
   return s.enabled;
 }
+
+/**
+ * Separate Coming Soon state for /training/register (migration 135).
+ * Independent from the signin toggle above so pre-launch can be
+ * "signin open for existing students, register closed to new signups"
+ * without conflating the two pages. Bypass list still applies on both.
+ */
+export interface TrainingRegisterComingSoonState {
+  enabled:    boolean;
+  launchDate: string | null;
+}
+
+const REGISTER_KEYS = [
+  'training_hub_register_coming_soon',
+  'training_hub_register_launch_date',
+] as const;
+
+export async function getTrainingRegisterComingSoonState(): Promise<TrainingRegisterComingSoonState> {
+  try {
+    const sb = getServerClient();
+    const { data } = await sb
+      .from('training_settings')
+      .select('key,value')
+      .in('key', REGISTER_KEYS as unknown as string[]);
+    const map = new Map((data ?? []).map((r: { key: string; value: string }) => [r.key, r.value]));
+    const rawDate = (map.get('training_hub_register_launch_date') ?? '').trim();
+    return {
+      enabled:    map.get('training_hub_register_coming_soon') === 'true',
+      launchDate: rawDate || null,
+    };
+  } catch {
+    return { enabled: false, launchDate: null };
+  }
+}
