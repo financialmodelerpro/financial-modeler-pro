@@ -47,7 +47,15 @@ export interface Certificate {
   certificateId: string;
   studentName: string;
   email: string;
+  /** Display-only full course title (e.g. "3-Statement Financial Modeling"). */
   course: string;
+  /**
+   * Canonical short code (e.g. "3SFM", "BVM"). Prefer this for any
+   * client-side matching against COURSES configs; `course` above is
+   * free-form prose on older cert rows and can't be relied on for
+   * lookups.
+   */
+  courseCode?: string;
   issuedAt: string;
   certifierUrl: string;
   // Internal system fields (populated after migration to internal cert system)

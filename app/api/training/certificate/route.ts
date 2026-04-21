@@ -12,6 +12,15 @@ interface DashboardCert {
   studentName?:     string;
   email?:           string;
   course:           string;
+  /**
+   * Canonical short code from student_certificates.course_code
+   * (e.g. '3SFM', 'BVM'). `course` above is the full title
+   * ('3-Statement Financial Modeling') which is display-only;
+   * client-side matching against course configs should use
+   * courseCode so pre-migration certs with prose-style `course`
+   * values don't break the lookup.
+   */
+  courseCode?:      string;
   issuedAt:         string;
   certPdfUrl?:      string;
   badgeUrl?:        string;
@@ -26,6 +35,7 @@ function mapRow(r: Record<string, unknown>): DashboardCert {
     studentName:     (r.full_name as string) ?? undefined,
     email:           (r.email as string) ?? undefined,
     course:          (r.course as string) ?? (r.course_code as string) ?? '',
+    courseCode:      (r.course_code as string) ?? undefined,
     issuedAt:        (r.issued_at as string) ?? '',
     certPdfUrl:      (r.cert_pdf_url as string) ?? undefined,
     badgeUrl:        (r.badge_url as string) ?? undefined,

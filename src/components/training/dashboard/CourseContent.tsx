@@ -135,9 +135,22 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
   const allPassedCount = courseProgress.passedCount;
   const progressPct = courseProgress.percentage;
 
-  const courseCert = certificates.find(c =>
-    c.course === courseId || c.course === course.id || c.course === course.shortTitle.toLowerCase()
-  );
+  // Canonical match is on courseCode (student_certificates.course_code),
+  // which is the short code '3SFM' / 'BVM'. Pre-migration certs lack the
+  // column in their API response, so we still fall back to matching the
+  // free-form `course` text against courseId / course.id / shortTitle.
+  const shortCodeUpper = course.shortTitle.toUpperCase();
+  const shortCodeLower = course.shortTitle.toLowerCase();
+  const courseCert = certificates.find(c => {
+    if (c.courseCode) {
+      const code = c.courseCode.toUpperCase();
+      return code === shortCodeUpper;
+    }
+    const raw = (c.course ?? '').toLowerCase();
+    return raw === courseId.toLowerCase()
+        || raw === course.id.toLowerCase()
+        || raw === shortCodeLower;
+  });
 
   // Stats
   const attempted = regularSessions.filter(s => (progressMap.get(s.id)?.attempts ?? 0) > 0);
@@ -150,10 +163,14 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
     if (!best || p.score > best.score) return { score: p.score, label: s.id };
     return best;
   }, null);
-  const certStatus = bvmLocked ? 'Locked' : (finalPassed && courseCert ? 'Earned' : allRegularPassed ? 'Eligible' : 'Pending');
+  // An Issued cert row is sufficient to treat the course as Earned,
+  // regardless of whether the final session progress row backfilled into
+  // Supabase for pre-migration students. `finalPassed` alone is
+  // unreliable for that cohort.
+  const certStatus = bvmLocked ? 'Locked' : (courseCert ? 'Earned' : allRegularPassed ? 'Eligible' : 'Pending');
   const certColor = bvmLocked ? '#9CA3AF' : (certStatus === 'Earned' ? '#C9A84C' : certStatus === 'Eligible' ? '#2EAA4A' : '#6B7280');
   const hasAny = passedCount > 0;
-  const isOfficial = finalPassed;
+  const isOfficial = finalPassed || !!courseCert;
 
   // "About This Course" - courses API keys by category (e.g. '3SFM', 'BVM')
   const desc = courseDescs[course.shortTitle] ?? courseDescs[course.shortTitle.toLowerCase()];
@@ -224,12 +241,27 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
               ) : '📄'}
               {generating ? 'Generating…' : isOfficial ? 'Official Transcript' : 'Progress Transcript'}
             </button>
-            {courseCert && finalPassed && (
-              <a href={courseCert.certifierUrl} target="_blank" rel="noopener noreferrer"
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#C9A84C', color: '#fff', textDecoration: 'none' }}>
-                🏆 View Certificate
-              </a>
-            )}
+            {courseCert && (() => {
+              // Prefer the direct PDF for an instant-open UX. Fall back to
+              // the stored verification URL, then the legacy certifierUrl,
+              // then the canonical learn-subdomain verify page. Earlier code
+              // relied solely on certifierUrl which /api/training/certificate
+              // does not populate, so with finalPassed dropped from the gate
+              // the link would have rendered with an empty href for
+              // post-migration certs.
+              const learnBase = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
+              const href = courseCert.certPdfUrl
+                        || courseCert.verificationUrl
+                        || courseCert.certifierUrl
+                        || (courseCert.certificateId ? `${learnBase}/verify/${courseCert.certificateId}` : '');
+              if (!href) return null;
+              return (
+                <a href={href} target="_blank" rel="noopener noreferrer"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 7, fontSize: 12, fontWeight: 700, background: '#C9A84C', color: '#fff', textDecoration: 'none' }}>
+                  🏆 View Certificate
+                </a>
+              );
+            })()}
           </div>
         </div>
 
@@ -363,7 +395,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
       </div>
 
       {/* ── Exam Prep Mode ───────────────────────────────────────────────── */}
-      {allRegularPassed && !finalPassed && finalSession && (progressMap.get(finalSession.id)?.attempts ?? 0) === 0 && (
+      {!courseCert && allRegularPassed && !finalPassed && finalSession && (progressMap.get(finalSession.id)?.attempts ?? 0) === 0 && (
         <div style={{ background: 'linear-gradient(135deg,#EFF6FF,#DBEAFE)', border: '1px solid #93C5FD', borderRadius: 12, padding: '18px 22px', marginBottom: 20 }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: '#1E3A8A', marginBottom: 8 }}>🎯 Exam Prep Mode - You are ready for the Final Exam!</div>
           <div style={{ fontSize: 12, color: '#1E40AF', marginBottom: 12 }}>Review your weakest sessions before sitting the final:</div>
@@ -503,26 +535,12 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
         // instead of a raw href - keeps every share entry point routed through
         // the share-templates pipeline.
         let shareEvent: DashboardShareEvent | null = null;
-        if (passedCount === 0) {
-          title = '🚀 Start Your Journey';
-          body = `Begin with Session 1 of ${course.shortTitle} - watch the video then take the assessment.`;
-          const s = regularSessions[0];
-          const tk = s ? `${course.shortTitle.toUpperCase()}_${s.id}` : '';
-          actionUrl = liveLinks[tk]?.youtubeUrl || s?.youtubeUrl || '';
-          action = '▶ Watch Session 1';
-        } else if (!allRegularPassed && nextUnpassed) {
-          title = `📌 Continue - Session ${nextIdx + 1}`;
-          body = `You have completed ${passedCount} of ${regularSessions.length} sessions. Keep the momentum!`;
-          const tk = `${course.shortTitle.toUpperCase()}_${nextUnpassed.id}`;
-          actionUrl = liveLinks[tk]?.youtubeUrl || nextUnpassed.youtubeUrl || '';
-          action = `▶ Watch Session ${nextIdx + 1}`;
-        } else if (allRegularPassed && !finalPassed) {
-          title = '🏆 Ready for the Final Exam';
-          body = 'All sessions passed! Sit the Final Exam to earn your certificate.';
-          const fk = finalSession ? `${course.shortTitle.toUpperCase()}_${finalSession.id}` : '';
-          actionUrl = fk ? `/training/assessment/${encodeURIComponent(fk)}` : '';
-          action = '🏆 Take Final Exam';
-        } else if (finalPassed && courseCert) {
+        // Cert-first: if the student has an Issued cert for this course,
+        // every other "keep going" message is stale. Jump straight to the
+        // share-your-certificate branch regardless of progressMap state
+        // (pre-migration students may have a cert without a Final session
+        // progress row, which used to make this branch unreachable).
+        if (courseCert) {
           title = '🎓 Share Your Certificate';
           body = 'Congratulations! Share your certificate to showcase your skills.';
           action = '🎉 Share Certificate';
@@ -542,6 +560,25 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
               verifyUrl,
             },
           };
+        } else if (passedCount === 0) {
+          title = '🚀 Start Your Journey';
+          body = `Begin with Session 1 of ${course.shortTitle} - watch the video then take the assessment.`;
+          const s = regularSessions[0];
+          const tk = s ? `${course.shortTitle.toUpperCase()}_${s.id}` : '';
+          actionUrl = liveLinks[tk]?.youtubeUrl || s?.youtubeUrl || '';
+          action = '▶ Watch Session 1';
+        } else if (!allRegularPassed && nextUnpassed) {
+          title = `📌 Continue - Session ${nextIdx + 1}`;
+          body = `You have completed ${passedCount} of ${regularSessions.length} sessions. Keep the momentum!`;
+          const tk = `${course.shortTitle.toUpperCase()}_${nextUnpassed.id}`;
+          actionUrl = liveLinks[tk]?.youtubeUrl || nextUnpassed.youtubeUrl || '';
+          action = `▶ Watch Session ${nextIdx + 1}`;
+        } else if (allRegularPassed && !finalPassed) {
+          title = '🏆 Ready for the Final Exam';
+          body = 'All sessions passed! Sit the Final Exam to earn your certificate.';
+          const fk = finalSession ? `${course.shortTitle.toUpperCase()}_${finalSession.id}` : '';
+          actionUrl = fk ? `/training/assessment/${encodeURIComponent(fk)}` : '';
+          action = '🏆 Take Final Exam';
         } else {
           title = '📈 Keep Going';
           body = 'Complete the remaining sessions to unlock your certificate.';
