@@ -1194,44 +1194,54 @@ export default function TrainingDashboardPage() {
                 <div style={{ position: 'absolute', top: -40, right: -40, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.04)' }} />
                 <div style={{ position: 'absolute', bottom: -20, right: 60, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.03)' }} />
 
-                <div style={{ position: 'relative', zIndex: 1 }}>
-                  <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, marginBottom: 4 }}>
-                    Welcome back, {studentName || 'Student'}!
-                  </h1>
-                  <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', margin: 0, marginBottom: 16 }}>
-                    {totalPassed === 0 ? 'Start your financial modeling journey today.' :
-                     totalPassed === totalSessions ? 'Congratulations! You\'ve completed all sessions.' :
-                     `You've completed ${totalPassed} of ${totalSessions} sessions. Keep going!`}
-                  </p>
+                <div style={{ position: 'relative', zIndex: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 20, flexWrap: 'wrap' }}>
+                  {/* Left: welcome text + progress bar (everything that
+                      determined hero height before the walkthrough button
+                      existed). flex: 1 + minWidth: 240 lets it wrap below
+                      the button on narrow viewports without squishing. */}
+                  <div style={{ flex: 1, minWidth: 240 }}>
+                    <h1 style={{ fontSize: 22, fontWeight: 800, margin: 0, marginBottom: 4 }}>
+                      Welcome back, {studentName || 'Student'}!
+                    </h1>
+                    <p style={{ fontSize: 13, color: 'rgba(255,255,255,0.6)', margin: 0, marginBottom: 16 }}>
+                      {totalPassed === 0 ? 'Start your financial modeling journey today.' :
+                       totalPassed === totalSessions ? 'Congratulations! You\'ve completed all sessions.' :
+                       `You've completed ${totalPassed} of ${totalSessions} sessions. Keep going!`}
+                    </p>
 
-                  {/* Watch Platform Walkthrough — only renders when an admin
-                      has set platform_walkthrough_url in /admin/training-settings. */}
+                    {/* Overall progress bar */}
+                    <div style={{ marginBottom: 4 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>Overall Progress</span>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: '#2EAA4A' }}>{overallPct}%</span>
+                      </div>
+                      <div style={{ height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', borderRadius: 4, background: 'linear-gradient(90deg, #2EAA4A, #34D058)', width: `${overallPct}%`, transition: 'width 0.8s ease' }} />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right: Watch Platform Walkthrough — only renders when
+                      an admin has set platform_walkthrough_url. Sits on the
+                      right of the hero so it doesn't add vertical height,
+                      and uses a white pill against the navy gradient for
+                      strong contrast without competing with the green
+                      progress accent. */}
                   {walkthroughUrl && (
                     <button
                       onClick={() => setWalkthroughOpen(true)}
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 8,
-                        padding: '9px 16px', marginBottom: 16,
-                        background: '#2EAA4A', color: '#fff',
-                        border: 'none', borderRadius: 8,
+                        padding: '11px 18px', flexShrink: 0,
+                        background: '#fff', color: '#0D2E5A',
+                        border: 'none', borderRadius: 999,
                         fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                        boxShadow: '0 4px 14px rgba(46,170,74,0.35)',
+                        boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
                       }}
                     >
                       <PlayCircle size={16} /> Watch Platform Walkthrough
                     </button>
                   )}
-
-                  {/* Overall progress bar */}
-                  <div style={{ marginBottom: 4 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: 'rgba(255,255,255,0.5)' }}>Overall Progress</span>
-                      <span style={{ fontSize: 11, fontWeight: 700, color: '#2EAA4A' }}>{overallPct}%</span>
-                    </div>
-                    <div style={{ height: 8, borderRadius: 4, background: 'rgba(255,255,255,0.1)', overflow: 'hidden' }}>
-                      <div style={{ height: '100%', borderRadius: 4, background: 'linear-gradient(90deg, #2EAA4A, #34D058)', width: `${overallPct}%`, transition: 'width 0.8s ease' }} />
-                    </div>
-                  </div>
                 </div>
               </div>
 
