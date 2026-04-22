@@ -1223,20 +1223,21 @@ export default function TrainingDashboardPage() {
 
                   {/* Right: Watch Platform Walkthrough — only renders when
                       an admin has set platform_walkthrough_url. Sits on the
-                      right of the hero so it doesn't add vertical height,
-                      and uses a white pill against the navy gradient for
-                      strong contrast without competing with the green
-                      progress accent. */}
+                      right of the hero so it doesn't add vertical height.
+                      Gold gradient matches the platform's accent (Points
+                      stat, 100%-progress bar, certified badge) and pops
+                      against the navy hero gradient. */}
                   {walkthroughUrl && (
                     <button
                       onClick={() => setWalkthroughOpen(true)}
                       style={{
                         display: 'inline-flex', alignItems: 'center', gap: 8,
                         padding: '11px 18px', flexShrink: 0,
-                        background: '#fff', color: '#0D2E5A',
+                        background: 'linear-gradient(135deg, #C9A84C 0%, #D4AF37 100%)',
+                        color: '#0D2E5A',
                         border: 'none', borderRadius: 999,
                         fontSize: 13, fontWeight: 700, cursor: 'pointer',
-                        boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
+                        boxShadow: '0 6px 20px rgba(201,168,76,0.45)',
                       }}
                     >
                       <PlayCircle size={16} /> Watch Platform Walkthrough
