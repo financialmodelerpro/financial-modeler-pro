@@ -196,6 +196,14 @@ export function CoursePlayerLayout({
     return () => window.removeEventListener('resize', check);
   }, []);
 
+  // Mobile-first: when there's a video, open it immediately so the
+  // student lands on the playable iframe instead of a tap-to-reveal
+  // card. Desktop users still see the rich Screen 1 (banner +
+  // description + meta) and click "Watch Session" themselves.
+  useEffect(() => {
+    if (isMobile && hasVideo && !videoOpen) setVideoOpen(true);
+  }, [isMobile, hasVideo, videoOpen]);
+
   // Restore desktop sidebar collapse preference (client-only).
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -585,10 +593,16 @@ export function CoursePlayerLayout({
             </div>
           )}
 
-          {/* Screen 2: Video OPEN */}
+          {/* Screen 2: Video OPEN.
+              The wrapper used to have `aspectRatio: '16/9'` plus YouTubePlayer's
+              own padding-bottom 56.25% trick — those compounded with no
+              defined width and collapsed the iframe to 0 dimensions on
+              mobile (the video appeared "missing"). YouTubePlayer is
+              already responsive 16:9 by itself, so we just give it a
+              full-width block container and let it render. */}
           {videoOpen && hasVideo && (
             <>
-              <div style={{ maxHeight: 'calc(100vh - 108px)', aspectRatio: '16/9' }}>
+              <div style={{ width: '100%', background: '#000' }}>
                 <YouTubePlayer
                   videoId={videoId!}
                   title={title}
@@ -602,7 +616,7 @@ export function CoursePlayerLayout({
                   onProgress={onVideoProgress}
                 />
               </div>
-              <div style={{ padding: '24px 32px', maxWidth: 860 }}>
+              <div style={{ padding: 'clamp(14px, 4vw, 24px) clamp(14px, 4vw, 32px)', maxWidth: 860 }}>
                 {belowVideoContent}
                 {children}
                 {studentEmail && sessionId && (

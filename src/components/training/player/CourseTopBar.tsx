@@ -67,22 +67,28 @@ export function CourseTopBar({
       <div style={{
         position: 'sticky', top: 56, zIndex: 100,
         display: 'flex', alignItems: 'center', gap: 12,
-        padding: '0 20px', height: 52,
+        padding: '8px 14px', minHeight: 52,
         background: '#0D2E5A', color: '#fff',
         borderBottom: '1px solid rgba(255,255,255,0.08)',
         flexWrap: 'wrap',
       }}>
         {/* Session title */}
         <div style={{
-          flex: 1, minWidth: 0,
+          flex: '1 1 200px', minWidth: 0,
           fontSize: 14, fontWeight: 600,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>
           {title}
         </div>
 
-        {/* Action icons */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
+        {/* Action icons. flexWrap so the row wraps cleanly on narrow
+            viewports instead of overflowing horizontally and pushing
+            buttons off-screen. overflowX:auto is a fallback for the
+            edge case where a single button is wider than the viewport. */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap',
+          maxWidth: '100%', overflowX: 'auto',
+        }}>
           {channelId && (
             <button
               onClick={() => setShowSubscribeModal(true)}
