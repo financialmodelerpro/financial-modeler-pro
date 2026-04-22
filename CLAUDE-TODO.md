@@ -4,6 +4,57 @@
 
 ---
 
+## Recently Completed - Teams Calendar Rebuild + Announcement Reliability + Mobile Player (2026-04-22 session, commits `6c29bf5` → `8db26e8`)
+
+| Feature | Status |
+|---------|--------|
+| **Modeling Hub - admin post-login bypass** | Complete (commit `6c29bf5`). `src/lib/shared/comingSoonGuard.ts` now resolves NextAuth session server-side and skips the redirect for `role === 'admin'` OR `isEmailWhitelisted(email)`. `/modeling/signin` + `/modeling/register` auto-redirect already-logged-in admins (and any authed user when the toggle is off) straight to `/modeling/dashboard`. The dashboard's stale-session bounce-back uses `/signin?bypass=true` so a returning admin with expired JWT lands on the real sign-in form instead of the CS countdown. Training Hub guard behavior preserved. |
+| **Course player sidebar - collapse + mobile drawer** | Complete (commit `ef29a01`). Desktop chevron toggles 240px ↔ 64px rail, preference persisted in `localStorage['fmp_player_sidebar_collapsed']`. Mobile (<768px) turned into off-canvas drawer opened via navy "Sessions (N)" pill; backdrop/X dismisses; auto-closes on session navigate via `useEffect` watching `currentSessionId`. |
+| **Mobile video iframe was missing** | Complete (commit `2282e47`). Root cause was a Screen-2 wrapper with `aspectRatio: 16/9` stacked over YouTubePlayer's own padding-bottom trick - collapsed to 0x0 inside the mobile flex column even though the iframe loaded. Fixed with `width: 100%, background: #000` wrapper. Also auto-opens `videoOpen` on mobile mount so video is the first content; `CourseTopBar` action row now `flexWrap: wrap` to stop horizontal overflow of 6+ action buttons on 375px. |
+| **Platform walkthrough video** | Complete (commits `16dee47`, `afe167c`, `b9e7201`). Admin pastes URL into `/admin/training-settings` → stored in `training_settings.platform_walkthrough_url` (no migration, existing K/V table). Gold-gradient button lands on the Training Hub dashboard hero's right column (flex row, does not add vertical height). Fullscreen modal embeds YouTube via `youtube-nocookie.com/embed/{id}?autoplay=1&rel=0&modestbranding=1`; non-YT URLs get a generic iframe + "Open in new tab" fallback. Public read via `GET /api/training/community-links` extended to return `platformWalkthroughUrl` alongside `whatsappGroupUrl`. |
+| **Teams calendar integration - real Outlook events** | Complete (commits `698f991`, `8db26e8`). Switched `createTeamsMeeting` (POST `/users/{id}/onlineMeetings`, URL-only) to `createCalendarEventWithMeeting` (POST `/users/{id}/events` with `isOnlineMeeting:true` + `onlineMeetingProvider:"teamsForBusiness"`) so Outlook creates a calendar entry on the host's Outlook/Teams calendar + auto-generates the Teams meeting with a rendered Join button + fires the standard invitation email to the organizer. Requires Azure `Calendars.ReadWrite` (Application) with admin consent, added to the tenant 2026-04-22. New helpers: `createCalendarEventWithMeeting`, `updateCalendarEvent`, `deleteCalendarEvent`, `toGraphDateTime` (UTC ISO → Graph `dateTimeTimeZone` via `sv-SE` locale, `Asia/Karachi` default), plus try-then-fallback wrappers `updateMeetingOrEvent` / `deleteMeetingOrEvent` that try `/events` first and fall back to `/onlineMeetings` on 404 so pre-migration sessions remain editable without a DB migration. Second commit `8db26e8` fixed two follow-up bugs: (a) custom `body.content` was suppressing Outlook's auto-injected Teams Join block (underlying `onlineMeeting.joinUrl` existed, just not rendered) → removed `body` from POST + PATCH, (b) empty `attendees: []` made Outlook skip the invitation email → added host as single `required` attendee (self-invite pattern, no calendar-entry duplicate). Dead `buildEventBody` helper deleted. |
+| **Live session announcement reliability (migration 138)** | Complete (commit `28d5887`). Rebuilt after a 4-of-9 partial failure pattern during testing. `sendEmailBatch()` in `src/lib/email/sendEmail.ts` wraps Resend's `batch.send([...])`: one HTTP request per 100 recipients, one rate-limit slot instead of 10 parallel bursts. New child table `announcement_recipient_log` (migration 138) with per-recipient `status` (pending/sent/failed/bounced/complained), `resend_message_id`, per-row `error_message`, `UNIQUE(send_log_id, email)`, partial index on failed rows for the retry hot path. Notify route seeds recipients as `pending` before the batch fires, UPDATEs each to `sent`/`failed` from the response, recomputes aggregate counts on `announcement_send_log` so retries reflect reality. Two new POST modes: `recipientEmails: string[]` (picker allowlist / test-send), `retrySendLogId: string` (re-attempt only the failed/bounced rows of a prior dispatch in place). Course filter `target: '3sfm'\|'bvm'\|'all'` now actually filters via `training_enrollments` JOIN. Admin modal rebuilt: search + course pills + per-row checkboxes + "Send to myself only" + "Select all (filtered)" + "Clear selection" + "Preview to my inbox"; after send switches to per-recipient status table with pills + CSV export + "Retry N Failed" button. |
+| **Announcement email leaked Teams join URL** | Complete (commit `8db26e8`). The "Direct join link: <url>" footnote in `liveSessionNotificationTemplate` was exposing the Teams join URL to every recipient, including students who had not registered. Removed; replaced with neutral "Register to get the join link, calendar invite and session materials" copy. Registered students still receive the link via `registrationConfirmationTemplate` + reminder templates (unchanged). |
+
+**Packages installed this session: none.** All changes reused existing deps (Resend SDK 6.10.0 already had `batch.send`, Next.js Image APIs unchanged, no new icons beyond what `lucide-react` already exposes).
+
+**Schema changes this session:**
+- Migration 138 (`138_announcement_recipient_log.sql`): creates `announcement_recipient_log` table with FK to `announcement_send_log(id) ON DELETE CASCADE`, `status` CHECK constraint, `UNIQUE(send_log_id, email)`, + two indexes (`idx_announcement_recipient_log_send` on FK, partial `idx_announcement_recipient_log_failed` on `(send_log_id) WHERE status IN ('failed','bounced')`).
+- New `training_settings` key `platform_walkthrough_url` (no migration - the existing K/V table absorbs new keys natively, default empty string hides the button).
+
+**Azure permission added (tenant-level, one-time, outside migrations):**
+- `Calendars.ReadWrite` (Application) on `FMP Training Hub` app registration with admin consent. `~30 min` propagation before the new event flow works on first use.
+
+**New API routes this session: none.** All changes extended existing routes:
+- `GET /api/training/community-links` extended to also return `platformWalkthroughUrl`
+- `GET /api/admin/live-sessions/[id]/notify` extended with `?sendLogId=X` mode for per-recipient log lookup + now returns full `recipients[]` list for the picker
+- `POST /api/admin/live-sessions/[id]/notify` extended with `recipientEmails` and `retrySendLogId` body fields
+
+**New non-route files this session:**
+- `supabase/migrations/138_announcement_recipient_log.sql`
+
+**Modified files (backend):**
+- `src/lib/shared/comingSoonGuard.ts` - admin role + whitelist bypass for modeling hub
+- `src/lib/integrations/teamsMeetings.ts` - new calendar-event helpers + timezone helper + compat wrappers
+- `src/lib/email/sendEmail.ts` - new `sendEmailBatch` helper
+- `src/lib/email/templates/liveSessionNotification.ts` - removed direct-join-URL footnote
+- `app/api/admin/live-sessions/route.ts` - POST calls `createCalendarEventWithMeeting`
+- `app/api/admin/live-sessions/[id]/route.ts` - PATCH/DELETE call the wrapper helpers
+- `app/api/admin/live-sessions/[id]/notify/route.ts` - full rewrite with batch + per-recipient logging
+- `app/api/training/community-links/route.ts` - added `platformWalkthroughUrl`
+
+**Modified files (UI):**
+- `app/admin/training-hub/live-sessions/page.tsx` - rich picker modal replacing the simple confirm dialog (node-driven surgical replacement because the file literally stored `✉` as ASCII bytes that Edit tool couldn't match)
+- `app/admin/training-settings/page.tsx` - Platform Walkthrough Video card
+- `app/modeling/signin/page.tsx` - auto-redirect logged-in admins + whitelisted
+- `app/modeling/register/page.tsx` - auto-redirect logged-in users to dashboard
+- `app/modeling/dashboard/page.tsx` - bounce-back now uses `?bypass=true`
+- `app/training/dashboard/page.tsx` - hero flex row with Watch Platform Walkthrough gold button + modal
+- `src/components/training/player/CoursePlayerLayout.tsx` - desktop collapse + mobile drawer + mobile video fix + auto-open videoOpen
+- `src/components/training/player/CourseTopBar.tsx` - `flexWrap: wrap` on action buttons
+
+---
+
 ## Recently Completed - Modeling Hub Lockdown + Dashboard UI Cleanup (2026-04-21 session continuation, commits `c988518` → `bf20a59`)
 
 | Feature | Status |

@@ -249,7 +249,7 @@ app/api/admin/
 ├── live-playlists/              # CRUD for playlists
 ├── live-sessions/               # GET/POST + PUT banner upload
 ├── live-sessions/[id]/          # PATCH/DELETE
-├── live-sessions/[id]/notify/   # POST: send emails via Resend
+├── live-sessions/[id]/notify/   # GET: session + recipients[] (for picker modal) + history[], supports ?sendLogId=X to fetch per-recipient log rows (migration 138). POST: send emails via Resend batch API (2026-04-22); seeds announcement_recipient_log rows as 'pending' before the batch fires, UPDATEs each to sent/failed from the response. New POST modes: `recipientEmails: string[]` (explicit picker allowlist / test send), `retrySendLogId: string` (re-attempt failed/bounced rows of a prior dispatch in place). `target: '3sfm'|'bvm'|'all'` now filters via training_enrollments JOIN.
 ├── live-sessions/[id]/registrations/ # GET/PATCH
 ├── newsletter/subscribers/       # GET: paginated subscriber list with stats
 ├── newsletter/export/           # GET: CSV download
@@ -296,7 +296,7 @@ app/api/
 ├── public/training-sessions/      # GET: public list (no auth, no live_url/password)
 ├── public/training-sessions/[id]/ # GET: public detail (no auth, no live_url/password)
 ├── training/session-notes/        # GET+POST: per-student notes per session (upsert)
-├── training/community-links/      # GET: public — returns { whatsappGroupUrl } with server-side URL-shape re-validation (migration 123). Empty string means the dashboard sidebar hides the Join WhatsApp Group button.
+├── training/community-links/      # GET: public returns { whatsappGroupUrl, platformWalkthroughUrl } with server-side URL-shape re-validation (migrations 123 + 2026-04-22 training_settings.platform_walkthrough_url key). Empty strings hide their corresponding UI (Join WhatsApp Group sidebar button, Watch Platform Walkthrough hero button).
 ├── newsletter/subscribe/          # POST: hub-segmented subscribe (public, rate-limited)
 ├── newsletter/unsubscribe/        # GET: per-hub unsubscribe via token (HTML response)
 ├── og/route.tsx                   # GET: Training Hub OG banner (1200x630, CMS hero, logo)
@@ -398,7 +398,7 @@ src/components/
 ```
 src/lib/
 ├── email/
-│   ├── sendEmail.ts             # Resend wrapper
+│   ├── sendEmail.ts             # Resend wrapper. Exposes single-email `sendEmail()` + `sendEmailBatch(items)` (2026-04-22) which calls `resend.batch.send([...])`, up to 100 emails per HTTP request / one rate-limit slot per call. Used by the live-session announcement flow.
 │   ├── sendTemplatedEmail.ts    # CMS-template email sender (placeholder replacement, batching, branded base)
 │   └── templates/ (_base, accountConfirmation, certificateIssued, confirmEmail,
 │       deviceVerification, lockedOut, otpVerification, passwordReset,
@@ -415,6 +415,8 @@ src/lib/
 │   ├── autoFill.ts              # autoFillElements() — id-prefix → bucket matching (title/subtitle/session), returns new elements with text content swapped
 │   ├── brandKit.ts              # loadBrandKit() — reads singleton row (id=1) incl. additional_logos/photos/uploaded_images, falls back to defaults
 │   └── imageToDataUri.ts        # Fetches URL → base64 data URI (sharp SVG→PNG), shared by render route
+├── integrations/
+│   └── teamsMeetings.ts          # Microsoft Graph API client for the Teams calendar event flow. Exposes `createCalendarEventWithMeeting` / `updateCalendarEvent` / `deleteCalendarEvent` (POST/PATCH/DELETE against `/users/{hostId}/events` with `isOnlineMeeting:true` + `onlineMeetingProvider:"teamsForBusiness"`), wrappers `updateMeetingOrEvent` / `deleteMeetingOrEvent` that try `/events` first and fall back to legacy `/onlineMeetings` on 404 for pre-migration session ids, `createTeamsMeeting` / `updateTeamsMeeting` / `deleteTeamsMeeting` (legacy onlineMeetings endpoint, kept for the fallback leg), `toGraphDateTime` helper (UTC ISO → Graph `dateTimeTimeZone` via `sv-SE` locale formatting, `Asia/Karachi` default), and `isTeamsConfigured` / `testTeamsConnection` helpers. Requires env vars `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `TEAMS_HOST_USER_EMAIL` + Azure Application permissions `OnlineMeetings.ReadWrite.All`, `User.Read.All`, `Calendars.ReadWrite` all with admin consent.
 ├── modeling/real-estate/
 │   ├── export/ (excel-formula, excel-static, pdf)
 │   └── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))
