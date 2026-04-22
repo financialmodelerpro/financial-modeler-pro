@@ -1,3 +1,6 @@
+import { redirect } from 'next/navigation';
+import { getServerSession } from 'next-auth';
+import { authOptions } from '@/src/lib/shared/auth';
 import { getModelingRegisterComingSoonState } from '@/src/lib/shared/modelingComingSoon';
 import { isEmailWhitelisted } from '@/src/lib/shared/modelingAccess';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
@@ -33,6 +36,15 @@ interface PageProps {
 export default async function ModelingRegisterPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const state = await getModelingRegisterComingSoonState();
+
+  // Already-authenticated users have no business on a registration page;
+  // shunt them to the dashboard. Most importantly this means a logged-in
+  // admin clicking a stale Register link doesn't hit a wall of "Launching
+  // Soon" while their JWT is perfectly valid.
+  const session = await getServerSession(authOptions);
+  if (session?.user) {
+    redirect('/modeling/dashboard');
+  }
 
   if (!state.enabled) {
     return (

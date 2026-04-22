@@ -1,7 +1,10 @@
 import { redirect } from 'next/navigation';
+import { getServerSession } from 'next-auth';
 import { getTrainingComingSoonState } from './trainingComingSoon';
 import { getModelingComingSoonState } from './modelingComingSoon';
 import { isTrainingIdentifierBypassed } from './hubBypassList';
+import { isEmailWhitelisted } from './modelingAccess';
+import { authOptions } from './auth';
 import { getTrainingCookieSession } from '@/src/lib/training/trainingSessionCookie';
 
 /**
@@ -9,16 +12,22 @@ import { getTrainingCookieSession } from '@/src/lib/training/trainingSessionCook
  * hidden while a hub is in Coming Soon mode.
  *
  * Behavior while Coming Soon is ON: redirect to `/signin`. The signin page
- * is itself Coming-Soon-gated and renders the launch countdown, so this
- * turns into "show the student the launch clock" instead of leaking the
- * authed UI to anyone with a stale cookie / direct link / admin bypass.
+ * is itself Coming-Soon-gated and renders the launch countdown for the
+ * non-bypassed visitor. For Modeling Hub the redirect appends
+ * `?bypass=true` so a returning admin / whitelisted user lands on the
+ * actual signin form (not the launch clock) when their JWT has expired.
  *
- * Bypass path (Training Hub only): if the student's training_session cookie
- * email or regId is on the `training_hub_bypass_list` setting, they pass
- * through even while CS is on. This mirrors the same allowlist the
- * /api/training/validate endpoint checks, so end-to-end testing by the
- * platform owner works without flipping the hub state. Modeling Hub uses
- * NextAuth's admin role for the equivalent check (handled in auth.ts).
+ * Bypass paths:
+ *   - Training Hub: if the student's training_session cookie email or
+ *     regId is on the `training_hub_bypass_list` setting, they pass
+ *     through even while CS is on. Same allowlist used by
+ *     /api/training/validate so end-to-end testing works without flipping
+ *     the hub state.
+ *   - Modeling Hub: NextAuth admin role OR membership in the
+ *     `modeling_access_whitelist` table. Mirrors the gating in auth.ts so
+ *     a fresh admin login + a pre-authorized whitelisted user can browse
+ *     the authed surface (/refm, future /modeling/* segments) while CS
+ *     is on, without being bounced back to the launch countdown.
  *
  * Behavior while Coming Soon is OFF: no-op. Normal auth flow takes over.
  *
@@ -40,7 +49,15 @@ export async function ensureNotComingSoon(hub: 'training' | 'modeling'): Promise
       if (await isTrainingIdentifierBypassed(sess.email))           return;
       if (await isTrainingIdentifierBypassed(sess.registrationId))  return;
     }
+    redirect('/signin');
   }
 
-  redirect('/signin');
+  // hub === 'modeling'
+  const session = await getServerSession(authOptions);
+  const role  = (session?.user as { role?: string } | undefined)?.role;
+  const email = session?.user?.email ?? null;
+  if (role === 'admin') return;
+  if (email && await isEmailWhitelisted(email)) return;
+
+  redirect('/signin?bypass=true');
 }

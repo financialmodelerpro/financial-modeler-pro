@@ -109,12 +109,15 @@ export default function ModelingDashboardPage() {
 
   useInactivityLogout({
     onLogout: async () => { await signOut({ redirect: false }); },
-    redirectUrl: '/signin?reason=inactivity',
+    redirectUrl: '/signin?reason=inactivity&bypass=true',
   });
 
   useEffect(() => {
     if (status === 'unauthenticated') {
-      router.replace('/signin');
+      // `?bypass=true` so a returning admin (or any user who can sign back
+      // in) still sees the actual signin form rather than the Coming Soon
+      // page when the modeling-signin toggle is on.
+      router.replace('/signin?bypass=true');
     }
   }, [status, router]);
 
