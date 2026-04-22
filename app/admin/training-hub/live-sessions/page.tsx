@@ -334,7 +334,38 @@ export default function LiveSessionsPage() {
 
   /* ── Announcement dispatch ── */
   const [announceBusyId, setAnnounceBusyId] = useState<string | null>(null);
-  const [announceModal, setAnnounceModal]   = useState<{ session: LiveSession; target: 'all' | '3sfm' | 'bvm'; count: number | null } | null>(null);
+  /**
+   * The Send Announcement modal now carries the full recipient picker
+   * state. `recipients` is the master roster pulled from /notify GET;
+   * `selected` is the lowercased-email Set the admin has checked. Filters
+   * (search, course) narrow what's *displayed*, but selection persists
+   * even when the row scrolls out of view.
+   */
+  interface AnnouncePickerRecipient {
+    email:           string;
+    name:            string;
+    registration_id: string | null;
+    courses:         string[];
+  }
+  interface AnnounceLogRow {
+    id:                string;
+    email:             string;
+    name:              string | null;
+    status:            string;
+    resend_message_id: string | null;
+    error_message:     string | null;
+    sent_at:           string | null;
+  }
+  const [announceModal, setAnnounceModal] = useState<{
+    session:    LiveSession;
+    recipients: AnnouncePickerRecipient[];
+    selected:   Set<string>;
+    search:     string;
+    courseFilter: 'all' | '3sfm' | 'bvm';
+    loading:    boolean;
+    sendResult: { sent: number; failed: number; sendLogId: string } | null;
+    log:        AnnounceLogRow[];
+  } | null>(null);
 
   /* ── Teams integration test ── */
   const [teamsTest, setTeamsTest] = useState<{ loading: boolean; result: { ok: boolean; configured?: boolean; error?: string; detail?: string; host?: string } | null }>({ loading: false, result: null });
@@ -782,31 +813,100 @@ export default function LiveSessionsPage() {
     }
   };
 
-  /* ── Announcement flow (explicit, confirm-modal gated) ── */
-  const openAnnounceModal = async (s: LiveSession, target: 'all' | '3sfm' | 'bvm' = 'all') => {
-    setAnnounceModal({ session: s, target, count: null });
+  /* ── Announcement flow (rich picker modal) ── */
+  const openAnnounceModal = async (s: LiveSession) => {
+    setAnnounceModal({
+      session: s, recipients: [], selected: new Set(),
+      search: '', courseFilter: 'all', loading: true,
+      sendResult: null, log: [],
+    });
     try {
-      const res = await fetch(`/api/admin/live-sessions/${s.id}/notify?target=${target}`);
+      const res = await fetch(`/api/admin/live-sessions/${s.id}/notify?target=all`);
       if (res.ok) {
-        const j = await res.json();
-        setAnnounceModal(m => m ? { ...m, count: j.recipientCount ?? 0 } : m);
+        const j = await res.json() as { recipients?: AnnouncePickerRecipient[] };
+        const recipients = j.recipients ?? [];
+        setAnnounceModal(m => m ? {
+          ...m, recipients,
+          // Default selection: every confirmed student. Admin can deselect
+          // individuals or use Clear All before sending.
+          selected: new Set(recipients.map(r => r.email.toLowerCase())),
+          loading: false,
+        } : m);
+      } else {
+        setAnnounceModal(m => m ? { ...m, loading: false } : m);
+        toast('Failed to load recipient list', 'err');
       }
-    } catch { /* modal still usable without a count */ }
+    } catch {
+      setAnnounceModal(m => m ? { ...m, loading: false } : m);
+    }
   };
 
-  const confirmAnnounce = async () => {
+  const announceToggleOne = (email: string) => {
+    setAnnounceModal(m => {
+      if (!m) return m;
+      const next = new Set(m.selected);
+      const key = email.toLowerCase();
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return { ...m, selected: next };
+    });
+  };
+
+  const announceSelectFiltered = (filtered: AnnouncePickerRecipient[]) => {
+    setAnnounceModal(m => {
+      if (!m) return m;
+      const next = new Set(m.selected);
+      for (const r of filtered) next.add(r.email.toLowerCase());
+      return { ...m, selected: next };
+    });
+  };
+
+  const announceDeselectAll = () => {
+    setAnnounceModal(m => m ? { ...m, selected: new Set() } : m);
+  };
+
+  const announceSendToMyself = () => {
+    if (!session?.user?.email) { toast('Admin email not available', 'err'); return; }
+    setAnnounceModal(m => m ? { ...m, selected: new Set([session.user!.email!.toLowerCase()]) } : m);
+  };
+
+  /**
+   * Common dispatch helper. recipientEmails wins over the master selection
+   * when provided (used by the test-send button and by retry).
+   */
+  const performAnnounceSend = async (opts: { recipientEmails?: string[]; retrySendLogId?: string } = {}) => {
     if (!announceModal) return;
-    const { session: s, target } = announceModal;
+    const { session: s, selected } = announceModal;
+    const emails = opts.recipientEmails ?? Array.from(selected);
+    if (!opts.retrySendLogId && emails.length === 0) {
+      toast('Select at least one recipient', 'err');
+      return;
+    }
     setAnnounceBusyId(s.id);
     try {
       const res = await fetch(`/api/admin/live-sessions/${s.id}/notify`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'announcement', target, preview: false }),
+        body: JSON.stringify({
+          type: 'announcement',
+          ...(opts.retrySendLogId ? { retrySendLogId: opts.retrySendLogId } : { recipientEmails: emails }),
+        }),
       });
       if (res.ok) {
-        const j = await res.json();
-        toast(`Announcement sent to ${j.sent ?? 0} students${j.failed ? ` (${j.failed} failed)` : ''}`);
-        setAnnounceModal(null);
+        const j = await res.json() as { sent?: number; failed?: number; sendLogId?: string };
+        const sent = j.sent ?? 0; const failed = j.failed ?? 0;
+        toast(failed > 0
+          ? `Sent to ${sent} students, ${failed} failed (see status panel)`
+          : `Announcement sent to ${sent} student${sent === 1 ? '' : 's'}`);
+        // Pull the per-recipient log so the admin sees the outcome inline
+        // and can hit Retry Failed without closing the modal.
+        if (j.sendLogId) {
+          const logRes = await fetch(`/api/admin/live-sessions/${s.id}/notify?sendLogId=${j.sendLogId}`);
+          const logJson = logRes.ok ? await logRes.json() as { recipients?: AnnounceLogRow[] } : { recipients: [] };
+          setAnnounceModal(m => m ? {
+            ...m,
+            sendResult: { sent, failed, sendLogId: j.sendLogId! },
+            log: logJson.recipients ?? [],
+          } : m);
+        }
         await fetchSessions();
       } else {
         const j = await res.json().catch(() => ({}));
@@ -816,6 +916,40 @@ export default function LiveSessionsPage() {
       toast('Error sending announcement', 'err');
     }
     setAnnounceBusyId(null);
+  };
+
+  const confirmAnnounce = () => performAnnounceSend();
+  const retryFailedAnnounce = () => {
+    if (!announceModal?.sendResult) return;
+    performAnnounceSend({ retrySendLogId: announceModal.sendResult.sendLogId });
+  };
+
+  const previewAnnounce = async () => {
+    if (!announceModal) return;
+    const { session: s } = announceModal;
+    try {
+      const res = await fetch(`/api/admin/live-sessions/${s.id}/notify`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'announcement', preview: true }),
+      });
+      if (res.ok) toast('Preview email sent to your inbox');
+      else toast('Preview failed', 'err');
+    } catch { toast('Preview failed', 'err'); }
+  };
+
+  const exportAnnounceLogCsv = () => {
+    if (!announceModal?.log.length) return;
+    const header = ['Email', 'Name', 'Status', 'Sent At', 'Error', 'Resend ID'];
+    const rows = announceModal.log.map(r => [
+      r.email, r.name ?? '', r.status, r.sent_at ?? '',
+      (r.error_message ?? '').replace(/"/g, "'"), r.resend_message_id ?? '',
+    ]);
+    const csv = [header, ...rows].map(row => row.map(c => `"${c}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `announcement-log-${announceModal.session.id}.csv`;
+    a.click(); URL.revokeObjectURL(url);
   };
 
   const runTeamsTest = async () => {
@@ -921,54 +1055,238 @@ export default function LiveSessionsPage() {
           </div>
         )}
 
-        {/* ── Announce Confirm Modal ── */}
-        {announceModal && (
-          <div style={{
-            position: 'fixed', inset: 0, zIndex: 10000,
-            background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <div style={{ background: '#fff', borderRadius: 12, padding: 28, maxWidth: 480, width: '90%', boxShadow: '0 10px 36px rgba(0,0,0,0.2)' }}>
-              <h3 style={{ fontSize: 16, fontWeight: 700, color: NAVY, margin: '0 0 12px' }}>
-                {'\u2709'} Send Announcement Email
-              </h3>
-              <p style={{ fontSize: 14, color: '#1F2937', margin: '0 0 12px', lineHeight: 1.5 }}>
-                Send announcement email to{' '}
-                <strong>
-                  {announceModal.count === null ? 'all confirmed students' : `${announceModal.count} confirmed student${announceModal.count === 1 ? '' : 's'}`}
-                </strong>
-                {' '}for <em>"{announceModal.session.title}"</em>?
-              </p>
-              {announceModal.session.announcement_sent && (
-                <p style={{ fontSize: 12, color: '#92400E', background: '#FEF3C7', padding: '8px 12px', borderRadius: 6, margin: '0 0 14px' }}>
-                  This session was already announced on{' '}
-                  {announceModal.session.announcement_sent_at ? new Date(announceModal.session.announcement_sent_at).toLocaleString('en-GB') : 'an earlier date'}
-                  . Sending again will deliver an updated copy to every recipient on the target list.
-                </p>
-              )}
-              <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
-                Target audience: <strong>{announceModal.target === 'all' ? 'All students' : announceModal.target === '3sfm' ? '3SFM students' : 'BVM students'}</strong>
-              </div>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button
-                  style={btnSecondary}
-                  onClick={() => setAnnounceModal(null)}
-                  disabled={announceBusyId === announceModal.session.id}
-                >Cancel</button>
-                <button
-                  style={{
-                    ...btnPrimary, background: BLUE,
-                    opacity: announceBusyId === announceModal.session.id ? 0.6 : 1,
-                    cursor: announceBusyId === announceModal.session.id ? 'wait' : 'pointer',
-                  }}
-                  onClick={confirmAnnounce}
-                  disabled={announceBusyId === announceModal.session.id}
-                >
-                  {announceBusyId === announceModal.session.id ? 'Sending...' : 'Send Now'}
-                </button>
+        {/* ── Announce Picker Modal ── */}
+        {announceModal && (() => {
+          const m         = announceModal;
+          const busy      = announceBusyId === m.session.id;
+          const q         = m.search.trim().toLowerCase();
+          const filtered  = m.recipients.filter(r => {
+            if (m.courseFilter === '3sfm' && !r.courses.includes('3SFM')) return false;
+            if (m.courseFilter === 'bvm'  && !r.courses.includes('BVM'))  return false;
+            if (q) {
+              const hay = `${r.email} ${r.name} ${r.registration_id ?? ''}`.toLowerCase();
+              if (!hay.includes(q)) return false;
+            }
+            return true;
+          });
+          const selectedCount = m.selected.size;
+          const totalRoster   = m.recipients.length;
+          const sentRow       = m.sendResult;
+
+          const statusColor = (s: string): { bg: string; fg: string; label: string } => {
+            switch (s) {
+              case 'sent':       return { bg: '#D1FAE5', fg: '#065F46', label: 'Sent' };
+              case 'pending':    return { bg: '#FEF3C7', fg: '#92400E', label: 'Pending' };
+              case 'failed':     return { bg: '#FEE2E2', fg: '#991B1B', label: 'Failed' };
+              case 'bounced':    return { bg: '#FEE2E2', fg: '#991B1B', label: 'Bounced' };
+              case 'complained': return { bg: '#FEE2E2', fg: '#991B1B', label: 'Complaint' };
+              default:           return { bg: '#F3F4F6', fg: '#374151', label: s };
+            }
+          };
+
+          return (
+            <div style={{
+              position: 'fixed', inset: 0, zIndex: 10000,
+              background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+            }}>
+              <div style={{
+                background: '#fff', borderRadius: 12, width: '100%', maxWidth: 880,
+                maxHeight: 'calc(100vh - 40px)', display: 'flex', flexDirection: 'column',
+                boxShadow: '0 10px 36px rgba(0,0,0,0.2)', overflow: 'hidden',
+              }}>
+                <div style={{ padding: '18px 24px', borderBottom: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                  <div>
+                    <h3 style={{ fontSize: 16, fontWeight: 700, color: NAVY, margin: 0 }}>Send Announcement</h3>
+                    <div style={{ fontSize: 12, color: '#6B7280', marginTop: 4 }}>
+                      <em>{m.session.title}</em>
+                    </div>
+                  </div>
+                  <button onClick={() => setAnnounceModal(null)} disabled={busy}
+                    style={{ background: 'none', border: 'none', fontSize: 22, color: '#6B7280', cursor: busy ? 'wait' : 'pointer', padding: 4 }}>
+                    {'×'}
+                  </button>
+                </div>
+
+                {m.session.announcement_sent && !sentRow && (
+                  <div style={{ background: '#FEF3C7', color: '#92400E', padding: '10px 24px', fontSize: 12 }}>
+                    Previously announced on{' '}
+                    {m.session.announcement_sent_at ? new Date(m.session.announcement_sent_at).toLocaleString('en-GB') : 'an earlier date'}.
+                    Re-sending will deliver another copy to whoever you select below.
+                  </div>
+                )}
+
+                <div style={{ flex: 1, overflowY: 'auto', padding: '16px 24px' }}>
+                  {!sentRow && (
+                    <>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                        <button style={{ ...btnSecondary, padding: '6px 12px', fontSize: 12 }}
+                          onClick={announceSendToMyself} disabled={m.loading || busy}>
+                          Send to myself only
+                        </button>
+                        <button style={{ ...btnSecondary, padding: '6px 12px', fontSize: 12 }}
+                          onClick={() => announceSelectFiltered(filtered)} disabled={m.loading || busy}>
+                          Select all ({filtered.length})
+                        </button>
+                        <button style={{ ...btnSecondary, padding: '6px 12px', fontSize: 12 }}
+                          onClick={announceDeselectAll} disabled={m.loading || busy || selectedCount === 0}>
+                          Clear selection
+                        </button>
+                        <button style={{ ...btnSecondary, padding: '6px 12px', fontSize: 12 }}
+                          onClick={previewAnnounce} disabled={busy}>
+                          Preview to my inbox
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+                        <input
+                          placeholder="Search name, email, or RegID..."
+                          value={m.search}
+                          onChange={e => setAnnounceModal(prev => prev ? { ...prev, search: e.target.value } : prev)}
+                          disabled={m.loading || busy}
+                          style={{
+                            flex: 1, minWidth: 180, padding: '8px 12px',
+                            border: '1px solid #D1D5DB', borderRadius: 6, fontSize: 13,
+                            background: '#FFFBEB', outline: 'none',
+                          }}
+                        />
+                        {(['all', '3sfm', 'bvm'] as const).map(cf => (
+                          <button key={cf}
+                            onClick={() => setAnnounceModal(prev => prev ? { ...prev, courseFilter: cf } : prev)}
+                            disabled={m.loading || busy}
+                            style={{
+                              padding: '6px 14px', fontSize: 11, fontWeight: 600,
+                              border: '1px solid #D1D5DB', borderRadius: 6,
+                              background: m.courseFilter === cf ? NAVY : '#fff',
+                              color:      m.courseFilter === cf ? '#fff' : NAVY,
+                              cursor: m.loading || busy ? 'default' : 'pointer',
+                            }}>
+                            {cf === 'all' ? 'All' : cf.toUpperCase()}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div style={{ border: '1px solid #E5E7EB', borderRadius: 8, maxHeight: 360, overflowY: 'auto' }}>
+                        {m.loading ? (
+                          <div style={{ padding: 24, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>Loading recipients...</div>
+                        ) : filtered.length === 0 ? (
+                          <div style={{ padding: 24, textAlign: 'center', color: '#9CA3AF', fontSize: 13 }}>No matching recipients</div>
+                        ) : filtered.map(r => {
+                          const checked = m.selected.has(r.email.toLowerCase());
+                          return (
+                            <label key={r.email} style={{
+                              display: 'flex', alignItems: 'center', gap: 10,
+                              padding: '10px 14px', borderBottom: '1px solid #F3F4F6',
+                              cursor: busy ? 'wait' : 'pointer',
+                              background: checked ? '#F0F9FF' : '#fff',
+                            }}>
+                              <input type="checkbox" checked={checked} disabled={busy}
+                                onChange={() => announceToggleOne(r.email)}
+                                style={{ width: 16, height: 16, accentColor: NAVY }} />
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: '#111827' }}>
+                                  {r.name || r.email}
+                                </div>
+                                <div style={{ fontSize: 11, color: '#6B7280', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                                  {r.name && <span>{r.email}</span>}
+                                  {r.registration_id && <span>{r.registration_id}</span>}
+                                  {r.courses.length > 0 && <span>{r.courses.join(' / ')}</span>}
+                                </div>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+
+                      <div style={{ marginTop: 10, fontSize: 12, color: '#6B7280' }}>
+                        Selected: <strong style={{ color: NAVY }}>{selectedCount}</strong> of {totalRoster} student{totalRoster === 1 ? '' : 's'}
+                        {filtered.length < totalRoster && <span> (showing {filtered.length} after filters)</span>}
+                      </div>
+                    </>
+                  )}
+
+                  {sentRow && (
+                    <>
+                      <div style={{
+                        background: sentRow.failed > 0 ? '#FEF3C7' : '#D1FAE5',
+                        color:      sentRow.failed > 0 ? '#92400E' : '#065F46',
+                        padding: '12px 16px', borderRadius: 8, marginBottom: 14, fontSize: 13,
+                      }}>
+                        Dispatch complete: <strong>{sentRow.sent} sent</strong>
+                        {sentRow.failed > 0 && (<>, <strong>{sentRow.failed} failed</strong></>)}.
+                        {sentRow.failed > 0 && ' Use Retry Failed to re-attempt only the failed rows.'}
+                      </div>
+
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                        <button style={{ ...btnPrimary, background: '#DC2626', padding: '6px 14px', fontSize: 12 }}
+                          disabled={busy || sentRow.failed === 0}
+                          onClick={retryFailedAnnounce}>
+                          {busy ? 'Retrying...' : `Retry ${sentRow.failed} Failed`}
+                        </button>
+                        <button style={{ ...btnSecondary, padding: '6px 14px', fontSize: 12 }}
+                          onClick={exportAnnounceLogCsv} disabled={m.log.length === 0}>
+                          Export CSV
+                        </button>
+                      </div>
+
+                      <div style={{ border: '1px solid #E5E7EB', borderRadius: 8, maxHeight: 360, overflowY: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                          <thead style={{ background: '#F9FAFB', position: 'sticky', top: 0 }}>
+                            <tr>
+                              <th style={{ textAlign: 'left', padding: '8px 12px', color: '#374151', fontWeight: 700 }}>Recipient</th>
+                              <th style={{ textAlign: 'left', padding: '8px 12px', color: '#374151', fontWeight: 700 }}>Status</th>
+                              <th style={{ textAlign: 'left', padding: '8px 12px', color: '#374151', fontWeight: 700 }}>Sent At</th>
+                              <th style={{ textAlign: 'left', padding: '8px 12px', color: '#374151', fontWeight: 700 }}>Detail</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {m.log.map(r => {
+                              const sc = statusColor(r.status);
+                              return (
+                                <tr key={r.id} style={{ borderTop: '1px solid #F3F4F6' }}>
+                                  <td style={{ padding: '8px 12px' }}>
+                                    <div style={{ fontWeight: 600, color: '#111827' }}>{r.name || r.email}</div>
+                                    {r.name && <div style={{ color: '#6B7280', fontSize: 11 }}>{r.email}</div>}
+                                  </td>
+                                  <td style={{ padding: '8px 12px' }}>
+                                    <span style={{ background: sc.bg, color: sc.fg, padding: '2px 10px', borderRadius: 999, fontWeight: 700, fontSize: 11 }}>{sc.label}</span>
+                                  </td>
+                                  <td style={{ padding: '8px 12px', color: '#6B7280' }}>
+                                    {r.sent_at ? new Date(r.sent_at).toLocaleTimeString('en-GB') : ''}
+                                  </td>
+                                  <td style={{ padding: '8px 12px', color: r.error_message ? '#991B1B' : '#6B7280', fontSize: 11 }}>
+                                    {r.error_message ?? (r.resend_message_id ?? '')}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                <div style={{ padding: '14px 24px', borderTop: '1px solid #E5E7EB', display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+                  <button style={btnSecondary} onClick={() => setAnnounceModal(null)} disabled={busy}>
+                    {sentRow ? 'Close' : 'Cancel'}
+                  </button>
+                  {!sentRow && (
+                    <button
+                      onClick={confirmAnnounce}
+                      disabled={busy || m.loading || selectedCount === 0}
+                      style={{
+                        ...btnPrimary, background: BLUE,
+                        opacity: (busy || m.loading || selectedCount === 0) ? 0.6 : 1,
+                        cursor:  busy ? 'wait' : (m.loading || selectedCount === 0) ? 'not-allowed' : 'pointer',
+                      }}>
+                      {busy ? 'Sending...' : `Send to ${selectedCount} student${selectedCount === 1 ? '' : 's'}`}
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* ── HEADER ── */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
@@ -1260,7 +1578,7 @@ export default function LiveSessionsPage() {
                               cursor: announceBusyId === s.id ? 'wait' : 'pointer',
                             }}
                             disabled={announceBusyId === s.id}
-                            onClick={() => openAnnounceModal(s, 'all')}
+                            onClick={() => openAnnounceModal(s)}
                             title={s.announcement_sent ? 'Re-send announcement to all confirmed students' : 'Send announcement to all confirmed students'}
                           >
                             {s.announcement_sent ? '\u2709 Re-announce' : '\u2709 Announce'}

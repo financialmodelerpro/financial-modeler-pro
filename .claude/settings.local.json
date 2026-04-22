@@ -107,7 +107,11 @@
       "Bash(rmdir D:/FMP/financial-modeler-pro/app/api/admin/live-sessions/\\\\[id\\\\]/announce)",
       "Bash(npx tsx *)",
       "Bash(awk '/return \\\\\\(/{f=1} f && /^\\\\s*<\\\\/div>\\\\s*$/{print NR\": \"$0; cnt++; if\\(cnt>5\\) exit}' app/training/dashboard/page.tsx)",
-      "Bash(awk END{print NR} *)"
+      "Bash(awk END{print NR} *)",
+      "Bash(git diff *)",
+      "Bash(sed -n '1058,1106p' \"D:/FMP/financial-modeler-pro/app/admin/training-hub/live-sessions/page.tsx\")",
+      "Read(//tmp/**)",
+      "Bash(python *)"
     ]
   }
 }
