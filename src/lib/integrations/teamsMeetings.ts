@@ -258,6 +258,197 @@ export async function createTeamsMeeting(params: {
   return normalizeMeeting((await res.json()) as Record<string, unknown>);
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Calendar-event flow (preferred): Outlook event + Teams meeting in one call
+//
+// `POST /users/{id}/onlineMeetings` only returns a join URL; nothing lands
+// on anyone's calendar and Outlook never emails the host. To get a calendar
+// entry on Ahmad's Outlook + the automatic "Microsoft Teams meeting" invite
+// email, we instead POST to `/users/{id}/events` with `isOnlineMeeting:true`
+// and `onlineMeetingProvider:"teamsForBusiness"`. Outlook then:
+//   - writes the event to the host's calendar
+//   - generates the Teams join URL (response body: `onlineMeeting.joinUrl`)
+//   - emails the organizer (and any attendees) the standard meeting invite
+//
+// We keep the same return shape as createTeamsMeeting so the route layer
+// barely changes; `meetingId` carries the Outlook event id from now on.
+// Old rows still hold an onlineMeetings id; the try-then-fallback
+// wrappers below keep PATCH/DELETE working for them transparently.
+//
+// Requires `Calendars.ReadWrite` (Application) on the Azure app + admin
+// consent. Without it Graph returns 403 ErrorAccessDenied. See route layer
+// for the user-facing degradation message.
+// ────────────────────────────────────────────────────────────────────────────
+
+const DEFAULT_TIMEZONE = 'Asia/Karachi';
+
+/**
+ * Convert a UTC ISO string into the `dateTimeTimeZone` shape Graph events
+ * expect: a wall-clock time string in the target timezone, plus the IANA
+ * timezone name. Using `sv-SE` locale yields the "YYYY-MM-DD HH:mm:ss"
+ * format which we then turn into "YYYY-MM-DDTHH:mm:ss", exactly what
+ * Graph wants for `start.dateTime` / `end.dateTime`.
+ */
+function toGraphDateTime(isoUtc: string, timeZone: string): { dateTime: string; timeZone: string } {
+  const d = new Date(isoUtc);
+  const localStr = d.toLocaleString('sv-SE', {
+    timeZone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  });
+  return { dateTime: localStr.replace(' ', 'T'), timeZone };
+}
+
+function buildEventBody(title: string, description: string): { contentType: 'HTML'; content: string } {
+  const safeTitle = title || 'Live Session';
+  const desc = (description || '').trim();
+  const descBlock = desc
+    ? `<p style="font-size: 14px; line-height: 1.6; color: #374151;">${desc}</p>`
+    : '';
+  return {
+    contentType: 'HTML',
+    content: `
+<div style="font-family: Inter, Arial, sans-serif; color: #0D2E5A;">
+  <h2 style="color: #0D2E5A; margin: 0 0 16px;">${safeTitle}</h2>
+  ${descBlock}
+  <p style="color: #6B7280; font-size: 12px; margin-top: 24px;">
+    Hosted by Financial Modeler Pro
+  </p>
+</div>`.trim(),
+  };
+}
+
+function normalizeEvent(raw: Record<string, unknown>): TeamsMeeting {
+  const onlineMeeting = (raw.onlineMeeting as Record<string, unknown> | undefined) ?? {};
+  const start         = (raw.start         as { dateTime?: string } | undefined) ?? {};
+  const end           = (raw.end           as { dateTime?: string } | undefined) ?? {};
+  return {
+    meetingId:     (raw.id as string) ?? '',
+    joinUrl:       (onlineMeeting.joinUrl as string) ?? '',
+    subject:       (raw.subject as string) ?? '',
+    startDateTime: start.dateTime ?? '',
+    endDateTime:   end.dateTime   ?? '',
+    dialIn:        extractDialIn(onlineMeeting),
+  };
+}
+
+export async function createCalendarEventWithMeeting(params: {
+  subject:       string;
+  startDateTime: string;       // UTC ISO
+  endDateTime:   string;       // UTC ISO
+  timezone?:     string;
+  description?:  string;
+}): Promise<TeamsMeeting> {
+  const hostId   = await getHostUserId();
+  const tz       = (params.timezone || '').trim() || DEFAULT_TIMEZONE;
+  const path     = `/users/${encodeURIComponent(hostId)}/events`;
+  const payload  = {
+    subject:               params.subject,
+    body:                  buildEventBody(params.subject, params.description ?? ''),
+    start:                 toGraphDateTime(params.startDateTime, tz),
+    end:                   toGraphDateTime(params.endDateTime,   tz),
+    isOnlineMeeting:       true,
+    onlineMeetingProvider: 'teamsForBusiness',
+    // Empty attendees: the organizer (Ahmad) gets the event automatically
+    // and the existing Resend-based "Send Announcement" flow still owns
+    // the student fan-out. Adding students here would generate ICS invites
+    // from Outlook, which is a separate UX decision.
+    attendees:             [] as Array<unknown>,
+  };
+
+  const res = await graphFetch('POST', path, payload);
+  if (!res.ok) {
+    const detail = await buildGraphErrorDetail(res);
+    console.error('[teamsMeetings] createCalendarEventWithMeeting failed', {
+      path,
+      payload: { subject: payload.subject, start: payload.start, end: payload.end },
+      detail,
+    });
+    throw new TeamsIntegrationError('Graph API: createCalendarEventWithMeeting failed', { status: res.status, detail });
+  }
+  return normalizeEvent((await res.json()) as Record<string, unknown>);
+}
+
+export async function updateCalendarEvent(
+  eventId: string,
+  updates: { subject?: string; startDateTime?: string; endDateTime?: string; timezone?: string; description?: string },
+): Promise<TeamsMeeting> {
+  const hostId = await getHostUserId();
+  const tz     = (updates.timezone || '').trim() || DEFAULT_TIMEZONE;
+  const payload: Record<string, unknown> = {};
+  if (updates.subject !== undefined) payload.subject = updates.subject;
+  if (updates.startDateTime !== undefined) payload.start = toGraphDateTime(updates.startDateTime, tz);
+  if (updates.endDateTime   !== undefined) payload.end   = toGraphDateTime(updates.endDateTime,   tz);
+  if (updates.subject !== undefined || updates.description !== undefined) {
+    payload.body = buildEventBody(updates.subject ?? '', updates.description ?? '');
+  }
+
+  const res = await graphFetch(
+    'PATCH',
+    `/users/${encodeURIComponent(hostId)}/events/${encodeURIComponent(eventId)}`,
+    payload,
+  );
+  if (!res.ok) {
+    const detail = await buildGraphErrorDetail(res);
+    console.error('[teamsMeetings] updateCalendarEvent failed', { eventId, detail });
+    throw new TeamsIntegrationError('Graph API: updateCalendarEvent failed', { status: res.status, detail });
+  }
+  return normalizeEvent((await res.json()) as Record<string, unknown>);
+}
+
+export async function deleteCalendarEvent(eventId: string): Promise<void> {
+  const hostId = await getHostUserId();
+  const res    = await graphFetch(
+    'DELETE',
+    `/users/${encodeURIComponent(hostId)}/events/${encodeURIComponent(eventId)}`,
+  );
+  // 204 No Content on success; 404 treated as already-deleted (idempotent).
+  if (!res.ok && res.status !== 404) {
+    const detail = await buildGraphErrorDetail(res);
+    console.error('[teamsMeetings] deleteCalendarEvent failed', { eventId, detail });
+    throw new TeamsIntegrationError('Graph API: deleteCalendarEvent failed', { status: res.status, detail });
+  }
+}
+
+/**
+ * Try the new event endpoint first; if Graph returns 404 the stored id is
+ * almost certainly an old onlineMeeting id (created before the calendar
+ * switch), so fall back to the legacy onlineMeetings PATCH. This keeps
+ * pre-migration sessions editable without a DB migration. Same pattern
+ * for delete below.
+ */
+export async function updateMeetingOrEvent(
+  id: string,
+  updates: { subject?: string; startDateTime?: string; endDateTime?: string; timezone?: string; description?: string },
+): Promise<void> {
+  try {
+    await updateCalendarEvent(id, updates);
+  } catch (e) {
+    if (e instanceof TeamsIntegrationError && e.status === 404) {
+      await updateTeamsMeeting(id, {
+        subject:       updates.subject,
+        startDateTime: updates.startDateTime,
+        endDateTime:   updates.endDateTime,
+      });
+      return;
+    }
+    throw e;
+  }
+}
+
+export async function deleteMeetingOrEvent(id: string): Promise<void> {
+  try {
+    await deleteCalendarEvent(id);
+  } catch (e) {
+    if (e instanceof TeamsIntegrationError && e.status === 404) {
+      await deleteTeamsMeeting(id);
+      return;
+    }
+    throw e;
+  }
+}
+
 export async function updateTeamsMeeting(
   meetingId: string,
   updates:   { subject?: string; startDateTime?: string; endDateTime?: string },

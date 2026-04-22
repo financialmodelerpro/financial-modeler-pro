@@ -4,7 +4,7 @@ import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { sendTemplatedEmail, buildSessionPlaceholders } from '@/src/lib/email/sendTemplatedEmail';
 import { sendAutoNewsletter } from '@/src/lib/newsletter/autoNotify';
-import { updateTeamsMeeting, deleteTeamsMeeting, isTeamsConfigured } from '@/src/lib/integrations/teamsMeetings';
+import { updateMeetingOrEvent, deleteMeetingOrEvent, isTeamsConfigured } from '@/src/lib/integrations/teamsMeetings';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const AUTO_DELETE_TEAMS_MEETING_ON_SESSION_DELETE = true;
@@ -26,7 +26,7 @@ export async function PATCH(
 
   const { data: before } = await sb
     .from('live_sessions')
-    .select('is_published, session_type, scheduled_datetime, recording_email_sent, teams_meeting_id, meeting_provider, title, duration_minutes')
+    .select('is_published, session_type, scheduled_datetime, recording_email_sent, teams_meeting_id, meeting_provider, title, duration_minutes, description, timezone')
     .eq('id', id)
     .single();
 
@@ -64,9 +64,13 @@ export async function PATCH(
   const { error } = await sb.from('live_sessions').update(updates).eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Sync the linked Teams meeting when the schedule changes (or title did).
-  // Best-effort: a failure doesn't roll back the session save — the admin can
-  // retry via the Test Teams Connection button or re-edit.
+  // Sync the linked Teams calendar event when the schedule changes (or
+  // title / description did). Best-effort: a failure doesn't roll back
+  // the session save, the admin can retry via re-edit. The
+  // updateMeetingOrEvent wrapper tries the new /events endpoint first
+  // and falls back to the legacy /onlineMeetings endpoint on 404 so
+  // pre-migration sessions remain editable. Outlook auto-sends an
+  // updated meeting email to the host on every successful PATCH.
   if (
     before?.teams_meeting_id &&
     before.meeting_provider === 'teams' &&
@@ -75,16 +79,19 @@ export async function PATCH(
     const titleChanged    = updates.title !== undefined && updates.title !== before.title;
     const scheduleChanged = updates.scheduled_datetime !== undefined && updates.scheduled_datetime !== before.scheduled_datetime;
     const durationChanged = updates.duration_minutes !== undefined && updates.duration_minutes !== before.duration_minutes;
-    if (titleChanged || scheduleChanged || durationChanged) {
+    const descChanged     = updates.description !== undefined && updates.description !== before.description;
+    if (titleChanged || scheduleChanged || durationChanged || descChanged) {
       const start = (updates.scheduled_datetime as string | null) ?? before.scheduled_datetime;
       const dur   = (updates.duration_minutes as number | null) ?? before.duration_minutes ?? 90;
       if (start) {
         try {
           const end = new Date(new Date(start).getTime() + dur * 60 * 1000).toISOString();
-          await updateTeamsMeeting(before.teams_meeting_id, {
+          await updateMeetingOrEvent(before.teams_meeting_id, {
             subject:       (updates.title as string | undefined) ?? before.title ?? undefined,
             startDateTime: start,
             endDateTime:   end,
+            timezone:      ((updates.timezone as string | undefined) ?? before.timezone ?? '').trim() || 'Asia/Karachi',
+            description:   (updates.description as string | undefined) ?? before.description ?? '',
           });
         } catch (err) {
           console.error('[live-sessions PATCH] Teams update failed:', err);
@@ -162,7 +169,10 @@ export async function DELETE(
       .eq('id', id)
       .maybeSingle();
     if (row?.teams_meeting_id && row.meeting_provider === 'teams') {
-      try { await deleteTeamsMeeting(row.teams_meeting_id); }
+      // deleteMeetingOrEvent tries the calendar /events endpoint first
+      // (sends a cancellation email to the host automatically) and
+      // falls back to /onlineMeetings on 404 for pre-migration ids.
+      try { await deleteMeetingOrEvent(row.teams_meeting_id); }
       catch (err) { console.error('[live-sessions DELETE] Teams delete failed:', err); }
     }
   }

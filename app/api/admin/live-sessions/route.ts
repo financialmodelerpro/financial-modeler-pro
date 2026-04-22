@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { sendAutoNewsletter } from '@/src/lib/newsletter/autoNotify';
-import { createTeamsMeeting, isTeamsConfigured, TeamsIntegrationError } from '@/src/lib/integrations/teamsMeetings';
+import { createCalendarEventWithMeeting, isTeamsConfigured, TeamsIntegrationError } from '@/src/lib/integrations/teamsMeetings';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const DEFAULT_SESSION_DURATION_MINUTES = 90;
@@ -89,19 +89,31 @@ export async function POST(req: NextRequest) {
       try {
         const dur = durationMinutes && durationMinutes > 0 ? durationMinutes : DEFAULT_SESSION_DURATION_MINUTES;
         const end = new Date(new Date(scheduledDatetime).getTime() + dur * 60 * 1000).toISOString();
-        const mtg = await createTeamsMeeting({
+        // Switched from /onlineMeetings (URL only) to /events with
+        // isOnlineMeeting:true so Outlook also creates a calendar entry
+        // on the host (Ahmad) and emails him the standard meeting invite.
+        const mtg = await createCalendarEventWithMeeting({
           subject:       (body.title as string | undefined) ?? 'Live Session',
           startDateTime: scheduledDatetime,
           endDateTime:   end,
+          timezone:      ((body.timezone as string | undefined) ?? '').trim() || 'Asia/Karachi',
+          description:   (body.description as string | undefined) ?? '',
         });
-        teamsMeetingId = mtg.meetingId;
+        teamsMeetingId = mtg.meetingId;   // Outlook event id from the new flow
         teamsDialIn    = mtg.dialIn;
         liveUrl        = mtg.joinUrl;
         meetingProvider = 'teams';
       } catch (err) {
         const detail = err instanceof TeamsIntegrationError ? `${err.message}: ${err.detail ?? ''}`.trim() : String(err);
         console.error('[live-sessions POST] Teams create failed:', detail);
-        teamsWarning = `Teams meeting auto-generation failed (${detail}). Session saved without a meeting link.`;
+        // Friendlier message for the most likely first-time-setup error
+        // (Calendars.ReadWrite consent still propagating across Microsoft's
+        // edge; typically resolves within ~30 minutes of grant).
+        const status = err instanceof TeamsIntegrationError ? err.status : undefined;
+        const isPermErr = status === 403 || /(ErrorAccessDenied|Authorization_RequestDenied|forbidden)/i.test(detail);
+        teamsWarning = isPermErr
+          ? 'Teams calendar permission not fully granted yet. Try again in a few minutes (admin consent for Calendars.ReadWrite can take up to 30 minutes to propagate). Session saved without a meeting link.'
+          : `Teams meeting auto-generation failed (${detail}). Session saved without a meeting link.`;
         meetingProvider = 'manual';
       }
     }
