@@ -9,8 +9,9 @@ import {
   LayoutDashboard, BookOpen, Lock, Video, Award, Medal,
   FileText, User, LogOut, ChevronLeft, ChevronRight, ArrowLeft, Star,
   Flame, Zap, Target, Rocket, Trophy, Timer, Footprints, Sparkles,
-  Eye, Download, X,
+  Eye, Download, X, PlayCircle,
 } from 'lucide-react';
+import { extractYouTubeId } from '@/src/lib/shared/cms';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training/training-session';
 import { useInactivityLogout } from '@/src/hooks/useInactivityLogout';
 import { COURSES } from '@/src/config/courses';
@@ -164,16 +165,27 @@ export default function TrainingDashboardPage() {
   const [dashLogoUrl, setDashLogoUrl] = useState<string | undefined>();
   const [dashLogoHeight, setDashLogoHeight] = useState('36');
   const [whatsappGroupUrl, setWhatsappGroupUrl] = useState('');
+  const [walkthroughUrl, setWalkthroughUrl] = useState('');
+  const [walkthroughOpen, setWalkthroughOpen] = useState(false);
 
-  // Fetch WhatsApp group URL (migration 123)
+  // Fetch WhatsApp group URL + platform walkthrough video URL.
   useEffect(() => {
     fetch('/api/training/community-links')
       .then(r => r.json())
-      .then((d: { whatsappGroupUrl?: string }) => {
+      .then((d: { whatsappGroupUrl?: string; platformWalkthroughUrl?: string }) => {
         if (d.whatsappGroupUrl) setWhatsappGroupUrl(d.whatsappGroupUrl);
+        if (d.platformWalkthroughUrl) setWalkthroughUrl(d.platformWalkthroughUrl);
       })
       .catch(() => {});
   }, []);
+
+  // Close walkthrough modal on Escape.
+  useEffect(() => {
+    if (!walkthroughOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setWalkthroughOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [walkthroughOpen]);
 
   // Fetch CMS logo for header
   useEffect(() => {
@@ -1192,6 +1204,24 @@ export default function TrainingDashboardPage() {
                      `You've completed ${totalPassed} of ${totalSessions} sessions. Keep going!`}
                   </p>
 
+                  {/* Watch Platform Walkthrough — only renders when an admin
+                      has set platform_walkthrough_url in /admin/training-settings. */}
+                  {walkthroughUrl && (
+                    <button
+                      onClick={() => setWalkthroughOpen(true)}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 8,
+                        padding: '9px 16px', marginBottom: 16,
+                        background: '#2EAA4A', color: '#fff',
+                        border: 'none', borderRadius: 8,
+                        fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                        boxShadow: '0 4px 14px rgba(46,170,74,0.35)',
+                      }}
+                    >
+                      <PlayCircle size={16} /> Watch Platform Walkthrough
+                    </button>
+                  )}
+
                   {/* Overall progress bar */}
                   <div style={{ marginBottom: 4 }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
@@ -1792,6 +1822,71 @@ export default function TrainingDashboardPage() {
           }}
         />
       )}
+
+      {/* ── Platform Walkthrough Modal ───────────────────────────────────────── */}
+      {walkthroughOpen && walkthroughUrl && (() => {
+        const ytId = extractYouTubeId(walkthroughUrl);
+        // YouTube → embed iframe with autoplay. Anything else (Vimeo,
+        // self-hosted) is rendered via a generic iframe of the URL — most
+        // hosts allow direct embedding, and worst case the student sees a
+        // standard "open in new tab" link below as a fallback.
+        const embedSrc = ytId
+          ? `https://www.youtube-nocookie.com/embed/${ytId}?autoplay=1&rel=0&modestbranding=1`
+          : walkthroughUrl;
+        return (
+          <div
+            onClick={() => setWalkthroughOpen(false)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 500,
+              background: 'rgba(0,0,0,0.85)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '20px', boxSizing: 'border-box',
+            }}
+          >
+            <div
+              onClick={e => e.stopPropagation()}
+              style={{
+                position: 'relative', width: '100%', maxWidth: 980,
+                background: '#000', borderRadius: 12, overflow: 'hidden',
+                boxShadow: '0 30px 80px rgba(0,0,0,0.5)',
+              }}
+            >
+              <button
+                onClick={() => setWalkthroughOpen(false)}
+                aria-label="Close walkthrough"
+                style={{
+                  position: 'absolute', top: 8, right: 8, zIndex: 2,
+                  width: 36, height: 36, borderRadius: '50%',
+                  background: 'rgba(0,0,0,0.6)', border: 'none', color: '#fff',
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}
+              >
+                <X size={18} />
+              </button>
+              <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
+                <iframe
+                  src={embedSrc}
+                  title="Platform Walkthrough"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  style={{
+                    position: 'absolute', top: 0, left: 0,
+                    width: '100%', height: '100%', border: 'none',
+                  }}
+                />
+              </div>
+              {!ytId && (
+                <div style={{ padding: '10px 14px', background: '#0D2E5A', textAlign: 'center' }}>
+                  <a href={walkthroughUrl} target="_blank" rel="noopener noreferrer"
+                    style={{ color: '#93C5FD', fontSize: 12, fontWeight: 600, textDecoration: 'underline' }}>
+                    Trouble loading? Open in new tab →
+                  </a>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

@@ -67,6 +67,12 @@ export default function TrainingSettingsPage() {
   const [savedWhatsappUrl, setSavedWhatsappUrl] = useState('');
   const [whatsappSaving, setWhatsappSaving]   = useState(false);
 
+  // Platform Walkthrough URL — shown as a "Watch Platform Walkthrough"
+  // button on the student dashboard. Empty = button hidden.
+  const [walkthroughUrl, setWalkthroughUrl]           = useState('');
+  const [savedWalkthroughUrl, setSavedWalkthroughUrl] = useState('');
+  const [walkthroughSaving, setWalkthroughSaving]     = useState(false);
+
   // Filter state
   const [searchQuery, setSearchQuery] = useState('');
   const [typeFilter, setTypeFilter]   = useState<'all' | '3SFM' | 'BVM' | 'live' | 'live_upcoming' | 'live_recorded'>('all');
@@ -226,6 +232,9 @@ export default function TrainingSettingsPage() {
       const wa = (s.whatsapp_group_url ?? '').trim();
       setWhatsappUrl(wa);
       setSavedWhatsappUrl(wa);
+      const wk = (s.platform_walkthrough_url ?? '').trim();
+      setWalkthroughUrl(wk);
+      setSavedWalkthroughUrl(wk);
       setLoading(false);
     });
   }, []);
@@ -260,6 +269,42 @@ export default function TrainingSettingsPage() {
     const t = v.trim();
     if (t === '') return true;
     return /^https:\/\/chat\.whatsapp\.com\/[A-Za-z0-9]+/i.test(t);
+  };
+
+  // Walkthrough URL is meant to be embedded in an iframe, so we accept
+  // YouTube + Vimeo + a generic https:// fallback. The dashboard handles
+  // the display; this gate just rejects obviously-broken input.
+  const isValidWalkthroughUrl = (v: string) => {
+    const t = v.trim();
+    if (t === '') return true;
+    return /^https:\/\/(?:[\w-]+\.)*(?:youtube\.com|youtu\.be|vimeo\.com)\//i.test(t)
+      || /^https:\/\//i.test(t);
+  };
+
+  const saveWalkthrough = async () => {
+    const trimmed = walkthroughUrl.trim();
+    if (!isValidWalkthroughUrl(trimmed)) {
+      showToast('Enter a valid https:// URL or leave empty');
+      return;
+    }
+    setWalkthroughSaving(true);
+    try {
+      const res = await fetch('/api/admin/training-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platform_walkthrough_url: trimmed }),
+      });
+      if (res.ok) {
+        setSavedWalkthroughUrl(trimmed);
+        setWalkthroughUrl(trimmed);
+        showToast(trimmed ? 'Walkthrough video link saved' : 'Walkthrough video link cleared');
+      } else {
+        showToast('Save failed');
+      }
+    } catch {
+      showToast('Save failed');
+    }
+    setWalkthroughSaving(false);
   };
 
   const saveWhatsapp = async () => {
@@ -527,6 +572,70 @@ export default function TrainingSettingsPage() {
                   )}
 
                   {savedWhatsappUrl ? (
+                    <div style={{ marginTop: 12, fontSize: 11, color: '#065F46', background: '#D1FAE5', padding: '6px 10px', borderRadius: 6, display: 'inline-block' }}>
+                      ✅ <strong>Active</strong> · Button visible on student dashboard
+                    </div>
+                  ) : (
+                    <div style={{ marginTop: 12, fontSize: 11, color: '#6B7280', background: '#F3F4F6', padding: '6px 10px', borderRadius: 6, display: 'inline-block' }}>
+                      Button hidden · no URL set
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* Platform Walkthrough Video Card */}
+            {(() => {
+              const trimmed = walkthroughUrl.trim();
+              const dirty = trimmed !== savedWalkthroughUrl;
+              const valid = isValidWalkthroughUrl(trimmed);
+              const showInvalid = trimmed !== '' && !valid;
+              return (
+                <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '24px 28px', marginBottom: 24, maxWidth: 780 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B', marginBottom: 4 }}>
+                    🎥 Platform Walkthrough Video
+                  </div>
+                  <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
+                    Paste a YouTube (or Vimeo) URL to show a <strong>Watch Platform Walkthrough</strong> button on the student dashboard hero. The video opens in an embedded modal — students never leave the platform. Leave empty to hide the button.
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Video URL</div>
+                      <input
+                        value={walkthroughUrl}
+                        onChange={e => setWalkthroughUrl(e.target.value)}
+                        placeholder="https://www.youtube.com/watch?v=..."
+                        style={{
+                          ...inputStyle,
+                          borderColor: showInvalid ? '#DC2626' : '#D1D5DB',
+                          background: showInvalid ? '#FEF2F2' : '#FFFBEB',
+                        }}
+                      />
+                    </div>
+                    <button
+                      onClick={saveWalkthrough}
+                      disabled={walkthroughSaving || !dirty || showInvalid}
+                      style={{
+                        padding: '9px 20px',
+                        background: dirty && !showInvalid ? '#1B4F8A' : '#F3F4F6',
+                        color: dirty && !showInvalid ? '#fff' : '#9CA3AF',
+                        border: 'none', borderRadius: 6, fontSize: 13, fontWeight: 700,
+                        cursor: dirty && !showInvalid ? 'pointer' : 'default',
+                        whiteSpace: 'nowrap', opacity: walkthroughSaving ? 0.7 : 1,
+                      }}
+                    >
+                      {walkthroughSaving ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+
+                  {showInvalid && (
+                    <div style={{ marginTop: 10, fontSize: 12, color: '#DC2626', fontWeight: 600 }}>
+                      ⚠️ Must be a valid https:// URL.
+                    </div>
+                  )}
+
+                  {savedWalkthroughUrl ? (
                     <div style={{ marginTop: 12, fontSize: 11, color: '#065F46', background: '#D1FAE5', padding: '6px 10px', borderRadius: 6, display: 'inline-block' }}>
                       ✅ <strong>Active</strong> · Button visible on student dashboard
                     </div>
