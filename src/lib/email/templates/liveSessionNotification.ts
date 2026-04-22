@@ -86,7 +86,7 @@ export async function liveSessionNotificationTemplate(p: NotificationParams): Pr
           View & Register for This Session
         </a>
       </div>
-      ${p.joinUrl ? `<p style="margin:12px 0 0;font-size:12px;color:#888;">Direct join link: <a href="${p.joinUrl}" style="color:#2E75B6;">${p.joinUrl}</a></p>` : `<p style="margin:12px 0 0;font-size:12px;color:#888;">Log in to your account to register and get the join link</p>`}
+      <p style="margin:12px 0 0;font-size:12px;color:#888;">Register to get the join link, calendar invite and session materials.</p>
       ${dialInBlock}
     </div>`;
 

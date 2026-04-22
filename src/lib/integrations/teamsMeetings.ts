@@ -300,25 +300,6 @@ function toGraphDateTime(isoUtc: string, timeZone: string): { dateTime: string; 
   return { dateTime: localStr.replace(' ', 'T'), timeZone };
 }
 
-function buildEventBody(title: string, description: string): { contentType: 'HTML'; content: string } {
-  const safeTitle = title || 'Live Session';
-  const desc = (description || '').trim();
-  const descBlock = desc
-    ? `<p style="font-size: 14px; line-height: 1.6; color: #374151;">${desc}</p>`
-    : '';
-  return {
-    contentType: 'HTML',
-    content: `
-<div style="font-family: Inter, Arial, sans-serif; color: #0D2E5A;">
-  <h2 style="color: #0D2E5A; margin: 0 0 16px;">${safeTitle}</h2>
-  ${descBlock}
-  <p style="color: #6B7280; font-size: 12px; margin-top: 24px;">
-    Hosted by Financial Modeler Pro
-  </p>
-</div>`.trim(),
-  };
-}
-
 function normalizeEvent(raw: Record<string, unknown>): TeamsMeeting {
   const onlineMeeting = (raw.onlineMeeting as Record<string, unknown> | undefined) ?? {};
   const start         = (raw.start         as { dateTime?: string } | undefined) ?? {};
@@ -340,22 +321,43 @@ export async function createCalendarEventWithMeeting(params: {
   timezone?:     string;
   description?:  string;
 }): Promise<TeamsMeeting> {
-  const hostId   = await getHostUserId();
-  const tz       = (params.timezone || '').trim() || DEFAULT_TIMEZONE;
-  const path     = `/users/${encodeURIComponent(hostId)}/events`;
-  const payload  = {
+  const hostId    = await getHostUserId();
+  const hostEmail = process.env.TEAMS_HOST_USER_EMAIL!;
+  const tz        = (params.timezone || '').trim() || DEFAULT_TIMEZONE;
+  const path      = `/users/${encodeURIComponent(hostId)}/events`;
+
+  // No `body` on the POST. When `isOnlineMeeting:true` is set, Outlook
+  // auto-generates the event body with the canonical "Microsoft Teams
+  // meeting" join block (the visible Join button + dial-in numbers).
+  // Sending our own HTML body verbatim suppressed that block, which is
+  // why post-commit-698f991 events appeared on Ahmad's calendar without
+  // a visible Join button even though `onlineMeeting.joinUrl` existed
+  // on the underlying event object.
+  //
+  // Adding the host as a required attendee triggers the standard
+  // "Microsoft Teams meeting" invitation email to Ahmad. With
+  // attendees=[] Outlook treated it as a private appointment and sent
+  // nothing. The host being both organizer and attendee is the
+  // documented pattern for self-invite under application-credentials
+  // flow; Outlook does not duplicate the calendar entry.
+  const payload = {
     subject:               params.subject,
-    body:                  buildEventBody(params.subject, params.description ?? ''),
     start:                 toGraphDateTime(params.startDateTime, tz),
     end:                   toGraphDateTime(params.endDateTime,   tz),
     isOnlineMeeting:       true,
     onlineMeetingProvider: 'teamsForBusiness',
-    // Empty attendees: the organizer (Ahmad) gets the event automatically
-    // and the existing Resend-based "Send Announcement" flow still owns
-    // the student fan-out. Adding students here would generate ICS invites
-    // from Outlook, which is a separate UX decision.
-    attendees:             [] as Array<unknown>,
+    attendees: [{
+      emailAddress: { address: hostEmail, name: 'Ahmad Din' },
+      type:         'required',
+    }],
   };
+
+  // params.description is intentionally unused here. Adding it back to
+  // the body would recreate the missing-Join-button regression. To
+  // surface a description in the future, GET the event after creation,
+  // PREPEND our description to the auto-generated body, then PATCH the
+  // merged content back so the Teams block stays intact.
+  void params.description;
 
   const res = await graphFetch('POST', path, payload);
   if (!res.ok) {
@@ -380,9 +382,15 @@ export async function updateCalendarEvent(
   if (updates.subject !== undefined) payload.subject = updates.subject;
   if (updates.startDateTime !== undefined) payload.start = toGraphDateTime(updates.startDateTime, tz);
   if (updates.endDateTime   !== undefined) payload.end   = toGraphDateTime(updates.endDateTime,   tz);
-  if (updates.subject !== undefined || updates.description !== undefined) {
-    payload.body = buildEventBody(updates.subject ?? '', updates.description ?? '');
-  }
+
+  // Body intentionally NOT patched. PATCHing `body` on a Teams-bound
+  // event replaces Outlook's auto-generated content (which contains the
+  // "Microsoft Teams meeting" Join block) and silently strips the join
+  // button from the calendar UI. To preserve the join button, we leave
+  // body untouched on every edit and only sync subject + schedule.
+  // params.description is accepted for API compatibility but not used
+  // until a future merge-into-existing-body implementation lands.
+  void updates.description;
 
   const res = await graphFetch(
     'PATCH',
