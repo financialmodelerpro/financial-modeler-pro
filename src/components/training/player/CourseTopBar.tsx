@@ -69,14 +69,20 @@ export function CourseTopBar({
     if (typeof sessionStorage !== 'undefined') sessionStorage.setItem('fmp_complete_popup_shown', '1');
   }, [onMarkComplete]);
 
+  // Sub-header is fixed (not sticky) so it stays visible regardless of
+  // ancestor `overflow`/`transform` chains. The 56px top offset clears
+  // TrainingShell's main NAV bar above it. CoursePlayerLayout renders
+  // a matching-height spacer below this bar so the body isn't hidden
+  // underneath it on first paint.
   return (
     <>
       <div style={{
-        position: 'sticky', top: 56, zIndex: 100,
+        position: 'fixed', top: 56, left: 0, right: 0, zIndex: 100,
         display: 'flex', alignItems: 'center', gap: 12,
         padding: '8px 14px', minHeight: 52,
         background: '#0D2E5A', color: '#fff',
         borderBottom: '1px solid rgba(255,255,255,0.08)',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
         flexWrap: 'wrap',
       }}>
         {/* Back to course - replaces the per-page sidebar */}

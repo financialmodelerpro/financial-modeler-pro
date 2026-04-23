@@ -1293,7 +1293,13 @@ export default function TrainingDashboardPage() {
               </div>
 
               {/* ── LIVE SESSIONS (Upcoming + Recorded) ────────────────────────── */}
-              {localSession && <LiveSessionsSection studentEmail={localSession.email} />}
+              {localSession && (
+                <LiveSessionsSection
+                  studentEmail={localSession.email}
+                  studentName={studentName}
+                  registrationId={localSession.registrationId}
+                />
+              )}
 
               {/* ── MY COURSES ─────────────────────────────────────────────────── */}
               <div style={{ marginBottom: 28 }}>

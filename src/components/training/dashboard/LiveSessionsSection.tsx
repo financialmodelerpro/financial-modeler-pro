@@ -13,6 +13,10 @@ const NAVY = '#0D2E5A';
 
 interface Props {
   studentEmail: string;
+  /** Required for inline registration from the card. Without these,
+   *  the card falls back to a navigation Link to the detail page. */
+  studentName?: string;
+  registrationId?: string;
   courseId?: string;
   /** How many upcoming cards to render. Defaults to 3 — matches the
    *  "max 3 cards per row" dashboard layout. */
@@ -34,7 +38,7 @@ const EMPTY_DATA: LiveSessionsForStudent = {
   regStatus: {}, watchHistory: {},
 };
 
-export function LiveSessionsSection({ studentEmail, courseId, limit = 3 }: Props) {
+export function LiveSessionsSection({ studentEmail, studentName = '', registrationId = '', courseId, limit = 3 }: Props) {
   const [data, setData] = useState<LiveSessionsForStudent | null>(null);
 
   useEffect(() => {
@@ -98,6 +102,9 @@ export function LiveSessionsSection({ studentEmail, courseId, limit = 3 }: Props
                 session={s}
                 reg={data?.regStatus[s.id]}
                 href={`/training/live-sessions/${s.id}`}
+                studentEmail={studentEmail}
+                studentName={studentName}
+                registrationId={registrationId}
               />
             ))}
           </div>

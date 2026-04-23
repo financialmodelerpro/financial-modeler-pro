@@ -201,25 +201,21 @@ export function CoursePlayerLayout({
   const fmtDate = (iso: string) => { try { return new Date(iso).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); } catch { return ''; } };
   const fmtTime = (iso: string) => { try { return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }); } catch { return ''; } };
 
-  // CTA for sessions without embedded video
+  // CTA for sessions without embedded video.
+  //
+  // Upcoming-session CTAs (Register / Join) are intentionally NOT
+  // rendered here anymore. The previous behaviour was buggy on two
+  // fronts: the "Register for Session" Link just bounced back to the
+  // same detail page (no API call, no row, no email) and the "Join
+  // Session" Link exposed live_url to anyone who hit the page,
+  // bypassing registration entirely. The caller (live-session detail
+  // page) now renders its own registration card via `children` that
+  // POSTs to /api/training/live-sessions/[id]/register and only
+  // surfaces the join link AFTER the server confirms a row exists
+  // AND we're inside the join-window (joinLinkAvailable=true).
   const sessionCta = (() => {
     if (hasVideo) return null; // handled by Watch Session button
-    if (isUpcoming && liveUrl) {
-      return (
-        <a href={liveUrl} target="_blank" rel="noopener noreferrer"
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 24px', background: '#DC2626', color: '#fff', fontSize: 15, fontWeight: 600, borderRadius: 8, textDecoration: 'none', marginBottom: 24 }}>
-          Join Session →
-        </a>
-      );
-    }
-    if (isUpcoming && !liveUrl) {
-      return (
-        <Link href={isLoggedIn ? `/training/live-sessions/${currentSessionId}` : `/register?redirect=/training/live-sessions/${currentSessionId}`}
-          style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '12px 24px', background: '#2EAA4A', color: '#fff', fontSize: 15, fontWeight: 600, borderRadius: 8, textDecoration: 'none', marginBottom: 24 }}>
-          {isLoggedIn ? 'Register for Session →' : 'Register Free →'}
-        </Link>
-      );
-    }
+    if (isUpcoming) return null; // caller renders the Register UI
     if (youtubeUrl) {
       // Has youtube_url but youtube_embed is false
       return (
@@ -243,7 +239,10 @@ export function CoursePlayerLayout({
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: '#f9fafb' }}>
       {/* Top bar - now hosts the "Back to Course" button (the per-page
-          sidebar was dropped 2026-04-23, see SidebarSession comment). */}
+          sidebar was dropped 2026-04-23). It is `position: fixed` so it
+          survives any ancestor `overflow`/`transform` that would defeat
+          `sticky`; the spacer below reserves the same vertical space so
+          the body doesn't slip under it on first paint. */}
       <CourseTopBar
         title={title}
         youtubeUrl={youtubeUrl || ''}
@@ -263,6 +262,7 @@ export function CoursePlayerLayout({
         backUrl={backUrl}
         backLabel={backLabel}
       />
+      <div aria-hidden="true" style={{ minHeight: 52 }} />
 
       {/* Body */}
       <div style={{ display: 'flex', flex: 1, flexDirection: isMobile ? 'column' : 'row', position: 'relative' }}>
@@ -393,15 +393,26 @@ export function CoursePlayerLayout({
           )}
 
           {/* Screen 2: Video OPEN.
-              The wrapper used to have `aspectRatio: '16/9'` plus YouTubePlayer's
-              own padding-bottom 56.25% trick — those compounded with no
-              defined width and collapsed the iframe to 0 dimensions on
-              mobile (the video appeared "missing"). YouTubePlayer is
-              already responsive 16:9 by itself, so we just give it a
-              full-width block container and let it render. */}
+              YouTubePlayer renders 16:9 via padding-bottom trick on its
+              own width. We cap the wrapper width by viewport HEIGHT so
+              the resulting 16:9 video stays inside the viewport without
+              scrolling. After the sidebar was removed (2026-04-23) the
+              video was free to grow to full content width and ended up
+              taller than the viewport on standard desktops; clamping
+              max-width to (visible-height * 16/9) keeps it visible.
+              The 200px subtracts main header (56) + sub-header (52) +
+              comfortable padding (~92) so the video sits inside the
+              first scroll. Falls back to full width on mobile via the
+              `min(...)` so a portrait phone is never width-clamped
+              below its actual viewport. */}
           {videoOpen && hasVideo && (
             <>
-              <div style={{ width: '100%', background: '#000' }}>
+              <div style={{
+                width: '100%',
+                maxWidth: 'min(100%, calc((100vh - 200px) * 16 / 9))',
+                margin: '0 auto',
+                background: '#000',
+              }}>
                 <YouTubePlayer
                   videoId={videoId!}
                   title={title}

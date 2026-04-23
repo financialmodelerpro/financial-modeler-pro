@@ -179,7 +179,18 @@ export default function AdminCourseLessonsPage() {
     // always false, which silently routed every BVM upload to the
     // 3SFM bucket and overwrote real 3SFM session attachments
     // (root cause of the cross-course mixing reported 2026-04-23).
-    const code = (course?.category ?? '').toLowerCase() === 'bvm' ? 'bvm' : '3sfm';
+    const category = (course?.category ?? '').toUpperCase();
+    if (category !== 'BVM' && category !== '3SFM') {
+      // Course data hasn't arrived yet (or this is an unsupported
+      // course). Refuse to upload rather than fall back to a default
+      // that would write the wrong bucket. The Upload buttons below
+      // are also disabled while course is null, so this is a final
+      // safety net.
+      setToast({ msg: 'Course data still loading - try again in a moment.', type: 'error' });
+      setTimeout(() => setToast(null), 3000);
+      return;
+    }
+    const code = category.toLowerCase();
     setUploadingFor(tabKey);
     try {
       const fd = new FormData();

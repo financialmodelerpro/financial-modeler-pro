@@ -45,6 +45,30 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'file, tabKey, and course required' }, { status: 400 });
     }
 
+    // Defence-in-depth: course must match the tab_key prefix. This stops
+    // any client bug (like the 2026-04-23 admin scoping regression where
+    // BVM uploads landed on 3SFM_S{N}) from silently writing the wrong
+    // bucket. The convention is: tab_key starts with the course code in
+    // uppercase + underscore (BVM_, 3SFM_, LIVE_), and `course` is the
+    // lowercase form (or 'live' for live-session attachments).
+    const tabPrefix = tabKey.split('_')[0].toUpperCase();
+    const courseCanonical = course.trim().toLowerCase();
+    const expectedCourse =
+      tabPrefix === 'BVM'  ? 'bvm' :
+      tabPrefix === '3SFM' ? '3sfm' :
+      tabPrefix === 'LIVE' ? 'live' : null;
+    if (!expectedCourse) {
+      return NextResponse.json({ error: `Unsupported tab_key prefix '${tabPrefix}'` }, { status: 400 });
+    }
+    if (courseCanonical !== expectedCourse) {
+      console.error('[admin/attachments POST] tab_key/course mismatch (rejected)', {
+        tabKey, course, expectedCourse,
+      });
+      return NextResponse.json({
+        error: `tab_key '${tabKey}' belongs to course '${expectedCourse}', but client supplied course='${course}'.`,
+      }, { status: 400 });
+    }
+
     const sb = getServerClient();
 
     // Upload to Supabase Storage

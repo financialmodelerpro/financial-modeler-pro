@@ -25,6 +25,16 @@ interface BaseProps {
 interface UpcomingProps extends BaseProps {
   variant: 'upcoming';
   reg?: RegistrationStatus;
+  /** Optional - when provided, the Register button calls the API
+   *  inline. Without these, the button falls back to a navigation
+   *  Link (legacy behaviour). The dashboard preview now passes these
+   *  through so the click actually creates a session_registrations
+   *  row + sends the confirmation email instead of just bouncing the
+   *  user to the detail page (which had no Register button of its
+   *  own pre-fix). */
+  studentEmail?:    string;
+  studentName?:     string;
+  registrationId?:  string;
 }
 
 interface RecordedProps extends BaseProps {
@@ -111,6 +121,11 @@ export function LiveSessionCard(props: Props) {
   const { session, href } = props;
   const [hover, setHover] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  // Inline-register state. Hoisted out of the variant branch so the
+  // hook count is stable across renders (rules-of-hooks).
+  const [localRegistered, setLocalRegistered] = useState(false);
+  const [registering, setRegistering] = useState(false);
+  const [registerNotice, setRegisterNotice] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
 
   // Share template is fetched for every variant — hooks must be called in
   // the same order every render, so it lives above the variant branch.
@@ -128,10 +143,60 @@ export function LiveSessionCard(props: Props) {
   if (props.variant === 'upcoming') {
     const reg = props.reg;
     const minsUntil = minutesUntil(session.scheduled_datetime);
-    const startingSoon = reg?.registered && minsUntil <= 15 && minsUntil >= -180;
+    // Inline registration: the previous Register element here was a
+    // navigation Link to the detail page, which had no Register button
+    // of its own - the click did nothing and (when the session had
+    // live_url set) the detail page surfaced "Join Session" via a
+    // different code path, giving the impression that one click had
+    // both registered and unlocked the join link. Now the click POSTs
+    // to /register and only flips the badge to REGISTERED on a
+    // confirmed-server-side response.
+    const registered = localRegistered || !!reg?.registered;
+    const startingSoon = registered && minsUntil <= 15 && minsUntil >= -180;
     const canJoin = reg?.joinLinkAvailable;
-    const badgeLabel = session.session_type === 'live' ? 'LIVE NOW' : reg?.registered ? 'REGISTERED' : 'UPCOMING';
-    const badgeBg = session.session_type === 'live' ? RED : reg?.registered ? GREEN : ORANGE;
+    const badgeLabel = session.session_type === 'live' ? 'LIVE NOW' : registered ? 'REGISTERED' : 'UPCOMING';
+    const badgeBg = session.session_type === 'live' ? RED : registered ? GREEN : ORANGE;
+    // Capture into locals so the `doRegister` closure (called later)
+    // doesn't lose the discriminated-union narrowing on `props`.
+    const studentEmailProp   = props.studentEmail;
+    const studentNameProp    = props.studentName;
+    const registrationIdProp = props.registrationId;
+    const canInlineRegister  = !!studentEmailProp && !!registrationIdProp;
+
+    async function doRegister() {
+      if (registering) return;
+      setRegisterNotice(null);
+      const regId = (studentEmailProp && registrationIdProp) ? registrationIdProp : '';
+      const email = (studentEmailProp ?? '').trim();
+      if (!regId || !email) {
+        setRegisterNotice({ kind: 'err', msg: 'Sign in again to register.' });
+        return;
+      }
+      setRegistering(true);
+      try {
+        const res = await fetch(`/api/training/live-sessions/${session.id}/register`, {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ regId, email, name: studentNameProp ?? '' }),
+        });
+        const json = await res.json().catch(() => ({})) as { registered?: boolean; emailSent?: boolean; error?: string };
+        if (!res.ok || !json.registered) {
+          setRegisterNotice({ kind: 'err', msg: json.error ?? 'Registration failed. Please retry.' });
+          console.error('[live-session-card sm] register failed', { status: res.status, json });
+        } else {
+          setLocalRegistered(true);
+          setRegisterNotice({
+            kind: 'ok',
+            msg: json.emailSent === false ? 'Registered. Email did not send.' : 'Registered. Check your email.',
+          });
+        }
+      } catch (e) {
+        setRegisterNotice({ kind: 'err', msg: 'Network error. Please retry.' });
+        console.error('[live-session-card sm] register network error', e);
+      } finally {
+        setRegistering(false);
+      }
+    }
 
     return (
       <div
@@ -199,7 +264,7 @@ export function LiveSessionCard(props: Props) {
               }}>
                 Starting soon →
               </Link>
-            ) : reg?.registered ? (
+            ) : registered ? (
               <Link href={href} style={{
                 flex: 1, display: 'block', textAlign: 'center',
                 padding: '9px 14px', borderRadius: 8, background: NAVY, color: '#fff',
@@ -207,6 +272,21 @@ export function LiveSessionCard(props: Props) {
               }}>
                 View Details
               </Link>
+            ) : canInlineRegister ? (
+              <button
+                type="button"
+                onClick={doRegister}
+                disabled={registering}
+                style={{
+                  flex: 1, display: 'block', textAlign: 'center',
+                  padding: '9px 14px', borderRadius: 8, background: GREEN, color: '#fff',
+                  fontWeight: 700, fontSize: 12.5, border: 'none',
+                  cursor: registering ? 'not-allowed' : 'pointer',
+                  opacity: registering ? 0.65 : 1,
+                }}
+              >
+                {registering ? 'Registering…' : 'Register'}
+              </button>
             ) : (
               <Link href={href} style={{
                 flex: 1, display: 'block', textAlign: 'center',
@@ -226,6 +306,17 @@ export function LiveSessionCard(props: Props) {
               <DownloadIcon size={15} />
             </button>
           </div>
+          {registerNotice && (
+            <div style={{
+              marginTop: 8, fontSize: 11, lineHeight: 1.4,
+              padding: '5px 8px', borderRadius: 5,
+              background: registerNotice.kind === 'ok' ? '#F0FDF4' : '#FEF2F2',
+              border: `1px solid ${registerNotice.kind === 'ok' ? '#BBF7D0' : '#FECACA'}`,
+              color: registerNotice.kind === 'ok' ? '#166534' : '#B91C1C',
+            }}>
+              {registerNotice.msg}
+            </div>
+          )}
         </div>
       </div>
     );

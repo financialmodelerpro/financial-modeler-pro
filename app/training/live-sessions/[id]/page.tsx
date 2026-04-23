@@ -100,6 +100,7 @@ export default function LiveSessionDetailPage() {
   const [regCount, setRegCount] = useState(0);
   const [registering, setRegistering] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [registerNotice, setRegisterNotice] = useState<{ kind: 'ok' | 'err'; msg: string } | null>(null);
   const [playlistSessions, setPlaylistSessions] = useState<SidebarSession[]>([]);
   const [isWatched, setIsWatched] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);
@@ -273,18 +274,43 @@ export default function LiveSessionDetailPage() {
 
   const handleVideoEnded = useCallback(() => { setVideoEnded(true); }, []);
 
+  /**
+   * Register the current student for this live session. Surfaces a
+   * pass/fail notice (rather than the silent failure the previous
+   * version produced); flips `registered` only when the server
+   * confirms a row exists.
+   */
   async function handleRegister() {
     if (!studentSession) return;
+    setRegisterNotice(null);
     setRegistering(true);
     try {
       const r = await fetch(`/api/training/live-sessions/${params.id}/register`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ regId: studentSession.registrationId, name: studentSession.registrationId, email: studentSession.email }),
+        body: JSON.stringify({
+          regId: studentSession.registrationId,
+          email: studentSession.email,
+          name:  '', // server falls back to regId when blank
+        }),
       });
-      const d = await r.json();
-      if (d.success) { setRegistered(true); setRegCount(prev => prev + 1); }
-    } catch {}
-    setRegistering(false);
+      const d = await r.json().catch(() => ({})) as { success?: boolean; registered?: boolean; emailSent?: boolean; error?: string };
+      if (r.ok && d.registered) {
+        setRegistered(true);
+        setRegCount(prev => prev + 1);
+        setRegisterNotice({
+          kind: 'ok',
+          msg: d.emailSent === false ? 'Registered. Confirmation email did not send.' : 'Registered. Confirmation email sent.',
+        });
+      } else {
+        setRegisterNotice({ kind: 'err', msg: d.error ?? 'Registration failed. Please try again.' });
+        console.error('[live-session-detail] register failed', { status: r.status, d });
+      }
+    } catch (e) {
+      setRegisterNotice({ kind: 'err', msg: 'Network error. Please retry.' });
+      console.error('[live-session-detail] register network error', e);
+    } finally {
+      setRegistering(false);
+    }
   }
 
   async function handleCancelRegistration() {
@@ -481,6 +507,88 @@ export default function LiveSessionDetailPage() {
         backUrl="/training/dashboard?tab=live-sessions"
         backLabel="Live Sessions"
       >
+        {/* Register / cancel registration card. Required because
+            CoursePlayerLayout's sessionCta only ever offered a "Join
+            Session" link (when liveUrl was set) or a no-op
+            "Register for Session" Link that bounced back to this same
+            page. The detail page now owns the actual registration UI;
+            handleRegister POSTs to /register and waits for a
+            confirmed-server-side success before flipping registered. */}
+        {effType !== 'recorded' && (
+          <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24, marginTop: 24 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 6 }}>
+              {registered ? 'You are registered' : 'Register for this session'}
+            </h3>
+            <p style={{ fontSize: 13, color: '#4B5563', lineHeight: 1.55, marginTop: 0, marginBottom: 12 }}>
+              {registered
+                ? 'A confirmation email has been sent. The Join button will appear here 30 minutes before the session starts.'
+                : 'Reserve your spot. We will email you the confirmation now and the join link 30 minutes before the session.'}
+            </p>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              {!registered ? (
+                <button
+                  type="button"
+                  onClick={handleRegister}
+                  disabled={registering || !studentSession}
+                  style={{
+                    padding: '10px 20px', borderRadius: 8,
+                    background: GREEN, color: '#fff',
+                    fontSize: 13, fontWeight: 700, border: 'none',
+                    cursor: (registering || !studentSession) ? 'not-allowed' : 'pointer',
+                    opacity: (registering || !studentSession) ? 0.7 : 1,
+                  }}
+                >
+                  {registering ? 'Registering…' : 'Register for this Session'}
+                </button>
+              ) : (
+                <>
+                  {joinLinkAvailable && session.live_url && (
+                    <a
+                      href={session.live_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        padding: '10px 20px', borderRadius: 8,
+                        background: '#DC2626', color: '#fff',
+                        fontSize: 13, fontWeight: 700, textDecoration: 'none',
+                        boxShadow: '0 2px 8px rgba(220,38,38,0.3)',
+                      }}
+                    >Join Session Now →</a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleCancelRegistration}
+                    disabled={cancelling}
+                    style={{
+                      padding: '10px 16px', borderRadius: 8,
+                      background: 'transparent', color: '#6B7280',
+                      fontSize: 12, fontWeight: 600,
+                      border: '1px solid #D1D5DB',
+                      cursor: cancelling ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    {cancelling ? 'Cancelling…' : 'Cancel registration'}
+                  </button>
+                </>
+              )}
+              <span style={{ fontSize: 11, color: '#9CA3AF' }}>
+                {regCount} registered
+              </span>
+            </div>
+            {registerNotice && (
+              <div style={{
+                marginTop: 12, fontSize: 12, lineHeight: 1.5,
+                padding: '8px 12px', borderRadius: 6,
+                background: registerNotice.kind === 'ok' ? '#F0FDF4' : '#FEF2F2',
+                border: `1px solid ${registerNotice.kind === 'ok' ? '#BBF7D0' : '#FECACA'}`,
+                color: registerNotice.kind === 'ok' ? '#166534' : '#B91C1C',
+              }}>
+                {registerNotice.msg}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Attachments */}
         {session.attachments.length > 0 && (
           <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24, marginTop: 24 }}>
