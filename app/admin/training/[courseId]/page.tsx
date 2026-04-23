@@ -172,7 +172,14 @@ export default function AdminCourseLessonsPage() {
   }
 
   async function uploadAttachment(tabKey: string, file: File) {
-    const code = courseId?.toLowerCase() === 'bvm' ? 'bvm' : '3sfm';
+    // Use the loaded course's category (3SFM / BVM) instead of the URL
+    // slug. The page is reached via /admin/training/<UUID> (links from
+    // the course list use c.id), so courseId is the course's UUID, not
+    // the short code. Comparing it to the literal 'bvm' / '3sfm' was
+    // always false, which silently routed every BVM upload to the
+    // 3SFM bucket and overwrote real 3SFM session attachments
+    // (root cause of the cross-course mixing reported 2026-04-23).
+    const code = (course?.category ?? '').toLowerCase() === 'bvm' ? 'bvm' : '3sfm';
     setUploadingFor(tabKey);
     try {
       const fd = new FormData();
@@ -662,10 +669,12 @@ export default function AdminCourseLessonsPage() {
         {/* ── LESSONS TAB ───────────────────────────────────────────────────── */}
         {activeTab === 'lessons' && (
           <>
-            {/* Course-level attachments */}
+            {/* Course-level attachments. Prefix derived from the loaded
+                course.category (3SFM / BVM); see uploadAttachment for
+                why we no longer trust the URL slug. */}
             {(() => {
-              const courseCode = courseId?.toLowerCase() === 'bvm' ? 'bvm' : '3sfm';
-              const courseTk = `${courseCode.toUpperCase()}_COURSE`;
+              const courseCategory = (course?.category ?? '').toUpperCase() === 'BVM' ? 'BVM' : '3SFM';
+              const courseTk = `${courseCategory}_COURSE`;
               const courseAtts = attachments[courseTk] ?? [];
               return (
                 <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 10, padding: '16px 20px', marginBottom: 16 }}>
@@ -728,8 +737,17 @@ export default function AdminCourseLessonsPage() {
                   </div>
                 )}
                 {lessons.map(l => {
-                  const isBvm = courseId?.toLowerCase() === 'bvm';
-                  const tk = isBvm ? `BVM_L${l.display_order}` : `3SFM_S${l.display_order}`;
+                  // Prefix derived from course.category, not the URL
+                  // slug (which is a UUID here, not '3sfm'/'bvm').
+                  // The final lesson uses the canonical _Final suffix so
+                  // attachments uploaded to it surface on the watch
+                  // page (which builds the same key from session.isFinal).
+                  const isBvm = (course?.category ?? '').toUpperCase() === 'BVM';
+                  const maxOrder = lessons.reduce((m, x) => Math.max(m, x.display_order), 0);
+                  const isFinal = l.display_order === maxOrder;
+                  const tk = isFinal
+                    ? `${isBvm ? 'BVM' : '3SFM'}_Final`
+                    : `${isBvm ? 'BVM_L' : '3SFM_S'}${l.display_order}`;
                   const lessonAttachments = attachments[tk] ?? [];
                   const link = sessionLinks.find(s => s.num === l.display_order);
                   const displayYtUrl  = l.youtube_url || link?.youtubeUrl || '';
