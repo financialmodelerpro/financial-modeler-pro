@@ -4,6 +4,7 @@ import React, { useState, Suspense } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import { safeAdminCallbackOrDefault } from '@/src/lib/shared/safeAdminCallback';
 
 const NAVY      = '#0D2E5A';
 const NAVY_DEEP = '#1F3864';
@@ -35,12 +36,12 @@ function AdminLoginInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
   // callbackUrl can come from NextAuth (when middleware redirected an
-  // unauthenticated admin away from a protected /admin/* route). Sanitize
-  // so we never bounce back to the auth pages themselves.
-  const rawCallback  = searchParams.get('callbackUrl') ?? '/admin/dashboard';
-  const callbackUrl  = (rawCallback.startsWith('/admin/login') || rawCallback === '/admin' || rawCallback.startsWith('/login'))
-    ? '/admin/dashboard'
-    : rawCallback;
+  // unauthenticated admin away from a protected /admin/* route).
+  // safeAdminCallback decodes nested encoding (the cause of the
+  // ERR_TOO_MANY_REDIRECTS loop reported 2026-04-24) and rejects any
+  // value pointing back into the admin auth cycle - those would just
+  // bounce the user straight back to the login form.
+  const callbackUrl  = safeAdminCallbackOrDefault(searchParams.get('callbackUrl'));
 
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');

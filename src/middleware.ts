@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 import type { NextRequest } from 'next/server';
+import { safeAdminCallback } from '@/src/lib/shared/safeAdminCallback';
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
@@ -13,7 +14,13 @@ export async function middleware(req: NextRequest) {
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
     if (!token) {
       const loginUrl = new URL('/admin', req.url);
-      loginUrl.searchParams.set('callbackUrl', pathname + req.nextUrl.search);
+      // FIX 2026-04-24: sanitize the callback we're about to wrap in.
+      // sanitized=null means the original URL was malformed (recursive
+      // callbackUrl from the prior loop bug, off-origin, auth-cycle
+      // path); in that case redirect plain to /admin with no
+      // callbackUrl. Otherwise preserve the legitimate deep link.
+      const sanitized = safeAdminCallback(pathname + req.nextUrl.search);
+      if (sanitized) loginUrl.searchParams.set('callbackUrl', sanitized);
       return NextResponse.redirect(loginUrl);
     }
     if ((token as { role?: string }).role !== 'admin') {
