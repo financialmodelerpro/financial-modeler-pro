@@ -1,10 +1,9 @@
 'use client';
 
-import React, { useState, Suspense } from 'react';
+import React, { useState } from 'react';
 import { signIn } from 'next-auth/react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { safeAdminCallbackOrDefault } from '@/src/lib/shared/safeAdminCallback';
 
 const NAVY      = '#0D2E5A';
 const NAVY_DEEP = '#1F3864';
@@ -32,16 +31,17 @@ const labelStyle: React.CSSProperties = {
  * through the same trusted-device flow as students; previously the
  * admin role bypassed it entirely in auth.ts).
  */
+/**
+ * Post-signin destination. Hard-coded to /admin/dashboard - no
+ * callbackUrl reading, no sanitization, no conditionals. Dropping
+ * the deep-link feature in favour of zero loop surface (2026-04-24).
+ * Users who want a deep link can bookmark after signin.
+ */
+const POST_SIGNIN_URL = '/admin/dashboard';
+
 function AdminLoginInner() {
-  const router       = useRouter();
-  const searchParams = useSearchParams();
-  // callbackUrl can come from NextAuth (when middleware redirected an
-  // unauthenticated admin away from a protected /admin/* route).
-  // safeAdminCallback decodes nested encoding (the cause of the
-  // ERR_TOO_MANY_REDIRECTS loop reported 2026-04-24) and rejects any
-  // value pointing back into the admin auth cycle - those would just
-  // bounce the user straight back to the login form.
-  const callbackUrl  = safeAdminCallbackOrDefault(searchParams.get('callbackUrl'));
+  const router = useRouter();
+  const callbackUrl = POST_SIGNIN_URL;
 
   const [email,    setEmail]    = useState('');
   const [password, setPassword] = useState('');
@@ -332,9 +332,5 @@ function AdminLoginInner() {
 }
 
 export function AdminLoginClient() {
-  return (
-    <Suspense>
-      <AdminLoginInner />
-    </Suspense>
-  );
+  return <AdminLoginInner />;
 }

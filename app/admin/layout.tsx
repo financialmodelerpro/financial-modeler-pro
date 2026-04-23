@@ -17,11 +17,13 @@ function AdminProtected({ children }: { children: React.ReactNode }) {
 
 function AdminGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  // /admin is the unified login entry (FIX 1, 2026-04-23). The legacy
-  // /admin/login route still exists as a redirect to /admin so we
-  // exclude it from the auth hook too. Both must skip the hook so
-  // unauthed visitors reach the credential form without bouncing.
-  if (pathname === '/admin' || pathname === '/admin/login') return <>{children}</>;
+  // /admin is the single admin auth entry (the /admin/login page was
+  // deleted 2026-04-24; its URL now hits a next.config-level 308 to
+  // /admin). Skip the auth hook here so the login form renders
+  // without the hook firing router.replace('/admin') and bouncing in
+  // place. Every other /admin/* subpath is protected both by this
+  // client hook AND by middleware (for the server-side guarantee).
+  if (pathname === '/admin') return <>{children}</>;
   return <AdminProtected>{children}</AdminProtected>;
 }
 

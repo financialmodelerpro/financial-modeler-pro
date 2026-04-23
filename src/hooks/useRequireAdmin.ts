@@ -6,8 +6,8 @@ import { useEffect } from 'react';
 
 /**
  * Redirect non-admin visitors away from admin pages.
- * - Not signed in  → /login
- * - Signed in, not admin → /
+ *   - Not signed in       -> /admin (the unified login entry)
+ *   - Signed in, not admin -> /
  *
  * Returns { loading } so the page can avoid rendering until the check resolves.
  */

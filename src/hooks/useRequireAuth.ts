@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 
 /**
- * Redirect unauthenticated visitors to /login.
+ * Redirect unauthenticated visitors to /admin (the unified login entry).
  * Returns { loading } so the page can avoid rendering until resolved.
  */
 export function useRequireAuth(): { loading: boolean } {

@@ -1,36 +1,35 @@
 import { NextResponse } from 'next/server';
 import { getToken } from 'next-auth/jwt';
 import type { NextRequest } from 'next/server';
-import { safeAdminCallback } from '@/src/lib/shared/safeAdminCallback';
 
+/**
+ * Admin-route guard.
+ *
+ * Matcher `/admin/:path+` uses `+` (one-or-more segments) so `/admin`
+ * ITSELF never enters middleware - no in-code guard needed. Every other
+ * /admin/* route is protected:
+ *   - no token            -> redirect to /admin (plain, no query)
+ *   - token, not admin    -> redirect to /portal
+ *   - token, admin        -> continue
+ *
+ * There is deliberately ZERO callbackUrl plumbing. Users who land here
+ * unauthed see the login form; after signin they go to the default
+ * post-signin destination (/admin/dashboard, enforced by NextAuth's
+ * callbacks.redirect in src/lib/shared/auth.ts). Dropping the
+ * callbackUrl flow eliminates every loop vector the auth surface
+ * previously had.
+ */
 export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
-
-  // Protect /admin/* but exclude the auth entries themselves so we
-  // don't bounce in a loop. /admin (the unified login page, FIX 1
-  // 2026-04-23) and /admin/login (legacy redirect to /admin) both
-  // need to be reachable while logged out.
-  if (pathname.startsWith('/admin') && pathname !== '/admin' && pathname !== '/admin/login') {
-    const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-    if (!token) {
-      const loginUrl = new URL('/admin', req.url);
-      // FIX 2026-04-24: sanitize the callback we're about to wrap in.
-      // sanitized=null means the original URL was malformed (recursive
-      // callbackUrl from the prior loop bug, off-origin, auth-cycle
-      // path); in that case redirect plain to /admin with no
-      // callbackUrl. Otherwise preserve the legitimate deep link.
-      const sanitized = safeAdminCallback(pathname + req.nextUrl.search);
-      if (sanitized) loginUrl.searchParams.set('callbackUrl', sanitized);
-      return NextResponse.redirect(loginUrl);
-    }
-    if ((token as { role?: string }).role !== 'admin') {
-      return NextResponse.redirect(new URL('/portal', req.url));
-    }
+  const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
+  if (!token) {
+    return NextResponse.redirect(new URL('/admin', req.url));
   }
-
+  if ((token as { role?: string }).role !== 'admin') {
+    return NextResponse.redirect(new URL('/portal', req.url));
+  }
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ['/admin/:path*'],
+  matcher: ['/admin/:path+'],
 };

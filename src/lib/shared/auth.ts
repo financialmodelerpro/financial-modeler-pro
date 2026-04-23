@@ -110,5 +110,26 @@ export const authOptions: AuthOptions = {
       session.user.subscription_status = token.subscription_status;
       return session;
     },
+    /**
+     * Post-signin destination. NextAuth invokes this when it needs to
+     * redirect after a successful signin or when it constructs its own
+     * fallback URLs. Hard-coded to /admin/dashboard (successful signin)
+     * for admins; anything that resolves to an auth-cycle path or an
+     * off-origin URL collapses to /admin instead. Eliminates every
+     * callbackUrl loop vector at the framework layer.
+     */
+    async redirect({ url, baseUrl }) {
+      // Off-origin URL → force back to safe default.
+      if (!url.startsWith(baseUrl) && !url.startsWith('/')) {
+        return `${baseUrl}/admin/dashboard`;
+      }
+      const path = url.startsWith(baseUrl) ? url.slice(baseUrl.length) || '/' : url;
+      // Auth-cycle paths: don't bounce back to the login surface.
+      if (path === '/admin' || path === '/admin/login' || path === '/login' || path === '/') {
+        return `${baseUrl}/admin/dashboard`;
+      }
+      // Same-origin legitimate destination.
+      return url.startsWith(baseUrl) ? url : `${baseUrl}${path}`;
+    },
   },
 };
