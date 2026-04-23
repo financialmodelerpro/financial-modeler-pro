@@ -2,8 +2,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Calendar, Clock, User, Play, CheckCircle2, Radio, Share2, Download as DownloadIcon } from 'lucide-react';
-import { downloadIcs } from '@/src/lib/training/calendar';
+import { Calendar, Clock, User, Play, CheckCircle2, Radio, Share2 } from 'lucide-react';
+import { CalendarDropdown } from '@/src/components/training/CalendarDropdown';
 import { ShareModal } from '@/src/components/training/share/ShareModal';
 import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
 import { renderShareTemplate, formatShareDate } from '@/src/lib/training/shareTemplates';
@@ -142,10 +142,13 @@ export function LiveSessionCard(props: Props) {
     const canJoin = registered && !!reg?.joinLinkAvailable;
     const badgeLabel = session.session_type === 'live' ? 'LIVE NOW' : registered ? 'REGISTERED' : 'UPCOMING';
     const badgeBg = session.session_type === 'live' ? RED : registered ? GREEN : ORANGE;
-    // The session record may also carry a live_url field from the API
-    // (live_sessions row). Cast loosely; we only consume it when it's
-    // a present string.
-    const liveUrl = (session as unknown as { live_url?: string | null }).live_url ?? '';
+    // CHANGE 1 (2026-04-23): joinLinkAvailable is now true the
+    // moment a student registers (no 30-min-before-start gate). The
+    // Join Session button surfaces immediately; the meta row above it
+    // shows the actual scheduled date/time so students see WHEN to
+    // join. liveUrl is consumed below for the Add-to-Calendar event
+    // location too.
+    const liveUrl = session.live_url ?? '';
 
     return (
       <div
@@ -251,14 +254,19 @@ export function LiveSessionCard(props: Props) {
               </Link>
             )}
 
-            <button
-              type="button"
-              title="Add to calendar (.ics)"
-              onClick={() => downloadIcs(session)}
-              style={iconBtn(NAVY)}
-            >
-              <DownloadIcon size={15} />
-            </button>
+            <CalendarDropdown
+              event={{
+                title:              session.title,
+                description:        session.description ?? '',
+                scheduled_datetime: session.scheduled_datetime,
+                duration_minutes:   session.duration_minutes,
+                timezone:           session.timezone,
+                live_url:           liveUrl,
+                organizer:          session.instructor_name || 'Ahmad Din',
+              }}
+              variant="pill"
+              title="Add to calendar"
+            />
           </div>
         </div>
       </div>

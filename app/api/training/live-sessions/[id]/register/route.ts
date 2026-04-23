@@ -161,18 +161,19 @@ export async function GET(
 
   const [{ data: reg }, { data: session }, { count }] = await Promise.all([
     sb.from('session_registrations').select('id').eq('session_id', id).eq('student_email', email.toLowerCase()).maybeSingle(),
-    sb.from('live_sessions').select('scheduled_datetime, show_join_link_minutes_before, registration_required').eq('id', id).maybeSingle(),
+    sb.from('live_sessions').select('scheduled_datetime, registration_required').eq('id', id).maybeSingle(),
     sb.from('session_registrations').select('*', { count: 'exact', head: true }).eq('session_id', id),
   ]);
 
+  // CHANGE 1 (2026-04-23): Join link is available immediately upon
+  // registration. The previous behaviour gated it behind a 30-min-
+  // before-start window which left students wondering where the join
+  // button was after registering. Surfacing the join URL early lets
+  // students drop it into their calendar / pre-test their mic, while
+  // the UI still shows the scheduled date/time prominently so nobody
+  // is confused about WHEN the session actually starts.
   const registered = !!reg;
-  let joinLinkAvailable = false;
-
-  if (registered && session?.scheduled_datetime) {
-    const minBefore = session.show_join_link_minutes_before ?? 30;
-    const sessionTime = new Date(session.scheduled_datetime).getTime();
-    joinLinkAvailable = Date.now() >= sessionTime - minBefore * 60 * 1000;
-  }
+  const joinLinkAvailable = registered && !!session?.scheduled_datetime;
 
   return NextResponse.json({
     registered,

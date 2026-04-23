@@ -8,6 +8,7 @@ import { FilePreviewModal } from '@/src/components/training/dashboard/FilePrevie
 import { TrainingShell } from '@/src/components/training/TrainingShell';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/components/training/player/CoursePlayerLayout';
 import { WatchProgressBar } from '@/src/components/training/WatchProgressBar';
+import { CalendarDropdown } from '@/src/components/training/CalendarDropdown';
 
 interface Attachment { id: string; file_name: string; file_url: string; file_type: string; file_size: number }
 interface Session {
@@ -384,6 +385,17 @@ export default function LiveSessionDetailPage() {
     // - the student now sees the registration CTA the instant the page
     // loads (FIX 1, 2026-04-23). Hidden for recorded sessions because
     // those don't have a live registration concept.
+    // Friendly date + time formatters for the "Session starts ..." line
+    // surfaced under the Join button (CHANGE 1, 2026-04-23). Pulled
+    // inline so the registerCard JSX stays self-contained.
+    const sessStart = session.scheduled_datetime ? new Date(session.scheduled_datetime) : null;
+    const sessDateLabel = sessStart && !isNaN(sessStart.getTime())
+      ? sessStart.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+      : '';
+    const sessTimeLabel = sessStart && !isNaN(sessStart.getTime())
+      ? sessStart.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true })
+      : '';
+
     const registerCard = effType !== 'recorded' ? (
       <div style={{ background: '#fff', borderRadius: 10, border: '1px solid #E5E7EB', padding: 24 }}>
         <h3 style={{ fontSize: 14, fontWeight: 700, color: NAVY, marginBottom: 6 }}>
@@ -391,10 +403,8 @@ export default function LiveSessionDetailPage() {
         </h3>
         <p style={{ fontSize: 13, color: '#4B5563', lineHeight: 1.55, marginTop: 0, marginBottom: 12 }}>
           {registered
-            ? (joinLinkAvailable
-                ? 'Session is live or starting soon. Click Join Session Now to enter.'
-                : `A confirmation email has been sent. The Join button will appear here 30 minutes before the session starts.${countdown ? ' Starts in ' + countdown + '.' : ''}`)
-            : 'Reserve your spot. We will email you the confirmation now and the join link 30 minutes before the session.'}
+            ? 'Confirmation email sent. The Join Session button below opens the meeting room. Add the session to your calendar so you do not miss it.'
+            : 'Reserve your spot. We will email the confirmation now; the Join Session button will appear here so you can drop it straight into your calendar.'}
         </p>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
           {!registered ? (
@@ -414,7 +424,7 @@ export default function LiveSessionDetailPage() {
             </button>
           ) : (
             <>
-              {joinLinkAvailable && session.live_url && (
+              {session.live_url && (
                 <a
                   href={session.live_url}
                   target="_blank"
@@ -425,8 +435,22 @@ export default function LiveSessionDetailPage() {
                     fontSize: 13, fontWeight: 700, textDecoration: 'none',
                     boxShadow: '0 2px 8px rgba(220,38,38,0.3)',
                   }}
-                >Join Session Now →</a>
+                >Join Session →</a>
               )}
+              <CalendarDropdown
+                event={{
+                  title:              session.title,
+                  description:        session.description,
+                  scheduled_datetime: session.scheduled_datetime,
+                  duration_minutes:   session.duration_minutes,
+                  timezone:           session.timezone,
+                  live_url:           session.live_url,
+                  organizer:          session.instructor_name || 'Ahmad Din',
+                }}
+                variant="inline"
+                accentColor={NAVY}
+                title="Add to calendar"
+              />
               <button
                 type="button"
                 onClick={handleCancelRegistration}
@@ -447,6 +471,25 @@ export default function LiveSessionDetailPage() {
             {regCount} registered
           </span>
         </div>
+        {/* Schedule warning so students don't try to join the meeting
+            room hours/days early. Surfaces under the Join button when
+            registered, since the Join button is now available the
+            instant they register (CHANGE 1, 2026-04-23). */}
+        {registered && sessDateLabel && (
+          <div style={{
+            marginTop: 14, padding: '10px 14px',
+            background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 8,
+            fontSize: 12.5, color: '#92400E', lineHeight: 1.55,
+          }}>
+            <strong>Session starts {sessDateLabel}{sessTimeLabel ? ` at ${sessTimeLabel}` : ''}{session.timezone ? ` (${session.timezone})` : ''}.</strong>
+            {countdown && countdown !== 'Starting now!' && (
+              <> Time remaining: <strong>{countdown}</strong>.</>
+            )}
+            <span style={{ display: 'block', marginTop: 4, color: '#78350F' }}>
+              The meeting room opens at the scheduled time. Click Join Session early to test your mic / camera if you like.
+            </span>
+          </div>
+        )}
         {registerNotice && (
           <div style={{
             marginTop: 12, fontSize: 12, lineHeight: 1.5,

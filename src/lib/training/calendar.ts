@@ -4,6 +4,21 @@ export interface IcsInput {
   duration_minutes?: number | null;
   description?: string;
   live_url?: string | null;
+  /** Surfaced as ORGANIZER:CN=... in the event AND prepended to
+   *  DESCRIPTION as "Hosted by ..." so it shows up in Apple Calendar
+   *  even when the client ignores ORGANIZER for non-invite events. */
+  organizer?: string;
+  /** RFC 5545 needs RFC 822 quote-pairs in TEXT values; we only
+   *  escape the bare minimum (newlines, commas, semicolons,
+   *  backslashes) per the spec. */
+}
+
+function icsEscape(s: string): string {
+  return s
+    .replace(/\\/g, '\\\\')
+    .replace(/\n/g, '\\n')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;');
 }
 
 /**
@@ -18,15 +33,26 @@ export function downloadIcs(session: IcsInput): void {
   const durationMin = session.duration_minutes && session.duration_minutes > 0 ? session.duration_minutes : 90;
   const end = new Date(start.getTime() + durationMin * 60 * 1000);
   const fmt = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
-  const desc = (session.description ?? '').replace(/\n/g, '\\n');
+
+  const descParts: string[] = [];
+  if (session.organizer)   descParts.push(`Hosted by ${session.organizer}`);
+  if (session.description) descParts.push(session.description);
+  if (session.live_url)    descParts.push(`Join: ${session.live_url}`);
+  const desc = icsEscape(descParts.join('\n\n'));
+
   const lines = [
     'BEGIN:VCALENDAR', 'VERSION:2.0',
+    'PRODID:-//Financial Modeler Pro//Live Sessions//EN',
     'BEGIN:VEVENT',
+    `UID:${Date.now()}@financialmodelerpro.com`,
+    `DTSTAMP:${fmt(new Date())}`,
     `DTSTART:${fmt(start)}`,
     `DTEND:${fmt(end)}`,
-    `SUMMARY:${session.title}`,
-    `DESCRIPTION:${desc}${session.live_url ? '\\nJoin: ' + session.live_url : ''}`,
+    `SUMMARY:${icsEscape(session.title)}`,
+    `DESCRIPTION:${desc}`,
+    session.live_url ? `LOCATION:${icsEscape(session.live_url)}` : '',
     session.live_url ? `URL:${session.live_url}` : '',
+    session.organizer ? `ORGANIZER;CN=${icsEscape(session.organizer)}:MAILTO:noreply@financialmodelerpro.com` : '',
     'END:VEVENT', 'END:VCALENDAR',
   ].filter(Boolean).join('\r\n');
   const blob = new Blob([lines], { type: 'text/calendar' });
