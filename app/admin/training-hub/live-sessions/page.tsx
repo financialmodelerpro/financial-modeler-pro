@@ -60,7 +60,16 @@ interface Attachment {
   id: string;
   file_name: string;
   file_url: string;
+  file_type?: string;
+  file_size?: number;
   created_at?: string;
+}
+
+function fmtFileSize(bytes?: number): string {
+  if (!bytes || bytes <= 0) return '';
+  if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(1)} MB`;
+  if (bytes >= 1024)    return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${bytes} B`;
 }
 
 /* ── Constants ─────────────────────────────────────────────────── */
@@ -963,21 +972,43 @@ export default function LiveSessionsPage() {
     }
   };
 
-  /* ── Attachments ── */
-  const uploadAttachment = async (file: File) => {
-    if (!editSession) return;
+  /* ── Attachments ──
+   *
+   * Supports multi-file upload in one click. Each file uploads via the
+   * existing POST /api/admin/attachments which is keyed by (tabKey,
+   * course); for live sessions we pass tabKey='LIVE_<id>' + course='live'
+   * so the same course_attachments table holds materials for both
+   * certification courses (3SFM/BVM) and post-session live materials
+   * (slides, Excel exercises, PDFs).
+   *
+   * The student-side render at /training/live-sessions/[id] already
+   * pulls these via /api/training/live-sessions and shows them in the
+   * "Session Materials" panel after the recording goes live.
+   */
+  const uploadAttachments = async (files: File[]) => {
+    if (!editSession || files.length === 0) return;
     setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append('file', file);
-      fd.append('tabKey', `LIVE_${editSession.id}`);
-      fd.append('course', 'live');
-      const res = await fetch('/api/admin/attachments', { method: 'POST', body: fd });
-      if (res.ok) { toast('File uploaded'); await fetchAttachments(editSession.id); }
-      else toast('Upload failed', 'err');
-    } catch { toast('Upload error', 'err'); }
+    let ok = 0;
+    let failed = 0;
+    for (const file of files) {
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('tabKey', `LIVE_${editSession.id}`);
+        fd.append('course', 'live');
+        const res = await fetch('/api/admin/attachments', { method: 'POST', body: fd });
+        if (res.ok) ok++; else failed++;
+      } catch { failed++; }
+    }
     setUploading(false);
+    if (ok > 0) await fetchAttachments(editSession.id);
+    if (failed === 0)        toast(`Uploaded ${ok} file${ok === 1 ? '' : 's'}`);
+    else if (ok === 0)       toast(`Upload failed (${failed} file${failed === 1 ? '' : 's'})`, 'err');
+    else                     toast(`Uploaded ${ok}, ${failed} failed`, 'err');
   };
+
+  // Single-file convenience for callers that pass a lone File.
+  const uploadAttachment = (file: File) => uploadAttachments([file]);
 
   const deleteAttachment = (att: Attachment) => {
     setConfirm({
@@ -1965,36 +1996,68 @@ export default function LiveSessionsPage() {
               )}
             </div>
 
-            {/* ── C. Attachments ── */}
+            {/* ── C. Session Materials (Attachments) ── */}
             {editSession && (
               <div style={{ marginBottom: 20 }}>
-                <h3 style={{ fontSize: 13, fontWeight: 700, color: NAVY, marginBottom: 12 }}>Attachments</h3>
+                <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 6, gap: 12, flexWrap: 'wrap' }}>
+                  <h3 style={{ fontSize: 13, fontWeight: 700, color: NAVY, margin: 0 }}>
+                    Session Materials {attachments.length > 0 && <span style={{ color: '#6B7280', fontWeight: 500 }}>({attachments.length})</span>}
+                  </h3>
+                  <span style={{ fontSize: 11, color: '#6B7280' }}>
+                    Slides, Excel exercises, PDF references for post-session download
+                  </span>
+                </div>
                 <input
                   ref={fileRef}
                   type="file"
+                  multiple
                   style={{ display: 'none' }}
-                  onChange={e => { if (e.target.files?.[0]) uploadAttachment(e.target.files[0]); e.target.value = ''; }}
+                  onChange={e => {
+                    const files = Array.from(e.target.files ?? []);
+                    if (files.length > 0) uploadAttachments(files);
+                    e.target.value = '';
+                  }}
                 />
                 <button style={btnSecondary} onClick={() => fileRef.current?.click()} disabled={uploading}>
-                  {uploading ? 'Uploading...' : 'Upload File'}
+                  {uploading ? 'Uploading...' : '+ Upload File(s)'}
                 </button>
-                {attachments.length > 0 && (
-                  <div style={{ marginTop: 10 }}>
-                    {attachments.map(att => (
-                      <div key={att.id} style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                        padding: '6px 10px', borderRadius: 6, background: LIGHT_BG, marginBottom: 4,
-                      }}>
-                        <a href={att.file_url} target="_blank" rel="noopener noreferrer" style={{ color: BLUE, fontSize: 12, textDecoration: 'none' }}>
-                          {att.file_name}
-                        </a>
-                        <button style={{ ...btnDanger, padding: '2px 8px', fontSize: 11 }} onClick={() => deleteAttachment(att)}>Delete</button>
-                      </div>
-                    ))}
+                {attachments.length > 0 ? (
+                  <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {attachments.map(att => {
+                      const ext = (att.file_type || att.file_name.split('.').pop() || '').toLowerCase();
+                      const sizeLabel = fmtFileSize(att.file_size);
+                      return (
+                        <div key={att.id} style={{
+                          display: 'flex', alignItems: 'center', gap: 10,
+                          padding: '8px 12px', borderRadius: 6, background: LIGHT_BG,
+                        }}>
+                          <span style={{
+                            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                            width: 32, height: 32, borderRadius: 6,
+                            background: '#fff', border: '1px solid #E5E7EB',
+                            fontSize: 9, fontWeight: 700, color: NAVY,
+                            textTransform: 'uppercase', flexShrink: 0,
+                          }}>{ext.slice(0, 4) || 'FILE'}</span>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <a href={att.file_url} target="_blank" rel="noopener noreferrer"
+                              style={{ color: BLUE, fontSize: 12, fontWeight: 600, textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {att.file_name}
+                            </a>
+                            <div style={{ fontSize: 10, color: '#9CA3AF' }}>
+                              {ext.toUpperCase()}{sizeLabel ? ` · ${sizeLabel}` : ''}
+                            </div>
+                          </div>
+                          <button style={{ ...btnDanger, padding: '4px 10px', fontSize: 11 }} onClick={() => deleteAttachment(att)}>
+                            Delete
+                          </button>
+                        </div>
+                      );
+                    })}
                   </div>
-                )}
-                {attachments.length === 0 && (
-                  <p style={{ color: '#9CA3AF', fontSize: 12, marginTop: 8 }}>No attachments yet.</p>
+                ) : (
+                  <p style={{ color: '#9CA3AF', fontSize: 12, marginTop: 8, lineHeight: 1.55 }}>
+                    No materials attached yet. Upload one or more files above. Students who registered for this session will see them on the session page after the recording is published.
+                  </p>
                 )}
               </div>
             )}

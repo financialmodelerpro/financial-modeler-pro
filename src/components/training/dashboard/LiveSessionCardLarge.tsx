@@ -212,35 +212,66 @@ export function LiveSessionCardLarge(props: Props) {
   const [hover, setHover] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [cardOpen, setCardOpen] = useState(false);
-  // Inline register state. Flips to true after a successful POST so the UI
-  // reflects the new status without a parent refetch. Parent-provided
-  // `reg.registered` is the source of truth on next remount.
+  // Inline register state. Flips to true after a confirmed-server-side
+  // POST (the route now SELECTs the row back from the upsert and refuses
+  // to claim success unless the row exists - see API docstring). The
+  // parent-provided `reg.registered` is the source of truth on next
+  // remount; localRegistered carries us through the optimistic period
+  // between click and refetch.
   const [localRegistered, setLocalRegistered] = useState(false);
   const [registering, setRegistering] = useState(false);
   const [registerError, setRegisterError] = useState<string | null>(null);
+  const [registerNotice, setRegisterNotice] = useState<string | null>(null);
 
   async function doRegister() {
     if (registering) return;
     setRegisterError(null);
+    setRegisterNotice(null);
+
+    // Pre-validate locally so we never POST junk that the server has to
+    // reject (and so the user gets a clearer message about the cause).
+    const regId = (props.registrationId ?? '').trim();
+    const email = (props.studentEmail   ?? '').trim();
+    if (!regId) {
+      setRegisterError('Your Registration ID is missing from this session. Please sign out and back in, then try again.');
+      return;
+    }
+    if (!email) {
+      setRegisterError('Your email is missing from this session. Please sign out and back in, then try again.');
+      return;
+    }
+
     setRegistering(true);
     try {
       const res = await fetch(`/api/training/live-sessions/${session.id}/register`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          regId: props.registrationId ?? '',
+          regId,
           name:  props.studentName ?? '',
-          email: props.studentEmail,
+          email,
         }),
       });
-      const json = await res.json().catch(() => ({})) as { error?: string; registered?: boolean };
+      const json = await res.json().catch(() => ({})) as {
+        error?:        string;
+        registered?:   boolean;
+        emailSent?:    boolean;
+        emailError?:   string | null;
+      };
       if (!res.ok || !json.registered) {
         setRegisterError(json.error ?? 'Could not register. Please try again.');
+        console.error('[live-session-card] register failed', { status: res.status, json });
       } else {
         setLocalRegistered(true);
+        setRegisterNotice(
+          json.emailSent === false
+            ? 'Registered. Confirmation email did not send - check your dashboard for the join link.'
+            : 'Registered. Confirmation email sent.'
+        );
       }
-    } catch {
-      setRegisterError('Network error — please retry.');
+    } catch (e) {
+      setRegisterError('Network error - please retry.');
+      console.error('[live-session-card] register network error', e);
     } finally {
       setRegistering(false);
     }
@@ -361,6 +392,15 @@ export function LiveSessionCardLarge(props: Props) {
               borderRadius: 6, padding: '6px 10px',
             }}>
               {registerError}
+            </div>
+          )}
+          {registerNotice && !registerError && (
+            <div style={{
+              marginBottom: 10, fontSize: 12, color: '#166534',
+              background: '#F0FDF4', border: '1px solid #BBF7D0',
+              borderRadius: 6, padding: '6px 10px',
+            }}>
+              {registerNotice}
             </div>
           )}
 

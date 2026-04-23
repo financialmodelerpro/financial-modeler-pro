@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import Link from 'next/link';
-import { Bell, ThumbsUp, MessageCircle, Share2 } from 'lucide-react';
+import { Bell, ThumbsUp, MessageCircle, Share2, ArrowLeft } from 'lucide-react';
 import { SubscribeModal } from '../SubscribeModal';
 import { ShareModal } from './ShareModal';
 import { FollowPopup } from '@/src/components/shared/FollowPopup';
@@ -23,11 +23,17 @@ interface CourseTopBarProps {
   assessmentReady?: boolean;
   assessmentPassed?: boolean;
   /** Ghost hint rendered in the action area when the Mark Complete
-   *  button isn't active and there's no Completed badge — e.g.
+   *  button isn't active and there's no Completed badge - e.g.
    *  "Watching… 45%" or "Keep watching to finish". Previously the
    *  area collapsed to empty, making it look like nothing was being
    *  tracked. */
   watchHint?: string;
+  /** Back-to-course link. Replaces the per-page sidebar that used to
+   *  hold the session list - the sidebar was a distraction during
+   *  watching and the student naturally returns to the course view
+   *  after marking complete + taking the assessment. */
+  backUrl?: string;
+  backLabel?: string;
 }
 
 const iconBtnStyle: React.CSSProperties = {
@@ -51,6 +57,7 @@ export function CourseTopBar({
   sessionTitle, sessionDescription, sessionUrl,
   nextSessionHref, isWatched, onMarkComplete, isCompleted,
   assessmentUrl, assessmentReady, assessmentPassed, watchHint,
+  backUrl, backLabel,
 }: CourseTopBarProps) {
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -72,6 +79,27 @@ export function CourseTopBar({
         borderBottom: '1px solid rgba(255,255,255,0.08)',
         flexWrap: 'wrap',
       }}>
+        {/* Back to course - replaces the per-page sidebar */}
+        {backUrl && (
+          <Link
+            href={backUrl}
+            title={backLabel ? `Back to ${backLabel}` : 'Back'}
+            style={{
+              display: 'inline-flex', alignItems: 'center', gap: 6,
+              padding: '6px 12px', borderRadius: 6,
+              background: 'rgba(255,255,255,0.08)',
+              color: 'rgba(255,255,255,0.9)',
+              fontSize: 12, fontWeight: 600, textDecoration: 'none',
+              whiteSpace: 'nowrap', flexShrink: 0,
+            }}
+          >
+            <ArrowLeft size={14} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 180 }}>
+              {backLabel ?? 'Back'}
+            </span>
+          </Link>
+        )}
+
         {/* Session title */}
         <div style={{
           flex: '1 1 200px', minWidth: 0,

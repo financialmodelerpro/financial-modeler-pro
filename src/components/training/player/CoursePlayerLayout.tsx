@@ -2,14 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Bell, ThumbsUp, MessageCircle, Share2, X, ChevronLeft, ChevronRight, List } from 'lucide-react';
+import { Bell, ThumbsUp, MessageCircle, Share2, X } from 'lucide-react';
 import { YouTubePlayer } from '../YouTubePlayer';
 import { YouTubeComments } from '../YouTubeComments';
 import { StudentNotes } from '../StudentNotes';
 import { CourseTopBar } from './CourseTopBar';
 import { FollowPopup } from '@/src/components/shared/FollowPopup';
-
-const SIDEBAR_COLLAPSED_KEY = 'fmp_player_sidebar_collapsed';
 
 const STORAGE_KEY = 'fmp_support_banner_dismissed';
 
@@ -136,9 +134,13 @@ interface CoursePlayerLayoutProps {
   sessionType?: string;
   liveUrl?: string;
   isLoggedIn?: boolean;
-  // Sidebar
-  sessions: SidebarSession[];
-  currentSessionId: string;
+  // Sidebar (deprecated 2026-04-23 - the per-page session list was a
+  // distraction during watching. Kept as optional props for backward
+  // compatibility with callers that still pass them; values are
+  // ignored. The "Back to course" navigation is now a single button
+  // in the top bar driven by backUrl + backLabel.)
+  sessions?: SidebarSession[];
+  currentSessionId?: string;
   backUrl: string;
   backLabel: string;
   // Content below video (description, attachments, etc.)
@@ -158,22 +160,14 @@ export function CoursePlayerLayout({
   scheduledDatetime, timezone, durationMinutes, difficultyLevel, tags,
   prerequisites, category, isFeatured,
   sessionType, liveUrl, isLoggedIn,
-  sessions, currentSessionId, backUrl, backLabel,
+  currentSessionId,
+  backUrl, backLabel,
   children,
 }: CoursePlayerLayoutProps) {
   const [isMobile, setIsMobile] = useState(false);
   const [videoOpen, setVideoOpen] = useState(false);
 
   const [showVideoPopup, setShowVideoPopup] = useState(false);
-
-  // Sidebar collapse state.
-  //   - Desktop: user-toggleable, persisted in localStorage so the
-  //     preference survives navigation between sessions.
-  //   - Mobile: auto-hidden as an off-canvas drawer so the video has the
-  //     full viewport width. The student opens it via the in-content
-  //     "Sessions" button and closes it via the backdrop or X.
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const hasVideo = !!videoId && !!youtubeUrl;
   const isUpcoming = sessionType === 'upcoming' || sessionType === 'live';
@@ -203,169 +197,6 @@ export function CoursePlayerLayout({
   useEffect(() => {
     if (isMobile && hasVideo && !videoOpen) setVideoOpen(true);
   }, [isMobile, hasVideo, videoOpen]);
-
-  // Restore desktop sidebar collapse preference (client-only).
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    if (window.innerWidth >= 768 && localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true') {
-      setSidebarCollapsed(true);
-    }
-  }, []);
-
-  // Close the mobile drawer whenever the active session changes (the
-  // user just navigated, the drawer's job is done).
-  useEffect(() => {
-    setMobileSidebarOpen(false);
-  }, [currentSessionId]);
-
-  function toggleSidebarCollapsed() {
-    const next = !sidebarCollapsed;
-    setSidebarCollapsed(next);
-    if (typeof window !== 'undefined') localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(next));
-  }
-
-  const NAVY = '#0D2E5A';
-  const GREEN = '#2EAA4A';
-  const sidebarWidth = sidebarCollapsed ? 64 : 240;
-
-  // Sidebar body. Positioning differs between desktop + mobile:
-  //   - Desktop: inline flex child with sticky positioning (unchanged
-  //     visually when expanded). A collapse toggle shrinks width to 64px
-  //     and hides the text labels, leaving only the numbered / ✓ badges.
-  //   - Mobile: off-canvas drawer fixed to the left edge, slid out by
-  //     default. `mobileSidebarOpen` slides it back in; a backdrop renders
-  //     behind it and a close button inside.
-  const showLabels = isMobile || !sidebarCollapsed;
-  const sidebar = (
-    <aside
-      style={{
-        width: isMobile ? 280 : sidebarWidth,
-        flexShrink: 0,
-        background: NAVY,
-        borderRight: isMobile ? 'none' : '1px solid rgba(255,255,255,0.08)',
-        overflowY: 'auto',
-        overflowX: 'hidden',
-        transition: 'width 0.2s ease, left 0.25s ease',
-        ...(isMobile
-          ? {
-              position: 'fixed' as const,
-              top: 56,
-              bottom: 0,
-              left: mobileSidebarOpen ? 0 : -300,
-              zIndex: 95,
-              boxShadow: mobileSidebarOpen ? '4px 0 24px rgba(0,0,0,0.35)' : 'none',
-            }
-          : { position: 'sticky' as const, top: 108, height: 'calc(100vh - 108px)' }),
-      }}
-    >
-      {/* Header: back link + toggle (collapse on desktop, close on mobile). */}
-      <div style={{
-        display: 'flex', alignItems: 'center',
-        gap: 4, padding: '10px 8px',
-        borderBottom: '1px solid rgba(255,255,255,0.08)',
-      }}>
-        <Link
-          href={backUrl}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 8,
-            padding: '6px 10px', fontSize: 12, fontWeight: 600,
-            color: 'rgba(255,255,255,0.7)', textDecoration: 'none',
-            borderRadius: 6, flex: 1, minWidth: 0,
-            whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
-          }}
-          title={backLabel}
-        >
-          <ChevronLeft size={14} style={{ flexShrink: 0 }} />
-          {showLabels && <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{backLabel}</span>}
-        </Link>
-        {isMobile ? (
-          <button
-            onClick={() => setMobileSidebarOpen(false)}
-            aria-label="Close sessions"
-            style={{
-              background: 'rgba(255,255,255,0.08)', border: 'none', color: '#fff',
-              width: 32, height: 32, borderRadius: 6, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
-            <X size={16} />
-          </button>
-        ) : (
-          <button
-            onClick={toggleSidebarCollapsed}
-            aria-label={sidebarCollapsed ? 'Expand sessions' : 'Collapse sessions'}
-            title={sidebarCollapsed ? 'Expand sessions' : 'Collapse sessions'}
-            style={{
-              background: 'rgba(255,255,255,0.08)', border: 'none', color: '#fff',
-              width: 28, height: 28, borderRadius: 6, cursor: 'pointer',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              flexShrink: 0,
-            }}
-          >
-            {sidebarCollapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
-          </button>
-        )}
-      </div>
-
-      {showLabels && (
-        <div style={{ padding: '10px 12px 4px' }}>
-          <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.25)' }}>
-            Sessions
-          </div>
-        </div>
-      )}
-
-      <div style={{ padding: showLabels ? '4px 8px' : '8px 6px' }}>
-        {sessions.map((session, index) => {
-          const active = session.id === currentSessionId;
-          return (
-            <Link
-              key={session.id}
-              href={session.href}
-              title={session.title}
-              style={{
-                display: 'flex', alignItems: showLabels ? 'flex-start' : 'center',
-                justifyContent: showLabels ? 'flex-start' : 'center',
-                gap: 8,
-                padding: showLabels ? '8px 12px' : '10px 4px',
-                textDecoration: 'none', borderRadius: 6,
-                background: active ? '#1B4F8A' : 'transparent',
-                borderLeft: `3px solid ${active ? GREEN : 'transparent'}`,
-                marginBottom: 2, transition: 'background 0.15s',
-              }}
-            >
-              <div style={{
-                width: 22, height: 22, borderRadius: '50%',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                flexShrink: 0, marginTop: showLabels ? 1 : 0,
-                background: session.watched ? '#2563eb' : active ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.08)',
-                fontSize: 10, fontWeight: 700,
-                color: session.watched ? '#fff' : active ? '#fff' : 'rgba(255,255,255,0.5)',
-              }}>
-                {session.watched ? '✓' : index + 1}
-              </div>
-              {showLabels && (
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{
-                    fontSize: 12, fontWeight: active ? 700 : 600,
-                    color: active ? '#fff' : 'rgba(255,255,255,0.7)',
-                    lineHeight: 1.3, overflow: 'hidden',
-                    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' as const,
-                  }}>
-                    {session.title}
-                  </div>
-                  {session.duration_minutes && (
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 2 }}>{session.duration_minutes} min</div>
-                  )}
-                </div>
-              )}
-            </Link>
-          );
-        })}
-      </div>
-    </aside>
-  );
 
   const fmtDate = (iso: string) => { try { return new Date(iso).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); } catch { return ''; } };
   const fmtTime = (iso: string) => { try { return new Date(iso).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }); } catch { return ''; } };
@@ -411,7 +242,8 @@ export function CoursePlayerLayout({
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: '#f9fafb' }}>
-      {/* Top bar */}
+      {/* Top bar - now hosts the "Back to Course" button (the per-page
+          sidebar was dropped 2026-04-23, see SidebarSession comment). */}
       <CourseTopBar
         title={title}
         youtubeUrl={youtubeUrl || ''}
@@ -428,47 +260,14 @@ export function CoursePlayerLayout({
         assessmentReady={assessmentReady}
         assessmentPassed={assessmentPassed}
         watchHint={watchHint}
+        backUrl={backUrl}
+        backLabel={backLabel}
       />
 
       {/* Body */}
       <div style={{ display: 'flex', flex: 1, flexDirection: isMobile ? 'column' : 'row', position: 'relative' }}>
-        {!isMobile && sidebar}
-
-        {/* Mobile backdrop — only visible while the drawer is open. */}
-        {isMobile && mobileSidebarOpen && (
-          <div
-            onClick={() => setMobileSidebarOpen(false)}
-            aria-hidden="true"
-            style={{
-              position: 'fixed', top: 56, bottom: 0, left: 0, right: 0,
-              background: 'rgba(0,0,0,0.45)', zIndex: 90,
-            }}
-          />
-        )}
-
-        {/* Mobile drawer — same sidebar JSX, off-canvas via fixed positioning. */}
-        {isMobile && sidebar}
-
         {/* Middle content */}
         <div style={{ flex: 1, minWidth: 0 }}>
-          {/* Mobile-only "Sessions" pill so students can open the drawer
-              without losing the video real estate. Hidden on desktop where
-              the sidebar lives inline. */}
-          {isMobile && (
-            <div style={{ padding: '10px 14px 0' }}>
-              <button
-                onClick={() => setMobileSidebarOpen(true)}
-                style={{
-                  display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '6px 12px', borderRadius: 18,
-                  background: '#0D2E5A', color: '#fff',
-                  border: 'none', fontSize: 12, fontWeight: 700, cursor: 'pointer',
-                }}
-              >
-                <List size={14} /> Sessions ({sessions.length})
-              </button>
-            </div>
-          )}
           {/* Screen 1: Video NOT open - full session info.
               I11: padding clamps down on narrow phones — 24/32px was
               eating ~64px per side, leaving 256px content on 320px. */}
