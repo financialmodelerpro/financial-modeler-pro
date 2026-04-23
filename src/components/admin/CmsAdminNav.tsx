@@ -41,7 +41,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Cert Verification', href: '/admin/certificates',                   icon: '🏅' },
   { label: 'Badge Editor',      href: '/admin/badge-editor',                   icon: '🎖' },
   { label: 'Transcript Editor', href: '/admin/transcript-editor',              icon: '📄' },
-  { label: 'Analytics',         href: '/admin/training-hub/analytics',         icon: '📈' },
+  { label: 'Analytics',         href: '/admin/analytics',                      icon: '📊' },
   { label: 'Assessments',       href: '/admin/training-hub/assessments',       icon: '📋' },
   { label: 'Communications',    href: '/admin/training-hub/communications',    icon: '✉️' },
   { label: 'Share Templates',   href: '/admin/training-hub/share-templates',   icon: '📣' },
