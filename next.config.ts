@@ -108,17 +108,13 @@ const nextConfig: NextConfig = {
     ]);
 
     return [
-      // ── Admin auth: hard 301 to /admin at the edge ───────────────────────
-      // /login and /admin/login are permanent redirects to the single
-      // canonical admin auth entry. Fires at the edge BEFORE any page
-      // code runs, so there is no React component to loop. `permanent:
-      // true` emits 308 which browsers cache, so any stale CDN entry
-      // is replaced on the first hit. Query parameters are intentionally
-      // NOT preserved (no `?callbackUrl=...` carry-through) - the
-      // deep-link feature is dropped in favour of zero loop surface.
-      // Users who want a deep link can bookmark after signin.
-      { source: '/login',       destination: '/admin', permanent: true },
-      { source: '/admin/login', destination: '/admin', permanent: true },
+      // ── Admin auth legacy URLs ─────────────────────────────────────
+      // /login and /admin/login are handled by middleware (src/middleware.ts)
+      // so we can attach explicit `Cache-Control: no-store` + emit 307
+      // (non-cacheable) instead of 308. Browsers cache 308 even in
+      // incognito unless headers say otherwise, and next.config
+      // `redirects()` + `headers()` don't compose for 3xx responses -
+      // pushing this to middleware gives us single-source control.
 
       // learn. — old /training/* auth paths redirect to clean URLs
       { source: '/training/signin',   destination: '/signin',   permanent: false, has: [{ type: 'host' as const, value: 'learn.financialmodelerpro.com' }] },
