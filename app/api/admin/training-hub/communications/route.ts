@@ -3,8 +3,41 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
 import { getStudentRoster } from '@/src/lib/training/studentRoster';
 import { getServerClient } from '@/src/lib/shared/supabase';
+import { sendEmailBatch, type BatchEmailItem } from '@/src/lib/email/sendEmail';
+import { baseLayoutBranded } from '@/src/lib/email/templates/_base';
 
-export const revalidate = 0;
+export const revalidate   = 0;
+export const runtime      = 'nodejs';
+export const maxDuration  = 300;
+
+const RESEND_BATCH_LIMIT   = 100;
+const INTER_BATCH_DELAY_MS = 200;
+const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Render the admin's plain-text message body into the FMP branded shell.
+ * Newlines become <br>, blank-line gaps become paragraph breaks. {name}
+ * resolves to the recipient's first name (UI advertises this token).
+ */
+function renderMessageHtml(rawMessage: string, recipientName: string): string {
+  const firstName = (recipientName || '').trim().split(/\s+/)[0] || recipientName || 'there';
+  const personalised = rawMessage.replace(/\{name\}/g, firstName);
+  const escaped = escapeHtml(personalised);
+  const paragraphs = escaped
+    .split(/\n{2,}/)
+    .map(block => `<p style="margin:0 0 14px;line-height:1.6;color:#374151;">${block.replace(/\n/g, '<br />')}</p>`)
+    .join('');
+  return paragraphs;
+}
 
 // ── GET: history or dropout groups ────────────────────────────────────────────
 export async function GET(req: NextRequest) {
@@ -60,6 +93,15 @@ export async function GET(req: NextRequest) {
 }
 
 // ── POST: send announcement ───────────────────────────────────────────────────
+//
+// Sends via Resend `batch.send` chunked at 100 emails per request, wrapping
+// every message in `baseLayoutBranded()` so the FMP logo header, signature
+// HTML, footer text, and primary color from `email_branding` are applied
+// uniformly. The previous version handed the payload off to Apps Script
+// which sent raw text with no brand wrapper, no logo, no signature, and
+// silently logged a fake 'sent' status when Apps Script was unreachable.
+// `{name}` in the message body resolves to the recipient's first name (the
+// UI advertises this token).
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
   if (!session?.user || (session.user as { role?: string }).role !== 'admin') {
@@ -77,62 +119,73 @@ export async function POST(req: NextRequest) {
   if (!body.recipients?.length) {
     return NextResponse.json({ error: 'No recipients' }, { status: 400 });
   }
-
-  // Call Apps Script to actually send emails
-  let sent = 0;
-  let failed = 0;
-
-  try {
-    const sb = getServerClient();
-    const { data: settingsRow } = await sb.from('training_settings')
-      .select('value').eq('key', 'apps_script_url').single();
-    const appsUrl = settingsRow?.value as string ?? process.env.APPS_SCRIPT_URL ?? '';
-
-    if (appsUrl) {
-      const res = await fetch(appsUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'sendAnnouncement',
-          subject: body.subject,
-          message: body.message,
-          recipients: body.recipients.map(r => ({
-            email: r.email,
-            name: r.name,
-            registrationId: r.registrationId,
-          })),
-        }),
-        signal: AbortSignal.timeout(30000),
-      }).catch(() => null);
-
-      if (res?.ok) {
-        const j = await res.json().catch(() => null) as { sent?: number; failed?: number } | null;
-        sent   = j?.sent ?? body.recipients.length;
-        failed = j?.failed ?? 0;
-      } else {
-        // Log as "queued" if Apps Script unavailable
-        sent = body.recipients.length;
-      }
-    } else {
-      // No Apps Script configured - just log
-      sent = body.recipients.length;
-    }
-
-    // Log all sends to DB
-    const logRows = body.recipients.map(r => ({
-      campaign_name:    body.campaignName,
-      recipient_reg_id: r.registrationId,
-      recipient_email:  r.email,
-      email_type:       body.emailType,
-      subject:          body.subject,
-      status:           'sent',
-    }));
-    if (logRows.length > 0) {
-      await sb.from('training_email_log').insert(logRows);
-    }
-  } catch {
-    failed = body.recipients.length;
+  if (!body.subject?.trim() || !body.message?.trim()) {
+    return NextResponse.json({ error: 'Subject and message are required' }, { status: 400 });
   }
 
-  return NextResponse.json({ ok: true, sent, failed });
+  const sb = getServerClient();
+
+  // Filter to syntactically valid emails. Anything else is logged as
+  // failed straight away rather than handed to Resend (which would 400).
+  const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const validRecipients   = body.recipients.filter(r => emailRe.test(r.email));
+  const invalidRecipients = body.recipients.filter(r => !emailRe.test(r.email));
+
+  // Build the per-recipient batch items. Each gets a personalised body so
+  // `{name}` can resolve to the right student.
+  const items: BatchEmailItem[] = await Promise.all(
+    validRecipients.map(async (r) => {
+      const inner = renderMessageHtml(body.message, r.name);
+      const html  = await baseLayoutBranded(inner);
+      return {
+        to:      r.email,
+        subject: body.subject,
+        html,
+      };
+    })
+  );
+  const itemEmails = validRecipients.map(r => r.email);
+
+  // Track per-recipient outcome so the DB log reflects reality. Seed all
+  // valid items as 'sent', flip to 'failed' if their batch rejects.
+  const outcome = new Map<string, 'sent' | 'failed'>();
+  for (const r of validRecipients)   outcome.set(r.email, 'sent');
+  for (const r of invalidRecipients) outcome.set(r.email, 'failed');
+
+  let lastError: string | null = invalidRecipients.length > 0 ? 'Some addresses were invalid and skipped' : null;
+
+  for (let i = 0; i < items.length; i += RESEND_BATCH_LIMIT) {
+    const slice       = items.slice(i, i + RESEND_BATCH_LIMIT);
+    const sliceEmails = itemEmails.slice(i, i + RESEND_BATCH_LIMIT);
+    const result      = await sendEmailBatch(slice);
+    if (!result.ok) {
+      lastError = lastError ?? result.error ?? 'Resend batch failed';
+      console.error('[communications POST] Resend batch failed', {
+        error: result.error, batchSize: slice.length,
+      });
+      for (const email of sliceEmails) outcome.set(email, 'failed');
+    }
+    if (i + RESEND_BATCH_LIMIT < items.length) await sleep(INTER_BATCH_DELAY_MS);
+  }
+
+  let sent   = 0;
+  let failed = 0;
+  for (const status of outcome.values()) {
+    if (status === 'sent') sent++; else failed++;
+  }
+
+  const logRows = body.recipients.map(r => ({
+    campaign_name:    body.campaignName,
+    recipient_reg_id: r.registrationId,
+    recipient_email:  r.email,
+    email_type:       body.emailType,
+    subject:          body.subject,
+    status:           outcome.get(r.email) ?? 'failed',
+  }));
+  if (logRows.length > 0) {
+    const { error: logErr } = await sb.from('training_email_log').insert(logRows);
+    if (logErr) console.error('[communications POST] email_log insert failed:', logErr.message);
+  }
+
+  return NextResponse.json({ ok: true, sent, failed, error: lastError ?? undefined });
 }
