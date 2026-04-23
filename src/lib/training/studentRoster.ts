@@ -11,15 +11,19 @@
  */
 
 import { getServerClient } from '@/src/lib/shared/supabase';
+import { COURSES } from '@/src/config/courses';
 
 export interface StudentSummary {
   registrationId:       string;
   name:                 string;
   email:                string;
+  emailConfirmed:       boolean;                // training_registrations_meta.email_confirmed (treats null as confirmed for legacy rows)
   course:               string;                 // '3SFM' | 'BVM' | '3SFM, BVM' | '' if no enrollments
   registeredAt:         string;
   sessionsPassedCount:  number;
   totalSessions:        number;                 // attempts distinct tab_key count as a proxy
+  totalCourseSessions:  number;                 // sum of session counts across enrolled COURSES (true denominator for completion %)
+  lastActivityAt:       string | null;          // max(completed_at) across training_assessment_results (used by stalled-7-day filter)
   finalPassed:          boolean;
   finalExamStatus:      'not_started' | 'attempted' | 'passed';
   finalScore?:          number;
@@ -31,6 +35,7 @@ interface MetaRow {
   email:           string;
   name:            string | null;
   created_at:      string | null;
+  email_confirmed: boolean | null;
 }
 
 interface EnrollmentRow {
@@ -63,7 +68,7 @@ export async function getStudentRoster(opts: RosterOptions = {}): Promise<Studen
 
   const [metaRes, enrollRes, assessRes, certRes] = await Promise.all([
     sb.from('training_registrations_meta')
-      .select('registration_id, email, name, created_at'),
+      .select('registration_id, email, name, created_at, email_confirmed'),
     sb.from('training_enrollments')
       .select('registration_id, course_code'),
     sb.from('training_assessment_results')
@@ -117,14 +122,35 @@ export async function getStudentRoster(opts: RosterOptions = {}): Promise<Studen
     if (finalRow?.passed) finalExamStatus = 'passed';
     else if (finalRow)    finalExamStatus = 'attempted';
 
+    // True course-session denominator: sum the session counts of every
+    // course the student is enrolled in (3SFM = 18, BVM = 7). The
+    // tab_key-attempt-distinct count above is misleading as a "total"
+    // because it only reflects what the student has touched.
+    let totalCourseSessions = 0;
+    for (const code of courseCodes) {
+      const cfg = COURSES[code.toLowerCase()];
+      if (cfg) totalCourseSessions += cfg.sessions.length;
+    }
+
+    let lastActivityAt: string | null = null;
+    for (const a of studentAssessments) {
+      if (!a.completed_at) continue;
+      if (!lastActivityAt || a.completed_at > lastActivityAt) lastActivityAt = a.completed_at;
+    }
+
     out.push({
       registrationId:      m.registration_id,
       name:                m.name ?? '',
       email:               m.email ?? '',
+      // Pre-027 students have email_confirmed=null and are treated as
+      // confirmed (mirrors `validate/route.ts` rule).
+      emailConfirmed:      m.email_confirmed !== false,
       course:              courseCodes.join(', '),
       registeredAt:        m.created_at ?? '',
       sessionsPassedCount: passed.length,
       totalSessions:       studentAssessments.length,
+      totalCourseSessions,
+      lastActivityAt,
       finalPassed:         Boolean(finalRow?.passed),
       finalExamStatus,
       finalScore:          finalRow?.score,

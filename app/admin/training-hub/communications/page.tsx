@@ -27,17 +27,19 @@ const GROUP_META: Record<GroupType, { label: string; color: string; bg: string; 
   custom:       { label: 'Custom List',    color: '#1B4F8A', bg: '#EFF6FF', icon: '✏️', desc: 'Manually entered comma-separated emails' },
 };
 
-// Pre-built re-engagement templates per recipient group. {name} resolves
-// server-side to the recipient's first name (see communications POST
-// route). Body intentionally avoids signing off with "Financial Modeler
-// Pro" because the branded email layout already appends signature_html
-// from email_branding underneath this content.
+// Pre-built re-engagement templates per recipient group. Tokens
+// {name} / {full_name} / {reg_id} / {email} are resolved server-side
+// per recipient from training_registrations_meta (see communications
+// POST route). Body intentionally avoids signing off with a name or
+// "Financial Modeler Pro" because the branded email layout appends
+// signature_html from email_branding underneath this content. A line
+// that is just a URL renders as a gold CTA button (Outlook-safe).
 const SIGNIN_URL = 'https://learn.financialmodelerpro.com/signin';
 const TEMPLATES: Partial<Record<GroupType, { subject: string; message: string }>> = {
   neverStarted: {
     subject: 'Your training spot is waiting, {name}',
     message:
-`Hi {name},
+`Hi {name} ({reg_id}),
 
 I noticed you signed up for the Financial Modeler Pro training but have not started any sessions yet. I wanted to check in personally.
 
@@ -53,7 +55,7 @@ Looking forward to seeing your progress.`,
   stalled: {
     subject: 'Picking up where you left off, {name}',
     message:
-`Hi {name},
+`Hi {name} ({reg_id}),
 
 You started the Financial Modeler Pro training and made real progress, but the dashboard tells me it has been a while since your last session. I wanted to send a quick nudge.
 
@@ -67,7 +69,7 @@ ${SIGNIN_URL}`,
   almostDone: {
     subject: 'You are almost certified, {name}',
     message:
-`Hi {name},
+`Hi {name} ({reg_id}),
 
 You are within reach of your Financial Modeler Pro certification. Only the final exam stands between you and the credential.
 
@@ -322,8 +324,15 @@ export default function CommunicationsPage() {
                 )}
               </div>
               {TEMPLATES[selectedGroup] && (
-                <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 16, padding: '8px 12px', background: '#F9FAFB', borderRadius: 6, border: '1px solid #F3F4F6' }}>
-                  Pre-filled with the <strong>{GROUP_META[selectedGroup].label}</strong> re-engagement template. Edit freely; <code style={{ background: '#E5E7EB', padding: '0 4px', borderRadius: 3 }}>{'{name}'}</code> resolves to the recipient&apos;s first name.
+                <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 16, padding: '10px 12px', background: '#F9FAFB', borderRadius: 6, border: '1px solid #F3F4F6', lineHeight: 1.6 }}>
+                  Pre-filled with the <strong>{GROUP_META[selectedGroup].label}</strong> template. Edit freely. Available tokens (resolved per recipient from <code style={{ background: '#E5E7EB', padding: '0 4px', borderRadius: 3 }}>training_registrations_meta</code>):
+                  <div style={{ marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                    <span><code style={{ background: '#E5E7EB', padding: '0 4px', borderRadius: 3 }}>{'{name}'}</code> first name</span>
+                    <span><code style={{ background: '#E5E7EB', padding: '0 4px', borderRadius: 3 }}>{'{full_name}'}</code> full name</span>
+                    <span><code style={{ background: '#E5E7EB', padding: '0 4px', borderRadius: 3 }}>{'{reg_id}'}</code> e.g. FMP-2026-0001</span>
+                    <span><code style={{ background: '#E5E7EB', padding: '0 4px', borderRadius: 3 }}>{'{email}'}</code> recipient address</span>
+                  </div>
+                  <div style={{ marginTop: 6, color: '#9CA3AF' }}>A line that is just a URL renders as a gold CTA button. Empty <code style={{ background: '#E5E7EB', padding: '0 4px', borderRadius: 3 }}>{'( )'}</code> from a missing reg ID is auto-stripped.</div>
                 </div>
               )}
 
