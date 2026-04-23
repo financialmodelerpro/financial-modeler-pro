@@ -1,24 +1,21 @@
 import { redirect } from 'next/navigation';
-import { safeAdminCallback } from '@/src/lib/shared/safeAdminCallback';
 
 export const dynamic = 'force-dynamic';
 
 /**
- * Backwards-compat redirect. Admin auth now lives at /admin directly
- * (FIX 1, 2026-04-23). Anything still linking to /login lands here
- * and is forwarded.
+ * Dumb one-shot redirect to the unified admin auth entry.
  *
- * `callbackUrl` is sanitized so a malformed value (auth-cycle path,
- * nested encoding from the prior loop bug, open-redirect attempt) is
- * dropped instead of preserved (FIX 2026-04-24).
+ * Deliberately does NOT read searchParams or preserve callbackUrl
+ * (2026-04-24). Previous versions did, and a combination of nested
+ * encoding + Vercel edge caching of old redirect responses produced
+ * the ERR_TOO_MANY_REDIRECTS reported on /login?callbackUrl=%2Fadmin.
+ * Dropping ALL query parameters is safe here because the only
+ * legitimate callback path for admin auth is through the middleware,
+ * which writes its own fresh `callbackUrl` at the moment it bounces
+ * an unauthed user. Anything that lands here must be either a stale
+ * link, a bookmark, or a NextAuth fallback - none of those need the
+ * old query carried forward.
  */
-export default async function LoginRedirect({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  const params = await searchParams;
-  const raw = typeof params.callbackUrl === 'string' ? params.callbackUrl : '';
-  const sanitized = safeAdminCallback(raw);
-  // sanitized=null means the original was malformed; drop it.
-  if (!sanitized) {
-    redirect('/admin');
-  }
-  redirect(`/admin?callbackUrl=${encodeURIComponent(sanitized)}`);
+export default function LoginRedirect() {
+  redirect('/admin');
 }
