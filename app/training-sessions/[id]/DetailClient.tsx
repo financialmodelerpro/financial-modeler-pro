@@ -106,12 +106,52 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
       backUrl={`${LEARN_URL}/training-sessions`}
       backLabel="All Sessions"
     >
-      {/* Sign in CTA */}
+      {/* Auth-required register CTA (FIX 4, 2026-04-23). The previous
+          version was a thin "Sign in to earn points" link in a small
+          banner; non-authenticated visitors couldn't tell where the
+          actual Register button lived. Now we surface a prominent
+          card with two clear paths (existing user vs new user), both
+          carrying a redirect back to this same session detail page so
+          the visitor lands where they started after auth. */}
       {!isLoggedIn && (
-        <div style={{ marginBottom: 20, padding: '10px 14px', borderRadius: 8, background: '#EFF6FF', border: '1px solid #93C5FD', textAlign: 'center', fontSize: 12, color: '#1D4ED8' }}>
-          <Link href={`/register?redirect=/training/live-sessions/${session.id}`} style={{ fontWeight: 700, color: '#1D4ED8', textDecoration: 'none' }}>
-            Sign in to earn points and badges for watching!
-          </Link>
+        <div style={{
+          marginTop: 20, marginBottom: 4,
+          padding: '20px 22px', borderRadius: 12,
+          background: '#fff',
+          border: '1px solid #BFDBFE',
+          boxShadow: '0 2px 12px rgba(13, 46, 90, 0.06)',
+        }}>
+          <div style={{ fontSize: 16, fontWeight: 800, color: '#0D2E5A', marginBottom: 6 }}>
+            Sign in to register for this session
+          </div>
+          <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.55, marginBottom: 14 }}>
+            Registration is free. We will email the join link 30 minutes before the session starts and the recording the next day.
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            <Link
+              href={`/signin?redirect=/training/live-sessions/${session.id}`}
+              style={{
+                padding: '10px 20px', borderRadius: 8,
+                background: '#0D2E5A', color: '#fff',
+                fontSize: 13, fontWeight: 700, textDecoration: 'none',
+              }}
+            >
+              Sign In to Register
+            </Link>
+            <Link
+              href={`/register?redirect=/training/live-sessions/${session.id}`}
+              style={{
+                padding: '10px 20px', borderRadius: 8,
+                background: '#2EAA4A', color: '#fff',
+                fontSize: 13, fontWeight: 700, textDecoration: 'none',
+              }}
+            >
+              Create Account to Register
+            </Link>
+          </div>
+          <div style={{ marginTop: 10, fontSize: 11, color: '#6B7280' }}>
+            Both options bring you back to this page after sign-in.
+          </div>
         </div>
       )}
     </CoursePlayerLayout>

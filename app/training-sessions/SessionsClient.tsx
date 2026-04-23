@@ -80,8 +80,20 @@ export function SessionsClient({ sessions, hero }: { sessions: PublicSession[]; 
     return () => clearInterval(id);
   }, [nextSession]);
 
+  /**
+   * Authenticated visitors land on the in-app session detail page where
+   * they can register inline. Unauthenticated visitors land on the
+   * PUBLIC detail page (/training-sessions/[id]) so they can read the
+   * full brief first; that page surfaces "Sign In to Register" /
+   * "Create Account to Register" CTAs that bring them back here after
+   * auth (FIX 4, 2026-04-23). The previous behaviour bounced
+   * unauthenticated visitors straight to /register without showing the
+   * session brief, which lost interest.
+   */
   function registerUrl(sessionId: string) {
-    return isLoggedIn ? `/training/live-sessions/${sessionId}` : `/register?redirect=/training/live-sessions/${sessionId}`;
+    return isLoggedIn
+      ? `/training/live-sessions/${sessionId}`
+      : `/training-sessions/${sessionId}`;
   }
   function localTime(iso: string): string {
     try { return new Date(iso).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone: localTz || undefined }); } catch { return ''; }
@@ -111,11 +123,26 @@ export function SessionsClient({ sessions, hero }: { sessions: PublicSession[]; 
             <span>{recorded.length} Recording{recorded.length !== 1 ? 's' : ''}</span>
           </div>
           <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-            {!isLoggedIn && (
-              <Link href={hero?.cta_primary_url || '/register'} style={{ padding: '12px 28px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>
-                {hero?.cta_primary_text || 'Register for Free →'}
+            {/* FIX 4 (2026-04-23): the previous primary CTA was
+                "Register for Free" pointing at /register, which bounced
+                unauthenticated visitors to a sign-up form before they
+                had read any session info. Hero now scrolls to the
+                first upcoming session so visitors browse the lineup
+                before committing. The per-card "View Session" /
+                "View & Register" CTA is the path to a specific
+                session brief. */}
+            {nextSession ? (
+              <button
+                onClick={() => document.getElementById('upcoming-section')?.scrollIntoView({ behavior: 'smooth' })}
+                style={{ padding: '12px 28px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 14, border: 'none', cursor: 'pointer' }}
+              >
+                View Session Details →
+              </button>
+            ) : !isLoggedIn ? (
+              <Link href="/register" style={{ padding: '12px 28px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 14, textDecoration: 'none' }}>
+                Register for Free →
               </Link>
-            )}
+            ) : null}
             {recorded.length > 0 && (
               <button onClick={() => document.getElementById('recordings-section')?.scrollIntoView({ behavior: 'smooth' })} style={{ padding: '12px 28px', borderRadius: 8, background: 'rgba(255,255,255,0.1)', color: '#fff', fontWeight: 600, fontSize: 14, border: '1px solid rgba(255,255,255,0.2)', cursor: 'pointer' }}>
                 {hero?.cta_secondary_text || 'Browse Recordings'}
@@ -156,7 +183,7 @@ export function SessionsClient({ sessions, hero }: { sessions: PublicSession[]; 
                 )}
                 <Link href={registerUrl(nextSession.id)}
                   style={{ display: 'inline-flex', padding: '10px 24px', borderRadius: 8, background: GREEN, color: '#fff', fontWeight: 700, fontSize: 13, textDecoration: 'none' }}>
-                  {isLoggedIn ? 'View & Register' : 'Register to Join'} &#8594;
+                  {isLoggedIn ? 'View & Register' : 'View Session Details'} &#8594;
                 </Link>
               </div>
             </div>
@@ -217,7 +244,7 @@ export function SessionsClient({ sessions, hero }: { sessions: PublicSession[]; 
           )}
 
           {upcoming.length > 0 && (
-            <div style={{ marginBottom: 40 }}>
+            <div id="upcoming-section" style={{ marginBottom: 40 }}>
               <h2 style={{ fontSize: 18, fontWeight: 800, color: NAVY, margin: '0 0 16px' }}>Upcoming Sessions</h2>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 24 }}>
                 {upcoming.map(s => <SessionCard key={s.id} session={s as LiveSessionData} variant="public" />)}

@@ -169,6 +169,28 @@ export function CoursePlayerLayout({
 
   const [showVideoPopup, setShowVideoPopup] = useState(false);
 
+  // Measure the main TrainingShell nav so the fixed sub-header (CourseTopBar)
+  // can sit cleanly below it without overlap, even if the nav grows above
+  // its 56px baseline (mobile, font fallback, etc.). Falls back to 56 when
+  // the nav element isn't in the DOM yet (early render).
+  const [mainNavHeight, setMainNavHeight] = useState(56);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const measure = () => {
+      const el = document.querySelector('[data-fmp-main-nav]') as HTMLElement | null;
+      if (!el) return;
+      const h = Math.round(el.getBoundingClientRect().height);
+      if (h > 0 && h !== mainNavHeight) setMainNavHeight(h);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    const el = document.querySelector('[data-fmp-main-nav]');
+    if (el) ro.observe(el);
+    window.addEventListener('resize', measure);
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const hasVideo = !!videoId && !!youtubeUrl;
   const isUpcoming = sessionType === 'upcoming' || sessionType === 'live';
 
@@ -261,6 +283,7 @@ export function CoursePlayerLayout({
         watchHint={watchHint}
         backUrl={backUrl}
         backLabel={backLabel}
+        topOffset={mainNavHeight}
       />
       <div aria-hidden="true" style={{ minHeight: 52 }} />
 

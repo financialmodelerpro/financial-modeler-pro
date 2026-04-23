@@ -34,6 +34,10 @@ interface CourseTopBarProps {
    *  after marking complete + taking the assessment. */
   backUrl?: string;
   backLabel?: string;
+  /** Top offset in pixels - measured at runtime by CoursePlayerLayout
+   *  from the actual TrainingShell nav so we sit cleanly underneath
+   *  even if the main nav grows above its 56px baseline. */
+  topOffset?: number;
 }
 
 const iconBtnStyle: React.CSSProperties = {
@@ -57,7 +61,7 @@ export function CourseTopBar({
   sessionTitle, sessionDescription, sessionUrl,
   nextSessionHref, isWatched, onMarkComplete, isCompleted,
   assessmentUrl, assessmentReady, assessmentPassed, watchHint,
-  backUrl, backLabel,
+  backUrl, backLabel, topOffset = 56,
 }: CourseTopBarProps) {
   const [showSubscribeModal, setShowSubscribeModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -77,7 +81,7 @@ export function CourseTopBar({
   return (
     <>
       <div style={{
-        position: 'fixed', top: 56, left: 0, right: 0, zIndex: 100,
+        position: 'fixed', top: topOffset, left: 0, right: 0, zIndex: 140,
         display: 'flex', alignItems: 'center', gap: 12,
         padding: '8px 14px', minHeight: 52,
         background: '#0D2E5A', color: '#fff',
