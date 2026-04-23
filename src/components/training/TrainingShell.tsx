@@ -243,9 +243,14 @@ export function TrainingShell({ children, activeNav, headerOnly, logoUrl: logoUr
       {/* ── TOP NAV ──────────────────────────────────────────────────────────── */}
       {/* `data-fmp-main-nav` lets CoursePlayerLayout measure this bar at
           runtime so its sub-header can be positioned cleanly below it
-          without ever overlapping. Fixed `height` (not minHeight) makes
-          the bar render as exactly 56px, so the measurement is stable. */}
-      <div data-fmp-main-nav style={{ background: NAVY, padding: '0 20px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 150, boxShadow: '0 2px 12px rgba(0,0,0,0.2)', boxSizing: 'border-box' }}>
+          without ever overlapping. `minHeight: 56` (not a fixed height)
+          keeps the nav consistent with every OTHER page on the platform
+          and lets it grow naturally if content reflows; the
+          ResizeObserver in CoursePlayerLayout reads the actual rendered
+          height each time and positions the sub-header below it
+          (FIX 2026-04-24 - the previous `height: 56` lock made the nav
+          shorter on watch pages than the rest of the platform). */}
+      <div data-fmp-main-nav style={{ background: NAVY, padding: '0 20px', minHeight: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, zIndex: 150, boxShadow: '0 2px 12px rgba(0,0,0,0.2)', boxSizing: 'border-box' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button
             className="ts-hamburger"
