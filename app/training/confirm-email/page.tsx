@@ -92,17 +92,22 @@ function normalizeError(raw: string): ErrorKind {
 
 function ConfirmEmailInner() {
   const searchParams = useSearchParams();
-  const token = searchParams.get('token') ?? '';
-  const error = searchParams.get('error') ?? '';
+  const token    = searchParams.get('token') ?? '';
+  const error    = searchParams.get('error') ?? '';
+  // Preserve a same-origin `redirect` so it survives the API hop and
+  // ends up on the post-confirm signin URL (FIX 3, 2026-04-23).
+  const redirect = searchParams.get('redirect') ?? '';
 
   const [status, setStatus] = useState<'loading' | 'success' | 'error'>('loading');
 
   useEffect(() => {
     if (error) { setStatus('error'); return; }
     if (!token) { setStatus('error'); return; }
+    const qs = new URLSearchParams({ token });
+    if (redirect) qs.set('redirect', redirect);
     // Redirect to API route - it handles everything and redirects back
-    window.location.href = `/api/training/confirm-email?token=${encodeURIComponent(token)}`;
-  }, [token, error]);
+    window.location.href = `/api/training/confirm-email?${qs.toString()}`;
+  }, [token, error, redirect]);
 
   if (status === 'error') {
     const kind = normalizeError(error);

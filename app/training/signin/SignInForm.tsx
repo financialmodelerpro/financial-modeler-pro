@@ -22,12 +22,30 @@ const labelStyle: React.CSSProperties = {
 
 type ResendStatus = 'idle' | 'loading' | 'sent' | 'error';
 
+/**
+ * Validate a `?redirect=` value before honouring it. Must be:
+ *  - a non-empty string
+ *  - a same-origin path that begins with `/` (no protocol-relative
+ *    `//evil.com` or absolute `https://...` to prevent open-redirect)
+ *  - not pointing back at the auth pages themselves (would loop)
+ * Falls back to the dashboard when invalid or missing.
+ */
+function safeRedirect(raw: string | null): string {
+  const fallback = '/training/dashboard';
+  if (!raw) return fallback;
+  if (raw.startsWith('//') || /^https?:/i.test(raw)) return fallback;
+  if (!raw.startsWith('/')) return fallback;
+  if (/^\/(signin|register|forgot|set-password|confirm-email|training\/(signin|register|forgot|set-password|confirm-email))(\?|$|\/)/.test(raw)) return fallback;
+  return raw;
+}
+
 function TrainingSignInInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const confirmed    = searchParams.get('confirmed') === 'true';
   const reason       = searchParams.get('reason');
   const urlError     = searchParams.get('error');
+  const redirectTo   = safeRedirect(searchParams.get('redirect'));
 
   const [identifier,  setIdentifier]  = useState('');
   const [secondField, setSecondField] = useState('');
@@ -95,7 +113,7 @@ function TrainingSignInInner() {
 
       if (json.success && json.email && json.registrationId) {
         setTrainingSession(json.email, json.registrationId);
-        router.push('/training/dashboard');
+        router.push(redirectTo);
         return;
       }
 

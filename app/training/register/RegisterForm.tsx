@@ -58,6 +58,15 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
 
   async function submitRegistration(fullPhone: string) {
     setStatus('loading');
+    // Preserve any `?redirect=...` from the URL so the post-confirm
+    // signin lands on the originating page (e.g. a live-session
+    // detail page reached from the public site). Read at submit time
+    // from window.location to avoid wiring useSearchParams + Suspense
+    // through this client form. Same-origin paths only - the API
+    // re-validates server-side.
+    const redirect = (typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('redirect')
+      : null) ?? '';
     try {
       const res = await fetch('/api/training/register', {
         method: 'POST',
@@ -70,6 +79,7 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
           country:      country.trim(),
           password,
           captchaToken,
+          redirect,
         }),
       });
       const json = await res.json() as { success: boolean; duplicate?: boolean; error?: string };

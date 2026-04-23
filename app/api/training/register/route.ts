@@ -21,8 +21,9 @@ export async function POST(req: NextRequest) {
       country?: string;
       password?: string;
       captchaToken?: string;
+      redirect?: string;
     };
-    const { name, email, course, phone, city, country, password, captchaToken } = body;
+    const { name, email, course, phone, city, country, password, captchaToken, redirect } = body;
 
     if (!name || !email) {
       return NextResponse.json({ success: false, error: 'name and email are required' }, { status: 400 });
@@ -111,9 +112,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Registration failed. Please try again.' }, { status: 500 });
     }
 
-    // Create and send confirmation email
+    // Create and send confirmation email. Preserve a same-origin
+    // `redirect` so the post-confirm signin lands on the originating
+    // page (FIX 3, 2026-04-23). Reject anything that isn't a plain
+    // path - protocol-relative or absolute URLs are dropped to prevent
+    // open-redirect via the email link.
+    const safeRedirect = (() => {
+      if (!redirect) return '';
+      if (redirect.startsWith('//') || /^https?:/i.test(redirect)) return '';
+      if (!redirect.startsWith('/')) return '';
+      return redirect;
+    })();
     const token      = await createConfirmationToken(normalEmail, 'training');
-    const confirmUrl = `${LEARN_URL}/training/confirm-email?token=${token}`;
+    const confirmUrl = safeRedirect
+      ? `${LEARN_URL}/training/confirm-email?token=${token}&redirect=${encodeURIComponent(safeRedirect)}`
+      : `${LEARN_URL}/training/confirm-email?token=${token}`;
     const { subject, html } = await confirmEmailTemplate({ confirmUrl, hub: 'training' });
 
     await sendEmail({ to: normalEmail, subject, html, from: FROM.training });

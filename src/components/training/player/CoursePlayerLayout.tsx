@@ -143,6 +143,12 @@ interface CoursePlayerLayoutProps {
   currentSessionId?: string;
   backUrl: string;
   backLabel: string;
+  /** Optional content rendered at the TOP of Screen 1 (before banner +
+   *  title + meta). Used by the live-session detail page to put the
+   *  Register / Join card front-and-centre - students see the
+   *  registration CTA the instant the page loads instead of having
+   *  to scroll past description + attachments. */
+  topContent?: React.ReactNode;
   // Content below video (description, attachments, etc.)
   children?: React.ReactNode;
 }
@@ -162,6 +168,7 @@ export function CoursePlayerLayout({
   sessionType, liveUrl, isLoggedIn,
   currentSessionId,
   backUrl, backLabel,
+  topContent,
   children,
 }: CoursePlayerLayoutProps) {
   const [isMobile, setIsMobile] = useState(false);
@@ -296,6 +303,13 @@ export function CoursePlayerLayout({
               eating ~64px per side, leaving 256px content on 320px. */}
           {!videoOpen && (
             <div style={{ padding: 'clamp(14px, 4vw, 24px) clamp(14px, 4vw, 32px)', maxWidth: 860 }}>
+              {/* TOP slot - renders before banner + title so callers can
+                  surface registration / join CTAs as the first thing the
+                  student sees. */}
+              {topContent && (
+                <div style={{ marginBottom: 20 }}>{topContent}</div>
+              )}
+
               {/* Primary CTA at top */}
               {hasVideo ? (
                 <button

@@ -42,6 +42,19 @@ const MAX_REG_ID_RETRIES = 3;
 
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token') ?? '';
+  // Preserve a same-origin `redirect` from the email link so the
+  // post-confirm signin lands on the page that initiated the register
+  // (e.g. a live-session detail). FIX 3 (2026-04-23). Drop anything
+  // that isn't a plain path so the email link can't be turned into an
+  // open-redirect vector.
+  const rawRedirect = req.nextUrl.searchParams.get('redirect') ?? '';
+  const safeRedirect = (() => {
+    if (!rawRedirect) return '';
+    if (rawRedirect.startsWith('//') || /^https?:/i.test(rawRedirect)) return '';
+    if (!rawRedirect.startsWith('/')) return '';
+    return rawRedirect;
+  })();
+  const signinSuffix = safeRedirect ? `&redirect=${encodeURIComponent(safeRedirect)}` : '';
 
   if (!token) {
     console.error('[confirm-email] No token in request');
@@ -80,7 +93,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect(`${LEARN_URL}/training/confirm-email?error=registration-failed`);
     }
     await markTokenUsed(tokenId);
-    return NextResponse.redirect(`${LEARN_URL}/signin?confirmed=true`);
+    return NextResponse.redirect(`${LEARN_URL}/signin?confirmed=true${signinSuffix}`);
   }
 
   // ── Main path: allocate RegID + INSERT meta (or UPDATE if row exists) ─────
