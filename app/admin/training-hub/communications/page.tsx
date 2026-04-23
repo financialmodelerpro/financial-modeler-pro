@@ -27,6 +27,69 @@ const GROUP_META: Record<GroupType, { label: string; color: string; bg: string; 
   custom:       { label: 'Custom List',    color: '#1B4F8A', bg: '#EFF6FF', icon: '✏️', desc: 'Manually entered comma-separated emails' },
 };
 
+// Pre-built re-engagement templates per recipient group. {name} resolves
+// server-side to the recipient's first name (see communications POST
+// route). Body intentionally avoids signing off with "Financial Modeler
+// Pro" because the branded email layout already appends signature_html
+// from email_branding underneath this content.
+const SIGNIN_URL = 'https://learn.financialmodelerpro.com/signin';
+const TEMPLATES: Partial<Record<GroupType, { subject: string; message: string }>> = {
+  neverStarted: {
+    subject: 'Your training spot is waiting, {name}',
+    message:
+`Hi {name},
+
+I noticed you signed up for the Financial Modeler Pro training but have not started any sessions yet. I wanted to check in personally.
+
+The first session takes about 20 minutes and walks you through the structure of a clean three-statement model. Most students tell me it clicks faster than they expected.
+
+If something is in the way (the platform, time, anything at all) just hit reply and I will help you get unstuck.
+
+Otherwise, your dashboard is ready when you are:
+${SIGNIN_URL}
+
+Looking forward to seeing your progress.
+
+Ahmad`,
+  },
+  stalled: {
+    subject: 'Picking up where you left off, {name}',
+    message:
+`Hi {name},
+
+You started the Financial Modeler Pro training and made real progress, but the dashboard tells me it has been a while since your last session. I wanted to send a quick nudge.
+
+The sessions are short by design and build on each other, so one focused half-hour is usually enough to find your rhythm again. Your progress is saved exactly where you left it.
+
+If something did not click, or you want me to suggest the right session to restart from, just reply to this email.
+
+Ready when you are:
+${SIGNIN_URL}
+
+Ahmad`,
+  },
+  almostDone: {
+    subject: 'You are almost certified, {name}',
+    message:
+`Hi {name},
+
+You are within reach of your Financial Modeler Pro certification. Only the final exam stands between you and the credential.
+
+The final is open-book and built on the same modeling work you have already practiced through the regular sessions. Most students who reach your stage clear it on the first attempt.
+
+A few tips before you sit it: review the income statement to balance sheet linkage, and walk through the cash flow build once. That covers the bulk of what is tested.
+
+If you would like to talk anything through before starting, just reply to this email.
+
+Take the final exam:
+${SIGNIN_URL}
+
+Ahmad`,
+  },
+};
+
+const TEMPLATE_VALUES = Object.values(TEMPLATES) as { subject: string; message: string }[];
+
 export default function CommunicationsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
@@ -56,6 +119,32 @@ export default function CommunicationsPage() {
     if (status === 'unauthenticated') { router.replace('/login'); return; }
     if (status === 'authenticated' && (session.user as { role?: string }).role !== 'admin') router.replace('/');
   }, [status, session, router]);
+
+  // Auto-fill subject + message when admin selects a recipient group.
+  // Skips 'custom' (no template). Preserves admin edits: only fills when
+  // both fields are empty OR they currently match a known template
+  // (i.e. the admin is cycling through templates without having typed
+  // anything custom). Once edited, switching groups will not clobber.
+  useEffect(() => {
+    const tpl = TEMPLATES[selectedGroup];
+    if (!tpl) return;
+    const isUnedited = !subject.trim() && !message.trim();
+    const matchesAnyTemplate = TEMPLATE_VALUES.some(t => t.subject === subject && t.message === message);
+    if (isUnedited || matchesAnyTemplate) {
+      setSubject(tpl.subject);
+      setMessage(tpl.message);
+    }
+    // Only react to selectedGroup changes; subject/message are read but
+    // intentionally not in deps to avoid a re-run loop after we setState.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedGroup]);
+
+  const applyTemplate = () => {
+    const tpl = TEMPLATES[selectedGroup];
+    if (!tpl) return;
+    setSubject(tpl.subject);
+    setMessage(tpl.message);
+  };
 
   const fetchDropout = useCallback(async () => {
     setLoadingDropout(true);
@@ -228,7 +317,21 @@ export default function CommunicationsPage() {
 
             {/* Right: compose form */}
             <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '24px 28px' }}>
-              <div style={{ fontSize: 15, fontWeight: 800, color: '#1B3A6B', marginBottom: 20 }}>Compose Email</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 15, fontWeight: 800, color: '#1B3A6B' }}>Compose Email</div>
+                {TEMPLATES[selectedGroup] && (
+                  <button onClick={applyTemplate} type="button"
+                    style={{ padding: '6px 12px', borderRadius: 6, border: '1px solid #C7D7EE', background: '#F4F8FE', color: '#1B4F8A', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}
+                    title={`Replace subject + message with the ${GROUP_META[selectedGroup].label} re-engagement template`}>
+                    ↻ Use {GROUP_META[selectedGroup].label} template
+                  </button>
+                )}
+              </div>
+              {TEMPLATES[selectedGroup] && (
+                <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 16, padding: '8px 12px', background: '#F9FAFB', borderRadius: 6, border: '1px solid #F3F4F6' }}>
+                  Pre-filled with the <strong>{GROUP_META[selectedGroup].label}</strong> re-engagement template. Edit freely; <code style={{ background: '#E5E7EB', padding: '0 4px', borderRadius: 3 }}>{'{name}'}</code> resolves to the recipient&apos;s first name.
+                </div>
+              )}
 
               {sendResult && (
                 <div style={{ background: '#F0FFF4', border: '1px solid #86EFAC', borderRadius: 8, padding: '12px 16px', marginBottom: 16, fontSize: 13, color: '#15803D' }}>
