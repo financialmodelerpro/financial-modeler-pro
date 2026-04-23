@@ -95,7 +95,7 @@ export default function AdminCertificatesPage() {
   };
 
   useEffect(() => {
-    if (status === 'unauthenticated') { router.replace('/login'); return; }
+    if (status === 'unauthenticated') { router.replace('/admin'); return; }
     if (status === 'authenticated' && (session.user as { role?: string }).role !== 'admin') {
       router.replace('/');
     }

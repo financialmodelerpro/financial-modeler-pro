@@ -11,7 +11,7 @@ export default function ProjectsPage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (status === 'unauthenticated') { router.replace('/login'); return; }
+    if (status === 'unauthenticated') { router.replace('/admin'); return; }
     if (status === 'authenticated' && session.user.role !== 'admin') router.replace('/');
   }, [status, session, router]);
 

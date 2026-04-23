@@ -387,7 +387,7 @@ export default function TranscriptEditorPage() {
   const [toast, setToast]   = useState('');
   const [selected, setSelected] = useState<ElemKey>('brand');
 
-  useEffect(() => { if (status === 'unauthenticated') router.push('/admin/login'); }, [status, router]);
+  useEffect(() => { if (status === 'unauthenticated') router.push('/admin'); }, [status, router]);
 
   useEffect(() => {
     fetch('/api/admin/content?section=transcript')

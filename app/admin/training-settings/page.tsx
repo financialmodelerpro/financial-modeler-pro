@@ -201,7 +201,7 @@ export default function TrainingSettingsPage() {
   }, [allSessions]);
 
   useEffect(() => {
-    if (status === 'unauthenticated') { router.replace('/login'); return; }
+    if (status === 'unauthenticated') { router.replace('/admin'); return; }
     if (status === 'authenticated' && (session.user as any).role !== 'admin') router.replace('/');
   }, [status, session, router]);
 

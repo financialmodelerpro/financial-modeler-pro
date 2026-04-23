@@ -55,7 +55,7 @@ export default function CohortsPage() {
   const [toast, setToast] = useState('');
 
   useEffect(() => {
-    if (status === 'unauthenticated') { router.replace('/login'); return; }
+    if (status === 'unauthenticated') { router.replace('/admin'); return; }
     if (status === 'authenticated' && (session.user as { role?: string }).role !== 'admin') router.replace('/');
   }, [status, session, router]);
 

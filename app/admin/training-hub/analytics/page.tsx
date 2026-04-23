@@ -44,7 +44,7 @@ export default function AnalyticsPage() {
   const [sortAsc, setSortAsc] = useState(true);
 
   useEffect(() => {
-    if (status === 'unauthenticated') { router.replace('/login'); return; }
+    if (status === 'unauthenticated') { router.replace('/admin'); return; }
     if (status === 'authenticated' && (session.user as { role?: string }).role !== 'admin') router.replace('/');
   }, [status, session, router]);
 

@@ -15,7 +15,7 @@ export function useRequireAuth(): { loading: boolean } {
   useEffect(() => {
     if (status === 'loading') return;
     if (!session) {
-      router.replace('/login');
+      router.replace('/admin');
     }
   }, [session, status, router]);
 
