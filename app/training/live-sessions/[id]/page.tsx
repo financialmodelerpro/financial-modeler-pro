@@ -382,41 +382,34 @@ export default function LiveSessionDetailPage() {
 
     // Watch-enforcement gate:
     //
-    //   nearEnd         = (totalSec > 0) && (pos >= totalSec - 20 || videoEnded)
-    //   canMarkComplete = nearEnd && (thresholdMet || bypassActive)
+    //   canMarkComplete = bypassActive || thresholdMet
     //
-    // Mirrors the 3SFM watch page. Mark Complete unlocks once the
-    // student is within the last 20s of the video OR the player signals
-    // ended — AND their real-time-tracked watched seconds clear the
-    // threshold (or bypass is active). Dragging into the last 20s
-    // still leaves watchPct below threshold, so skip-to-end is blocked
-    // at the tracker. Server-side /watched re-checks threshold before
-    // accepting `status='completed'`.
+    // Mirrors the 3SFM watch page. The interval-merging tracker only
+    // credits real-time playback, so seeking forward cannot inflate
+    // watchPct. The threshold check is the actual anti-skip guard, and
+    // the server re-checks the stored watch_percentage before accepting
+    // status='completed', so a tampered POST also bounces.
+    //
+    // We previously also required the playhead to be inside the last 20s
+    // (or videoEnded). That hid the button for returning students who
+    // had already cleared threshold but had not scrubbed to the end.
     const watchPct = liveTotalSec > 0
       ? Math.min(100, Math.round((liveWatchSec / liveTotalSec) * 100))
       : 0;
     const thresholdMet = watchPct >= enforcement.threshold;
     const bypassActive = !enforcement.enabled || enforcement.sessionBypass || enforcement.isAdmin;
-    const nearEnd = liveTotalSec > 0 && (liveCurrentPos >= liveTotalSec - 20 || videoEnded);
-    const canMarkComplete = nearEnd && (thresholdMet || bypassActive);
+    const canMarkComplete = bypassActive || thresholdMet;
 
     const markCompleteCallback = canMarkComplete && !isWatched ? handleMarkComplete : undefined;
 
     // Ghost hint shown in the top bar when neither Mark Complete nor
-    // the Completed badge is active. Gives the student visual feedback
-    // that the session is being tracked instead of an empty toolbar.
+    // the Completed badge is active. Reachable only when threshold is
+    // not yet met. Surfaced once the student starts playing.
     let watchHint: string | undefined;
     if (!markCompleteCallback && !isWatched && liveTotalSec > 0 && liveCurrentPos > 0) {
-      if (nearEnd && !thresholdMet && !bypassActive) {
-        watchHint = `Watched ${watchPct}% · keep watching to finish`;
-      } else if (!nearEnd) {
-        watchHint = `Watching… ${watchPct}%`;
-      }
+      watchHint = `Watching… ${watchPct}%`;
     }
 
-    // Diagnostic — surfaces the full state machine in devtools. Lets us
-    // pinpoint which gate is failing when a student reports "button
-    // never appeared". Dumps on every state change that matters.
     if (typeof window !== 'undefined') {
       console.log('[LiveSession state]', {
         isWatched,
@@ -428,7 +421,6 @@ export default function LiveSessionDetailPage() {
         threshold: enforcement.threshold,
         thresholdMet,
         bypassActive,
-        nearEnd,
         canMarkComplete,
         markCompleteCallback: markCompleteCallback ? 'SET' : 'UNDEFINED',
         watchHint: watchHint ?? 'none',

@@ -194,11 +194,10 @@ export default function CourseWatchPage() {
     }
   }, [studentSession, sessionKey]);
 
-  // Handle video ended — Mark Complete unlocks via the canMarkComplete
-  // gate below (videoEnded && thresholdMet-or-bypass). No early trigger:
-  // the YT PlayerState.ENDED event + the player's own currentTime >=
-  // duration-1 fallback both funnel into here, so the button appears
-  // the moment playback legitimately finishes.
+  // Handle video ended. Drives setTimerComplete + localStorage stamp so
+  // a refresh after legitimate completion doesn't re-lock the button.
+  // The YT PlayerState.ENDED event + the player's own currentTime >=
+  // duration-1 fallback both funnel into here.
   const handleVideoEnded = useCallback(() => {
     setVideoEnded(true);
     setTimerComplete(true);
@@ -366,40 +365,36 @@ export default function CourseWatchPage() {
 
   // Watch-enforcement gate:
   //
-  //   nearEnd         = (totalSec > 0) && (pos >= totalSec - 20 || videoEnded)
-  //   canMarkComplete = nearEnd && (thresholdMet || bypassActive)
+  //   canMarkComplete = bypassActive || thresholdMet
   //
-  // `nearEnd` fires the moment the student crosses into the final 20s
-  // of the video OR the player signals end-of-video (ENDED / PAUSED-at-
-  // tail). Both paths funnel into the same gate so Mark Complete unlocks
-  // as soon as the student is genuinely approaching the end AND has
-  // accumulated enough real watched seconds to clear the threshold.
+  // The interval-merging tracker (watchTracker) only credits real-time
+  // playback, so seeking forward cannot inflate watchPct. That makes the
+  // threshold check the actual anti-skip guard. The server re-checks the
+  // stored watch_percentage against threshold before accepting
+  // status='completed', so a tampered POST also bounces.
   //
-  // Anti-skip stays at the tracker: `liveWatchSec` is the sum of real-
-  // time-clamped intervals, so dragging the playhead into the last 20s
-  // fires nearEnd but leaves watchPct below threshold → button hidden.
-  // Server-side /certification-watch re-checks the threshold before
-  // accepting `status='completed'`.
+  // We previously also required the playhead to be inside the last 20s
+  // of the video (or the videoEnded event to have fired). That gate
+  // hid the button for students who returned to the page after already
+  // crossing threshold but had not scrubbed back to the end, leaving
+  // them no way to finish without re-seeking. Dropping it surfaces the
+  // button the moment a returning student loads the page.
   const watchPct = liveTotalSec > 0 ? Math.min(100, Math.round((liveWatchSec / liveTotalSec) * 100)) : 0;
   const thresholdMet = watchPct >= enforcement.threshold;
   const bypassActive = !enforcement.enabled || enforcement.sessionBypass || enforcement.isAdmin;
-  const nearEnd = liveTotalSec > 0 && (liveCurrentPos >= liveTotalSec - 20 || videoEnded);
-  const canMarkComplete = nearEnd && (thresholdMet || bypassActive);
+  const canMarkComplete = bypassActive || thresholdMet;
 
   // CourseTopBar hides the button entirely when `onMarkComplete` is undefined,
   // so we avoid visually-enabled-but-blocked UX.
   const markCompleteCallback = canMarkComplete && !markedComplete ? handleMarkComplete : undefined;
 
-  // Ghost hint for the top bar — replaces the visual dead-space when
-  // neither Mark Complete nor Completed is active mid-watch.
+  // Ghost hint for the top bar. Reachable only when threshold is not yet
+  // met (otherwise the button is shown). Surfaced once the student starts
+  // playing so the toolbar isn't blank.
   const sessPassed = progressMap.get(sessionKey)?.passed === true;
   let watchHint: string | undefined;
   if (!markCompleteCallback && !markedComplete && !sessPassed && liveTotalSec > 0 && liveCurrentPos > 0) {
-    if (nearEnd && !thresholdMet && !bypassActive) {
-      watchHint = `Watched ${watchPct}% · keep watching to finish`;
-    } else if (!nearEnd) {
-      watchHint = `Watching… ${watchPct}%`;
-    }
+    watchHint = `Watching… ${watchPct}%`;
   }
 
   // Progress bar sits in the scroll area above the Mark Complete button (CourseTopBar).

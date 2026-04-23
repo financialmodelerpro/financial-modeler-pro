@@ -580,20 +580,18 @@ Admin actions at `/admin/training-settings`:
 - Add/remove per-session bypass exceptions
 - Summary shows global status + threshold + enforcing/bypassed counts at a glance
 
-### Mark Complete — Near-End Gate (20s window)
+### Mark Complete Gate
 
-The Mark Complete button unlocks the moment the student is genuinely approaching the end of a video, using a two-step gate that's uniform across the live-session watch page and the 3SFM/BVM certification watch page:
+Uniform across the live-session watch page and the 3SFM/BVM certification watch page:
 
 ```
-nearEnd         = liveTotalSec > 0 && (liveCurrentPos >= liveTotalSec - 20 || videoEnded)
-canMarkComplete = nearEnd && (thresholdMet || bypassActive)
+canMarkComplete = bypassActive || thresholdMet
 ```
 
-- **`nearEnd`** fires either when the YT player's `currentTime` crosses into the final 20s **or** when `videoEnded` has been set (triggered by `PlayerState.ENDED`, the `currentTime >= duration - 1` tick fallback, or the `PLAYING → PAUSED-at-end` fallback — all funnel through `onEnded` once, guarded by `endedFired`).
 - **`thresholdMet`** uses the interval-merged `watch_seconds / total_seconds`, which seeking forward can't inflate. `bypassActive` covers admin / global-off / per-session bypass.
-- When `canMarkComplete` is false and the student has logged playback, CourseTopBar swaps Mark Complete for a ghost hint (`Watching… X%` or `Watched X% · keep watching to finish`) so the toolbar isn't empty.
-- To surface the near-end window snappily, `YouTubePlayer.startTickCheck` bypasses the normal 9.5s report throttle when `d > 0 && c >= d - 20` — parent state catches up within ~1s.
-- Server-side `/watched` + `/certification-watch` re-check the threshold before accepting `status='completed'`; a tampered client POST returns 403 with `{ current, required }` which the live-session page surfaces to the student.
+- The earlier two-step gate also required `nearEnd = (currentPos >= totalSec - 20) || videoEnded` (commit 2026-04-23). It was dropped because returning students who had already crossed threshold but resumed mid-video had no way to surface the button without scrubbing back to the end. The interval-merging tracker already prevents skip-to-end abuse (skipping does not grow `watch_seconds`), so the `nearEnd` condition was redundant in the safe path and the only thing it actually did was hide the button from legitimately-finished students. Audit before the fix found 3 stuck students on `3SFM_S1`: one at 70% (under threshold), one at 76%, one at 93%.
+- When `canMarkComplete` is false and the student has logged playback, CourseTopBar swaps Mark Complete for a ghost hint (`Watching… X%`) so the toolbar isn't empty.
+- Server-side `/watched` + `/certification-watch` still re-check the stored `watch_percentage` against threshold before accepting `status='completed'`; a tampered client POST returns 403 with `{ current, required }`.
 
 ### Watch Resume / Continue (2026-04-21)
 
