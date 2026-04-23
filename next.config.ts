@@ -109,12 +109,18 @@ const nextConfig: NextConfig = {
 
     return [
       // ── Admin auth legacy URLs ─────────────────────────────────────
-      // /login and /admin/login are handled by middleware (src/middleware.ts)
-      // so we can attach explicit `Cache-Control: no-store` + emit 307
-      // (non-cacheable) instead of 308. Browsers cache 308 even in
-      // incognito unless headers say otherwise, and next.config
-      // `redirects()` + `headers()` don't compose for 3xx responses -
-      // pushing this to middleware gives us single-source control.
+      // Belt-and-suspenders: middleware (src/middleware.ts) is the
+      // primary handler for /login + /admin/login because it can
+      // attach explicit no-cache headers and emit 307. These
+      // edge-level 307s (permanent: false) are a backup in case
+      // middleware is stale on a given deployment or the matcher
+      // misses on a platform-specific path-to-regexp edge case.
+      // permanent: false -> 307 Temporary Redirect (session-scoped
+      // browser cache vs 308's permanent cache).
+      { source: '/login',       destination: '/admin', permanent: false },
+      { source: '/admin/login', destination: '/admin', permanent: false },
+      // Common typo: /admi -> /admin (users missing the trailing n).
+      { source: '/admi',        destination: '/admin', permanent: false },
 
       // learn. — old /training/* auth paths redirect to clean URLs
       { source: '/training/signin',   destination: '/signin',   permanent: false, has: [{ type: 'host' as const, value: 'learn.financialmodelerpro.com' }] },
