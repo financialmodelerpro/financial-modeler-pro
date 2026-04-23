@@ -6,8 +6,8 @@ import { usePathname } from 'next/navigation';
 /**
  * Rendered only for non-login admin pages.
  * Keeping useRequireAdmin in its own component means the hook
- * is never called on /admin/login, which would trigger
- * router.replace('/admin/login') in a render loop.
+ * is never called on the auth pages, which would trigger
+ * router.replace('/admin') in a render loop.
  */
 function AdminProtected({ children }: { children: React.ReactNode }) {
   const { loading } = useRequireAdmin();
@@ -17,8 +17,11 @@ function AdminProtected({ children }: { children: React.ReactNode }) {
 
 function AdminGuard({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  // Login page must never run the auth hook - it has no session by definition
-  if (pathname === '/admin/login') return <>{children}</>;
+  // /admin is the unified login entry (FIX 1, 2026-04-23). The legacy
+  // /admin/login route still exists as a redirect to /admin so we
+  // exclude it from the auth hook too. Both must skip the hook so
+  // unauthed visitors reach the credential form without bouncing.
+  if (pathname === '/admin' || pathname === '/admin/login') return <>{children}</>;
   return <AdminProtected>{children}</AdminProtected>;
 }
 

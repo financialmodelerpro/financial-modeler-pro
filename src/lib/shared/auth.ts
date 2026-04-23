@@ -10,8 +10,12 @@ import { isEmailWhitelisted } from '@/src/lib/shared/modelingAccess';
 export const authOptions: AuthOptions = {
   session: { strategy: 'jwt', maxAge: 60 * 60 }, // 1 hour
   pages: {
-    signIn: '/admin/login',
-    error:  '/admin/login',
+    // Single-page admin auth (FIX 1, 2026-04-23). NextAuth used to
+    // bounce unauthed /admin/* hits to /admin/login (a separate
+    // welcome page); now /admin itself renders the credential form
+    // and admins land directly on the dashboard once authed.
+    signIn: '/admin',
+    error:  '/admin',
   },
   providers: [
     CredentialsProvider({
@@ -52,24 +56,21 @@ export const authOptions: AuthOptions = {
           }
         }
 
-        // Admin: skip email confirmation and device verification - return immediately
-        if (user.role === 'admin') {
-          return {
-            id:                  user.id,
-            email:               user.email,
-            name:                user.name ?? null,
-            role:                user.role,
-            subscription_plan:   user.subscription_plan,
-            subscription_status: user.subscription_status,
-          };
-        }
-
-        // Block unconfirmed non-admin accounts
-        if (!user.email_confirmed) {
+        // Email confirmation gate. Admin accounts are pre-confirmed in
+        // the DB so the gate just hard-fails for any unconfirmed
+        // non-admin trying to sign in.
+        if (user.role !== 'admin' && !user.email_confirmed) {
           throw new Error('EmailNotConfirmed');
         }
 
-        // Check device trust via next/headers cookies() - reliable in App Router context
+        // Device trust gate. Applies to ALL roles including admins
+        // (FIX 2, 2026-04-23). Previously the admin role bypassed
+        // this entirely, which left Ahmad locked out during the
+        // launch - he hit /admin from a new device and there was no
+        // OTP path to recover. Now admins go through the same OTP +
+        // 30-day-trust flow as students; the trust cookie is keyed on
+        // the user's email so it works across all hubs the
+        // device-verify route writes to.
         const cookieStore = await cookies();
         const deviceToken = cookieStore.get(DEVICE_COOKIE_NAME)?.value ?? null;
 

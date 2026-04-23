@@ -187,9 +187,9 @@ Site analytics via **Vercel Web Analytics + Speed Insights** — both free on th
 - **Device trust**: `fmp-trusted-device` cookie -> `trusted_devices` table (30-day TTL)
 - **New device OTP**: `modeling_email_otps` table, 6-digit code, 10-min expiry
 - **Device trust identifier**: `trusted_devices.identifier` stores `email` (not user UUID). Do NOT change to `user.id`
-- **Admin bypass**: In `auth.ts` `authorize()`, admin role skips BOTH `EmailNotConfirmed` and `DEVICE_VERIFICATION_REQUIRED` checks
-- **Admin login flow**: `/admin` (public) -> `/admin/login` (form, excluded from middleware) -> `/admin/dashboard` -> `/admin/cms`
-- **Admin layout guard**: `AdminGuard` uses child `AdminProtected` to isolate `useRequireAdmin` hook
+- **Admin bypass**: In `auth.ts` `authorize()`, admin role skips ONLY `EmailNotConfirmed` (admin emails are pre-confirmed in the DB). Device verification applies to admins too as of 2026-04-23 - Ahmad got locked out on a new device during launch and there was no OTP path; admins now go through the same OTP + 30-day-trust flow as students via `/api/auth/device-verify`.
+- **Admin login flow**: `/admin` (single unified entry) renders the credential form for unauthed visitors and redirects authed admins straight to `/admin/dashboard`. The previous chain (`/admin` welcome -> `/admin/login` welcome -> form -> `/login` callback form) was collapsed 2026-04-23. `/admin/login` and `/login` remain as backward-compat redirects to `/admin` (preserving any `?callbackUrl=`). NextAuth `pages.signIn` is `/admin`.
+- **Admin layout guard**: `AdminGuard` uses child `AdminProtected` to isolate `useRequireAdmin` hook. Skips the hook on `/admin` and `/admin/login` (the auth pages themselves) to prevent a redirect loop.
 - **Non-admin redirect**: `useRequireAdmin` redirects non-admins to `/` (not `/refm`)
 - **Key files**: `src/lib/shared/auth.ts`, `app/api/auth/register/route.ts`, `app/api/auth/confirm-email/route.ts`
 
