@@ -198,7 +198,9 @@ export function LiveSessionCard(props: Props) {
             </div>
           )}
 
-          {/* CTA precedence (FIX 2 + 3, 2026-04-23):
+          {/* CTA precedence (FIX 2 + 3, 2026-04-23; label tweak
+                2026-04-24 - registered users now see "View & Join
+                Session" so the destination is obvious):
                 canJoin (registered + within join window + live_url)
                   -> Join Session button (opens live_url in new tab)
                 canJoin && no live_url
@@ -206,11 +208,12 @@ export function LiveSessionCard(props: Props) {
                 startingSoon (registered + <=15 min before)
                   -> Starting soon -> Detail page
                 registered
-                  -> View Details
+                  -> "View & Join Session" (Link to detail page where
+                     the join button lives)
                 not registered
-                  -> View Details (registration happens on detail page,
-                     no inline Register button - one canonical place to
-                     read the brief and commit) */}
+                  -> "View Details" (registration happens on detail
+                     page, no inline Register button - one canonical
+                     place to read the brief and commit) */}
           <div style={{ display: 'flex', gap: 8, marginTop: 'auto' }}>
             {canJoin && liveUrl ? (
               <a
@@ -250,7 +253,7 @@ export function LiveSessionCard(props: Props) {
                 background: registered ? NAVY : GREEN, color: '#fff',
                 fontWeight: 700, fontSize: 12.5, textDecoration: 'none',
               }}>
-                View Details
+                {registered ? 'View & Join Session' : 'View Details'}
               </Link>
             )}
 
