@@ -39,9 +39,10 @@ app/
 ### Admin (`financialmodelerpro.com/admin`)
 ```
 app/admin/
-├── layout.tsx                   # AdminGuard with AdminProtected child
-├── login/page.tsx               # Two-step login UI, navy bg, gold branding, OTP step
-├── page.tsx                     # PUBLIC landing page (no auth)
+├── layout.tsx                   # AdminGuard -> AdminProtected child; skips the auth hook on /admin so the login form renders inline
+├── page.tsx                     # Single admin auth entry (2026-04-24). Server component: authed admin -> redirect /admin/dashboard, else render <AdminLoginClient />. No searchParams, no callbackUrl.
+├── AdminLoginClient.tsx         # Credentials + device-OTP flow. No useSearchParams, post-signin destination hard-coded to /admin/dashboard.
+├── analytics/page.tsx           # Platform-wide analytics dashboard (2026-04-24). 7 metrics: signup growth, active 7/30d, per-session funnel, drop-off callout, certificate rate, course comparison, live-session attendance. Uses recharts.
 ├── dashboard/page.tsx           # Protected entry point -> redirects to /admin/cms
 ├── announcements/page.tsx
 ├── articles/page.tsx + [id]/ + new/
@@ -55,6 +56,8 @@ app/admin/
 ├── content/page.tsx
 ├── health/page.tsx
 # NOTE: app/admin/founder/page.tsx DELETED 2026-04-18 — founder editing moved to Page Builder → Founder section (team)
+# NOTE: app/admin/login/page.tsx + LoginForm.tsx DELETED 2026-04-24 — the welcome/intermediate/form chain collapsed into /admin itself. Legacy /admin/login URL is now a 307 in middleware (src/middleware.ts), not a page.
+# NOTE: app/login/page.tsx DELETED 2026-04-24 — same: handled by middleware 307 with no-cache headers.
 ├── media/page.tsx
 ├── modeling-access/page.tsx       # Modeling Hub access whitelist admin (migration 136): add-email form + per-row Revoke + toggle-state summary. Sidebar nav entry 🔑 Access Whitelist under Modeling Hub.
 ├── modules/page.tsx                # Modeling Hub modules; two LaunchStatusCards (Sign In + Register, migration 136) + banner linking to /admin/modeling-access at the top.
@@ -69,7 +72,7 @@ app/admin/
 ├── settings/page.tsx
 ├── testimonials/page.tsx + modeling/ + training/
 ├── training/page.tsx + [courseId]/
-├── training-hub/page.tsx + analytics/ + assessments/ + certificates/ + live-sessions/ + live-sessions/email-settings/
+├── training-hub/page.tsx + analytics/ (redirects to /admin/analytics 2026-04-24) + assessments/ + certificates/ + live-sessions/ + live-sessions/email-settings/
 │   + cohorts/ + communications/ + course-details/ + students/ + instructors/
 │   + share-templates/         # Centralized share-text admin (migrations 114-117): Global Mention Settings card + per-template editor with variable-picker chips, hashtag chip editor, active toggle, live preview
 │   + daily-roundup/            # Daily certifications roundup: date picker + per-student checklist + live preview + Share Roundup via ShareModal (migration 117 template)
@@ -218,6 +221,7 @@ app/api/training/
 ### Admin
 ```
 app/api/admin/
+├── analytics/                   # GET /api/admin/analytics?range=7|30|90|all → platform-wide dashboard data. Fans out 8 parallel Supabase queries (meta, enrollments, assessments, watch history, certs, live_sessions, session_registrations, session_watch_history) and aggregates server-side. Admin-only. range filters the growth-trend window only; funnel / course / cert / live-session sections are cumulative so they reflect the current platform state at a glance (2026-04-24).
 ├── announcements/ articles/ asset-types/ audit-log/
 ├── assessments/ + attempts/ + questions/
 ├── badge-layout/                # GET/POST badge field positions
@@ -246,6 +250,8 @@ app/api/admin/
 ├── training-hub/ + analytics/ + assessments/ + certificates/
 │   + cohorts/ + cohorts/[id]/ + communications/ + student-journey/
 │   + student-progress/ + students/
+│   # communications/route.ts: 2026-04-23 rewrite - POSTs now send via Resend `batch.send` wrapped in baseLayoutBranded (gold CTA button for URL lines, teal inline links, organizer in description). Previously delegated to Apps Script with no brand layout. Per-recipient success/failure written to training_email_log.status. Tokens {name} / {full_name} / {reg_id} / {email} resolved server-side from training_registrations_meta.
+│   # communications dropout groups: common gate (emailConfirmed AND NOT certificateIssued), then neverStarted / stalled (>=1 pass + >=7 days idle) / almostDone (>=65% sessions), no longer uses 80% threshold or distinct-attempt denominator.
 ├── live-playlists/              # CRUD for playlists
 ├── live-sessions/               # GET/POST + PUT banner upload
 ├── live-sessions/[id]/          # PATCH/DELETE
@@ -378,9 +384,10 @@ src/components/
 │   ├── YouTubeComments.tsx          # Cached YouTube comments with expand/collapse
 │   ├── StudentNotes.tsx             # Per-session student notes with bold/bullet toolbar + auto-save
 │   ├── WelcomeModal.tsx             # First-visit welcome modal (localStorage, configurable key)
+│   ├── CalendarDropdown.tsx         # (2026-04-23) Multi-provider Add-to-Calendar button (Google / Outlook / Apple / Yahoo / .ics fallback). Used by dashboard LiveSessionCard + live-session detail register card. Replaces the old single .ics icon download. Organizer baked into description as "Hosted by ..." since no URL provider carries an organizer field. Dropdown closes on outside click + Escape.
 │   ├── player/
-│   │   ├── CoursePlayerLayout.tsx   # CFI-style layout: left sidebar + video + right comments panel. `resumePositionSeconds` prop threads through to YouTubePlayer.startSeconds for watch resume.
-│   │   ├── CourseTopBar.tsx         # Dark sticky bar: title, actions, Mark Complete, Assessment, Continue
+│   │   ├── CoursePlayerLayout.tsx   # Video + children layout. Session list sidebar was REMOVED 2026-04-23; the "Back to course" navigation now lives in a single button inside CourseTopBar. `topContent` prop renders a block BEFORE banner/title (used by detail page to put the Register/Join card at the top). Runtime ResizeObserver reads main-nav height so the fixed CourseTopBar positions cleanly below it without overlap regardless of nav size (2026-04-24). Video wrapper `max-width: min(100%, calc((100vh - 200px) * 16/9))` keeps the 16:9 frame inside the viewport on standard desktops.
+│   │   ├── CourseTopBar.tsx         # Dark bar with `position: fixed; top: topOffset` (measured) + z-index 140 to beat main nav on overlap. Hosts Back button + Subscribe + Like + Ask Question + Share + Mark Complete + Assessment/Continue.
 │   │   └── ShareModal.tsx           # Thin forwarder → share/ShareModal (universal)
 │   ├── share/
 │   │   └── ShareModal.tsx           # UNIVERSAL ShareModal (Training Hub). Textarea preview + platform buttons (LinkedIn/WhatsApp/Twitter/Copy). Uses shareTo() utility internally. Optional cardImageUrl preview + download.
