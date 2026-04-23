@@ -3,30 +3,37 @@ import { getToken } from 'next-auth/jwt';
 import type { NextRequest } from 'next/server';
 
 /**
- * Admin auth + legacy URL forwarding.
+ * Admin auth + legacy URL forwarding + cache-buster.
  *
- * Handles every admin-related URL in one place so the CDN never serves
- * a cacheable 308 again. Background (2026-04-24): users with stale 308
- * redirect-cache entries from earlier deployments were stuck in a
- * recursive `/login?callbackUrl=%2Fadmin%3FcallbackUrl=%252Fadmin...`
- * loop even after cookies were cleared and incognito was used, because
- * 308 redirects are cached by browsers per HTTP spec unless explicit
- * Cache-Control says otherwise. `next.config.redirects({ permanent:
- * true })` emits 308 without cache-control, so the cache entries
- * survived every prior fix attempt.
+ * Every admin-related URL flows through this middleware so the CDN
+ * and browser never serve a cached redirect that could loop. The
+ * ERR_TOO_MANY_REDIRECTS the user saw at
+ * `/login?callbackUrl=%2Fadmin%3Fcallback%3D...` was caused by 308
+ * responses from older deployments that lacked explicit
+ * `Cache-Control: no-store` - browsers cached those 308s and kept
+ * replaying the chain even after the fix commits landed.
  *
- * The middleware now owns the entire surface and:
- *   - always returns 307 (Temporary Redirect, not cached by default)
- *   - sets explicit `Cache-Control: no-store, no-cache, must-revalidate`
- *     + `Pragma: no-cache` + `Expires: 0` so even eager caches skip
- *   - strips query parameters when forwarding `/login` + `/admin/login`
- *     so a recursive `callbackUrl` in the URL collapses on the first
- *     fresh hit
+ * Rules:
+ *   - `/login`, `/admin/login` -> 307 `/admin` (query stripped)
+ *   - `/admin` + any query      -> 307 `/admin` (query stripped)
+ *   - `/admin` (clean URL)       -> pass through to page, with
+ *                                   `Cache-Control: no-store` on the
+ *                                   200 response so browsers don't
+ *                                   cache it (and, importantly, any
+ *                                   stale 308 entry gets replaced the
+ *                                   next time the URL is requested)
+ *   - `/admin/:path+` unauth    -> 307 `/admin` (query stripped)
+ *   - `/admin/:path+` non-admin -> 307 `/portal`
  *
- * Matcher includes `/login`, `/admin/login`, and `/admin/:path+` (all
- * subpaths of /admin). `/admin` itself is deliberately not matched so
- * the login page renders inline without middleware touching it.
+ * All redirects carry:
+ *     Cache-Control: no-store, no-cache, must-revalidate, max-age=0
+ *     Pragma: no-cache
+ *     Expires: 0
+ * so stale 308s in browser cache are overwritten on the first fresh
+ * hit. 307 itself is a Temporary Redirect that browsers don't cache
+ * aggressively by default.
  */
+
 function noCacheRedirect(req: NextRequest, path: string): NextResponse {
   const url = new URL(path, req.url);
   const res = NextResponse.redirect(url, 307);
@@ -36,32 +43,39 @@ function noCacheRedirect(req: NextRequest, path: string): NextResponse {
   return res;
 }
 
-export async function middleware(req: NextRequest) {
-  const { pathname } = req.nextUrl;
+function noCacheNext(): NextResponse {
+  const res = NextResponse.next();
+  res.headers.set('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0');
+  res.headers.set('Pragma', 'no-cache');
+  res.headers.set('Expires', '0');
+  return res;
+}
 
-  // Legacy URLs -> /admin (always fresh, never cached).
-  // Query params are dropped here intentionally. Any recursive
-  // callbackUrl in the URL from a stale cache collapses on the first
-  // hit instead of re-wrapping.
+export async function middleware(req: NextRequest) {
+  const { pathname, search } = req.nextUrl;
+
+  // Legacy URLs -> /admin (always fresh, query stripped).
   if (pathname === '/login' || pathname === '/admin/login') {
     return noCacheRedirect(req, '/admin');
   }
 
-  // Protected /admin/* subpaths (never /admin itself - matcher + this
-  // guard together ensure /admin bypasses middleware entirely).
+  // /admin itself: strip any query, then serve the page with
+  // no-store headers so stale 308 cache entries get replaced.
+  if (pathname === '/admin') {
+    if (search) return noCacheRedirect(req, '/admin');
+    return noCacheNext();
+  }
+
+  // Protected /admin/* subpaths.
   if (pathname.startsWith('/admin/')) {
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
-    if (!token) {
-      return noCacheRedirect(req, '/admin');
-    }
-    if ((token as { role?: string }).role !== 'admin') {
-      return noCacheRedirect(req, '/portal');
-    }
+    if (!token) return noCacheRedirect(req, '/admin');
+    if ((token as { role?: string }).role !== 'admin') return noCacheRedirect(req, '/portal');
   }
 
   return NextResponse.next();
 }
 
 export const config = {
-  matcher: ['/login', '/admin/login', '/admin/:path+'],
+  matcher: ['/login', '/admin', '/admin/login', '/admin/:path+'],
 };
