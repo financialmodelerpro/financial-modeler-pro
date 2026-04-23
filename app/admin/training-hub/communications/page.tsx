@@ -48,9 +48,7 @@ If something is in the way (the platform, time, anything at all) just hit reply 
 Otherwise, your dashboard is ready when you are:
 ${SIGNIN_URL}
 
-Looking forward to seeing your progress.
-
-Ahmad`,
+Looking forward to seeing your progress.`,
   },
   stalled: {
     subject: 'Picking up where you left off, {name}',
@@ -64,9 +62,7 @@ The sessions are short by design and build on each other, so one focused half-ho
 If something did not click, or you want me to suggest the right session to restart from, just reply to this email.
 
 Ready when you are:
-${SIGNIN_URL}
-
-Ahmad`,
+${SIGNIN_URL}`,
   },
   almostDone: {
     subject: 'You are almost certified, {name}',
@@ -82,9 +78,7 @@ A few tips before you sit it: review the income statement to balance sheet linka
 If you would like to talk anything through before starting, just reply to this email.
 
 Take the final exam:
-${SIGNIN_URL}
-
-Ahmad`,
+${SIGNIN_URL}`,
   },
 };
 
