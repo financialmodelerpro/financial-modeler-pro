@@ -8,18 +8,17 @@ import { PhoneInput } from '@/src/components/shared/PhoneInput';
 import { PreLaunchBanner } from '@/src/components/shared/PreLaunchBanner';
 
 interface TrainingRegisterFormProps {
-  /** True while the Training Hub is in Coming Soon mode — shows a
+  /** True while the Training Hub is in Coming Soon mode - shows a
    *  "launching soon, sign-in opens at launch" banner above the form. */
   preLaunch?:  boolean;
   launchDate?: string | null;
 }
 
-type Step   = 'form' | 'verify' | 'done';
+type Step   = 'form' | 'done';
 type Status = 'idle' | 'loading' | 'error' | 'duplicate';
 
 const GREEN = '#2EAA4A';
 const NAVY  = '#0D2E5A';
-
 
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '10px 12px', fontSize: 14,
@@ -32,6 +31,11 @@ const labelStyle: React.CSSProperties = {
   display: 'block', fontSize: 12, fontWeight: 700,
   color: '#374151', marginBottom: 6, letterSpacing: '0.03em',
 };
+
+// E.164: starts with `+`, then a non-zero leading digit, then 6 to 14 more
+// digits (total 7 to 15 digits after the `+`). Covers everything from short
+// 7-digit numbers (Macau) up to the ITU max of 15 digits.
+const E164_RE = /^\+[1-9]\d{6,14}$/;
 
 export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: TrainingRegisterFormProps = {}) {
   const [step,   setStep]   = useState<Step>('form');
@@ -52,60 +56,7 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
   const [captchaToken, setCaptchaToken] = useState('');
   const captchaRef = useRef<HCaptcha>(null);
 
-  // Email verification
-  const [otpCode,       setOtpCode]       = useState('');
-  const [sendingOtp,    setSendingOtp]    = useState(false);
-  const [otpSent,       setOtpSent]       = useState(false);
-  const [verifyingOtp,  setVerifyingOtp]  = useState(false);
-  const [otpError,      setOtpError]      = useState('');
-
-  async function sendVerificationCode() {
-    if (!email.trim()) return;
-    setSendingOtp(true);
-    setOtpError('');
-    try {
-      const res = await fetch('/api/training/send-verification', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase() }),
-      });
-      const json = await res.json() as { success: boolean };
-      if (json.success) {
-        setOtpSent(true);
-        setStep('verify');
-      } else {
-        setOtpError('Failed to send code. Please try again.');
-      }
-    } catch {
-      setOtpError('Failed to send code. Please try again.');
-    }
-    setSendingOtp(false);
-  }
-
-  async function verifyCode() {
-    if (!otpCode.trim()) return;
-    setVerifyingOtp(true);
-    setOtpError('');
-    try {
-      const res = await fetch('/api/training/verify-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase(), code: otpCode.trim() }),
-      });
-      const json = await res.json() as { success: boolean; error?: string };
-      if (json.success) {
-        setOtpError('');
-        await submitRegistration();
-      } else {
-        setOtpError(json.error ?? 'Incorrect code. Please try again.');
-      }
-    } catch {
-      setOtpError('Verification failed. Please try again.');
-    }
-    setVerifyingOtp(false);
-  }
-
-  async function submitRegistration() {
+  async function submitRegistration(fullPhone: string) {
     setStatus('loading');
     try {
       const res = await fetch('/api/training/register', {
@@ -114,9 +65,9 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
         body: JSON.stringify({
           name:         name.trim(),
           email:        email.trim().toLowerCase(),
-          phone:        phoneLocal.trim() ? phoneCode + phoneLocal.trim() : undefined,
-          city:         city.trim() || undefined,
-          country:      country.trim() || undefined,
+          phone:        fullPhone,
+          city:         city.trim(),
+          country:      country.trim(),
           password,
           captchaToken,
         }),
@@ -127,18 +78,15 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
         setStatus('idle');
       } else if (json.duplicate) {
         setStatus('duplicate');
-        setStep('form');
       } else {
         setStatus('error');
         setErrorMsg(json.error ?? 'Registration failed. Please try again.');
-        setStep('form');
         captchaRef.current?.resetCaptcha();
         setCaptchaToken('');
       }
     } catch {
       setStatus('error');
       setErrorMsg('An unexpected error occurred. Please try again.');
-      setStep('form');
       captchaRef.current?.resetCaptcha();
       setCaptchaToken('');
     }
@@ -152,7 +100,18 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
     if (password !== confirm) { setStatus('error'); setErrorMsg('Passwords do not match.'); return; }
     if (!city.trim()) { setStatus('error'); setErrorMsg('City is required.'); return; }
     if (!country.trim()) { setStatus('error'); setErrorMsg('Country is required.'); return; }
-    await sendVerificationCode();
+
+    // Phone: required + E.164 format check on the concatenated string.
+    const cleanedLocal = phoneLocal.replace(/\D/g, '');
+    if (!cleanedLocal) { setStatus('error'); setErrorMsg('Phone number is required.'); return; }
+    const fullPhone = `${phoneCode}${cleanedLocal}`;
+    if (!E164_RE.test(fullPhone)) {
+      setStatus('error');
+      setErrorMsg('Phone number looks invalid. Pick a country code and enter your local number (digits only).');
+      return;
+    }
+
+    await submitRegistration(fullPhone);
   }
 
   // ── Done ───────────────────────────────────────────────────────────────────
@@ -192,82 +151,6 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
     );
   }
 
-  // ── Email verification step ────────────────────────────────────────────────
-  if (step === 'verify') {
-    return (
-      <>
-        <Navbar />
-        <div style={{ minHeight: 'calc(100vh - 64px)', background: '#F5F7FA', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px 20px', fontFamily: "'Inter', sans-serif" }}>
-          <div style={{ width: '100%', maxWidth: 440 }}>
-            <div style={{ background: '#fff', borderRadius: 14, border: '1px solid #E5E7EB', boxShadow: '0 4px 24px rgba(0,0,0,0.07)', padding: '36px 36px 32px' }}>
-              <div style={{ textAlign: 'center', marginBottom: 28 }}>
-                <div style={{ fontSize: 40, marginBottom: 10 }}>📧</div>
-                <h1 style={{ fontSize: 20, fontWeight: 800, color: NAVY, margin: 0, marginBottom: 6 }}>Verify Your Email</h1>
-                <p style={{ fontSize: 13, color: '#6B7280', margin: 0, lineHeight: 1.5 }}>
-                  We sent a 6-digit code to <strong>{email}</strong>.<br />
-                  Enter it below to continue.
-                </p>
-              </div>
-
-              {otpError && (
-                <div style={{ background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, padding: '12px 14px', marginBottom: 18, fontSize: 13, color: '#DC2626' }}>
-                  ❌ {otpError}
-                </div>
-              )}
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
-                <div>
-                  <label style={labelStyle}>VERIFICATION CODE</label>
-                  <input
-                    type="text"
-                    value={otpCode}
-                    onChange={e => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="123456"
-                    maxLength={6}
-                    style={{ ...inputStyle, fontSize: 22, fontWeight: 700, textAlign: 'center', letterSpacing: '0.3em' }}
-                    onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
-                    onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }}
-                  />
-                  <div style={{ marginTop: 6, fontSize: 11.5, color: '#9CA3AF' }}>Code expires in 10 minutes</div>
-                </div>
-
-                <button
-                  onClick={verifyCode}
-                  disabled={verifyingOtp || status === 'loading' || otpCode.length < 6}
-                  style={{
-                    width: '100%', padding: '12px', fontSize: 14, fontWeight: 700,
-                    background: (verifyingOtp || status === 'loading' || otpCode.length < 6) ? '#86EFAC' : GREEN,
-                    color: '#fff', border: 'none', borderRadius: 8,
-                    cursor: (verifyingOtp || status === 'loading' || otpCode.length < 6) ? 'not-allowed' : 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-                  }}
-                >
-                  {(verifyingOtp || status === 'loading') ? (<><span style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />Verifying…</>) : 'Verify & Register →'}
-                </button>
-
-                <button
-                  onClick={() => { setOtpCode(''); sendVerificationCode(); }}
-                  disabled={sendingOtp}
-                  style={{ background: 'none', border: 'none', fontSize: 13, color: GREEN, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline', padding: 0, textAlign: 'center' }}
-                >
-                  {sendingOtp ? 'Sending…' : 'Resend code'}
-                </button>
-
-                <button
-                  onClick={() => { setStep('form'); setOtpCode(''); setOtpSent(false); setOtpError(''); }}
-                  style={{ background: 'none', border: 'none', fontSize: 13, color: '#9CA3AF', cursor: 'pointer', padding: 0, textAlign: 'center' }}
-                >
-                  ← Go back and edit details
-                </button>
-              </div>
-            </div>
-          </div>
-          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-        </div>
-      </>
-    );
-  }
-
   // ── Registration form ──────────────────────────────────────────────────────
   return (
     <>
@@ -296,7 +179,7 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
 
             {status === 'duplicate' && (
               <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, padding: '14px 16px', marginBottom: 20, fontSize: 13, color: '#1D4ED8', lineHeight: 1.5 }}>
-                ℹ️ You are already registered. Your Registration ID has been resent to <strong>{email}</strong>.
+                ℹ️ You are already registered. Sign in below or use Forgot Password if you need to reset it.
               </div>
             )}
 
@@ -320,26 +203,30 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
               {/* Email */}
               <div>
                 <label style={labelStyle}>EMAIL ADDRESS <span style={{ color: '#DC2626' }}>*</span></label>
-                <input type="email" required value={email} onChange={e => { setEmail(e.target.value); setOtpSent(false); }}
+                <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
                   placeholder="you@example.com" style={inputStyle}
                   onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
                   onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
                 <div style={{ marginTop: 5, fontSize: 11.5, color: '#6B7280' }}>
-                  📧 A verification code will be sent to this email
+                  📧 We will send a confirmation link to this address
                 </div>
               </div>
 
               {/* Phone */}
               <div>
-                <label style={labelStyle}>PHONE NUMBER <span style={{ color: '#9CA3AF', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional)</span></label>
+                <label style={labelStyle}>PHONE NUMBER <span style={{ color: '#DC2626' }}>*</span></label>
                 <PhoneInput
                   phoneCode={phoneCode}
                   phoneLocal={phoneLocal}
                   onCodeChange={setPhoneCode}
-                  onLocalChange={setPhoneLocal}
+                  onLocalChange={(local) => setPhoneLocal(local.replace(/[^\d\s\-()]/g, ''))}
+                  required
                   accentColor={GREEN}
                   inputBackground="#FFFBEB"
                 />
+                <div style={{ marginTop: 5, fontSize: 11.5, color: '#6B7280' }}>
+                  Pick your country code and enter the local number (digits only).
+                </div>
               </div>
 
               {/* City + Country */}
@@ -377,7 +264,7 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
                   onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
               </div>
 
-              {/* hCaptcha — C7: overflow-x:auto fallback so the ~300px
+              {/* hCaptcha - C7: overflow-x:auto fallback so the ~300px
                   widget stays reachable on 320px phones. */}
               <div style={{ display: 'flex', justifyContent: 'center', overflowX: 'auto', maxWidth: '100%' }}>
                 <HCaptcha
@@ -390,18 +277,18 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
 
               <button
                 type="submit"
-                disabled={status === 'loading' || sendingOtp || !captchaToken}
+                disabled={status === 'loading' || !captchaToken}
                 style={{
                   width: '100%', padding: '12px', fontSize: 14, fontWeight: 700,
-                  background: (status === 'loading' || sendingOtp || !captchaToken) ? '#86EFAC' : GREEN,
+                  background: (status === 'loading' || !captchaToken) ? '#86EFAC' : GREEN,
                   color: '#fff', border: 'none', borderRadius: 8,
-                  cursor: (status === 'loading' || sendingOtp || !captchaToken) ? 'not-allowed' : 'pointer',
+                  cursor: (status === 'loading' || !captchaToken) ? 'not-allowed' : 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 4,
                 }}
               >
-                {(status === 'loading' || sendingOtp) ? (
-                  <><span style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />{sendingOtp ? 'Sending code…' : 'Registering…'}</>
-                ) : 'Continue →'}
+                {status === 'loading' ? (
+                  <><span style={{ width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', display: 'inline-block', animation: 'spin 0.7s linear infinite' }} />Sending confirmation link…</>
+                ) : 'Create my account →'}
               </button>
             </form>
 

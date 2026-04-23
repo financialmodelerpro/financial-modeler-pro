@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 
 interface AdminStudent {
-  registrationId: string; name: string; email: string; course: string;
+  registrationId: string; name: string; email: string; phone: string | null; course: string;
   registeredAt: string; sessionsPassedCount?: number; totalSessions?: number;
   finalPassed?: boolean; finalExamStatus?: string; certificateIssued?: boolean;
   isBlocked: boolean; blockActionId: string | null;
@@ -180,7 +180,11 @@ export default function StudentsPage() {
       }
       if (statusFilter === 'active'  && s.isBlocked) return false;
       if (statusFilter === 'blocked' && !s.isBlocked) return false;
-      if (q && !s.name.toLowerCase().includes(q) && !s.email.toLowerCase().includes(q) && !s.registrationId.toLowerCase().includes(q)) return false;
+      if (q
+          && !s.name.toLowerCase().includes(q)
+          && !s.email.toLowerCase().includes(q)
+          && !s.registrationId.toLowerCase().includes(q)
+          && !(s.phone ?? '').toLowerCase().includes(q)) return false;
       return true;
     });
 
@@ -233,7 +237,7 @@ export default function StudentsPage() {
         <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
           <input
             value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search name, email or Reg ID…"
+            placeholder="Search name, email, phone or Reg ID…"
             style={{ flex: 1, minWidth: 200, padding: '8px 12px', fontSize: 13, border: '1px solid #D1D5DB', borderRadius: 7, outline: 'none', fontFamily: 'Inter,sans-serif' }}
           />
           {(['all', '3SFM', 'BVM'] as const).map(c => (
@@ -257,11 +261,12 @@ export default function StudentsPage() {
 
         {/* Table */}
         <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 2fr 70px 80px 80px 80px 80px 160px', background: '#1B4F8A', padding: '10px 20px', gap: 0 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr 2fr 1.3fr 70px 80px 80px 80px 80px 160px', background: '#1B4F8A', padding: '10px 20px', gap: 0 }}>
             {([
               { label: 'Reg ID',   field: 'registrationId'      as const },
               { label: 'Name',     field: 'name'                as const },
               { label: 'Email',    field: null                             },
+              { label: 'Phone',    field: null                             },
               { label: 'Course',   field: null                             },
               { label: 'Sessions', field: 'sessionsPassedCount' as const },
               { label: 'Final',    field: 'finalPassed'         as const },
@@ -298,8 +303,8 @@ export default function StudentsPage() {
 
           {loading ? (
             [1,2,3,4,5,6].map(i => (
-              <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 2fr 70px 80px 80px 80px 80px 160px', padding: '14px 20px', borderBottom: '1px solid #F3F4F6', gap: 8, alignItems: 'center' }}>
-                {Array(9).fill(0).map((_, j) => <Skeleton key={j} h={14} />)}
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr 2fr 1.3fr 70px 80px 80px 80px 80px 160px', padding: '14px 20px', borderBottom: '1px solid #F3F4F6', gap: 8, alignItems: 'center' }}>
+                {Array(10).fill(0).map((_, j) => <Skeleton key={j} h={14} />)}
               </div>
             ))
           ) : !dataAvailable ? (
@@ -317,10 +322,15 @@ export default function StudentsPage() {
               const passCount = s.sessionsPassedCount ?? null;
               const total     = s.totalSessions ?? null;
               return (
-                <div key={s.registrationId} style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr 2fr 70px 80px 80px 80px 80px 160px', padding: '11px 20px', borderBottom: '1px solid #F3F4F6', alignItems: 'center', fontSize: 12, background: s.isBlocked ? '#FFF5F5' : '#fff' }}>
+                <div key={s.registrationId} style={{ display: 'grid', gridTemplateColumns: '1fr 1.4fr 2fr 1.3fr 70px 80px 80px 80px 80px 160px', padding: '11px 20px', borderBottom: '1px solid #F3F4F6', alignItems: 'center', fontSize: 12, background: s.isBlocked ? '#FFF5F5' : '#fff' }}>
                   <div style={{ fontFamily: 'monospace', fontSize: 10, color: '#6B7280' }}>{s.registrationId}</div>
                   <div style={{ fontWeight: 600, color: '#1B3A6B', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.name || '-'}</div>
                   <div style={{ color: '#6B7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11 }}>{s.email}</div>
+                  <div style={{ color: s.phone ? '#374151' : '#D1D5DB', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 11, fontFamily: 'monospace' }}>
+                    {s.phone ? (
+                      <a href={`tel:${s.phone}`} style={{ color: 'inherit', textDecoration: 'none' }} title="Click to call">{s.phone}</a>
+                    ) : '-'}
+                  </div>
                   <div>
                     <span style={{ background: s.course === '3SFM' ? '#EFF6FF' : '#F0FDF4', color: s.course === '3SFM' ? '#1D4ED8' : '#166534', borderRadius: 20, padding: '2px 7px', fontSize: 10, fontWeight: 700 }}>{s.course}</span>
                   </div>

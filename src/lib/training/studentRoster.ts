@@ -17,6 +17,7 @@ export interface StudentSummary {
   registrationId:       string;
   name:                 string;
   email:                string;
+  phone:                string | null;          // E.164 (e.g. +923368237747); null for pre-collection legacy rows
   emailConfirmed:       boolean;                // training_registrations_meta.email_confirmed (treats null as confirmed for legacy rows)
   course:               string;                 // '3SFM' | 'BVM' | '3SFM, BVM' | '' if no enrollments
   registeredAt:         string;
@@ -34,6 +35,7 @@ interface MetaRow {
   registration_id: string;
   email:           string;
   name:            string | null;
+  phone:           string | null;
   created_at:      string | null;
   email_confirmed: boolean | null;
 }
@@ -68,7 +70,7 @@ export async function getStudentRoster(opts: RosterOptions = {}): Promise<Studen
 
   const [metaRes, enrollRes, assessRes, certRes] = await Promise.all([
     sb.from('training_registrations_meta')
-      .select('registration_id, email, name, created_at, email_confirmed'),
+      .select('registration_id, email, name, phone, created_at, email_confirmed'),
     sb.from('training_enrollments')
       .select('registration_id, course_code'),
     sb.from('training_assessment_results')
@@ -142,6 +144,7 @@ export async function getStudentRoster(opts: RosterOptions = {}): Promise<Studen
       registrationId:      m.registration_id,
       name:                m.name ?? '',
       email:               m.email ?? '',
+      phone:               m.phone ?? null,
       // Pre-027 students have email_confirmed=null and are treated as
       // confirmed (mirrors `validate/route.ts` rule).
       emailConfirmed:      m.email_confirmed !== false,

@@ -34,6 +34,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Captcha verification required.' }, { status: 400 });
     }
 
+    // Phone is required for new signups (FIX 2). Format check mirrors the
+    // client: E.164, '+' followed by 7 to 15 digits, leading non-zero.
+    // Pre-existing rows with phone IS NULL keep working because that path
+    // never re-runs through this endpoint; sign-in does not re-validate
+    // the phone column.
+    const phoneClean = (phone ?? '').replace(/\s+/g, '');
+    if (!phoneClean) {
+      return NextResponse.json({ success: false, error: 'Phone number is required.' }, { status: 400 });
+    }
+    if (!/^\+[1-9]\d{6,14}$/.test(phoneClean)) {
+      return NextResponse.json({ success: false, error: 'Phone number must be in international format (e.g. +12025550123).' }, { status: 400 });
+    }
+
     // Verify captcha
     const captchaValid = await verifyCaptcha(captchaToken);
     if (!captchaValid) {
@@ -88,7 +101,7 @@ export async function POST(req: NextRequest) {
       email:         normalEmail,
       name:          name.trim(),
       course:        course?.trim() || null,
-      phone:         phone?.trim()  || null,
+      phone:         phoneClean,
       city:          city?.trim()   || null,
       country:       country?.trim() || null,
       password_hash,
