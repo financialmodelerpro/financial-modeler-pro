@@ -88,12 +88,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   } catch { /* skip on failure */ }
 
   // ── CMS pages (legal + custom) ───────────────────────────────────────────
+  // Skip slugs whose `${MAIN_URL}/${slug}` would NOT return a clean 200:
+  //   - 'home' is content for the / route (served by app/(portal)/page.tsx);
+  //     /home itself isn't a canonical URL and Google flags it as a "Page
+  //     with redirect" because it duplicates / (the page-builder admin UI
+  //     already special-cases slug==='home' to link to /).
+  //   - 'about' is 308'd to /about/ahmad-din by next.config.ts redirects.
+  //   - 'modeling-hub' is 308'd to /modeling.
+  // The static-pages block above already lists / and /about/ahmad-din at
+  // the right priorities so nothing's lost here.
+  const SKIP_SLUGS = new Set(['home', 'about', 'modeling-hub']);
   try {
     const { data: pages } = await sb
       .from('cms_pages')
       .select('slug, updated_at, status')
       .eq('status', 'published');
     for (const p of pages ?? []) {
+      if (SKIP_SLUGS.has(p.slug)) continue;
       entries.push(s(
         `${MAIN_URL}/${p.slug}`,
         0.5, 'yearly',
