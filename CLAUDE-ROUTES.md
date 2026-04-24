@@ -47,10 +47,16 @@ app/admin/
 ├── announcements/page.tsx
 ├── articles/page.tsx + [id]/ + new/
 ├── audit/page.tsx
-├── badge-editor/page.tsx
+├── badge-editor/page.tsx           # 5-line redirect -> /admin/certificate-designer?tab=badge (consolidated 2026-04-24)
 ├── branding/page.tsx
-├── certificate-editor/page.tsx
-├── certificates/page.tsx
+├── certificate-designer/           # Consolidated cert design hub (2026-04-24, commit 5d81e06)
+│   ├── page.tsx                    # Tab dispatcher: ?tab=templates|certificate|badge|transcript (default templates)
+│   ├── TemplatesTab.tsx            # 3SFM/BVM cert PDF + badge PNG uploads (was /admin/certificates)
+│   ├── CertificateLayoutTab.tsx    # Drag-position text fields on cert PDF (was /admin/certificate-editor)
+│   ├── BadgeLayoutTab.tsx          # Cert ID + Issue Date overlay on badge PNG (was /admin/badge-editor)
+│   └── TranscriptLayoutTab.tsx     # Header drag-positioner + body/footer settings (was /admin/transcript-editor)
+├── certificate-editor/page.tsx     # 5-line redirect -> /admin/certificate-designer?tab=certificate
+├── certificates/page.tsx           # 5-line redirect -> /admin/certificate-designer (templates tab)
 ├── cms/page.tsx
 ├── contact/page.tsx
 ├── content/page.tsx
@@ -76,12 +82,11 @@ app/admin/
 │   + cohorts/ + communications/ + course-details/ + students/ + instructors/
 │   + share-templates/         # Centralized share-text admin (migrations 114-117): Global Mention Settings card + per-template editor with variable-picker chips, hashtag chip editor, active toggle, live preview
 │   + daily-roundup/            # Daily certifications roundup: date picker + per-student checklist + live preview + Share Roundup via ShareModal (migration 117 template)
+│   + marketing-studio/         # Training Hub Marketing Studio (rebuild 2026-04-24, migration 142): page.tsx tab shell + LinkedInBannerStudio.tsx (3 variants) + LiveSessionBannerStudio.tsx (auto-fill from live_sessions) + YouTubeThumbnailStudio.tsx + ArticleBannerStudio.tsx (auto-fill from articles) + AssetLibrary.tsx (uploads) + studio-shared.tsx (shared client primitives + render dispatcher)
 ├── training-settings/page.tsx
-├── transcript-editor/page.tsx
+├── transcript-editor/page.tsx     # 5-line redirect -> /admin/certificate-designer?tab=transcript (consolidated 2026-04-24)
 ├── newsletter/page.tsx           # Newsletter admin: 4 tabs (Subscribers, Compose, Campaigns, Auto Notifications)
-├── marketing-studio/
-│   ├── page.tsx                  # Marketing Studio: template picker + live preview + field editor + AI captions
-│   └── brand-kit/page.tsx        # Brand Kit editor: logos, founder photo, colors, fonts
+# NOTE: app/admin/marketing-studio/* DELETED 2026-04-24 — Phase 1.5 canvas editor (page.tsx + brand-kit/page.tsx) replaced by template-driven Training Hub edition at /admin/training-hub/marketing-studio. Old URL is now a 404 (Modeling Hub will get its own at a different path later).
 ├── users/page.tsx
 └── whitelabel/page.tsx
 ```
@@ -264,13 +269,13 @@ app/api/admin/
 ├── newsletter/content-items/    # GET: items from live_sessions/articles for compose auto-populate
 ├── newsletter/enhance/          # POST: AI rewrite via Anthropic API
 ├── newsletter/auto-settings/    # GET/PATCH: auto-notification toggles
-├── marketing-studio/render/             # POST: render element-based design → PNG via ImageResponse (satori)
-├── marketing-studio/generate-caption/   # POST: single-platform caption (legacy Phase 1)
-├── marketing-studio/generate-captions/  # POST: multi-platform parallel captions + tone selector
-├── marketing-studio/data-sources/       # GET: articles + live_sessions + training sessions for Quick Fill
-├── marketing-studio/designs/            # GET (list) + POST (create) saved designs
-├── marketing-studio/designs/[id]/       # GET/PATCH/DELETE single design
-├── marketing-studio/brand-kit/          # GET/PATCH brand kit singleton
+# app/api/admin/marketing-studio/* DELETED 2026-04-24 — Phase 1.5 canvas API routes (render, generate-caption(s), data-sources, designs/[id], brand-kit) all removed. Replaced by:
+├── training-hub/marketing-studio/render/         # POST { type, content }: dispatcher returns next/og ImageResponse PNG at the template's fixed dimensions. Admin-only.
+├── training-hub/marketing-studio/brand/          # GET: resolved BrandPack (logo, primaryColor, default trainer) for client-side preview rendering
+├── training-hub/marketing-studio/live-sessions/  # GET: 60 most recent live_sessions for the session picker (Live Session Banner + YouTube Thumbnail editors)
+├── training-hub/marketing-studio/articles/       # GET: 80 most recent published articles for the Article Banner editor's picker
+├── training-hub/marketing-studio/uploads/        # GET (list) + POST (upload PNG/JPEG/WebP, max 10 MB) — writes to marketing-assets bucket + marketing_uploaded_assets table
+├── training-hub/marketing-studio/uploads/[id]/   # PATCH (rename) + DELETE (storage + DB cleanup in lockstep)
 ├── watch-enforcement-stats/             # GET: distinct tab_keys in certification_watch_history + per-key stats (for admin dynamic session list)
 ├── sessions/[tabKey]/reset-watch-progress/ # POST: admin-only nuclear reset — deletes every watch-history row for the session. Routes by prefix: LIVE_<uuid> → session_watch_history; else → certification_watch_history (tab_key match). Paired with red buttons in both session editors. (2026-04-21)
 ├── generate-images/             # POST: satori+sharp generate mission/vision PNGs → Supabase
@@ -357,14 +362,7 @@ src/components/
 │   └── ShareExperienceModal.tsx     # 3-tab testimonial modal for both hubs
 ├── newsletter/
 │   └── NewsletterSubscribeForm.tsx   # Hub checkboxes + email input, shown in SharedFooter
-├── marketing/
-│   ├── QuickFillPanel.tsx            # Data source picker (Training / Live Session / Article) + Apply to Canvas. Calls /data-sources, invokes autoFillElements()
-│   ├── CaptionsPanel.tsx             # Multi-platform caption generator with tone selector, per-platform tabs, copy buttons
-│   ├── DesignsSidebar.tsx            # Saved designs grid with lazy-rendered thumbnails + template filter
-│   └── canvas/
-│       ├── CanvasEditor.tsx          # Drag-and-drop canvas: left (add/layers/history), center (canvas with react-rnd + auto-fit zoom), right (properties). Keyboard shortcuts, undo/redo history stack
-│       ├── ElementRenderer.tsx       # Pure visual for text/image/shape CanvasElements
-│       └── PropertiesPanel.tsx       # Per-type properties + Background panel when nothing selected
+# NOTE: src/components/marketing/* DELETED 2026-04-24 — Phase 1.5 canvas component tree (QuickFillPanel, CaptionsPanel, DesignsSidebar, canvas/CanvasEditor, canvas/ElementRenderer, canvas/PropertiesPanel) all removed in the Marketing Studio rebuild. New tab components are colocated under app/admin/training-hub/marketing-studio/ instead of in a shared components folder.
 ├── shared/
 │   ├── FollowPopup.tsx              # Reusable LinkedIn+YouTube follow popup (bottom-right toast)
 │   ├── SiteFollowPopup.tsx          # Site-wide 60s popup wrapper
@@ -414,14 +412,16 @@ src/lib/
 │       ALL template functions are async (use baseLayoutBranded) — callers must await
 ├── newsletter/
 │   └── autoNotify.ts            # sendAutoNewsletter() — fire-and-forget, duplicate prevention, per-event-type toggle
-├── marketing/                   # Canvas editor (Phase 1.5) — element-based designs
-│   ├── types.ts                 # BrandKit (with array libraries), ImageAsset, CanvasElement (text/image/shape), CanvasBackground, Design, TemplatePreset, MarketingDesign
-│   ├── canvasDefaults.ts        # makeTextElement/ImageElement/ShapeElement factories, backgroundToCss, uid
-│   ├── presets.ts               # PRESETS array (Phase 3A): 9 FMP-branded platform presets + Blank. PRESET_GROUPS for category-grouped picker. Legacy generic presets preserved for saved-design compat. Uses element-id prefixes (title-, subtitle-, session-, etc.) for Quick Fill + ZIP export matching
-│   ├── variants.ts              # VARIANTS array (Phase 3A): 5 template variants — Session Announcement, Quote, Platform Launch, Achievement Spotlight, Article Promo. build(kit, dims) scales elements proportionally to any canvas dimensions
-│   ├── autoFill.ts              # autoFillElements() — id-prefix → bucket matching (title/subtitle/session), returns new elements with text content swapped
-│   ├── brandKit.ts              # loadBrandKit() — reads singleton row (id=1) incl. additional_logos/photos/uploaded_images, falls back to defaults
-│   └── imageToDataUri.ts        # Fetches URL → base64 data URI (sharp SVG→PNG), shared by render route
+# NOTE: src/lib/marketing/* DELETED 2026-04-24 — Phase 1.5 canvas types/helpers (types, canvasDefaults, presets, variants, autoFill, brandKit, imageToDataUri) all removed in the Marketing Studio rebuild.
+├── marketing-studio/            # Training Hub Marketing Studio (rebuild 2026-04-24, migration 142). Server-side template rendering via next/og ImageResponse — no canvas state.
+│   ├── types.ts                 # AssetType, BrandPack, RenderRequest discriminated union (linkedin-banner / live-session / youtube-thumbnail / article-banner), DIMENSIONS map per template, UploadedAsset DTO
+│   ├── brand.ts                 # loadBrandPack() — server-side resolves logo from cms_content.header_settings.logo_url, primaryColor from email_branding, default trainer (name/title/photo/credentials) from instructors WHERE is_default=true
+│   ├── image-utils.ts           # fetchAsBase64() (URL → base64 data URI for satori; sharp SVG → PNG); lighten() / darken() hex helpers used by every template's gradient; formatSessionDateTime() for Live Session banner display
+│   └── templates/
+│       ├── linkedin-banner.tsx  # 3 named exports: LinkedInProfileTemplate (1584x396), LinkedInPostTemplate (1200x627), LinkedInQuoteTemplate (1200x627)
+│       ├── live-session.tsx     # LiveSessionTemplate (1200x627) — pulls badge/title/datetime/duration/instructor from content; trainer photo + logo from brand pack
+│       ├── youtube-thumbnail.tsx # YouTubeThumbnailTemplate (1280x720) — punchy big-type layout with trainer photo right-third
+│       └── article-banner.tsx   # ArticleBannerTemplate (1200x630) — editorial layout with category tag + author byline
 ├── integrations/
 │   └── teamsMeetings.ts          # Microsoft Graph API client for the Teams calendar event flow. Exposes `createCalendarEventWithMeeting` / `updateCalendarEvent` / `deleteCalendarEvent` (POST/PATCH/DELETE against `/users/{hostId}/events` with `isOnlineMeeting:true` + `onlineMeetingProvider:"teamsForBusiness"`), wrappers `updateMeetingOrEvent` / `deleteMeetingOrEvent` that try `/events` first and fall back to legacy `/onlineMeetings` on 404 for pre-migration session ids, `createTeamsMeeting` / `updateTeamsMeeting` / `deleteTeamsMeeting` (legacy onlineMeetings endpoint, kept for the fallback leg), `toGraphDateTime` helper (UTC ISO → Graph `dateTimeTimeZone` via `sv-SE` locale formatting, `Asia/Karachi` default), and `isTeamsConfigured` / `testTeamsConnection` helpers. Requires env vars `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `TEAMS_HOST_USER_EMAIL` + Azure Application permissions `OnlineMeetings.ReadWrite.All`, `User.Read.All`, `Calendars.ReadWrite` all with admin consent.
 ├── modeling/real-estate/

@@ -13,6 +13,7 @@
 | `course-materials` | Lesson/course file attachments (PDF, Word, PPT, Excel, images) | Public |
 | `live-session-banners` | Live session banner images | Public |
 | `cms-assets` | CMS uploaded media (images, logos) | Public |
+| `marketing-assets` | Marketing Studio uploaded background images (PNG / JPEG / WebP, max 10 MB). Created by migration 142. Public-read SELECT policy so satori can fetch them when rendering. Files stored under `bg/<timestamp>-<rand>.<ext>`. Metadata indexed in `marketing_uploaded_assets`. | Public |
 
 ---
 
@@ -121,11 +122,12 @@
 | `email_templates` | Editable templates per email type (announcement, 24h reminder, 1h reminder, recording available) |
 | `site_settings` | Global site settings (header, footer, colors, SEO) — JSONB per key |
 
-### Marketing Studio (migrations 100 + 101 + 102)
+### Marketing Studio (migration 142 — rebuild; supersedes 100-102)
 | Table | Purpose |
 |-------|---------|
-| `marketing_designs` | Saved designs: id, name, template_type, `dimensions jsonb`, `background jsonb`, `elements jsonb` (Phase 1.5 canvas data), `content jsonb` (legacy Phase 1, unused), ai_captions jsonb, preview_url, created_by, timestamps |
-| `marketing_brand_kit` | Singleton row (id=1): logo_url, logo_light_url, founder_photo_url, primary/secondary/accent/text colors, font_family, `additional_logos jsonb[]`, `additional_photos jsonb[]`, `uploaded_images jsonb[]` (Phase 1.5 libraries of `[{url, name}]`), `background_library jsonb[]` (Phase 1.5+ reusable backgrounds `[{id, name, url, thumbnail, type: brand\|custom}]`) |
+| `marketing_uploaded_assets` | Reusable background images uploaded by admins for the Training Hub Marketing Studio. Columns: `id UUID PK`, `name TEXT`, `storage_path TEXT UNIQUE`, `url TEXT`, `mime_type TEXT`, `file_size INT`, `width INT`, `height INT`, `uploaded_by TEXT` (admin email), `created_at`, `updated_at`. Index on `created_at DESC`. Files live in the `marketing-assets` storage bucket; this table is the metadata index. Brand pack (logo, primary color, default trainer photo+name+credentials) is sourced live from `email_branding` + `cms_content.header_settings` + the default row of `instructors` — no separate brand-kit table to drift. |
+| ~~`marketing_designs`~~ | **DROPPED in migration 142.** Was the Phase 1.5 canvas-state persistence table — superseded by template-driven server-rendering (no canvas state to save). |
+| ~~`marketing_brand_kit`~~ | **DROPPED in migration 142.** Was a singleton brand-kit row plus image libraries — superseded by live resolution from `email_branding` + `cms_content` + `instructors`. |
 
 ---
 
@@ -260,3 +262,4 @@
 | `139_phone_required.sql` | Defensive `ADD COLUMN IF NOT EXISTS phone TEXT` on `training_registrations_meta` + `training_pending_registrations`. The column already exists in production (added alongside city/country in an earlier era) but the schema is not fully reproducible from the migration log alone, so this guarantees a rebuild from scratch lands in the same state. Stays NULLable so ~9 pre-collection legacy rows keep working; the "required" rule is enforced at the application layer (RegisterForm + `/api/training/register` both validate against `^\+[1-9]\d{6,14}$`). |
 | `140_purge_test_account.sql` | One-off cleanup. Deletes the pre-launch test account `FMP-2026-0037` / `pacemakersglobal@gmail.com` from every table that referenced it (training_registrations_meta + 5 children + activity tables defensively). Production was purged via service-role script on 2026-04-23 with an `admin_audit_log` trail (action=`training_account_purge`, audit row id `e45c3a81-da3e-46af-8430-31671244eac6`) capturing the snapshot of the meta row before deletion. This file is FK-safe (children before parent) and idempotent so any other environment (staging, fresh rebuild) lands in the same state. |
 | `141_fix_misplaced_bvm_attachments.sql` | Re-tags three production rows in `course_attachments` that the admin training editor wrote with the wrong tab_key. Bug: the page checked `courseId?.toLowerCase() === 'bvm'` against the URL slug, but the page is reached via `/admin/training/<UUID>` (the course list links to `c.id`), so the comparison was always false and every BVM upload landed on `3SFM_S{display_order}` / `course='3sfm'`, colliding with real 3SFM session attachments. Migration moves the three known misplaced rows (FMP_BVM_DCF / Comps_Training / Comps_Template) from `3SFM_S{1,4,5}` to `BVM_L{1,4,5}` and updates `course='bvm'`. Rows pinned by id so re-running is a no-op. Production was repaired via service-role script the same day with an `admin_audit_log` trail (action=`course_attachments_repair`, audit row id `13c9ec41-ea74-44d2-a253-eae00901c553`). The code fix in the same commit derives the prefix from the loaded `course.category` so this cannot recur. |
+| `142_marketing_studio_rebuild.sql` | Marketing Studio rebuild for the Training Hub edition. **Drops** `marketing_designs` and `marketing_brand_kit` (Phase 1.5 canvas-state tables, superseded by deterministic template-rendering — see `app/admin/training-hub/marketing-studio/`). **Creates** `marketing_uploaded_assets` (id UUID PK, name, storage_path UNIQUE, url, mime_type, file_size, width, height, uploaded_by, created_at, updated_at) with a `created_at DESC` index. **Creates** the `marketing-assets` storage bucket (public-read) via `INSERT INTO storage.buckets ... ON CONFLICT DO NOTHING` and adds a permissive SELECT policy so satori can fetch background images during render. Brand pack (logo / primary color / default trainer photo+name+credentials) is now sourced live from `email_branding` + `cms_content.header_settings.logo_url` + the `is_default=true` row of `instructors` — no separate brand-kit row to drift. Idempotent. |
