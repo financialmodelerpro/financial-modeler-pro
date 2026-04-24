@@ -6,12 +6,16 @@ import { getAllPageSections } from '@/src/lib/shared/cms';
 import { canonicalUrl } from '@/src/lib/seo/canonical';
 import { SessionsClient, type PublicSession, type HeroContent } from './SessionsClient';
 
+// Canonical lives on the learn subdomain because main-domain hits are 307'd to
+// learn (next.config.ts /training-sessions redirect). Pointing canonical at
+// MAIN would tell Google the canonical is itself a redirect, causing the
+// "Page with redirect" Search Console warning.
 export const metadata: Metadata = {
   title: 'Live Sessions | FMP Real-World Financial Modeling',
   description: 'Join live training sessions and access recorded content from Financial Modeler Pro. Practitioner-led courses on financial modeling, deal structuring, and corporate finance.',
-  alternates: { canonical: canonicalUrl('/training-sessions', 'main') },
+  alternates: { canonical: canonicalUrl('/training-sessions', 'learn') },
   openGraph: {
-    url: canonicalUrl('/training-sessions', 'main'),
+    url: canonicalUrl('/training-sessions', 'learn'),
     title: 'Live Sessions | FMP Real-World Financial Modeling',
     description: 'Join live training sessions and access recorded content from Financial Modeler Pro.',
   },

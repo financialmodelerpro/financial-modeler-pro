@@ -10,6 +10,7 @@ import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
 import { CurriculumCard, type CourseDescription } from './CurriculumCard';
 import { TestimonialsCarousel } from './TestimonialsCarousel';
 import { UpcomingSessionsPreview } from './UpcomingSessionsPreview';
+import { CourseJsonLd } from '@/src/components/seo/StructuredData';
 
 export const revalidate = 0;
 
@@ -204,6 +205,18 @@ export default async function TrainingPage() {
 
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", background: '#fff', color: '#374151', minHeight: '100vh' }}>
+      <CourseJsonLd
+        name={sfm.title}
+        description={sfm.description}
+        url={`${LEARN_URL}/training`}
+        image={`${LEARN_URL}/api/og`}
+      />
+      <CourseJsonLd
+        name={bvm.title}
+        description={bvm.description}
+        url={`${LEARN_URL}/training`}
+        image={`${LEARN_URL}/api/og`}
+      />
       <NavbarServer />
       <div style={{ height: 64 }} />
 

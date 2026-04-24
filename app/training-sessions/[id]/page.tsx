@@ -13,7 +13,9 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const { id } = await params;
   const session = await getSession(id);
   if (!session) return { title: 'Session not found' };
-  const url = canonicalUrl(`/training-sessions/${session.id}`, 'main');
+  // Canonical on learn subdomain to match where the page is actually served
+  // (main-domain hits are 307'd to learn via next.config.ts redirect rules).
+  const url = canonicalUrl(`/training-sessions/${session.id}`, 'learn');
   const isRecorded = session.session_type === 'recorded';
   const typeLabel = isRecorded ? 'Recorded Session' : 'Live Session';
   const title = `${session.title} | FMP ${typeLabel}`;

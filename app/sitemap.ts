@@ -25,10 +25,22 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     s(`${MAIN_URL}/contact`,                0.7, 'monthly'),
     s(`${MAIN_URL}/pricing`,                0.8, 'monthly'),
     s(`${MAIN_URL}/articles`,               0.9, 'weekly'),
-    s(`${MAIN_URL}/training-sessions`,      0.9, 'weekly'),
+    // training-sessions is canonically served on learn (main-domain hits 307
+    // to learn via next.config.ts redirects) — point sitemap at the actual
+    // destination so Google doesn't report "Page with redirect" against it.
+    s(`${LEARN_URL}/training-sessions`,     0.9, 'weekly'),
     s(`${LEARN_URL}/verify`,                0.5, 'yearly'),
     s(`${MAIN_URL}/testimonials/submit`,    0.4, 'yearly'),
   );
+
+  // ── Legal pages (explicit fallback) ──────────────────────────────────────
+  // The cms_pages branch below picks these up too — but only when the row is
+  // present and status='published'. Listing them explicitly here guarantees
+  // crawl coverage even if the migration hasn't been re-applied to a fresh
+  // staging DB. Dedup against the cms_pages branch happens in the final pass.
+  for (const slug of ['privacy-policy', 'terms-of-service', 'confidentiality']) {
+    entries.push(s(`${MAIN_URL}/${slug}`, 0.4, 'yearly'));
+  }
 
   // ── Training Hub landing ─────────────────────────────────────────────────
   entries.push(s(`${LEARN_URL}/training`, 0.95, 'weekly'));
@@ -65,8 +77,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       .eq('is_published', true);
     for (const ls of sessions ?? []) {
       const isRecorded = ls.session_type === 'recorded';
+      // LEARN_URL because main-domain hits are 307'd to learn (see above).
       entries.push(s(
-        `${MAIN_URL}/training-sessions/${ls.id}`,
+        `${LEARN_URL}/training-sessions/${ls.id}`,
         isRecorded ? 0.7 : 0.65,
         isRecorded ? 'monthly' : 'weekly',
         ls.updated_at ? new Date(ls.updated_at) : undefined,
@@ -89,5 +102,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }
   } catch { /* skip on failure */ }
 
-  return entries;
+  // ── Dedup by URL (cms_pages branch can collide with the explicit legal
+  //     fallback; whichever entry came first wins, which keeps the
+  //     CMS-derived lastModified date when the row exists). ───────────────
+  const seen = new Set<string>();
+  return entries.filter(e => {
+    if (seen.has(e.url)) return false;
+    seen.add(e.url);
+    return true;
+  });
 }
