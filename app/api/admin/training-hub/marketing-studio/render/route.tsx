@@ -2,16 +2,25 @@ import { ImageResponse } from 'next/og';
 import { NextResponse, type NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
-import { loadBrandPack } from '@/src/lib/marketing-studio/brand';
+import { loadBrandPack, loadInstructorsByIds } from '@/src/lib/marketing-studio/brand';
 import { fetchAsBase64 } from '@/src/lib/marketing-studio/image-utils';
 import { loadOgFonts } from '@/src/lib/shared/ogFonts';
-import { DIMENSIONS, type RenderRequest } from '@/src/lib/marketing-studio/types';
+import { DIMENSIONS, resolveInstructors, type RenderRequest, type Instructor } from '@/src/lib/marketing-studio/types';
 import { LinkedInProfileTemplate, LinkedInPostTemplate, LinkedInQuoteTemplate } from '@/src/lib/marketing-studio/templates/linkedin-banner';
 import { LiveSessionTemplate } from '@/src/lib/marketing-studio/templates/live-session';
 import { YouTubeThumbnailTemplate } from '@/src/lib/marketing-studio/templates/youtube-thumbnail';
 import { ArticleBannerTemplate } from '@/src/lib/marketing-studio/templates/article-banner';
 
 export const runtime = 'nodejs';
+
+async function loadInstructorPhotos(instructors: Instructor[]): Promise<Record<string, string>> {
+  const entries = await Promise.all(
+    instructors.map(async ins => [ins.id, await fetchAsBase64(ins.photoUrl)] as const),
+  );
+  const out: Record<string, string> = {};
+  for (const [id, dataUri] of entries) out[id] = dataUri;
+  return out;
+}
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -20,26 +29,27 @@ export async function POST(req: NextRequest) {
   }
 
   let payload: RenderRequest;
-  try {
-    payload = await req.json() as RenderRequest;
-  } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
-  }
+  try { payload = await req.json() as RenderRequest; }
+  catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
   const dims = DIMENSIONS[payload.content.template];
-  if (!dims) {
-    return NextResponse.json({ error: `Unknown template: ${payload.content.template}` }, { status: 400 });
-  }
+  if (!dims) return NextResponse.json({ error: `Unknown template: ${payload.content.template}` }, { status: 400 });
 
-  const [brand, fonts] = await Promise.all([loadBrandPack(), loadOgFonts().catch(() => [])]);
+  const [brand, fonts, pickedInstructors] = await Promise.all([
+    loadBrandPack(),
+    loadOgFonts().catch(() => []),
+    loadInstructorsByIds(payload.content.instructorIds ?? []),
+  ]);
 
-  const [logoDataUri, trainerPhotoDataUri, backgroundDataUri] = await Promise.all([
+  const instructors = resolveInstructors(brand, pickedInstructors);
+
+  const [logoDataUri, instructorPhotos, backgroundDataUri] = await Promise.all([
     fetchAsBase64(brand.logoUrl),
-    fetchAsBase64(brand.trainer.photoUrl),
+    loadInstructorPhotos(instructors),
     fetchAsBase64(payload.content.backgroundUrl ?? ''),
   ]);
 
-  const args = { brand, logoDataUri, trainerPhotoDataUri, backgroundDataUri };
+  const args = { brand, instructors, logoDataUri, instructorPhotos, backgroundDataUri };
 
   let element: React.ReactElement;
   switch (payload.type) {

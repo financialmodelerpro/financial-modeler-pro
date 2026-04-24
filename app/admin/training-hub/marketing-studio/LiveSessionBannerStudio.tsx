@@ -1,14 +1,17 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import type { LiveSessionBannerContent } from '@/src/lib/marketing-studio/types';
+import type { LiveSessionBannerContent, LayoutOverrides } from '@/src/lib/marketing-studio/types';
 import { DIMENSIONS } from '@/src/lib/marketing-studio/types';
+import { LIVE_SESSION_LAYOUT } from '@/src/lib/marketing-studio/templates/live-session';
 import {
   StudioShell, Field, BackgroundPicker,
   inputStyle, textareaStyle, selectStyle, cardStyle,
-  PrimaryButton, SecondaryButton, PreviewFrame,
-  renderToBlobUrl, downloadBlobUrl,
+  PrimaryButton, SecondaryButton,
+  useAutoRender, downloadBlobUrl,
 } from './studio-shared';
+import { InstructorPicker } from './InstructorPicker';
+import { LayoutEditor } from './LayoutEditor';
 
 interface SessionRow {
   id: string;
@@ -16,6 +19,7 @@ interface SessionRow {
   scheduled_datetime: string | null;
   timezone: string | null;
   duration_minutes: number | null;
+  instructor_id: string | null;
   instructor_name: string | null;
   instructor_title: string | null;
   session_type: string | null;
@@ -24,22 +28,20 @@ interface SessionRow {
 const DEFAULTS: LiveSessionBannerContent = {
   template: 'live-1200',
   badge: 'LIVE SESSION',
-  title: 'Pick a session above to auto-fill',
+  title: 'Pick a session to auto-fill',
   scheduledAtISO: new Date().toISOString(),
   timezone: 'Asia/Karachi',
   durationMinutes: 60,
-  instructorName: '',
-  instructorTitle: '',
   cta: 'Register now',
+  instructorIds: [],
+  layout: {},
 };
 
 export function LiveSessionBannerStudio() {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [content, setContent] = useState<LiveSessionBannerContent>(DEFAULTS);
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [generating, setGenerating] = useState(false);
-  const [error, setError] = useState('');
+  const { blobUrl, generating, error } = useAutoRender({ type: 'live-session', content });
 
   useEffect(() => {
     void fetch('/api/admin/training-hub/marketing-studio/live-sessions')
@@ -48,15 +50,12 @@ export function LiveSessionBannerStudio() {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    void handleGenerate();
-    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   function set<K extends keyof LiveSessionBannerContent>(key: K, value: LiveSessionBannerContent[K]) {
     setContent(prev => ({ ...prev, [key]: value }));
   }
+
+  function setLayout(next: LayoutOverrides) { setContent(prev => ({ ...prev, layout: next })); }
+  function resetLayout() { setContent(prev => ({ ...prev, layout: {} })); }
 
   function applySession(id: string) {
     setSelectedId(id);
@@ -70,20 +69,8 @@ export function LiveSessionBannerStudio() {
       scheduledAtISO: s.scheduled_datetime || prev.scheduledAtISO,
       timezone: s.timezone || prev.timezone,
       durationMinutes: s.duration_minutes ?? prev.durationMinutes,
-      instructorName: s.instructor_name || '',
-      instructorTitle: s.instructor_title || '',
+      instructorIds: s.instructor_id ? [s.instructor_id] : prev.instructorIds,
     }));
-  }
-
-  async function handleGenerate() {
-    setGenerating(true); setError('');
-    try {
-      const url = await renderToBlobUrl({ type: 'live-session', content });
-      setBlobUrl(prev => { if (prev) URL.revokeObjectURL(prev); return url; });
-    } catch (e) {
-      setError((e as Error).message);
-    }
-    setGenerating(false);
   }
 
   function handleDownload() {
@@ -91,8 +78,6 @@ export function LiveSessionBannerStudio() {
     downloadBlobUrl(blobUrl, `fmp-live-session-${selectedId || 'custom'}.png`);
   }
 
-  // Format the ISO datetime for the datetime-local input. The input expects
-  // YYYY-MM-DDTHH:mm in local time.
   const dtLocal = (() => {
     try {
       const d = new Date(content.scheduledAtISO);
@@ -106,11 +91,11 @@ export function LiveSessionBannerStudio() {
   return (
     <StudioShell
       title="Live Session Banner"
-      description="Pick a session, edit any field, export. Pulls from live_sessions: title, datetime, timezone, duration, instructor."
+      description="Pick a session to auto-fill (title, datetime, instructor). Add more instructors via the picker. Drag/resize zones in the preview."
       controls={
         <div style={cardStyle}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <Field label="Pick session" hint={`${sessions.length} sessions available`}>
+            <Field label="Pick session" hint={`${sessions.length} sessions available · auto-fills instructor`}>
               <select value={selectedId} onChange={e => applySession(e.target.value)} style={selectStyle}>
                 <option value="">— Custom (no auto-fill) —</option>
                 {sessions.map(s => (
@@ -120,6 +105,13 @@ export function LiveSessionBannerStudio() {
                 ))}
               </select>
             </Field>
+            <InstructorPicker
+              value={content.instructorIds ?? []}
+              onChange={ids => set('instructorIds', ids)}
+              hint={(content.instructorIds ?? []).length > 0
+                ? `${(content.instructorIds ?? []).length} selected · banner shows up to 4 in a row`
+                : 'Empty = use the session\'s instructor (auto-fill) or default trainer'}
+            />
             <Field label="Badge text">
               <input value={content.badge} onChange={e => set('badge', e.target.value)} style={inputStyle} />
             </Field>
@@ -141,13 +133,6 @@ export function LiveSessionBannerStudio() {
               <input value={content.timezone} onChange={e => set('timezone', e.target.value)} style={inputStyle}
                 placeholder="e.g. Asia/Karachi" />
             </Field>
-            <Field label="Instructor name (optional override)">
-              <input value={content.instructorName} onChange={e => set('instructorName', e.target.value)} style={inputStyle}
-                placeholder="Defaults to brand pack" />
-            </Field>
-            <Field label="Instructor title (optional override)">
-              <input value={content.instructorTitle} onChange={e => set('instructorTitle', e.target.value)} style={inputStyle} />
-            </Field>
             <Field label="CTA">
               <input value={content.cta} onChange={e => set('cta', e.target.value)} style={inputStyle} />
             </Field>
@@ -157,16 +142,27 @@ export function LiveSessionBannerStudio() {
       }
       preview={
         <div>
-          <div style={{ marginBottom: 8, fontSize: 12, color: '#6B7280' }}>Preview · {dims.width} × {dims.height}px</div>
-          <PreviewFrame blobUrl={blobUrl} error={error} generating={generating} aspectRatio={dims.width / dims.height} />
+          <div style={{ marginBottom: 8, fontSize: 12, color: '#6B7280' }}>
+            Preview · {dims.width} × {dims.height}px {generating && '· regenerating…'} {error && <span style={{ color: '#DC2626' }}>· {error}</span>}
+          </div>
+          <LayoutEditor
+            templateLayout={LIVE_SESSION_LAYOUT}
+            overrides={content.layout ?? {}}
+            previewBlobUrl={blobUrl}
+            generating={generating}
+            onLayoutChange={setLayout}
+            onReset={resetLayout}
+          />
         </div>
       }
       exportButton={
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <PrimaryButton onClick={handleGenerate} disabled={generating}>
-            {generating ? 'Generating…' : '⟳ Generate Preview'}
+          <PrimaryButton onClick={handleDownload} disabled={!blobUrl || generating}>
+            ⬇ Download PNG
           </PrimaryButton>
-          <SecondaryButton onClick={handleDownload} disabled={!blobUrl || generating}>⬇ Download PNG</SecondaryButton>
+          <SecondaryButton onClick={resetLayout} disabled={Object.keys(content.layout ?? {}).length === 0}>
+            ↺ Reset layout to defaults
+          </SecondaryButton>
         </div>
       }
     />

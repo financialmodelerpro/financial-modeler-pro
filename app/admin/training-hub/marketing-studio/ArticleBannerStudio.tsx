@@ -1,14 +1,17 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import type { ArticleBannerContent } from '@/src/lib/marketing-studio/types';
+import type { ArticleBannerContent, LayoutOverrides } from '@/src/lib/marketing-studio/types';
 import { DIMENSIONS } from '@/src/lib/marketing-studio/types';
+import { ARTICLE_BANNER_LAYOUT } from '@/src/lib/marketing-studio/templates/article-banner';
 import {
   StudioShell, Field, BackgroundPicker,
   inputStyle, textareaStyle, selectStyle, cardStyle,
-  PrimaryButton, SecondaryButton, PreviewFrame,
-  renderToBlobUrl, downloadBlobUrl,
+  PrimaryButton, SecondaryButton,
+  useAutoRender, downloadBlobUrl,
 } from './studio-shared';
+import { InstructorPicker } from './InstructorPicker';
+import { LayoutEditor } from './LayoutEditor';
 
 interface ArticleRow {
   slug: string;
@@ -21,15 +24,15 @@ const DEFAULTS: ArticleBannerContent = {
   category: 'INSIGHTS',
   title: 'Pick an article to auto-fill',
   author: '',
+  instructorIds: [],
+  layout: {},
 };
 
 export function ArticleBannerStudio() {
   const [articles, setArticles] = useState<ArticleRow[]>([]);
   const [selectedSlug, setSelectedSlug] = useState('');
   const [content, setContent] = useState<ArticleBannerContent>(DEFAULTS);
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [generating, setGenerating] = useState(false);
-  const [error, setError] = useState('');
+  const { blobUrl, generating, error } = useAutoRender({ type: 'article-banner', content });
 
   useEffect(() => {
     void fetch('/api/admin/training-hub/marketing-studio/articles')
@@ -38,15 +41,12 @@ export function ArticleBannerStudio() {
       .catch(() => {});
   }, []);
 
-  useEffect(() => {
-    void handleGenerate();
-    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   function set<K extends keyof ArticleBannerContent>(key: K, value: ArticleBannerContent[K]) {
     setContent(prev => ({ ...prev, [key]: value }));
   }
+
+  function setLayout(next: LayoutOverrides) { setContent(prev => ({ ...prev, layout: next })); }
+  function resetLayout() { setContent(prev => ({ ...prev, layout: {} })); }
 
   function applyArticle(slug: string) {
     setSelectedSlug(slug);
@@ -60,17 +60,6 @@ export function ArticleBannerStudio() {
     }));
   }
 
-  async function handleGenerate() {
-    setGenerating(true); setError('');
-    try {
-      const url = await renderToBlobUrl({ type: 'article-banner', content });
-      setBlobUrl(prev => { if (prev) URL.revokeObjectURL(prev); return url; });
-    } catch (e) {
-      setError((e as Error).message);
-    }
-    setGenerating(false);
-  }
-
   function handleDownload() {
     if (!blobUrl) return;
     downloadBlobUrl(blobUrl, `fmp-article-${selectedSlug || 'custom'}.png`);
@@ -81,7 +70,7 @@ export function ArticleBannerStudio() {
   return (
     <StudioShell
       title="Article Banner"
-      description="1200 × 630 article share banner. Pull title + category from a published article, or type custom."
+      description="1200 × 630. Pick an article to auto-fill title + category. Pick an instructor as the author byline (or override with text)."
       controls={
         <div style={cardStyle}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -95,15 +84,22 @@ export function ArticleBannerStudio() {
                 ))}
               </select>
             </Field>
+            <InstructorPicker
+              value={content.instructorIds ?? []}
+              onChange={ids => set('instructorIds', ids)}
+              hint={(content.instructorIds ?? []).length > 0
+                ? 'Article banner uses the FIRST picked instructor as author'
+                : 'Empty = default trainer (or use Author Override below)'}
+            />
             <Field label="Category">
               <input value={content.category} onChange={e => set('category', e.target.value)} style={inputStyle} />
             </Field>
             <Field label="Headline">
               <textarea value={content.title} onChange={e => set('title', e.target.value)} style={textareaStyle} rows={3} />
             </Field>
-            <Field label="Author (optional override)">
+            <Field label="Author override (optional)">
               <input value={content.author} onChange={e => set('author', e.target.value)} style={inputStyle}
-                placeholder="Defaults to brand pack" />
+                placeholder="Leave blank to use picked instructor's name" />
             </Field>
             <BackgroundPicker selectedUrl={content.backgroundUrl} onChange={url => set('backgroundUrl', url)} />
           </div>
@@ -111,16 +107,27 @@ export function ArticleBannerStudio() {
       }
       preview={
         <div>
-          <div style={{ marginBottom: 8, fontSize: 12, color: '#6B7280' }}>Preview · {dims.width} × {dims.height}px</div>
-          <PreviewFrame blobUrl={blobUrl} error={error} generating={generating} aspectRatio={dims.width / dims.height} />
+          <div style={{ marginBottom: 8, fontSize: 12, color: '#6B7280' }}>
+            Preview · {dims.width} × {dims.height}px {generating && '· regenerating…'} {error && <span style={{ color: '#DC2626' }}>· {error}</span>}
+          </div>
+          <LayoutEditor
+            templateLayout={ARTICLE_BANNER_LAYOUT}
+            overrides={content.layout ?? {}}
+            previewBlobUrl={blobUrl}
+            generating={generating}
+            onLayoutChange={setLayout}
+            onReset={resetLayout}
+          />
         </div>
       }
       exportButton={
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <PrimaryButton onClick={handleGenerate} disabled={generating}>
-            {generating ? 'Generating…' : '⟳ Generate Preview'}
+          <PrimaryButton onClick={handleDownload} disabled={!blobUrl || generating}>
+            ⬇ Download PNG
           </PrimaryButton>
-          <SecondaryButton onClick={handleDownload} disabled={!blobUrl || generating}>⬇ Download PNG</SecondaryButton>
+          <SecondaryButton onClick={resetLayout} disabled={Object.keys(content.layout ?? {}).length === 0}>
+            ↺ Reset layout to defaults
+          </SecondaryButton>
         </div>
       }
     />

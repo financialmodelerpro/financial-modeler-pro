@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { RenderRequest, UploadedAsset } from '@/src/lib/marketing-studio/types';
 
 const RENDER_URL = '/api/admin/training-hub/marketing-studio/render';
@@ -30,6 +30,50 @@ export function downloadBlobUrl(blobUrl: string, filename: string) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+}
+
+/**
+ * Auto-render hook: re-fetches the preview PNG whenever `payload` changes
+ * (debounced 350ms). Cleans up blob URLs on replace/unmount. Returns
+ * { blobUrl, generating, error, regenerate }.
+ */
+export function useAutoRender(payload: RenderRequest | null) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState('');
+  const lastUrl = useRef<string | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const regenerate = React.useCallback(async () => {
+    if (!payload) return;
+    setGenerating(true);
+    setError('');
+    try {
+      const url = await renderToBlobUrl(payload);
+      if (lastUrl.current) URL.revokeObjectURL(lastUrl.current);
+      lastUrl.current = url;
+      setBlobUrl(url);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+    setGenerating(false);
+  }, [payload]);
+
+  useEffect(() => {
+    if (!payload) return;
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => { void regenerate(); }, 350);
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(payload)]);
+
+  useEffect(() => () => {
+    if (lastUrl.current) URL.revokeObjectURL(lastUrl.current);
+  }, []);
+
+  return { blobUrl, generating, error, regenerate };
 }
 
 /**
@@ -136,36 +180,6 @@ export function SecondaryButton({ onClick, disabled, children }: { onClick: () =
         fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
       }}>{children}</button>
-  );
-}
-
-export function PreviewFrame({
-  blobUrl, error, generating, aspectRatio,
-}: {
-  blobUrl: string | null; error: string; generating: boolean; aspectRatio: number;
-}) {
-  return (
-    <div style={{ position: 'relative', width: '100%', maxWidth: 900 }}>
-      <div style={{
-        width: '100%', aspectRatio: String(aspectRatio),
-        background: '#1a1a1a', border: '1px solid #E5E7EB', borderRadius: 10,
-        overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        {blobUrl ? (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img src={blobUrl} alt="Preview" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />
-        ) : error ? (
-          <div style={{ padding: 24, textAlign: 'center', color: '#FCA5A5', fontSize: 13 }}>
-            <div style={{ fontSize: 32, marginBottom: 8 }}>⚠</div>
-            {error}
-          </div>
-        ) : (
-          <div style={{ color: '#6B7280', fontSize: 13, textAlign: 'center', padding: 24 }}>
-            {generating ? 'Generating…' : 'Click "Generate Preview" to render'}
-          </div>
-        )}
-      </div>
-    </div>
   );
 }
 

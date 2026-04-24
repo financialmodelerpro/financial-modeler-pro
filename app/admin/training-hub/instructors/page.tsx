@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { RichTextarea } from '@/src/components/admin/RichTextarea';
 
@@ -51,6 +51,8 @@ export default function AdminInstructorsPage() {
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Partial<Instructor> | null>(null);
   const [saving, setSaving] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoFileRef = useRef<HTMLInputElement>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'ok' | 'err' } | null>(null);
 
   const show = useCallback((msg: string, type: 'ok' | 'err' = 'ok') => {
@@ -283,9 +285,65 @@ export default function AdminInstructorsPage() {
                   </div>
                 </div>
                 <div>
-                  <label style={label}>Photo URL</label>
-                  <input style={field} value={editing.photo_url ?? ''} onChange={e => setEditing(p => ({ ...p, photo_url: e.target.value }))}
-                         placeholder="https://…/photo.jpg" />
+                  <label style={label}>Photo</label>
+                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+                    {editing.photo_url ? (
+                      <div style={{
+                        width: 64, height: 64, borderRadius: '50%', flexShrink: 0,
+                        background: `url(${editing.photo_url}) center/cover`, border: `2px solid ${BORDER}`,
+                      }} />
+                    ) : (
+                      <div style={{
+                        width: 64, height: 64, borderRadius: '50%', flexShrink: 0,
+                        background: '#F3F4F6', border: `2px dashed ${BORDER}`,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 11, color: '#9CA3AF',
+                      }}>No&nbsp;photo</div>
+                    )}
+                    <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <input style={field} value={editing.photo_url ?? ''} onChange={e => setEditing(p => ({ ...p, photo_url: e.target.value }))}
+                             placeholder="Paste URL or upload below" />
+                      <input
+                        ref={photoFileRef}
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        style={{ display: 'none' }}
+                        onChange={async e => {
+                          const file = e.target.files?.[0];
+                          if (!file) return;
+                          setUploadingPhoto(true);
+                          try {
+                            const fd = new FormData();
+                            fd.append('file', file);
+                            fd.append('bucket', 'cms-assets');
+                            const res = await fetch('/api/admin/media', { method: 'POST', body: fd });
+                            const j = await res.json() as { url?: string; error?: string };
+                            if (res.ok && j.url) {
+                              setEditing(p => ({ ...p, photo_url: j.url }));
+                              show('Photo uploaded');
+                            } else {
+                              show(j.error ?? 'Upload failed', 'err');
+                            }
+                          } catch { show('Upload failed (network)', 'err'); }
+                          setUploadingPhoto(false);
+                          if (photoFileRef.current) photoFileRef.current.value = '';
+                        }}
+                      />
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <button type="button" onClick={() => photoFileRef.current?.click()} disabled={uploadingPhoto}
+                          style={{ ...btn(BLUE), padding: '6px 12px', fontSize: 11 }}>
+                          {uploadingPhoto ? 'Uploading…' : '⬆ Upload photo'}
+                        </button>
+                        {editing.photo_url && (
+                          <button type="button" onClick={() => setEditing(p => ({ ...p, photo_url: '' }))}
+                            style={{ ...btn('#FEF2F2', '#DC2626'), padding: '6px 12px', fontSize: 11, border: '1px solid #FECACA' }}>
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                      <div style={{ fontSize: 10, color: '#9CA3AF' }}>PNG / JPEG / WebP, max 10 MB. Stored in cms-assets bucket.</div>
+                    </div>
+                  </div>
                 </div>
                 <div>
                   <label style={label}>Bio</label>

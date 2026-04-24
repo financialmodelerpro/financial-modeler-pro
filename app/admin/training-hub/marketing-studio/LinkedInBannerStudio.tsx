@@ -1,14 +1,19 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import type { LinkedInBannerContent } from '@/src/lib/marketing-studio/types';
+import React, { useMemo, useState } from 'react';
+import type { LinkedInBannerContent, LayoutOverrides } from '@/src/lib/marketing-studio/types';
 import { DIMENSIONS } from '@/src/lib/marketing-studio/types';
+import {
+  LINKEDIN_PROFILE_LAYOUT, LINKEDIN_POST_LAYOUT, LINKEDIN_QUOTE_LAYOUT,
+} from '@/src/lib/marketing-studio/templates/linkedin-banner';
 import {
   StudioShell, Field, BackgroundPicker,
   inputStyle, textareaStyle, selectStyle, cardStyle,
-  PrimaryButton, SecondaryButton, PreviewFrame,
-  renderToBlobUrl, downloadBlobUrl,
+  PrimaryButton, SecondaryButton,
+  useAutoRender, downloadBlobUrl,
 } from './studio-shared';
+import { InstructorPicker } from './InstructorPicker';
+import { LayoutEditor } from './LayoutEditor';
 
 const TEMPLATES: { value: LinkedInBannerContent['template']; label: string; description: string }[] = [
   { value: 'profile-1584', label: 'Profile cover (1584 × 396)',  description: 'Wide LinkedIn profile banner with trainer card on the right.' },
@@ -21,36 +26,20 @@ const DEFAULTS: LinkedInBannerContent = {
   title: 'Practitioner Financial Modeling Training',
   subtitle: 'Free certification courses built by working analysts. 3-Statement, Valuation, Real Estate.',
   cta: 'Free certification',
+  instructorIds: [],
+  layout: {},
 };
 
 export function LinkedInBannerStudio() {
   const [content, setContent] = useState<LinkedInBannerContent>(DEFAULTS);
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [generating, setGenerating] = useState(false);
-  const [error, setError] = useState('');
-
-  // Auto-generate on first mount
-  useEffect(() => {
-    void handleGenerate();
-    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const { blobUrl, generating, error } = useAutoRender({ type: 'linkedin-banner', content });
 
   function set<K extends keyof LinkedInBannerContent>(key: K, value: LinkedInBannerContent[K]) {
     setContent(prev => ({ ...prev, [key]: value }));
   }
 
-  async function handleGenerate() {
-    setGenerating(true);
-    setError('');
-    try {
-      const url = await renderToBlobUrl({ type: 'linkedin-banner', content });
-      setBlobUrl(prev => { if (prev) URL.revokeObjectURL(prev); return url; });
-    } catch (e) {
-      setError((e as Error).message);
-    }
-    setGenerating(false);
-  }
+  function setLayout(next: LayoutOverrides) { setContent(prev => ({ ...prev, layout: next })); }
+  function resetLayout() { setContent(prev => ({ ...prev, layout: {} })); }
 
   function handleDownload() {
     if (!blobUrl) return;
@@ -59,20 +48,26 @@ export function LinkedInBannerStudio() {
   }
 
   const dims = DIMENSIONS[content.template];
+  const templateLayout = useMemo(() => {
+    if (content.template === 'profile-1584') return LINKEDIN_PROFILE_LAYOUT;
+    if (content.template === 'post-1200') return LINKEDIN_POST_LAYOUT;
+    return LINKEDIN_QUOTE_LAYOUT;
+  }, [content.template]);
 
   return (
     <StudioShell
       title="LinkedIn Banners"
-      description="Three brand-locked layouts. Trainer photo, name, credentials, and FMP logo are pulled from the active brand pack and cannot be moved."
+      description="Three brand-locked layouts. Pick instructors, fill text, then drag/resize zones in the preview to fine-tune."
       controls={
         <div style={cardStyle}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Field label="Template">
-              <select value={content.template} onChange={e => set('template', e.target.value as LinkedInBannerContent['template'])} style={selectStyle}>
+              <select value={content.template} onChange={e => { set('template', e.target.value as LinkedInBannerContent['template']); setLayout({}); }} style={selectStyle}>
                 {TEMPLATES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
               <div style={{ marginTop: 6, fontSize: 11, color: '#6B7280' }}>{TEMPLATES.find(t => t.value === content.template)?.description}</div>
             </Field>
+            <InstructorPicker value={content.instructorIds ?? []} onChange={ids => set('instructorIds', ids)} />
             <Field label="Headline">
               <textarea value={content.title} onChange={e => set('title', e.target.value)} style={textareaStyle} rows={2} />
             </Field>
@@ -89,18 +84,25 @@ export function LinkedInBannerStudio() {
       preview={
         <div>
           <div style={{ marginBottom: 8, fontSize: 12, color: '#6B7280' }}>
-            Preview · {dims.width} × {dims.height}px
+            Preview · {dims.width} × {dims.height}px {generating && '· regenerating…'} {error && <span style={{ color: '#DC2626' }}>· {error}</span>}
           </div>
-          <PreviewFrame blobUrl={blobUrl} error={error} generating={generating} aspectRatio={dims.width / dims.height} />
+          <LayoutEditor
+            templateLayout={templateLayout}
+            overrides={content.layout ?? {}}
+            previewBlobUrl={blobUrl}
+            generating={generating}
+            onLayoutChange={setLayout}
+            onReset={resetLayout}
+          />
         </div>
       }
       exportButton={
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <PrimaryButton onClick={handleGenerate} disabled={generating}>
-            {generating ? 'Generating…' : '⟳ Generate Preview'}
-          </PrimaryButton>
-          <SecondaryButton onClick={handleDownload} disabled={!blobUrl || generating}>
+          <PrimaryButton onClick={handleDownload} disabled={!blobUrl || generating}>
             ⬇ Download PNG
+          </PrimaryButton>
+          <SecondaryButton onClick={resetLayout} disabled={Object.keys(content.layout ?? {}).length === 0}>
+            ↺ Reset layout to defaults
           </SecondaryButton>
         </div>
       }

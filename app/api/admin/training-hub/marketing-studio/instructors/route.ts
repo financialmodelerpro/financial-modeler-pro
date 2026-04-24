@@ -13,12 +13,11 @@ export async function GET() {
 
   const sb = getServerClient();
   const { data, error } = await sb
-    .from('live_sessions')
-    .select('id, title, scheduled_datetime, timezone, duration_minutes, instructor_id, instructor_name, instructor_title, session_type, banner_url')
-    .order('scheduled_datetime', { ascending: false })
-    .limit(60);
+    .from('instructors')
+    .select('id, name, title, photo_url, credentials, is_default, display_order, active')
+    .eq('active', true)
+    .order('display_order', { ascending: true });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-  return NextResponse.json({ sessions: data ?? [] });
+  return NextResponse.json({ instructors: data ?? [] });
 }
