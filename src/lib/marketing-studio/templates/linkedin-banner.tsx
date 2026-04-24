@@ -2,7 +2,7 @@ import type { ReactElement } from 'react';
 import type { BrandPack, LinkedInBannerContent, Instructor } from '../types';
 import type { TemplateLayout } from '../layout';
 import { mergeLayout, rectToStyle } from '../layout';
-import { lighten, darken } from '../image-utils';
+import { lighten, darken } from '../style-utils';
 
 interface Args {
   brand: BrandPack;

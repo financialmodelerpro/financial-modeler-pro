@@ -1,3 +1,13 @@
+/**
+ * Server-only image helpers - DO NOT import from a client module.
+ *
+ * `sharp` is a Node-native binding (uses node:child_process, node:crypto, fs)
+ * and webpack will fail to bundle it for the browser. The pure helpers
+ * (lighten / darken / formatSessionDateTime) live in `style-utils.ts` so
+ * templates - which are imported by both the server render route AND the
+ * client studio editors via their LAYOUT exports - can pull those without
+ * dragging sharp into the client bundle.
+ */
 import sharp from 'sharp';
 
 /**
@@ -25,57 +35,5 @@ export async function fetchAsBase64(url: string): Promise<string> {
     return `data:${mime};base64,${buf.toString('base64')}`;
   } catch {
     return '';
-  }
-}
-
-/**
- * Lighten a hex color by a 0-1 factor toward white. Used for gradient stops.
- */
-export function lighten(hex: string, factor: number): string {
-  const m = hex.match(/^#?([0-9a-f]{6})$/i);
-  if (!m) return hex;
-  const n = parseInt(m[1], 16);
-  const r = (n >> 16) & 0xff;
-  const g = (n >> 8) & 0xff;
-  const b = n & 0xff;
-  const mix = (c: number) => Math.round(c + (255 - c) * factor);
-  const out = (mix(r) << 16) | (mix(g) << 8) | mix(b);
-  return `#${out.toString(16).padStart(6, '0')}`;
-}
-
-/**
- * Darken a hex color by a 0-1 factor toward black.
- */
-export function darken(hex: string, factor: number): string {
-  const m = hex.match(/^#?([0-9a-f]{6})$/i);
-  if (!m) return hex;
-  const n = parseInt(m[1], 16);
-  const r = (n >> 16) & 0xff;
-  const g = (n >> 8) & 0xff;
-  const b = n & 0xff;
-  const mix = (c: number) => Math.round(c * (1 - factor));
-  const out = (mix(r) << 16) | (mix(g) << 8) | mix(b);
-  return `#${out.toString(16).padStart(6, '0')}`;
-}
-
-/**
- * Format an ISO date string for display in banners (en-GB long form).
- * Returns ['Tuesday, 14 March 2026', '14:30 PKT'] tuple.
- */
-export function formatSessionDateTime(iso: string, timezone: string): { date: string; time: string } {
-  try {
-    const d = new Date(iso);
-    const date = d.toLocaleDateString('en-GB', {
-      weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-      timeZone: timezone || 'Asia/Karachi',
-    });
-    const time = d.toLocaleTimeString('en-GB', {
-      hour: '2-digit', minute: '2-digit', hour12: false,
-      timeZone: timezone || 'Asia/Karachi',
-    });
-    const tzAbbr = (timezone || 'Asia/Karachi').split('/').pop()?.replace('_', ' ') ?? '';
-    return { date, time: tzAbbr ? `${time} ${tzAbbr}` : time };
-  } catch {
-    return { date: iso, time: '' };
   }
 }

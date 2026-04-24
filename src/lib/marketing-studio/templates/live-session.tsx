@@ -2,7 +2,7 @@ import type { ReactElement } from 'react';
 import type { BrandPack, LiveSessionBannerContent, Instructor } from '../types';
 import type { TemplateLayout } from '../layout';
 import { mergeLayout, rectToStyle } from '../layout';
-import { lighten, darken, formatSessionDateTime } from '../image-utils';
+import { lighten, darken, formatSessionDateTime } from '../style-utils';
 
 interface Args {
   brand: BrandPack;
