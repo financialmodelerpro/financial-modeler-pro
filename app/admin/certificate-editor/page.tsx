@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { PDFDocument } from 'pdf-lib';
 import { createClient } from '@supabase/supabase-js';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { CertificatesHubTabs } from '@/src/components/admin/CertificatesHubTabs';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -405,6 +406,10 @@ export default function CertificateEditorPage() {
       <CmsAdminNav />
 
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden' }}>
+
+        <div style={{ padding: '14px 24px 0' }}>
+          <CertificatesHubTabs />
+        </div>
 
         {/* ── Header ── */}
         <div style={{

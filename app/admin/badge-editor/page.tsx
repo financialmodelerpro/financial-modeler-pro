@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@supabase/supabase-js';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { CertificatesHubTabs } from '@/src/components/admin/CertificatesHubTabs';
 
 type Course = '3sfm' | 'bvm';
 
@@ -122,6 +123,9 @@ export default function BadgeEditorPage() {
     <div style={{ display: 'flex', minHeight: '100vh', background: '#F5F7FA', fontFamily: "'Inter',sans-serif" }}>
       <CmsAdminNav />
       <main style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+        <div style={{ padding: '14px 24px 0' }}>
+          <CertificatesHubTabs />
+        </div>
         {/* Header */}
         <div style={{ padding: '14px 24px', background: '#fff', borderBottom: '1px solid #E5E7EB', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div style={{ flex: 1 }}>

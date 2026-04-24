@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import { signOut, useSession } from 'next-auth/react';
 
 type NavItem =
-  | { type?: undefined; label: string; href: string; icon: string }
+  | { type?: undefined; label: string; href: string; icon: string; matchPaths?: string[] }
   | { type: 'divider'; label: string };
 
 const NAV_ITEMS: NavItem[] = [
@@ -38,10 +38,8 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Instructors',       href: '/admin/training-hub/instructors',       icon: '🎤' },
   { label: 'Course Manager',    href: '/admin/training',                       icon: '🎓' },
   { label: 'Students',          href: '/admin/training-hub/students',          icon: '👨‍🎓' },
-  { label: 'Certificates',      href: '/admin/training-hub/certificates',      icon: '🏆' },
-  { label: 'Cert Verification', href: '/admin/certificates',                   icon: '🏅' },
-  { label: 'Badge Editor',      href: '/admin/badge-editor',                   icon: '🎖' },
-  { label: 'Transcript Editor', href: '/admin/transcript-editor',              icon: '📄' },
+  { label: 'Certificates',      href: '/admin/training-hub/certificates',      icon: '🏆',
+    matchPaths: ['/admin/certificates', '/admin/certificate-editor', '/admin/badge-editor', '/admin/transcript-editor'] },
   { label: 'Assessments',       href: '/admin/training-hub/assessments',       icon: '📋' },
   { label: 'Communications',    href: '/admin/training-hub/communications',    icon: '✉️' },
   { label: 'Share Templates',   href: '/admin/training-hub/share-templates',   icon: '📣' },
@@ -196,7 +194,10 @@ export function CmsAdminNav({ active: activeProp, badges }: Props) {
               );
             }
 
-            const isActive = active === item.href || active?.startsWith(item.href + '/');
+            const isActive =
+              active === item.href ||
+              active?.startsWith(item.href + '/') ||
+              (item.matchPaths ?? []).some(p => active === p || active?.startsWith(p + '/'));
 
             if (collapsed) {
               return (

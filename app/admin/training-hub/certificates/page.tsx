@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { CertificatesHubTabs } from '@/src/components/admin/CertificatesHubTabs';
 
 interface AdminCert {
   certificateId: string; studentName: string; email: string; course: string;
@@ -244,6 +245,8 @@ export default function CertificatesPage() {
     <div style={{ display: 'flex', minHeight: '100vh', fontFamily: "'Inter',sans-serif", background: '#F4F7FC' }}>
       <CmsAdminNav />
       <main style={{ flex: 1, padding: 40, overflowY: 'auto' }}>
+
+        <CertificatesHubTabs />
 
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>

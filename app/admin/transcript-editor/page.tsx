@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { CertificatesHubTabs } from '@/src/components/admin/CertificatesHubTabs';
 
 const PDF_W  = 595;
 const SCALE  = 0.72;
@@ -461,6 +462,10 @@ export default function TranscriptEditorPage() {
     <div style={{ display:'flex', minHeight:'100vh', background:'#F3F4F6' }}>
       <CmsAdminNav active="/admin/transcript-editor" />
       <div style={{ flex:1, display:'flex', flexDirection:'column', overflow:'hidden' }}>
+
+        <div style={{ padding: '14px 20px 0' }}>
+          <CertificatesHubTabs />
+        </div>
 
         {/* Top bar */}
         <div style={{ background:'#fff', borderBottom:'1px solid #E5E7EB', padding:'12px 20px', display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>

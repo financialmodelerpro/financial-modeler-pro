@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import { useSession } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { CertificatesHubTabs } from '@/src/components/admin/CertificatesHubTabs';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -239,6 +240,8 @@ export default function AdminCertificatesPage() {
             {toast}
           </div>
         )}
+
+        <CertificatesHubTabs />
 
         {/* ── Template Upload Section ── */}
         <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E8F0FB', padding: '24px', marginBottom: 28 }}>
