@@ -11,6 +11,7 @@ type NavItem =
 
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard',         href: '/admin/cms',                            icon: '🏠' },
+  { label: 'Platform Analytics', href: '/admin/analytics',                     icon: '📈' },
   { type: 'divider',            label: 'Content' },
   { label: 'Page Builder',      href: '/admin/page-builder',                   icon: '🧱' },
   { label: 'Header Settings',   href: '/admin/header-settings',                icon: '🔲' },
@@ -41,7 +42,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Cert Verification', href: '/admin/certificates',                   icon: '🏅' },
   { label: 'Badge Editor',      href: '/admin/badge-editor',                   icon: '🎖' },
   { label: 'Transcript Editor', href: '/admin/transcript-editor',              icon: '📄' },
-  { label: 'Analytics',         href: '/admin/analytics',                      icon: '📊' },
   { label: 'Assessments',       href: '/admin/training-hub/assessments',       icon: '📋' },
   { label: 'Communications',    href: '/admin/training-hub/communications',    icon: '✉️' },
   { label: 'Share Templates',   href: '/admin/training-hub/share-templates',   icon: '📣' },
