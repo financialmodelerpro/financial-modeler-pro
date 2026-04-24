@@ -11,7 +11,6 @@ type NavItem =
 
 const NAV_ITEMS: NavItem[] = [
   { label: 'Dashboard',         href: '/admin/cms',                            icon: '🏠' },
-  { label: 'Platform Analytics', href: '/admin/analytics',                     icon: '📈' },
   { type: 'divider',            label: 'Content' },
   { label: 'Page Builder',      href: '/admin/page-builder',                   icon: '🧱' },
   { label: 'Header Settings',   href: '/admin/header-settings',                icon: '🔲' },
@@ -34,6 +33,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Projects',          href: '/admin/projects',                       icon: '📁' },
   { type: 'divider',            label: 'Training Hub' },
   { label: 'Overview',          href: '/admin/training-hub',                   icon: '📊' },
+  { label: 'Platform Analytics', href: '/admin/analytics',                     icon: '📈' },
   { label: 'Live Sessions',     href: '/admin/training-hub/live-sessions',     icon: '🔴' },
   { label: 'Instructors',       href: '/admin/training-hub/instructors',       icon: '🎤' },
   { label: 'Course Manager',    href: '/admin/training',                       icon: '🎓' },
