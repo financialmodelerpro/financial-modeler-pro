@@ -9,7 +9,7 @@ interface Args {
   content: LinkedInBannerContent;
   instructors: Instructor[];
   logoDataUri: string;
-  instructorPhotos: Record<string, string>; // id -> base64
+  instructorPhotos: Record<string, string>;
   backgroundDataUri: string;
 }
 
@@ -69,26 +69,7 @@ export const LINKEDIN_QUOTE_LAYOUT: TemplateLayout = {
   ],
 };
 
-/* ── Shared bits ─────────────────────────────────────────────────────── */
-
-function backgroundLayer(brand: BrandPack, backgroundDataUri: string, scrim: string): ReactElement {
-  const bg = backgroundDataUri
-    ? `url("${backgroundDataUri}")`
-    : richBrandBackground(brand.primaryColor, 'banner');
-  return (
-    <div style={{
-      position: 'absolute', inset: 0,
-      background: bg, backgroundSize: 'cover', backgroundPosition: 'center',
-      display: 'flex',
-    }}>
-      {backgroundDataUri ? (
-        <div style={{ position: 'absolute', inset: 0, background: scrim, display: 'flex' }} />
-      ) : (
-        <div style={{ position: 'absolute', inset: 0, background: richBrandHighlight('banner'), display: 'flex' }} />
-      )}
-    </div>
-  );
-}
+/* ── Trainer card variants ───────────────────────────────────────────── */
 
 function TrainerCard({ instructors, instructorPhotos, accent, layout }: {
   instructors: Instructor[];
@@ -99,7 +80,6 @@ function TrainerCard({ instructors, instructorPhotos, accent, layout }: {
   const isMulti = instructors.length > 1;
 
   if (layout === 'wide') {
-    // Big card for profile banner — single instructor centred
     const ins = instructors[0];
     const photo = instructorPhotos[ins.id];
     return (
@@ -133,7 +113,6 @@ function TrainerCard({ instructors, instructorPhotos, accent, layout }: {
   }
 
   if (layout === 'strip') {
-    // Horizontal strip across the bottom of post banner
     return (
       <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', gap: 18, padding: '0 56px', borderTop: '1px solid rgba(255,255,255,0.12)', background: 'rgba(0,0,0,0.18)' }}>
         {instructors.slice(0, 4).map((ins, i) => {
@@ -159,7 +138,6 @@ function TrainerCard({ instructors, instructorPhotos, accent, layout }: {
     );
   }
 
-  // 'badge' layout: pill row centred (used by quote template)
   return (
     <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, padding: '14px 22px', borderRadius: 999, background: 'rgba(255,255,255,0.08)', border: '1px solid rgba(255,255,255,0.12)' }}>
       {instructors.slice(0, 3).map(ins => {
@@ -181,20 +159,6 @@ function TrainerCard({ instructors, instructorPhotos, accent, layout }: {
   );
 }
 
-function LogoBox({ rect, src, align = 'left' }: {
-  rect: { x: number; y: number; w: number; h: number };
-  src: string;
-  align?: 'left' | 'center';
-}) {
-  const justify = align === 'center' ? 'center' : 'flex-start';
-  return (
-    <div style={{ ...rectToStyle(rect), alignItems: 'center', justifyContent: justify }}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={src} alt="FMP" style={{ height: '100%', width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block' }} />
-    </div>
-  );
-}
-
 /* ── Templates ───────────────────────────────────────────────────────── */
 
 export function LinkedInProfileTemplate({ brand, content, instructors, logoDataUri, instructorPhotos, backgroundDataUri }: Args): ReactElement {
@@ -203,12 +167,27 @@ export function LinkedInProfileTemplate({ brand, content, instructors, logoDataU
   const { w, h } = LINKEDIN_PROFILE_LAYOUT.canvas;
   const hidden = new Set(content.hiddenZones ?? []);
 
+  const bg = backgroundDataUri
+    ? `url("${backgroundDataUri}")`
+    : richBrandBackground(brand.primaryColor, 'banner');
+
   return (
-    <div style={{ width: w, height: h, position: 'relative', display: 'flex', overflow: 'hidden', fontFamily: 'Inter, Arial, Helvetica, sans-serif' }}>
-      {backgroundLayer(brand, backgroundDataUri, 'rgba(13,46,90,0.55)')}
+    <div style={{
+      width: w, height: h, position: 'relative', display: 'flex', overflow: 'hidden',
+      background: bg, backgroundSize: 'cover', backgroundPosition: 'center',
+      fontFamily: 'Inter, Arial, Helvetica, sans-serif',
+    }}>
+      {backgroundDataUri ? (
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(13,46,90,0.55)', display: 'flex' }} />
+      ) : (
+        <div style={{ position: 'absolute', inset: 0, background: richBrandHighlight('banner'), display: 'flex' }} />
+      )}
 
       {!hidden.has('logo') && logoDataUri && (
-        <LogoBox rect={layout.logo} src={logoDataUri} />
+        <div style={{ ...rectToStyle(layout.logo), alignItems: 'center', justifyContent: 'flex-start' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={logoDataUri} alt="FMP" style={{ height: '100%', width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block' }} />
+        </div>
       )}
 
       {!hidden.has('headline') && (
@@ -250,12 +229,27 @@ export function LinkedInPostTemplate({ brand, content, instructors, logoDataUri,
   const { w, h } = LINKEDIN_POST_LAYOUT.canvas;
   const hidden = new Set(content.hiddenZones ?? []);
 
+  const bg = backgroundDataUri
+    ? `url("${backgroundDataUri}")`
+    : richBrandBackground(brand.primaryColor, 'banner');
+
   return (
-    <div style={{ width: w, height: h, position: 'relative', display: 'flex', overflow: 'hidden', fontFamily: 'Inter, Arial, Helvetica, sans-serif' }}>
-      {backgroundLayer(brand, backgroundDataUri, 'rgba(13,46,90,0.6)')}
+    <div style={{
+      width: w, height: h, position: 'relative', display: 'flex', overflow: 'hidden',
+      background: bg, backgroundSize: 'cover', backgroundPosition: 'center',
+      fontFamily: 'Inter, Arial, Helvetica, sans-serif',
+    }}>
+      {backgroundDataUri ? (
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(13,46,90,0.6)', display: 'flex' }} />
+      ) : (
+        <div style={{ position: 'absolute', inset: 0, background: richBrandHighlight('banner'), display: 'flex' }} />
+      )}
 
       {!hidden.has('logo') && logoDataUri && (
-        <LogoBox rect={layout.logo} src={logoDataUri} />
+        <div style={{ ...rectToStyle(layout.logo), alignItems: 'center', justifyContent: 'flex-start' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={logoDataUri} alt="FMP" style={{ height: '100%', width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block' }} />
+        </div>
       )}
 
       {!hidden.has('urlStrip') && (
@@ -303,13 +297,25 @@ export function LinkedInQuoteTemplate({ brand, content, instructors, logoDataUri
   const { w, h } = LINKEDIN_QUOTE_LAYOUT.canvas;
   const hidden = new Set(content.hiddenZones ?? []);
 
+  const bg = backgroundDataUri
+    ? `url("${backgroundDataUri}")`
+    : richBrandBackground(brand.primaryColor, 'banner');
+
   return (
-    <div style={{ width: w, height: h, position: 'relative', display: 'flex', overflow: 'hidden', fontFamily: 'Inter, Arial, Helvetica, sans-serif' }}>
-      {backgroundLayer(brand, backgroundDataUri, 'rgba(13,46,90,0.7)')}
+    <div style={{
+      width: w, height: h, position: 'relative', display: 'flex', overflow: 'hidden',
+      background: bg, backgroundSize: 'cover', backgroundPosition: 'center',
+      fontFamily: 'Inter, Arial, Helvetica, sans-serif',
+    }}>
+      {backgroundDataUri ? (
+        <div style={{ position: 'absolute', inset: 0, background: 'rgba(13,46,90,0.7)', display: 'flex' }} />
+      ) : (
+        <div style={{ position: 'absolute', inset: 0, background: richBrandHighlight('banner'), display: 'flex' }} />
+      )}
 
       {!hidden.has('decorativeQuote') && (
         <div style={{ ...rectToStyle(layout.decorativeQuote), alignItems: 'flex-start', justifyContent: 'flex-start' }}>
-          <div style={{ fontSize: 220, lineHeight: 0.8, color: accent, opacity: 0.35, fontWeight: 800, display: 'flex' }}>"</div>
+          <div style={{ fontSize: 220, lineHeight: 0.8, color: accent, opacity: 0.35, fontWeight: 800, display: 'flex' }}>{'"'}</div>
         </div>
       )}
 
@@ -336,7 +342,10 @@ export function LinkedInQuoteTemplate({ brand, content, instructors, logoDataUri
       )}
 
       {!hidden.has('bottomLogo') && logoDataUri && (
-        <LogoBox rect={layout.bottomLogo} src={logoDataUri} align="center" />
+        <div style={{ ...rectToStyle(layout.bottomLogo), alignItems: 'center', justifyContent: 'center' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={logoDataUri} alt="FMP" style={{ height: '100%', width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block' }} />
+        </div>
       )}
     </div>
   );

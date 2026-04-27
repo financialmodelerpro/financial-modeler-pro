@@ -50,14 +50,17 @@ export function darken(hex: string, factor: number): string {
  * highlight div on top via `richBrandHighlight()` for the depth-of-field
  * effect (kept as separate div rather than comma-separated background to
  * avoid relying on satori's multi-layer background parser).
+ *
+ * Stops are kept to 2 colors only - satori's CSS parser can be unreliable
+ * with 3+ color stops on linear-gradient. The dark-to-mid range still gives
+ * a clear diagonal direction without losing the brand color.
  */
 export function richBrandBackground(primaryColor: string, kind: 'banner' | 'thumbnail' = 'banner'): string {
-  const dark = darken(primaryColor, 0.2);
-  const mid = darken(primaryColor, 0.05);
+  const dark = darken(primaryColor, 0.25);
   if (kind === 'thumbnail') {
-    return `linear-gradient(135deg, ${dark} 0%, ${primaryColor} 50%, ${darken(primaryColor, 0.25)} 100%)`;
+    return `linear-gradient(135deg, ${dark}, ${primaryColor})`;
   }
-  return `linear-gradient(135deg, ${dark} 0%, ${primaryColor} 45%, ${mid} 95%)`;
+  return `linear-gradient(135deg, ${dark}, ${primaryColor})`;
 }
 
 /**
@@ -65,12 +68,18 @@ export function richBrandBackground(primaryColor: string, kind: 'banner' | 'thum
  * render this on a separate absolute-positioned div over the base gradient
  * so satori never has to parse a multi-layer background. Caller controls
  * positioning + opacity by wrapping in their own div.
+ *
+ * Uses the simplest radial-gradient form satori parses reliably:
+ * `radial-gradient(<shape> at <position>, <stops>)`. Earlier explicit size
+ * syntax (`ellipse 60% 70% at 82% 0%`) was dropped because satori's parser
+ * silently fails on the size+position combo and skips rendering the layer
+ * entirely.
  */
 export function richBrandHighlight(kind: 'banner' | 'thumbnail' = 'banner'): string {
   if (kind === 'thumbnail') {
-    return 'radial-gradient(ellipse 70% 60% at 78% 18%, rgba(255,255,255,0.12) 0%, transparent 55%)';
+    return 'radial-gradient(ellipse at top right, rgba(255,255,255,0.14), transparent 60%)';
   }
-  return 'radial-gradient(ellipse 60% 70% at 82% 0%, rgba(255,255,255,0.10) 0%, transparent 58%)';
+  return 'radial-gradient(ellipse at top right, rgba(255,255,255,0.12), transparent 60%)';
 }
 
 /**
