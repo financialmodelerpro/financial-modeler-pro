@@ -67,12 +67,10 @@ app/admin/
 ├── media/page.tsx
 ├── modeling-access/page.tsx       # Modeling Hub access whitelist admin (migration 136): add-email form + per-row Revoke + toggle-state summary. Sidebar nav entry 🔑 Access Whitelist under Modeling Hub.
 ├── modules/page.tsx                # Modeling Hub modules; two LaunchStatusCards (Sign In + Register, migration 136) + banner linking to /admin/modeling-access at the top.
-├── overrides/page.tsx
+# NOTE: app/admin/overrides + app/admin/permissions + app/admin/plans DELETED 2026-04-27 (commit d8405e5) — Permissions system removed in Phase 5 of admin cleanup. REFM canAccess() stubs to false until paid tiers go live. Migration 144 drops the underlying tables.
 ├── page-builder/page.tsx         # CMS page list
 ├── page-builder/[slug]/page.tsx  # Section editor with drag-and-drop
 ├── pages/page.tsx
-├── permissions/page.tsx
-├── plans/page.tsx
 ├── pricing/page.tsx
 ├── projects/page.tsx
 ├── settings/page.tsx
@@ -88,8 +86,8 @@ app/admin/
 ├── transcript-editor/page.tsx     # 5-line redirect -> /admin/certificate-designer?tab=transcript (consolidated 2026-04-24)
 ├── newsletter/page.tsx           # 5-line redirect -> /admin/communications-hub?tab=newsletter (consolidated 2026-04-27)
 # NOTE: app/admin/marketing-studio/* DELETED 2026-04-24 — Phase 1.5 canvas editor (page.tsx + brand-kit/page.tsx) replaced by template-driven Training Hub edition at /admin/training-hub/marketing-studio. Old URL is now a 404 (Modeling Hub will get its own at a different path later).
-├── users/page.tsx
-└── whitelabel/page.tsx
+└── users/page.tsx
+# NOTE: app/admin/whitelabel/page.tsx DELETED 2026-04-27 (commit a000fbd) — White-Label feature removed. REFM Topbar reads platform name + logo directly from the branding store (default values).
 ```
 
 ### Public Training Sessions
@@ -250,7 +248,7 @@ app/api/admin/
 ├── modeling-register-coming-soon/ # GET/PATCH: Modeling Hub register-side Coming Soon toggle (migration 136)
 ├── modeling-access/             # GET (list entries), POST { email, note } add - modeling_access_whitelist CRUD, admin-gated
 ├── modeling-access/[id]/        # DELETE: revoke whitelist entry by id
-├── pricing/features/ + modules/ + plans/
+├── pricing/features/ + plans/      # /api/admin/pricing/modules/ DELETED 2026-04-27 (commit 4a5abe3) — Module Access tab removed.
 ├── projects/ testimonials/ training/ + [courseId]/lessons/
 ├── training-actions/ + [id]/
 ├── training-hub/ + analytics/ + assessments/ + certificates/
@@ -289,7 +287,7 @@ app/api/admin/
 ├── generate-images/             # POST: satori+sharp generate mission/vision PNGs → Supabase
 ├── page-sections/               # CRUD for page_sections + cms_pages
 ├── reset-attempts/              # POST: reset via Apps Script
-├── training-settings/ users/ whitelabel/
+├── training-settings/ users/
 ├── site-settings/               # GET/PATCH/POST: global site settings + file upload
 ├── email-templates/             # GET: all templates + branding
 ├── email-templates/branding/    # GET/PATCH: universal email branding
@@ -335,11 +333,12 @@ app/api/
 ```
 src/components/
 ├── admin/
-│   ├── AnnouncementsManager.tsx  AuditLogViewer.tsx  CmsAdminNav.tsx
-│   ├── PermissionsManager.tsx  ProjectsBrowser.tsx
+│   ├── AuditLogViewer.tsx  CmsAdminNav.tsx  ProjectsBrowser.tsx
 │   ├── RichTextEditor.tsx       # Tiptap full toolbar: headings, alignment, images, links (used ONLY by rich_text section)
 │   ├── RichTextarea.tsx         # Tiptap editor + selection-based floating toolbar (B, I, U, S, font size, color presets, lists, link, clear). Enter → new <p>. Used by 17+ CMS text fields. Phase 2A rewrite 2026-04-18.
 │   └── SystemHealth.tsx
+# NOTE: AnnouncementsManager.tsx DELETED 2026-04-27 (commit fd0aabf) — orphan stub.
+# NOTE: PermissionsManager.tsx DELETED 2026-04-27 (commit d8405e5) — Permissions system removal.
 ├── cms/
 │   ├── CmsField.tsx             # UNIVERSAL CMS TEXT RENDERER (Phase 1). ALL CMS text fields must render via <CmsField>. Handles visibility/align/width/HTML detection/paragraph splitting. See docstring for enforcement rules.
 │   ├── SectionRenderer.tsx      # Maps section_type -> component
@@ -368,9 +367,10 @@ src/components/
 │   ├── modals/ (Export, Project, Rbac, Version)
 │   └── modules/ (Module1Area, Module1Costs, Module1Financing, Module1Timeline)
 ├── shared/
-│   ├── BrandingSettingsPanel.tsx  BrandingThemeApplier.tsx
+│   ├── BrandingThemeApplier.tsx     # Hydrates branding store + injects --color-primary / --color-secondary into :root
 │   ├── PhoneInput.tsx  SessionProviderWrapper.tsx  UpgradePrompt.tsx
 │   └── ShareExperienceModal.tsx     # 3-tab testimonial modal for both hubs
+# NOTE: BrandingSettingsPanel.tsx DELETED 2026-04-27 (commit ee959ad) — orphan, no importer in tree.
 ├── newsletter/
 │   └── NewsletterSubscribeForm.tsx   # Hub checkboxes + email input, shown in SharedFooter
 # NOTE: src/components/marketing/* DELETED 2026-04-24 — Phase 1.5 canvas component tree (QuickFillPanel, CaptionsPanel, DesignsSidebar, canvas/CanvasEditor, canvas/ElementRenderer, canvas/PropertiesPanel) all removed in the Marketing Studio rebuild. New tab components are colocated under app/admin/training-hub/marketing-studio/ instead of in a shared components folder.
@@ -466,14 +466,17 @@ src/lib/
 ## `src/hooks/`
 ```
 useInactivityLogout.ts   useProject.ts   useRequireAdmin.ts
-useRequireAuth.ts        useSubscription.ts   useWhiteLabel.ts
+useRequireAuth.ts
 ```
+# NOTE: useSubscription.ts DELETED 2026-04-27 (commit d8405e5) — Permissions removal.
+# NOTE: useWhiteLabel.ts DELETED 2026-04-27 (commit a000fbd) — White-Label removal. Topbar reads platform name + logo directly from the branding store.
 
 ## `src/types/`
 ```
 branding.types.ts  deck.types.ts  next-auth.d.ts  project.types.ts
-revenue.types.ts  scenario.types.ts  settings.types.ts  subscription.types.ts
+revenue.types.ts  scenario.types.ts  settings.types.ts
 ```
+# NOTE: subscription.types.ts DELETED 2026-04-27 (commit d8405e5) — Permissions removal. Plan-name unions inlined where still needed (ExportModal, UpgradePrompt).
 
 ## `src/config/`
 ```
