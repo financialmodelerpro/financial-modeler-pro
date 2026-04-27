@@ -75,6 +75,26 @@ const nextConfig: NextConfig = {
   },
 
   async redirects() {
+    // Vercel's project domain config sets `www.financialmodelerpro.com` as the
+    // primary host, so apex `financialmodelerpro.com` auto-redirects to www at
+    // the edge BEFORE next.config.ts runs. That means a `has: [{ type: 'host',
+    // value: 'financialmodelerpro.com' }]` rule (apex literal) will never fire
+    // on the canonical host. Use a regex that matches both forms so the rule
+    // catches the request after Vercel's apex→www hop and forwards to the
+    // subdomain in a single additional 308.
+    //
+    // Google Search Console flagged /training, /training-sessions and /contact
+    // as "Redirect error" because:
+    //   - /training: apex→www→learn (multi-hop, all 307 temporary)
+    //   - /training-sessions: apex→www but rule never fired on www, so the
+    //     page rendered on www with a canonical pointing at learn — a
+    //     canonical-vs-served-content conflict
+    //   - /contact: apex→www but the canonical tag still points at apex, so
+    //     Google reads a canonical that itself redirects (not fixable in
+    //     next.config.ts; needs `NEXT_PUBLIC_MAIN_URL` to be updated to the
+    //     www form, or Vercel's primary domain to be flipped to apex).
+    const MAIN_HOST_RE = '(www\\.)?financialmodelerpro\\.com';
+
     const learnToMain = MAIN_PATHS.flatMap(p => [
       // exact path
       {
@@ -139,17 +159,19 @@ const nextConfig: NextConfig = {
       ...appToMain,
 
       // Main domain → learn. for /training-sessions/*
+      // permanent: true (308) so Google understands the canonical host is
+      // learn.* and not main. Host regex matches apex AND www.
       {
         source: '/training-sessions',
         destination: `${LEARN_URL}/training-sessions`,
-        permanent: false,
-        has: [{ type: 'host' as const, value: 'financialmodelerpro.com' }],
+        permanent: true,
+        has: [{ type: 'host' as const, value: MAIN_HOST_RE }],
       },
       {
         source: '/training-sessions/:id',
         destination: `${LEARN_URL}/training-sessions/:id`,
-        permanent: false,
-        has: [{ type: 'host' as const, value: 'financialmodelerpro.com' }],
+        permanent: true,
+        has: [{ type: 'host' as const, value: MAIN_HOST_RE }],
       },
 
       // Main domain → learn. for /verify/*. Certificates scanned from a PDF
@@ -159,30 +181,34 @@ const nextConfig: NextConfig = {
       {
         source: '/verify/:id',
         destination: `${LEARN_URL}/verify/:id`,
-        permanent: false,
-        has: [{ type: 'host' as const, value: 'financialmodelerpro.com' }],
+        permanent: true,
+        has: [{ type: 'host' as const, value: MAIN_HOST_RE }],
       },
 
       // Main domain → learn. for /training/*
+      // 308 + explicit main-host match (apex|www) so the rule fires after
+      // Vercel's apex→www hop. The previous `missing: [{ host: 'learn' }]`
+      // form fired on www correctly but used 307, which Google treats as a
+      // temporary move and may not pass full ranking signals.
       {
         source: '/training/:path*',
         destination: `${LEARN_URL}/training/:path*`,
-        permanent: false,
-        missing: [{ type: 'host' as const, value: 'learn.financialmodelerpro.com' }],
+        permanent: true,
+        has: [{ type: 'host' as const, value: MAIN_HOST_RE }],
       },
 
       // Main domain → app. for /refm/* and /modeling/*
       {
         source: '/refm/:path*',
         destination: `${APP_URL}/refm/:path*`,
-        permanent: false,
-        missing: [{ type: 'host' as const, value: 'app.financialmodelerpro.com' }],
+        permanent: true,
+        has: [{ type: 'host' as const, value: MAIN_HOST_RE }],
       },
       {
         source: '/modeling/:path*',
         destination: `${APP_URL}/modeling/:path*`,
-        permanent: false,
-        missing: [{ type: 'host' as const, value: 'app.financialmodelerpro.com' }],
+        permanent: true,
+        has: [{ type: 'host' as const, value: MAIN_HOST_RE }],
       },
     ];
   },
