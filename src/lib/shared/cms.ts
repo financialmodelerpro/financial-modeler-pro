@@ -404,17 +404,3 @@ export async function getAllCmsPageSlugs(): Promise<string[]> {
   }
 }
 
-/** Fetch public plan names for pricing display */
-export async function getPublicPlanNames(): Promise<string[]> {
-  try {
-    const sb = getServerClient();
-    const { data } = await sb
-      .from('pricing_plans')
-      .select('name')
-      .eq('is_active', true)
-      .order('display_order');
-    return (data ?? []).map((r: { name: string }) => r.name);
-  } catch {
-    return [];
-  }
-}

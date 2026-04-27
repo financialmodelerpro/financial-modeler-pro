@@ -19,7 +19,6 @@ import {
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { SiteFollowPopup } from '@/src/components/shared/SiteFollowPopup';
 import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
-import { getServerClient } from '@/src/lib/shared/supabase';
 import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/ArticleCard';
 import { InlineEdit } from '@/src/components/landing/InlineEdit';
 import { AdminEditBar } from '@/src/components/landing/AdminEditBar';
@@ -50,25 +49,12 @@ function ie(props: IE, fieldKey: string, value: string, tag: Parameters<typeof I
   return <InlineEdit tag={tag} section={props.section} fieldKey={fieldKey} value={value} isAdmin={props.isAdmin} darkBg={props.darkBg} />;
 }
 
-async function getPublicPlanNames(): Promise<string[]> {
-  try {
-    const sb = getServerClient();
-    const { data } = await sb
-      .from('pricing_plans')
-      .select('name')
-      .eq('is_public', true).eq('is_active', true).eq('is_custom_client', false)
-      .order('display_order');
-    return (data ?? []).map((p: { name: string }) => p.name);
-  } catch { return []; }
-}
-
 export default async function LandingPage() {
-  const [content, articles, testimonials, session, sitePages, planNames, homePageSections] = await Promise.all([
+  const [content, articles, testimonials, session, sitePages, homePageSections] = await Promise.all([
     getCmsContent(),
     getPublishedArticles(3),
     getTestimonialsForPage('landing'),
     getServerSession(), getSitePages(),
-    getPublicPlanNames(),
     getAllPageSections('home'),
   ]);
 
@@ -776,13 +762,6 @@ export default async function LandingPage() {
             style={{ fontSize:'clamp(24px,3vw,36px)', fontWeight:800, color:'#1B3A6B', marginBottom:10 }} />
           <InlineEdit tag="p" section="pricing" fieldKey="subheading" value={pricingSub} isAdmin={isAdmin}
             style={{ fontSize:15, color:'#6B7280', marginBottom:36 }} />
-          {planNames.length > 0 && (
-            <div style={{ display:'flex', justifyContent:'center', gap:12, flexWrap:'wrap', marginBottom:36 }}>
-              {planNames.map(name=>(
-                <div key={name} style={{ padding:'12px 24px', background:'#fff', border:'1px solid #E5E7EB', borderRadius:10, fontSize:14, fontWeight:600, color:'#374151', boxShadow:'0 1px 4px rgba(0,0,0,0.04)' }}>{name}</div>
-              ))}
-            </div>
-          )}
           <Link href="/pricing" style={{ display:'inline-flex', alignItems:'center', gap:8, background:'#1B4F8A', color:'#fff', fontWeight:700, fontSize:15, padding:'14px 36px', borderRadius:8, textDecoration:'none', boxShadow:'0 4px 20px rgba(27,79,138,0.25)' }}>
             View Full Pricing →
           </Link>

@@ -121,7 +121,9 @@
       "Bash(xargs cat *)",
       "Bash(rm -v app/admin/announcements/page.tsx app/api/admin/announcements/route.ts src/components/admin/AnnouncementsManager.tsx)",
       "Bash(rmdir app/admin/announcements app/api/admin/announcements)",
-      "Bash(ls -la app/admin/announcements)"
+      "Bash(ls -la app/admin/announcements)",
+      "Bash(rm -f app/api/admin/pricing/plans/route.ts)",
+      "Bash(rmdir app/api/admin/pricing/plans)"
     ]
   }
 }
