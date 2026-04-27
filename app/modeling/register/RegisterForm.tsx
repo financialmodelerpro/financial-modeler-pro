@@ -53,6 +53,7 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
   const [country,    setCountry]    = useState('');
   const [password,   setPassword]   = useState('');
   const [confirm,    setConfirm]    = useState('');
+  const [newsletterOptIn, setNewsletterOptIn] = useState(true);
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState('');
   const [success,    setSuccess]    = useState('');
@@ -89,6 +90,15 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
       captchaRef.current?.resetCaptcha();
       setCaptchaToken('');
       return;
+    }
+
+    if (newsletterOptIn) {
+      // Fire-and-forget; never block the success path. Errors silenced.
+      void fetch('/api/newsletter/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: email.trim().toLowerCase(), hubs: ['modeling'] }),
+      }).catch(() => undefined);
     }
 
     setSuccess(
@@ -243,6 +253,24 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
                     </button>
                   </div>
                 </div>
+
+                {/* Newsletter opt-in - checked by default. GDPR-friendly:
+                    user can uncheck to skip subscription. */}
+                <label style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 10,
+                  fontSize: 12.5, color: '#374151', lineHeight: 1.5,
+                  cursor: 'pointer', userSelect: 'none',
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={newsletterOptIn}
+                    onChange={e => setNewsletterOptIn(e.target.checked)}
+                    style={{ marginTop: 2, accentColor: BLUE, cursor: 'pointer' }}
+                  />
+                  <span>
+                    Send me the <strong>Modeling Hub newsletter</strong> — new modules, platform updates, and product releases. Unsubscribe anytime.
+                  </span>
+                </label>
 
                 {/* hCaptcha - C7: overflow-x:auto fallback for when the
                     ~300px widget exceeds a narrow form on 320px phones. */}

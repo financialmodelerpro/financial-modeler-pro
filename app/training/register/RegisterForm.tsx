@@ -51,6 +51,7 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
   const [country,  setCountry]  = useState('');
   const [password, setPassword] = useState('');
   const [confirm,  setConfirm]  = useState('');
+  const [newsletterOptIn, setNewsletterOptIn] = useState(true);
 
   // hCaptcha
   const [captchaToken, setCaptchaToken] = useState('');
@@ -84,6 +85,15 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
       });
       const json = await res.json() as { success: boolean; duplicate?: boolean; error?: string };
       if (json.success) {
+        if (newsletterOptIn) {
+          // Fire-and-forget; never block the success path on a newsletter
+          // subscribe request. Errors are silently dropped.
+          void fetch('/api/newsletter/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: email.trim().toLowerCase(), hubs: ['training'] }),
+          }).catch(() => undefined);
+        }
         setStep('done');
         setStatus('idle');
       } else if (json.duplicate) {
@@ -273,6 +283,24 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
                   onFocus={e => { e.currentTarget.style.borderColor = GREEN; }}
                   onBlur={e => { e.currentTarget.style.borderColor = '#D1D5DB'; }} />
               </div>
+
+              {/* Newsletter opt-in - checked by default. GDPR-friendly:
+                  user can uncheck to skip subscription. */}
+              <label style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10,
+                fontSize: 12.5, color: '#374151', lineHeight: 1.5,
+                cursor: 'pointer', userSelect: 'none',
+              }}>
+                <input
+                  type="checkbox"
+                  checked={newsletterOptIn}
+                  onChange={e => setNewsletterOptIn(e.target.checked)}
+                  style={{ marginTop: 2, accentColor: GREEN, cursor: 'pointer' }}
+                />
+                <span>
+                  Send me the <strong>Training Hub newsletter</strong> — new sessions, recordings, articles, and certifications. Unsubscribe anytime.
+                </span>
+              </label>
 
               {/* hCaptcha - C7: overflow-x:auto fallback so the ~300px
                   widget stays reachable on 320px phones. */}

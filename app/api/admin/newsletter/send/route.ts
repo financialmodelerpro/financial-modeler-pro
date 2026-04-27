@@ -2,27 +2,32 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/lib/shared/auth';
 import { getServerClient } from '@/src/lib/shared/supabase';
-import { Resend } from 'resend';
-import { newsletterTemplate } from '@/src/lib/email/templates/newsletter';
+import { sendCampaign } from '@/src/lib/newsletter/sender';
+import { getTemplate, renderTemplate, type TemplateVars } from '@/src/lib/newsletter/templates';
+import type { SegmentKey } from '@/src/lib/newsletter/segments';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-const FROM = process.env.EMAIL_FROM_NOREPLY ?? 'noreply@financialmodelerpro.com';
-
-interface Sub { email: string; hub: string; unsubscribe_token: string }
-
-/** Deduplicate subscribers by email - one email per person, prefer matching hub token. */
-function deduplicateByEmail(subscribers: Sub[], preferHub?: string): Sub[] {
-  const map = new Map<string, Sub>();
-  for (const sub of subscribers) {
-    const existing = map.get(sub.email);
-    if (!existing) { map.set(sub.email, sub); continue; }
-    // Prefer the row matching the target hub for the unsubscribe token
-    if (preferHub && sub.hub === preferHub && existing.hub !== preferHub) {
-      map.set(sub.email, sub);
-    }
-  }
-  return Array.from(map.values());
+interface SendBody {
+  /** Direct subject + body (manual compose path). Mutually exclusive with templateKey. */
+  subject?: string;
+  body?: string;
+  /** Use a stored template; vars interpolated server-side. */
+  templateKey?: string;
+  templateVars?: TemplateVars;
+  /** Recipient targeting. */
+  targetHub?: 'training' | 'modeling' | 'all';
+  segment?: SegmentKey;
+  /**
+   * If set to a future ISO datetime, the campaign is created with status='scheduled'
+   * and the cron route will pick it up. Otherwise the send fires immediately
+   * (fire-and-forget).
+   */
+  scheduledAt?: string | null;
 }
+
+const VALID_SEGMENTS: SegmentKey[] = [
+  'all_active', 'active_30_days', 'passed_3sfm', 'passed_bvm',
+  'never_started', 'has_certificate', 'no_certificate',
+];
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -31,84 +36,70 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  try {
-    const { subject, body, targetHub } = await req.json() as { subject: string; body: string; targetHub: string };
-    if (!subject?.trim() || !body?.trim() || !['training', 'modeling', 'all'].includes(targetHub)) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
-    }
+  let payload: SendBody;
+  try { payload = await req.json() as SendBody; }
+  catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
-    const sb = getServerClient();
-
-    const { data: campaign, error: campErr } = await sb.from('newsletter_campaigns').insert({
-      subject: subject.trim(),
-      body,
-      target_hub: targetHub,
-      status: 'sending',
-      created_by: adminEmail?.email ?? 'admin',
-    }).select('id').single();
-
-    if (campErr || !campaign) {
-      return NextResponse.json({ error: 'Failed to create campaign' }, { status: 500 });
-    }
-
-    const campaignId = campaign.id;
-
-    // Fire-and-forget sending
-    (async () => {
-      let sentCount = 0;
-      let failedCount = 0;
-      try {
-        let query = sb.from('newsletter_subscribers').select('email, hub, unsubscribe_token').eq('status', 'active');
-        if (targetHub !== 'all') query = query.eq('hub', targetHub);
-        const { data: rawSubs } = await query;
-
-        // Deduplicate when sending to "all" - one email per person
-        const subscribers = targetHub === 'all'
-          ? deduplicateByEmail(rawSubs ?? [])
-          : (rawSubs ?? []);
-
-        for (const sub of subscribers) {
-          try {
-            const hubLabel = targetHub === 'all' ? 'all' : sub.hub;
-            const { html, text } = await newsletterTemplate({
-              body,
-              hub: hubLabel,
-              unsubscribeToken: sub.unsubscribe_token,
-            });
-
-            await resend.emails.send({
-              from: FROM,
-              to: sub.email,
-              subject: subject.trim(),
-              html,
-              text,
-            });
-            sentCount++;
-          } catch (err) {
-            console.error(`[newsletter] Failed to send to ${sub.email}:`, err);
-            failedCount++;
-          }
-        }
-
-        await sb.from('newsletter_campaigns').update({
-          status: 'sent',
-          sent_count: sentCount,
-          failed_count: failedCount,
-          sent_at: new Date().toISOString(),
-        }).eq('id', campaignId);
-      } catch (err) {
-        console.error('[newsletter] Campaign send failed:', err);
-        await sb.from('newsletter_campaigns').update({
-          status: failedCount > 0 || sentCount > 0 ? 'sent' : 'failed',
-          sent_count: sentCount,
-          failed_count: failedCount,
-          sent_at: new Date().toISOString(),
-        }).eq('id', campaignId);
-      }
-    })();
-
-    return NextResponse.json({ ok: true, campaignId });
-  } catch {
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+  const targetHub = payload.targetHub ?? 'all';
+  if (!['training', 'modeling', 'all'].includes(targetHub)) {
+    return NextResponse.json({ error: 'Invalid targetHub' }, { status: 400 });
   }
+
+  const segment = payload.segment ?? 'all_active';
+  if (!VALID_SEGMENTS.includes(segment)) {
+    return NextResponse.json({ error: 'Invalid segment' }, { status: 400 });
+  }
+
+  // Resolve subject + body from either direct fields or template lookup
+  let subject = payload.subject?.trim() ?? '';
+  let body = payload.body ?? '';
+
+  if (payload.templateKey) {
+    const tpl = await getTemplate(payload.templateKey);
+    if (!tpl) return NextResponse.json({ error: `Template not found: ${payload.templateKey}` }, { status: 404 });
+    const rendered = renderTemplate(tpl, payload.templateVars ?? {});
+    subject = rendered.subject;
+    body = rendered.body;
+  }
+
+  if (!subject || !body) {
+    return NextResponse.json({ error: 'subject and body (or templateKey) required' }, { status: 400 });
+  }
+
+  // Schedule path: just store the campaign as 'scheduled', cron picks it up.
+  const sb = getServerClient();
+  const scheduledAt = payload.scheduledAt && new Date(payload.scheduledAt).getTime() > Date.now()
+    ? new Date(payload.scheduledAt).toISOString()
+    : null;
+
+  const { data: campaign, error: insertErr } = await sb.from('newsletter_campaigns').insert({
+    subject,
+    body,
+    target_hub: targetHub,
+    segment,
+    status:       scheduledAt ? 'scheduled' : 'sending',
+    scheduled_at: scheduledAt,
+    created_by:   adminEmail?.email ?? 'admin',
+  }).select('id').single();
+
+  if (insertErr || !campaign) {
+    return NextResponse.json({ error: 'Failed to create campaign' }, { status: 500 });
+  }
+
+  if (scheduledAt) {
+    return NextResponse.json({ ok: true, campaignId: campaign.id, scheduled: true, scheduledAt });
+  }
+
+  // Fire and forget the actual send
+  void sendCampaign({
+    campaignId: campaign.id,
+    subject,
+    body,
+    targetHub,
+    segment,
+  }).catch(err => {
+    console.error('[newsletter-send] fire-and-forget send failed:', err);
+  });
+
+  return NextResponse.json({ ok: true, campaignId: campaign.id });
 }
