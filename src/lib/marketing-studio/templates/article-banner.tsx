@@ -61,9 +61,9 @@ export function ArticleBannerTemplate({ brand, content, instructors, logoDataUri
       <div style={{ position: 'absolute', top: 0, left: 0, height: 6, width: '100%', background: accent, display: 'flex' }} />
 
       {!hidden.has('logo') && logoDataUri && (
-        <div style={{ ...rectToStyle(layout.logo), alignItems: 'center', justifyContent: 'flex-start' }}>
+        <div style={{ ...rectToStyle(layout.logo) }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={logoDataUri} alt="FMP" style={{ height: '100%', width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block' }} />
+          <img src={logoDataUri} alt="FMP" width={layout.logo.w} height={layout.logo.h} style={{ width: layout.logo.w, height: layout.logo.h, objectFit: 'contain', display: 'block' }} />
         </div>
       )}
 

@@ -184,9 +184,9 @@ export function LinkedInProfileTemplate({ brand, content, instructors, logoDataU
       )}
 
       {!hidden.has('logo') && logoDataUri && (
-        <div style={{ ...rectToStyle(layout.logo), alignItems: 'center', justifyContent: 'flex-start' }}>
+        <div style={{ ...rectToStyle(layout.logo) }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={logoDataUri} alt="FMP" style={{ height: '100%', width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block' }} />
+          <img src={logoDataUri} alt="FMP" width={layout.logo.w} height={layout.logo.h} style={{ width: layout.logo.w, height: layout.logo.h, objectFit: 'contain', display: 'block' }} />
         </div>
       )}
 
@@ -246,9 +246,9 @@ export function LinkedInPostTemplate({ brand, content, instructors, logoDataUri,
       )}
 
       {!hidden.has('logo') && logoDataUri && (
-        <div style={{ ...rectToStyle(layout.logo), alignItems: 'center', justifyContent: 'flex-start' }}>
+        <div style={{ ...rectToStyle(layout.logo) }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={logoDataUri} alt="FMP" style={{ height: '100%', width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block' }} />
+          <img src={logoDataUri} alt="FMP" width={layout.logo.w} height={layout.logo.h} style={{ width: layout.logo.w, height: layout.logo.h, objectFit: 'contain', display: 'block' }} />
         </div>
       )}
 
@@ -342,9 +342,9 @@ export function LinkedInQuoteTemplate({ brand, content, instructors, logoDataUri
       )}
 
       {!hidden.has('bottomLogo') && logoDataUri && (
-        <div style={{ ...rectToStyle(layout.bottomLogo), alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ ...rectToStyle(layout.bottomLogo) }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={logoDataUri} alt="FMP" style={{ height: '100%', width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block' }} />
+          <img src={logoDataUri} alt="FMP" width={layout.bottomLogo.w} height={layout.bottomLogo.h} style={{ width: layout.bottomLogo.w, height: layout.bottomLogo.h, objectFit: 'contain', display: 'block' }} />
         </div>
       )}
     </div>

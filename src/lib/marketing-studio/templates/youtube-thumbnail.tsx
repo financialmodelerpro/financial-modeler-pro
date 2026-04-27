@@ -60,9 +60,9 @@ export function YouTubeThumbnailTemplate({ brand, content, instructors, logoData
       <div style={{ position: 'absolute', bottom: -180, left: -180, width: 540, height: 540, borderRadius: '50%', background: 'rgba(255,255,255,0.05)', display: 'flex' }} />
 
       {!hidden.has('logo') && logoDataUri && (
-        <div style={{ ...rectToStyle(layout.logo), alignItems: 'center', justifyContent: 'flex-start' }}>
+        <div style={{ ...rectToStyle(layout.logo) }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={logoDataUri} alt="FMP" style={{ height: '100%', width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block' }} />
+          <img src={logoDataUri} alt="FMP" width={layout.logo.w} height={layout.logo.h} style={{ width: layout.logo.w, height: layout.logo.h, objectFit: 'contain', display: 'block' }} />
         </div>
       )}
 
