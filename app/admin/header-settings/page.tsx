@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { MediaPickerButton } from '@/src/components/admin/MediaPicker';
 import { RichTextEditor } from '@/src/components/admin/RichTextEditor';
+import type { BrandingConfig } from '@/src/types/branding.types';
 
 const SECTION = 'header_settings';
 
@@ -17,24 +18,33 @@ const KEYS = [
 
 type Vals = Record<string, string>;
 
+const DEFAULT_PRIMARY   = '#1B4F8A';
+const DEFAULT_SECONDARY = '#2EAA4A';
+
 export default function HeaderSettingsPage() {
   const [vals, setVals] = useState<Vals>({});
+  const [primaryColor, setPrimaryColor]     = useState(DEFAULT_PRIMARY);
+  const [secondaryColor, setSecondaryColor] = useState(DEFAULT_SECONDARY);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
 
   useEffect(() => {
-    fetch('/api/admin/content')
-      .then(r => r.json())
-      .then(j => {
-        const map: Vals = {};
-        for (const row of (j.rows ?? []) as { section: string; key: string; value: string }[]) {
-          if (row.section === SECTION) map[row.key] = row.value ?? '';
-        }
-        setVals(map);
-        setLoading(false);
-      })
-      .catch(() => setLoading(false));
+    Promise.all([
+      fetch('/api/admin/content').then(r => r.json()).catch(() => ({ rows: [] })),
+      fetch('/api/branding?scope=global').then(r => r.json()).catch(() => ({ config: null })),
+    ]).then(([content, branding]: [{ rows?: { section: string; key: string; value: string }[] }, { config: BrandingConfig | null }]) => {
+      const map: Vals = {};
+      for (const row of (content.rows ?? [])) {
+        if (row.section === SECTION) map[row.key] = row.value ?? '';
+      }
+      setVals(map);
+      if (branding.config) {
+        if (branding.config.primaryColor)   setPrimaryColor(branding.config.primaryColor);
+        if (branding.config.secondaryColor) setSecondaryColor(branding.config.secondaryColor);
+      }
+      setLoading(false);
+    });
   }, []);
 
   function set(key: string, value: string) {
@@ -45,16 +55,34 @@ export default function HeaderSettingsPage() {
     return vals[key] === 'true';
   }
 
+  function handleHex(setter: (hex: string) => void) {
+    return (e: React.ChangeEvent<HTMLInputElement>) => {
+      const raw = e.target.value;
+      const clean = raw.startsWith('#') ? raw : '#' + raw;
+      if (/^#[0-9A-Fa-f]{0,6}$/.test(clean)) setter(clean);
+    };
+  }
+
   async function saveAll() {
     setSaving(true);
     try {
-      await Promise.all(KEYS.map(k =>
-        fetch('/api/admin/content', {
+      await Promise.all([
+        ...KEYS.map(k =>
+          fetch('/api/admin/content', {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ section: SECTION, key: k, value: vals[k] ?? '' }),
+          })
+        ),
+        fetch('/api/branding', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ section: SECTION, key: k, value: vals[k] ?? '' }),
-        })
-      ));
+          body: JSON.stringify({
+            scope: 'global',
+            config: { primaryColor, secondaryColor },
+          }),
+        }),
+      ]);
       setToast('Saved');
       setTimeout(() => setToast(''), 2500);
     } catch {
@@ -84,13 +112,65 @@ export default function HeaderSettingsPage() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
             <div>
               <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 4 }}>Header Settings</h1>
-              <p style={{ fontSize: 13, color: '#6B7280' }}>Configure logo, branding text, favicon, and header layout across all pages.</p>
+              <p style={{ fontSize: 13, color: '#6B7280' }}>Configure brand colors, logo, branding text, favicon, and header layout across all pages.</p>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               {toast && <span style={{ fontSize: 12, fontWeight: 600, color: '#2EAA4A' }}>{toast}</span>}
               <button onClick={saveAll} disabled={saving} style={{ padding: '9px 24px', borderRadius: 8, border: 'none', background: '#1B4F8A', color: '#fff', fontSize: 13, fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.6 : 1 }}>
                 {saving ? 'Saving...' : 'Save All'}
               </button>
+            </div>
+          </div>
+
+          {/* ── Brand Colors (drives --color-primary / --color-secondary CSS tokens) ── */}
+          <div style={{ background: '#fff', borderRadius: 12, border: '1px solid #E5E7EB', padding: 24, marginBottom: 24 }}>
+            <h2 style={{ fontSize: 14, fontWeight: 800, color: '#1B3A6B', marginBottom: 6 }}>Brand Colors</h2>
+            <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
+              Drives <code style={{ fontFamily: 'monospace', fontSize: 11 }}>--color-primary</code> and <code style={{ fontFamily: 'monospace', fontSize: 11 }}>--color-secondary</code> theme tokens across the platform.
+            </p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+              <div>
+                <label style={LS}>Primary Color</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <input
+                    type="color"
+                    value={/^#[0-9A-Fa-f]{6}$/.test(primaryColor) ? primaryColor : '#000000'}
+                    onChange={e => setPrimaryColor(e.target.value)}
+                    style={{ width: 40, height: 40, border: 'none', borderRadius: 6, cursor: 'pointer', padding: 0, flexShrink: 0 }}
+                  />
+                  <input
+                    type="text"
+                    value={primaryColor}
+                    onChange={handleHex(setPrimaryColor)}
+                    maxLength={7}
+                    placeholder="#1B4F8A"
+                    style={{ ...IS, width: 130, background: '#FFFBEB', letterSpacing: '0.04em' }}
+                  />
+                </div>
+              </div>
+              <div>
+                <label style={LS}>Secondary Color</label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <input
+                    type="color"
+                    value={/^#[0-9A-Fa-f]{6}$/.test(secondaryColor) ? secondaryColor : '#000000'}
+                    onChange={e => setSecondaryColor(e.target.value)}
+                    style={{ width: 40, height: 40, border: 'none', borderRadius: 6, cursor: 'pointer', padding: 0, flexShrink: 0 }}
+                  />
+                  <input
+                    type="text"
+                    value={secondaryColor}
+                    onChange={handleHex(setSecondaryColor)}
+                    maxLength={7}
+                    placeholder="#2EAA4A"
+                    style={{ ...IS, width: 130, background: '#FFFBEB', letterSpacing: '0.04em' }}
+                  />
+                </div>
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 12, marginTop: 16 }}>
+              <div style={{ flex: 1, height: 8, borderRadius: 4, background: /^#[0-9A-Fa-f]{6}$/.test(primaryColor) ? primaryColor : DEFAULT_PRIMARY }} />
+              <div style={{ flex: 1, height: 8, borderRadius: 4, background: /^#[0-9A-Fa-f]{6}$/.test(secondaryColor) ? secondaryColor : DEFAULT_SECONDARY }} />
             </div>
           </div>
 
