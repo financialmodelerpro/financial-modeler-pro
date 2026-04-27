@@ -15,16 +15,9 @@ interface Plan {
   max_users: number | null; notes: string | null;
 }
 
-interface Feature {
-  id: string; plan_id: string; category: string; feature_text: string;
-  tooltip: string | null; is_included: boolean; display_order: number;
-}
-
-interface Mod { id: string; name: string; slug: string; icon: string; status: string; }
-interface PricingMod { plan_id: string; module_code: string; is_included: boolean; }
 interface UserOption { id: string; email: string; name: string | null; }
 
-type Tab = 'plans' | 'features' | 'modules' | 'content' | 'platform';
+type Tab = 'plans' | 'content' | 'platform';
 
 interface PlatPlan {
   id: string; platform_slug: string; plan_name: string; plan_label: string;
@@ -55,7 +48,6 @@ export default function AdminPricingPage() {
   const { loading: authLoading } = useRequireAdmin();
   const [tab, setTab]           = useState<Tab>('plans');
   const [plans, setPlans]       = useState<Plan[]>([]);
-  const [allMods, setAllMods]   = useState<Mod[]>([]);
   const [loading, setLoading]   = useState(true);
   const [saving, setSaving]     = useState(false);
   const [toast, setToast]       = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
@@ -65,17 +57,6 @@ export default function AdminPricingPage() {
   const [delConfirm, setDelConfirm]   = useState<string | null>(null);
   const [userSearch, setUserSearch]   = useState('');
   const [userResults, setUserResults] = useState<UserOption[]>([]);
-
-  // Features tab
-  const [featPlanId, setFeatPlanId]   = useState<string | null>(null);
-  const [features, setFeatures]       = useState<Feature[]>([]);
-  const [copyFromPlan, setCopyFromPlan] = useState('');
-  const [showMatrix, setShowMatrix]   = useState(false);
-  const [matrixFeatures, setMatrixFeatures] = useState<Feature[]>([]);
-
-  // Modules tab
-  const [modPlanId, setModPlanId]     = useState<string | null>(null);
-  const [planMods, setPlanMods]       = useState<PricingMod[]>([]);
 
   // Page content tab
   const [cms, setCms]   = useState<Record<string, string>>({});
@@ -103,11 +84,9 @@ export default function AdminPricingPage() {
   useEffect(() => {
     Promise.all([
       fetch('/api/admin/pricing/plans?all=true').then(r => r.json()),
-      fetch('/api/admin/modules').then(r => r.json()),
       fetch('/api/admin/content').then(r => r.json()),
-    ]).then(([p, m, c]) => {
+    ]).then(([p, c]) => {
       setPlans(p.plans ?? []);
-      setAllMods(m.modules ?? []);
       const map: Record<string, string> = {};
       for (const row of c.rows ?? []) if (row.section === 'pricing_page') map[row.key] = row.value;
       setCms(map);
@@ -117,22 +96,6 @@ export default function AdminPricingPage() {
       setLoading(false);
     }).catch(() => setLoading(false));
   }, []);
-
-  // ── Load features when featPlanId changes ────────────────────────────────────
-
-  useEffect(() => {
-    if (!featPlanId) return;
-    fetch(`/api/admin/pricing/features?plan_id=${featPlanId}`)
-      .then(r => r.json()).then(j => setFeatures(j.features ?? []));
-  }, [featPlanId]);
-
-  // ── Load plan modules when modPlanId changes ─────────────────────────────────
-
-  useEffect(() => {
-    if (!modPlanId) return;
-    fetch(`/api/admin/pricing/modules?plan_id=${modPlanId}`)
-      .then(r => r.json()).then(j => setPlanMods(j.modules ?? []));
-  }, [modPlanId]);
 
   // ── Styles ───────────────────────────────────────────────────────────────────
 
@@ -235,63 +198,6 @@ export default function AdminPricingPage() {
     return () => clearTimeout(t);
   }, [userSearch]);
 
-  // ── Features CRUD ────────────────────────────────────────────────────────────
-
-  function addFeature() {
-    const newF: Feature = { id: `new_${Date.now()}`, plan_id: featPlanId!, category: 'General', feature_text: '', tooltip: null, is_included: true, display_order: features.length };
-    setFeatures(prev => [...prev, newF]);
-  }
-
-  async function saveFeatures() {
-    if (!featPlanId) return;
-    setSaving(true);
-    try {
-      // Delete all existing features for plan, then insert current list
-      const existing = features.filter(f => !f.id.startsWith('new_'));
-      await Promise.all(existing.map(f => fetch(`/api/admin/pricing/features?id=${f.id}`, { method: 'DELETE' })));
-      await Promise.all(features.map((f, i) =>
-        fetch('/api/admin/pricing/features', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ plan_id: featPlanId, category: f.category, feature_text: f.feature_text, tooltip: f.tooltip, is_included: f.is_included, display_order: i }),
-        })
-      ));
-      // Reload
-      const j = await fetch(`/api/admin/pricing/features?plan_id=${featPlanId}`).then(r => r.json());
-      setFeatures(j.features ?? []);
-      showToast('Features saved', 'success');
-    } catch (e) {
-      showToast(String(e), 'error');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function copyFeaturesFrom() {
-    if (!copyFromPlan || !featPlanId) return;
-    const j = await fetch(`/api/admin/pricing/features?plan_id=${copyFromPlan}`).then(r => r.json());
-    const copied: Feature[] = (j.features ?? []).map((f: Feature, i: number) => ({
-      ...f, id: `new_${Date.now()}_${i}`, plan_id: featPlanId,
-    }));
-    setFeatures(prev => [...prev, ...copied]);
-    setCopyFromPlan('');
-    showToast('Features copied - click Save to persist', 'success');
-  }
-
-  // ── Module access ────────────────────────────────────────────────────────────
-
-  async function toggleModule(moduleCode: string, included: boolean) {
-    if (!modPlanId) return;
-    await fetch('/api/admin/pricing/modules', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ plan_id: modPlanId, module_code: moduleCode, is_included: included }),
-    });
-    setPlanMods(prev => {
-      const existing = prev.find(m => m.module_code === moduleCode);
-      if (existing) return prev.map(m => m.module_code === moduleCode ? { ...m, is_included: included } : m);
-      return [...prev, { plan_id: modPlanId, module_code: moduleCode, is_included: included }];
-    });
-  }
-
   // ── Page Content save ────────────────────────────────────────────────────────
 
   async function saveCms() {
@@ -369,15 +275,6 @@ export default function AdminPricingPage() {
     await loadPlatformData();
   }
 
-  // ── Load comparison matrix ───────────────────────────────────────────────────
-
-  async function loadMatrix() {
-    const publicPlans = plans.filter(p => p.is_public && !p.is_custom_client);
-    const all = await Promise.all(publicPlans.map(p => fetch(`/api/admin/pricing/features?plan_id=${p.id}`).then(r => r.json())));
-    setMatrixFeatures(all.flatMap((j, i) => (j.features ?? []).map((f: Feature) => ({ ...f, plan_id: publicPlans[i].id }))));
-    setShowMatrix(true);
-  }
-
   if (authLoading || loading) return null;
 
   const publicPlans = plans.filter(p => p.is_public && !p.is_custom_client);
@@ -391,14 +288,14 @@ export default function AdminPricingPage() {
 
       <main style={{ flex: 1, padding: 40, overflowY: 'auto' }}>
         <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 6 }}>Pricing Manager</h1>
-        <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 28 }}>Manage plans, features, module access, and public pricing page content.</p>
+        <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 28 }}>Manage plans, public pricing page content, and platform-specific pricing.</p>
 
         {/* Tab Bar */}
         <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid #E8F0FB', marginBottom: 32 }}>
-          {(['plans', 'features', 'modules', 'content', 'platform'] as Tab[]).map(t => (
+          {(['plans', 'content', 'platform'] as Tab[]).map(t => (
             <button key={t} onClick={() => { setTab(t); setEditingPlan(null); if (t === 'platform' && platPlans.length === 0) loadPlatformData(); }}
               style={{ padding: '10px 22px', fontSize: 13, fontWeight: tab === t ? 700 : 500, color: tab === t ? '#1B4F8A' : '#6B7280', background: 'none', border: 'none', borderBottom: tab === t ? '2px solid #1B4F8A' : '2px solid transparent', marginBottom: -2, cursor: 'pointer' }}>
-              {t === 'modules' ? 'Module Access' : t === 'content' ? 'Page Content' : t === 'platform' ? 'Platform Pricing' : t.charAt(0).toUpperCase() + t.slice(1)}
+              {t === 'content' ? 'Page Content' : t === 'platform' ? 'Platform Pricing' : t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
           ))}
         </div>
@@ -546,165 +443,6 @@ export default function AdminPricingPage() {
             <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
               {saveBtn(savePlan, editingPlan.id ? 'Save Plan' : 'Create Plan')}
               <button onClick={() => setEditingPlan(null)} style={{ background: 'none', border: '1px solid #D1D5DB', borderRadius: 8, padding: '10px 20px', fontSize: 13, cursor: 'pointer', color: '#374151' }}>Cancel</button>
-            </div>
-          </div>
-        )}
-
-        {/* ── TAB: FEATURES ─────────────────────────────────────────────────────── */}
-        {tab === 'features' && (
-          <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
-            {/* Plan selector */}
-            <div style={{ width: 200, flexShrink: 0, background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: 16 }}>
-              <p style={{ fontSize: 11, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Select Plan</p>
-              {plans.map(p => (
-                <button key={p.id} onClick={() => setFeatPlanId(p.id)}
-                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: 6, marginBottom: 2, background: featPlanId === p.id ? '#EEF2FF' : 'none', border: featPlanId === p.id ? '1px solid #C7D2FE' : '1px solid transparent', cursor: 'pointer', fontSize: 13, color: featPlanId === p.id ? '#4338CA' : '#374151', fontWeight: featPlanId === p.id ? 600 : 400 }}>
-                  {p.is_custom_client && <span style={{ fontSize: 9, background: '#7C3AED', color: '#fff', borderRadius: 10, padding: '1px 5px', marginRight: 5 }}>CLIENT</span>}
-                  {p.name}
-                </button>
-              ))}
-            </div>
-
-            {/* Feature editor */}
-            <div style={{ flex: 1, background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '24px 28px' }}>
-              {!featPlanId ? (
-                <p style={{ fontSize: 13, color: '#9CA3AF', textAlign: 'center', padding: '40px 0' }}>Select a plan to manage its features.</p>
-              ) : (
-                <>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20, flexWrap: 'wrap', gap: 12 }}>
-                    <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1B3A6B', margin: 0 }}>
-                      {plans.find(p => p.id === featPlanId)?.name} - Features
-                    </h2>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <select value={copyFromPlan} onChange={e => setCopyFromPlan(e.target.value)}
-                        style={{ padding: '6px 10px', border: '1px solid #D1D5DB', borderRadius: 6, fontSize: 12, background: '#fff', cursor: 'pointer' }}>
-                        <option value="">Copy features from…</option>
-                        {plans.filter(p => p.id !== featPlanId).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
-                      {copyFromPlan && (
-                        <button onClick={copyFeaturesFrom} style={{ padding: '6px 12px', background: '#1B4F8A', color: '#fff', border: 'none', borderRadius: 6, fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>Copy</button>
-                      )}
-                    </div>
-                  </div>
-
-                  {features.length === 0 ? (
-                    <p style={{ fontSize: 13, color: '#9CA3AF', marginBottom: 16 }}>No features yet. Add one below.</p>
-                  ) : (
-                    <div style={{ marginBottom: 12 }}>
-                      {/* Header row */}
-                      <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr 80px 40px', gap: 8, marginBottom: 6 }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase' }}>Category</span>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase' }}>Feature</span>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', textAlign: 'center' }}>Included</span>
-                        <span />
-                      </div>
-                      {features.map((f, i) => (
-                        <div key={f.id} style={{ display: 'grid', gridTemplateColumns: '140px 1fr 80px 40px', gap: 8, marginBottom: 6, alignItems: 'center' }}>
-                          <input value={f.category} onChange={e => setFeatures(prev => prev.map((x, j) => j === i ? { ...x, category: e.target.value } : x))}
-                            style={{ padding: '6px 8px', fontSize: 12, border: '1px solid #D1D5DB', borderRadius: 5, background: '#FFFBEB' }} />
-                          <input value={f.feature_text} onChange={e => setFeatures(prev => prev.map((x, j) => j === i ? { ...x, feature_text: e.target.value } : x))}
-                            style={{ padding: '6px 8px', fontSize: 12, border: '1px solid #D1D5DB', borderRadius: 5, background: '#FFFBEB' }} />
-                          <div style={{ textAlign: 'center' }}>
-                            <input type="checkbox" checked={f.is_included} onChange={e => setFeatures(prev => prev.map((x, j) => j === i ? { ...x, is_included: e.target.checked } : x))} />
-                          </div>
-                          <button onClick={() => setFeatures(prev => prev.filter((_, j) => j !== i))}
-                            style={{ background: 'none', border: '1px solid #FCA5A5', borderRadius: 5, color: '#EF4444', cursor: 'pointer', padding: '4px 8px', fontSize: 11 }}>✕</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                    <button onClick={addFeature} style={{ background: 'none', border: '1px dashed #9CA3AF', borderRadius: 7, color: '#6B7280', cursor: 'pointer', padding: '8px 16px', fontSize: 12 }}>+ Add Feature</button>
-                    {saveBtn(saveFeatures, 'Save Features')}
-                    <button onClick={showMatrix ? () => setShowMatrix(false) : loadMatrix}
-                      style={{ background: 'none', border: '1px solid #D1D5DB', borderRadius: 7, color: '#374151', cursor: 'pointer', padding: '8px 16px', fontSize: 12 }}>
-                      {showMatrix ? 'Hide Matrix' : 'View Comparison Matrix'}
-                    </button>
-                  </div>
-
-                  {/* Comparison matrix */}
-                  {showMatrix && (() => {
-                    const pubPlans = plans.filter(p => p.is_public && !p.is_custom_client);
-                    const uniq = Array.from(new Set(matrixFeatures.map(f => f.feature_text)));
-                    return (
-                      <div style={{ marginTop: 32, overflowX: 'auto' }}>
-                        <h3 style={{ fontSize: 14, fontWeight: 700, color: '#1B3A6B', marginBottom: 12 }}>Comparison Matrix</h3>
-                        <table style={{ borderCollapse: 'collapse', width: '100%', fontSize: 12 }}>
-                          <thead>
-                            <tr style={{ background: '#1B4F8A' }}>
-                              <th style={{ padding: '8px 12px', color: '#fff', textAlign: 'left', fontWeight: 700 }}>Feature</th>
-                              {pubPlans.map(p => <th key={p.id} style={{ padding: '8px 12px', color: '#fff', textAlign: 'center', fontWeight: 700 }}>{p.name}</th>)}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {uniq.map((feat, i) => (
-                              <tr key={i} style={{ borderBottom: '1px solid #F3F4F6', background: i % 2 ? '#F9FAFB' : '#fff' }}>
-                                <td style={{ padding: '7px 12px', color: '#374151' }}>{feat}</td>
-                                {pubPlans.map(p => {
-                                  const inc = matrixFeatures.find(f => f.plan_id === p.id && f.feature_text === feat)?.is_included ?? false;
-                                  return <td key={p.id} style={{ padding: '7px 12px', textAlign: 'center', color: inc ? '#2EAA4A' : '#D1D5DB' }}>{inc ? '✓' : '✗'}</td>;
-                                })}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    );
-                  })()}
-                </>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* ── TAB: MODULE ACCESS ─────────────────────────────────────────────────── */}
-        {tab === 'modules' && (
-          <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start' }}>
-            {/* Plan selector */}
-            <div style={{ width: 200, flexShrink: 0, background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: 16 }}>
-              <p style={{ fontSize: 11, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>Select Plan</p>
-              {plans.map(p => (
-                <button key={p.id} onClick={() => setModPlanId(p.id)}
-                  style={{ display: 'block', width: '100%', textAlign: 'left', padding: '8px 10px', borderRadius: 6, marginBottom: 2, background: modPlanId === p.id ? '#EEF2FF' : 'none', border: modPlanId === p.id ? '1px solid #C7D2FE' : '1px solid transparent', cursor: 'pointer', fontSize: 13, color: modPlanId === p.id ? '#4338CA' : '#374151', fontWeight: modPlanId === p.id ? 600 : 400 }}>
-                  {p.name}
-                </button>
-              ))}
-            </div>
-
-            {/* Module grid */}
-            <div style={{ flex: 1, background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '24px 28px' }}>
-              {!modPlanId ? (
-                <p style={{ fontSize: 13, color: '#9CA3AF', textAlign: 'center', padding: '40px 0' }}>Select a plan to manage module access.</p>
-              ) : (
-                <>
-                  <h2 style={{ fontSize: 16, fontWeight: 700, color: '#1B3A6B', marginBottom: 20 }}>
-                    {plans.find(p => p.id === modPlanId)?.name} - Module Access
-                  </h2>
-                  <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 20 }}>Toggle which modules are included in this plan. Changes save immediately.</p>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                    {allMods.map(mod => {
-                      const row = planMods.find(m => m.module_code === mod.slug);
-                      const included = row?.is_included ?? false;
-                      return (
-                        <div key={mod.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', border: '1px solid #E5E7EB', borderRadius: 8, background: included ? '#F0FFF4' : '#fff' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <span style={{ fontSize: 20 }}>{mod.icon}</span>
-                            <div>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: '#374151' }}>{mod.name}</div>
-                              <div style={{ fontSize: 11, color: '#9CA3AF' }}>{mod.status}</div>
-                            </div>
-                          </div>
-                          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-                            <input type="checkbox" checked={included} onChange={e => toggleModule(mod.slug, e.target.checked)} />
-                            <span style={{ fontSize: 12, color: included ? '#1A7A30' : '#9CA3AF', fontWeight: 600 }}>{included ? 'Included' : 'Excluded'}</span>
-                          </label>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
             </div>
           </div>
         )}
