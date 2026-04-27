@@ -17,7 +17,7 @@ interface Plan {
 
 interface UserOption { id: string; email: string; name: string | null; }
 
-type Tab = 'plans' | 'content' | 'platform';
+type Tab = 'plans' | 'platform';
 
 interface PlatPlan {
   id: string; platform_slug: string; plan_name: string; plan_label: string;
@@ -58,10 +58,6 @@ export default function AdminPricingPage() {
   const [userSearch, setUserSearch]   = useState('');
   const [userResults, setUserResults] = useState<UserOption[]>([]);
 
-  // Page content tab
-  const [cms, setCms]   = useState<Record<string, string>>({});
-  const [faqs, setFaqs] = useState<{ question: string; answer: string }[]>([]);
-
   // Platform pricing tab
   const [platPlans, setPlatPlans]     = useState<PlatPlan[]>([]);
   const [platFeatures, setPlatFeatures] = useState<PlatFeature[]>([]);
@@ -82,19 +78,13 @@ export default function AdminPricingPage() {
   // ── Load initial data ────────────────────────────────────────────────────────
 
   useEffect(() => {
-    Promise.all([
-      fetch('/api/admin/pricing/plans?all=true').then(r => r.json()),
-      fetch('/api/admin/content').then(r => r.json()),
-    ]).then(([p, c]) => {
-      setPlans(p.plans ?? []);
-      const map: Record<string, string> = {};
-      for (const row of c.rows ?? []) if (row.section === 'pricing_page') map[row.key] = row.value;
-      setCms(map);
-      try {
-        if (map.faq) setFaqs(JSON.parse(map.faq));
-      } catch { /* ignore */ }
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    fetch('/api/admin/pricing/plans?all=true')
+      .then(r => r.json())
+      .then(p => {
+        setPlans(p.plans ?? []);
+        setLoading(false);
+      })
+      .catch(() => setLoading(false));
   }, []);
 
   // ── Styles ───────────────────────────────────────────────────────────────────
@@ -198,24 +188,6 @@ export default function AdminPricingPage() {
     return () => clearTimeout(t);
   }, [userSearch]);
 
-  // ── Page Content save ────────────────────────────────────────────────────────
-
-  async function saveCms() {
-    setSaving(true);
-    try {
-      const keys = ['badge', 'hero_title', 'hero_subtitle', 'show_yearly', 'footer_note', 'comparison_title', 'faq_title'];
-      await Promise.all([
-        ...keys.map(k => fetch('/api/admin/content', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ section: 'pricing_page', key: k, value: cms[k] ?? '' }) })),
-        fetch('/api/admin/content', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ section: 'pricing_page', key: 'faq', value: JSON.stringify(faqs) }) }),
-      ]);
-      showToast('Saved', 'success');
-    } catch (e) {
-      showToast(String(e), 'error');
-    } finally {
-      setSaving(false);
-    }
-  }
-
   // ── Platform Pricing ─────────────────────────────────────────────────────────
 
   async function loadPlatformData() {
@@ -288,14 +260,16 @@ export default function AdminPricingPage() {
 
       <main style={{ flex: 1, padding: 40, overflowY: 'auto' }}>
         <h1 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', marginBottom: 6 }}>Pricing Manager</h1>
-        <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 28 }}>Manage plans, public pricing page content, and platform-specific pricing.</p>
+        <p style={{ fontSize: 13, color: '#6B7280', marginBottom: 28 }}>
+          Manage plans and platform-specific pricing. Hero text and FAQ for the public <strong>/pricing</strong> page are edited in <strong>Page Builder → Pricing</strong>.
+        </p>
 
         {/* Tab Bar */}
         <div style={{ display: 'flex', gap: 4, borderBottom: '2px solid #E8F0FB', marginBottom: 32 }}>
-          {(['plans', 'content', 'platform'] as Tab[]).map(t => (
+          {(['plans', 'platform'] as Tab[]).map(t => (
             <button key={t} onClick={() => { setTab(t); setEditingPlan(null); if (t === 'platform' && platPlans.length === 0) loadPlatformData(); }}
               style={{ padding: '10px 22px', fontSize: 13, fontWeight: tab === t ? 700 : 500, color: tab === t ? '#1B4F8A' : '#6B7280', background: 'none', border: 'none', borderBottom: tab === t ? '2px solid #1B4F8A' : '2px solid transparent', marginBottom: -2, cursor: 'pointer' }}>
-              {t === 'content' ? 'Page Content' : t === 'platform' ? 'Platform Pricing' : t.charAt(0).toUpperCase() + t.slice(1)}
+              {t === 'platform' ? 'Platform Pricing' : t.charAt(0).toUpperCase() + t.slice(1)}
             </button>
           ))}
         </div>
@@ -444,42 +418,6 @@ export default function AdminPricingPage() {
               {saveBtn(savePlan, editingPlan.id ? 'Save Plan' : 'Create Plan')}
               <button onClick={() => setEditingPlan(null)} style={{ background: 'none', border: '1px solid #D1D5DB', borderRadius: 8, padding: '10px 20px', fontSize: 13, cursor: 'pointer', color: '#374151' }}>Cancel</button>
             </div>
-          </div>
-        )}
-
-        {/* ── TAB: PAGE CONTENT ─────────────────────────────────────────────────── */}
-        {tab === 'content' && (
-          <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '28px 32px', maxWidth: 720 }}>
-            <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 24, padding: '10px 14px', background: '#F0FFF4', border: '1px solid #BBF7D0', borderRadius: 7 }}>
-              📍 Controls the hero text and FAQ on the public <strong>/pricing</strong> page.
-            </p>
-
-            <div style={fld}><label style={lbl}>Hero Badge</label><input style={inp} value={cms.badge ?? ''} onChange={e => setCms(p => ({ ...p, badge: e.target.value }))} placeholder="Pricing" /></div>
-            <div style={fld}><label style={lbl}>Page Title</label><input style={inp} value={cms.hero_title ?? ''} onChange={e => setCms(p => ({ ...p, hero_title: e.target.value }))} placeholder="Simple, Transparent Pricing" /></div>
-            <div style={fld}><label style={lbl}>Page Subtitle</label><textarea style={{ ...inp, resize: 'vertical' }} rows={2} value={cms.hero_subtitle ?? ''} onChange={e => setCms(p => ({ ...p, hero_subtitle: e.target.value }))} /></div>
-            <div style={fld}><label style={lbl}>Comparison Table Title</label><input style={inp} value={cms.comparison_title ?? ''} onChange={e => setCms(p => ({ ...p, comparison_title: e.target.value }))} placeholder="Feature Comparison" /></div>
-            <div style={fld}><label style={lbl}>FAQ Section Title</label><input style={inp} value={cms.faq_title ?? ''} onChange={e => setCms(p => ({ ...p, faq_title: e.target.value }))} placeholder="Frequently Asked Questions" /></div>
-            <div style={fld}><label style={lbl}>Footer Note</label><textarea style={{ ...inp, resize: 'vertical' }} rows={2} value={cms.footer_note ?? ''} onChange={e => setCms(p => ({ ...p, footer_note: e.target.value }))} placeholder="All plans include free training access." /></div>
-
-            {/* FAQ management */}
-            <div style={{ borderTop: '1px solid #E5E7EB', paddingTop: 20, marginTop: 4 }}>
-              <p style={{ fontSize: 12, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>FAQ Items</p>
-              <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>Add frequently asked questions shown in the accordion on the pricing page.</p>
-              {faqs.map((faq, i) => (
-                <div key={i} style={{ background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, padding: '14px 16px', marginBottom: 10 }}>
-                  <div style={fld}><label style={lbl}>Question</label><input style={inp} value={faq.question} onChange={e => setFaqs(prev => prev.map((x, j) => j === i ? { ...x, question: e.target.value } : x))} /></div>
-                  <div style={{ marginBottom: 8 }}><label style={lbl}>Answer</label><textarea style={{ ...inp, resize: 'vertical' }} rows={3} value={faq.answer} onChange={e => setFaqs(prev => prev.map((x, j) => j === i ? { ...x, answer: e.target.value } : x))} /></div>
-                  <button onClick={() => setFaqs(prev => prev.filter((_, j) => j !== i))} style={{ background: 'none', border: '1px solid #FCA5A5', borderRadius: 6, color: '#EF4444', cursor: 'pointer', padding: '4px 12px', fontSize: 12 }}>Remove</button>
-                </div>
-              ))}
-              {faqs.length < 10 ? (
-                <button onClick={() => setFaqs(prev => [...prev, { question: '', answer: '' }])} style={{ background: 'none', border: '1px dashed #9CA3AF', borderRadius: 8, color: '#6B7280', cursor: 'pointer', padding: '10px 20px', fontSize: 13, width: '100%', marginBottom: 16 }}>+ Add FAQ</button>
-              ) : (
-                <p style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 16 }}>Maximum 10 FAQs reached.</p>
-              )}
-            </div>
-
-            {saveBtn(saveCms, 'Save Page Content')}
           </div>
         )}
 

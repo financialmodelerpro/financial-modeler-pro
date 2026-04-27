@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/components/layout/NavbarServer';
-import { getCmsContent, cms, getModules } from '@/src/lib/shared/cms';
+import { getCmsContent, cms, getModules, getAllPageSections } from '@/src/lib/shared/cms';
 import { getServerClient } from '@/src/lib/shared/supabase';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { PricingAccordion } from '@/src/components/pricing/PricingAccordion';
@@ -40,7 +40,11 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 export default async function PricingPage() {
-  const [content, dbModules] = await Promise.all([getCmsContent(), getModules()]);
+  const [content, dbModules, pricingSections] = await Promise.all([
+    getCmsContent(),
+    getModules(),
+    getAllPageSections('pricing'),
+  ]);
   const sb = getServerClient();
 
   // Fetch platform pricing
@@ -81,11 +85,20 @@ export default async function PricingPage() {
   // Live platforms
   const livePlatforms = dbModules.filter(m => m.status === 'live' && plansByPlatform.has(m.slug));
 
-  // CMS
-  const heroTitle    = cms(content, 'pricing_page', 'hero_title',    'Simple, Transparent Pricing');
-  const heroSubtitle = cms(content, 'pricing_page', 'hero_subtitle', 'Professional financial modeling tools. Start free, upgrade when ready.');
-  let faqs: { question: string; answer: string }[] = [];
-  try { const r = cms(content, 'pricing_page', 'faq', ''); if (r) faqs = JSON.parse(r); } catch { /* */ }
+  // CMS — hero + FAQ sourced from page_sections (Page Builder is canonical).
+  const heroSection = pricingSections.find(s => s.section_type === 'hero' && s.visible !== false);
+  const heroContent = (heroSection?.content ?? {}) as Record<string, unknown>;
+  const heroBadge    = (heroContent.badge    as string | undefined) ?? 'Pricing';
+  const heroTitle    = (heroContent.headline as string | undefined) ?? 'Simple, Transparent Pricing';
+  const heroSubtitle = (heroContent.subtitle as string | undefined) ?? 'Professional financial modeling tools. Start free, upgrade when ready.';
+
+  const faqSection = pricingSections.find(s => s.section_type === 'faq' && s.visible !== false);
+  const faqContent = (faqSection?.content ?? {}) as Record<string, unknown>;
+  const faqHeading = (faqContent.heading as string | undefined) ?? 'Frequently Asked Questions';
+  const rawFaqItems = (faqContent.items as { question: string; answer: string; visible?: boolean }[] | undefined) ?? [];
+  const faqs: { question: string; answer: string }[] = rawFaqItems
+    .filter(f => f.visible !== false)
+    .map(f => ({ question: f.question, answer: f.answer }));
 
   const footerCompany   = cms(content, 'footer', 'company_line', 'Financial Modeler Pro is a product of PaceMakers Business Consultants');
   const footerFounder   = cms(content, 'footer', 'founder_line', 'Financial Modeler Pro Team');
@@ -112,7 +125,7 @@ export default async function PricingPage() {
       {/* Hero */}
       <section style={{ background: 'linear-gradient(180deg, #0D2E5A 0%, #0A2448 100%)', padding: '72px 40px 64px', textAlign: 'center', color: '#fff' }}>
         <div style={{ maxWidth: 680, margin: '0 auto' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 14 }}>Pricing</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.5)', letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: 14 }}>{heroBadge}</div>
           <h1 style={{ fontSize: 'clamp(28px, 4vw, 48px)', fontWeight: 800, color: '#fff', marginBottom: 14, lineHeight: 1.1 }}>{heroTitle}</h1>
           <p style={{ fontSize: 16, color: 'rgba(255,255,255,0.6)', lineHeight: 1.65 }}>{heroSubtitle}</p>
         </div>
@@ -283,7 +296,7 @@ export default async function PricingPage() {
       {faqs.length > 0 && (
         <section style={{ background: '#0D2E5A', padding: '72px 40px 88px' }}>
           <div style={{ maxWidth: 800, margin: '0 auto' }}>
-            <h2 style={{ fontSize: 28, fontWeight: 800, color: '#fff', textAlign: 'center', marginBottom: 48 }}>Frequently Asked Questions</h2>
+            <h2 style={{ fontSize: 28, fontWeight: 800, color: '#fff', textAlign: 'center', marginBottom: 48 }}>{faqHeading}</h2>
             <PricingAccordion faqs={faqs} dark />
           </div>
         </section>
