@@ -78,7 +78,7 @@ export default function DailyRoundupPage() {
   }, []);
 
   // Load the latest admin-edited template so this page reflects edits made
-  // in /admin/training-hub/share-templates without a page refresh.
+  // in /admin/communications-hub?tab=share-templates without a page refresh.
   useEffect(() => {
     fetch('/api/share-templates/daily_certifications_roundup')
       .then(r => r.json())
@@ -141,8 +141,8 @@ export default function DailyRoundupPage() {
           <p style={{ fontSize: 13, color: MUTED, margin: 0, maxWidth: 720, lineHeight: 1.55 }}>
             Pick a date, choose which of that day&apos;s newly certified students to feature, and share one
             roundup post celebrating the whole cohort. Template copy is edited on the&nbsp;
-            <Link href="/admin/training-hub/share-templates" style={{ color: BLUE, textDecoration: 'none', fontWeight: 600 }}>
-              Share Templates page
+            <Link href="/admin/communications-hub?tab=share-templates" style={{ color: BLUE, textDecoration: 'none', fontWeight: 600 }}>
+              Share Templates tab
             </Link>.
           </p>
         </div>

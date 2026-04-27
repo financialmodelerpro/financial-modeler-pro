@@ -1323,7 +1323,7 @@ export default function LiveSessionsPage() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: NAVY, margin: 0 }}>Live Sessions</h1>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-            <a href="/admin/training-hub/live-sessions/email-settings"
+            <a href="/admin/communications-hub?tab=email-settings"
               style={{ fontSize: 12, fontWeight: 600, color: '#2E75B6', textDecoration: 'none', padding: '6px 12px', borderRadius: 6, border: '1px solid #D1D5DB', background: '#fff' }}>
               Email Settings
             </a>
