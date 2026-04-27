@@ -23,26 +23,13 @@ export interface PlatformOverride {
 
 // ── Central branding configuration ────────────────────────────────────────────
 export interface BrandingConfig {
-  // ── Portal identity ──
+  // ── Platform identity (Topbar) ──
   platformName: string;
-  portalTitle: string;
-  portalSubtitle: string;
-  portalDescription: string;
-  footerText: string;
-
-  // ── Logos (emoji+image kept for BrandingSettingsPanel; image takes precedence) ──
-  portalLogoType: LogoType;
-  portalLogoEmoji: string;
-  portalLogoImage: string | null;   // data-URL or remote URL
   platformLogoType: LogoType;
   platformLogoEmoji: string;
   platformLogoImage: string | null; // data-URL or remote URL
 
-  // Simplified accessors (used by Topbar / display logic)
-  // portalLogo  = portalLogoImage  ?? portalLogoEmoji
-  // platformLogo = platformLogoImage ?? platformLogoEmoji
-
-  // ── Colours ──
+  // ── Colours (the only fields admins edit) ──
   primaryColor: string;    // hex, e.g. '#1E3A8A'
   secondaryColor: string;  // hex, e.g. '#3B82F6'
 
@@ -51,7 +38,4 @@ export interface BrandingConfig {
 
   // ── Per-platform deep overrides (future use) ──
   platformOverrides: Record<string, Partial<BrandingConfig>>;
-
-  // ── Deployment ──
-  customDomain: string | null;
 }

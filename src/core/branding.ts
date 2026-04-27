@@ -7,14 +7,6 @@ export const BRANDING_KEY = 'fmp_branding_v3';
 // ── Default branding ──────────────────────────────────────────────────────────
 export const DEFAULT_BRANDING: BrandingConfig = {
   platformName:       'Financial Modeler Pro',
-  portalTitle:        'Welcome to Financial Modeler Pro',
-  portalSubtitle:     'FINANCIAL MODELING HUB',
-  portalDescription:  'A professional suite of financial modeling and planning tools - built for real estate developers, corporate finance teams, and FP&A professionals. Select a platform below to begin.',
-  footerText:         'Powered by Financial Modeler Pro - PaceMakers Advisory',
-
-  portalLogoType:     'emoji',
-  portalLogoEmoji:    '💼',
-  portalLogoImage:    null,
   platformLogoType:   'emoji',
   platformLogoEmoji:  '🏗️',
   platformLogoImage:  null,
@@ -24,7 +16,6 @@ export const DEFAULT_BRANDING: BrandingConfig = {
 
   platforms:         null, // null → use PLATFORM_REGISTRY as-is
   platformOverrides: {},
-  customDomain:      null,
 };
 
 // ── Platform registry ─────────────────────────────────────────────────────────
@@ -146,14 +137,6 @@ async function _pushToSupabase(config: BrandingConfig): Promise<void> {
 }
 
 // ── Derived display helpers ───────────────────────────────────────────────────
-
-/** Returns the display logo for the portal header: image URL, emoji, or fallback '💼'. */
-export function getPortalLogo(b: BrandingConfig): { type: 'image' | 'emoji'; value: string } {
-  if (b.portalLogoType === 'image' && b.portalLogoImage) {
-    return { type: 'image', value: b.portalLogoImage };
-  }
-  return { type: 'emoji', value: b.portalLogoEmoji || '💼' };
-}
 
 /** Returns the display logo for the platform toolbar: image URL, emoji, or fallback '🏗️'. */
 export function getPlatformLogo(b: BrandingConfig): { type: 'image' | 'emoji'; value: string } {
