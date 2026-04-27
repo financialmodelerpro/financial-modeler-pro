@@ -13,7 +13,28 @@ const FALLBACK: BrandPack = {
   },
 };
 
+// Module-level brand-pack cache. The brand assets (logo URL, primary color,
+// default trainer) change rarely - typically only when an admin updates header
+// settings or the default instructor row. The Marketing Studio fires a render
+// every ~350ms while the admin edits a banner; without caching every keystroke
+// triggers 3 parallel DB queries. 10 minutes is short enough that an admin
+// edit to header_settings or instructors propagates within one Vercel function
+// cold-start window without manual cache busting.
+const BRAND_TTL_MS = 10 * 60 * 1000;
+let brandCache: { value: BrandPack; expiresAt: number } | null = null;
+
+/**
+ * Drop the in-memory cache. Reserved for future use (e.g. admin endpoints
+ * that mutate brand assets and want to force a fresh read on next render).
+ */
+export function invalidateBrandCache(): void {
+  brandCache = null;
+}
+
 export async function loadBrandPack(): Promise<BrandPack> {
+  const now = Date.now();
+  if (brandCache && brandCache.expiresAt > now) return brandCache.value;
+
   const sb = getServerClient();
 
   const [logoRow, brandRow, trainerRow] = await Promise.all([
@@ -27,7 +48,7 @@ export async function loadBrandPack(): Promise<BrandPack> {
       .limit(1)
       .maybeSingle(),
     sb.from('instructors')
-      .select('name, title, photo_url, credentials')
+      .select('id, name, title, photo_url, credentials')
       .eq('is_default', true)
       .eq('active', true)
       .maybeSingle(),
@@ -37,17 +58,20 @@ export async function loadBrandPack(): Promise<BrandPack> {
   const primaryColor = (brandRow.data?.primary_color as string | undefined) ?? FALLBACK.primaryColor;
   const trainerData = trainerRow.data;
 
-  return {
+  const value: BrandPack = {
     logoUrl,
     primaryColor,
     trainer: trainerData ? {
-      id: '',
+      id: (trainerData.id as string | undefined) ?? '',
       name: trainerData.name ?? FALLBACK.trainer.name,
       title: trainerData.title ?? FALLBACK.trainer.title,
       photoUrl: trainerData.photo_url ?? '',
       credentials: trainerData.credentials ?? '',
     } : FALLBACK.trainer,
   };
+
+  brandCache = { value, expiresAt: now + BRAND_TTL_MS };
+  return value;
 }
 
 /**

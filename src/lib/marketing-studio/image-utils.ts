@@ -10,14 +10,25 @@
  */
 import sharp from 'sharp';
 
+// Per-fetch timeout. The Marketing Studio render route loads logo + each
+// instructor photo + optional uploaded background in parallel; if any one
+// fetch hangs the whole render hangs with it. Vercel Hobby caps server
+// functions at 10s, so we want individual fetches to fail fast and return
+// empty (templates already render gracefully without the asset) rather than
+// stretching to the function-level timeout.
+const FETCH_TIMEOUT_MS = 6000;
+
 /**
  * Fetch an image URL and return it as a base64 data URI suitable for satori.
- * SVGs are rasterized to PNG (satori only handles raster). Empty string on failure.
+ * SVGs are rasterized to PNG (satori only handles raster). Empty string on
+ * failure (network error, non-OK status, or timeout).
  */
 export async function fetchAsBase64(url: string): Promise<string> {
   if (!url) return '';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    const res = await fetch(url, { cache: 'no-store' });
+    const res = await fetch(url, { cache: 'no-store', signal: controller.signal });
     if (!res.ok) return '';
     const buf = Buffer.from(await res.arrayBuffer());
     if (buf.byteLength < 50) return '';
@@ -35,5 +46,7 @@ export async function fetchAsBase64(url: string): Promise<string> {
     return `data:${mime};base64,${buf.toString('base64')}`;
   } catch {
     return '';
+  } finally {
+    clearTimeout(timer);
   }
 }

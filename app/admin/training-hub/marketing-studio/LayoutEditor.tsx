@@ -23,8 +23,9 @@ interface Props {
 interface DragState {
   zoneKey: string;
   mode: 'move' | 'resize-e' | 'resize-s' | 'resize-se';
-  startCanvasX: number;
-  startCanvasY: number;
+  /** Mouse position at drag start, in screen pixels (e.clientX/Y). */
+  startScreenX: number;
+  startScreenY: number;
   startRect: { x: number; y: number; w: number; h: number };
 }
 
@@ -69,8 +70,8 @@ export function LayoutEditor({
 
   const onMouseMove = (e: React.MouseEvent) => {
     if (!drag) return;
-    const dxScreen = e.clientX - drag.startCanvasX;
-    const dyScreen = e.clientY - drag.startCanvasY;
+    const dxScreen = e.clientX - drag.startScreenX;
+    const dyScreen = e.clientY - drag.startScreenY;
     const dxCanvas = dxScreen / scale;
     const dyCanvas = dyScreen / scale;
     let next = { ...drag.startRect };
@@ -115,7 +116,7 @@ export function LayoutEditor({
     e.preventDefault();
     setActiveZone(zoneKey);
     const rect = merged[zoneKey];
-    setDrag({ zoneKey, mode: 'move', startCanvasX: e.clientX, startCanvasY: e.clientY, startRect: rect });
+    setDrag({ zoneKey, mode: 'move', startScreenX: e.clientX, startScreenY: e.clientY, startRect: rect });
   }
 
   function startResize(zoneKey: string, mode: 'resize-e' | 'resize-s' | 'resize-se', e: React.MouseEvent) {
@@ -123,7 +124,7 @@ export function LayoutEditor({
     e.preventDefault();
     setActiveZone(zoneKey);
     const rect = merged[zoneKey];
-    setDrag({ zoneKey, mode, startCanvasX: e.clientX, startCanvasY: e.clientY, startRect: rect });
+    setDrag({ zoneKey, mode, startScreenX: e.clientX, startScreenY: e.clientY, startRect: rect });
   }
 
   return (
