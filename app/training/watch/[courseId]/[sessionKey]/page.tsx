@@ -10,12 +10,7 @@ import { COURSES } from '@/src/config/courses';
 import { startTimer, getTimerStatus } from '@/src/lib/training/videoTimer';
 import { WatchProgressBar } from '@/src/components/training/WatchProgressBar';
 import { allRegularSessionsPassed, type LiveLinksMap, type SessionProgress } from '@/src/components/training/dashboard/types';
-
-function extractYouTubeId(url: string): string | null {
-  if (!url) return null;
-  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
-  return m ? m[1] : null;
-}
+import { extractYouTubeId } from '@/src/lib/shared/cms';
 
 export default function CourseWatchPage() {
   const params = useParams<{ courseId: string; sessionKey: string }>();
@@ -432,8 +427,6 @@ export default function CourseWatchPage() {
         belowVideoContent={progressBar}
         sessionType="recorded"
         isLoggedIn={true}
-        sessions={sidebarSessions}
-        currentSessionId={sessionKey}
         backUrl={`/training/dashboard?course=${courseId}`}
         backLabel={course.shortTitle}
         assessmentUrl={markedComplete && !progressMap.get(sessionKey)?.passed ? assessmentUrl : undefined}

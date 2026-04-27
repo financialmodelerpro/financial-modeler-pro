@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
+import { extractYouTubeId } from '@/src/lib/shared/cms';
 
 // ─── Lesson types ────────────────────────────────────────────────────────────
 
@@ -98,20 +99,6 @@ const ghostBtn: React.CSSProperties = {
   cursor: 'pointer',
   color: '#374151',
 };
-
-// ─── YouTube helper ───────────────────────────────────────────────────────────
-
-function extractYouTubeId(url: string): string | null {
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,
-    /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
-  ];
-  for (const p of patterns) {
-    const m = url.match(p);
-    if (m) return m[1];
-  }
-  return null;
-}
 
 // ─── Default question form state ──────────────────────────────────────────────
 

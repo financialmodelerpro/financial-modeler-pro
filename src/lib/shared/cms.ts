@@ -196,7 +196,7 @@ export async function getAllSitePages(): Promise<SitePage[]> {
 
 // ── YouTube URL parser ────────────────────────────────────────────────────────
 
-export function extractYouTubeId(url: string): string | null {
+export function extractYouTubeId(url: string | null | undefined): string | null {
   if (!url) return null;
   const patterns = [
     /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/,

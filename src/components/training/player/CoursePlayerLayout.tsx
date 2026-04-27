@@ -134,13 +134,9 @@ interface CoursePlayerLayoutProps {
   sessionType?: string;
   liveUrl?: string;
   isLoggedIn?: boolean;
-  // Sidebar (deprecated 2026-04-23 - the per-page session list was a
-  // distraction during watching. Kept as optional props for backward
-  // compatibility with callers that still pass them; values are
-  // ignored. The "Back to course" navigation is now a single button
-  // in the top bar driven by backUrl + backLabel.)
-  sessions?: SidebarSession[];
-  currentSessionId?: string;
+  // The per-page session list sidebar was removed 2026-04-23. Navigation
+  // back to the course is now a single button in the top bar driven by
+  // backUrl + backLabel.
   backUrl: string;
   backLabel: string;
   /** Optional content rendered at the TOP of Screen 1 (before banner +
@@ -166,7 +162,6 @@ export function CoursePlayerLayout({
   scheduledDatetime, timezone, durationMinutes, difficultyLevel, tags,
   prerequisites, category, isFeatured,
   sessionType, liveUrl, isLoggedIn,
-  currentSessionId,
   backUrl, backLabel,
   topContent,
   children,

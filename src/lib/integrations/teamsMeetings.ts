@@ -357,7 +357,6 @@ export async function createCalendarEventWithMeeting(params: {
   // surface a description in the future, GET the event after creation,
   // PREPEND our description to the auto-generated body, then PATCH the
   // merged content back so the Teams block stays intact.
-  void params.description;
 
   const res = await graphFetch('POST', path, payload);
   if (!res.ok) {
@@ -388,9 +387,8 @@ export async function updateCalendarEvent(
   // "Microsoft Teams meeting" Join block) and silently strips the join
   // button from the calendar UI. To preserve the join button, we leave
   // body untouched on every edit and only sync subject + schedule.
-  // params.description is accepted for API compatibility but not used
+  // updates.description is accepted for API compatibility but not used
   // until a future merge-into-existing-body implementation lands.
-  void updates.description;
 
   const res = await graphFetch(
     'PATCH',

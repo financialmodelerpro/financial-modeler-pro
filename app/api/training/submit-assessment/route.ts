@@ -14,11 +14,13 @@ export const maxDuration = 60;
 /**
  * POST /api/training/submit-assessment
  *
- * Accepts a PRE-SCORED result from the client and records it in Apps Script.
+ * Accepts a PRE-SCORED result from the client and records it in
+ * training_assessment_results (Supabase, single source of truth).
  * Scoring is done entirely client-side - this endpoint does NOT re-fetch
- * questions or re-score. It only forwards the score to Apps Script for storage.
+ * questions or re-score.
  *
- * Also sends quiz result email (and locked-out email if max attempts reached).
+ * Also sends quiz result email (and locked-out email if max attempts reached),
+ * and triggers inline certificate issuance on a passing final exam.
  */
 export async function POST(req: NextRequest) {
   let body: Record<string, unknown> = {};
@@ -55,15 +57,11 @@ export async function POST(req: NextRequest) {
 
     console.log('[submit-assessment] Recording score:', { tabKey, email, score, passed, attemptNo });
 
-    // Record scored result in Apps Script (V8: website scores, Apps Script stores)
     const numScore = Number(score);
     const didPass = passed ?? numScore >= 70;
 
     // Compute attempt number server-side from Supabase — don't trust the
-    // client. The client derives attemptNo from /api/training/attempt-status
-    // which reads Apps Script; when Apps Script's counter is stale or not
-    // incrementing on fail, every submission arrives as attempt #1 and the
-    // counter never advances. Source of truth: training_assessment_results.
+    // client. Source of truth: training_assessment_results.
     //
     // Simple increment: existing + 1. First attempt (no row) → 1.
     const cleanEmail = email.trim().toLowerCase();
@@ -84,10 +82,9 @@ export async function POST(req: NextRequest) {
     }
     const attempt = serverAttempt;
 
-    // Apps Script dual-write removed. training_assessment_results is the
-    // single source of truth for per-session scores; the upsert below is
-    // what drives the dashboard, attempt-status, progress, and certificate
-    // eligibility paths.
+    // training_assessment_results is the single source of truth for
+    // per-session scores; the upsert below drives the dashboard,
+    // attempt-status, progress, and certificate eligibility paths.
     console.log('[submit-assessment] Recording score:', { tabKey, email, score, passed, attempt });
 
     // Write to Supabase (primary source for dashboard - instant reads).

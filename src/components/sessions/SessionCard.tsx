@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { extractYouTubeId } from '@/src/lib/shared/cms';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -37,12 +38,6 @@ export interface SessionCardProps {
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';
-
-function extractYouTubeId(url: string | null | undefined): string | null {
-  if (!url) return null;
-  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
-  return m ? m[1] : null;
-}
 
 function fmtDate(iso: string): string {
   try { return new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }); } catch { return ''; }

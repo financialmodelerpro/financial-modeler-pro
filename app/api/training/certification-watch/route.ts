@@ -63,7 +63,10 @@ export async function POST(req: NextRequest) {
     .eq('tab_key', tab_key)
     .maybeSingle();
 
-  // Guard: don't downgrade 'completed' → 'in_progress'. Still merge progress fields though.
+  // Guard: don't downgrade 'completed' → 'in_progress'. Still merge
+  // progress fields though. Exception below: when video-swap detection
+  // fires, effectiveStatus is reset to 'in_progress' since the new
+  // video has its own threshold to clear.
   let effectiveStatus = existing?.status === 'completed' ? 'completed' : status;
 
   const existingSec   = Number(existing?.watch_seconds ?? 0);

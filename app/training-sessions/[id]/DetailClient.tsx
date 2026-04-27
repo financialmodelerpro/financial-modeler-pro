@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { getTrainingSession } from '@/src/lib/training/training-session';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/components/training/player/CoursePlayerLayout';
 import { WelcomeModal } from '@/src/components/training/WelcomeModal';
+import { extractYouTubeId } from '@/src/lib/shared/cms';
 
 export interface DetailSession {
   id: string; title: string; description: string; youtube_url: string | null;
@@ -15,12 +16,6 @@ export interface DetailSession {
   registration_count: number; youtube_embed?: boolean; show_like_button?: boolean;
   attachments: { file_name: string; file_type: string; file_size: number }[];
   related: { id: string; title: string; banner_url: string | null; session_type: string; scheduled_datetime: string; duration_minutes: number | null; instructor_name: string; difficulty_level: string; youtube_url: string | null }[];
-}
-
-function extractYouTubeId(url: string | null): string | null {
-  if (!url) return null;
-  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
-  return m ? m[1] : null;
 }
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
@@ -101,8 +96,6 @@ export function DetailClient({ session }: { session: DetailSession | null }) {
       isFeatured={session.is_featured}
       sessionType={session.session_type}
       isLoggedIn={isLoggedIn}
-      sessions={playlistSessions}
-      currentSessionId={session.id}
       backUrl={`${LEARN_URL}/training-sessions`}
       backLabel="All Sessions"
     >

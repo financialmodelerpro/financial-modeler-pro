@@ -2,18 +2,6 @@
 
 import { useEffect, useState } from 'react';
 
-// Auto-launch UI feature flag.
-//
-// Vercel Hobby limits cron jobs to once-per-day schedules, so the
-// every-5-minutes auto-launch cron can't ship on the current plan.
-// The checkbox + status readout are hidden until the project upgrades
-// to Vercel Pro. On upgrade: flip this to `true` AND re-add the cron
-// entry to vercel.json (path: /api/cron/auto-launch-check, schedule
-// every 5 minutes). Backend (migration 118, settings keys, the
-// /api/cron/auto-launch-check endpoint, PATCH fields) stays intact
-// so the only required changes are this flag + vercel.json.
-const AUTO_LAUNCH_UI_ENABLED = false;
-
 interface Props {
   label: string;
   icon?: string;
@@ -23,10 +11,8 @@ interface Props {
 }
 
 interface FetchedState {
-  enabled:            boolean;
-  launchDate:         string;
-  autoLaunch:         boolean;
-  lastAutoLaunchedAt: string;
+  enabled:    boolean;
+  launchDate: string;
 }
 
 function isoToLocal(iso: string): string {
@@ -43,25 +29,12 @@ function localToIso(local: string): string {
   return isNaN(d.getTime()) ? '' : d.toISOString();
 }
 
-function formatReadable(iso: string): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return iso;
-  return d.toLocaleString(undefined, {
-    weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
-  });
-}
-
 export function LaunchStatusCard({ label, icon = '🚀', endpoint, previewUrl, onMessage }: Props) {
   const [enabled, setEnabled] = useState(false);
   const [launchDate, setLaunchDate] = useState('');
-  const [autoLaunch, setAutoLaunch] = useState(false);
-  const [lastAutoLaunchedAt, setLastAutoLaunchedAt] = useState('');
   const [draft, setDraft] = useState('');
   const [togglingCS, setTogglingCS] = useState(false);
   const [savingDate, setSavingDate] = useState(false);
-  const [togglingAuto, setTogglingAuto] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -72,8 +45,6 @@ export function LaunchStatusCard({ label, icon = '🚀', endpoint, previewUrl, o
         const iso = j.launchDate ?? '';
         setLaunchDate(iso);
         setDraft(isoToLocal(iso));
-        setAutoLaunch(j.autoLaunch ?? false);
-        setLastAutoLaunchedAt(j.lastAutoLaunchedAt ?? '');
       })
       .catch(() => {})
       .finally(() => setLoaded(true));
@@ -91,8 +62,6 @@ export function LaunchStatusCard({ label, icon = '🚀', endpoint, previewUrl, o
       setEnabled(j.enabled ?? false);
       setLaunchDate(j.launchDate ?? '');
       setDraft(isoToLocal(j.launchDate ?? ''));
-      setAutoLaunch(j.autoLaunch ?? false);
-      setLastAutoLaunchedAt(j.lastAutoLaunchedAt ?? '');
       onMessage?.(successMsg, 'success');
       return true;
     } catch {
@@ -117,26 +86,10 @@ export function LaunchStatusCard({ label, icon = '🚀', endpoint, previewUrl, o
     setSavingDate(false);
   }
 
-  async function toggleAuto() {
-    setTogglingAuto(true);
-    await patch(
-      { autoLaunch: !autoLaunch },
-      autoLaunch ? 'Auto-launch disabled' : 'Auto-launch scheduled',
-    );
-    setTogglingAuto(false);
-  }
-
   if (!loaded) return null;
 
   const draftIso = localToIso(draft);
   const dateChanged = draftIso !== launchDate;
-
-  // Three-state status readout shown beneath the toggle/date controls:
-  //   SCHEDULED   — Coming Soon on + auto-launch on + launch date set
-  //   MANUAL      — any state where the cron won't fire automatically
-  //   LAST FIRED  — shown when lastAutoLaunchedAt has a value (audit trail)
-  const scheduled = enabled && autoLaunch && !!launchDate;
-  const autoLaunchAllowed = enabled && !!launchDate;    // checkbox only makes sense with a target
 
   return (
     <div style={{ background: enabled ? '#FFFBEB' : '#F0FFF4', border: `1px solid ${enabled ? '#FDE68A' : '#BBF7D0'}`, borderRadius: 12, padding: '20px 24px', marginBottom: 24 }}>
@@ -192,52 +145,6 @@ export function LaunchStatusCard({ label, icon = '🚀', endpoint, previewUrl, o
               style={{ padding: '8px 14px', borderRadius: 7, border: '1px solid #D1D5DB', fontSize: 12, fontWeight: 700, cursor: 'pointer', background: '#fff', color: '#6B7280' }}>
               Clear
             </button>
-          )}
-        </div>
-      )}
-
-      {/* Auto-launch checkbox + status readout are gated behind
-          AUTO_LAUNCH_UI_ENABLED — see the flag comment at top of file for
-          the Vercel Hobby constraint. When the flag is off this collapses
-          to zero UI; the backend (migration 118, /api/cron/auto-launch-check,
-          PATCH fields) still exists and is ready when the flag flips. */}
-      {AUTO_LAUNCH_UI_ENABLED && enabled && (
-        <div style={{ marginTop: 12, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          <label
-            title={!launchDate ? 'Set a launch date first to enable auto-launch.' : ''}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: autoLaunchAllowed ? 'pointer' : 'not-allowed', opacity: autoLaunchAllowed ? 1 : 0.55, userSelect: 'none' }}>
-            <input
-              type="checkbox"
-              checked={autoLaunch}
-              disabled={!autoLaunchAllowed || togglingAuto}
-              onChange={toggleAuto}
-              style={{ width: 16, height: 16, accentColor: '#1B4F8A', cursor: autoLaunchAllowed ? 'pointer' : 'not-allowed' }}
-            />
-            <span style={{ fontSize: 12, fontWeight: 600, color: '#1B3A6B' }}>
-              Auto-launch at this date and time
-            </span>
-          </label>
-          {togglingAuto && (
-            <span style={{ fontSize: 11, color: '#9CA3AF' }}>updating…</span>
-          )}
-        </div>
-      )}
-
-      {AUTO_LAUNCH_UI_ENABLED && (
-        <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed #E5E7EB', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {scheduled ? (
-            <div style={{ fontSize: 12, color: '#1B4F8A', fontWeight: 600 }}>
-              ⏱ Scheduled: auto-launch at <strong>{formatReadable(launchDate)}</strong>
-            </div>
-          ) : (
-            <div style={{ fontSize: 12, color: '#6B7280', fontWeight: 500 }}>
-              Manual control — admin must toggle this hub live.
-            </div>
-          )}
-          {lastAutoLaunchedAt && (
-            <div style={{ fontSize: 11, color: '#1A7A30', fontWeight: 500 }}>
-              ✅ Last auto-launched at <strong>{formatReadable(lastAutoLaunchedAt)}</strong> by system
-            </div>
           )}
         </div>
       )}

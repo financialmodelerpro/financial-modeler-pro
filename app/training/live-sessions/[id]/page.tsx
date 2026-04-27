@@ -9,6 +9,7 @@ import { TrainingShell } from '@/src/components/training/TrainingShell';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/components/training/player/CoursePlayerLayout';
 import { WatchProgressBar } from '@/src/components/training/WatchProgressBar';
 import { CalendarDropdown } from '@/src/components/training/CalendarDropdown';
+import { extractYouTubeId } from '@/src/lib/shared/cms';
 
 interface Attachment { id: string; file_name: string; file_url: string; file_type: string; file_size: number }
 interface Session {
@@ -19,12 +20,6 @@ interface Session {
   difficulty_level: string; prerequisites: string; instructor_name: string; tags: string[];
   is_featured: boolean; live_password: string; registration_url: string | null;
   youtube_embed?: boolean; instructor_title?: string; show_like_button?: boolean;
-}
-
-function extractYouTubeId(url: string): string | null {
-  if (!url) return null;
-  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/);
-  return m ? m[1] : null;
 }
 
 function fmtDate(iso: string): string {
@@ -639,8 +634,6 @@ export default function LiveSessionDetailPage() {
         sessionType={effType}
         liveUrl={session.live_url}
         isLoggedIn={true}
-        sessions={playlistSessions}
-        currentSessionId={session.id}
         backUrl="/training/dashboard?tab=live-sessions"
         backLabel="Live Sessions"
         topContent={registerCard}
