@@ -24,8 +24,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Access Whitelist',  href: '/admin/modeling-access',                icon: '🔑' },
   { label: 'Users',             href: '/admin/users',                          icon: '👥' },
   { label: 'Pricing',           href: '/admin/pricing',                        icon: '💰' },
-  { label: 'User Overrides',    href: '/admin/overrides',                      icon: '🎯' },
-  { label: 'Permissions',       href: '/admin/permissions',                    icon: '🔐' },
   { label: 'Branding',          href: '/admin/branding',                       icon: '🎨' },
   { label: 'Projects',          href: '/admin/projects',                       icon: '📁' },
   { type: 'divider',            label: 'Training Hub' },

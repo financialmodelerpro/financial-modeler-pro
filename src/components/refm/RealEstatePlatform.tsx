@@ -22,7 +22,6 @@ import VersionModal from './modals/VersionModal';
 import RbacModal from './modals/RbacModal';
 import ExportModal from './modals/ExportModal';
 import UpgradePrompt from '@/src/components/shared/UpgradePrompt';
-import { useSubscription } from '@/src/hooks/useSubscription';
 
 // ── Storage helpers ──────────────────────────────────────────────────────────
 export interface StorageProject {
@@ -128,7 +127,10 @@ export default function RealEstatePlatform() {
   const [sidebarSubOpen, setSidebarSubOpen] = useState(true);
 
   // ── Subscription / plan gating ──
-  const { canAccess, loaded: subLoaded } = useSubscription();
+  // Pre-launch: lock all premium features. Permissions system removed in Phase 5
+  // of the admin cleanup; restore real plan-based gating before charging users.
+  const canAccess = (_featureKey: string) => false;
+  const subLoaded = true;
   const [upgradePrompt, setUpgradePrompt] = useState<{ featureKey: string; requiredPlan: 'professional' | 'enterprise' } | null>(null);
   const [exportModalOpen, setExportModalOpen] = useState(false);
 

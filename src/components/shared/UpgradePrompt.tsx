@@ -1,10 +1,11 @@
 'use client';
 
 import React from 'react';
-import type { FeatureKey, SubscriptionPlan } from '@/src/types/subscription.types';
+
+type SubscriptionPlan = 'free' | 'professional' | 'enterprise';
 
 // ── Human-readable labels for every feature key ───────────────────────────────
-const FEATURE_LABELS: Partial<Record<FeatureKey, string>> = {
+const FEATURE_LABELS: Record<string, string> = {
   module_1:           'Module 1 - Project Setup',
   module_2:           'Module 2 - Revenue Analysis',
   module_3:           'Module 3 - Operating Expenses',
@@ -45,7 +46,7 @@ const PLAN_COLOR: Record<SubscriptionPlan, string> = {
 // ── Props ─────────────────────────────────────────────────────────────────────
 export interface UpgradePromptProps {
   /** The feature key that is locked */
-  featureKey: FeatureKey | string;
+  featureKey: string;
   /** The minimum plan that unlocks it */
   requiredPlan: SubscriptionPlan;
   /** Optional: render inline (compact banner) vs card (larger) */
@@ -63,7 +64,7 @@ export default function UpgradePrompt({
   message,
   className,
 }: UpgradePromptProps) {
-  const featureLabel = FEATURE_LABELS[featureKey as FeatureKey] ?? featureKey;
+  const featureLabel = FEATURE_LABELS[featureKey] ?? featureKey;
   const planLabel    = PLAN_LABELS[requiredPlan];
   const planColor    = PLAN_COLOR[requiredPlan];
 

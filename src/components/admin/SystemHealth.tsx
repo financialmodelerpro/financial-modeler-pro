@@ -37,22 +37,7 @@ export default function SystemHealth() {
       results.push({ name: 'API Health', status: 'error', detail: String(e) });
     }
 
-    // 2. Permissions API (hits Supabase indirectly)
-    try {
-      const t0  = Date.now();
-      const res = await fetch('/api/permissions');
-      const lat = Date.now() - t0;
-      results.push({
-        name:    'Permissions API',
-        status:  res.ok ? 'ok' : res.status === 401 ? 'warn' : 'error',
-        detail:  res.ok ? `${lat}ms` : res.status === 401 ? 'Auth required (expected)' : `HTTP ${res.status}`,
-        latency: lat,
-      });
-    } catch (e) {
-      results.push({ name: 'Permissions API', status: 'error', detail: String(e) });
-    }
-
-    // 3. Environment variables - server-side check (avoids Next.js static inlining limitation)
+    // 2. Environment variables - server-side check (avoids Next.js static inlining limitation)
     try {
       const res = await fetch('/api/admin/env-check');
       if (res.ok) {
@@ -77,7 +62,7 @@ export default function SystemHealth() {
       results.push({ name: 'Env Vars', status: 'error', detail: String(e) });
     }
 
-    // 4. Browser storage
+    // 3. Browser storage
     try {
       localStorage.setItem('__health_test', '1');
       localStorage.removeItem('__health_test');

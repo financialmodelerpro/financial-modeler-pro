@@ -1,7 +1,6 @@
 'use client';
 
 import React from 'react';
-import type { SubscriptionPlan } from '@/src/types/subscription.types';
 
 interface PlanBadgeProps {
   requiredPlan: 'professional' | 'enterprise';
@@ -38,6 +37,3 @@ export default function PlanBadge({ requiredPlan }: PlanBadgeProps) {
     </span>
   );
 }
-
-// Re-export type for use in other files
-export type { SubscriptionPlan };

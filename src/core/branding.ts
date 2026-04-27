@@ -1,5 +1,4 @@
 import { BrandingConfig, PlatformEntry, PlatformOverride } from '../types/branding.types';
-import { UserSubscription } from '../types/subscription.types';
 
 // ── Storage key (bump version to clear stale cached configs) ─────────────────
 export const BRANDING_KEY = 'fmp_branding_v3';
@@ -65,13 +64,6 @@ export const PLATFORM_REGISTRY: PlatformEntry[] = [
     version:     null,
   },
 ];
-
-// ── Subscription (stub - replace with real session lookup) ───────────────────
-export const USER_SUBSCRIPTION: UserSubscription = {
-  userId:    'user_001',
-  plan:      'Professional',
-  platforms: ['refm'],
-};
 
 // ── Load branding (sync: localStorage → DEFAULT) ─────────────────────────────
 export function loadBranding(): BrandingConfig {
@@ -144,11 +136,6 @@ export function getPlatformLogo(b: BrandingConfig): { type: 'image' | 'emoji'; v
     return { type: 'image', value: b.platformLogoImage };
   }
   return { type: 'emoji', value: b.platformLogoEmoji || '🏗️' };
-}
-
-// ── Access control ────────────────────────────────────────────────────────────
-export function hasAccess(platformId: string): boolean {
-  return USER_SUBSCRIPTION.platforms.includes(platformId);
 }
 
 // ── Effective platforms for portal grid ──────────────────────────────────────

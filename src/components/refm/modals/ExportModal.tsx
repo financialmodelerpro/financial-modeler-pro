@@ -1,7 +1,8 @@
 'use client';
 
 import React from 'react';
-import type { SubscriptionPlan } from '@/src/types/subscription.types';
+
+type SubscriptionPlan = 'free' | 'professional' | 'enterprise';
 
 interface ExportOption {
   key:          string;

@@ -18,9 +18,6 @@ export const DARKEN_DARK  = 0.12;   // --color-primary-dark
 export const DARKEN_DEEP  = 0.28;   // --color-primary-deep
 export const DARKEN_NAVY  = 0.42;   // --color-primary-navy
 
-// ── Permissions ────────────────────────────────────────────────────────────────
-export const PERMISSIONS_LOAD_TIMEOUT_MS = 8_000;
-
 // ── Project auto-save ──────────────────────────────────────────────────────────
 export const AUTO_SAVE_INTERVAL_MS = 30_000;
 
