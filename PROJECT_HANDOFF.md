@@ -1,5 +1,5 @@
 # Project Handoff — Financial Modeler Pro
-**Snapshot date: 2026-04-27**
+**Snapshot date: 2026-04-28**
 
 Use this file to resume development in a new chat session. Read `CLAUDE.md` first for strict project rules.
 
@@ -119,8 +119,8 @@ Use this file to resume development in a new chat session. Read `CLAUDE.md` firs
 | Certificates management | ✅ Complete | Sync, upload, generate, auto-generation toggle |
 | Training settings | ✅ Complete | Apps Script URL, shuffle toggles, timer bypass |
 | Testimonials (all/training/modeling) | ✅ Complete | Hub-specific filtering |
-| Branding | ✅ Complete (colors-only) | `/admin/branding` slimmed to Brand Colors section in commit `ee959ad` (2026-04-27). Drives `--color-primary` / `--color-secondary` via `BrandingThemeApplier`. Logos + page copy live in Header Settings + Page Builder. |
-| Pricing | ✅ Complete (3 tabs) | `/admin/pricing` ships Plans + Page Content + Platform Pricing tabs. Features + Module Access tabs removed in commit `4a5abe3` (2026-04-27). Plan-based feature gating ripped out in commit `d8405e5`; REFM premium features lock to `false` until paid tiers go live. |
+| Branding | ✅ Merged into Header Settings (2026-04-28, commit `ab5db30`) | Brand Colors section now lives at the top of `/admin/header-settings`. `/admin/branding` is a 5-line server redirect to the new home so existing bookmarks keep working. Same `/api/branding` GET + PATCH endpoints, same `branding_config` table, same `BrandingThemeApplier` consumer — only the editing surface relocated. Sidebar entry removed; Header Settings gains `matchPaths: ['/admin/branding']`. |
+| Pricing | ✅ Single Platform Pricing surface | `/admin/pricing` rewritten 2026-04-28 (commits `50e22fa` + `777e1bf`) — no tab bar. Plans tab + Page Content tab + Pricing Features tab + Module Access tab all removed across 2026-04-27 / 2026-04-28. Migration 145 dropped `pricing_plans` (commit `777e1bf`). Hero text + FAQ for the public `/pricing` page are now edited in **Page Builder → Pricing** (slug='pricing'); the public page reads `page_sections` directly. Plan-based feature gating ripped out in commit `d8405e5`; REFM premium features lock to `false` until paid tiers go live. |
 | Audit log | ✅ Complete | `AuditLogViewer` component |
 | System health | ✅ Complete | `SystemHealth` component |
 | Media management | ✅ Complete | Upload and manage assets |
@@ -150,7 +150,7 @@ Use this file to resume development in a new chat session. Read `CLAUDE.md` firs
 |-----|----------|---------|
 | Join button needs e2e testing | `app/training/live-sessions/[id]/page.tsx` | Logic fixed in `0d95efd` — join link appears 30 min before for registered students. Needs manual test with real upcoming session + registration data. |
 | Certificate badges may show generic icons | Dashboard achievements section | Badge images may show generic fallback instead of actual PNG from Supabase `badges` bucket. Verify `badge_url` is populated in `student_certificates` table. Download API: `GET /api/training/badges/download?certId=` |
-| Pricing enforcement not implemented | REFM | Plan-based feature gating system was removed 2026-04-27 (commit `d8405e5`). REFM `canAccess()` stubs to `false`, locking premium features pre-launch. Pricing tables `pricing_features` + `pricing_modules` were dropped in migration 144. When paid tiers launch, gating returns as a focused new feature spec — server-enforced from day one. |
+| Pricing enforcement not implemented | REFM | Plan-based feature gating system was removed 2026-04-27 (commit `d8405e5`). REFM `canAccess()` stubs to `false`, locking premium features pre-launch. Pricing tables `pricing_features` + `pricing_modules` were dropped in migration 144; the generic `pricing_plans` catalog was dropped in migration 145 (2026-04-28). When paid tiers launch, gating returns as a focused new feature spec — server-enforced from day one, built on the surviving `platform_pricing` + `platform_features` + `plan_feature_access` tables. |
 
 ### P2 — Visual consistency
 
@@ -280,24 +280,20 @@ Configured in `vercel.json`. Calls `processPendingCertificates()` with 5-minute 
 
 ## 7. What Was Last Being Worked On
 
-The last session (2026-04-27) was a **multi-phase admin cleanup** to create a clean foundation before Modeling Hub expansion. Six dead admin surfaces had accumulated over earlier feature pivots; each was load-bearing in some past world but a maintenance tax with zero current value. **Path A (aggressive removal)** chosen because Modeling Hub is still pre-launch with ~6 whitelisted testers — no production load to preserve compatibility with.
+The last session (2026-04-28) was a **follow-up admin cleanup** continuing the trim work from 2026-04-27. Three further surfaces consolidated:
 
-### Changes made (commits `fd0aabf` → `73e3e89`)
-- **Phase 1** (`fd0aabf`): Removed dead Announcements stub (`/admin/announcements` + `AnnouncementsManager.tsx` + API route — queried non-existent `announcements` table). -325 lines.
-- **Phase 2** (`4a5abe3`): Removed Pricing Features + Module Access tabs. Plans + Page Content + Platform Pricing tabs preserved. `/api/admin/pricing/modules/` route deleted. -316 lines.
-- **Phase 3** (`a000fbd`): Removed White-Label feature. `/admin/whitelabel` page + `useWhiteLabel` hook + `BrandingConfig.whiteLabel` field deleted. REFM Topbar reads platform name + logo directly via `getPlatformLogo()`. -390 lines.
-- **Phase 4** (`ee959ad`): Slimmed `/admin/branding` to Brand Colors only. Portal Identity + Logos sections deleted. `BrandingConfig` lost 8 fields. `BrandingThemeApplier` simplified. Orphan `BrandingSettingsPanel.tsx` deleted. -1054 lines.
-- **Phase 5** (`d8405e5`): Removed Permissions / User Overrides / Plans system entirely. 3 admin pages, 2 API routes, server resolver, client cache, 486-line `PermissionsManager`, type definitions all deleted. REFM `canAccess()` stubs to `false`. -1169 lines.
-- **Phase 6** (`b8b6df9`): Migration 144 drops `user_permissions`, `plan_permissions`, `features_registry`, `pricing_features`, `pricing_modules` (CASCADE, IF EXISTS).
-- **Phase 7** (`73e3e89`): CLAUDE.md / DB / FEATURES / ROUTES updated.
+### Changes made (commits `ab5db30` → `777e1bf`)
+- **Part A** (`ab5db30`): Branding merged into Header Settings. After 2026-04-27's Phase 4 reduced `/admin/branding` to two color fields, the dedicated page was a thin wrapper. Brand Colors section moved to the top of `/admin/header-settings`, wired to the same `/api/branding` GET + PATCH endpoints. `saveAll()` now fires the cms_content writes plus `/api/branding` PATCH in parallel. `/admin/branding/page.tsx` reduced to a 5-line server `redirect('/admin/header-settings')`. Sidebar Branding entry removed; Header Settings gains `matchPaths: ['/admin/branding']` so the rail stays highlighted on stale links. `BrandingThemeApplier` + `branding_config` table + `--color-primary` / `--color-secondary` injection all unchanged. Net -349 / +102.
+- **Part B-2** (`50e22fa`): Pricing Page Content tab removed. Diagnosis surfaced a real bug: the tab wrote to `cms_content` (section='pricing_page') but Page Builder writes to `page_sections` (slug='pricing'); the public `/pricing` page only read from `cms_content`, so Page Builder edits for the pricing slug were dead writes. Migration 046 had already seeded `page_sections` correctly, so `/pricing` was repointed to `getAllPageSections('pricing')` — hero badge / title / subtitle from `pricing.hero` content, FAQ items from `pricing.faq` content's `items[]` (with per-item `visible !== false` filter). Tab type narrowed to `'plans' \| 'platform'`. Net -84 / +35.
+- **Part B-1** (`777e1bf`): Plans tab removed + migration 145. The generic Free/Starter/Professional/Enterprise plan catalog (`pricing_plans`, migs 014/018) was the original pricing model but never wired into payment or feature gating — `platform_pricing` + `platform_features` + `plan_feature_access` (migs 076/077) is the canonical per-platform model that drives the public pricing page. Home-page pricing-teaser plan-name pill row removed (only public consumer); replaced with a clean "View Full Pricing →" CTA-only block. With Plans gone + Page Content gone, only Platform Pricing remained — `/admin/pricing/page.tsx` rewritten with no tab bar at all. Files deleted: `app/api/admin/pricing/plans/route.ts`, the local `getPublicPlanNames()` helper in home page, the orphan `getPublicPlanNames()` export in `src/lib/shared/cms.ts`. `Plan` / `UserOption` / `FormState` types + `BLANK_FORM` + `PlanCard` sub-component + plan handlers + user-search effect all gone. Migration 145: `DROP TABLE IF EXISTS pricing_plans CASCADE`. Net -598 / +156.
 
-**Net total**: -3164 lines across 33 files.
+**Net total**: ~-1031 lines across 3 commits, 7 files modified, 1 file deleted, 1 migration created.
 
 ### Manual action required
-- **Apply migration 144 via Supabase dashboard SQL editor before next deploy.** The DROPs are safe to run today — the code that referenced those tables is already gone in prod after the next push.
+- **Apply migration 145 via Supabase dashboard SQL editor before next deploy.** Migration 144 from the 2026-04-27 session has already been run. Migration 145 is idempotent (`IF EXISTS` + `CASCADE`) so re-runs are safe.
 
 ### Unfinished from that session
-None — all 7 phases shipped to `origin/main`. Type-check + full build passed at every step.
+None — all 3 commits shipped to `origin/main`. Type-check + full build passed at every step. Both migrations 144 and 145 confirmed applied in Supabase.
 
 ---
 

@@ -4,6 +4,41 @@
 
 ---
 
+## Recently Completed — Branding merge + Pricing simplification (2026-04-28 session, commits `ab5db30` → `777e1bf`)
+
+| Feature | Status |
+|---------|--------|
+| **Part A — Branding merged into Header Settings** | Complete (commit `ab5db30`). After 2026-04-27 Phase 4 had reduced `/admin/branding` to two color fields, the dedicated page was a thin wrapper. Brand Colors section now lives at the top of `/admin/header-settings`, wired to the same `/api/branding` GET + PATCH endpoints. `saveAll()` fires the cms_content writes plus `/api/branding` PATCH in parallel. `/admin/branding/page.tsx` reduced to a 5-line server `redirect('/admin/header-settings')` so existing bookmarks keep working. Sidebar Branding entry removed; Header Settings gains `matchPaths: ['/admin/branding']`. `branding_config` table + `BrandingThemeApplier` + `--color-primary` / `--color-secondary` injection all unchanged. Net -349 / +102. |
+| **Part B-2 — Pricing Page Content tab removed** | Complete (commit `50e22fa`). Diagnosis surfaced a real bug: the tab wrote to `cms_content` (section='pricing_page') but Page Builder writes to `page_sections` (slug='pricing'); the public `/pricing` page only read from `cms_content`, so Page Builder edits for the pricing slug were dead writes. Migration 046 had already seeded `page_sections` with the right shape. Fix: `/pricing` repointed to `getAllPageSections('pricing')`, hero badge / title / subtitle resolve from `pricing.hero` section, FAQ items resolve from `pricing.faq` section's `items[]` (with per-item `visible !== false` filter). Page Content tab UI deleted; Tab type narrowed to `'plans' \| 'platform'`. |
+| **Part B-1 — Pricing Plans tab removed + migration 145** | Complete (commit `777e1bf`). The generic Free/Starter/Professional/Enterprise plan catalog (`pricing_plans`, migs 014/018) was the original pricing model but never wired into payment or feature gating — `platform_pricing` + `platform_features` + `plan_feature_access` (migs 076/077) is the canonical per-platform model that actually drives the public pricing page. The home-page pricing-teaser plan-name pill row in `app/(portal)/page.tsx` was the only public consumer; replaced with a clean "View Full Pricing →" CTA-only block. With Plans gone + Page Content gone, only Platform Pricing remained, so `/admin/pricing/page.tsx` was rewritten with no tab bar at all (single-purpose surface). Net -598 / +156. |
+
+**Net total**: -1031 lines net across 3 commits (Part A: -247 net; Part B-2: -49 net; Part B-1: -442 net).
+
+**Packages installed this session: none.** All changes were deletions or call-site refactors.
+
+**Schema changes this session:**
+- Migration 145 (`145_drop_pricing_plans.sql`): `DROP TABLE IF EXISTS pricing_plans CASCADE`. Idempotent; re-run is no-op. **Manual Supabase apply required** (run before next deploy that depends on the dropped table).
+
+**New API routes this session: none.** All changes were deletions:
+- `DELETE app/api/admin/pricing/plans/route.ts` (full route directory removed)
+
+**New non-route files this session:**
+- `supabase/migrations/145_drop_pricing_plans.sql`
+
+**Modified files (top-level):**
+- `app/admin/branding/page.tsx` — full rewrite as 5-line server redirect (332 lines → 5 lines)
+- `app/admin/header-settings/page.tsx` — Brand Colors section added at top; dual-write to `/api/branding` in `saveAll()`
+- `app/admin/pricing/page.tsx` — full rewrite as Platform Pricing only (620 lines → 252 lines); no tab bar, no Plans, no Page Content
+- `app/pricing/page.tsx` — repointed to `getAllPageSections('pricing')`; hero + FAQ now from `page_sections`
+- `app/(portal)/page.tsx` — removed local `getPublicPlanNames()` helper + planNames pill row + unused `getServerClient` import
+- `src/lib/shared/cms.ts` — removed orphan `getPublicPlanNames()` export (no remaining importers)
+- `src/components/admin/CmsAdminNav.tsx` — removed Branding nav entry; Header Settings gains `matchPaths: ['/admin/branding']`
+
+**Manual action required**:
+- **Apply migration 145 via Supabase dashboard SQL editor before next deploy.** The DROP is safe to run today — the code that referenced `pricing_plans` is already gone in production after the push.
+
+---
+
 ## Recently Completed — Multi-Phase Admin Cleanup (2026-04-27 session, commits `fd0aabf` → `73e3e89`)
 
 | Feature | Status |
@@ -313,8 +348,8 @@
 | Feature | Current State | What Remains |
 |---------|--------------|--------------|
 | **AI Agents** | Market rates + research agents wired | Contextual help agent (stub only) |
-| **Pricing / Subscriptions** | Plans + Page Content + Platform Pricing tabs at `/admin/pricing`. Plan-based feature gating ripped out 2026-04-27 (commit `d8405e5` — admin-only, no enforcement). REFM premium features now stub `canAccess()` → `false`. | Reintroduce plan-based gating as a focused new feature spec when paid tiers go live (server-enforced from day one, smaller surface than the deleted system). |
-| **Branding** | Colors-only at `/admin/branding` (commit `ee959ad`). Drives `--color-primary` / `--color-secondary` via `BrandingThemeApplier`. | None — Header Settings + Page Builder own logos + page copy. |
+| **Pricing / Subscriptions** | `/admin/pricing` is now a single Platform Pricing surface (no tab bar). Plans + Page Content + Pricing Features + Module Access tabs all removed across 2026-04-27 / 2026-04-28. Migration 145 dropped `pricing_plans`. Page Builder → Pricing owns hero + FAQ for the public page. Plan-based feature gating ripped out (commit `d8405e5`); REFM stubs `canAccess()` → `false`. | Reintroduce plan-based gating as a focused new feature spec when paid tiers go live (server-enforced from day one, built on the surviving `platform_pricing` + `platform_features` + `plan_feature_access` tables). |
+| **Branding** | Brand Colors section moved into `/admin/header-settings` (2026-04-28, commit `ab5db30`). `/admin/branding` is a 5-line redirect. Drives `--color-primary` / `--color-secondary` via `BrandingThemeApplier`. | None — Header Settings owns brand colors + logos + favicon + header text + header layout in one place; Page Builder owns page copy. |
 
 ---
 

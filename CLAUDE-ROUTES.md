@@ -48,7 +48,7 @@ app/admin/
 ├── articles/page.tsx + [id]/ + new/
 ├── audit/page.tsx
 ├── badge-editor/page.tsx           # 5-line redirect -> /admin/certificate-designer?tab=badge (consolidated 2026-04-24)
-├── branding/page.tsx
+├── branding/page.tsx              # 5-line redirect -> /admin/header-settings (2026-04-28, commit ab5db30) — Brand Colors merged into Header Settings. Sidebar entry removed; Header Settings has matchPaths: ['/admin/branding'] so the rail stays highlighted on stale links.
 ├── certificate-designer/           # Consolidated cert design hub (2026-04-24, commit 5d81e06)
 │   ├── page.tsx                    # Tab dispatcher: ?tab=templates|certificate|badge|transcript (default templates)
 │   ├── TemplatesTab.tsx            # 3SFM/BVM cert PDF + badge PNG uploads (was /admin/certificates)
@@ -71,7 +71,7 @@ app/admin/
 ├── page-builder/page.tsx         # CMS page list
 ├── page-builder/[slug]/page.tsx  # Section editor with drag-and-drop
 ├── pages/page.tsx
-├── pricing/page.tsx
+├── pricing/page.tsx                  # 2026-04-28 (commits 50e22fa + 777e1bf): single Platform Pricing surface. Plans tab + Page Content tab + Pricing Features tab + Module Access tab all gone; tab bar removed entirely. Plan-create/edit form, PlanCard sub-component, planFromRow / savePlan / deletePlan / duplicatePlan / user-search effect all deleted. Hero text + FAQ for the public /pricing page are now edited in Page Builder → Pricing.
 ├── projects/page.tsx
 ├── settings/page.tsx
 ├── testimonials/page.tsx + modeling/ + training/
@@ -248,7 +248,7 @@ app/api/admin/
 ├── modeling-register-coming-soon/ # GET/PATCH: Modeling Hub register-side Coming Soon toggle (migration 136)
 ├── modeling-access/             # GET (list entries), POST { email, note } add - modeling_access_whitelist CRUD, admin-gated
 ├── modeling-access/[id]/        # DELETE: revoke whitelist entry by id
-├── pricing/features/ + plans/      # /api/admin/pricing/modules/ DELETED 2026-04-27 (commit 4a5abe3) — Module Access tab removed.
+├── pricing/features/                # /api/admin/pricing/plans/ DELETED 2026-04-28 (commit 777e1bf) — Plans tab removed + migration 145 drops pricing_plans table. /api/admin/pricing/modules/ DELETED 2026-04-27 (commit 4a5abe3). Only /api/admin/pricing/features + /coupons + /platform remain.
 ├── projects/ testimonials/ training/ + [courseId]/lessons/
 ├── training-actions/ + [id]/
 ├── training-hub/ + analytics/ + assessments/ + certificates/

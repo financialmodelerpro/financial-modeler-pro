@@ -49,7 +49,7 @@
 | Table | Purpose |
 |-------|---------|
 | `site_pages` | Dynamic nav pages with href, label, ordering |
-| `branding_config` | Brand colors (primary, secondary). Drives `--color-primary` / `--color-secondary` CSS tokens via `BrandingThemeApplier`. Slimmed in commit `ee959ad` to colors-only — page logos + header copy live in `cms_content.header_settings`. |
+| `branding_config` | Brand colors (primary, secondary). Drives `--color-primary` / `--color-secondary` CSS tokens via `BrandingThemeApplier`. Slimmed in commit `ee959ad` to colors-only; the editing UI was relocated from `/admin/branding` into `/admin/header-settings` in commit `ab5db30` (2026-04-28). Page logos + header copy live in `cms_content.header_settings`. |
 | `articles` | Blog/knowledge base articles |
 | `announcements` | Site-wide announcements |
 | `testimonials` | Student/user testimonials (hub-tagged) |
