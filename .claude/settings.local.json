@@ -111,7 +111,17 @@
       "Bash(git diff *)",
       "Bash(sed -n '1058,1106p' \"D:/FMP/financial-modeler-pro/app/admin/training-hub/live-sessions/page.tsx\")",
       "Read(//tmp/**)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(echo \"=== server redirects ===\" grep -rn \"redirect.*['\\\\\"]\\\\\\\\?/login\" D:/FMP/financial-modeler-pro/app D:/FMP/financial-modeler-pro/src)",
+      "Bash(echo \"EXIT=$?\" echo \"\" echo \"=== New session files \\(this session's net adds / deletes / key touches\\) ===\" git diff --stat HEAD~20..HEAD)",
+      "Bash(rm -f apply-migration.mjs /tmp/dot.env)",
+      "Bash(ls node_modules/pg)",
+      "Bash(git *)",
+      "Bash(xargs cat *)",
+      "Bash(rm -v app/admin/announcements/page.tsx app/api/admin/announcements/route.ts src/components/admin/AnnouncementsManager.tsx)",
+      "Bash(rmdir app/admin/announcements app/api/admin/announcements)",
+      "Bash(ls -la app/admin/announcements)"
     ]
   }
 }

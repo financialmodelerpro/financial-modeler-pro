@@ -6,8 +6,8 @@ import { signOut } from 'next-auth/react';
 import type { Role } from '@/src/types/settings.types';
 import type { PermissionMap } from '@/src/types/settings.types';
 import { ROLE_META } from '@/src/core/core-state';
-import { useWhiteLabel } from '@/src/hooks/useWhiteLabel';
 import { useBrandingStore } from '@/src/core/core-state';
+import { getPlatformLogo } from '@/src/core/branding';
 import OfficeColorPicker from '@/src/components/ui/OfficeColorPicker';
 import type { StorageProject } from './RealEstatePlatform';
 
@@ -103,7 +103,11 @@ export default function Topbar({
   onExportClick,
 }: TopbarProps) {
   const roleMeta = ROLE_META[currentUserRole];
-  const { displayName, displayLogo, displayLogoEmoji } = useWhiteLabel();
+  const branding = useBrandingStore((s) => s.branding);
+  const platformLogo = getPlatformLogo(branding);
+  const displayName = branding.platformName;
+  const displayLogo = platformLogo.type === 'image' ? platformLogo.value : null;
+  const displayLogoEmoji = platformLogo.type === 'emoji' ? platformLogo.value : '🏗️';
   const [colorPanelOpen, setColorPanelOpen] = useState(false);
   const [colorPanelPos,  setColorPanelPos]  = useState({ top: 0, left: 0 });
   const colorBtnRef = useRef<HTMLButtonElement>(null);

@@ -22,13 +22,6 @@ export const DEFAULT_BRANDING: BrandingConfig = {
   primaryColor:   '#1E3A8A',
   secondaryColor: '#3B82F6',
 
-  whiteLabel: {
-    enabled:          false,
-    clientName:       '',
-    clientLogo:       null,
-    clientPrimaryColor: null,
-  },
-
   platforms:         null, // null → use PLATFORM_REGISTRY as-is
   platformOverrides: {},
   customDomain:      null,
@@ -96,11 +89,9 @@ export function loadBranding(): BrandingConfig {
     const raw = localStorage.getItem(BRANDING_KEY);
     if (raw) {
       const parsed = JSON.parse(raw) as Partial<BrandingConfig>;
-      // Deep-merge whiteLabel so partial saves don't lose subfields
       return {
         ...DEFAULT_BRANDING,
         ...parsed,
-        whiteLabel: { ...DEFAULT_BRANDING.whiteLabel, ...(parsed.whiteLabel ?? {}) },
         platformOverrides: parsed.platformOverrides ?? {},
       };
     }
@@ -128,7 +119,6 @@ export async function fetchRemoteBranding(): Promise<BrandingConfig | null> {
     return {
       ...DEFAULT_BRANDING,
       ...remote,
-      whiteLabel: { ...DEFAULT_BRANDING.whiteLabel, ...(remote.whiteLabel ?? {}) },
       platformOverrides: remote.platformOverrides ?? {},
     };
   } catch (_e) {
@@ -148,8 +138,6 @@ export function saveBranding(config: BrandingConfig): void {
 }
 
 async function _pushToSupabase(config: BrandingConfig): Promise<void> {
-  // Route through the API so the server can enforce the enterprise gate
-  // on white-label fields and use the service-role key securely.
   await fetch('/api/branding', {
     method:  'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -178,13 +166,6 @@ export function getPlatformLogo(b: BrandingConfig): { type: 'image' | 'emoji'; v
 // ── Access control ────────────────────────────────────────────────────────────
 export function hasAccess(platformId: string): boolean {
   return USER_SUBSCRIPTION.platforms.includes(platformId);
-}
-
-/** Feature-level access gate - enterprise-only features return false for lower plans. */
-export function canAccessFeature(feature: 'white_label', plan: string): boolean {
-  const enterpriseOnly: string[] = ['white_label'];
-  if (enterpriseOnly.includes(feature)) return plan === 'enterprise';
-  return true;
 }
 
 // ── Effective platforms for portal grid ──────────────────────────────────────

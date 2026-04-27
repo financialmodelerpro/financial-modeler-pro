@@ -20,7 +20,6 @@ const DEFAULT: BrandingConfig = {
   platformLogoImage: null,
   primaryColor: '#1B4F8A',
   secondaryColor: '#2EAA4A',
-  whiteLabel: { enabled: false, clientName: '', clientLogo: null, clientPrimaryColor: null },
   platforms: null,
   platformOverrides: {},
   customDomain: null,
@@ -368,13 +367,6 @@ export default function BrandingAdminPage() {
     setConfig((prev) => ({ ...prev, ...partial }));
   }
 
-  function patchWL(partial: Partial<BrandingConfig['whiteLabel']>) {
-    setConfig((prev) => ({
-      ...prev,
-      whiteLabel: { ...prev.whiteLabel, ...partial },
-    }));
-  }
-
   // ── Load on mount ──────────────────────────────────────────────────────────
   useEffect(() => {
     let cancelled = false;
@@ -435,7 +427,7 @@ export default function BrandingAdminPage() {
               Branding Settings
             </h1>
             <p style={{ fontSize: 13, color: '#6B7280' }}>
-              Configure platform identity, logos, colors, and white-label options.
+              Configure platform identity, logos, and brand colors.
             </p>
           </div>
 
@@ -612,95 +604,6 @@ export default function BrandingAdminPage() {
               </div>
             </section>
 
-            {/* ── Section 4 - White-Label ──────────────────────────────────── */}
-            <section style={S.card}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 16 }}>🏷️</span>
-                  <span style={{ fontSize: 16, fontWeight: 700, color: '#1B3A6B' }}>White-Label</span>
-                  <span style={S.enterpriseBadge}>Enterprise Only</span>
-                </div>
-
-                {/* Enable toggle */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 12, color: '#6B7280', fontWeight: 600 }}>
-                    {config.whiteLabel.enabled ? 'Enabled' : 'Disabled'}
-                  </span>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={config.whiteLabel.enabled}
-                    onClick={() => patchWL({ enabled: !config.whiteLabel.enabled })}
-                    style={S.toggleTrack(config.whiteLabel.enabled)}
-                  >
-                    <span style={S.toggleThumb(config.whiteLabel.enabled)} />
-                  </button>
-                </div>
-              </div>
-
-              <p style={{ fontSize: 12, color: '#9CA3AF', marginBottom: 20, fontStyle: 'italic' }}>
-                White-label features are available on Enterprise plan. Enable the toggle above to configure.
-              </p>
-
-              <fieldset disabled={!config.whiteLabel.enabled} style={{ border: 'none', padding: 0, margin: 0, opacity: config.whiteLabel.enabled ? 1 : 0.45 }}>
-                <div style={S.grid2}>
-                  <div style={S.fieldGroup}>
-                    <label style={S.label}>Client Name</label>
-                    <input
-                      type="text"
-                      value={config.whiteLabel.clientName}
-                      onChange={(e) => patchWL({ clientName: e.target.value })}
-                      style={S.input}
-                      placeholder="Acme Capital"
-                      disabled={!config.whiteLabel.enabled}
-                    />
-                  </div>
-
-                  <div style={S.fieldGroup}>
-                    <label style={S.label}>Client Primary Color</label>
-                    <div style={S.colorRow}>
-                      <input
-                        type="color"
-                        value={
-                          config.whiteLabel.clientPrimaryColor &&
-                          /^#[0-9A-Fa-f]{6}$/.test(config.whiteLabel.clientPrimaryColor)
-                            ? config.whiteLabel.clientPrimaryColor
-                            : '#000000'
-                        }
-                        onChange={(e) => patchWL({ clientPrimaryColor: e.target.value })}
-                        disabled={!config.whiteLabel.enabled}
-                        style={S.colorSwatch}
-                      />
-                      <input
-                        type="text"
-                        value={config.whiteLabel.clientPrimaryColor ?? ''}
-                        onChange={(e) => {
-                          const raw = e.target.value;
-                          const clean = raw.startsWith('#') ? raw : '#' + raw;
-                          if (/^#[0-9A-Fa-f]{0,6}$/.test(clean)) {
-                            patchWL({ clientPrimaryColor: clean });
-                          }
-                        }}
-                        maxLength={7}
-                        placeholder="#000000"
-                        disabled={!config.whiteLabel.enabled}
-                        style={S.hexInput}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                <div style={S.fieldGroup}>
-                  <LogoField
-                    label="Client Logo"
-                    imageValue={config.whiteLabel.clientLogo}
-                    emojiValue="🏢"
-                    onUpload={(dataUrl) => patchWL({ clientLogo: dataUrl })}
-                    onClear={() => patchWL({ clientLogo: null })}
-                  />
-                </div>
-              </fieldset>
-            </section>
           </>
         )}
       </main>

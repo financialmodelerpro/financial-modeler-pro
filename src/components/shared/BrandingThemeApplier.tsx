@@ -27,9 +27,8 @@ export default function BrandingThemeApplier() {
   // Apply colour tokens whenever branding changes.
   useEffect(() => {
     const root = document.documentElement;
-    const wl   = branding.whiteLabel;
 
-    const primary   = (wl.enabled && wl.clientPrimaryColor) ? wl.clientPrimaryColor : branding.primaryColor;
+    const primary   = branding.primaryColor;
     const secondary = branding.secondaryColor;
 
     // Guard: if primary isn't a valid hex, fall back to the default navy

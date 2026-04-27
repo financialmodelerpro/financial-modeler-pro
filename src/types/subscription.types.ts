@@ -10,8 +10,8 @@ export type FeatureKey =
   // Export
   | 'pdf_basic' | 'pdf_full' | 'pdf_whitelabel'
   | 'excel_static' | 'excel_formula'
-  // Admin & branding
-  | 'white_label' | 'admin_panel'
+  // Admin
+  | 'admin_panel'
   // Limits
   | 'projects_10' | 'projects_unlimited';
 

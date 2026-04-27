@@ -25,7 +25,6 @@ const FEATURE_LABELS: Partial<Record<FeatureKey, string>> = {
   pdf_whitelabel:     'White-Label PDF Export',
   excel_static:       'Excel Export',
   excel_formula:      'Formula Excel Export',
-  white_label:        'White-Label Branding',
   admin_panel:        'Admin Panel',
   projects_10:        'Up to 10 Projects',
   projects_unlimited: 'Unlimited Projects',

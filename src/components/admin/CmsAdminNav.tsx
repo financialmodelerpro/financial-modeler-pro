@@ -26,7 +26,6 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Pricing',           href: '/admin/pricing',                        icon: '💰' },
   { label: 'User Overrides',    href: '/admin/overrides',                      icon: '🎯' },
   { label: 'Permissions',       href: '/admin/permissions',                    icon: '🔐' },
-  { label: 'White-Label',       href: '/admin/whitelabel',                     icon: '🏷️' },
   { label: 'Branding',          href: '/admin/branding',                       icon: '🎨' },
   { label: 'Projects',          href: '/admin/projects',                       icon: '📁' },
   { type: 'divider',            label: 'Training Hub' },

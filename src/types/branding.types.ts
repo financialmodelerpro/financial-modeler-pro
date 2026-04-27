@@ -46,14 +46,6 @@ export interface BrandingConfig {
   primaryColor: string;    // hex, e.g. '#1E3A8A'
   secondaryColor: string;  // hex, e.g. '#3B82F6'
 
-  // ── White-label ──
-  whiteLabel: {
-    enabled: boolean;
-    clientName: string;
-    clientLogo: string | null;
-    clientPrimaryColor: string | null;
-  };
-
   // ── Platform cards (array of overrides shown on portal) ──
   platforms: PlatformOverride[] | null;
 
