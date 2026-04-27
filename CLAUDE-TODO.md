@@ -4,6 +4,67 @@
 
 ---
 
+## Recently Completed — Multi-Phase Admin Cleanup (2026-04-27 session, commits `fd0aabf` → `73e3e89`)
+
+| Feature | Status |
+|---------|--------|
+| **Phase 1 — Dead Announcements stub removed** | Complete (commit `fd0aabf`). `/admin/announcements` page + `AnnouncementsManager.tsx` (212-line CRUD UI) + `/api/admin/announcements` route all queried a non-existent `announcements` table — abandoned sitewide-banners stub. Sidebar entry removed. -325 lines. |
+| **Phase 2 — Pricing Features + Module Access tabs removed** | Complete (commit `4a5abe3`). The two dead tabs at `/admin/pricing` wrote to `pricing_features` and `pricing_modules` — neither the public pricing page nor the Modeling Hub Modules admin (separate `modeling_modules` table) ever read them. Tab UI deleted from `app/admin/pricing/page.tsx`, `/api/admin/pricing/modules/` route deleted. Plans + Page Content + Platform Pricing tabs preserved. -316 lines. |
+| **Phase 3 — White-Label feature removed** | Complete (commit `a000fbd`). `/admin/whitelabel` page + `useWhiteLabel` hook + `BrandingConfig.whiteLabel` field were admin-write-only with REFM Topbar as the lone consumer (per-client name/logo override). Topbar now reads platform name + logo directly from the branding store via `getPlatformLogo()`. The `pdf_whitelabel` REFM export tier is preserved (label only, gating stubs to `false`). Sidebar entry removed. -390 lines. |
+| **Phase 4 — Branding slimmed to colors-only** | Complete (commit `ee959ad`). Portal Identity (5 fields) + Logos (6 fields) sections were admin-write-only with no live consumers (besides the orphan `BrandingSettingsPanel.tsx`, never imported). `BrandingThemeApplier` reads `branding.primaryColor` directly. `getPortalLogo()` deleted; `getPlatformLogo()` retained for REFM Topbar. -1054 lines. |
+| **Phase 5 — Permissions / User Overrides / Plans system removed** | Complete (commit `d8405e5`). The migration 006 trio (`features_registry`, `plan_permissions`, `user_permissions`) backed three sibling admin pages all wrapping the same 486-line `PermissionsManager` component. Read by REFM via `useSubscription()` client cache, but no server-side enforcement existed — gating was advisory. **Path A (aggressive)**: ripped out the entire stack. REFM premium features now stub `canAccess()` → `false` (existing `<UpgradePrompt>` overlays + lock indicators continue to render). Files deleted: 3 admin pages, 2 API routes, `src/lib/shared/permissions.ts`, `src/hooks/useSubscription.ts`, `src/components/admin/PermissionsManager.tsx`, `src/types/subscription.types.ts`. Inline-replaced: ExportModal / UpgradePrompt / PlanBadge keep `'free' \| 'professional' \| 'enterprise'` union locally. `core/branding.ts` lost the unused `USER_SUBSCRIPTION` stub + `hasAccess()`. SystemHealth lost its `/api/permissions` probe. -1169 lines, 2 sidebar entries removed. |
+| **Phase 6 — Migration 144** | Complete (commit `b8b6df9`). `DROP TABLE IF EXISTS … CASCADE` on the 5 dead tables: `user_permissions`, `plan_permissions`, `features_registry`, `pricing_features`, `pricing_modules`. **Apply manually via Supabase dashboard before deploy.** |
+| **Phase 7 — CLAUDE.md / DB / FEATURES / ROUTES docs** | Complete (commit `73e3e89`). All four primary docs reflect the cleanup. |
+
+**Net total**: -3164 lines across 33 files; 11 admin pages/components/hooks/types deleted; 4 API routes deleted; 5 DB tables dropped (migration 144); 2 sidebar sections cleaned (User Overrides + Permissions removed; White-Label removed; Announcements removed earlier).
+
+**Packages installed this session: none.** All changes were deletions or call-site refactors.
+
+**Schema changes this session:**
+- Migration 144 (`144_admin_cleanup.sql`): drops `user_permissions`, `plan_permissions`, `features_registry`, `pricing_features`, `pricing_modules` with `IF EXISTS … CASCADE`. Idempotent; re-run is no-op. **Manual Supabase apply required.**
+
+**New API routes this session: none.** All changes were deletions:
+- `DELETE /api/admin/announcements/route.ts`
+- `DELETE /api/admin/pricing/modules/route.ts`
+- `DELETE /api/permissions/route.ts`
+- `DELETE /api/admin/permissions/route.ts`
+
+**New non-route files this session:**
+- `supabase/migrations/144_admin_cleanup.sql`
+
+**Deleted files (admin pages):**
+- `app/admin/announcements/page.tsx`
+- `app/admin/whitelabel/page.tsx`
+- `app/admin/permissions/page.tsx`
+- `app/admin/overrides/page.tsx`
+- `app/admin/plans/page.tsx`
+
+**Deleted files (lib / hooks / components / types):**
+- `src/lib/shared/permissions.ts`
+- `src/hooks/useSubscription.ts`
+- `src/hooks/useWhiteLabel.ts`
+- `src/components/admin/AnnouncementsManager.tsx`
+- `src/components/admin/PermissionsManager.tsx`
+- `src/components/shared/BrandingSettingsPanel.tsx`
+- `src/types/subscription.types.ts`
+
+**Modified files (call-site refactors):**
+- `app/admin/pricing/page.tsx` (Tab union narrowed; state, useEffects, JSX for Features + Modules tabs deleted)
+- `app/admin/branding/page.tsx` (full rewrite; Brand Colors only)
+- `src/types/branding.types.ts` (`whiteLabel` + `portalLogo*` + 4 portal text fields removed from `BrandingConfig`)
+- `src/core/branding.ts` (`whiteLabel` merge logic, `getPortalLogo`, `canAccessFeature`, `USER_SUBSCRIPTION`, `hasAccess` deleted)
+- `src/components/refm/Topbar.tsx` (uses `getPlatformLogo` + branding store directly, no `useWhiteLabel`)
+- `src/components/refm/RealEstatePlatform.tsx` (`useSubscription` import dropped, replaced by `canAccess: () => false` + `subLoaded: true` stub)
+- `src/components/refm/PlanBadge.tsx` (no longer re-exports `SubscriptionPlan`)
+- `src/components/refm/modals/ExportModal.tsx` (inline `SubscriptionPlan` union)
+- `src/components/shared/UpgradePrompt.tsx` (inline `SubscriptionPlan`, `FEATURE_LABELS` typed as `Record<string, string>`)
+- `src/components/shared/BrandingThemeApplier.tsx` (no `wl.enabled` branch, reads `branding.primaryColor` directly)
+- `src/components/admin/SystemHealth.tsx` (`/api/permissions` probe removed; check labels renumbered)
+- `src/components/admin/CmsAdminNav.tsx` (Announcements + User Overrides + Permissions + White-Label sidebar entries removed)
+- `src/constants/app.ts` (`PERMISSIONS_LOAD_TIMEOUT_MS` removed)
+
+---
+
 ## Recently Completed - Teams Calendar Rebuild + Announcement Reliability + Mobile Player (2026-04-22 session, commits `6c29bf5` → `8db26e8`)
 
 | Feature | Status |
@@ -252,8 +313,8 @@
 | Feature | Current State | What Remains |
 |---------|--------------|--------------|
 | **AI Agents** | Market rates + research agents wired | Contextual help agent (stub only) |
-| **Pricing / Subscriptions** | Plans + features in DB | Enforcement partial — needs gating logic |
-| **White-label / Branding** | DB-driven config, BrandingThemeApplier wired | Full theming coverage |
+| **Pricing / Subscriptions** | Plans + Page Content + Platform Pricing tabs at `/admin/pricing`. Plan-based feature gating ripped out 2026-04-27 (commit `d8405e5` — admin-only, no enforcement). REFM premium features now stub `canAccess()` → `false`. | Reintroduce plan-based gating as a focused new feature spec when paid tiers go live (server-enforced from day one, smaller surface than the deleted system). |
+| **Branding** | Colors-only at `/admin/branding` (commit `ee959ad`). Drives `--color-primary` / `--color-secondary` via `BrandingThemeApplier`. | None — Header Settings + Page Builder own logos + page copy. |
 
 ---
 

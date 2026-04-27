@@ -1,5 +1,5 @@
 # Project Handoff — Financial Modeler Pro
-**Snapshot date: 2026-04-10**
+**Snapshot date: 2026-04-27**
 
 Use this file to resume development in a new chat session. Read `CLAUDE.md` first for strict project rules.
 
@@ -110,7 +110,6 @@ Use this file to resume development in a new chat session. Read `CLAUDE.md` firs
 | CMS management | ✅ Complete | Content editing |
 | Page builder | ✅ Complete | Page list + section editor with drag-and-drop |
 | Articles CRUD | ✅ Complete | List + new + edit pages |
-| Announcements | ✅ Complete | `AnnouncementsManager` component |
 | Users management | ✅ Complete | User list and management |
 | Training Hub section | ✅ Complete | 9 specialized sub-pages |
 | Live Sessions management | ✅ Complete | Full CRUD + notifications + registrations modal |
@@ -120,18 +119,15 @@ Use this file to resume development in a new chat session. Read `CLAUDE.md` firs
 | Certificates management | ✅ Complete | Sync, upload, generate, auto-generation toggle |
 | Training settings | ✅ Complete | Apps Script URL, shuffle toggles, timer bypass |
 | Testimonials (all/training/modeling) | ✅ Complete | Hub-specific filtering |
-| Branding / white-label | 🟡 Partial | DB-driven config exists, full theming coverage incomplete |
-| Pricing / plans | 🟡 Partial | Plans + features in DB, enforcement not fully wired |
-| Permissions (RBAC) | ✅ Complete | `PermissionsManager` component |
+| Branding | ✅ Complete (colors-only) | `/admin/branding` slimmed to Brand Colors section in commit `ee959ad` (2026-04-27). Drives `--color-primary` / `--color-secondary` via `BrandingThemeApplier`. Logos + page copy live in Header Settings + Page Builder. |
+| Pricing | ✅ Complete (3 tabs) | `/admin/pricing` ships Plans + Page Content + Platform Pricing tabs. Features + Module Access tabs removed in commit `4a5abe3` (2026-04-27). Plan-based feature gating ripped out in commit `d8405e5`; REFM premium features lock to `false` until paid tiers go live. |
 | Audit log | ✅ Complete | `AuditLogViewer` component |
 | System health | ✅ Complete | `SystemHealth` component |
 | Media management | ✅ Complete | Upload and manage assets |
 | Modules config | ✅ Complete | Module configuration panel |
-| Founder profile | ✅ Complete | Admin founder page editor |
+| Founder profile | ✅ Complete | Admin founder page editor (Page Builder → team) |
 | Contact submissions | ✅ Complete | View + update status |
 | Projects browser | ✅ Complete | REFM saved projects |
-| Overrides | ✅ Complete | System overrides panel |
-| White-label settings | 🟡 Partial | Settings exist, full coverage pending |
 
 ### Cross-Platform
 
@@ -154,7 +150,7 @@ Use this file to resume development in a new chat session. Read `CLAUDE.md` firs
 |-----|----------|---------|
 | Join button needs e2e testing | `app/training/live-sessions/[id]/page.tsx` | Logic fixed in `0d95efd` — join link appears 30 min before for registered students. Needs manual test with real upcoming session + registration data. |
 | Certificate badges may show generic icons | Dashboard achievements section | Badge images may show generic fallback instead of actual PNG from Supabase `badges` bucket. Verify `badge_url` is populated in `student_certificates` table. Download API: `GET /api/training/badges/download?certId=` |
-| Pricing enforcement not wired | Modeling Hub | `pricing_plans`, `pricing_features`, `pricing_modules` tables have data but gating logic in app is incomplete. Users can access features regardless of plan. |
+| Pricing enforcement not implemented | REFM | Plan-based feature gating system was removed 2026-04-27 (commit `d8405e5`). REFM `canAccess()` stubs to `false`, locking premium features pre-launch. Pricing tables `pricing_features` + `pricing_modules` were dropped in migration 144. When paid tiers launch, gating returns as a focused new feature spec — server-enforced from day one. |
 
 ### P2 — Visual consistency
 
@@ -168,7 +164,6 @@ Use this file to resume development in a new chat session. Read `CLAUDE.md` firs
 | Bug | Location | Details |
 |-----|----------|---------|
 | Instructor title fallback text | `app/training-sessions/[id]/DetailClient.tsx:268` | Falls back to "Financial Modeling Expert" when title is empty. May not be desired for all instructors. Null guards are in place (`&&` and `||`). |
-| White-label theming gaps | `BrandingThemeApplier` | Config is DB-driven but not all components consume the theme variables. |
 
 ### Not bugs — verified working
 - Instructor title null checks: properly guarded with `&&` / `||` across all surfaces
@@ -285,23 +280,24 @@ Configured in `vercel.json`. Calls `processPendingCertificates()` with 5-minute 
 
 ## 7. What Was Last Being Worked On
 
-The last session (2026-04-09) focused on **Live Sessions UI polish** across four surfaces:
+The last session (2026-04-27) was a **multi-phase admin cleanup** to create a clean foundation before Modeling Hub expansion. Six dead admin surfaces had accumulated over earlier feature pivots; each was load-bearing in some past world but a maintenance tax with zero current value. **Path A (aggressive removal)** chosen because Modeling Hub is still pre-launch with ~6 whitelisted testers — no production load to preserve compatibility with.
 
-### Changes made
-- Refactored public training-sessions pages to server+client split (`SessionsClient.tsx`, `DetailClient.tsx`)
-- Added watch tracking API (`/api/training/live-sessions/[id]/watched/`)
-- Added batch registration status API
-- Redesigned dashboard overview preview cards (3-column layout)
-- Redesigned learn homepage preview (`UpcomingSessionsPreview.tsx`)
-- Added YouTube embed quick toggle in admin
-- Added instructor title field across all surfaces
-- Fixed join button logic for registered students
-- Added free access to recorded sessions
+### Changes made (commits `fd0aabf` → `73e3e89`)
+- **Phase 1** (`fd0aabf`): Removed dead Announcements stub (`/admin/announcements` + `AnnouncementsManager.tsx` + API route — queried non-existent `announcements` table). -325 lines.
+- **Phase 2** (`4a5abe3`): Removed Pricing Features + Module Access tabs. Plans + Page Content + Platform Pricing tabs preserved. `/api/admin/pricing/modules/` route deleted. -316 lines.
+- **Phase 3** (`a000fbd`): Removed White-Label feature. `/admin/whitelabel` page + `useWhiteLabel` hook + `BrandingConfig.whiteLabel` field deleted. REFM Topbar reads platform name + logo directly via `getPlatformLogo()`. -390 lines.
+- **Phase 4** (`ee959ad`): Slimmed `/admin/branding` to Brand Colors only. Portal Identity + Logos sections deleted. `BrandingConfig` lost 8 fields. `BrandingThemeApplier` simplified. Orphan `BrandingSettingsPanel.tsx` deleted. -1054 lines.
+- **Phase 5** (`d8405e5`): Removed Permissions / User Overrides / Plans system entirely. 3 admin pages, 2 API routes, server resolver, client cache, 486-line `PermissionsManager`, type definitions all deleted. REFM `canAccess()` stubs to `false`. -1169 lines.
+- **Phase 6** (`b8b6df9`): Migration 144 drops `user_permissions`, `plan_permissions`, `features_registry`, `pricing_features`, `pricing_modules` (CASCADE, IF EXISTS).
+- **Phase 7** (`73e3e89`): CLAUDE.md / DB / FEATURES / ROUTES updated.
+
+**Net total**: -3164 lines across 33 files.
+
+### Manual action required
+- **Apply migration 144 via Supabase dashboard SQL editor before next deploy.** The DROPs are safe to run today — the code that referenced those tables is already gone in prod after the next push.
 
 ### Unfinished from that session
-1. **No universal SessionCard component** — `src/components/sessions/` does not exist. Each surface (public, dashboard, student listing) renders its own card markup inline.
-2. **Card design inconsistency** — public page cards, dashboard preview cards, and student listing cards all look different.
-3. **Join button** — logic is in place but untested with real registration data.
+None — all 7 phases shipped to `origin/main`. Type-check + full build passed at every step.
 
 ---
 
@@ -313,9 +309,8 @@ The last session (2026-04-09) focused on **Live Sessions UI polish** across four
 3. Verify badge images display correctly (check `badge_url` population)
 
 ### Short-term
-4. Wire up pricing/subscription enforcement (plans exist in DB)
+4. Reintroduce pricing/subscription enforcement as a focused new feature spec when paid tiers go live (the previous system was removed 2026-04-27 in commit `d8405e5` — admin-only with no server-side gating). Server-enforced from day one, smaller surface than the deleted system.
 5. Complete AI contextual help agent (stub exists)
-6. Full white-label theming coverage
 
 ### Medium-term
 7. REFM Module 2: Revenue Analysis
