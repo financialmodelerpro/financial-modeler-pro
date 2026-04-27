@@ -43,6 +43,37 @@ export function darken(hex: string, factor: number): string {
 }
 
 /**
+ * Multi-stop diagonal gradient. Drives every template's default background
+ * when the admin hasn't uploaded a custom one. The diagonal stops give the
+ * brand color a subtle direction while staying entirely opaque, so it can
+ * sit at the bottom of the layer stack. Templates layer a separate radial
+ * highlight div on top via `richBrandHighlight()` for the depth-of-field
+ * effect (kept as separate div rather than comma-separated background to
+ * avoid relying on satori's multi-layer background parser).
+ */
+export function richBrandBackground(primaryColor: string, kind: 'banner' | 'thumbnail' = 'banner'): string {
+  const dark = darken(primaryColor, 0.2);
+  const mid = darken(primaryColor, 0.05);
+  if (kind === 'thumbnail') {
+    return `linear-gradient(135deg, ${dark} 0%, ${primaryColor} 50%, ${darken(primaryColor, 0.25)} 100%)`;
+  }
+  return `linear-gradient(135deg, ${dark} 0%, ${primaryColor} 45%, ${mid} 95%)`;
+}
+
+/**
+ * Soft radial highlight CSS, returned as a single-background string. Templates
+ * render this on a separate absolute-positioned div over the base gradient
+ * so satori never has to parse a multi-layer background. Caller controls
+ * positioning + opacity by wrapping in their own div.
+ */
+export function richBrandHighlight(kind: 'banner' | 'thumbnail' = 'banner'): string {
+  if (kind === 'thumbnail') {
+    return 'radial-gradient(ellipse 70% 60% at 78% 18%, rgba(255,255,255,0.12) 0%, transparent 55%)';
+  }
+  return 'radial-gradient(ellipse 60% 70% at 82% 0%, rgba(255,255,255,0.10) 0%, transparent 58%)';
+}
+
+/**
  * Format an ISO date string for display in banners (en-GB long form).
  * Returns { date: 'Tuesday, 14 March 2026', time: '14:30 Karachi' }.
  */

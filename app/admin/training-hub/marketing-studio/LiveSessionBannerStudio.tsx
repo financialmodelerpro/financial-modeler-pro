@@ -5,7 +5,7 @@ import type { LiveSessionBannerContent, LayoutOverrides } from '@/src/lib/market
 import { DIMENSIONS } from '@/src/lib/marketing-studio/types';
 import { LIVE_SESSION_LAYOUT } from '@/src/lib/marketing-studio/templates/live-session';
 import {
-  StudioShell, Field, BackgroundPicker,
+  StudioShell, Field, BackgroundPicker, ZoneVisibilityPanel,
   inputStyle, textareaStyle, selectStyle, cardStyle,
   PrimaryButton, SecondaryButton,
   useAutoRender, downloadBlobUrl,
@@ -35,6 +35,7 @@ const DEFAULTS: LiveSessionBannerContent = {
   cta: 'Register now',
   instructorIds: [],
   layout: {},
+  hiddenZones: [],
 };
 
 export function LiveSessionBannerStudio() {
@@ -56,6 +57,7 @@ export function LiveSessionBannerStudio() {
 
   function setLayout(next: LayoutOverrides) { setContent(prev => ({ ...prev, layout: next })); }
   function resetLayout() { setContent(prev => ({ ...prev, layout: {} })); }
+  function setHiddenZones(next: string[]) { setContent(prev => ({ ...prev, hiddenZones: next })); }
 
   function applySession(id: string) {
     setSelectedId(id);
@@ -137,6 +139,7 @@ export function LiveSessionBannerStudio() {
               <input value={content.cta} onChange={e => set('cta', e.target.value)} style={inputStyle} />
             </Field>
             <BackgroundPicker selectedUrl={content.backgroundUrl} onChange={url => set('backgroundUrl', url)} />
+            <ZoneVisibilityPanel templateLayout={LIVE_SESSION_LAYOUT} hiddenZones={content.hiddenZones ?? []} onChange={setHiddenZones} />
           </div>
         </div>
       }
@@ -148,6 +151,7 @@ export function LiveSessionBannerStudio() {
           <LayoutEditor
             templateLayout={LIVE_SESSION_LAYOUT}
             overrides={content.layout ?? {}}
+            hiddenZones={content.hiddenZones ?? []}
             previewBlobUrl={blobUrl}
             generating={generating}
             onLayoutChange={setLayout}

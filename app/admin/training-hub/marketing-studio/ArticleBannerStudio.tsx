@@ -5,7 +5,7 @@ import type { ArticleBannerContent, LayoutOverrides } from '@/src/lib/marketing-
 import { DIMENSIONS } from '@/src/lib/marketing-studio/types';
 import { ARTICLE_BANNER_LAYOUT } from '@/src/lib/marketing-studio/templates/article-banner';
 import {
-  StudioShell, Field, BackgroundPicker,
+  StudioShell, Field, BackgroundPicker, ZoneVisibilityPanel,
   inputStyle, textareaStyle, selectStyle, cardStyle,
   PrimaryButton, SecondaryButton,
   useAutoRender, downloadBlobUrl,
@@ -26,6 +26,7 @@ const DEFAULTS: ArticleBannerContent = {
   author: '',
   instructorIds: [],
   layout: {},
+  hiddenZones: [],
 };
 
 export function ArticleBannerStudio() {
@@ -47,6 +48,7 @@ export function ArticleBannerStudio() {
 
   function setLayout(next: LayoutOverrides) { setContent(prev => ({ ...prev, layout: next })); }
   function resetLayout() { setContent(prev => ({ ...prev, layout: {} })); }
+  function setHiddenZones(next: string[]) { setContent(prev => ({ ...prev, hiddenZones: next })); }
 
   function applyArticle(slug: string) {
     setSelectedSlug(slug);
@@ -102,6 +104,7 @@ export function ArticleBannerStudio() {
                 placeholder="Leave blank to use picked instructor's name" />
             </Field>
             <BackgroundPicker selectedUrl={content.backgroundUrl} onChange={url => set('backgroundUrl', url)} />
+            <ZoneVisibilityPanel templateLayout={ARTICLE_BANNER_LAYOUT} hiddenZones={content.hiddenZones ?? []} onChange={setHiddenZones} />
           </div>
         </div>
       }
@@ -113,6 +116,7 @@ export function ArticleBannerStudio() {
           <LayoutEditor
             templateLayout={ARTICLE_BANNER_LAYOUT}
             overrides={content.layout ?? {}}
+            hiddenZones={content.hiddenZones ?? []}
             previewBlobUrl={blobUrl}
             generating={generating}
             onLayoutChange={setLayout}

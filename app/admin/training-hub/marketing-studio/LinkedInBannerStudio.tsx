@@ -7,7 +7,7 @@ import {
   LINKEDIN_PROFILE_LAYOUT, LINKEDIN_POST_LAYOUT, LINKEDIN_QUOTE_LAYOUT,
 } from '@/src/lib/marketing-studio/templates/linkedin-banner';
 import {
-  StudioShell, Field, BackgroundPicker,
+  StudioShell, Field, BackgroundPicker, ZoneVisibilityPanel,
   inputStyle, textareaStyle, selectStyle, cardStyle,
   PrimaryButton, SecondaryButton,
   useAutoRender, downloadBlobUrl,
@@ -28,6 +28,7 @@ const DEFAULTS: LinkedInBannerContent = {
   cta: 'Free certification',
   instructorIds: [],
   layout: {},
+  hiddenZones: [],
 };
 
 export function LinkedInBannerStudio() {
@@ -40,6 +41,7 @@ export function LinkedInBannerStudio() {
 
   function setLayout(next: LayoutOverrides) { setContent(prev => ({ ...prev, layout: next })); }
   function resetLayout() { setContent(prev => ({ ...prev, layout: {} })); }
+  function setHiddenZones(next: string[]) { setContent(prev => ({ ...prev, hiddenZones: next })); }
 
   function handleDownload() {
     if (!blobUrl) return;
@@ -78,6 +80,7 @@ export function LinkedInBannerStudio() {
               <input value={content.cta} onChange={e => set('cta', e.target.value)} style={inputStyle} placeholder="e.g. Free certification" />
             </Field>
             <BackgroundPicker selectedUrl={content.backgroundUrl} onChange={url => set('backgroundUrl', url)} />
+            <ZoneVisibilityPanel templateLayout={templateLayout} hiddenZones={content.hiddenZones ?? []} onChange={setHiddenZones} />
           </div>
         </div>
       }
@@ -89,6 +92,7 @@ export function LinkedInBannerStudio() {
           <LayoutEditor
             templateLayout={templateLayout}
             overrides={content.layout ?? {}}
+            hiddenZones={content.hiddenZones ?? []}
             previewBlobUrl={blobUrl}
             generating={generating}
             onLayoutChange={setLayout}

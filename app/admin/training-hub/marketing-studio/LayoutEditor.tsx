@@ -10,6 +10,9 @@ interface Props {
   templateLayout: TemplateLayout;
   /** Current admin overrides (subset of zones). */
   overrides: LayoutOverrides;
+  /** Zone keys the admin has hidden via the visibility panel. Drag boxes still
+   *  render for these (faded) so the admin can find them again to un-hide. */
+  hiddenZones?: string[];
   /** Server-rendered preview blob URL (the actual PNG output). */
   previewBlobUrl: string | null;
   /** State during preview regenerate. */
@@ -42,8 +45,9 @@ interface DragState {
  *    triggers a server re-render (which replaces the base PNG).
  */
 export function LayoutEditor({
-  templateLayout, overrides, previewBlobUrl, generating, onLayoutChange, onReset,
+  templateLayout, overrides, hiddenZones, previewBlobUrl, generating, onLayoutChange, onReset,
 }: Props) {
+  const hiddenSet = React.useMemo(() => new Set(hiddenZones ?? []), [hiddenZones]);
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerW, setContainerW] = useState(800);
   const [activeZone, setActiveZone] = useState<string | null>(null);
@@ -173,11 +177,23 @@ export function LayoutEditor({
           const r = merged[desc.key];
           if (!r) return null;
           const isActive = activeZone === desc.key;
+          const isHidden = hiddenSet.has(desc.key);
           const left = r.x * scale;
           const top = r.y * scale;
           const width = r.w * scale;
           const height = r.h * scale;
           const isDragging = drag?.zoneKey === desc.key;
+          // Hidden zones get muted gray styling so they read as "not on the
+          // PNG but still positionable" - admin can drag them around then
+          // un-hide via the sidebar checklist when ready.
+          const borderColor = isActive ? (isHidden ? '#9CA3AF' : '#3B82F6')
+            : isHidden ? 'rgba(156,163,175,0.6)' : 'rgba(59,130,246,0.55)';
+          const borderStyle = isHidden ? 'dotted' : (isActive ? 'solid' : 'dashed');
+          const fillColor = isActive
+            ? (isHidden ? 'rgba(156,163,175,0.18)' : 'rgba(59,130,246,0.15)')
+            : (isHidden ? 'rgba(156,163,175,0.06)' : 'rgba(59,130,246,0.05)');
+          const chipColor = isHidden ? (isActive ? '#6B7280' : 'rgba(107,114,128,0.85)')
+            : (isActive ? '#3B82F6' : 'rgba(59,130,246,0.85)');
           return (
             <div
               key={desc.key}
@@ -186,22 +202,23 @@ export function LayoutEditor({
               style={{
                 position: 'absolute',
                 left, top, width, height,
-                border: `2px ${isActive ? 'solid' : 'dashed'} ${isActive ? '#3B82F6' : 'rgba(59,130,246,0.55)'}`,
-                background: isActive ? 'rgba(59,130,246,0.15)' : 'rgba(59,130,246,0.05)',
+                border: `2px ${borderStyle} ${borderColor}`,
+                background: fillColor,
                 cursor: isDragging ? 'grabbing' : 'grab',
                 boxSizing: 'border-box',
                 transition: isDragging ? 'none' : 'background 0.12s ease',
               }}
-              title={`${desc.label} (${Math.round(r.x)}, ${Math.round(r.y)}) · ${Math.round(r.w)} × ${Math.round(r.h)}`}
+              title={`${desc.label}${isHidden ? ' (hidden)' : ''} (${Math.round(r.x)}, ${Math.round(r.y)}) · ${Math.round(r.w)} × ${Math.round(r.h)}`}
             >
               {/* Label chip */}
               <div style={{
                 position: 'absolute', top: -22, left: 0,
                 fontSize: 10, fontWeight: 800,
-                background: isActive ? '#3B82F6' : 'rgba(59,130,246,0.85)',
+                background: chipColor,
                 color: '#fff', padding: '2px 6px', borderRadius: 3,
                 whiteSpace: 'nowrap', pointerEvents: 'none',
               }}>
+                {isHidden && <span style={{ marginRight: 4, opacity: 0.85 }}>HIDDEN</span>}
                 {desc.label}
                 {isActive && <span style={{ marginLeft: 6, color: 'rgba(255,255,255,0.7)', fontWeight: 500 }}>{Math.round(r.x)}, {Math.round(r.y)} · {Math.round(r.w)} × {Math.round(r.h)}</span>}
               </div>

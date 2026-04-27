@@ -2,7 +2,7 @@ import type { ReactElement } from 'react';
 import type { BrandPack, LinkedInBannerContent, Instructor } from '../types';
 import type { TemplateLayout } from '../layout';
 import { mergeLayout, rectToStyle } from '../layout';
-import { lighten, darken } from '../style-utils';
+import { lighten, darken, richBrandBackground, richBrandHighlight } from '../style-utils';
 
 interface Args {
   brand: BrandPack;
@@ -18,15 +18,17 @@ interface Args {
 export const LINKEDIN_PROFILE_LAYOUT: TemplateLayout = {
   canvas: { w: 1584, h: 396 },
   zones: {
-    headline:    { x: 80,   y: 100, w: 1000, h: 130 },
-    subtitle:    { x: 80,   y: 240, w: 1000, h: 60 },
-    cta:         { x: 80,   y: 310, w: 320,  h: 56 },
-    trainerCard: { x: 1144, y: 60,  w: 380,  h: 280 },
+    logo:        { x: 60,   y: 30,  w: 220,  h: 70 },
+    headline:    { x: 80,   y: 120, w: 1000, h: 130 },
+    subtitle:    { x: 80,   y: 252, w: 1000, h: 60 },
+    cta:         { x: 80,   y: 318, w: 320,  h: 56 },
+    trainerCard: { x: 1144, y: 50,  w: 380,  h: 296 },
   },
   descriptors: [
+    { key: 'logo',        label: 'Logo',         resizable: true },
     { key: 'headline',    label: 'Headline',     resizable: true },
     { key: 'subtitle',    label: 'Subtitle',     resizable: true },
-    { key: 'cta',         label: 'CTA badge',    resizable: false },
+    { key: 'cta',         label: 'CTA badge',    resizable: true },
     { key: 'trainerCard', label: 'Trainer card', resizable: true },
   ],
 };
@@ -34,15 +36,19 @@ export const LINKEDIN_PROFILE_LAYOUT: TemplateLayout = {
 export const LINKEDIN_POST_LAYOUT: TemplateLayout = {
   canvas: { w: 1200, h: 627 },
   zones: {
-    headline:     { x: 56,  y: 130, w: 1088, h: 240 },
-    subtitle:     { x: 56,  y: 380, w: 1000, h: 100 },
-    cta:          { x: 56,  y: 490, w: 320,  h: 56 },
+    logo:         { x: 56,  y: 36,  w: 200,  h: 64 },
+    urlStrip:     { x: 760, y: 50,  w: 384,  h: 32 },
+    headline:     { x: 56,  y: 140, w: 1088, h: 240 },
+    subtitle:     { x: 56,  y: 388, w: 1000, h: 100 },
+    cta:          { x: 56,  y: 498, w: 320,  h: 56 },
     trainerStrip: { x: 0,   y: 555, w: 1200, h: 72 },
   },
   descriptors: [
+    { key: 'logo',         label: 'Logo',          resizable: true },
+    { key: 'urlStrip',     label: 'URL strip',     resizable: true },
     { key: 'headline',     label: 'Headline',      resizable: true },
     { key: 'subtitle',     label: 'Subtitle',      resizable: true },
-    { key: 'cta',          label: 'CTA badge',     resizable: false },
+    { key: 'cta',          label: 'CTA badge',     resizable: true },
     { key: 'trainerStrip', label: 'Trainer strip', resizable: true },
   ],
 };
@@ -50,12 +56,16 @@ export const LINKEDIN_POST_LAYOUT: TemplateLayout = {
 export const LINKEDIN_QUOTE_LAYOUT: TemplateLayout = {
   canvas: { w: 1200, h: 627 },
   zones: {
-    quoteBlock:   { x: 110, y: 110, w: 980, h: 350 },
-    trainerBadge: { x: 360, y: 480, w: 480, h: 88 },
+    decorativeQuote: { x: 60,  y: 36,  w: 200, h: 200 },
+    quoteBlock:      { x: 110, y: 110, w: 980, h: 350 },
+    trainerBadge:    { x: 360, y: 470, w: 480, h: 88 },
+    bottomLogo:      { x: 500, y: 580, w: 200, h: 36 },
   },
   descriptors: [
-    { key: 'quoteBlock',   label: 'Quote block',   resizable: true },
-    { key: 'trainerBadge', label: 'Trainer badge', resizable: true },
+    { key: 'decorativeQuote', label: 'Quote mark',    resizable: true },
+    { key: 'quoteBlock',      label: 'Quote block',   resizable: true },
+    { key: 'trainerBadge',    label: 'Trainer badge', resizable: true },
+    { key: 'bottomLogo',      label: 'Bottom logo',   resizable: true },
   ],
 };
 
@@ -64,15 +74,17 @@ export const LINKEDIN_QUOTE_LAYOUT: TemplateLayout = {
 function backgroundLayer(brand: BrandPack, backgroundDataUri: string, scrim: string): ReactElement {
   const bg = backgroundDataUri
     ? `url("${backgroundDataUri}")`
-    : `linear-gradient(135deg, ${darken(brand.primaryColor, 0.15)} 0%, ${brand.primaryColor} 50%, ${darken(brand.primaryColor, 0.05)} 100%)`;
+    : richBrandBackground(brand.primaryColor, 'banner');
   return (
     <div style={{
       position: 'absolute', inset: 0,
       background: bg, backgroundSize: 'cover', backgroundPosition: 'center',
       display: 'flex',
     }}>
-      {backgroundDataUri && (
+      {backgroundDataUri ? (
         <div style={{ position: 'absolute', inset: 0, background: scrim, display: 'flex' }} />
+      ) : (
+        <div style={{ position: 'absolute', inset: 0, background: richBrandHighlight('banner'), display: 'flex' }} />
       )}
     </div>
   );
@@ -169,41 +181,53 @@ function TrainerCard({ instructors, instructorPhotos, accent, layout }: {
   );
 }
 
+function LogoBox({ rect, src, align = 'left' }: {
+  rect: { x: number; y: number; w: number; h: number };
+  src: string;
+  align?: 'left' | 'center';
+}) {
+  const justify = align === 'center' ? 'center' : 'flex-start';
+  return (
+    <div style={{ ...rectToStyle(rect), alignItems: 'center', justifyContent: justify }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt="FMP" style={{ height: '100%', width: 'auto', maxWidth: '100%', objectFit: 'contain', display: 'block' }} />
+    </div>
+  );
+}
+
 /* ── Templates ───────────────────────────────────────────────────────── */
 
 export function LinkedInProfileTemplate({ brand, content, instructors, logoDataUri, instructorPhotos, backgroundDataUri }: Args): ReactElement {
   const accent = lighten(brand.primaryColor, 0.6);
   const layout = mergeLayout(LINKEDIN_PROFILE_LAYOUT.zones, content.layout);
   const { w, h } = LINKEDIN_PROFILE_LAYOUT.canvas;
+  const hidden = new Set(content.hiddenZones ?? []);
 
   return (
     <div style={{ width: w, height: h, position: 'relative', display: 'flex', overflow: 'hidden', fontFamily: 'Inter, Arial, Helvetica, sans-serif' }}>
       {backgroundLayer(brand, backgroundDataUri, 'rgba(13,46,90,0.55)')}
 
-      {/* Logo (anchored top-left, not movable) */}
-      {logoDataUri && (
-        <div style={{ position: 'absolute', top: 36, left: 80, display: 'flex' }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={logoDataUri} alt="FMP" style={{ height: 44 }} />
+      {!hidden.has('logo') && logoDataUri && (
+        <LogoBox rect={layout.logo} src={logoDataUri} />
+      )}
+
+      {!hidden.has('headline') && (
+        <div style={{ ...rectToStyle(layout.headline) }}>
+          <div style={{ fontSize: 50, fontWeight: 800, color: '#fff', lineHeight: 1.05, letterSpacing: '-0.02em', display: 'flex' }}>
+            {content.title}
+          </div>
         </div>
       )}
 
-      {/* Headline zone */}
-      <div style={{ ...rectToStyle(layout.headline) }}>
-        <div style={{ fontSize: 50, fontWeight: 800, color: '#fff', lineHeight: 1.05, letterSpacing: '-0.02em', display: 'flex' }}>
-          {content.title}
+      {!hidden.has('subtitle') && (
+        <div style={{ ...rectToStyle(layout.subtitle) }}>
+          <div style={{ fontSize: 20, color: 'rgba(255,255,255,0.78)', lineHeight: 1.4, display: 'flex' }}>
+            {content.subtitle}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Subtitle zone */}
-      <div style={{ ...rectToStyle(layout.subtitle) }}>
-        <div style={{ fontSize: 20, color: 'rgba(255,255,255,0.78)', lineHeight: 1.4, display: 'flex' }}>
-          {content.subtitle}
-        </div>
-      </div>
-
-      {/* CTA zone */}
-      {content.cta && (
+      {!hidden.has('cta') && content.cta && (
         <div style={{ ...rectToStyle(layout.cta), alignItems: 'center' }}>
           <div style={{ background: accent, color: darken(brand.primaryColor, 0.35), padding: '10px 22px', borderRadius: 6, fontSize: 17, fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase', display: 'flex' }}>
             {content.cta}
@@ -211,10 +235,11 @@ export function LinkedInProfileTemplate({ brand, content, instructors, logoDataU
         </div>
       )}
 
-      {/* Trainer card zone */}
-      <div style={{ ...rectToStyle(layout.trainerCard) }}>
-        <TrainerCard instructors={instructors} instructorPhotos={instructorPhotos} accent={accent} layout="wide" />
-      </div>
+      {!hidden.has('trainerCard') && (
+        <div style={{ ...rectToStyle(layout.trainerCard) }}>
+          <TrainerCard instructors={instructors} instructorPhotos={instructorPhotos} accent={accent} layout="wide" />
+        </div>
+      )}
     </div>
   );
 }
@@ -223,36 +248,39 @@ export function LinkedInPostTemplate({ brand, content, instructors, logoDataUri,
   const accent = lighten(brand.primaryColor, 0.6);
   const layout = mergeLayout(LINKEDIN_POST_LAYOUT.zones, content.layout);
   const { w, h } = LINKEDIN_POST_LAYOUT.canvas;
+  const hidden = new Set(content.hiddenZones ?? []);
 
   return (
     <div style={{ width: w, height: h, position: 'relative', display: 'flex', overflow: 'hidden', fontFamily: 'Inter, Arial, Helvetica, sans-serif' }}>
       {backgroundLayer(brand, backgroundDataUri, 'rgba(13,46,90,0.6)')}
 
-      {/* Top bar: logo + url */}
-      <div style={{ position: 'absolute', top: 36, left: 56, right: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        {logoDataUri ? (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img src={logoDataUri} alt="FMP" style={{ height: 38 }} />
-        ) : <div style={{ display: 'flex' }} />}
-        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.18em', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', display: 'flex' }}>financialmodelerpro.com</div>
-      </div>
+      {!hidden.has('logo') && logoDataUri && (
+        <LogoBox rect={layout.logo} src={logoDataUri} />
+      )}
 
-      {/* Headline zone */}
-      <div style={{ ...rectToStyle(layout.headline) }}>
-        <div style={{ fontSize: 60, fontWeight: 800, color: '#fff', lineHeight: 1.05, letterSpacing: '-0.02em', display: 'flex' }}>
-          {content.title}
+      {!hidden.has('urlStrip') && (
+        <div style={{ ...rectToStyle(layout.urlStrip), alignItems: 'center', justifyContent: 'flex-end' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '0.18em', color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', display: 'flex' }}>financialmodelerpro.com</div>
         </div>
-      </div>
+      )}
 
-      {/* Subtitle zone */}
-      <div style={{ ...rectToStyle(layout.subtitle) }}>
-        <div style={{ fontSize: 22, color: 'rgba(255,255,255,0.75)', lineHeight: 1.4, display: 'flex' }}>
-          {content.subtitle}
+      {!hidden.has('headline') && (
+        <div style={{ ...rectToStyle(layout.headline) }}>
+          <div style={{ fontSize: 60, fontWeight: 800, color: '#fff', lineHeight: 1.05, letterSpacing: '-0.02em', display: 'flex' }}>
+            {content.title}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* CTA zone */}
-      {content.cta && (
+      {!hidden.has('subtitle') && (
+        <div style={{ ...rectToStyle(layout.subtitle) }}>
+          <div style={{ fontSize: 22, color: 'rgba(255,255,255,0.75)', lineHeight: 1.4, display: 'flex' }}>
+            {content.subtitle}
+          </div>
+        </div>
+      )}
+
+      {!hidden.has('cta') && content.cta && (
         <div style={{ ...rectToStyle(layout.cta), alignItems: 'center' }}>
           <div style={{ background: accent, color: darken(brand.primaryColor, 0.35), padding: '12px 26px', borderRadius: 6, fontSize: 18, fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase', display: 'flex' }}>
             {content.cta}
@@ -260,10 +288,11 @@ export function LinkedInPostTemplate({ brand, content, instructors, logoDataUri,
         </div>
       )}
 
-      {/* Trainer strip zone */}
-      <div style={{ ...rectToStyle(layout.trainerStrip) }}>
-        <TrainerCard instructors={instructors} instructorPhotos={instructorPhotos} accent={accent} layout="strip" />
-      </div>
+      {!hidden.has('trainerStrip') && (
+        <div style={{ ...rectToStyle(layout.trainerStrip) }}>
+          <TrainerCard instructors={instructors} instructorPhotos={instructorPhotos} accent={accent} layout="strip" />
+        </div>
+      )}
     </div>
   );
 }
@@ -272,40 +301,42 @@ export function LinkedInQuoteTemplate({ brand, content, instructors, logoDataUri
   const accent = lighten(brand.primaryColor, 0.55);
   const layout = mergeLayout(LINKEDIN_QUOTE_LAYOUT.zones, content.layout);
   const { w, h } = LINKEDIN_QUOTE_LAYOUT.canvas;
+  const hidden = new Set(content.hiddenZones ?? []);
 
   return (
     <div style={{ width: w, height: h, position: 'relative', display: 'flex', overflow: 'hidden', fontFamily: 'Inter, Arial, Helvetica, sans-serif' }}>
       {backgroundLayer(brand, backgroundDataUri, 'rgba(13,46,90,0.7)')}
 
-      {/* Decorative quote mark (fixed) */}
-      <div style={{ position: 'absolute', top: 32, left: 64, fontSize: 220, lineHeight: 0.8, color: accent, opacity: 0.35, fontWeight: 800, display: 'flex' }}>"</div>
+      {!hidden.has('decorativeQuote') && (
+        <div style={{ ...rectToStyle(layout.decorativeQuote), alignItems: 'flex-start', justifyContent: 'flex-start' }}>
+          <div style={{ fontSize: 220, lineHeight: 0.8, color: accent, opacity: 0.35, fontWeight: 800, display: 'flex' }}>"</div>
+        </div>
+      )}
 
-      {/* Quote zone */}
-      <div style={{ ...rectToStyle(layout.quoteBlock), flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: '0.18em', color: accent, textTransform: 'uppercase', marginBottom: 18, display: 'flex' }}>
-          {content.cta || 'INSIGHT'}
-        </div>
-        <div style={{ fontSize: 40, fontWeight: 700, fontStyle: 'italic', color: '#fff', lineHeight: 1.25, textAlign: 'center', display: 'flex' }}>
-          {content.title}
-        </div>
-        {content.subtitle && (
-          <div style={{ fontSize: 18, color: 'rgba(255,255,255,0.72)', lineHeight: 1.45, marginTop: 18, textAlign: 'center', display: 'flex' }}>
-            {content.subtitle}
+      {!hidden.has('quoteBlock') && (
+        <div style={{ ...rectToStyle(layout.quoteBlock), flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+          <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: '0.18em', color: accent, textTransform: 'uppercase', marginBottom: 18, display: 'flex' }}>
+            {content.cta || 'INSIGHT'}
           </div>
-        )}
-      </div>
-
-      {/* Trainer badge zone */}
-      <div style={{ ...rectToStyle(layout.trainerBadge) }}>
-        <TrainerCard instructors={instructors} instructorPhotos={instructorPhotos} accent={accent} layout="badge" />
-      </div>
-
-      {/* Bottom logo (fixed) */}
-      {logoDataUri && (
-        <div style={{ position: 'absolute', bottom: 28, left: 0, width: '100%', display: 'flex', justifyContent: 'center' }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={logoDataUri} alt="FMP" style={{ height: 28, opacity: 0.7 }} />
+          <div style={{ fontSize: 40, fontWeight: 700, fontStyle: 'italic', color: '#fff', lineHeight: 1.25, textAlign: 'center', display: 'flex' }}>
+            {content.title}
+          </div>
+          {content.subtitle && (
+            <div style={{ fontSize: 18, color: 'rgba(255,255,255,0.72)', lineHeight: 1.45, marginTop: 18, textAlign: 'center', display: 'flex' }}>
+              {content.subtitle}
+            </div>
+          )}
         </div>
+      )}
+
+      {!hidden.has('trainerBadge') && (
+        <div style={{ ...rectToStyle(layout.trainerBadge) }}>
+          <TrainerCard instructors={instructors} instructorPhotos={instructorPhotos} accent={accent} layout="badge" />
+        </div>
+      )}
+
+      {!hidden.has('bottomLogo') && logoDataUri && (
+        <LogoBox rect={layout.bottomLogo} src={logoDataUri} align="center" />
       )}
     </div>
   );

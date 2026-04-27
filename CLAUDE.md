@@ -1,7 +1,25 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-27.** This session: (**SEO redirect-error fix: apex+www host match + 308 permanent on main→subdomain redirects**)
+**Last updated: 2026-04-27.** This session: (**Marketing Studio flexibility upgrade: every element draggable+resizable, per-zone visibility toggle, richer default backgrounds, larger default logo**)
 
 ## 2026-04-27 session summary
+
+**Marketing Studio flexibility (templates + LayoutEditor + ZoneVisibilityPanel; no schema change)**: Brand-locked stance loosened. Every visible element across the 6 banner templates (LinkedIn Profile, LinkedIn Post, LinkedIn Quote, Live Session, YouTube Thumbnail, Article Banner) is now a named zone in the layout system - admins can drag, resize, AND hide each one. Brand colors and Inter typography remain locked; logo source stays the FMP logo from the brand pack; trainer photos still come from `instructors`.
+
+- **types.ts**: `BannerBase` gains `hiddenZones?: string[]` so per-zone visibility persists alongside `layout` overrides in `content`.
+- **style-utils.ts**: new `richBrandBackground(primaryColor, kind)` returns a multi-stop diagonal linear-gradient (single-background, satori-safe); paired with new `richBrandHighlight(kind)` which returns a single-background radial-gradient string. Templates render the highlight as a separate inset div on top of the base gradient when no custom background URL is set, giving the depth-of-field look without depending on satori's multi-layer background parser. Two flavours: `'banner'` (used by 5 templates) and `'thumbnail'` (used by YouTube 16:9). Custom-uploaded backgrounds keep their existing scrim overlay behaviour.
+- **All 6 templates rewritten**:
+  - Logo is now a sized zone with default `~200x64` to `240x80` (was `28-44px height` fixed - "logo too small in previews" was the third user-reported issue, now ~2x previous height by default + admin can resize further).
+  - Every previously-fixed element (logo, brand URL strips, LIVE pill, decorative quote mark, category pill, brand byline, bottom logo, etc.) is converted to a zone with `resizable: true`. Pure decorations - background, accent strips, corner orbs - stay anchored as part of the brand identity.
+  - Each template's render skips zones whose key is in `content.hiddenZones`, so unchecking a zone in the sidebar removes it from the PNG.
+  - `LogoBox` shared subcomponent in linkedin-banner.tsx anchors logo image to `objectFit: contain, height: 100%, width: auto` so it scales naturally with admin-resized box.
+  - Final zone counts: LinkedIn Profile 5, LinkedIn Post 6, LinkedIn Quote 4, Live Session 6, YouTube Thumbnail 6, Article Banner 5. All zones `resizable: true` (CTA badges were the only previously non-resizable ones).
+- **`<ZoneVisibilityPanel>`** (new in `studio-shared.tsx`): checklist in every studio editor's controls sidebar showing one row per template descriptor with a checkbox. Unchecking adds the zone key to `hiddenZones`. Hidden rows show with red background + line-through label + `HIDDEN` badge. "Show all" link clears the list. Wired into LinkedInBannerStudio + LiveSessionBannerStudio + YouTubeThumbnailStudio + ArticleBannerStudio (all 4 client tabs).
+- **LayoutEditor**: gains a `hiddenZones?: string[]` prop; renders hidden zones with a dotted gray border + low-opacity gray fill + `HIDDEN` prefix on the label chip. Hidden zones stay clickable + draggable so admin can reposition them while invisible, then un-hide via the sidebar.
+- **No new packages, no schema change, no migration**. All flexibility lives in the existing `content.layout` (LayoutOverrides) + new `content.hiddenZones` (string[]) - both stored in the existing `content` JSON field on the in-memory state of each studio editor (the studio doesn't persist designs; PNGs download immediately). Brand restrictions kept: colors, typography, logo source, trainer photo source. Brand restrictions removed: position locking, size locking, element visibility.
+
+## Historical (prior sessions)
+
+### 2026-04-27 SEO fix (earlier in same day)
 
 **SEO redirect-error fix (next.config.ts only, no schema change)**: Google Search Console reported "Redirect error" against `https://financialmodelerpro.com/training-sessions`, `/training`, and `/contact`. Root cause was a host-match bug, not a redirect bug per se. Vercel's project domain config sets `www.financialmodelerpro.com` as the primary domain, so apex `financialmodelerpro.com` auto-redirects to www at the edge BEFORE next.config.ts runs. The redirect rules used `has: [{ type: 'host', value: 'financialmodelerpro.com' }]` (apex literal), which never matched the canonical www host. Symptoms (verified via curl with the Googlebot UA against production):
 

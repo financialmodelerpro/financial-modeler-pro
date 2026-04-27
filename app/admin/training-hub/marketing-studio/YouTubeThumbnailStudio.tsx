@@ -5,7 +5,7 @@ import type { YouTubeThumbnailContent, LayoutOverrides } from '@/src/lib/marketi
 import { DIMENSIONS } from '@/src/lib/marketing-studio/types';
 import { YOUTUBE_THUMB_LAYOUT } from '@/src/lib/marketing-studio/templates/youtube-thumbnail';
 import {
-  StudioShell, Field, BackgroundPicker,
+  StudioShell, Field, BackgroundPicker, ZoneVisibilityPanel,
   inputStyle, textareaStyle, selectStyle, cardStyle,
   PrimaryButton, SecondaryButton,
   useAutoRender, downloadBlobUrl,
@@ -27,6 +27,7 @@ const DEFAULTS: YouTubeThumbnailContent = {
   subtitle: 'Practitioner Financial Modeling',
   instructorIds: [],
   layout: {},
+  hiddenZones: [],
 };
 
 export function YouTubeThumbnailStudio() {
@@ -48,6 +49,7 @@ export function YouTubeThumbnailStudio() {
 
   function setLayout(next: LayoutOverrides) { setContent(prev => ({ ...prev, layout: next })); }
   function resetLayout() { setContent(prev => ({ ...prev, layout: {} })); }
+  function setHiddenZones(next: string[]) { setContent(prev => ({ ...prev, hiddenZones: next })); }
 
   function applySession(id: string) {
     setSelectedId(id);
@@ -98,6 +100,7 @@ export function YouTubeThumbnailStudio() {
               <input value={content.subtitle} onChange={e => set('subtitle', e.target.value)} style={inputStyle} />
             </Field>
             <BackgroundPicker selectedUrl={content.backgroundUrl} onChange={url => set('backgroundUrl', url)} />
+            <ZoneVisibilityPanel templateLayout={YOUTUBE_THUMB_LAYOUT} hiddenZones={content.hiddenZones ?? []} onChange={setHiddenZones} />
           </div>
         </div>
       }
@@ -109,6 +112,7 @@ export function YouTubeThumbnailStudio() {
           <LayoutEditor
             templateLayout={YOUTUBE_THUMB_LAYOUT}
             overrides={content.layout ?? {}}
+            hiddenZones={content.hiddenZones ?? []}
             previewBlobUrl={blobUrl}
             generating={generating}
             onLayoutChange={setLayout}

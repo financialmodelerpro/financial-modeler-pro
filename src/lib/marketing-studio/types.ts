@@ -44,6 +44,12 @@ interface BannerBase {
   instructorIds?: string[];
   /** Per-zone position overrides keyed by template-defined zone names. */
   layout?: LayoutOverrides;
+  /**
+   * Zone keys the admin has hidden. The server template skips rendering these
+   * elements; the LayoutEditor still shows their drag boxes (faded) so the
+   * admin can find them again to un-hide via the sidebar visibility panel.
+   */
+  hiddenZones?: string[];
 }
 
 /** LinkedIn banner: 3 templates (profile-wide / post-square / quote-card) + content. */

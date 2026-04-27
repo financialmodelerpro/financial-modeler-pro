@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from 'react';
 import type { RenderRequest, UploadedAsset } from '@/src/lib/marketing-studio/types';
+import type { TemplateLayout } from '@/src/lib/marketing-studio/layout';
 
 const RENDER_URL = '/api/admin/training-hub/marketing-studio/render';
 const UPLOADS_URL = '/api/admin/training-hub/marketing-studio/uploads';
@@ -180,6 +181,67 @@ export function SecondaryButton({ onClick, disabled, children }: { onClick: () =
         fontSize: 13, fontWeight: 600, cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.5 : 1,
       }}>{children}</button>
+  );
+}
+
+/**
+ * Per-zone visibility checklist. Lives in the controls sidebar of every
+ * studio editor. Unchecking a zone adds its key to `hiddenZones`; the server
+ * template skips rendering hidden zones, while the LayoutEditor still shows
+ * their drag boxes (faded) so the admin can find them again.
+ */
+export function ZoneVisibilityPanel({
+  templateLayout, hiddenZones, onChange,
+}: {
+  templateLayout: TemplateLayout;
+  hiddenZones: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const hidden = new Set(hiddenZones);
+
+  function toggle(key: string) {
+    const next = new Set(hidden);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    onChange(Array.from(next));
+  }
+
+  function showAll() { onChange([]); }
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <label style={{ fontSize: 11, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Show / hide elements</label>
+        {hidden.size > 0 && (
+          <button type="button" onClick={showAll}
+            style={{ fontSize: 10, color: '#6B7280', background: 'transparent', border: 'none', cursor: 'pointer', textDecoration: 'underline' }}>
+            Show all
+          </button>
+        )}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4, border: '1px solid #E5E7EB', borderRadius: 6, padding: 8, background: '#FAFAFA' }}>
+        {templateLayout.descriptors.map(desc => {
+          const isHidden = hidden.has(desc.key);
+          return (
+            <label key={desc.key}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '5px 8px', borderRadius: 5,
+                background: isHidden ? '#FEF2F2' : 'transparent', cursor: 'pointer',
+                border: isHidden ? '1px solid #FECACA' : '1px solid transparent',
+              }}>
+              <input type="checkbox" checked={!isHidden} onChange={() => toggle(desc.key)} style={{ cursor: 'pointer' }} />
+              <span style={{ fontSize: 12, fontWeight: 600, color: isHidden ? '#9CA3AF' : '#0D2E5A', textDecoration: isHidden ? 'line-through' : 'none' }}>
+                {desc.label}
+              </span>
+              {isHidden && <span style={{ marginLeft: 'auto', fontSize: 10, color: '#DC2626', fontWeight: 700, letterSpacing: '0.06em' }}>HIDDEN</span>}
+            </label>
+          );
+        })}
+      </div>
+      <div style={{ marginTop: 4, fontSize: 11, color: '#9CA3AF' }}>
+        Hidden elements stay in the layout editor as faded boxes so you can put them back later.
+      </div>
+    </div>
   );
 }
 
