@@ -78,7 +78,7 @@ app/admin/
 ├── settings/page.tsx
 ├── testimonials/page.tsx + modeling/ + training/
 ├── training/page.tsx + [courseId]/
-├── communications-hub/         # NEW 2026-04-27: unified hub merging the four old comms surfaces. page.tsx (tab dispatcher: campaigns | email-settings | share-templates | newsletter; auth gate; CmsAdminNav with active='/admin/communications-hub') + CampaignsTab.tsx (targeted student emails + history + share-modal copy editor) + EmailSettingsTab.tsx (email_branding + live-session email_templates) + ShareTemplatesTab.tsx (centralized share-text admin: Global Mention Settings card + per-template editor with variable-picker chips, hashtag chip editor, active toggle, live preview) + NewsletterTab.tsx (4 internal sub-tabs: Subscribers / Compose / Campaigns / Auto Notifications)
+├── communications-hub/         # NEW 2026-04-27: unified hub merging the four old comms surfaces. page.tsx (tab dispatcher: campaigns | email-settings | share-templates | newsletter; auth gate; CmsAdminNav with active='/admin/communications-hub') + CampaignsTab.tsx (targeted student emails + history + share-modal copy editor) + EmailSettingsTab.tsx (email_branding + live-session email_templates) + ShareTemplatesTab.tsx (centralized share-text admin: Global Mention Settings card + per-template editor with variable-picker chips, hashtag chip editor, active toggle, live preview) + NewsletterTab.tsx (rebuilt 2026-04-27 — 5 internal sub-tabs: Subscribers / Compose / **Templates (new)** / Campaigns / Auto Notifications. Compose adds template picker + segment dropdown + schedule datetime + Send-test-to-my-inbox button + Schedule-Send vs Send-Now CTA. Templates is the DB-backed editor for newsletter_templates rows. Campaigns row click opens an analytics modal with 6 stat cards, open/click rates, per-recipient table, Retry-N-Failed, Cancel-scheduled, CSV export, Delete.)
 ├── training-hub/page.tsx + analytics/ (redirects to /admin/analytics 2026-04-24) + assessments/ + certificates/ + live-sessions/ + live-sessions/email-settings/page.tsx (5-line redirect -> /admin/communications-hub?tab=email-settings)
 │   + cohorts/ + communications/page.tsx (5-line redirect -> /admin/communications-hub?tab=campaigns) + course-details/ + students/ + instructors/
 │   + share-templates/page.tsx (5-line redirect -> /admin/communications-hub?tab=share-templates)
@@ -265,8 +265,14 @@ app/api/admin/
 ├── live-sessions/[id]/registrations/ # GET/PATCH
 ├── newsletter/subscribers/       # GET: paginated subscriber list with stats
 ├── newsletter/export/           # GET: CSV download
-├── newsletter/send/             # POST: create campaign + fire-and-forget send
+├── newsletter/send/             # POST 2026-04-27 rebuild: accepts { subject, body, targetHub, segment, scheduledAt? } OR { templateKey, templateVars, ... }. Inserts campaign row; if scheduledAt set → status='scheduled' for the cron to pick up; else fires void sendCampaign() (fire-and-forget batch send via resend.batch.send, 100/batch, 200ms stagger).
+├── newsletter/test-send/        # NEW 2026-04-27. POST: renders subject+body or template, sends one [TEST]-prefixed email to the admin's session email (or supplied toEmail) via newsletter shell. No log row, no batch, no segment query. Powers the "Send to my inbox" Compose button.
+├── newsletter/templates/        # NEW 2026-04-27 (migration 143). GET: list every newsletter_templates row + per-event-type variable schema. POST: create new template (template_key, name, subject_template, body_html, event_type?, active?).
+├── newsletter/templates/[key]/  # NEW 2026-04-27. PATCH: update name/subject/body/event_type/active. DELETE: drop template by template_key.
+├── newsletter/segments/         # NEW 2026-04-27. GET ?segment=X&targetHub=Y returns { count, segments[] } — count is the live recipient count for the Compose UI; segments[] is the metadata for the dropdown (key/label/description per segment).
 ├── newsletter/campaigns/        # GET: campaign history
+├── newsletter/campaigns/[id]/   # NEW 2026-04-27. GET: campaign + recipients[] from newsletter_recipient_log + computed totals (sent/failed/bounced/complained/opened/clicked/pending) + openRate + clickRate. PATCH { action: 'cancel' }: scheduled → cancelled. DELETE: drop campaign (recipient log rows cascade via FK).
+├── newsletter/campaigns/[id]/retry/ # NEW 2026-04-27. POST: re-send to every failed/bounced row of the recipient log. Resolves emails back to active subscribers (skips ones who unsubscribed since), passes them to sendCampaign({ recipients: [...] }), then recomputes sent_count/failed_count from the FULL log so totals reflect cumulative successes (sender.ts only counts the retry batch by itself).
 ├── newsletter/content-items/    # GET: items from live_sessions/articles for compose auto-populate
 ├── newsletter/enhance/          # POST: AI rewrite via Anthropic API
 ├── newsletter/auto-settings/    # GET/PATCH: auto-notification toggles
@@ -297,10 +303,11 @@ app/api/admin/
 app/api/
 ├── agents/market-rates/ + research/
 ├── branding/                      # GET: public, PATCH: admin only
-├── cms/ contact/ cron/session-reminders/ cron/auto-launch-check/ email/send/
+├── cms/ contact/ cron/session-reminders/ cron/auto-launch-check/ cron/newsletter-scheduled/ email/send/
 # cron/certificates — REMOVED. Certificate issuance is now inline (fire-and-forget from /api/training/submit-assessment when a final-exam submission passes). Admin safety-net at /admin/training-hub/certificates covers any gaps.
 # cron/session-reminders — per-registration reminder flag model (migration 122): reads session_registrations.reminder_{24h,1h}_sent; CRON_SECRET bearer auth.
 # cron/auto-launch-check — (disabled UI) flips {hub}_coming_soon='false' + one-shot auto_launch='false' when launch_date <= now(). Gated by AUTO_LAUNCH_UI_ENABLED=false in LaunchStatusCard; Vercel Hobby only supports daily crons so vercel.json entry was rolled back.
+# cron/newsletter-scheduled — NEW 2026-04-27. CRON_SECRET bearer auth. Polls newsletter_campaigns WHERE status='scheduled' AND scheduled_at <= now() (limit 20/tick); for each, calls sendCampaign() with the stored subject/body/target_hub/segment. Per-campaign try/catch flips a single failure to status='failed' without aborting the rest of the batch. vercel.json schedule: daily at 07:00 UTC (Hobby tier limit; finer cadence requires Pro). Reuses CRON_SECRET — no new env var.
 ├── export/excel/ + pdf/
 ├── health/ modeling/submit-testimonial/
 ├── permissions/ projects/ qr/
@@ -310,8 +317,10 @@ app/api/
 ├── public/training-sessions/[id]/ # GET: public detail (no auth, no live_url/password)
 ├── training/session-notes/        # GET+POST: per-student notes per session (upsert)
 ├── training/community-links/      # GET: public returns { whatsappGroupUrl, platformWalkthroughUrl } with server-side URL-shape re-validation (migrations 123 + 2026-04-22 training_settings.platform_walkthrough_url key). Empty strings hide their corresponding UI (Join WhatsApp Group sidebar button, Watch Platform Walkthrough hero button).
-├── newsletter/subscribe/          # POST: hub-segmented subscribe (public, rate-limited)
+├── newsletter/subscribe/          # POST: hub-segmented subscribe (public, rate-limited). Now also fired fire-and-forget by /training/register + /modeling/register on successful signup when the GDPR opt-in checkbox is checked (default ON).
 ├── newsletter/unsubscribe/        # GET: per-hub unsubscribe via token (HTML response)
+├── newsletter/click/              # NEW 2026-04-27. GET ?msg=<resend_id>&campaign=<id>&url=<encoded>. Public click-tracking redirector. Best-effort UPDATE on newsletter_recipient_log (matched by resend_message_id), then 302 to the decoded url. Always 302s — tracking blip never blocks the user. Rejects non-http(s) URLs. Resend webhook is the canonical click-tracking path; this endpoint is the user-facing redirect.
+├── webhooks/resend/               # NEW 2026-04-27. POST. Resend webhook receiver. Verifies Svix-style signature manually using Node crypto.createHmac('sha256', ...) (no svix dep). Headers svix-id / svix-timestamp / svix-signature checked against RESEND_WEBHOOK_SECRET (whsec_<base64>); 5-minute replay window; multi-signature header support. Routes events: email.delivered → stamp sent_at if null; email.opened → opened_at + status='opened'; email.clicked → clicked_at + status='clicked'; email.bounced → status='bounced' + (on hard bounce) flips subscriber status='bounced'; email.complained → status='complained' + flips subscriber status='unsubscribed'. Unknown types are no-ops.
 ├── og/route.tsx                   # GET: Training Hub OG banner (1200x630, CMS hero, logo)
 ├── og/modeling/route.tsx          # GET: Modeling Hub OG banner (1200x630, CMS hero, logo)
 ├── og/main/route.tsx              # GET: Main site OG banner (1200x630, CMS hero, logo)
@@ -413,7 +422,11 @@ src/lib/
 │       newsletter.ts — custom baseLayoutNewsletter() with "Structured Modeling. Real-World Finance." signature
 │       ALL template functions are async (use baseLayoutBranded) — callers must await
 ├── newsletter/
-│   └── autoNotify.ts            # sendAutoNewsletter() — fire-and-forget, duplicate prevention, per-event-type toggle
+│   ├── autoNotify.ts            # sendAutoNewsletter() — fire-and-forget, duplicate prevention, per-event-type toggle. **2026-04-27 rebuild**: now renders via renderForEvent(eventType, vars) from templates.ts (DB-backed), falls back to a hardcoded fallbackEmail() shell only when no row exists for the event yet (first-run before migration 143 seeds, or after manual deletion). After rendering, hands off to sendCampaign() so auto sends use the same batch + recipient log + retry pipeline as manual sends.
+│   ├── sender.ts                # NEW 2026-04-27. sendCampaign() central pipeline used by manual send, scheduled cron, auto-notify, and retry-failed: resolves segment → seeds pending recipient_log rows → 100/batch via resend.batch.send → 200ms stagger → updates each row with returned message_id + status → updates campaign aggregate counts. Optional `recipients` arg short-circuits segment resolution (used by retry). sendTestEmail() is the one-off [TEST]-prefix variant — no log row, no batch, synthetic unsubscribe token.
+│   ├── segments.ts              # NEW 2026-04-27. SEGMENTS metadata (key/label/description) + resolveSegment(segment, targetHub) → ResolvedRecipient[] composing the active subscriber set with filter sets from certificate_eligibility_raw, student_certificates, training_assessment_results. countSegment() for the live recipient-count UI display.
+│   ├── templates.ts             # NEW 2026-04-27. DB-backed template engine. interpolate('{token}', vars) → empty string for missing tokens. getTemplate(key) / getTemplateByEvent(eventType) / listTemplates() / renderTemplate(tpl, vars) / renderForEvent(eventType, vars). TEMPLATE_VARIABLES const exposes per-event-type token schemas to the admin UI.
+│   └── linkWrap.ts              # NEW 2026-04-27. wrapLinks(body, { campaignId, msgIdPlaceholder }) rewrites every <a href> to /api/newsletter/click?msg={msg}&campaign=X&url=encoded; appendUtm() injects utm_source=newsletter / utm_medium=email / utm_campaign=<id> on internal financialmodelerpro.com hosts. Skips mailto:/tel:/javascript:/anchors/unsubscribe URL/click endpoint itself. injectMessageId() helper for per-recipient {msg} swap if the call site has the message id ahead of send.
 # NOTE: src/lib/marketing/* DELETED 2026-04-24 — Phase 1.5 canvas types/helpers (types, canvasDefaults, presets, variants, autoFill, brandKit, imageToDataUri) all removed in the Marketing Studio rebuild.
 ├── marketing-studio/            # Training Hub Marketing Studio (rebuild 2026-04-24, migration 142; multi-instructor + drag-resize follow-up commit b0823b9). Server-side template rendering via next/og ImageResponse — no canvas state.
 │   ├── types.ts                 # AssetType, Instructor, BrandPack, RenderRequest discriminated union (linkedin-banner / live-session / youtube-thumbnail / article-banner), DIMENSIONS map per template, UploadedAsset DTO, ZoneRect / LayoutOverrides, resolveInstructors() helper (falls back to brand pack default when no IDs picked). Every banner content type carries `instructorIds: string[]` + `layout?: LayoutOverrides`.
