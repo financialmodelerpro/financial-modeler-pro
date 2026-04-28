@@ -211,13 +211,12 @@ app/api/training/
 ├── live-sessions/                 # GET: published sessions with attachments
 ├── live-sessions/[id]/            # GET: single session detail
 ├── live-sessions/[id]/register/   # POST/DELETE/GET: register/cancel/status
-├── live-sessions/[id]/watched/    # POST: record watch, 50 points
+├── live-sessions/[id]/watched/    # GET (status) + POST. POST accepts watch_seconds/total_seconds/last_position/watch_intervals/manual_override. Server unions incoming + existing JSONB watch_intervals (mig 146) and recomputes watch_seconds from the merged set with a wall-clock rate limit on the new portion. Stamps video_load_at on first POST (mig 147), stamps completed_via on flip to completed ('threshold' or 'manual'). Manual override path requires pct >= 50 AND elapsed >= total_seconds * 0.8; 403 with diagnostics on either fail. Awards 50 points on first transition to completed.
 ├── live-sessions/registration-status-batch/ # POST: batch status
 ├── watch-history/                 # GET: student watch history (session_watch_history rows)
-├── certification-watch/           # GET/POST: certification_watch_history — POST accepts progress fields (watch_seconds/total_seconds/last_position), MAX server-side merge
+├── certification-watch/           # GET (returns rows with watch_intervals JSONB so the player can hydrate the tracker on mount) + POST. POST body: { student_email, tab_key, course_id, status, watch_seconds?, total_seconds?, last_position?, watch_intervals?, manual_override? }. Server unions incoming + existing JSONB watch_intervals (mig 146) and recomputes watch_seconds from the merged set with a wall-clock rate limit on the new portion. Legacy callers without intervals fall back to MAX(existing, incoming) on the scalar. Stamps video_load_at on first POST (mig 147). On flip to completed: completed_via='threshold' for the auto path (pct >= watch_enforcement_threshold) or 'manual' for the override path (manual_override=true with pct >= 50 AND wall-clock elapsed >= total_seconds * 0.8). 403 with diagnostic info on either gate fail. Video swap auto-detection resets intervals + clears completed_via.
 ├── watch-enforcement/             # GET: {enabled, threshold, sessionBypass[tabKey], isAdmin} — powers watch page gating
 ├── youtube-comments/              # GET: cached YouTube comments (24h DB cache via youtube_comments_cache)
-├── certification-watch/           # GET/POST: certification video watch status (in_progress/completed)
 ├── achievement-image/route.tsx    # GET: dynamic OG achievement card image (satori ImageResponse, sharp SVG→PNG logo)
 └── tour-status/route.ts           # POST: toggle training_registrations_meta.tour_completed — one-shot dashboard walkthrough (migration 120)
 ```
@@ -254,6 +253,7 @@ app/api/admin/
 ├── training-hub/ + analytics/ + assessments/ + certificates/
 │   + cohorts/ + cohorts/[id]/ + communications/ + student-journey/
 │   + student-progress/ + students/
+│   # student-progress: GET ?email&regId returns { progress, watch }. Phase 4 / 2026-04-28 extended to read both certification_watch_history + session_watch_history in parallel and return the watch[] alongside the existing progress payload. Powers the Watch Progress table + Force Unlock buttons in the Progress modal on /admin/training-hub/students.
 │   # communications/route.ts: 2026-04-23 rewrite - POSTs now send via Resend `batch.send` wrapped in baseLayoutBranded (gold CTA button for URL lines, teal inline links, organizer in description). Previously delegated to Apps Script with no brand layout. Per-recipient success/failure written to training_email_log.status. Tokens {name} / {full_name} / {reg_id} / {email} resolved server-side from training_registrations_meta.
 │   # communications dropout groups: common gate (emailConfirmed AND NOT certificateIssued), then neverStarted / stalled (>=1 pass + >=7 days idle) / almostDone (>=65% sessions), no longer uses 80% threshold or distinct-attempt denominator.
 ├── live-playlists/              # CRUD for playlists
@@ -284,6 +284,7 @@ app/api/admin/
 ├── training-hub/marketing-studio/uploads/[id]/   # PATCH (rename) + DELETE (storage + DB cleanup in lockstep)
 ├── watch-enforcement-stats/             # GET: distinct tab_keys in certification_watch_history + per-key stats (for admin dynamic session list)
 ├── sessions/[tabKey]/reset-watch-progress/ # POST: admin-only nuclear reset — deletes every watch-history row for the session. Routes by prefix: LIVE_<uuid> → session_watch_history; else → certification_watch_history (tab_key match). Paired with red buttons in both session editors. (2026-04-21)
+├── sessions/[tabKey]/force-complete-for-student/ # POST { email, reason }: admin-only per-student force-unlock. Mirrors reset-watch-progress's prefix routing (LIVE_ vs cert). Flips status='completed' + completed_via='admin_override' + completed_at=now (cert) / watched_at=now (live), clamps watch_percentage to the row's actual coverage, awards +50 points on live-session rows that hadn't received them. Idempotent: returns alreadyCompleted=true on already-done rows without overwriting honest 'threshold'/'manual' provenance. Writes to admin_audit_log with action='watch_force_complete' + previous state + reason. Phase 4 / migration 147. Surfaced via Force Unlock buttons in the Progress modal on /admin/training-hub/students.
 ├── generate-images/             # POST: satori+sharp generate mission/vision PNGs → Supabase
 ├── page-sections/               # CRUD for page_sections + cms_pages
 ├── reset-attempts/              # POST: reset via Apps Script
@@ -383,8 +384,8 @@ src/components/
 │   ├── TrainingShell.tsx            # Shared layout (header + sidebar + footer + mobile nav + CMS logo)
 │   ├── TrainingShellServer.tsx      # Server wrapper — fetches CMS logo for TrainingShell
 │   ├── DashboardTour.tsx            # driver.js interactive walkthrough on first dashboard visit (migration 120). Reads/writes `tour_completed` via POST /api/training/tour-status
-│   ├── YouTubePlayer.tsx            # YT IFrame API player — `startSeconds` prop (resume via playerVars.start), onNearEnd (20s), interval-merging `onProgress(watchedSec, totalSec, pos)` via watchTracker, baselineWatchedSeconds seed
-│   ├── WatchProgressBar.tsx         # Watch progress bar shown above Mark Complete — %/threshold with color + dashed threshold marker + bypass-aware label
+│   ├── YouTubePlayer.tsx            # YT IFrame API player. `startSeconds` prop (resume via playerVars.start). Interval-merging tracker stored in useRef so prop updates re-seed without remount (mig 146 Phase 2). Accepts `baselineWatchedSeconds` + `initialIntervals` (JSONB hydrated from the watch row). Emits `onProgress(WatchProgressPayload)` with `{ watchedSec, totalSec, currentPos, intervals, force }`; `force=true` on real close events (PAUSED/ENDED/BUFFERING/unmount) so the parent bypasses its POST throttle and the final partial interval lands in the DB. BUFFERING handled as a soft pause; onPlay closes any prior open interval first.
+│   ├── WatchProgressBar.tsx         # Re-enabled in Phase 4 / 2026-04-28. Color-coded fill (red < 30, amber 30 to threshold, green at threshold) + dashed vertical threshold marker + bypass-aware copy. Shown above Mark Complete on both watch pages. Three label buckets: < 50% "keep watching", 50-(threshold-1) "auto-unlock at X%, or confirm manually below", >= threshold "ready to mark complete". The component was a no-op return null pre-Phase 4 because the pre-146 tracker had race conditions that made the displayed % unreliable.
 │   ├── SubscribeButton.tsx          # Legacy — unused (replaced by SubscribeModal)
 │   ├── SubscribeModal.tsx           # Subscribe modal with YouTube link + ?sub_confirmation=1
 │   ├── EngagementBar.tsx            # Legacy — unused (replaced by CourseTopBar)

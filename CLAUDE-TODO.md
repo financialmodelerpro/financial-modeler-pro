@@ -4,6 +4,29 @@
 
 ---
 
+## Recently Completed — Watch Tracking Rebuild (2026-04-28 session, commits `c9a20e4` → `670fb51`, migrations 146 + 147)
+
+| Phase | Status |
+|-------|--------|
+| **Phase 2 — Persist watch intervals across sessions (smoking-gun fix)** | Complete (commit `c9a20e4`, mig 146). Adds `watch_intervals JSONB` to `certification_watch_history` and `session_watch_history`. Pre-146 the tracker only persisted scalar `watch_seconds`; on a return visit `max(baseline, sumNew + open)` froze multi-session viewers at the largest single contiguous run forever (Fakhri stuck at 47% on 3SFM_S2 despite watching to completion). Now the tracker hydrates from JSONB on mount and POSTs a snapshot of merged intervals every progress tick; server unions with existing JSONB and re-derives `watch_seconds = sumIntervals(merged)` with a wall-clock rate limit on the new portion. Five tracker fixes: onPlay close-first, cross-session interval union, BUFFERING soft-pause handler, useRef re-seed without remount, force-flag on close events so the final partial interval lands in the DB. |
+| **Phase 3 — Manual override path** | Complete (commit `13cb260`, mig 147). New columns `completed_via TEXT NULL` (`'threshold'` / `'manual'` / `'admin_override'`) and `video_load_at TIMESTAMPTZ NULL` (server-stamped on first POST per row, anchors the elapsed-time check). UI: CourseTopBar gains a checkbox-gated "I confirm I have watched this video" + Mark Complete button when watch% is in the [50, threshold) band. Server enforces `pct >= 50` AND `wall-clock elapsed >= total_seconds * 0.8` before honouring; 403 with diagnostic info bounces tampered submits. |
+| **Phase 4 — Visibility (student progress bar + admin force-unlock)** | Complete (commit `e2dd9a4`). `WatchProgressBar` re-enabled with color-coded fill (red/amber/green) + dashed threshold marker + bypass-aware copy (was a no-op return null pre-Phase 4 because the pre-146 tracker had race conditions that made the displayed % unreliable). New admin endpoint `POST /api/admin/sessions/[tabKey]/force-complete-for-student` (admin-gated, prefix routing, audit_log entry, +50 points on live-session rows). Admin students panel gains a Watch Progress table with per-row Force Unlock buttons. Idempotent. |
+| **Phase 5 — Surgical recovery for 4 stuck students** | Complete (commit `670fb51`). `scripts/phase5_recovery.ts` mirrors the endpoint logic via service role (HTTP endpoint requires NextAuth admin cookies which are awkward to thread from a CLI; same precedent as migration 140 / 141 service-role scripts). All 4 unblocked, all 4 audit entries confirmed by `scripts/phase5_verify.ts`. Targets: `muhammadtayyabmadni07@gmail.com` (3SFM_S1, 100%), `yusra.tufail@yahoo.com` (3SFM_S1, 93%), `daniyal1012@yahoo.com` (3SFM_S1, 76%), `fakhrizanul@gmail.com` (Fakhri, 3SFM_S2, 47%). Pre-fix snapshot at `supabase/backups/stuck_watch_2026-04-28.json`; post-fix audit at `supabase/backups/phase5_recovery_2026-04-28.json`. Notable: 3 of 4 were stuck on 3SFM_S1 specifically. |
+
+**Net total**: +2,766 / -222 lines across 5 commits + 2 SQL migrations. **Schema changes**: migrations 146 + 147 (both manual Supabase apply, idempotent). **New API routes**: `POST /api/admin/sessions/[tabKey]/force-complete-for-student`. **Updated routes**: `/api/training/certification-watch` + `/api/training/live-sessions/[id]/watched` accept `manual_override` + `watch_intervals`. **New scripts (one-shot maintenance)**: `scripts/diagnose_stuck_watch.ts`, `scripts/phase5_recovery.ts`, `scripts/phase5_verify.ts`.
+
+**Three unlock paths going forward**: `threshold` (auto at >=70%), `manual` (student override at >=50% + elapsed-time check), `admin_override` (admin force-unlock). The 70% threshold itself is unchanged.
+
+### Watch Tracking Follow-Ups
+
+| Item | Notes |
+|------|-------|
+| **Investigate 3SFM_S1 specifically** | 3 of 4 Phase 5 stuck students were on `3SFM_S1`. Could be coincidence (S1 is the highest-traffic session) or a session-specific edge case (e.g. video duration that triggers a particular tracker race). Worth a quick look if more students surface stuck on the same session post-fix. Cross-reference: video duration, `total_seconds` distribution across stuck rows, intervals data once more rows populate post-146. |
+| **Monitor for new stuck students** | Re-run `scripts/diagnose_stuck_watch.ts` periodically (every 1-2 weeks) for the first month post-fix. Bucket counts should trend toward zero AUTO_UNBLOCK / ADMIN_REVIEW. RECENTLY_ACTIVE under threshold is normal (mid-course students). If new stuck students appear despite migrations 146+147 being applied, examine their `watch_intervals` JSONB to see what the tracker captured. |
+| **Watch intervals analytics (future enhancement)** | The JSONB `watch_intervals` column carries a precise minute-by-minute coverage map per student per session. Could power: heat maps showing which video segments students rewatch, drop-off detection ("60% of students stop at 18:00 mark in S5"), session-quality scoring. Not in scope for the rebuild but worth noting for a future pass. |
+
+---
+
 ## Recently Completed — Branding merge + Pricing simplification (2026-04-28 session, commits `ab5db30` → `777e1bf`)
 
 | Feature | Status |

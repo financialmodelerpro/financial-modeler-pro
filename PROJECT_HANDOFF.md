@@ -44,7 +44,7 @@ Use this file to resume development in a new chat session. Read `CLAUDE.md` firs
 | Live Sessions — public pages | ✅ Complete | SSR at `/training-sessions`, no auth required, no `live_url` exposed |
 | Session registration/RSVP | ✅ Complete | `session_registrations` table, batch status API, join link 30 min before |
 | Email notifications (live sessions) | ✅ Complete | Announcement/reminder via Resend, targeting all/3SFM/BVM |
-| Watch tracking (recordings) | ✅ Complete | `session_watch_history` table, 50 points on first watch |
+| Watch tracking (recordings) | ✅ Complete | `session_watch_history` table, 50 points on first watch. Rebuilt 2026-04-28 (migrations 146 + 147) — JSONB `watch_intervals` for cross-session accumulation, `completed_via` provenance, manual override path at >=50% + admin force-unlock. See "Watch Tracking Rebuild" row in CLAUDE-FEATURES.md. |
 | File attachments per session | ✅ Complete | Upload to `course-materials` bucket, in-dashboard preview modal |
 | Share Experience / Testimonials | ✅ Complete | 3-tab modal (written, video, social), both hubs, LinkedIn/Loom validation |
 | Admin — student management | ✅ Complete | Student list, progress modal with tabs, admin actions history |
@@ -177,18 +177,18 @@ Use this file to resume development in a new chat session. Read `CLAUDE.md` firs
 
 | Hash | Date | Message |
 |------|------|---------|
-| `4add9bb` | 2026-04-09 | Update CLAUDE.md — full session documentation refresh |
-| `0d95efd` | 2026-04-09 | Fix 4 live session bugs: instructor, preview links, join button, consistency |
-| `62e178a` | 2026-04-09 | Redesign Training Sessions preview on learn homepage |
-| `a6ef492` | 2026-04-09 | Fix 5 live session bugs: instructor title, cards, join link, YouTube toggle |
-| `e464743` | 2026-04-09 | Redesign Training Sessions preview on dashboard overview |
-| `dfb0517` | 2026-04-09 | Free access to recordings + watch tracking + instructor title |
-| `9ac2ecb` | 2026-04-09 | Remove duplicate upcoming session banner from dashboard overview |
-| `e411a2e` | 2026-04-09 | Fix public Training Sessions page: server-side data fetching |
-| `5c4fc9c` | 2026-04-09 | Add registration status on session cards + fix admin date for recordings |
-| `d51d1cc` | 2026-04-09 | Fix nav consistency, API debugging, remove tabs for sequential layout |
+| `670fb51` | 2026-04-28 | Phase 5: Force-unlock 4 stuck students using admin endpoint |
+| `e2dd9a4` | 2026-04-28 | Show watch percentage to students and add admin force-unlock tools |
+| `13cb260` | 2026-04-28 | Add manual override path for stuck watch tracking |
+| `756816e` | 2026-04-28 | Add stuck-watch diagnostic + 2026-04-28 snapshot |
+| `c9a20e4` | 2026-04-28 | fix(watch-tracking): persist intervals across sessions, fix race conditions |
+| `c666ca1` | 2026-04-28 | Add comprehensive platform inventory for restructure planning |
+| `04d1551` | 2026-04-28 | docs: reflect 2026-04-28 branding merge + pricing simplification |
+| `777e1bf` | 2026-04-28 | refactor(pricing): remove Plans tab + drop pricing_plans (migration 145) |
+| `50e22fa` | 2026-04-28 | refactor(pricing): remove Page Content tab; /pricing reads from page_sections |
+| `ab5db30` | 2026-04-28 | refactor(admin): merge Branding into Header Settings |
 
-Last session was a rapid live sessions polish sprint: 15 files changed, +1221/-837 lines.
+Most recent session shipped the watch tracking rebuild (Phases 2-5 + migrations 146 + 147 + surgical recovery for 4 stuck students). The session before it was an admin cleanup sprint (Branding merged into Header Settings, Pricing tabs simplified, migration 145 drops `pricing_plans`).
 
 ---
 
