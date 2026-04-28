@@ -214,7 +214,8 @@ export default function CourseWatchPage() {
     }
   }, [studentSession, sessionKey]);
 
-  // Handle Mark Complete click - persists to certification_watch_history DB
+  // Handle Mark Complete click (auto path: pct >= threshold). Persists
+  // to certification_watch_history DB. Server stamps completed_via='threshold'.
   const handleMarkComplete = useCallback(() => {
     setMarkedComplete(true);
     if (!studentSession || !course) return;
@@ -228,6 +229,48 @@ export default function CourseWatchPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ student_email: studentSession.email, tab_key: tk, course_id: courseId, status: 'completed' }),
     }).catch(() => {});
+  }, [studentSession, course, sessionKey, courseId]);
+
+  // Manual override (Phase 3): student confirms via checkbox at >= 50%.
+  // Server enforces pct >= 50 AND wall-clock elapsed >= total * 0.8;
+  // a 403 lands here with a readable error message and the row stays
+  // in_progress so the student can keep watching.
+  const handleManualComplete = useCallback(async () => {
+    if (!studentSession || !course) return;
+    const session = course.sessions.find(s => s.id === sessionKey);
+    if (!session) return;
+    const tk = session.isFinal
+      ? `${course.shortTitle.toUpperCase()}_Final`
+      : `${course.shortTitle.toUpperCase()}_${session.id}`;
+    try {
+      const res = await fetch('/api/training/certification-watch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          student_email: studentSession.email,
+          tab_key: tk,
+          course_id: courseId,
+          status: 'completed',
+          manual_override: true,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as {
+          error?: string; current?: number; required?: number;
+          elapsedSec?: number; requiredSec?: number;
+        };
+        const detail = err.requiredSec != null && err.elapsedSec != null
+          ? `${err.error ?? 'Override blocked'} (page open for ${Math.round(err.elapsedSec / 60)} min, need ~${Math.round(err.requiredSec / 60)} min).`
+          : err.current != null && err.required != null
+          ? `${err.error ?? 'Override blocked'} (watched ${err.current}%, need at least ${err.required}%).`
+          : err.error ?? 'Could not mark complete. Please keep watching.';
+        alert(detail);
+        return;
+      }
+      setMarkedComplete(true);
+    } catch {
+      alert('Network error. Please try again.');
+    }
   }, [studentSession, course, sessionKey, courseId]);
 
   /**
@@ -407,12 +450,25 @@ export default function CourseWatchPage() {
   // so we avoid visually-enabled-but-blocked UX.
   const markCompleteCallback = canMarkComplete && !markedComplete ? handleMarkComplete : undefined;
 
-  // Ghost hint for the top bar. Reachable only when threshold is not yet
-  // met (otherwise the button is shown). Surfaced once the student starts
-  // playing so the toolbar isn't blank.
+  // Manual override (Phase 3 / migration 147). Surfaces a checkbox +
+  // Mark Complete button when watch% is in the [50, threshold) band
+  // AND the auto path isn't already available. Below 50% there's no
+  // path forward; the ghost hint takes over. Server still enforces
+  // the elapsed-time check before honouring the override.
   const sessPassed = progressMap.get(sessionKey)?.passed === true;
+  const manualOverrideAvailable =
+    !markCompleteCallback &&
+    !markedComplete &&
+    !sessPassed &&
+    !bypassActive &&
+    watchPct >= 50;
+  const manualCompleteCallback = manualOverrideAvailable ? handleManualComplete : undefined;
+
+  // Ghost hint for the top bar. Reachable only when neither the auto
+  // nor manual path is open. Surfaced once the student starts playing
+  // so the toolbar isn't blank.
   let watchHint: string | undefined;
-  if (!markCompleteCallback && !markedComplete && !sessPassed && liveTotalSec > 0 && liveCurrentPos > 0) {
+  if (!markCompleteCallback && !manualCompleteCallback && !markedComplete && !sessPassed && liveTotalSec > 0 && liveCurrentPos > 0) {
     watchHint = `Watching… ${watchPct}%`;
   }
 
@@ -440,6 +496,7 @@ export default function CourseWatchPage() {
         nextSessionHref={nextHref}
         isWatched={markedComplete || progressMap.get(sessionKey)?.passed}
         onMarkComplete={markCompleteCallback}
+        onManualComplete={manualCompleteCallback}
         watchHint={watchHint}
         isCompleted={markedComplete || progressMap.get(sessionKey)?.passed === true}
         videoId={videoId || undefined}

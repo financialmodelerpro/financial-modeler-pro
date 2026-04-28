@@ -534,7 +534,7 @@ export default function LiveSessionDetailPage() {
             total_seconds: liveTotalSec,
           }),
         });
-        // Don't flip isWatched=true on rejection — the previous code
+        // Don't flip isWatched=true on rejection. The previous code
         // set it unconditionally, so a 403 ("threshold not met") would
         // show "Completed" on the client but the DB row stayed
         // in_progress. Next page-load would then show no button at
@@ -552,7 +552,45 @@ export default function LiveSessionDetailPage() {
         setPlaylistSessions(prev => prev.map(s => s.id === session.id ? { ...s, watched: true } : s));
       } catch (e) {
         console.error('[LiveSession] handleMarkComplete failed', e);
-        alert('Network error — could not mark complete. Please try again.');
+        alert('Network error. Could not mark complete. Please try again.');
+      }
+    };
+
+    // Manual override (Phase 3): student confirms via checkbox at >= 50%.
+    // Server enforces pct >= 50 AND wall-clock elapsed >= total * 0.8.
+    const handleManualComplete = async () => {
+      if (!studentSession?.email) return;
+      try {
+        const res = await fetch(`/api/training/live-sessions/${session.id}/watched`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: studentSession.email,
+            regId: studentSession.registrationId,
+            status: 'completed',
+            watch_seconds: liveWatchSec,
+            total_seconds: liveTotalSec,
+            manual_override: true,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({})) as {
+            error?: string; current?: number; required?: number;
+            elapsedSec?: number; requiredSec?: number;
+          };
+          const detail = err.requiredSec != null && err.elapsedSec != null
+            ? `${err.error ?? 'Override blocked'} (page open for ${Math.round(err.elapsedSec / 60)} min, need ~${Math.round(err.requiredSec / 60)} min).`
+            : err.current != null && err.required != null
+            ? `${err.error ?? 'Override blocked'} (watched ${err.current}%, need at least ${err.required}%).`
+            : err.error ?? 'Could not mark complete. Please keep watching.';
+          alert(detail);
+          return;
+        }
+        setIsWatched(true);
+        setPlaylistSessions(prev => prev.map(s => s.id === session.id ? { ...s, watched: true } : s));
+      } catch (e) {
+        console.error('[LiveSession] handleManualComplete failed', e);
+        alert('Network error. Could not mark complete. Please try again.');
       }
     };
 
@@ -578,11 +616,21 @@ export default function LiveSessionDetailPage() {
 
     const markCompleteCallback = canMarkComplete && !isWatched ? handleMarkComplete : undefined;
 
-    // Ghost hint shown in the top bar when neither Mark Complete nor
-    // the Completed badge is active. Reachable only when threshold is
-    // not yet met. Surfaced once the student starts playing.
+    // Manual override (Phase 3 / migration 147). Available when watch%
+    // is in the [50, threshold) band, the auto path isn't open, and
+    // the row isn't already completed. Server enforces the elapsed
+    // time check before honouring.
+    const manualOverrideAvailable =
+      !markCompleteCallback &&
+      !isWatched &&
+      !bypassActive &&
+      watchPct >= 50;
+    const manualCompleteCallback = manualOverrideAvailable ? handleManualComplete : undefined;
+
+    // Ghost hint shown in the top bar when no Mark Complete path is
+    // active. Surfaced once the student starts playing.
     let watchHint: string | undefined;
-    if (!markCompleteCallback && !isWatched && liveTotalSec > 0 && liveCurrentPos > 0) {
+    if (!markCompleteCallback && !manualCompleteCallback && !isWatched && liveTotalSec > 0 && liveCurrentPos > 0) {
       watchHint = `Watching… ${watchPct}%`;
     }
 
@@ -627,6 +675,7 @@ export default function LiveSessionDetailPage() {
         nextSessionHref={nextSess?.href}
         isWatched={isWatched}
         onMarkComplete={markCompleteCallback}
+        onManualComplete={manualCompleteCallback}
         isCompleted={isWatched}
         watchHint={watchHint}
         videoId={hasVideo ? ytId! : undefined}

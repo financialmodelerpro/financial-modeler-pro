@@ -98,6 +98,12 @@ interface CoursePlayerLayoutProps {
   nextSessionHref?: string;
   isWatched?: boolean;
   onMarkComplete?: () => void;
+  /** Manual override path (Phase 3 / migration 147). Surfaces a
+   *  checkbox + Mark Complete button in CourseTopBar when watch% is
+   *  in the [50, threshold) band -- safety valve for students whose
+   *  tracker undershot. Server validates pct >= 50 AND wall-clock
+   *  elapsed >= total_seconds * 0.8 before honouring. */
+  onManualComplete?: () => void;
   isCompleted?: boolean;
   assessmentUrl?: string;
   assessmentReady?: boolean;
@@ -164,7 +170,7 @@ const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialm
 export function CoursePlayerLayout({
   title, youtubeUrl, channelId, showLikeButton,
   sessionTitle, sessionDescription, sessionUrl,
-  nextSessionHref, isWatched, onMarkComplete, isCompleted,
+  nextSessionHref, isWatched, onMarkComplete, onManualComplete, isCompleted,
   assessmentUrl, assessmentReady, assessmentPassed, watchHint, onVideoPlaying, onVideoEnded,
   onVideoProgress, baselineWatchedSeconds, initialIntervals, resumePositionSeconds, belowVideoContent,
   videoId, sessionId, studentEmail, studentRegId,
@@ -288,6 +294,7 @@ export function CoursePlayerLayout({
         nextSessionHref={nextSessionHref}
         isWatched={isWatched}
         onMarkComplete={hasVideo ? onMarkComplete : undefined}
+        onManualComplete={hasVideo ? onManualComplete : undefined}
         isCompleted={isCompleted}
         assessmentUrl={assessmentUrl}
         assessmentReady={assessmentReady}
