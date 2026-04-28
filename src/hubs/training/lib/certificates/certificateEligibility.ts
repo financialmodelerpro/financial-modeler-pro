@@ -18,7 +18,7 @@
 
 import { COURSES } from '@/src/config/courses';
 import { getServerClient } from '@/src/core/db/supabase';
-import { getStudentProgressFromSupabase as getStudentProgress } from '@/src/lib/training/progressFromSupabase';
+import { getStudentProgressFromSupabase as getStudentProgress } from '@/src/hubs/training/lib/progress/progressFromSupabase';
 
 export interface EligibilityResult {
   eligible: boolean;

@@ -7,7 +7,7 @@ import { CalendarDropdown } from '@/src/hubs/training/components/CalendarDropdow
 import { ShareModal } from '@/src/components/training/share/ShareModal';
 import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
 import { renderShareTemplate, formatShareDate } from '@/src/lib/training/shareTemplates';
-import type { LiveSession, RegistrationStatus, WatchHistoryEntry } from '@/src/lib/training/liveSessionsForStudent';
+import type { LiveSession, RegistrationStatus, WatchHistoryEntry } from '@/src/hubs/training/lib/liveSessions/liveSessionsForStudent';
 
 const NAVY = '#0D2E5A';
 const TEAL = '#14B8A6';

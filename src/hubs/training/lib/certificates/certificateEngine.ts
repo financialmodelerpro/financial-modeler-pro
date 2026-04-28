@@ -40,8 +40,8 @@ export interface PendingCertificate {
   verificationUrl?:  string;
   qrCodeUrl?:        string;
 }
-import { verifyWatchThresholdMet } from '@/src/lib/training/watchThresholdVerifier';
-import { checkEligibility, type EligibilityResult } from '@/src/lib/training/certificateEligibility';
+import { verifyWatchThresholdMet } from '@/src/hubs/training/lib/watch/watchThresholdVerifier';
+import { checkEligibility, type EligibilityResult } from '@/src/hubs/training/lib/certificates/certificateEligibility';
 import { COURSES } from '@/src/config/courses';
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { certificateIssuedTemplate } from '@/src/shared/email/templates/certificateIssued';

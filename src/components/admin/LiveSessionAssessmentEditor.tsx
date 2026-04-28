@@ -5,7 +5,7 @@ import { RichTextarea } from '@/src/components/admin/RichTextarea';
 import type {
   LiveSessionAssessment,
   LiveSessionQuestion,
-} from '@/src/lib/training/liveSessionAssessments';
+} from '@/src/hubs/training/lib/assessment/liveSessionAssessments';
 
 const NAVY = '#1B3A6B';
 const BLUE = '#1B4F8A';

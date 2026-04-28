@@ -14,6 +14,6 @@ export {
   submitAssessmentToAppsScript,
   registerStudent,
   getCertificatesByEmail,
-} from '@/src/lib/training/sheets';
+} from '@/src/hubs/training/lib/appsScript/sheets';
 
-export type { PendingCertificate, SubmitAssessmentScoredParams } from '@/src/lib/training/sheets';
+export type { PendingCertificate, SubmitAssessmentScoredParams } from '@/src/hubs/training/lib/appsScript/sheets';

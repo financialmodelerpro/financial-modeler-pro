@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getStudentAttempts } from '@/src/lib/training/liveSessionAssessments';
-import { getTrainingCookieSession } from '@/src/lib/training/trainingSessionCookie';
+import { getStudentAttempts } from '@/src/hubs/training/lib/assessment/liveSessionAssessments';
+import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 
 export const dynamic = 'force-dynamic';
 

@@ -12,7 +12,7 @@ import {
   serializeIntervals,
   type WatchTrackerState,
   type Interval,
-} from '@/src/lib/training/watchTracker';
+} from '@/src/hubs/training/lib/watch/watchTracker';
 
 /* -- Minimal YT IFrame API types ----------------------------------------- */
 interface YTPlayerOptions {

@@ -6,7 +6,7 @@ import {
   saveAssessment,
   deleteAssessment,
   type LiveSessionQuestion,
-} from '@/src/lib/training/liveSessionAssessments';
+} from '@/src/hubs/training/lib/assessment/liveSessionAssessments';
 
 export const dynamic = 'force-dynamic';
 

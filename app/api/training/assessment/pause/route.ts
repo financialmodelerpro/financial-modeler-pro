@@ -7,8 +7,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
-import { getTrainingCookieSession } from '@/src/lib/training/trainingSessionCookie';
-import { pauseAttempt, type AttemptKey } from '@/src/lib/training/attemptInProgress';
+import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
+import { pauseAttempt, type AttemptKey } from '@/src/hubs/training/lib/assessment/attemptInProgress';
 
 export const runtime = 'nodejs';
 

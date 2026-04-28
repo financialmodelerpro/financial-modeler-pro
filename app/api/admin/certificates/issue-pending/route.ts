@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
-import { issueCertificateForStudent } from '@/src/lib/training/certificateEngine';
-import { findAllEligibleFromSupabase } from '@/src/lib/training/certificateEligibility';
+import { issueCertificateForStudent } from '@/src/hubs/training/lib/certificates/certificateEngine';
+import { findAllEligibleFromSupabase } from '@/src/hubs/training/lib/certificates/certificateEligibility';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;

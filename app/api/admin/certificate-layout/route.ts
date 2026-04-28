@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
-import { DEFAULT_CERT_LAYOUT, type CertLayout } from '@/src/lib/training/certificateLayout';
+import { DEFAULT_CERT_LAYOUT, type CertLayout } from '@/src/hubs/training/lib/certificates/certificateLayout';
 
 const SECTION     = 'certificate_layout';
 const KEY         = 'layout_json';

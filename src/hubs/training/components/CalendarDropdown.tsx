@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { CalendarPlus } from 'lucide-react';
-import { downloadIcs } from '@/src/lib/training/calendar';
+import { downloadIcs } from '@/src/hubs/training/lib/liveSessions/calendar';
 
 export interface CalendarEvent {
   title:               string;

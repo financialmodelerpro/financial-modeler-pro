@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
-import { getWatchEnforcement, canCompleteWith } from '@/src/lib/training/watchEnforcementCheck';
-import { detectVideoChange } from '@/src/lib/training/detectVideoChange';
+import { getWatchEnforcement, canCompleteWith } from '@/src/hubs/training/lib/watch/watchEnforcementCheck';
+import { detectVideoChange } from '@/src/hubs/training/lib/watch/detectVideoChange';
 import {
   hydrateIntervals,
   unionIntervals,
   serializeIntervals,
   sumIntervals,
   type Interval,
-} from '@/src/lib/training/watchTracker';
+} from '@/src/hubs/training/lib/watch/watchTracker';
 
 /**
  * GET /api/training/certification-watch?email=x

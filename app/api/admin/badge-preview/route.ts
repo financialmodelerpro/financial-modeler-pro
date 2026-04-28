@@ -16,7 +16,7 @@ import {
   DEFAULT_BADGE_LAYOUT,
   renderBadgeWithText,
   type BadgeLayout,
-} from '@/src/lib/training/certificateEngine';
+} from '@/src/hubs/training/lib/certificates/certificateEngine';
 
 const SAMPLE_CERT_ID = 'FMP-3SFM-2026-0001';
 const SAMPLE_DATE    = '15 January 2026';

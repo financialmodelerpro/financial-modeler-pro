@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { submitAttempt } from '@/src/lib/training/liveSessionAssessments';
-import { getTrainingCookieSession } from '@/src/lib/training/trainingSessionCookie';
+import { submitAttempt } from '@/src/hubs/training/lib/assessment/liveSessionAssessments';
+import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 import { getServerClient } from '@/src/core/db/supabase';
-import { deleteInProgressForKey } from '@/src/lib/training/attemptInProgress';
+import { deleteInProgressForKey } from '@/src/hubs/training/lib/assessment/attemptInProgress';
 
 export const dynamic = 'force-dynamic';
 

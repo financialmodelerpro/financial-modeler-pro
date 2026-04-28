@@ -4,7 +4,7 @@ import { verifyCaptcha } from '@/src/shared/auth/captcha';
 import { createConfirmationToken } from '@/src/shared/auth/emailConfirmation';
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { confirmEmailTemplate } from '@/src/shared/email/templates/confirmEmail';
-import { getTrainingRegisterComingSoonState } from '@/src/lib/shared/trainingComingSoon';
+import { getTrainingRegisterComingSoonState } from '@/src/hubs/training/lib/comingSoon';
 import { isTrainingIdentifierBypassed } from '@/src/shared/comingSoon/bypassList';
 import bcrypt from 'bcryptjs';
 

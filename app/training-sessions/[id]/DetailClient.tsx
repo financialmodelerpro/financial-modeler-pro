@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { getTrainingSession } from '@/src/lib/training/training-session';
+import { getTrainingSession } from '@/src/hubs/training/lib/session/training-session';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/hubs/training/components/player/CoursePlayerLayout';
 import { WelcomeModal } from '@/src/hubs/training/components/WelcomeModal';
 import { extractYouTubeId } from '@/src/shared/cms';

@@ -9,7 +9,7 @@ import type {
   AttemptStatus,
   SubmitAssessmentResult,
   QuestionResult,
-} from '@/src/lib/training/sheets';
+} from '@/src/hubs/training/lib/appsScript/sheets';
 import { COURSES } from '@/src/config/courses';
 import { shareTo, FMP_TRAINING_URL } from '@/src/lib/training/share';
 import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
@@ -71,7 +71,7 @@ import {
   resumeAttemptApi,
   getAttemptStateApi,
   firePauseOnUnload,
-} from '@/src/lib/training/attemptInProgressClient';
+} from '@/src/hubs/training/lib/assessment/attemptInProgressClient';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

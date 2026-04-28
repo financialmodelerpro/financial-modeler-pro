@@ -1,13 +1,13 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
-import { getTrainingCookieSession } from '@/src/lib/training/trainingSessionCookie';
+import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 import { getServerClient } from '@/src/core/db/supabase';
 import {
   getAssessment,
   getStudentAttempts,
   getWatchPercentage,
   stripAnswersForStudent,
-} from '@/src/lib/training/liveSessionAssessments';
+} from '@/src/hubs/training/lib/assessment/liveSessionAssessments';
 import { AssessmentClient } from './AssessmentClient';
 
 export const metadata: Metadata = {

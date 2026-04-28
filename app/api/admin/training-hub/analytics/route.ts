@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
-import { getStudentRoster } from '@/src/lib/training/studentRoster';
+import { getStudentRoster } from '@/src/hubs/training/lib/appsScript/studentRoster';
 import { getServerClient } from '@/src/core/db/supabase';
 
 export const revalidate = 0;

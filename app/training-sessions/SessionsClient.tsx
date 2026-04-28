@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { getTrainingSession } from '@/src/lib/training/training-session';
+import { getTrainingSession } from '@/src/hubs/training/lib/session/training-session';
 import { SessionCard, getEffectiveType, type LiveSessionData } from '@/src/hubs/training/components/sessions/SessionCard';
 import { WelcomeModal } from '@/src/hubs/training/components/WelcomeModal';
 

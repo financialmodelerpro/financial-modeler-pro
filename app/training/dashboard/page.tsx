@@ -12,10 +12,10 @@ import {
   Eye, Download, X, PlayCircle,
 } from 'lucide-react';
 import { extractYouTubeId } from '@/src/shared/cms';
-import { getTrainingSession, clearTrainingSession } from '@/src/lib/training/training-session';
+import { getTrainingSession, clearTrainingSession } from '@/src/hubs/training/lib/session/training-session';
 import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
 import { COURSES } from '@/src/config/courses';
-import { calculateCourseProgress } from '@/src/lib/training/progressCalculator';
+import { calculateCourseProgress } from '@/src/hubs/training/lib/progress/progressCalculator';
 import {
   type LiveLinksMap,
   type CourseDescsMap,

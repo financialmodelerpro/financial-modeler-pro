@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
-import { checkEligibility } from '@/src/lib/training/certificateEligibility';
+import { checkEligibility } from '@/src/hubs/training/lib/certificates/certificateEligibility';
 
 export const dynamic = 'force-dynamic';
 

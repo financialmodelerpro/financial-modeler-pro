@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getTrainingSession } from '@/src/lib/training/training-session';
+import { getTrainingSession } from '@/src/hubs/training/lib/session/training-session';
 import { FilePreviewModal } from '@/src/hubs/training/components/dashboard/FilePreviewModal';
 import { TrainingShell } from '@/src/hubs/training/components/TrainingShell';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/hubs/training/components/player/CoursePlayerLayout';
@@ -11,7 +11,7 @@ import { WatchProgressBar } from '@/src/hubs/training/components/WatchProgressBa
 import { CalendarDropdown } from '@/src/hubs/training/components/CalendarDropdown';
 import { extractYouTubeId } from '@/src/shared/cms';
 import type { WatchProgressPayload } from '@/src/hubs/training/components/YouTubePlayer';
-import { hydrateIntervals, serializeIntervals, type Interval } from '@/src/lib/training/watchTracker';
+import { hydrateIntervals, serializeIntervals, type Interval } from '@/src/hubs/training/lib/watch/watchTracker';
 
 interface Attachment { id: string; file_name: string; file_url: string; file_type: string; file_size: number }
 interface Session {

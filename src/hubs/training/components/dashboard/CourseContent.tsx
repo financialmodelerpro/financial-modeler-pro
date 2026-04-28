@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { COURSES } from '@/src/config/courses';
 import type { SessionProgress, Certificate, LiveLinksMap, CourseDescsMap } from './types';
 import { allRegularSessionsPassed } from './types';
-import { calculateCourseProgress } from '@/src/lib/training/progressCalculator';
+import { calculateCourseProgress } from '@/src/hubs/training/lib/progress/progressCalculator';
 import { AboutThisCourse } from './AboutThisCourse';
 import { SessionCard } from './SessionCard';
 import { FilePreviewModal } from './FilePreviewModal';

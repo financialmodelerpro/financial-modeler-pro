@@ -1,11 +1,11 @@
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
-import { getTrainingComingSoonState } from './trainingComingSoon';
+import { getTrainingComingSoonState } from '@/src/hubs/training/lib/comingSoon';
 import { getModelingComingSoonState } from './modelingComingSoon';
 import { isTrainingIdentifierBypassed } from '@/src/shared/comingSoon/bypassList';
 import { isEmailWhitelisted } from './modelingAccess';
 import { authOptions } from '@/src/shared/auth/nextauth';
-import { getTrainingCookieSession } from '@/src/lib/training/trainingSessionCookie';
+import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 
 /**
  * Server-side guard for authed pages and any other surface that should be

@@ -3,16 +3,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { getTrainingSession } from '@/src/lib/training/training-session';
+import { getTrainingSession } from '@/src/hubs/training/lib/session/training-session';
 import { TrainingShell } from '@/src/hubs/training/components/TrainingShell';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/hubs/training/components/player/CoursePlayerLayout';
 import { COURSES } from '@/src/config/courses';
-import { startTimer, getTimerStatus } from '@/src/lib/training/videoTimer';
+import { startTimer, getTimerStatus } from '@/src/hubs/training/lib/watch/videoTimer';
 import { WatchProgressBar } from '@/src/hubs/training/components/WatchProgressBar';
 import { allRegularSessionsPassed, type LiveLinksMap, type SessionProgress } from '@/src/hubs/training/components/dashboard/types';
 import { extractYouTubeId } from '@/src/shared/cms';
 import type { WatchProgressPayload } from '@/src/hubs/training/components/YouTubePlayer';
-import { hydrateIntervals, serializeIntervals, type Interval } from '@/src/lib/training/watchTracker';
+import { hydrateIntervals, serializeIntervals, type Interval } from '@/src/hubs/training/lib/watch/watchTracker';
 
 export default function CourseWatchPage() {
   const params = useParams<{ courseId: string; sessionKey: string }>();

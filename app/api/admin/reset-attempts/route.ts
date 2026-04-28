@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
-import { getAppsScriptUrl } from '@/src/lib/training/sheets';
+import { getAppsScriptUrl } from '@/src/hubs/training/lib/appsScript/sheets';
 import { getServerClient } from '@/src/core/db/supabase';
 
 /**

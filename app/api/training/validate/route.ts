@@ -15,7 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { isDeviceTrusted } from '@/src/shared/auth/deviceTrust';
-import { getTrainingComingSoonState } from '@/src/lib/shared/trainingComingSoon';
+import { getTrainingComingSoonState } from '@/src/hubs/training/lib/comingSoon';
 import { isTrainingIdentifierBypassed } from '@/src/shared/comingSoon/bypassList';
 import bcrypt from 'bcryptjs';
 

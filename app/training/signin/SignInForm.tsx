@@ -3,7 +3,7 @@
 import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { setTrainingSession } from '@/src/lib/training/training-session';
+import { setTrainingSession } from '@/src/hubs/training/lib/session/training-session';
 // Navbar now rendered by server page.tsx via NavbarServer
 
 const GREEN = '#2EAA4A';

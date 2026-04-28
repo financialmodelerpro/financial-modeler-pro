@@ -11,7 +11,7 @@
  *
  * Usage from the confirm-email route:
  *
- *   import { allocateRegistrationId } from '@/src/lib/training/regIdAllocator';
+ *   import { allocateRegistrationId } from '@/src/hubs/training/lib/appsScript/regIdAllocator';
  *   const reg = await allocateRegistrationId(sb);   // "FMP-2026-0012"
  *   await sb.from('training_registrations_meta').insert({ registration_id: reg, ... });
  *

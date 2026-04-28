@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { TrainingShell } from '@/src/hubs/training/components/TrainingShell';
 import { ArrowLeft, Clock, CheckCircle2, XCircle, Award, Lock, Pause } from 'lucide-react';
-import type { StudentAssessmentView } from '@/src/lib/training/liveSessionAssessments';
+import type { StudentAssessmentView } from '@/src/hubs/training/lib/assessment/liveSessionAssessments';
 import {
   type ServerAttemptState,
   startAttemptApi,
@@ -13,7 +13,7 @@ import {
   resumeAttemptApi,
   getAttemptStateApi,
   firePauseOnUnload,
-} from '@/src/lib/training/attemptInProgressClient';
+} from '@/src/hubs/training/lib/assessment/attemptInProgressClient';
 
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';

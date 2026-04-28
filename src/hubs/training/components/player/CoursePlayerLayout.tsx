@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Bell, ThumbsUp, MessageCircle, Share2, X } from 'lucide-react';
 import { YouTubePlayer, type WatchProgressPayload } from '../YouTubePlayer';
-import type { Interval } from '@/src/lib/training/watchTracker';
+import type { Interval } from '@/src/hubs/training/lib/watch/watchTracker';
 import { YouTubeComments } from '../YouTubeComments';
 import { StudentNotes } from '../StudentNotes';
 import { CourseTopBar } from './CourseTopBar';

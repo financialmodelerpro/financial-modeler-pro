@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
-import { getCourseDetails, updateCourseLink } from '@/src/lib/training/sheets';
+import { getCourseDetails, updateCourseLink } from '@/src/hubs/training/lib/appsScript/sheets';
 import { getServerClient } from '@/src/core/db/supabase';
 
 // ── In-memory cache (5 minutes) ───────────────────────────────────────────────

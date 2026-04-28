@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAssessmentQuestions } from '@/src/lib/training/sheets';
+import { getAssessmentQuestions } from '@/src/hubs/training/lib/appsScript/sheets';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
-import { getAllAttemptsForSession } from '@/src/lib/training/liveSessionAssessments';
+import { getAllAttemptsForSession } from '@/src/hubs/training/lib/assessment/liveSessionAssessments';
 
 export const dynamic = 'force-dynamic';
 

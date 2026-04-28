@@ -3,8 +3,8 @@ import { getServerClient } from '@/src/core/db/supabase';
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { quizResultTemplate } from '@/src/shared/email/templates/quizResult';
 import { lockedOutTemplate } from '@/src/shared/email/templates/lockedOut';
-import { issueCertificateForStudent } from '@/src/lib/training/certificateEngine';
-import { deleteInProgressForKey } from '@/src/lib/training/attemptInProgress';
+import { issueCertificateForStudent } from '@/src/hubs/training/lib/certificates/certificateEngine';
+import { deleteInProgressForKey } from '@/src/hubs/training/lib/assessment/attemptInProgress';
 
 // Cert generation (PDF render + satori/sharp badge + Storage upload + DB write
 // + email) averages 5-10s. Default of 10s on Hobby was right at the edge; 60s

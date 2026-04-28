@@ -7,7 +7,7 @@ import {
   LayoutDashboard, BookOpen, Lock, Video, Award, Medal,
   FileText, User, LogOut, ChevronLeft, ChevronRight, Star,
 } from 'lucide-react';
-import { getTrainingSession, clearTrainingSession } from '@/src/lib/training/training-session';
+import { getTrainingSession, clearTrainingSession } from '@/src/hubs/training/lib/session/training-session';
 import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
 import { WelcomeModal } from './WelcomeModal';
 

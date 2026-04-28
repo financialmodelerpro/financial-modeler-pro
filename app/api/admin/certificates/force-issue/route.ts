@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
-import { issueCertificateForPending } from '@/src/lib/training/certificateEngine';
+import { issueCertificateForPending } from '@/src/hubs/training/lib/certificates/certificateEngine';
 import { COURSES } from '@/src/config/courses';
 
 // Local type to avoid depending on the Apps Script module's re-exports.

@@ -7,7 +7,7 @@ import { LiveSessionCard } from './LiveSessionCard';
 import {
   getLiveSessionsForStudent,
   type LiveSessionsForStudent,
-} from '@/src/lib/training/liveSessionsForStudent';
+} from '@/src/hubs/training/lib/liveSessions/liveSessionsForStudent';
 
 const NAVY = '#0D2E5A';
 

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { SessionCard } from './SessionCard';
-import type { LiveSession, WatchHistoryEntry } from '@/src/lib/training/liveSessionsForStudent';
+import type { LiveSession, WatchHistoryEntry } from '@/src/hubs/training/lib/liveSessions/liveSessionsForStudent';
 
 interface AttemptSummary {
   attempts: number;
