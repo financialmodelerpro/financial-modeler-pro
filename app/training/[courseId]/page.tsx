@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { getCourseWithLessons } from '@/src/shared/cms';
-import { VideoPlayer } from '@/src/components/landing/VideoPlayer';
+import { VideoPlayer } from '@/src/hubs/main/components/landing/VideoPlayer';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 
 export const revalidate = 60;

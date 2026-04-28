@@ -5,8 +5,8 @@ import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { PLATFORMS } from '@/src/config/platforms';
 import { getCmsContent, cms, getModules, getTestimonialsForPage, getAllPageSections } from '@/src/shared/cms';
 import type { Module } from '@/src/shared/cms';
-import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
+import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
+import { CmsField, cmsVisible } from '@/src/hubs/main/components/cms/CmsField';
 
 export const revalidate = 0;
 

@@ -16,14 +16,14 @@ import {
   getSectionStyles,
   getAllPageSections,
 } from '@/src/shared/cms';
-import { SharedFooter } from '@/src/components/landing/SharedFooter';
+import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
 import { SiteFollowPopup } from '@/src/shared/components/SiteFollowPopup';
-import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
-import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/ArticleCard';
-import { InlineEdit } from '@/src/components/landing/InlineEdit';
-import { AdminEditBar } from '@/src/components/landing/AdminEditBar';
+import { SectionRenderer } from '@/src/hubs/main/components/cms/SectionRenderer';
+import { ArticleCard, ArticleCardPlaceholder } from '@/src/hubs/main/components/landing/ArticleCard';
+import { InlineEdit } from '@/src/hubs/main/components/landing/InlineEdit';
+import { AdminEditBar } from '@/src/hubs/main/components/landing/AdminEditBar';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
-import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
+import { CmsField, cmsVisible } from '@/src/hubs/main/components/cms/CmsField';
 
 export const revalidate = 0;
 

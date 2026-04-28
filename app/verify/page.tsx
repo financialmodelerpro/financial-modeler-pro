@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
-import { SharedFooter } from '@/src/components/landing/SharedFooter';
+import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
 import { VerifySearchForm } from './VerifySearchForm';
 
 export const metadata: Metadata = {

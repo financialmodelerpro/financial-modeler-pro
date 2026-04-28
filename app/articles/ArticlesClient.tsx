@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import type { Article } from '@/src/shared/cms';
-import { ArticleCard } from '@/src/components/landing/ArticleCard';
+import { ArticleCard } from '@/src/hubs/main/components/landing/ArticleCard';
 
 interface Props {
   articles: Article[];

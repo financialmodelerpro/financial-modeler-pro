@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
-import { SharedFooter } from '@/src/components/landing/SharedFooter';
+import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
 import { getServerClient } from '@/src/core/db/supabase';
 import { getAllPageSections } from '@/src/shared/cms';
 import { canonicalUrl } from '@/src/shared/seo/canonical';

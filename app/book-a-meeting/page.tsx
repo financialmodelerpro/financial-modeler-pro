@@ -2,8 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { getAllPageSections } from '@/src/shared/cms';
-import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
-import { CalendlyEmbed } from '@/src/components/booking/CalendlyEmbed';
+import { CmsField, cmsVisible } from '@/src/hubs/main/components/cms/CmsField';
+import { CalendlyEmbed } from '@/src/hubs/main/components/booking/CalendlyEmbed';
 
 // Per-field width + alignment style from admin VF keys.
 function fw(record: Record<string, unknown> | undefined, key: string): React.CSSProperties {

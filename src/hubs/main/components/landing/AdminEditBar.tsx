@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { broadcastEditMode, EDIT_MODE_EVENT, getEditMode } from '@/src/components/landing/InlineEdit';
+import { broadcastEditMode, EDIT_MODE_EVENT, getEditMode } from '@/src/hubs/main/components/landing/InlineEdit';
 
 export function AdminEditBar() {
   const [editMode, setEditModeState] = useState(true);

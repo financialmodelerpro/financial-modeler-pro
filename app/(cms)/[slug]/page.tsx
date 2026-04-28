@@ -2,8 +2,8 @@ import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { getCmsPage, getPageSections, getCmsContent, cms } from '@/src/shared/cms';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
-import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
+import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
+import { SectionRenderer } from '@/src/hubs/main/components/cms/SectionRenderer';
 import { canonicalUrl } from '@/src/shared/seo/canonical';
 
 export const revalidate = 60; // ISR: revalidate every 60 seconds

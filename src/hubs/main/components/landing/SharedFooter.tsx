@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { InlineEdit } from './InlineEdit';
-import { NewsletterSubscribeForm } from '@/src/components/newsletter/NewsletterSubscribeForm';
+import { NewsletterSubscribeForm } from '@/src/hubs/main/components/newsletter/NewsletterSubscribeForm';
 
 interface SharedFooterProps {
   company:   string;

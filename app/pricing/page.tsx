@@ -3,8 +3,8 @@ import Link from 'next/link';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { getCmsContent, cms, getModules, getAllPageSections } from '@/src/shared/cms';
 import { getServerClient } from '@/src/core/db/supabase';
-import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { PricingAccordion } from '@/src/components/pricing/PricingAccordion';
+import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
+import { PricingAccordion } from '@/src/hubs/main/components/pricing/PricingAccordion';
 import { CouponInput } from './CouponInput';
 
 export const revalidate = 0;

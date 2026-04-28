@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { CmsField } from '@/src/components/cms/CmsField';
+import { CmsField } from '@/src/hubs/main/components/cms/CmsField';
 
 interface Props {
   label: string;

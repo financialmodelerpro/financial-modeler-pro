@@ -3,8 +3,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getAllPageSections } from '@/src/shared/cms';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
-import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
+import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
+import { CmsField, cmsVisible } from '@/src/hubs/main/components/cms/CmsField';
 import { PersonJsonLd } from '@/src/shared/seo/components/StructuredData';
 import { canonicalUrl } from '@/src/shared/seo/canonical';
 

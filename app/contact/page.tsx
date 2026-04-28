@@ -5,9 +5,9 @@ import Link from 'next/link';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { getCmsContent, cms, getAllPageSections } from '@/src/shared/cms';
 import { ContactForm } from './ContactForm';
-import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
-import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
+import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
+import { SectionRenderer } from '@/src/hubs/main/components/cms/SectionRenderer';
+import { CmsField, cmsVisible } from '@/src/hubs/main/components/cms/CmsField';
 
 export const revalidate = 0;
 

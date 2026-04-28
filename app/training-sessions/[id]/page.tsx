@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
-import { SharedFooter } from '@/src/components/landing/SharedFooter';
+import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
 import { getServerClient } from '@/src/core/db/supabase';
 import { DetailClient, type DetailSession } from './DetailClient';
 import { EventJsonLd, BreadcrumbJsonLd } from '@/src/shared/seo/components/StructuredData';
