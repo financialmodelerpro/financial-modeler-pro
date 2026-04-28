@@ -13,6 +13,17 @@ interface AdminStudent {
 interface SessionProgress {
   sessionId: string; passed: boolean; score: number; attempts: number; completedAt: string | null;
 }
+interface WatchRow {
+  tab_key:          string;
+  status:           string | null;
+  watch_seconds:    number | null;
+  total_seconds:    number | null;
+  watch_percentage: number | null;
+  completed_via:    string | null;
+  video_load_at:    string | null;
+  updated_at:       string | null;
+  source:           'cert' | 'live';
+}
 interface StudentProgress {
   student: { name: string; email: string; registrationId: string; course: string; registeredAt: string };
   sessions: SessionProgress[]; finalPassed: boolean; certificateIssued: boolean;
@@ -41,8 +52,10 @@ export default function StudentsPage() {
   const [actionLoading, setActionLoading] = useState<Record<string, boolean>>({});
   const [progressStudent, setProgressStudent] = useState<AdminStudent | null>(null);
   const [progress, setProgress]         = useState<StudentProgress | null>(null);
+  const [watchRows, setWatchRows]       = useState<WatchRow[]>([]);
   const [progressLoading, setProgressLoading] = useState(false);
   const [progressError, setProgressError] = useState<string | null>(null);
+  const [forceUnlocking, setForceUnlocking] = useState<Record<string, boolean>>({});
   const [toast, setToast]               = useState('');
   // Reset attempts
   const [resetCourse, setResetCourse]   = useState<'3sfm' | 'bvm'>('3sfm');
@@ -113,19 +126,58 @@ export default function StudentsPage() {
   const handleViewProgress = async (s: AdminStudent) => {
     setProgressStudent(s);
     setProgress(null);
+    setWatchRows([]);
     setProgressError(null);
     setProgressLoading(true);
     setModalTab('progress');
     try {
       const res = await fetch(`/api/admin/training-hub/student-progress?email=${encodeURIComponent(s.email)}&regId=${encodeURIComponent(s.registrationId)}`);
       if (res.ok) {
-        const j = await res.json();
+        const j = await res.json() as { progress: StudentProgress; watch: WatchRow[] };
         setProgress(j.progress);
+        setWatchRows(j.watch ?? []);
       } else {
         setProgressError('Could not load progress data');
       }
     } catch { setProgressError('Network error'); }
     setProgressLoading(false);
+  };
+
+  const handleForceUnlock = async (tabKey: string) => {
+    if (!progressStudent) return;
+    const reason = window.prompt(
+      `Force-complete ${tabKey} for ${progressStudent.name || progressStudent.email}?\n\n` +
+      `This stamps completed_via='admin_override' and writes to admin_audit_log.\n\n` +
+      `Optional reason (visible in audit log):`,
+      '',
+    );
+    if (reason === null) return; // cancelled
+    setForceUnlocking(p => ({ ...p, [tabKey]: true }));
+    try {
+      const res = await fetch(`/api/admin/sessions/${encodeURIComponent(tabKey)}/force-complete-for-student`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: progressStudent.email, reason: reason || null }),
+      });
+      const d = await res.json().catch(() => ({})) as { ok?: boolean; alreadyCompleted?: boolean; error?: string; new_pct?: number };
+      if (!res.ok || !d.ok) {
+        showToast(d.error ?? 'Force unlock failed');
+      } else if (d.alreadyCompleted) {
+        showToast('Already completed. No change.');
+      } else {
+        showToast(`Force-completed ${tabKey} (${d.new_pct ?? '?'}%)`);
+        // Refresh the watch rows so the modal reflects the new state
+        try {
+          const r = await fetch(`/api/admin/training-hub/student-progress?email=${encodeURIComponent(progressStudent.email)}&regId=${encodeURIComponent(progressStudent.registrationId)}`);
+          if (r.ok) {
+            const j = await r.json() as { progress: StudentProgress; watch: WatchRow[] };
+            setProgress(j.progress);
+            setWatchRows(j.watch ?? []);
+          }
+        } catch { /* refresh is best-effort */ }
+      }
+    } catch { showToast('Network error'); }
+    setForceUnlocking(p => ({ ...p, [tabKey]: false }));
   };
 
   type SortField = 'registrationId' | 'name' | 'registeredAt' | 'sessionsPassedCount' | 'finalPassed' | 'certificateIssued';
@@ -529,6 +581,77 @@ export default function StudentsPage() {
                       )
                     ) : (
                       <div style={{ textAlign: 'center', color: '#9CA3AF', fontSize: 13, padding: 24 }}>No session data available.</div>
+                    )}
+
+                    {/* Watch progress table (Phase 4 / migration 147).
+                        One row per (tab_key, student_email) watch record.
+                        Lets the admin see WHY a session is stuck and
+                        force-unlock it without touching SQL. */}
+                    {watchRows.length > 0 && (
+                      <div style={{ marginTop: 24 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: '#0D2E5A', padding: '5px 14px', borderRadius: '8px 8px 0 0' }}>
+                          Watch Progress ({watchRows.length} sessions)
+                        </div>
+                        <div style={{ borderRadius: '0 0 8px 8px', overflow: 'hidden', border: '1px solid #E5E7EB' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '120px 70px 110px 100px 110px 1fr', background: '#1B4F8A', padding: '8px 14px', gap: 8 }}>
+                            {['Session', 'Watch %', 'Status', 'Via', 'Last Activity', 'Action'].map(h => (
+                              <div key={h} style={{ fontSize: 10, fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
+                            ))}
+                          </div>
+                          {[...watchRows]
+                            .sort((a, b) => a.tab_key.localeCompare(b.tab_key))
+                            .map(w => {
+                              const pct = w.watch_percentage ?? 0;
+                              const isCompleted = w.status === 'completed';
+                              const completedVia = w.completed_via ?? (isCompleted ? 'legacy' : null);
+                              const viaColor = completedVia === 'admin_override' ? '#7C3AED'
+                                : completedVia === 'manual'                       ? '#B45309'
+                                : completedVia === 'auto_recovery_2026_04'        ? '#0EA5E9'
+                                : completedVia === 'threshold'                    ? '#16A34A'
+                                : '#9CA3AF';
+                              const lastActivity = w.updated_at
+                                ? new Date(w.updated_at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' })
+                                : '-';
+                              const isUnlocking = !!forceUnlocking[w.tab_key];
+                              return (
+                                <div key={w.tab_key} style={{ display: 'grid', gridTemplateColumns: '120px 70px 110px 100px 110px 1fr', padding: '9px 14px', borderBottom: '1px solid #F3F4F6', fontSize: 12, alignItems: 'center', gap: 8, background: isCompleted ? '#F0FDF4' : '#fff' }}>
+                                  <div style={{ fontWeight: 700, color: '#1B3A6B', fontSize: 11 }}>{w.tab_key}</div>
+                                  <div style={{ color: '#374151', fontWeight: 600 }}>{pct}%</div>
+                                  <div>
+                                    {isCompleted
+                                      ? badge('Completed', '#166534', '#DCFCE7')
+                                      : w.status === 'in_progress'
+                                      ? badge('In Progress', '#B45309', '#FEF3C7')
+                                      : badge('Not Started', '#6B7280', '#F3F4F6')}
+                                  </div>
+                                  <div style={{ color: viaColor, fontSize: 11, fontWeight: 600 }}>
+                                    {completedVia ?? '-'}
+                                  </div>
+                                  <div style={{ color: '#9CA3AF', fontSize: 11 }}>{lastActivity}</div>
+                                  <div>
+                                    {!isCompleted ? (
+                                      <button
+                                        onClick={() => handleForceUnlock(w.tab_key)}
+                                        disabled={isUnlocking}
+                                        style={{
+                                          padding: '4px 12px', fontSize: 11, fontWeight: 700,
+                                          background: isUnlocking ? '#F3F4F6' : '#7C3AED',
+                                          color: isUnlocking ? '#9CA3AF' : '#fff',
+                                          border: 'none', borderRadius: 5,
+                                          cursor: isUnlocking ? 'not-allowed' : 'pointer',
+                                        }}
+                                      >
+                                        {isUnlocking ? 'Unlocking…' : 'Force Unlock'}
+                                      </button>
+                                    ) : (
+                                      <span style={{ fontSize: 11, color: '#9CA3AF' }}>—</span>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                        </div>
+                      </div>
                     )}
 
                     </>
