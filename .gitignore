@@ -21,3 +21,6 @@ Thumbs.db
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# One-shot operational drafts. Deleted after the operator copies them.
+TEMP_*.md

@@ -1,0 +1,135 @@
+{
+  "generated_at": "2026-04-28T09:17:12.929Z",
+  "admin": {
+    "id": "8f48122e-798c-4f9d-86b2-386a20838392",
+    "email": "meetahmadch@gmail.com"
+  },
+  "targets": [
+    {
+      "target": {
+        "email": "muhammadtayyabmadni07@gmail.com",
+        "reason": "Watched 100% but tracker stuck. Tracker bug recovery (Phase 5 sweep)."
+      },
+      "resolvedEmail": "muhammadtayyabmadni07@gmail.com",
+      "rows": [
+        {
+          "source": "cert",
+          "key": "3SFM_S1",
+          "email": "muhammadtayyabmadni07@gmail.com",
+          "before": {
+            "status": "in_progress",
+            "watch_percentage": 100,
+            "watch_seconds": 1045,
+            "total_seconds": 1045,
+            "completed_via": null,
+            "last_position": 1045,
+            "updated_at": "2026-04-24T08:33:01.619+00:00"
+          },
+          "after": {
+            "status": "completed",
+            "watch_percentage": 100,
+            "completed_via": "admin_override",
+            "points_awarded": false
+          },
+          "outcome": "completed"
+        }
+      ]
+    },
+    {
+      "target": {
+        "email": "yusra.tufail@yahoo.com",
+        "reason": "93% watched, past threshold. Tracker bug recovery (Phase 5 sweep)."
+      },
+      "resolvedEmail": "yusra.tufail@yahoo.com",
+      "rows": [
+        {
+          "source": "cert",
+          "key": "3SFM_S1",
+          "email": "yusra.tufail@yahoo.com",
+          "before": {
+            "status": "in_progress",
+            "watch_percentage": 93,
+            "watch_seconds": 970,
+            "total_seconds": 1045,
+            "completed_via": null,
+            "last_position": 0,
+            "updated_at": "2026-04-22T13:36:46.935+00:00"
+          },
+          "after": {
+            "status": "completed",
+            "watch_percentage": 93,
+            "completed_via": "admin_override",
+            "points_awarded": false
+          },
+          "outcome": "completed"
+        }
+      ]
+    },
+    {
+      "target": {
+        "email": "daniyal1012@yahoo.com",
+        "reason": "76% watched, past threshold. Tracker bug recovery (Phase 5 sweep)."
+      },
+      "resolvedEmail": "daniyal1012@yahoo.com",
+      "rows": [
+        {
+          "source": "cert",
+          "key": "3SFM_S1",
+          "email": "daniyal1012@yahoo.com",
+          "before": {
+            "status": "in_progress",
+            "watch_percentage": 76,
+            "watch_seconds": 799,
+            "total_seconds": 1045,
+            "completed_via": null,
+            "last_position": 919,
+            "updated_at": "2026-04-22T18:29:41.235+00:00"
+          },
+          "after": {
+            "status": "completed",
+            "watch_percentage": 76,
+            "completed_via": "admin_override",
+            "points_awarded": false
+          },
+          "outcome": "completed"
+        }
+      ]
+    },
+    {
+      "target": {
+        "regId": "FMP-2026-0035",
+        "reason": "Reported full watch on 3SFM_S2, multi-session resume bug. Manual unblock (Phase 5 sweep).",
+        "tabKeyHint": "3SFM_S2"
+      },
+      "resolvedEmail": "fakhrizanul@gmail.com",
+      "rows": [
+        {
+          "source": "cert",
+          "key": "3SFM_S2",
+          "email": "fakhrizanul@gmail.com",
+          "before": {
+            "status": "in_progress",
+            "watch_percentage": 47,
+            "watch_seconds": 916,
+            "total_seconds": 1954,
+            "completed_via": null,
+            "last_position": 1948,
+            "updated_at": "2026-04-28T06:36:02.619+00:00"
+          },
+          "after": {
+            "status": "completed",
+            "watch_percentage": 47,
+            "completed_via": "admin_override",
+            "points_awarded": false
+          },
+          "outcome": "completed"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "rows_completed": 4,
+    "rows_already_completed": 0,
+    "rows_failed": 0
+  }
+}
