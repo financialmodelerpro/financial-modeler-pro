@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-28.** This session: (**Watch tracking rebuild Phases 2-5 + admin cleanup. (1) Phase 2 (mig 146) persists watch_intervals JSONB on both watch history tables so multi-session resume actually accumulates — fixes the smoking-gun bug where students who watched 100% across multiple sittings stayed frozen at the largest single contiguous run. Five tracker fixes in `watchTracker.ts` + `YouTubePlayer.tsx`: onPlay close-first, cross-session interval union, BUFFERING handler, useRef re-seed, force-flag on close events. (2) Phase 3 (mig 147) adds `completed_via` + `video_load_at` columns and a manual override path — checkbox-gated Mark Complete at >=50% with server-side wall-clock elapsed >= total_seconds * 0.8. (3) Phase 4 re-enables `WatchProgressBar` with color-coded fill + dashed threshold marker, adds the admin force-unlock endpoint and Watch Progress table on the students panel. (4) Phase 5 surgical recovery sweep unblocked 4 stuck students (`muhammadtayyabmadni07`, `yusra.tufail`, `daniyal1012`, `fakhrizanul`) with full audit trail — notably 3 of the 4 were stuck on `3SFM_S1` (same session). Plus follow-up admin cleanup: Branding merged into Header Settings, Pricing Page Content + Plans tabs removed, migration 145 drops `pricing_plans`.** Prior 2026-04-27 work kept verbatim below.)
+**Last updated: 2026-04-28.** This session: (**Folder restructure for portability — 8 phases, all green on Vercel. The flat `src/lib/` + `src/components/` layout was reorganized into `src/core/` (pure business logic) + `src/shared/` (cross-hub primitives) + `src/hubs/{main,training,modeling}/` (hub-scoped code, including `modeling/platforms/refm/` for individual modeling platforms) + `src/features/` (Marketing Studio) + `src/integrations/` (third-party SDK adapters). Phase 2.1 scaffolded target folders. Phases 2.2-2.5 moved ~220 files via `git mv` so history is preserved (commits `Restructure 2.2` through `Restructure 2.5`). Phase 2.6 cleaned up the original 5 cross-hub violations from PLATFORM_INVENTORY: relocated the share family (`ShareModal.tsx`, `share.ts`, `shareTemplates.ts`, `useShareTemplate.ts`) to `src/shared/share/`, dependency-inverted `comingSoonGuard` into a pure `shouldGateComingSoon` primitive at `src/shared/comingSoon/guard.ts` plus per-hub adapters (`@training/lib/ensureNotComingSoon`, `@modeling/lib/ensureNotComingSoon`), and decoupled `COURSES` from shared shareTemplates by extracting the COURSES-aware resolver to `@training/lib/share/resolveCourseName.ts`. Phase 2.7 added 8 path aliases (`@core`, `@shared`, `@training`, `@modeling`, `@platforms`, `@main`, `@features`, `@integrations`) and `eslint-plugin-boundaries` enforcement at lint time — CI now blocks any new cross-hub regression. Phase 2.8 (this commit) is documentation only: scoping table updated to new paths, ARCHITECTURE.md added with the rationale + alias guide + how-to-add-platform recipe, follow-ups documented (NextAuth `authorize()` dependency inversion, J.10 admin middleware centralization, CLAUDE.md size, optional narrow `@/*` alias). Net source-tree state: 0 cross-hub violations on the original 5; one TODO-tracked deferred suppression in `nextauth.ts` for the planned NextAuth refactor. All routes still serve, no behavior changes, no migrations needed.** Prior 2026-04-28 watch-tracking + admin-cleanup work kept verbatim below.)
 
 ## 2026-04-28 session summary — Watch tracking rebuild (migrations 146 + 147)
 
@@ -171,19 +171,41 @@ The `/contact` "redirect error" is **not** fixable in next.config.ts because the
 
 ### Scoping: Read ONLY the files for your task domain
 
+Post-restructure folder layout (2026-04-28, see ARCHITECTURE.md for rationale):
+
 | Task | Read ONLY these paths |
 |------|-----------------------|
-| Training auth (login / register / confirm) | `app/training/signin/` `app/training/register/` `app/training/confirm-email/` `app/training/forgot/` `app/api/training/validate/` `app/api/training/register/` `app/api/training/confirm-email/` `app/api/training/device-verify/` `app/api/training/resend-confirmation/` `src/lib/training/training-session.ts` `src/lib/shared/` |
-| Training dashboard / course content | `app/training/dashboard/` `app/training/[courseId]/` `src/components/training/dashboard/` `app/api/training/` |
-| Training assessment / quiz | `app/training/assessment/` `app/training/[courseId]/assessment/` `app/api/training/[courseId]/assessment/` `app/api/training/submit-assessment/` |
-| Certificate / transcript | `app/training/certificate/` `app/training/certificates/` `app/training/transcript/` `src/components/training/dashboard/CertificateImageCard.tsx` `src/lib/training/certifier.ts` `src/lib/training/certificateLayout.ts` `app/api/training/certificate/` `app/api/training/certificate-image/` `app/api/t/[token]/pdf/` |
-| Modeling Hub auth | `app/modeling/signin/` `app/modeling/confirm-email/` `app/api/auth/` `src/lib/shared/auth.ts` `src/lib/shared/deviceTrust.ts` `src/lib/shared/emailConfirmation.ts` `src/lib/shared/captcha.ts` |
-| Modeling Hub platform (REFM) | `app/refm/` `app/modeling/` `src/components/refm/` `src/lib/modeling/` |
+| Training auth (login / register / confirm) | `app/training/signin/` `app/training/register/` `app/training/confirm-email/` `app/training/forgot/` `app/api/training/validate/` `app/api/training/register/` `app/api/training/confirm-email/` `app/api/training/device-verify/` `app/api/training/resend-confirmation/` `src/hubs/training/lib/session/` `src/shared/` |
+| Training dashboard / course content | `app/training/dashboard/` `app/training/[courseId]/` `src/hubs/training/components/dashboard/` `app/api/training/` |
+| Training assessment / quiz | `app/training/assessment/` `app/training/[courseId]/assessment/` `app/api/training/[courseId]/assessment/` `app/api/training/submit-assessment/` `src/hubs/training/lib/assessment/` |
+| Certificate / transcript | `app/training/certificate/` `app/training/certificates/` `app/training/transcript/` `src/hubs/training/components/dashboard/CertificateImageCard.tsx` `src/hubs/training/lib/certificates/` `app/api/training/certificate/` `app/api/training/certificate-image/` `app/api/t/[token]/pdf/` |
+| Modeling Hub auth | `app/modeling/signin/` `app/modeling/confirm-email/` `app/api/auth/` `src/shared/auth/` `src/hubs/modeling/lib/access.ts` `src/hubs/modeling/lib/comingSoon.ts` |
+| Modeling Hub platform (REFM) | `app/refm/` `app/modeling/` `src/hubs/modeling/platforms/refm/` `src/hubs/modeling/lib/` `src/hubs/modeling/config/platforms.ts` |
 | Admin panel | `app/admin/` `src/components/admin/` `app/api/admin/` |
-| Email system | `src/lib/email/` |
-| Shared utilities | `src/lib/shared/` `src/core/` |
-| Navbar / layout | `src/components/layout/` |
-| Landing pages / CMS | `app/(portal)/` `app/about/` `app/articles/` `app/pricing/` `src/components/landing/` `app/api/cms/` |
+| Email system | `src/shared/email/` |
+| Shared utilities | `src/shared/` `src/core/` |
+| Marketing Studio | `app/admin/training-hub/marketing-studio/` `src/features/marketing-studio/` |
+| Teams integration | `src/integrations/teams/teamsMeetings.ts` `app/api/admin/teams/` `app/api/admin/live-sessions/` |
+| Share helpers (cross-hub) | `src/shared/share/` `src/hubs/training/lib/share/` |
+| Coming Soon gating | `src/shared/comingSoon/guard.ts` `src/hubs/training/lib/ensureNotComingSoon.ts` `src/hubs/modeling/lib/ensureNotComingSoon.ts` |
+| Navbar / layout | `src/shared/components/layout/` |
+| Landing pages / CMS | `app/(portal)/` `app/about/` `app/articles/` `app/pricing/` `src/hubs/main/components/landing/` `app/api/cms/` |
+
+**Path aliases** (added Phase 2.7, see `tsconfig.json`):
+
+| Alias | Resolves to | When to use |
+|-------|-------------|-------------|
+| `@core/*` | `src/core/*` | Pure business logic (no I/O), DB client, shared types |
+| `@shared/*` | `src/shared/*` | Cross-hub primitives (auth, email, comingSoon guard, share helpers, components) |
+| `@training/*` | `src/hubs/training/*` | Training Hub code |
+| `@modeling/*` | `src/hubs/modeling/*` | Modeling Hub code |
+| `@platforms/*` | `src/hubs/modeling/platforms/*` | Individual modeling platforms (REFM, BVM, etc) |
+| `@main/*` | `src/hubs/main/*` | Main-site (financialmodelerpro.com) marketing components |
+| `@features/*` | `src/features/*` | Cross-cutting features (Marketing Studio) |
+| `@integrations/*` | `src/integrations/*` | Third-party SDK adapters (Teams, Resend, Anthropic, YouTube) |
+| `@/*` | `./*` | Legacy escape hatch (existing `@/src/...` imports keep working) |
+
+**Boundary lint rules** (added Phase 2.7, see `eslint.config.mjs`): cross-hub imports are blocked at lint time by `eslint-plugin-boundaries`. The allow-graph is documented in ARCHITECTURE.md. CI fails on any new cross-hub regression. To check whether a new import is allowed before writing it: `from training: allowed -> core, shared, integ, training`. App routes are the only place that may compose multiple hubs (portal, sitemap, auth APIs).
 
 **Never** read files outside the task domain.
 **When a task spans two domains**, read only those two folders — nothing else.
@@ -201,8 +223,16 @@ The `/contact` "redirect error" is **not** fixable in next.config.ts because the
 - `app/globals.css` — design system tokens, do not restructure
 - `vercel.json` — deployment config is live; the `/admin`, `/admin/:path*`, `/login` cache-header rules added 2026-04-24 (commit `c5a24f4`) MUST stay in place so Vercel's edge layer never caches a redirect on the admin auth surface
 - `supabase/migrations/` — never edit existing migrations; create new ones only
+- `eslint.config.mjs` boundary rules — added Phase 2.7. The `boundaries/dependencies` rule and `boundaries/elements` settings encode the architecture from ARCHITECTURE.md. Do not relax allow-graph entries to silence a new violation; either fix the violation or add a tracked TODO `eslint-disable-next-line` per RESTRUCTURE_PLAN.md Section J Path B (only one such suppression exists today, in `src/shared/auth/nextauth.ts`, awaiting the deferred `authorize()` dependency-inversion follow-up).
+- `tsconfig.json` path aliases — added Phase 2.7. `@core/`, `@shared/`, `@training/`, `@modeling/`, `@platforms/`, `@main/`, `@features/`, `@integrations/` are stable; the legacy `@/*` is intentionally retained so existing `@/src/...` imports keep working.
 - Any feature marked Complete unless explicitly asked by the user
-- Cross-feature shared files (`src/lib/shared/`, `src/lib/email/`) without explicit instruction
+- Cross-feature shared files (`src/shared/`, `src/core/`) without explicit instruction
+
+### Open follow-ups documented for future work
+- **NextAuth `authorize()` dependency inversion**: `src/shared/auth/nextauth.ts:7-8` is the only file in the source tree with `// eslint-disable-next-line boundaries/dependencies` suppressions. NextAuth is used by both Modeling Hub auth AND admin auth, so it cannot live in either hub. The proper fix is to expose an `authorizeOptions: { extraGates: BypassCheck[] }` opt and have the modeling hub register its Coming Soon + whitelist gate from `src/hubs/modeling/auth/` rather than have `nextauth.ts` import modeling-hub primitives directly. Tracking comment lives next to the disables. Surfaced by Phase 2.6's boundary-grep + locked-in by Phase 2.7's lint rule.
+- **J.10 — Centralize admin auth into middleware**: every `app/api/admin/*` route currently re-runs `getServerSession(authOptions)` + role check at the top. Could be hoisted into `src/middleware.ts` with a `/api/admin/:path*` matcher so the per-route boilerplate goes away. Estimated 1 day; deferred from Phase 2.x because it changes auth posture and warrants its own phase + verification. Documented for future cleanup.
+- **CLAUDE.md size**: this file is ~157 KB and dominates working-context budget. Splitting into focused topic files (e.g. archiving the multi-week session summaries to a `HISTORY.md`) is a known follow-up. Defer until the next time the file is opened for a substantial edit so the split happens in one cohesive pass.
+- **Optional: narrow legacy `@/*` alias to `./app/*`**: would force every `@/src/...` import to migrate to a hub-scoped alias. Pure churn for cosmetic gain; not recommended unless the codebase ever needs an aggressive consistency push (e.g. before extracting a hub to its own deployment).
 
 ---
 

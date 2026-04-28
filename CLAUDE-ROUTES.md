@@ -330,162 +330,232 @@ app/api/
 
 ---
 
-## `src/components/`
+## Restructure note (Phase 2, 2026-04-28)
+
+`src/` is now organized along a three-tier architecture: **core → shared → hubs**. Path aliases (`@core/*`, `@shared/*`, `@training/*`, `@modeling/*`, `@platforms/*`, `@main/*`, `@features/*`, `@integrations/*`) are defined in `tsconfig.json`; `eslint-plugin-boundaries` enforces the import-direction rules. The legacy `@/*` alias still resolves to repo-root and is retained because `app/` files use it heavily. All paths below reflect the post-restructure layout.
+
+## `src/components/` (admin shell only)
+
+Cross-hub admin editor primitives — used by every `app/admin/*` page. Hub-owned components live under `src/hubs/<hub>/components/` (see below); generic primitives live under `src/shared/components/`.
+
 ```
-src/components/
-├── admin/
-│   ├── AuditLogViewer.tsx  CmsAdminNav.tsx  ProjectsBrowser.tsx
-│   ├── RichTextEditor.tsx       # Tiptap full toolbar: headings, alignment, images, links (used ONLY by rich_text section)
-│   ├── RichTextarea.tsx         # Tiptap editor + selection-based floating toolbar (B, I, U, S, font size, color presets, lists, link, clear). Enter → new <p>. Used by 17+ CMS text fields. Phase 2A rewrite 2026-04-18.
-│   └── SystemHealth.tsx
-# NOTE: AnnouncementsManager.tsx DELETED 2026-04-27 (commit fd0aabf) — orphan stub.
-# NOTE: PermissionsManager.tsx DELETED 2026-04-27 (commit d8405e5) — Permissions system removal.
-├── cms/
-│   ├── CmsField.tsx             # UNIVERSAL CMS TEXT RENDERER (Phase 1). ALL CMS text fields must render via <CmsField>. Handles visibility/align/width/HTML detection/paragraph splitting. See docstring for enforcement rules.
-│   ├── SectionRenderer.tsx      # Maps section_type -> component
-│   ├── index.ts
-│   └── sections/ (Hero, Text, RichText, Image, TextImage, Columns, Cards, Cta, Faq, Stats, List,
-│       Testimonials, PricingTable, Video, Banner, Spacer, Embed, Team, Timeline, LogoGrid, Countdown,
-│       CmsParagraphs)
-│       Every text field renders via CmsField. Array items (cards, testimonials, team, faq, list, timeline, pricing tiers, logo grid)
-│       support per-item `visible !== false` filtering (Phase 2B).
-│       TextImage: checklist items, background image with padding/position/fit/overlay controls, body field, audience cards.
-│       # renderCmsText.tsx DELETED 2026-04-18 — superseded by CmsField
-├── booking/
-│   └── CalendlyEmbed.tsx        # Inline Calendly booking widget — dynamic script load, guarded. Used by /book-a-meeting.
-├── sessions/
-│   └── SessionCard.tsx              # Universal live session card (variant: student|public, compact mode, watched badge)
-├── landing/
-│   ├── AdminEditBar.tsx  ArticleCard.tsx  CategoryFilter.tsx
-│   ├── CourseCard.tsx  InlineEdit.tsx  SharedFooter.tsx  VideoPlayer.tsx
-├── layout/
-│   ├── Navbar.tsx               # Absolute <a> tags; filters visible !== false, sorts by display_order; About removed from DEFAULT_PAGES
-│   └── NavbarServer.tsx         # absolutizeHref() for DB hrefs
-├── pricing/PricingAccordion.tsx
-├── refm/
-│   ├── Dashboard.tsx  OverviewScreen.tsx  PlanBadge.tsx
-│   ├── ProjectsScreen.tsx  RealEstatePlatform.tsx  Sidebar.tsx  Topbar.tsx
-│   ├── modals/ (Export, Project, Rbac, Version)
-│   └── modules/ (Module1Area, Module1Costs, Module1Financing, Module1Timeline)
-├── shared/
-│   ├── BrandingThemeApplier.tsx     # Hydrates branding store + injects --color-primary / --color-secondary into :root
-│   ├── PhoneInput.tsx  SessionProviderWrapper.tsx  UpgradePrompt.tsx
-│   └── ShareExperienceModal.tsx     # 3-tab testimonial modal for both hubs
-# NOTE: BrandingSettingsPanel.tsx DELETED 2026-04-27 (commit ee959ad) — orphan, no importer in tree.
-├── newsletter/
-│   └── NewsletterSubscribeForm.tsx   # Hub checkboxes + email input, shown in SharedFooter
-# NOTE: src/components/marketing/* DELETED 2026-04-24 — Phase 1.5 canvas component tree (QuickFillPanel, CaptionsPanel, DesignsSidebar, canvas/CanvasEditor, canvas/ElementRenderer, canvas/PropertiesPanel) all removed in the Marketing Studio rebuild. New tab components are colocated under app/admin/training-hub/marketing-studio/ instead of in a shared components folder.
-├── shared/
-│   ├── FollowPopup.tsx              # Reusable LinkedIn+YouTube follow popup (bottom-right toast)
-│   ├── SiteFollowPopup.tsx          # Site-wide 60s popup wrapper
-│   └── PreLaunchBanner.tsx          # Slim banner on authed surfaces for Coming-Soon bypass-listed testers (migration 121)
-├── training/
-│   ├── CountdownTimer.tsx
-│   ├── TrainingShell.tsx            # Shared layout (header + sidebar + footer + mobile nav + CMS logo)
-│   ├── TrainingShellServer.tsx      # Server wrapper — fetches CMS logo for TrainingShell
-│   ├── DashboardTour.tsx            # driver.js interactive walkthrough on first dashboard visit (migration 120). Reads/writes `tour_completed` via POST /api/training/tour-status
-│   ├── YouTubePlayer.tsx            # YT IFrame API player. `startSeconds` prop (resume via playerVars.start). Interval-merging tracker stored in useRef so prop updates re-seed without remount (mig 146 Phase 2). Accepts `baselineWatchedSeconds` + `initialIntervals` (JSONB hydrated from the watch row). Emits `onProgress(WatchProgressPayload)` with `{ watchedSec, totalSec, currentPos, intervals, force }`; `force=true` on real close events (PAUSED/ENDED/BUFFERING/unmount) so the parent bypasses its POST throttle and the final partial interval lands in the DB. BUFFERING handled as a soft pause; onPlay closes any prior open interval first.
-│   ├── WatchProgressBar.tsx         # Re-enabled in Phase 4 / 2026-04-28. Color-coded fill (red < 30, amber 30 to threshold, green at threshold) + dashed vertical threshold marker + bypass-aware copy. Shown above Mark Complete on both watch pages. Three label buckets: < 50% "keep watching", 50-(threshold-1) "auto-unlock at X%, or confirm manually below", >= threshold "ready to mark complete". The component was a no-op return null pre-Phase 4 because the pre-146 tracker had race conditions that made the displayed % unreliable.
-│   ├── SubscribeButton.tsx          # Legacy — unused (replaced by SubscribeModal)
-│   ├── SubscribeModal.tsx           # Subscribe modal with YouTube link + ?sub_confirmation=1
-│   ├── EngagementBar.tsx            # Legacy — unused (replaced by CourseTopBar)
-│   ├── PlaylistSidebar.tsx          # Legacy — unused (replaced by CoursePlayerLayout sidebar)
-│   ├── LikeButton.tsx               # "Like on YouTube" link button
-│   ├── YouTubeComments.tsx          # Cached YouTube comments with expand/collapse
-│   ├── StudentNotes.tsx             # Per-session student notes with bold/bullet toolbar + auto-save
-│   ├── WelcomeModal.tsx             # First-visit welcome modal (localStorage, configurable key)
-│   ├── CalendarDropdown.tsx         # (2026-04-23) Multi-provider Add-to-Calendar button (Google / Outlook / Apple / Yahoo / .ics fallback). Used by dashboard LiveSessionCard + live-session detail register card. Replaces the old single .ics icon download. Organizer baked into description as "Hosted by ..." since no URL provider carries an organizer field. Dropdown closes on outside click + Escape.
-│   ├── player/
-│   │   ├── CoursePlayerLayout.tsx   # Video + children layout. Session list sidebar was REMOVED 2026-04-23; the "Back to course" navigation now lives in a single button inside CourseTopBar. `topContent` prop renders a block BEFORE banner/title (used by detail page to put the Register/Join card at the top). Runtime ResizeObserver reads main-nav height so the fixed CourseTopBar positions cleanly below it without overlap regardless of nav size (2026-04-24). Video wrapper `max-width: min(100%, calc((100vh - 200px) * 16/9))` keeps the 16:9 frame inside the viewport on standard desktops.
-│   │   ├── CourseTopBar.tsx         # Dark bar with `position: fixed; top: topOffset` (measured) + z-index 140 to beat main nav on overlap. Hosts Back button + Subscribe + Like + Ask Question + Share + Mark Complete + Assessment/Continue.
-│   │   └── ShareModal.tsx           # Thin forwarder → share/ShareModal (universal)
-│   ├── share/
-│   │   └── ShareModal.tsx           # UNIVERSAL ShareModal (Training Hub). Textarea preview + platform buttons (LinkedIn/WhatsApp/Twitter/Copy). Uses shareTo() utility internally. Optional cardImageUrl preview + download.
-│   └── dashboard/
-│       ├── AboutThisCourse.tsx  BvmLockedContent.tsx  CertificateImageCard.tsx
-│       ├── CourseContent.tsx  FeedbackModal.tsx  ProfileModal.tsx
-│       ├── SessionCard.tsx  ShareModal.tsx  Skeleton.tsx  StatusBadge.tsx
-│       ├── FilePreviewModal.tsx  TestimonialModal.tsx  index.ts  types.ts
-│       └── LiveSessionsContent.tsx  # Extracted live sessions tab content
-└── ui/
-    └── ColorPicker.tsx  OfficeColorPicker.tsx  Toaster.tsx
+src/components/admin/
+├── AuditLogViewer.tsx
+├── CmsAdminNav.tsx
+├── InstructorPicker.tsx              # Multi-select roster picker (Marketing Studio)
+├── LaunchStatusCard.tsx              # Hub Coming-Soon admin card (toggle + launch date)
+├── LiveSessionAssessmentEditor.tsx
+├── MediaPicker.tsx
+├── ProjectsBrowser.tsx
+├── RichTextEditor.tsx                # Tiptap full toolbar (rich_text section only)
+├── RichTextarea.tsx                  # Tiptap + floating toolbar (used by 17+ CMS text fields)
+└── SystemHealth.tsx
 ```
 
-## `src/lib/`
+## `src/shared/` — cross-hub primitives
+
 ```
-src/lib/
+src/shared/
+├── audit/index.ts                    # writeAuditEvent + admin_audit_log writer
+├── auth/
+│   ├── captcha.ts                    # hCaptcha verification helper
+│   ├── deviceTrust.ts                # Trusted-device cookie issue/verify
+│   ├── emailConfirmation.ts          # Token issuance + verify
+│   ├── nextauth.ts                   # NextAuth authOptions (admin auth source)
+│   └── password.ts                   # bcrypt + scrypt helpers
+├── cms/index.ts                      # getAllPageSections / getPageSections / getTestimonialsForPage
+├── comingSoon/
+│   ├── bypassList.ts                 # isIdentifierAllowed (hub-agnostic primitive, mig 121)
+│   └── guard.ts                      # shouldGateComingSoon primitive (DI version)
+├── components/
+│   ├── BrandingThemeApplier.tsx      # Hydrates branding store + injects --color-primary / --color-secondary
+│   ├── CountdownTimer.tsx            # Reusable Days/Hrs/Min/Sec grid
+│   ├── FollowPopup.tsx               # Reusable LinkedIn+YouTube follow popup
+│   ├── PhoneInput.tsx
+│   ├── PreLaunchBanner.tsx           # Bypass-list banner on authed surfaces (mig 121)
+│   ├── SessionProviderWrapper.tsx
+│   ├── ShareExperienceModal.tsx      # 3-tab testimonial modal for both hubs
+│   ├── SiteFollowPopup.tsx           # Site-wide 60s popup wrapper
+│   ├── UpgradePrompt.tsx
+│   ├── layout/
+│   │   ├── Navbar.tsx                # Absolute <a> tags; filters visible !== false
+│   │   └── NavbarServer.tsx          # absolutizeHref() for DB hrefs
+│   └── ui/
+│       ├── ColorPicker.tsx
+│       ├── OfficeColorPicker.tsx
+│       └── Toaster.tsx
 ├── email/
-│   ├── sendEmail.ts             # Resend wrapper. Exposes single-email `sendEmail()` + `sendEmailBatch(items)` (2026-04-22) which calls `resend.batch.send([...])`, up to 100 emails per HTTP request / one rate-limit slot per call. Used by the live-session announcement flow.
-│   ├── sendTemplatedEmail.ts    # CMS-template email sender (placeholder replacement, batching, branded base)
-│   └── templates/ (_base, accountConfirmation, certificateIssued, confirmEmail,
-│       deviceVerification, lockedOut, otpVerification, passwordReset,
-│       liveSessionNotification, quizResult, registrationConfirmation, resendRegistrationId)
-│       newsletter.ts — custom baseLayoutNewsletter() with "Structured Modeling. Real-World Finance." signature
-│       ALL template functions are async (use baseLayoutBranded) — callers must await
-├── newsletter/
-│   ├── autoNotify.ts            # sendAutoNewsletter() — fire-and-forget, duplicate prevention, per-event-type toggle. **2026-04-27 rebuild**: now renders via renderForEvent(eventType, vars) from templates.ts (DB-backed), falls back to a hardcoded fallbackEmail() shell only when no row exists for the event yet (first-run before migration 143 seeds, or after manual deletion). After rendering, hands off to sendCampaign() so auto sends use the same batch + recipient log + retry pipeline as manual sends.
-│   ├── sender.ts                # NEW 2026-04-27. sendCampaign() central pipeline used by manual send, scheduled cron, auto-notify, and retry-failed: resolves segment → seeds pending recipient_log rows → 100/batch via resend.batch.send → 200ms stagger → updates each row with returned message_id + status → updates campaign aggregate counts. Optional `recipients` arg short-circuits segment resolution (used by retry). sendTestEmail() is the one-off [TEST]-prefix variant — no log row, no batch, synthetic unsubscribe token.
-│   ├── segments.ts              # NEW 2026-04-27. SEGMENTS metadata (key/label/description) + resolveSegment(segment, targetHub) → ResolvedRecipient[] composing the active subscriber set with filter sets from certificate_eligibility_raw, student_certificates, training_assessment_results. countSegment() for the live recipient-count UI display.
-│   ├── templates.ts             # NEW 2026-04-27. DB-backed template engine. interpolate('{token}', vars) → empty string for missing tokens. getTemplate(key) / getTemplateByEvent(eventType) / listTemplates() / renderTemplate(tpl, vars) / renderForEvent(eventType, vars). TEMPLATE_VARIABLES const exposes per-event-type token schemas to the admin UI.
-│   └── linkWrap.ts              # NEW 2026-04-27. wrapLinks(body, { campaignId, msgIdPlaceholder }) rewrites every <a href> to /api/newsletter/click?msg={msg}&campaign=X&url=encoded; appendUtm() injects utm_source=newsletter / utm_medium=email / utm_campaign=<id> on internal financialmodelerpro.com hosts. Skips mailto:/tel:/javascript:/anchors/unsubscribe URL/click endpoint itself. injectMessageId() helper for per-recipient {msg} swap if the call site has the message id ahead of send.
-# NOTE: src/lib/marketing/* DELETED 2026-04-24 — Phase 1.5 canvas types/helpers (types, canvasDefaults, presets, variants, autoFill, brandKit, imageToDataUri) all removed in the Marketing Studio rebuild.
-├── marketing-studio/            # Training Hub Marketing Studio (rebuild 2026-04-24, migration 142; multi-instructor + drag-resize follow-up commit b0823b9). Server-side template rendering via next/og ImageResponse — no canvas state.
-│   ├── types.ts                 # AssetType, Instructor, BrandPack, RenderRequest discriminated union (linkedin-banner / live-session / youtube-thumbnail / article-banner), DIMENSIONS map per template, UploadedAsset DTO, ZoneRect / LayoutOverrides, resolveInstructors() helper (falls back to brand pack default when no IDs picked). Every banner content type carries `instructorIds: string[]` + `layout?: LayoutOverrides`.
-│   ├── brand.ts                 # loadBrandPack() — server-side resolves logo from cms_content.header_settings.logo_url, primaryColor from email_branding, default trainer (name/title/photo/credentials) from instructors WHERE is_default=true. loadInstructorsByIds(ids[]) — fetches active rows by id and preserves admin pick order so banner render order matches the picker.
-│   ├── image-utils.ts           # SERVER-ONLY. fetchAsBase64() (URL → base64 data URI for satori; sharp SVG → PNG). Imports `sharp` (Node-native). DO NOT import from a client component — webpack will try to bundle node:child_process / node:crypto and fail. Imported only by the render route.
-│   ├── style-utils.ts           # CLIENT-SAFE pure helpers (split from image-utils.ts in commit 0e2129a to fix Vercel build). lighten() / darken() hex helpers used by every template's gradient; formatSessionDateTime() for Live Session banner display. No Node deps. Templates import the helpers from here so client studio editors can also import the templates' LAYOUT_DEFAULTS without dragging sharp into the client bundle.
-│   ├── layout.ts                # Zone-based layout system (drag-resize support). TemplateLayout = { canvas, zones (LAYOUT_DEFAULTS per key), descriptors (label + resizable: bool) }. mergeLayout(defaults, overrides) merges admin overrides on top of template defaults — same code-path serves satori (server) and the LayoutEditor drag overlay (client). rectToStyle() converts a rect to absolute-positioning CSS. clampRect() keeps zones inside the canvas during drag.
+│   ├── sendEmail.ts                  # Resend wrapper. sendEmail() + sendEmailBatch() (resend.batch.send, 100/HTTP)
+│   ├── sendTemplatedEmail.ts         # CMS-template email sender (placeholder replacement, batching)
 │   └── templates/
-│       ├── linkedin-banner.tsx  # 3 named exports: LinkedInProfileTemplate (1584x396), LinkedInPostTemplate (1200x627), LinkedInQuoteTemplate (1200x627). Refactored to absolute-position movable zones over a fixed background+logo+url scaffold. Each template exports its LAYOUT (LINKEDIN_PROFILE_LAYOUT, LINKEDIN_POST_LAYOUT, LINKEDIN_QUOTE_LAYOUT). TrainerCard renders single big card when length=1 OR strip/badge layout when length≥2.
-│       ├── live-session.tsx     # LiveSessionTemplate (1200x627) — pulls badge/title/datetime/duration from content. Exports LIVE_SESSION_LAYOUT with movable zones (headline / metaRow / cta / instructorStrip). Strip renders up to 4 instructor cards in a horizontal row.
-│       ├── youtube-thumbnail.tsx # YouTubeThumbnailTemplate (1280x720) — punchy big-type layout. Exports YOUTUBE_THUMB_LAYOUT (badge / title / subtitle / trainerCircle). Uses FIRST picked instructor for the right-third photo circle.
-│       └── article-banner.tsx   # ArticleBannerTemplate (1200x630) — editorial layout. Exports ARTICLE_BANNER_LAYOUT (eyebrow / title / authorBadge). Uses FIRST picked instructor as author (or content.author override).
-├── integrations/
-│   └── teamsMeetings.ts          # Microsoft Graph API client for the Teams calendar event flow. Exposes `createCalendarEventWithMeeting` / `updateCalendarEvent` / `deleteCalendarEvent` (POST/PATCH/DELETE against `/users/{hostId}/events` with `isOnlineMeeting:true` + `onlineMeetingProvider:"teamsForBusiness"`), wrappers `updateMeetingOrEvent` / `deleteMeetingOrEvent` that try `/events` first and fall back to legacy `/onlineMeetings` on 404 for pre-migration session ids, `createTeamsMeeting` / `updateTeamsMeeting` / `deleteTeamsMeeting` (legacy onlineMeetings endpoint, kept for the fallback leg), `toGraphDateTime` helper (UTC ISO → Graph `dateTimeTimeZone` via `sv-SE` locale formatting, `Asia/Karachi` default), and `isTeamsConfigured` / `testTeamsConnection` helpers. Requires env vars `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `TEAMS_HOST_USER_EMAIL` + Azure Application permissions `OnlineMeetings.ReadWrite.All`, `User.Read.All`, `Calendars.ReadWrite` all with admin consent.
-├── modeling/real-estate/
-│   ├── export/ (excel-formula, excel-static, pdf)
-│   └── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))
-├── shared/
-│   ├── audit.ts  auth.ts  captcha.ts  cms.ts (getAllPageSections, getPageSections, getTestimonialsForPage)  deviceTrust.ts
-│   ├── emailConfirmation.ts  htmlUtils.ts(isHtml detection)  modelingComingSoon.ts  trainingComingSoon.ts  ogFonts.ts(Inter font loader)
-│   ├── modelingAccess.ts         # Modeling Hub access gate (migration 136): isEmailWhitelisted + isEmailAdmin primitives + canEmailSigninModeling / canEmailRegisterModeling high-level checks + listWhitelist (admin UI). All queries are case-insensitive on email. Threaded into /api/auth/register, /api/auth/confirm-email, auth.ts authorize(), and /modeling/register server page's ?email= invite path.
-│   ├── comingSoonGuard.ts        # Centralizes signin/register Coming-Soon gate (Training Hub) - checks hub state → bypass list → ?bypass=true query. Used by both /training/signin + /training/register server components.
-│   ├── hubBypassList.ts          # isIdentifierAllowed(identifier) reads training_settings.training_hub_bypass_list (migration 121), case-insensitive, matches email OR registration_id.
-│   ├── password.ts  permissions.ts  storage.ts  supabase.ts  urls.ts
-└── training/
-    ├── appsScript.ts  certificateEngine.ts  certificateLayout.ts  certifier.ts(deprecated)
-    ├── share.ts                 # Universal share utility: shareTo(platform, options), FMP_HASHTAGS, FMP_TRAINING_URL. LinkedIn always opens plain feed composer (no share-offsite URL auto-attach). Auto-copy-then-open pattern.
-    ├── shareTemplates.ts        # Share template render engine (migrations 114-117): ShareTemplate + ShareSettings types, renderShareTemplate(template, vars) pure function, resolveCourseName() (COURSES short-code → full title), formatShareDate() (canonical en-GB long form), DEFAULT_TEMPLATES offline fallback, SAMPLE_VARS + TEMPLATE_VARIABLES for admin preview + variable picker
-    ├── useShareTemplate.ts      # Client hook — module-level cache + in-flight dedup; initial render from DEFAULT_TEMPLATES, DB swaps in when fetch resolves. Returns ShareTemplate with brand_mention/founder_mention/prefix_at fields merged in by the API layer
-    ├── watchTracker.ts           # Interval-merging playback tracker — onPlay/onTick/onClose; seeking cannot inflate counts
-    ├── watchThresholdVerifier.ts # verifyWatchThresholdMet(email, courseCode) — gates cert issuance per course+session
-    ├── detectVideoChange.ts      # detectVideoChange(existingTotal, incomingTotal) → verdict; abs diff > 30s AND relative diff > 10% flags a video swap. Used by both watch endpoints to reset stale progress when the admin replaces a YouTube URL (2026-04-21).
-    ├── sessionAnnouncement.ts    # Centralizes announce-on-publish / manual-announce / reminder email build for live sessions so cron, admin /notify, and register endpoint don't drift.
-    ├── sheets.ts  training-session.ts  videoTimer.ts
+│       _base, accountConfirmation, certificateIssued, confirmEmail,
+│       deviceVerification, lockedOut, otpVerification, passwordReset,
+│       liveSessionNotification, quizResult, registrationConfirmation, resendRegistrationId,
+│       newsletter (custom baseLayoutNewsletter())
+│       # All template functions are async (use baseLayoutBranded) — callers must await
+├── hooks/
+│   ├── useInactivityLogout.ts
+│   ├── useProject.ts
+│   ├── useRequireAdmin.ts
+│   └── useRequireAuth.ts
+├── htmlUtils/                        # isHtml() detection
+├── newsletter/
+│   ├── autoNotify.ts                 # sendAutoNewsletter — fire-and-forget per-event toggle (mig 143 rebuild)
+│   ├── linkWrap.ts                   # /api/newsletter/click rewrite + UTM injection
+│   ├── segments.ts                   # SEGMENTS metadata + resolveSegment / countSegment
+│   ├── sender.ts                     # sendCampaign central pipeline (manual / scheduled / auto / retry)
+│   └── templates.ts                  # DB-backed template engine (interpolate / renderForEvent)
+├── ogFonts/index.ts                  # Inter font loader for satori OG images
+├── seo/
+│   ├── canonical.ts                  # canonicalUrl(path, 'main' | 'learn' | 'app')
+│   └── components/
+│       ├── Breadcrumbs.tsx
+│       └── StructuredData.tsx        # OrganizationJsonLd / WebSiteJsonLd / PersonJsonLd / CourseJsonLd / ArticleJsonLd / EventJsonLd / BreadcrumbJsonLd / FAQJsonLd
+├── share/
+│   ├── share.ts                      # Universal shareTo(platform, options) utility
+│   ├── shareTemplates.ts             # Render engine (renderShareTemplate / resolveCourseName / formatShareDate)
+│   ├── useShareTemplate.ts           # Client hook (module-level cache + in-flight dedup)
+│   └── components/
+│       └── ShareModal.tsx            # UNIVERSAL ShareModal (cross-hub)
+└── storage/index.ts                  # Supabase storage helpers
 ```
 
-## `src/hooks/`
-```
-useInactivityLogout.ts   useProject.ts   useRequireAdmin.ts
-useRequireAuth.ts
-```
-# NOTE: useSubscription.ts DELETED 2026-04-27 (commit d8405e5) — Permissions removal.
-# NOTE: useWhiteLabel.ts DELETED 2026-04-27 (commit a000fbd) — White-Label removal. Topbar reads platform name + logo directly from the branding store.
+## `src/hubs/`
 
-## `src/types/`
+### `src/hubs/main/` (marketing site + booking + CMS section renderers)
 ```
-branding.types.ts  deck.types.ts  next-auth.d.ts  project.types.ts
-revenue.types.ts  scenario.types.ts  settings.types.ts
+src/hubs/main/
+├── components/
+│   ├── booking/CalendlyEmbed.tsx
+│   ├── cms/
+│   │   ├── CmsField.tsx              # UNIVERSAL CMS TEXT RENDERER. ALL CMS text fields must render via <CmsField>.
+│   │   ├── SectionRenderer.tsx       # Maps section_type -> component
+│   │   ├── index.ts
+│   │   └── sections/                 # Hero, Text, RichText, Image, TextImage, Columns, Cards, Cta, Faq,
+│   │                                 # Stats, List, Testimonials, PricingTable, Video, Banner, Spacer,
+│   │                                 # Embed, Team, Timeline, LogoGrid, Countdown, CmsParagraphs
+│   ├── landing/
+│   │   ├── AdminEditBar.tsx  ArticleCard.tsx  CategoryFilter.tsx  CourseCard.tsx
+│   │   ├── InlineEdit.tsx  SharedFooter.tsx  VideoPlayer.tsx
+│   ├── newsletter/NewsletterSubscribeForm.tsx   # Hub checkboxes + email input, shown in SharedFooter
+│   └── pricing/PricingAccordion.tsx
+└── lib/                              # (currently empty — main-hub server helpers go here)
 ```
-# NOTE: subscription.types.ts DELETED 2026-04-27 (commit d8405e5) — Permissions removal. Plan-name unions inlined where still needed (ExportModal, UpgradePrompt).
 
-## `src/config/`
+### `src/hubs/training/` (Training Hub — learn.financialmodelerpro.com)
 ```
-courses.ts    # Course + session definitions (3SFM, BVM)
-platforms.ts  # 10 platform definitions — 1 live (REFM), 9 coming soon
+src/hubs/training/
+├── components/
+│   ├── CalendarDropdown.tsx          # Multi-provider Add-to-Calendar (Google/Outlook/Apple/Yahoo/.ics)
+│   ├── DashboardTour.tsx             # driver.js interactive walkthrough on first dashboard visit (mig 120)
+│   ├── StudentNotes.tsx              # Per-session student notes with bold/bullet toolbar + auto-save
+│   ├── SubscribeModal.tsx            # YouTube subscribe modal
+│   ├── TrainingShell.tsx             # Shared layout (header + sidebar + footer + mobile nav + CMS logo)
+│   ├── WatchProgressBar.tsx          # Re-enabled Phase 4. Color-coded fill + dashed threshold marker.
+│   ├── WelcomeModal.tsx              # First-visit modal (configurable localStorage key)
+│   ├── YouTubeComments.tsx           # Cached YouTube comments (24h DB cache)
+│   ├── YouTubePlayer.tsx             # YT IFrame API player. Interval-merging tracker in useRef (mig 146 Phase 2). startSeconds resume + initialIntervals JSONB hydration. Emits onProgress(WatchProgressPayload) with force=true on real close events.
+│   ├── dashboard/
+│   │   ├── AboutThisCourse.tsx  BvmLockedContent.tsx  CertificateImageCard.tsx
+│   │   ├── CourseContent.tsx  FeedbackModal.tsx  FilePreviewModal.tsx  ProfileModal.tsx
+│   │   ├── LiveSessionCard.tsx  LiveSessionCardLarge.tsx  LiveSessionsContent.tsx
+│   │   ├── LiveSessionsPanel.tsx  LiveSessionsSection.tsx  RecordedLiveSessionRow.tsx
+│   │   ├── SessionCard.tsx  ShareModal.tsx  Skeleton.tsx  StatusBadge.tsx
+│   │   ├── TestimonialModal.tsx  index.ts  types.ts
+│   ├── player/
+│   │   ├── CoursePlayerLayout.tsx    # Video + children layout. Sidebar removed 2026-04-23. `topContent` slot for register-card-on-top.
+│   │   ├── CourseTopBar.tsx          # Fixed dark bar (top: measured, z-index 140). Hosts Back + Subscribe + Like + Ask Question + Share + Mark Complete + Assessment.
+│   │   └── ShareModal.tsx            # Thin forwarder → @shared/share/components/ShareModal
+│   └── sessions/SessionCard.tsx      # Universal live session card (variant: student|public)
+├── config/courses.ts                 # 3SFM + BVM session definitions
+└── lib/
+    ├── appsScript/                   # appsScript.ts, regIdAllocator.ts, sheets.ts, studentRoster.ts
+    ├── assessment/                   # attemptInProgress.ts, attemptInProgressClient.ts, liveSessionAssessments.ts, shuffle.ts
+    ├── certificates/                 # certificateEligibility.ts, certificateEngine.ts, certificateLayout.ts, certifier.ts
+    ├── liveSessions/                 # calendar.ts, liveSessionsForStudent.ts
+    ├── progress/                     # progressCalculator.ts, progressFromSupabase.ts
+    ├── session/                      # training-session.ts, trainingSessionCookie.ts
+    ├── share/resolveCourseName.ts    # Training-specific course name resolver
+    ├── watch/                        # detectVideoChange.ts, videoTimer.ts, watchEnforcementCheck.ts, watchThresholdVerifier.ts, watchTracker.ts
+    ├── comingSoon.ts                 # Training-Hub Coming-Soon state reader
+    └── ensureNotComingSoon.ts        # Training-Hub Coming-Soon page guard (composes shouldGateComingSoon primitive with bypass list)
 ```
 
-## `src/core/`
+### `src/hubs/modeling/` (Modeling Hub — app.financialmodelerpro.com)
 ```
-branding.ts  core-calculations.ts  core-formatters.ts  core-state.ts  core-validators.ts
+src/hubs/modeling/
+├── components/                       # (currently empty — Modeling Hub-wide components go here; all current hub UI lives in app/modeling/* and platforms/*)
+├── config/platforms.ts               # 10 platform definitions (1 live: REFM, 9 coming soon)
+├── lib/
+│   ├── access.ts                     # modeling_access_whitelist gate (mig 136)
+│   ├── comingSoon.ts                 # Modeling-Hub state readers (signin + register toggles)
+│   └── ensureNotComingSoon.ts        # Modeling-Hub page guard (composes shouldGateComingSoon primitive)
+└── platforms/
+    ├── refm/                         # Real Estate Financial Modeling — only live platform
+    │   ├── components/
+    │   │   ├── Dashboard.tsx  OverviewScreen.tsx  PlanBadge.tsx
+    │   │   ├── ProjectsScreen.tsx  RealEstatePlatform.tsx  Sidebar.tsx  Topbar.tsx
+    │   │   ├── modals/ (Export, Project, Rbac, Version)
+    │   │   └── modules/ (Module1Area, Module1Costs, Module1Financing, Module1Timeline)
+    │   └── lib/
+    │       ├── export/ (excel-formula, excel-static, pdf)
+    │       └── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))
+    └── bcm/  bvm/  cfm/  erm/  eum/  fpa/  lbo/  pfm/  svm/   # Coming-soon stubs (config-driven)
 ```
+
+## `src/features/` — domain-flat features (single-hub or planned cross-hub)
+
+```
+src/features/
+└── marketing-studio/                 # Training Hub Marketing Studio (rebuild 2026-04-24, mig 142)
+    ├── brand.ts                      # loadBrandPack + loadInstructorsByIds
+    ├── image-utils.ts                # SERVER-ONLY. fetchAsBase64 + sharp SVG→PNG. Imports `sharp`.
+    ├── style-utils.ts                # CLIENT-SAFE pure helpers (lighten/darken/formatSessionDateTime)
+    ├── layout.ts                     # Zone-based drag-resize layout system (mergeLayout / rectToStyle / clampRect)
+    ├── types.ts                      # AssetType, BrandPack, RenderRequest discriminated union, Instructor, ZoneRect
+    └── templates/
+        ├── article-banner.tsx        # ArticleBannerTemplate (1200x630)
+        ├── linkedin-banner.tsx       # 3 variants: Profile (1584x396), Post (1200x627), Quote (1200x627)
+        ├── live-session.tsx          # LiveSessionTemplate (1200x627)
+        └── youtube-thumbnail.tsx     # YouTubeThumbnailTemplate (1280x720)
+```
+
+## `src/integrations/` — external API clients
+
+```
+src/integrations/
+├── anthropic/                        # (currently empty — direct SDK use today; centralize here when reused across features)
+├── resend/                           # (currently empty — direct SDK use today, see @shared/email)
+├── teams/teamsMeetings.ts            # Microsoft Graph client. createCalendarEventWithMeeting / updateCalendarEvent / deleteCalendarEvent + legacy onlineMeetings fallback. Requires AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, TEAMS_HOST_USER_EMAIL.
+└── youtube/                          # (currently empty — direct fetch today; centralize when reused)
+```
+
+## `src/core/` — pure business primitives (no I/O, no framework)
+
+```
+src/core/
+├── branding/index.ts                 # Branding type + defaults
+├── calculations/index.ts             # Pure financial calculations
+├── db/supabase.ts                    # Supabase client factories (serverClient + browser anon)
+├── env/                              # (currently empty — env-var loaders go here)
+├── formatters/index.ts               # Pure number/date/string formatters
+├── state/index.ts                    # Pure state shapes (Zustand store types)
+└── types/                            # branding.types.ts  deck.types.ts  next-auth.d.ts  project.types.ts  revenue.types.ts  scenario.types.ts  settings.types.ts
+```
+
+## Deleted artifacts (kept for searchability)
+
+- `app/admin/announcements/page.tsx` + `AnnouncementsManager.tsx` + `/api/admin/announcements/` — DELETED 2026-04-27 (commit fd0aabf), orphan stub
+- `src/components/admin/PermissionsManager.tsx` + `app/admin/{permissions,overrides,plans}/` + `useSubscription.ts` + `subscription.types.ts` — DELETED 2026-04-27 (commit d8405e5), Permissions removal (Phase 5)
+- `src/components/admin/BrandingSettingsPanel.tsx` — DELETED 2026-04-27 (commit ee959ad), orphan
+- `app/admin/whitelabel/` + `useWhiteLabel.ts` — DELETED 2026-04-27 (commit a000fbd), White-Label removal
+- `src/components/marketing/*` + `src/lib/marketing/*` — DELETED 2026-04-24, Marketing Studio rebuild
+- `app/admin/marketing-studio/*` — DELETED 2026-04-24, replaced by `/admin/training-hub/marketing-studio/`
+- `src/components/cms/renderCmsText.tsx` — DELETED 2026-04-18, superseded by CmsField
+- `src/components/training/SubscribeButton.tsx`, `EngagementBar.tsx`, `PlaylistSidebar.tsx` — legacy components removed during the player rebuild
+- `app/admin/login/page.tsx`, `app/admin/login/LoginForm.tsx`, `app/login/page.tsx`, `proxy.ts` — DELETED 2026-04-24, admin auth unification
+- `app/api/admin/founder/route.ts` — DELETED 2026-04-18, founder editing now via Page Builder
+
+## Boundary lint rules (Phase 2.7)
+
+`eslint-plugin-boundaries` (`boundaries/dependencies` rule) enforces import direction in `eslint.config.mjs`. Allow-graph: core → core; shared → core/shared/integ; main/training/modeling → core/shared/integ/<self-hub>; platform → core/shared/integ/modeling/platform; feature → core/shared/integ/feature; integ → core/shared; app → any. New cross-hub regressions are caught at lint time. One deferred suppression remains: `src/shared/auth/nextauth.ts` (NextAuth `authorize()` references modeling-hub gates — slated for dependency-inversion refactor).

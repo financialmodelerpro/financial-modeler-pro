@@ -1,5 +1,5 @@
 # Project Handoff — Financial Modeler Pro
-**Snapshot date: 2026-04-28**
+**Snapshot date: 2026-04-29**
 
 Use this file to resume development in a new chat session. Read `CLAUDE.md` first for strict project rules.
 
@@ -9,6 +9,22 @@ Use this file to resume development in a new chat session. Read `CLAUDE.md` firs
 - `CLAUDE-FEATURES.md` — Detailed feature specs, architectural decisions
 - `CLAUDE-ROUTES.md` — All page routes, API routes, component/lib structure
 - `CLAUDE-TODO.md` — Backlog, pending REFM modules, future platforms
+- `ARCHITECTURE.md` — Three-tier folder structure rationale, alias guide, boundary rules, how to add a platform/hub
+- `RESTRUCTURE_PLAN.md` — 8-phase folder restructure plan (executed 2026-04-28 → 2026-04-29; complete)
+
+---
+
+## 8-phase folder restructure (complete, 2026-04-29)
+
+Phases 2.1–2.8 of `RESTRUCTURE_PLAN.md` shipped as separate commits, each independently revertable, with `npm run verify` (type-check + lint + build) green between every step.
+
+- **Phase 2.1**: target folder scaffolding (`src/core/`, `src/shared/`, `src/hubs/{main,training,modeling}/`, `src/features/`, `src/integrations/`).
+- **Phases 2.2–2.5**: ~220 files moved via `git mv` so history is preserved (commits `Restructure 2.2` through `Restructure 2.5`). One Vercel build break in Phase 2.5 (sed-edited importers were unstaged when only renames were committed; fixed in `463ff8a` by explicitly staging all 25 modified files).
+- **Phase 2.6**: cleaned up the 5 cross-hub violations from `PLATFORM_INVENTORY.md`. Share family relocated to `src/shared/share/`. `comingSoonGuard` dependency-inverted into a pure `shouldGateComingSoon` primitive at `src/shared/comingSoon/guard.ts` plus per-hub adapters. `COURSES`-aware share resolver extracted to `src/hubs/training/lib/share/resolveCourseName.ts`.
+- **Phase 2.7**: 8 path aliases (`@core`, `@shared`, `@training`, `@modeling`, `@platforms`, `@main`, `@features`, `@integrations`) + `eslint-plugin-boundaries` v6 enforcement. CI now blocks any new cross-hub regression.
+- **Phase 2.8**: documentation only — this file plus CLAUDE.md / CLAUDE-DB.md / CLAUDE-ROUTES.md / CLAUDE-FEATURES.md / `ARCHITECTURE.md` updated to reflect the new layout.
+
+Net source-tree state: 0 cross-hub violations on the original 5; one TODO-tracked deferred suppression in `src/shared/auth/nextauth.ts` for the planned NextAuth `authorize()` dependency-inversion follow-up. All 206 routes still serve, no behavior changes, no migrations needed.
 
 ---
 
@@ -212,8 +228,11 @@ Most recent session shipped the watch tracking rebuild (Phases 2-5 + migrations 
 | `EMAIL_FROM_NOREPLY` | No-reply sender address |
 | `HCAPTCHA_SECRET_KEY` | hCaptcha server-side verification secret |
 | `NEXT_PUBLIC_HCAPTCHA_SITE_KEY` | hCaptcha client-side site key |
-| `CRON_SECRET` | Bearer token for Vercel cron job auth (`/api/cron/certificates`) |
+| `CRON_SECRET` | Bearer token for Vercel cron job auth (`/api/cron/session-reminders`, `/api/cron/auto-launch-check`, `/api/cron/newsletter-scheduled`). Certificate cron retired — certificates issue inline on final-exam submit. |
 | `APPS_SCRIPT_URL` | Google Apps Script deployment URL (primary, fallback in DB) |
+| `RESEND_WEBHOOK_SECRET` | Resend webhook signing secret (`whsec_...`) for `/api/webhooks/resend` (newsletter delivery / open / click / bounce / complaint events) |
+| `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `TEAMS_HOST_USER_EMAIL` | Microsoft Graph credentials for live-session Teams meeting auto-generation |
+| `YOUTUBE_API_KEY`, `NEXT_PUBLIC_YOUTUBE_CHANNEL_ID` | YouTube Data API v3 key + channel ID for cached comments + Subscribe button |
 
 ---
 
@@ -261,7 +280,7 @@ npm run build           # next build --webpack (avoids MAX_PATH on Windows/OneDr
 1. **Via admin panel**: Go to `https://financialmodelerpro.com/admin/training-settings` -> update the Apps Script URL field -> Save
 2. **Via env var**: Update `APPS_SCRIPT_URL` in Vercel Environment Variables dashboard -> redeploy
 3. **Priority**: Env var is checked first; Supabase `training_settings` table is fallback
-4. **Code location**: `src/lib/training/sheets.ts` handles the resolution
+4. **Code location**: `src/hubs/training/lib/appsScript/sheets.ts` handles the resolution
 
 ### How to run database migrations
 1. Migrations are in `supabase/migrations/` (numbered 002-041)
@@ -300,9 +319,9 @@ None — all 3 commits shipped to `origin/main`. Type-check + full build passed 
 ## 8. Next Steps (prioritized)
 
 ### Immediate (polish from last session)
-1. Create universal session card component at `src/components/sessions/SessionCard.tsx`
-2. Test join button flow end-to-end with a real upcoming session
-3. Verify badge images display correctly (check `badge_url` population)
+1. Test join button flow end-to-end with a real upcoming session
+2. Verify badge images display correctly (check `badge_url` population)
+3. NextAuth `authorize()` dependency inversion (lift the one remaining `eslint-disable boundaries/dependencies` in `src/shared/auth/nextauth.ts` by exposing an `authorizeOptions: { extraGates: BypassCheck[] }` opt — see CLAUDE.md follow-ups)
 
 ### Short-term
 4. Reintroduce pricing/subscription enforcement as a focused new feature spec when paid tiers go live (the previous system was removed 2026-04-27 in commit `d8405e5` — admin-only with no server-side gating). Server-enforced from day one, smaller surface than the deleted system.
@@ -321,30 +340,33 @@ None — all 3 commits shipped to `origin/main`. Type-check + full build passed 
 
 ## 9. Key File Quick Reference
 
+> Path aliases (`@core/`, `@shared/`, `@training/`, `@modeling/`, `@platforms/`, `@main/`, `@features/`, `@integrations/`) are defined in `tsconfig.json`. See `ARCHITECTURE.md` for the full alias table + boundary rules.
+
 | What | Where |
 |------|-------|
 | Project rules | `CLAUDE.md` |
+| Architecture rationale | `ARCHITECTURE.md` |
 | Database docs | `CLAUDE-DB.md` |
 | Feature specs | `CLAUDE-FEATURES.md` |
 | Route map | `CLAUDE-ROUTES.md` |
 | Backlog | `CLAUDE-TODO.md` |
-| Auth (Modeling) | `src/lib/shared/auth.ts` |
-| Auth (Training) | `src/lib/training/training-session.ts` |
-| Apps Script calls | `src/lib/training/sheets.ts` |
-| Certificate engine | `src/lib/training/certificateEngine.ts` |
-| Email templates | `src/lib/email/templates/` |
+| NextAuth options (admin auth) | `src/shared/auth/nextauth.ts` |
+| Training Hub session helpers | `src/hubs/training/lib/session/training-session.ts` |
+| Apps Script calls | `src/hubs/training/lib/appsScript/sheets.ts` |
+| Certificate engine | `src/hubs/training/lib/certificates/certificateEngine.ts` |
+| Email templates | `src/shared/email/templates/` |
 | Design tokens | `app/globals.css` |
-| Supabase client | `src/lib/shared/supabase.ts` |
-| CMS helpers | `src/lib/shared/cms.ts` |
-| Navbar | `src/components/layout/Navbar.tsx` |
-| Dashboard | `app/training/dashboard/page.tsx` |
-| Admin entry | `app/admin/dashboard/page.tsx` |
+| Supabase client | `src/core/db/supabase.ts` |
+| CMS helpers | `src/shared/cms/index.ts` |
+| Navbar | `src/shared/components/layout/Navbar.tsx` |
+| Training dashboard page | `app/training/dashboard/page.tsx` |
+| Admin entry | `app/admin/page.tsx` |
 
 ---
 
 ## Migrations Status
 
-**Latest**: `041_watch_history_instructor_title.sql`
-**Next number**: `042`
-**All through 041 are run.** No pending migrations.
-**Rule**: Never edit existing migrations.
+**Latest**: `147_completed_via.sql` (watch tracking rebuild Phase 3 — manual override + provenance).
+**Next number**: `148` (numbering gaps at `069`, `073`, `127` are skipped, not missing — see CLAUDE-DB.md).
+**Manual apply**: migrations `146` + `147` must be applied via Supabase dashboard before deploy. Both idempotent (`ADD COLUMN IF NOT EXISTS`).
+**Rule**: Never edit existing migrations; create new numbered files.
