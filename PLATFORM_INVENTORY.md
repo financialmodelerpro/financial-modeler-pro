@@ -616,11 +616,11 @@ D:\FMP\financial-modeler-pro\
 |   \-- types\                   7 type files (post subscription.types.ts deletion)
 +-- supabase\
 |   +-- backups\                 Pre-restructure SQL backups
-|   +-- migrations\              141 SQL files on disk (numbered up to 145, gaps at 069/073/127)
+|   +-- migrations\              143 SQL files on disk (numbered up to 147, gaps at 069/073/127). Latest pair: 146 (watch_intervals JSONB) + 147 (completed_via + video_load_at) ship the watch tracking rebuild.
 |   +-- schema.sql               (snapshot)
 |   \-- seed-permissions.sql     (legacy seed)
 +-- public\                      Static assets (logos, icons, images)
-+-- scripts\                     2 utility scripts (backup_apps_script_students.ts, testEmails.ts)
++-- scripts\                     5 utility scripts (backup_apps_script_students.ts, testEmails.ts, diagnose_stuck_watch.ts, phase5_recovery.ts, phase5_verify.ts). The latter three were added 2026-04-28 for the watch tracking rebuild Phase 5 surgical recovery.
 +-- _legacy_backup\              Old static-HTML prototype (CLAUDE.md, index.html, js/, styles.css)
 +-- D:FMPfinancial-modeler-proappapitrainingbadgesdownload\   (orphan empty directory, see Sec 11)
 +-- js\                          Top-level legacy JS bundle (app.js, branding.js, portal.js, projects.js, refm-platform.js, settings.js)
