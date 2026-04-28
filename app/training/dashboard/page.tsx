@@ -35,7 +35,7 @@ import {
 import { ShareExperienceModal } from '@/src/shared/components/ShareExperienceModal';
 import { LiveSessionsContent } from '@/src/hubs/training/components/dashboard/LiveSessionsContent';
 import { LiveSessionsSection } from '@/src/hubs/training/components/dashboard/LiveSessionsSection';
-import { formatShareDate } from '@/src/lib/training/shareTemplates';
+import { formatShareDate } from '@/src/shared/share/shareTemplates';
 import { DashboardTour } from '@/src/hubs/training/components/DashboardTour';
 
 // ── Badge metadata ─────────────────────────────────────────────────────────────

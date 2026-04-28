@@ -9,9 +9,9 @@
  * /admin/training-hub/share-templates.
  */
 
-import { ShareModal as UniversalShareModal } from '@/src/components/training/share/ShareModal';
-import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
-import { renderShareTemplate } from '@/src/lib/training/shareTemplates';
+import { ShareModal as UniversalShareModal } from '@/src/shared/share/components/ShareModal';
+import { useShareTemplate } from '@/src/shared/share/useShareTemplate';
+import { renderShareTemplate } from '@/src/shared/share/shareTemplates';
 
 interface ShareModalProps {
   sessionTitle: string;

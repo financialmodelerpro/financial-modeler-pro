@@ -3,11 +3,12 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
-import { ShareModal } from '@/src/components/training/share/ShareModal';
+import { ShareModal } from '@/src/shared/share/components/ShareModal';
 import {
-  renderShareTemplate, resolveCourseName, formatShareDate,
+  renderShareTemplate, formatShareDate,
   DEFAULT_TEMPLATES, type ShareTemplate,
-} from '@/src/lib/training/shareTemplates';
+} from '@/src/shared/share/shareTemplates';
+import { resolveCourseName } from '@/src/hubs/training/lib/share/resolveCourseName';
 
 const NAVY   = '#1B3A6B';
 const BLUE   = '#1B4F8A';

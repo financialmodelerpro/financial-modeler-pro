@@ -1,4 +1,4 @@
-import { ensureNotComingSoon } from '@/src/lib/shared/comingSoonGuard';
+import { ensureNotComingSoon } from '@/src/hubs/modeling/lib/ensureNotComingSoon';
 
 /**
  * Coming-Soon gate for the Modeling Hub's authed surface (REFM and any
@@ -10,6 +10,6 @@ import { ensureNotComingSoon } from '@/src/lib/shared/comingSoonGuard';
  * for their 1-hour maxAge. This guard closes that window.
  */
 export default async function RefmLayout({ children }: { children: React.ReactNode }) {
-  await ensureNotComingSoon('modeling');
+  await ensureNotComingSoon();
   return <>{children}</>;
 }

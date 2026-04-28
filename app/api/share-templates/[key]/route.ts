@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
-import { DEFAULT_BRAND_MENTION, DEFAULT_FOUNDER_MENTION } from '@/src/lib/training/shareTemplates';
+import { DEFAULT_BRAND_MENTION, DEFAULT_FOUNDER_MENTION } from '@/src/shared/share/shareTemplates';
 
 export const dynamic = 'force-dynamic';
 

@@ -1,9 +1,9 @@
 /**
- * Training Hub Universal Share Utility
+ * Universal Share Utility (cross-hub)
  *
  * Usage:
- *   import { shareTo, FMP_HASHTAGS, FMP_TRAINING_URL } from '@/src/lib/training/share';
- *   import { ShareModal } from '@/src/components/training/share/ShareModal';
+ *   import { shareTo, FMP_HASHTAGS, FMP_TRAINING_URL } from '@/src/shared/share/share';
+ *   import { ShareModal } from '@/src/shared/share/components/ShareModal';
  *
  *   // Direct share (button handler)
  *   shareTo('linkedin', { text: 'My achievement', url: FMP_TRAINING_URL });

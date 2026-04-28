@@ -9,7 +9,7 @@ import { calculateCourseProgress } from '@/src/hubs/training/lib/progress/progre
 import { AboutThisCourse } from './AboutThisCourse';
 import { SessionCard } from './SessionCard';
 import { FilePreviewModal } from './FilePreviewModal';
-import { formatShareDate, type ShareVars } from '@/src/lib/training/shareTemplates';
+import { formatShareDate, type ShareVars } from '@/src/shared/share/shareTemplates';
 
 /**
  * Every share button raised from this component flows through the central

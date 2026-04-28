@@ -11,9 +11,9 @@ import type {
   QuestionResult,
 } from '@/src/hubs/training/lib/appsScript/sheets';
 import { COURSES } from '@/src/hubs/training/config/courses';
-import { shareTo, FMP_TRAINING_URL } from '@/src/lib/training/share';
-import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
-import { renderShareTemplate, formatShareDate } from '@/src/lib/training/shareTemplates';
+import { shareTo, FMP_TRAINING_URL } from '@/src/shared/share/share';
+import { useShareTemplate } from '@/src/shared/share/useShareTemplate';
+import { renderShareTemplate, formatShareDate } from '@/src/shared/share/shareTemplates';
 
 // Resolve a human-readable session name from a tabKey (e.g. "3SFM_S1" → "Session 1: Introduction…")
 function getSessionTitleFromTabKey(tabKey: string): string {

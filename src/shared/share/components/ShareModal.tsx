@@ -24,7 +24,7 @@
  */
 
 import { useMemo, useState } from 'react';
-import { shareTo, FMP_HASHTAGS, FMP_TRAINING_URL, type SharePlatform } from '@/src/lib/training/share';
+import { shareTo, FMP_HASHTAGS, FMP_TRAINING_URL, type SharePlatform } from '@/src/shared/share/share';
 
 interface ShareModalProps {
   isOpen: boolean;

@@ -5,7 +5,7 @@ import {
   renderShareTemplate, SAMPLE_VARS, TEMPLATE_VARIABLES,
   DEFAULT_BRAND_MENTION, DEFAULT_FOUNDER_MENTION,
   type ShareTemplate, type ShareSettings,
-} from '@/src/lib/training/shareTemplates';
+} from '@/src/shared/share/shareTemplates';
 
 const NAVY   = '#1B3A6B';
 const BLUE   = '#1B4F8A';

@@ -11,9 +11,9 @@
  */
 
 import { useState } from 'react';
-import { ShareModal } from '@/src/components/training/share/ShareModal';
-import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
-import { renderShareTemplate, formatShareDate } from '@/src/lib/training/shareTemplates';
+import { ShareModal } from '@/src/shared/share/components/ShareModal';
+import { useShareTemplate } from '@/src/shared/share/useShareTemplate';
+import { renderShareTemplate, formatShareDate } from '@/src/shared/share/shareTemplates';
 
 interface Props {
   certId:      string;

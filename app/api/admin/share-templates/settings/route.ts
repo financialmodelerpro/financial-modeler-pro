@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
-import { DEFAULT_BRAND_MENTION, DEFAULT_FOUNDER_MENTION, type ShareSettings } from '@/src/lib/training/shareTemplates';
+import { DEFAULT_BRAND_MENTION, DEFAULT_FOUNDER_MENTION, type ShareSettings } from '@/src/shared/share/shareTemplates';
 
 export const dynamic = 'force-dynamic';
 

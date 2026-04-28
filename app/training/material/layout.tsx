@@ -1,6 +1,6 @@
-import { ensureNotComingSoon } from '@/src/lib/shared/comingSoonGuard';
+import { ensureNotComingSoon } from '@/src/hubs/training/lib/ensureNotComingSoon';
 
 export default async function MaterialSegmentLayout({ children }: { children: React.ReactNode }) {
-  await ensureNotComingSoon('training');
+  await ensureNotComingSoon();
   return <>{children}</>;
 }

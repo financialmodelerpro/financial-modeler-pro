@@ -13,10 +13,10 @@
  * template system entirely — that bypass is gone.
  */
 
-import { ShareModal as UniversalShareModal } from '@/src/components/training/share/ShareModal';
-import { FMP_TRAINING_URL } from '@/src/lib/training/share';
-import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
-import { renderShareTemplate, type ShareVars } from '@/src/lib/training/shareTemplates';
+import { ShareModal as UniversalShareModal } from '@/src/shared/share/components/ShareModal';
+import { FMP_TRAINING_URL } from '@/src/shared/share/share';
+import { useShareTemplate } from '@/src/shared/share/useShareTemplate';
+import { renderShareTemplate, type ShareVars } from '@/src/shared/share/shareTemplates';
 
 interface ShareModalProps {
   /** share_templates.template_key — e.g. `achievement_card`, `certificate_earned`. */

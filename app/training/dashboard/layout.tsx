@@ -1,4 +1,4 @@
-import { ensureNotComingSoon } from '@/src/lib/shared/comingSoonGuard';
+import { ensureNotComingSoon } from '@/src/hubs/training/lib/ensureNotComingSoon';
 
 /**
  * Coming-Soon gate for the Training Hub dashboard. Redirects to /signin
@@ -7,6 +7,6 @@ import { ensureNotComingSoon } from '@/src/lib/shared/comingSoonGuard';
  * authed UI despite /api/training/validate refusing new logins.
  */
 export default async function DashboardSegmentLayout({ children }: { children: React.ReactNode }) {
-  await ensureNotComingSoon('training');
+  await ensureNotComingSoon();
   return <>{children}</>;
 }

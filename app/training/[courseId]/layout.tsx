@@ -1,4 +1,4 @@
-import { ensureNotComingSoon } from '@/src/lib/shared/comingSoonGuard';
+import { ensureNotComingSoon } from '@/src/hubs/training/lib/ensureNotComingSoon';
 
 /**
  * Gates the legacy in-course URLs (/training/3sfm, /training/bvm, …). The
@@ -6,6 +6,6 @@ import { ensureNotComingSoon } from '@/src/lib/shared/comingSoonGuard';
  * stale-cookie / deep-link path to course content.
  */
 export default async function CourseSegmentLayout({ children }: { children: React.ReactNode }) {
-  await ensureNotComingSoon('training');
+  await ensureNotComingSoon();
   return <>{children}</>;
 }

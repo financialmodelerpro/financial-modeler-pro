@@ -5,10 +5,10 @@ import Link from 'next/link';
 import type { SessionProgress } from './types';
 import { StatusBadge } from './StatusBadge';
 import { FilePreviewModal } from './FilePreviewModal';
-import { ShareModal as UniversalShareModal } from '@/src/components/training/share/ShareModal';
-import { FMP_TRAINING_URL } from '@/src/lib/training/share';
-import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
-import { renderShareTemplate, formatShareDate } from '@/src/lib/training/shareTemplates';
+import { ShareModal as UniversalShareModal } from '@/src/shared/share/components/ShareModal';
+import { FMP_TRAINING_URL } from '@/src/shared/share/share';
+import { useShareTemplate } from '@/src/shared/share/useShareTemplate';
+import { renderShareTemplate, formatShareDate } from '@/src/shared/share/shareTemplates';
 
 export interface SessionCardProps {
   sessionTitle: string;

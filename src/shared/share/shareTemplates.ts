@@ -19,8 +19,6 @@
  * fields), so call-site code stays the same.
  */
 
-import { COURSES } from '@/src/hubs/training/config/courses';
-
 /** Default mention text — fallback when training_settings hasn't been seeded yet. */
 export const DEFAULT_BRAND_MENTION   = 'FinancialModelerPro';
 export const DEFAULT_FOUNDER_MENTION = 'Ahmad Din, ACCA, FMVA®';
@@ -35,29 +33,15 @@ export const DEFAULT_HUB_URL = (
 ).replace(/\/+$/, '');
 
 /**
- * Resolve a course identifier to its full display title. Accepts any of:
- *   - the course id (`'3sfm'`, `'bvm'`)
- *   - the short title (`'3SFM'`, `'BVM'`)
- *   - the full title (passthrough)
- * Returns the input unchanged when no match — lets live-session names and
- * other non-COURSES values pass through untouched.
- *
- * Every share call site goes through this via `renderShareTemplate`, so even
- * if a call site accidentally passes "3SFM" the share text comes out with
- * "3-Statement Financial Modeling" — matching what the admin sees in the
- * template preview.
+ * Trim/normalize a course identifier. Pure passthrough at the shared layer —
+ * each hub injects its own course-name resolver via the optional `courseResolver`
+ * arg on `renderShareTemplate`. Training Hub's COURSES-aware resolver lives at
+ * `@/src/hubs/training/lib/share/resolveCourseName.ts` and is the canonical
+ * binding for every Training-Hub call site (and the admin daily-roundup).
  */
-export function resolveCourseName(value: string | null | undefined): string {
+function defaultCourseResolver(value: string | null | undefined): string {
   if (!value) return '';
   const v = String(value).trim();
-  if (!v) return '';
-  const vUpper = v.toUpperCase();
-  const vLower = v.toLowerCase();
-  for (const c of Object.values(COURSES)) {
-    if (c.title === v) return c.title;
-    if (c.shortTitle.toUpperCase() === vUpper) return c.title;
-    if (c.id === vLower) return c.title;
-  }
   return v;
 }
 
@@ -129,7 +113,12 @@ export interface RenderedShare {
  * they're obvious during development. `\n` in the stored template is already
  * a real newline (Postgres E-strings).
  */
-export function renderShareTemplate(template: ShareTemplate, vars: ShareVars): RenderedShare {
+export interface RenderShareTemplateOpts {
+  /** Hub-specific course-name resolver (e.g. Training Hub's COURSES lookup). Defaults to passthrough. */
+  courseResolver?: (value: string | null | undefined) => string;
+}
+
+export function renderShareTemplate(template: ShareTemplate, vars: ShareVars, opts: RenderShareTemplateOpts = {}): RenderedShare {
   const brandText   = template.brand_mention   || DEFAULT_BRAND_MENTION;
   const founderText = template.founder_mention || DEFAULT_FOUNDER_MENTION;
   // Global `share_brand_prefix_at` / `share_founder_prefix_at` settings
@@ -146,9 +135,10 @@ export function renderShareTemplate(template: ShareTemplate, vars: ShareVars): R
   // never need to pass `hubUrl` — the engine fills it in so admins can
   // reference `{hubUrl}` from any template without coordinating with every
   // call site. Explicitly-passed values still win.
+  const courseResolver = opts.courseResolver ?? defaultCourseResolver;
   const normalizedVars: ShareVars = { ...vars };
   if (typeof normalizedVars.course === 'string') {
-    normalizedVars.course = resolveCourseName(normalizedVars.course);
+    normalizedVars.course = courseResolver(normalizedVars.course);
   }
   if (normalizedVars.hubUrl === undefined || normalizedVars.hubUrl === null || normalizedVars.hubUrl === '') {
     normalizedVars.hubUrl = DEFAULT_HUB_URL;
