@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Bell, ThumbsUp, MessageCircle, Share2, X } from 'lucide-react';
-import { YouTubePlayer } from '../YouTubePlayer';
+import { YouTubePlayer, type WatchProgressPayload } from '../YouTubePlayer';
+import type { Interval } from '@/src/lib/training/watchTracker';
 import { YouTubeComments } from '../YouTubeComments';
 import { StudentNotes } from '../StudentNotes';
 import { CourseTopBar } from './CourseTopBar';
@@ -107,9 +108,18 @@ interface CoursePlayerLayoutProps {
   watchHint?: string;
   onVideoPlaying?: () => void;
   onVideoEnded?: () => void;
-  onVideoProgress?: (watchedSec: number, totalSec: number, currentPos: number) => void;
+  /** Fires periodically with the full progress payload (interval-merged
+   *  watched seconds + the snapshot intervals + a `force` flag set on
+   *  real close events). The watch page POSTs the snapshot intervals so
+   *  cross-session watch% accumulates correctly (migration 146). */
+  onVideoProgress?: (payload: WatchProgressPayload) => void;
   /** Seed the player's tracker with seconds already persisted to DB. */
   baselineWatchedSeconds?: number;
+  /** Seed the player's tracker with the JSONB watch_intervals from the
+   *  DB so a returning student's prior watch is union-merged with the
+   *  current session. Without this the tracker stays anchored at the
+   *  largest single contiguous run forever. */
+  initialIntervals?: Interval[];
   /** Resume video playback from this position (seconds) — threaded to YouTubePlayer.playerVars.start. */
   resumePositionSeconds?: number;
   /** Optional UI block rendered directly above the Mark Complete area — e.g. watch progress bar. */
@@ -156,7 +166,7 @@ export function CoursePlayerLayout({
   sessionTitle, sessionDescription, sessionUrl,
   nextSessionHref, isWatched, onMarkComplete, isCompleted,
   assessmentUrl, assessmentReady, assessmentPassed, watchHint, onVideoPlaying, onVideoEnded,
-  onVideoProgress, baselineWatchedSeconds, resumePositionSeconds, belowVideoContent,
+  onVideoProgress, baselineWatchedSeconds, initialIntervals, resumePositionSeconds, belowVideoContent,
   videoId, sessionId, studentEmail, studentRegId,
   bannerUrl, instructorName, instructorTitle,
   scheduledDatetime, timezone, durationMinutes, difficultyLevel, tags,
@@ -452,6 +462,7 @@ export function CoursePlayerLayout({
                   studentEmail={studentEmail}
                   studentRegId={studentRegId}
                   baselineWatchedSeconds={baselineWatchedSeconds}
+                  initialIntervals={initialIntervals}
                   startSeconds={resumePositionSeconds}
                   onPlaying={onVideoPlaying}
                   onEnded={onVideoEnded}

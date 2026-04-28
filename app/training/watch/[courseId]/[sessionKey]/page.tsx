@@ -11,6 +11,8 @@ import { startTimer, getTimerStatus } from '@/src/lib/training/videoTimer';
 import { WatchProgressBar } from '@/src/components/training/WatchProgressBar';
 import { allRegularSessionsPassed, type LiveLinksMap, type SessionProgress } from '@/src/components/training/dashboard/types';
 import { extractYouTubeId } from '@/src/lib/shared/cms';
+import type { WatchProgressPayload } from '@/src/components/training/YouTubePlayer';
+import { hydrateIntervals, serializeIntervals, type Interval } from '@/src/lib/training/watchTracker';
 
 export default function CourseWatchPage() {
   const params = useParams<{ courseId: string; sessionKey: string }>();
@@ -30,6 +32,13 @@ export default function CourseWatchPage() {
     enabled: true, threshold: 70, sessionBypass: false, isAdmin: false,
   });
   const [baselineWatchedSec, setBaselineWatchedSec] = useState(0);
+  // Hydrated from the watch_intervals JSONB column (migration 146). Seeds
+  // the YouTubePlayer's tracker on mount so cross-session watch%
+  // accumulates -- without this seed the tracker stays at the largest
+  // single contiguous run forever (the smoking-gun bug). The reseed
+  // effect inside YouTubePlayer picks up new values when this state
+  // resolves AFTER the player has already mounted.
+  const [initialIntervals, setInitialIntervals] = useState<Interval[]>([]);
   const [liveWatchSec, setLiveWatchSec] = useState(0);
   const [liveTotalSec, setLiveTotalSec] = useState(0);
   // Resume position captured from DB on mount. Passed once to the YT player
@@ -108,7 +117,7 @@ export default function CourseWatchPage() {
           const watchTk = currentSess.isFinal
             ? `${course.shortTitle.toUpperCase()}_Final`
             : `${course.shortTitle.toUpperCase()}_${currentSess.id}`;
-          const watchRecord = (watchJson.history as { tab_key: string; status: string; watch_seconds?: number; total_seconds?: number; last_position?: number }[] ?? [])
+          const watchRecord = (watchJson.history as { tab_key: string; status: string; watch_seconds?: number; total_seconds?: number; last_position?: number; watch_intervals?: unknown }[] ?? [])
             .find((h: { tab_key: string }) => h.tab_key === watchTk);
           if (watchRecord?.status === 'completed') {
             setVideoEnded(true);
@@ -122,6 +131,9 @@ export default function CourseWatchPage() {
             setBaselineWatchedSec(base);
             setLiveWatchSec(base);
             setLiveTotalSec(total);
+            // Hydrate prior intervals so the tracker can union them with
+            // the current session's playback (migration 146 fix).
+            setInitialIntervals(hydrateIntervals(watchRecord.watch_intervals ?? []));
             if (watchRecord.status !== 'completed' && pos > 10 && (total === 0 || pos < total - 30)) {
               // Resume only when meaningfully inside the video and not
               // already completed. Completed rewatch starts at 0.
@@ -219,11 +231,21 @@ export default function CourseWatchPage() {
   }, [studentSession, course, sessionKey, courseId]);
 
   /**
-   * Fires ~every 10s during playback, on pause, and on ended. Tracks actual
-   * watched seconds (interval-merged by watchTracker in YouTubePlayer) and
-   * posts to the DB so the threshold can be enforced server-side too.
+   * Fires ~every 10s during playback, on pause, end, BUFFERING, and on
+   * unmount. Tracks actual watched seconds (interval-merged by
+   * watchTracker in YouTubePlayer) and posts to the DB so the threshold
+   * can be enforced server-side too.
+   *
+   * `force=true` indicates a real close event (PAUSED / ENDED / BUFFERING
+   * / unmount) -- bypass the throttle so the final partial interval lands
+   * in the DB. Without this the last 5-10s of every session was dropped.
+   *
+   * `intervals` is the snapshot from the tracker (open interval virtually
+   * closed at currentPos, clamped by wall-clock). Posted as
+   * `watch_intervals` so the server can union with the JSONB column.
    */
-  const handleProgress = useCallback((watchedSec: number, totalSec: number, currentPos: number) => {
+  const handleProgress = useCallback((payload: WatchProgressPayload) => {
+    const { watchedSec, totalSec, currentPos, intervals, force } = payload;
     // Monotonic-upward only. The YouTubePlayer's internal tracker is
     // initialized at mount time with `baselineWatchedSec` captured from
     // props, which starts at 0 and only arrives once the watch-history
@@ -246,12 +268,13 @@ export default function CourseWatchPage() {
       : `${course.shortTitle.toUpperCase()}_${session.id}`;
 
     // Throttle: only POST if ≥10s elapsed AND value grew by ≥5s since last post
-    // (plus always POST the first one). Keeps request volume sane on active viewers.
+    // (plus always POST the first one, and always POST when force=true so
+    // the final partial interval on unmount/pause/buffering lands in the DB).
     const now = Date.now();
     const last = lastPostedRef.current;
     const delta = watchedSec - last.sec;
     const tooSoon = now - last.at < 9500;
-    if (tooSoon && delta < 5 && last.at !== 0) return;
+    if (!force && tooSoon && delta < 5 && last.at !== 0) return;
     lastPostedRef.current = { sec: watchedSec, at: now };
 
     fetch('/api/training/certification-watch', {
@@ -265,6 +288,7 @@ export default function CourseWatchPage() {
         watch_seconds: Math.round(watchedSec),
         total_seconds: Math.round(totalSec),
         last_position: Math.round(currentPos),
+        watch_intervals: serializeIntervals(intervals),
       }),
     }).catch(() => {});
   }, [studentSession, course, sessionKey, courseId, markedComplete, baselineWatchedSec]);
@@ -423,6 +447,7 @@ export default function CourseWatchPage() {
         studentEmail={studentSession?.email}
         studentRegId={studentSession?.registrationId}
         baselineWatchedSeconds={baselineWatchedSec}
+        initialIntervals={initialIntervals}
         resumePositionSeconds={resumeAtSec}
         belowVideoContent={progressBar}
         sessionType="recorded"

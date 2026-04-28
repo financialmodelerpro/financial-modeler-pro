@@ -10,6 +10,8 @@ import { CoursePlayerLayout, type SidebarSession } from '@/src/components/traini
 import { WatchProgressBar } from '@/src/components/training/WatchProgressBar';
 import { CalendarDropdown } from '@/src/components/training/CalendarDropdown';
 import { extractYouTubeId } from '@/src/lib/shared/cms';
+import type { WatchProgressPayload } from '@/src/components/training/YouTubePlayer';
+import { hydrateIntervals, serializeIntervals, type Interval } from '@/src/lib/training/watchTracker';
 
 interface Attachment { id: string; file_name: string; file_url: string; file_type: string; file_size: number }
 interface Session {
@@ -106,6 +108,11 @@ export default function LiveSessionDetailPage() {
     enabled: true, threshold: 70, sessionBypass: false, isAdmin: false,
   });
   const [baselineWatchedSec, setBaselineWatchedSec] = useState(0);
+  // Hydrated from the watch_intervals JSONB column (migration 146). Seeds
+  // the YouTubePlayer's tracker on mount so cross-session watch%
+  // accumulates -- without this seed the tracker stays at the largest
+  // single contiguous run forever (the smoking-gun bug).
+  const [initialIntervals, setInitialIntervals] = useState<Interval[]>([]);
   const [liveWatchSec, setLiveWatchSec] = useState(0);
   const [liveTotalSec, setLiveTotalSec] = useState(0);
   // Resume position captured from DB on mount. Passed once to the YT player
@@ -153,6 +160,9 @@ export default function LiveSessionDetailPage() {
         setBaselineWatchedSec(base);
         setLiveWatchSec(base);
         setLiveTotalSec(total);
+        // Hydrate prior intervals so the tracker can union them with
+        // the current session's playback (migration 146 fix).
+        setInitialIntervals(hydrateIntervals(watchJson.watch_intervals ?? []));
         if (watchJson.status === 'completed') {
           setIsWatched(true);
           setVideoEnded(true);
@@ -230,9 +240,16 @@ export default function LiveSessionDetailPage() {
     return () => clearInterval(id);
   }, [params.id, studentSession, session, registered]);
 
-  // Fires ~every 10s during playback, on pause, and on ended. Persists the
-  // interval-merged watched seconds so the 70% gate can survive reloads.
-  const handleProgress = useCallback((watchedSec: number, totalSec: number, currentPos: number) => {
+  // Fires ~every 10s during playback, on pause, end, BUFFERING, and on
+  // unmount. Persists the interval-merged watched seconds plus the
+  // intervals snapshot so the threshold gate can survive reloads AND
+  // cross-session watch% accumulates correctly (migration 146).
+  //
+  // `force=true` indicates a real close event (PAUSED / ENDED / BUFFERING
+  // / unmount) -- bypass the throttle so the final partial interval lands
+  // in the DB. Without this the last 5-10s of every session was dropped.
+  const handleProgress = useCallback((payload: WatchProgressPayload) => {
+    const { watchedSec, totalSec, currentPos, intervals, force } = payload;
     // Monotonic-upward only — mirror the 3SFM watch page. The player's
     // tracker is seeded with baselineWatchedSec captured at mount, which
     // is 0 until the watch-history fetch finishes. Without the max-
@@ -246,12 +263,12 @@ export default function LiveSessionDetailPage() {
     if (!studentSession?.email) return;
 
     // Throttle: POST every ≥10s OR when value grew by ≥5s, plus always the
-    // first one. Keeps request volume sane on active viewers.
+    // first one and always when force=true (close events bypass throttle).
     const now = Date.now();
     const last = lastPostedRef.current;
     const delta = watchedSec - last.sec;
     const tooSoon = now - last.at < 9500;
-    if (tooSoon && delta < 5 && last.at !== 0) return;
+    if (!force && tooSoon && delta < 5 && last.at !== 0) return;
     lastPostedRef.current = { sec: watchedSec, at: now };
 
     fetch(`/api/training/live-sessions/${params.id}/watched`, {
@@ -264,6 +281,7 @@ export default function LiveSessionDetailPage() {
         watch_seconds: Math.round(watchedSec),
         total_seconds: Math.round(totalSec),
         last_position: Math.round(currentPos),
+        watch_intervals: serializeIntervals(intervals),
       }),
     }).catch(() => {});
   }, [studentSession, params.id, isWatched, baselineWatchedSec]);
@@ -616,6 +634,7 @@ export default function LiveSessionDetailPage() {
         studentEmail={studentSession?.email}
         studentRegId={studentSession?.registrationId}
         baselineWatchedSeconds={baselineWatchedSec}
+        initialIntervals={initialIntervals}
         resumePositionSeconds={resumeAtSec}
         belowVideoContent={progressBar}
         onVideoProgress={handleProgress}
