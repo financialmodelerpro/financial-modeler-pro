@@ -5,6 +5,7 @@ import { quizResultTemplate } from '@/src/shared/email/templates/quizResult';
 import { lockedOutTemplate } from '@/src/shared/email/templates/lockedOut';
 import { issueCertificateForStudent } from '@/src/hubs/training/lib/certificates/certificateEngine';
 import { deleteInProgressForKey } from '@/src/hubs/training/lib/assessment/attemptInProgress';
+import { getModelSubmissionStatus } from '@/src/hubs/training/lib/modelSubmission/checkApproval';
 
 // Cert generation (PDF render + satori/sharp badge + Storage upload + DB write
 // + email) averages 5-10s. Default of 10s on Hobby was right at the edge; 60s
@@ -59,6 +60,43 @@ export async function POST(req: NextRequest) {
 
     const numScore = Number(score);
     const didPass = passed ?? numScore >= 70;
+
+    // Migration 148 / Phase B gate: refuse to record a final-exam attempt
+    // when the per-course model-submission requirement is on and the
+    // student does not yet have an approved model. UI gate (Phase E) will
+    // hide the exam page from the dashboard; this is the defense-in-depth
+    // layer that catches stale tabs, deeplinks, and direct cURL hits.
+    // Dormant by default (per-course required flags ship 'false').
+    if (isFinal === true) {
+      const courseCodeForGate = tabKey.toUpperCase().startsWith('BVM') ? 'BVM' : '3SFM';
+      const cleanEmailForGate = email.trim().toLowerCase();
+      try {
+        const modelGate = await getModelSubmissionStatus(cleanEmailForGate, courseCodeForGate);
+        if (modelGate.required && !modelGate.hasApproved) {
+          console.warn('[submit-assessment] final-exam blocked by model gate', {
+            email: cleanEmailForGate, courseCode: courseCodeForGate,
+            latestStatus: modelGate.latestStatus,
+            attemptsUsed: modelGate.attemptsUsed,
+          });
+          return NextResponse.json({
+            success: false,
+            error: 'model_not_approved',
+            message: 'Your model is being reviewed. The final exam unlocks once an admin approves your submission.',
+            modelStatus: {
+              latestStatus: modelGate.latestStatus,
+              attemptsUsed: modelGate.attemptsUsed,
+              attemptsRemaining: modelGate.attemptsRemaining,
+              maxAttempts: modelGate.maxAttempts,
+            },
+          }, { status: 403 });
+        }
+      } catch (gateErr) {
+        // Fail-open: a settings or DB hiccup must not block a legitimate
+        // submission. The cert engine gate will catch any cert issuance
+        // that should have been blocked, so this stays a soft check.
+        console.warn('[submit-assessment] model-gate check failed, allowing submission:', gateErr);
+      }
+    }
 
     // Compute attempt number server-side from Supabase — don't trust the
     // client. Source of truth: training_assessment_results.

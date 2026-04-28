@@ -42,6 +42,7 @@ export interface PendingCertificate {
 }
 import { verifyWatchThresholdMet } from '@/src/hubs/training/lib/watch/watchThresholdVerifier';
 import { checkEligibility, type EligibilityResult } from '@/src/hubs/training/lib/certificates/certificateEligibility';
+import { getModelSubmissionStatus } from '@/src/hubs/training/lib/modelSubmission/checkApproval';
 import { COURSES } from '@/src/hubs/training/config/courses';
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { certificateIssuedTemplate } from '@/src/shared/email/templates/certificateIssued';
@@ -482,6 +483,20 @@ export async function issueCertificateForPending(
     if (!verify.ok) {
       const list = verify.failed.map(f => `${f.tabKey}(${f.pct}%)`).join(', ');
       return { ok: false, error: `watch_threshold_not_met: ${list}` };
+    }
+
+    // Migration 148 / Phase B gate: when the per-course
+    // `model_submission_required_<course>` flag is on, the cert is held
+    // until the student's most-recent model submission is approved.
+    // `options.force` (admin force-issue path) skips this entire block,
+    // matching the existing watch-threshold bypass behaviour. Dormant
+    // until the per-course flag flips, so this is safe to ship cold.
+    const modelStatus = await getModelSubmissionStatus(cert.email, cert.courseCode);
+    if (modelStatus.required && !modelStatus.hasApproved) {
+      return {
+        ok: false,
+        error: `model_not_approved: ${modelStatus.latestStatus} (attempts ${modelStatus.attemptsUsed}/${modelStatus.maxAttempts})`,
+      };
     }
   }
 
