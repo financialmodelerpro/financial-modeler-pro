@@ -1,0 +1,60 @@
+{
+  "generated_at": "2026-04-28T14:02:24.209Z",
+  "summary": {
+    "total_issued": 3,
+    "matches": 2,
+    "mismatches": 1,
+    "edge_cases": 0,
+    "by_course": {
+      "3SFM": {
+        "total": 2,
+        "mismatches": 1
+      },
+      "BVM": {
+        "total": 1,
+        "mismatches": 0
+      }
+    }
+  },
+  "rows": [
+    {
+      "certificate_id": "FMP-3SFM-2026-0001",
+      "registration_id": "FMP-2026-0001",
+      "email": "ahmaddin.ch@gmail.com",
+      "full_name": "Ahmad Din",
+      "course_code": "3SFM",
+      "course": "3-Statement Financial Modeling",
+      "issued_at": "2026-04-19T17:35:36.711+00:00",
+      "issued_via": "forced",
+      "expected_cert_id": "FMP-3SFM-2026-0001",
+      "mismatch": false,
+      "reason": "match"
+    },
+    {
+      "certificate_id": "FMP-BVM-2026-0001",
+      "registration_id": "FMP-2026-0001",
+      "email": "ahmaddin.ch@gmail.com",
+      "full_name": "Ahmad Din",
+      "course_code": "BVM",
+      "course": "Business Valuation Modeling",
+      "issued_at": "2026-04-21T14:52:13.148+00:00",
+      "issued_via": "auto",
+      "expected_cert_id": "FMP-BVM-2026-0001",
+      "mismatch": false,
+      "reason": "match"
+    },
+    {
+      "certificate_id": "FMP-3SFM-2026-0002",
+      "registration_id": "FMP-2026-0016",
+      "email": "ah157138@gmail.com",
+      "full_name": "ALi Haider",
+      "course_code": "3SFM",
+      "course": "3-Statement Financial Modeling",
+      "issued_at": "2026-04-28T12:15:29.281+00:00",
+      "issued_via": "auto",
+      "expected_cert_id": "FMP-3SFM-2026-0016",
+      "mismatch": true,
+      "reason": "mismatch"
+    }
+  ]
+}
