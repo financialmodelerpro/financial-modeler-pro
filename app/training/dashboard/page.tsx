@@ -31,12 +31,12 @@ import {
   ShareModal,
   FeedbackModal,
   ProfileModal,
-} from '@/src/components/training/dashboard';
+} from '@/src/hubs/training/components/dashboard';
 import { ShareExperienceModal } from '@/src/shared/components/ShareExperienceModal';
-import { LiveSessionsContent } from '@/src/components/training/dashboard/LiveSessionsContent';
-import { LiveSessionsSection } from '@/src/components/training/dashboard/LiveSessionsSection';
+import { LiveSessionsContent } from '@/src/hubs/training/components/dashboard/LiveSessionsContent';
+import { LiveSessionsSection } from '@/src/hubs/training/components/dashboard/LiveSessionsSection';
 import { formatShareDate } from '@/src/lib/training/shareTemplates';
-import { DashboardTour } from '@/src/components/training/DashboardTour';
+import { DashboardTour } from '@/src/hubs/training/components/DashboardTour';
 
 // ── Badge metadata ─────────────────────────────────────────────────────────────
 type LucideIcon = typeof Flame;
@@ -125,7 +125,7 @@ export default function TrainingDashboardPage() {
   // share + testimonials
   // Structured event carrying everything the ShareModal forwarder needs to
   // render the correct template (text + hashtags + @-mentions).
-  const [shareModal, setShareModal]               = useState<import('@/src/components/training/dashboard/CourseContent').DashboardShareEvent | null>(null);
+  const [shareModal, setShareModal]               = useState<import('@/src/hubs/training/components/dashboard/CourseContent').DashboardShareEvent | null>(null);
   const [testimonialModal, setTestimonialModal]   = useState<'written' | 'video' | 'social' | null>(null);
   const [testimonialSubmitted, setTestimonialSubmitted] = useState(false);
   const [dashToast, setDashToast]                 = useState('');

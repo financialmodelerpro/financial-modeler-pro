@@ -1,7 +1,7 @@
 'use client';
 
-import { TrainingShell } from '@/src/components/training/TrainingShell';
-import { LiveSessionsPanel } from '@/src/components/training/dashboard/LiveSessionsPanel';
+import { TrainingShell } from '@/src/hubs/training/components/TrainingShell';
+import { LiveSessionsPanel } from '@/src/hubs/training/components/dashboard/LiveSessionsPanel';
 
 interface Props {
   studentEmail: string;

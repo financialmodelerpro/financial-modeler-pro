@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { SessionCard, getEffectiveType, type LiveSessionData } from '@/src/components/sessions/SessionCard';
+import { SessionCard, getEffectiveType, type LiveSessionData } from '@/src/hubs/training/components/sessions/SessionCard';
 
 interface Session {
   id: string;

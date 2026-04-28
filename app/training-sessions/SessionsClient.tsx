@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { getTrainingSession } from '@/src/lib/training/training-session';
-import { SessionCard, getEffectiveType, type LiveSessionData } from '@/src/components/sessions/SessionCard';
-import { WelcomeModal } from '@/src/components/training/WelcomeModal';
+import { SessionCard, getEffectiveType, type LiveSessionData } from '@/src/hubs/training/components/sessions/SessionCard';
+import { WelcomeModal } from '@/src/hubs/training/components/WelcomeModal';
 
 export interface PublicSession {
   id: string; title: string; description: string; youtube_url: string | null;

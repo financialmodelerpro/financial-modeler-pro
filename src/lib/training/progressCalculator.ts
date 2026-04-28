@@ -1,5 +1,5 @@
 import type { CourseConfig, Session } from '@/src/config/courses';
-import type { SessionProgress } from '@/src/components/training/dashboard/types';
+import type { SessionProgress } from '@/src/hubs/training/components/dashboard/types';
 
 /**
  * Weighted course progress. Each session is weighted by its `questionCount`

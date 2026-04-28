@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { Calendar, Clock, User, Play, CheckCircle2, Radio, Share2 } from 'lucide-react';
-import { CalendarDropdown } from '@/src/components/training/CalendarDropdown';
+import { CalendarDropdown } from '@/src/hubs/training/components/CalendarDropdown';
 import { ShareModal } from '@/src/components/training/share/ShareModal';
 import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
 import { renderShareTemplate, formatShareDate } from '@/src/lib/training/shareTemplates';

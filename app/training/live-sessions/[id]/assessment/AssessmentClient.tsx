@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { TrainingShell } from '@/src/components/training/TrainingShell';
+import { TrainingShell } from '@/src/hubs/training/components/TrainingShell';
 import { ArrowLeft, Clock, CheckCircle2, XCircle, Award, Lock, Pause } from 'lucide-react';
 import type { StudentAssessmentView } from '@/src/lib/training/liveSessionAssessments';
 import {
