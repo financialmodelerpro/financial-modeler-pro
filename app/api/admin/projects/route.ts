@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
-import { serverClient } from '@/src/lib/shared/supabase';
+import { authOptions } from '@/src/shared/auth/nextauth';
+import { serverClient } from '@/src/core/db/supabase';
 
 async function guard() {
   const session = await getServerSession(authOptions);

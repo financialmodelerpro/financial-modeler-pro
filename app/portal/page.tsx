@@ -5,7 +5,7 @@ import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { PLATFORMS } from '@/src/config/platforms';
 import type { Platform } from '@/src/config/platforms';
-import { useInactivityLogout } from '@/src/hooks/useInactivityLogout';
+import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 

@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
+import { authOptions } from '@/src/shared/auth/nextauth';
 import { getStudentProgressFromSupabase as getStudentProgress } from '@/src/lib/training/progressFromSupabase';
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 
 interface WatchRow {
   tab_key:           string;

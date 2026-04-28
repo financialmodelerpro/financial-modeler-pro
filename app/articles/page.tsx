@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
-import { getPublishedArticles, getCmsContent, cms, estimateReadTime } from '@/src/lib/shared/cms';
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { getPublishedArticles, getCmsContent, cms, estimateReadTime } from '@/src/shared/cms';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { ArticlesGrid, NewsletterForm } from './ArticlesClient';
 

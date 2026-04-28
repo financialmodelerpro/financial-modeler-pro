@@ -1,4 +1,4 @@
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { getTrainingRegisterComingSoonState } from '@/src/lib/shared/trainingComingSoon';
 import { TrainingRegisterForm } from './RegisterForm';
 import { TrainingRegisterComingSoonWrapper } from './ComingSoonWrapper';

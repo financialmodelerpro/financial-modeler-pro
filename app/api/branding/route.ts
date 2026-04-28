@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
-import { serverClient } from '@/src/lib/shared/supabase';
-import type { BrandingConfig } from '@/src/types/branding.types';
+import { authOptions } from '@/src/shared/auth/nextauth';
+import { serverClient } from '@/src/core/db/supabase';
+import type { BrandingConfig } from '@/src/core/types/branding.types';
 
 /**
  * GET /api/branding?scope=<userId|global>

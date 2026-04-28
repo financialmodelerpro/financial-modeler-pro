@@ -2,9 +2,9 @@ import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import { getTrainingComingSoonState } from './trainingComingSoon';
 import { getModelingComingSoonState } from './modelingComingSoon';
-import { isTrainingIdentifierBypassed } from './hubBypassList';
+import { isTrainingIdentifierBypassed } from '@/src/shared/comingSoon/bypassList';
 import { isEmailWhitelisted } from './modelingAccess';
-import { authOptions } from './auth';
+import { authOptions } from '@/src/shared/auth/nextauth';
 import { getTrainingCookieSession } from '@/src/lib/training/trainingSessionCookie';
 
 /**

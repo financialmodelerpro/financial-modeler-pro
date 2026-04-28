@@ -26,7 +26,7 @@
  */
 
 import { NextRequest } from 'next/server';
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 
 export const runtime = 'nodejs';
 export const maxDuration = 30;

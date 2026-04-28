@@ -12,7 +12,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getTrainingCookieSession } from '@/src/lib/training/trainingSessionCookie';
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 
 export const dynamic = 'force-dynamic';
 

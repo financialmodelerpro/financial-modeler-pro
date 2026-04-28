@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import type { LandParcel, ProjectType } from '@/src/types/project.types';
-import { formatNumber, formatCurrency } from '@/src/core/core-formatters';
+import type { LandParcel, ProjectType } from '@/src/core/types/project.types';
+import { formatNumber, formatCurrency } from '@/src/core/formatters';
 
 interface Module1AreaProps {
   landParcels: LandParcel[]; setLandParcels: (v: LandParcel[]) => void;

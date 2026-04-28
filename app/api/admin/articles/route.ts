@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { sendAutoNewsletter } from '@/src/lib/newsletter/autoNotify';
+import { authOptions } from '@/src/shared/auth/nextauth';
+import { getServerClient } from '@/src/core/db/supabase';
+import { sendAutoNewsletter } from '@/src/shared/newsletter/autoNotify';
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';
 

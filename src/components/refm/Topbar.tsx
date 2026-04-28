@@ -3,12 +3,12 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { signOut } from 'next-auth/react';
-import type { Role } from '@/src/types/settings.types';
-import type { PermissionMap } from '@/src/types/settings.types';
-import { ROLE_META } from '@/src/core/core-state';
-import { useBrandingStore } from '@/src/core/core-state';
+import type { Role } from '@/src/core/types/settings.types';
+import type { PermissionMap } from '@/src/core/types/settings.types';
+import { ROLE_META } from '@/src/core/state';
+import { useBrandingStore } from '@/src/core/state';
 import { getPlatformLogo } from '@/src/core/branding';
-import OfficeColorPicker from '@/src/components/ui/OfficeColorPicker';
+import OfficeColorPicker from '@/src/shared/components/ui/OfficeColorPicker';
 import type { StorageProject } from './RealEstatePlatform';
 
 interface TopbarProps {

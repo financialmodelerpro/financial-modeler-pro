@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
-import type { Article } from '@/src/lib/shared/cms';
-import { estimateReadTime } from '@/src/lib/shared/cms';
+import type { Article } from '@/src/shared/cms';
+import { estimateReadTime } from '@/src/shared/cms';
 
 export function ArticleCard({ article }: { article: Article }) {
   const readTime = estimateReadTime(article.body);

@@ -1,7 +1,7 @@
 import { Metadata } from 'next';
 import Link from 'next/link';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { getServerClient } from '@/src/core/db/supabase';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { VerifyActions } from './VerifyActions';
 
 export const dynamic = 'force-dynamic';

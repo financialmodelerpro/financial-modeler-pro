@@ -5,7 +5,7 @@
  * swap imports without restructuring.
  */
 
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 
 export interface SessionProgress {
   sessionId:   string;

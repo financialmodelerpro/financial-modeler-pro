@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { getTrainingSession } from '@/src/lib/training/training-session';
 
 const COURSE_OPTIONS = [

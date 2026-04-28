@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import type { ModelType, ProjectType } from '@/src/types/project.types';
+import type { ModelType, ProjectType } from '@/src/core/types/project.types';
 import { COUNTRY_DATA } from '../RealEstatePlatform';
 
 interface Module1TimelineProps {

@@ -8,10 +8,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { createConfirmationToken } from '@/src/lib/shared/emailConfirmation';
-import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
-import { confirmEmailTemplate } from '@/src/lib/email/templates/confirmEmail';
+import { getServerClient } from '@/src/core/db/supabase';
+import { createConfirmationToken } from '@/src/shared/auth/emailConfirmation';
+import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
+import { confirmEmailTemplate } from '@/src/shared/email/templates/confirmEmail';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 

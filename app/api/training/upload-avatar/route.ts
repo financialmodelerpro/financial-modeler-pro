@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
 const MAX_BYTES = 2 * 1024 * 1024; // 2 MB

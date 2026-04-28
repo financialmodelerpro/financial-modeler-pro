@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { VerifySearchForm } from './VerifySearchForm';
 

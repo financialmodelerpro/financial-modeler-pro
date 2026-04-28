@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
+import { authOptions } from '@/src/shared/auth/nextauth';
 
 interface CourseRef {
   id: string;

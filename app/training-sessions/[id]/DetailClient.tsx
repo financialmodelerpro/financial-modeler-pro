@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { getTrainingSession } from '@/src/lib/training/training-session';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/components/training/player/CoursePlayerLayout';
 import { WelcomeModal } from '@/src/components/training/WelcomeModal';
-import { extractYouTubeId } from '@/src/lib/shared/cms';
+import { extractYouTubeId } from '@/src/shared/cms';
 
 export interface DetailSession {
   id: string; title: string; description: string; youtube_url: string | null;

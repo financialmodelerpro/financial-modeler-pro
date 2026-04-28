@@ -4,9 +4,9 @@
  * Default cost data, factory helpers, and downstream-facing interface.
  */
 
-import { CostItem, Module1State, CapexResult } from '@/src/types/project.types';
-import { calculateItemTotal, distributeCost } from '@/src/core/core-calculations';
-import { formatNumber, formatCurrency } from '@/src/core/core-formatters';
+import { CostItem, Module1State, CapexResult } from '@/src/core/types/project.types';
+import { calculateItemTotal, distributeCost } from '@/src/core/calculations';
+import { formatNumber, formatCurrency } from '@/src/core/formatters';
 
 export type { CostItem, Module1State, CapexResult };
 export { calculateItemTotal, distributeCost };

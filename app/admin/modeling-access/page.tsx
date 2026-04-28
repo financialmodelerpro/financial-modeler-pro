@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
-import { useRequireAdmin } from '@/src/hooks/useRequireAdmin';
+import { useRequireAdmin } from '@/src/shared/hooks/useRequireAdmin';
 
 interface Entry {
   id:       string;

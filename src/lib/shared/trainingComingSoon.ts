@@ -1,4 +1,4 @@
-import { getServerClient } from './supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 
 export interface TrainingComingSoonState {
   enabled:              boolean;

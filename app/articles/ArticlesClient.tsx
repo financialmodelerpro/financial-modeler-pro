@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import type { Article } from '@/src/lib/shared/cms';
+import type { Article } from '@/src/shared/cms';
 import { ArticleCard } from '@/src/components/landing/ArticleCard';
 
 interface Props {

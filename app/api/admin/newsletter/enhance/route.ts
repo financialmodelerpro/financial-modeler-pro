@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
+import { authOptions } from '@/src/shared/auth/nextauth';
 import Anthropic from '@anthropic-ai/sdk';
 
 export async function POST(req: NextRequest) {

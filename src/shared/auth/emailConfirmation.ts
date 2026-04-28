@@ -1,4 +1,4 @@
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 import crypto from 'crypto';
 
 const TOKEN_TTL_HOURS = 24;

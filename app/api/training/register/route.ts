@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { verifyCaptcha } from '@/src/lib/shared/captcha';
-import { createConfirmationToken } from '@/src/lib/shared/emailConfirmation';
-import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
-import { confirmEmailTemplate } from '@/src/lib/email/templates/confirmEmail';
+import { getServerClient } from '@/src/core/db/supabase';
+import { verifyCaptcha } from '@/src/shared/auth/captcha';
+import { createConfirmationToken } from '@/src/shared/auth/emailConfirmation';
+import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
+import { confirmEmailTemplate } from '@/src/shared/email/templates/confirmEmail';
 import { getTrainingRegisterComingSoonState } from '@/src/lib/shared/trainingComingSoon';
-import { isTrainingIdentifierBypassed } from '@/src/lib/shared/hubBypassList';
+import { isTrainingIdentifierBypassed } from '@/src/shared/comingSoon/bypassList';
 import bcrypt from 'bcryptjs';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';

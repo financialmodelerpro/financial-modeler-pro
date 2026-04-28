@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
-import { extractYouTubeId } from '@/src/lib/shared/cms';
+import { extractYouTubeId } from '@/src/shared/cms';
 
 // ─── Lesson types ────────────────────────────────────────────────────────────
 

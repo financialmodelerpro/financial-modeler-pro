@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { extractYouTubeId } from '@/src/lib/shared/cms';
+import { extractYouTubeId } from '@/src/shared/cms';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { useRequireAuth } from '@/src/hooks/useRequireAuth';
+import { useRequireAuth } from '@/src/shared/hooks/useRequireAuth';
 import { PLAN_META, STATUS_META, CONTACT_SALES_EMAIL } from '@/src/constants/app';
 
 // ── Types ─────────────────────────────────────────────────────────────────────

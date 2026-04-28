@@ -8,7 +8,7 @@
  * and student_certificates. They never include unsubscribed, bounced, or
  * complained rows - those are filtered out at the subscriber-fetch step.
  */
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 
 export type SegmentKey =
   | 'all_active'

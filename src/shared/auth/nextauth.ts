@@ -1,9 +1,9 @@
 import type { AuthOptions } from 'next-auth';
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { cookies } from 'next/headers';
-import { serverClient } from '@/src/lib/shared/supabase';
-import { verifyPassword } from '@/src/lib/shared/password';
-import { isDeviceTrusted, DEVICE_COOKIE_NAME } from '@/src/lib/shared/deviceTrust';
+import { serverClient } from '@/src/core/db/supabase';
+import { verifyPassword } from '@/src/shared/auth/password';
+import { isDeviceTrusted, DEVICE_COOKIE_NAME } from '@/src/shared/auth/deviceTrust';
 import { getModelingSigninComingSoonState } from '@/src/lib/shared/modelingComingSoon';
 import { isEmailWhitelisted } from '@/src/lib/shared/modelingAccess';
 

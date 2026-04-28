@@ -30,11 +30,11 @@
  */
 
 import { NextRequest, NextResponse, after } from 'next/server';
-import { verifyConfirmationToken, markTokenUsed } from '@/src/lib/shared/emailConfirmation';
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { verifyConfirmationToken, markTokenUsed } from '@/src/shared/auth/emailConfirmation';
+import { getServerClient } from '@/src/core/db/supabase';
 import { allocateRegistrationId } from '@/src/lib/training/regIdAllocator';
-import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
-import { registrationConfirmationTemplate } from '@/src/lib/email/templates/registrationConfirmation';
+import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
+import { registrationConfirmationTemplate } from '@/src/shared/email/templates/registrationConfirmation';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 

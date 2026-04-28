@@ -3,9 +3,9 @@
 import React, { useState } from 'react';
 import type {
   FinancingMode, ModelType, RepaymentMethod, CostItem, CostInputMode,
-} from '@/src/types/project.types';
-import type { FinancingResult } from '@/src/types/project.types';
-import { formatCurrency, formatNumber, formatPercent } from '@/src/core/core-formatters';
+} from '@/src/core/types/project.types';
+import type { FinancingResult } from '@/src/core/types/project.types';
+import { formatCurrency, formatNumber, formatPercent } from '@/src/core/formatters';
 import { ASSET_COLOR, ASSET_BG, ASSET_LABEL, PHASE_COLOR, SCHEDULE_TITLE_BG, KPI_ACCENT } from '@/src/styles/tokens';
 
 // ── Interface ─────────────────────────────────────────────────────────────────

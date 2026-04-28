@@ -1,7 +1,7 @@
 /**
  * /testimonials/submit - Public testimonial submission page
  */
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { TestimonialSubmitForm } from './TestimonialSubmitForm';
 
 export const metadata = {

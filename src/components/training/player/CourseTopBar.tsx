@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Bell, ThumbsUp, MessageCircle, Share2, ArrowLeft } from 'lucide-react';
 import { SubscribeModal } from '../SubscribeModal';
 import { ShareModal } from './ShareModal';
-import { FollowPopup } from '@/src/components/shared/FollowPopup';
+import { FollowPopup } from '@/src/shared/components/FollowPopup';
 
 interface CourseTopBarProps {
   title: string;

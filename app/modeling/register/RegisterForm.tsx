@@ -9,8 +9,8 @@ import React, { useState, useRef, Suspense } from 'react';
 import { useRouter } from 'next/navigation';
 // Navbar now rendered by server page.tsx via NavbarServer
 import HCaptcha from '@hcaptcha/react-hcaptcha';
-import { PhoneInput } from '@/src/components/shared/PhoneInput';
-import { PreLaunchBanner } from '@/src/components/shared/PreLaunchBanner';
+import { PhoneInput } from '@/src/shared/components/PhoneInput';
+import { PreLaunchBanner } from '@/src/shared/components/PreLaunchBanner';
 
 interface RegisterFormProps {
   /** True while the Modeling Hub is in Coming Soon mode. */

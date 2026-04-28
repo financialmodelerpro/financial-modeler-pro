@@ -3,7 +3,7 @@
  * Import in API routes only (uses service-role Supabase client).
  */
 
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 
 interface AuditEntry {
   adminId: string;

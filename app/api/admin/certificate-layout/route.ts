@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { authOptions } from '@/src/shared/auth/nextauth';
+import { getServerClient } from '@/src/core/db/supabase';
 import { DEFAULT_CERT_LAYOUT, type CertLayout } from '@/src/lib/training/certificateLayout';
 
 const SECTION     = 'certificate_layout';
@@ -10,7 +10,7 @@ const PDF_KEY     = 'pdf_layout_json';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-async function upsertCmsValue(sb: ReturnType<typeof import('@/src/lib/shared/supabase').getServerClient>, section: string, key: string, value: string) {
+async function upsertCmsValue(sb: ReturnType<typeof import('@/src/core/db/supabase').getServerClient>, section: string, key: string, value: string) {
   const { data: existing } = await sb
     .from('cms_content')
     .select('id')

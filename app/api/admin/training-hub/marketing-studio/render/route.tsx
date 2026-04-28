@@ -1,10 +1,10 @@
 import { ImageResponse } from 'next/og';
 import { NextResponse, type NextRequest } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
+import { authOptions } from '@/src/shared/auth/nextauth';
 import { loadBrandPack, loadInstructorsByIds } from '@/src/lib/marketing-studio/brand';
 import { fetchAsBase64 } from '@/src/lib/marketing-studio/image-utils';
-import { loadOgFonts } from '@/src/lib/shared/ogFonts';
+import { loadOgFonts } from '@/src/shared/ogFonts';
 import { DIMENSIONS, resolveInstructors, type RenderRequest, type Instructor } from '@/src/lib/marketing-studio/types';
 import { LinkedInProfileTemplate, LinkedInPostTemplate, LinkedInQuoteTemplate } from '@/src/lib/marketing-studio/templates/linkedin-banner';
 import { LiveSessionTemplate } from '@/src/lib/marketing-studio/templates/live-session';

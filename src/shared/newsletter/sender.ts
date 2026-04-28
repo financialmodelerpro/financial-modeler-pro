@@ -24,9 +24,9 @@
  * Returns aggregate stats. Throws nothing in the happy path; any failure
  * is logged to the recipient row instead so partial sends are recoverable.
  */
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { sendEmailBatch, FROM, type BatchEmailItem } from '@/src/lib/email/sendEmail';
-import { newsletterTemplate } from '@/src/lib/email/templates/newsletter';
+import { getServerClient } from '@/src/core/db/supabase';
+import { sendEmailBatch, FROM, type BatchEmailItem } from '@/src/shared/email/sendEmail';
+import { newsletterTemplate } from '@/src/shared/email/templates/newsletter';
 import { resolveSegment, type SegmentKey, type ResolvedRecipient } from './segments';
 import { wrapLinks } from './linkWrap';
 

@@ -6,10 +6,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { serverClient } from '@/src/lib/shared/supabase';
-import { createConfirmationToken } from '@/src/lib/shared/emailConfirmation';
-import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
-import { confirmEmailTemplate } from '@/src/lib/email/templates/confirmEmail';
+import { serverClient } from '@/src/core/db/supabase';
+import { createConfirmationToken } from '@/src/shared/auth/emailConfirmation';
+import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
+import { confirmEmailTemplate } from '@/src/shared/email/templates/confirmEmail';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
-import { resendRegistrationIdTemplate } from '@/src/lib/email/templates/resendRegistrationId';
+import { getServerClient } from '@/src/core/db/supabase';
+import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
+import { resendRegistrationIdTemplate } from '@/src/shared/email/templates/resendRegistrationId';
 
 export async function POST(req: NextRequest) {
   try {

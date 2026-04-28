@@ -3,7 +3,7 @@
  * Fetches nav pages from DB + header settings from cms_content.
  * All pages should use this instead of importing <Navbar /> directly.
  */
-import { getSitePages, getCmsContent, cms } from '@/src/lib/shared/cms';
+import { getSitePages, getCmsContent, cms } from '@/src/shared/cms';
 import { Navbar } from './Navbar';
 
 interface Props {

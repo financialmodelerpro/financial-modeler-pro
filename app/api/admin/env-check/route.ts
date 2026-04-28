@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
+import { authOptions } from '@/src/shared/auth/nextauth';
 
 interface EnvCheck {
   key:        string;

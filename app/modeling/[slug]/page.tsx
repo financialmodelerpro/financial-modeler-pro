@@ -2,10 +2,10 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { PLATFORMS, getPlatform } from '@/src/config/platforms';
 import type { PlatformModule } from '@/src/config/platforms';
-import { getModules, getAllPageSections } from '@/src/lib/shared/cms';
+import { getModules, getAllPageSections } from '@/src/shared/cms';
 import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
 
 // Per-field width + alignment style from admin VF keys.

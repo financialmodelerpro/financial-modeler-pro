@@ -9,7 +9,7 @@ import { TrainingShell } from '@/src/components/training/TrainingShell';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/components/training/player/CoursePlayerLayout';
 import { WatchProgressBar } from '@/src/components/training/WatchProgressBar';
 import { CalendarDropdown } from '@/src/components/training/CalendarDropdown';
-import { extractYouTubeId } from '@/src/lib/shared/cms';
+import { extractYouTubeId } from '@/src/shared/cms';
 import type { WatchProgressPayload } from '@/src/components/training/YouTubePlayer';
 import { hydrateIntervals, serializeIntervals, type Interval } from '@/src/lib/training/watchTracker';
 

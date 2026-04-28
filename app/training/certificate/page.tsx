@@ -14,7 +14,7 @@ interface SheetCertificate {
   certifierUrl:  string;
 }
 import { COURSES } from '@/src/config/courses';
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 import { ShareCertificateButton } from './ShareCertificateButton';
 
 // ── Layout types (mirrored from API route) ────────────────────────────────────

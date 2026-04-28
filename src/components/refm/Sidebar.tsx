@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import type { Role } from '@/src/types/settings.types';
-import { ROLE_META } from '@/src/core/core-state';
+import type { Role } from '@/src/core/types/settings.types';
+import { ROLE_META } from '@/src/core/state';
 import { sidebarModules, m1Tabs } from './RealEstatePlatform';
 import PlanBadge from './PlanBadge';
 

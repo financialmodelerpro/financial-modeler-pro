@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { CountdownTimer } from '@/src/components/shared/CountdownTimer';
+import { CountdownTimer } from '@/src/shared/components/CountdownTimer';
 
 const NAVY = '#0D2E5A';
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';

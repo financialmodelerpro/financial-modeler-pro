@@ -10,7 +10,7 @@
  * dashboards don't need to change.
  */
 
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 import { COURSES } from '@/src/config/courses';
 
 export interface StudentSummary {

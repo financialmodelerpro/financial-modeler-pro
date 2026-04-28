@@ -1,4 +1,4 @@
-import type { PageSection } from '@/src/lib/shared/cms';
+import type { PageSection } from '@/src/shared/cms';
 import { HeroSection } from './sections/HeroSection';
 import { TextSection } from './sections/TextSection';
 import { RichTextSection } from './sections/RichTextSection';

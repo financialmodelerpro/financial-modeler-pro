@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
-import { useRequireAdmin } from '@/src/hooks/useRequireAdmin';
+import { useRequireAdmin } from '@/src/shared/hooks/useRequireAdmin';
 
 interface CourseSession {
   tabKey: string; course: string; num: number; sessionName: string;

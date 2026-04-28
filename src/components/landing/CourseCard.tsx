@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import Image from 'next/image';
-import type { Course } from '@/src/lib/shared/cms';
+import type { Course } from '@/src/shared/cms';
 
 export function CourseCard({ course }: { course: Course }) {
   return (

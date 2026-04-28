@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { authOptions } from '@/src/shared/auth/nextauth';
+import { getServerClient } from '@/src/core/db/supabase';
 
 const SECTION = 'badge_layout';
 const KEY     = 'layout_json';
 
 async function upsertCmsValue(
-  sb: ReturnType<typeof import('@/src/lib/shared/supabase').getServerClient>,
+  sb: ReturnType<typeof import('@/src/core/db/supabase').getServerClient>,
   section: string,
   key: string,
   value: string,

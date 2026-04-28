@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
-import { useRequireAdmin } from '@/src/hooks/useRequireAdmin';
+import { useRequireAdmin } from '@/src/shared/hooks/useRequireAdmin';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

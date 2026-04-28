@@ -6,10 +6,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { trustDevice, buildTrustCookieHeader } from '@/src/lib/shared/deviceTrust';
-import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
-import { deviceVerificationTemplate } from '@/src/lib/email/templates/deviceVerification';
+import { getServerClient } from '@/src/core/db/supabase';
+import { trustDevice, buildTrustCookieHeader } from '@/src/shared/auth/deviceTrust';
+import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
+import { deviceVerificationTemplate } from '@/src/shared/email/templates/deviceVerification';
 import crypto from 'crypto';
 
 export async function POST(req: NextRequest) {

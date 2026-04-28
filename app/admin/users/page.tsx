@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { useSession } from 'next-auth/react';
-import { useRequireAdmin } from '@/src/hooks/useRequireAdmin';
+import { useRequireAdmin } from '@/src/shared/hooks/useRequireAdmin';
 
 interface User {
   id: string;

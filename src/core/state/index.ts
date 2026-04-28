@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { Role, RoleMeta, PermissionMap, ModuleKey } from '../types/settings.types';
 import type { BrandingConfig } from '../types/branding.types';
-import { DEFAULT_BRANDING, loadBranding, saveBranding, fetchRemoteBranding } from './branding';
+import { DEFAULT_BRANDING, loadBranding, saveBranding, fetchRemoteBranding } from '../branding';
 
 export const ROLES = {
   ADMIN:    'admin'    as Role,

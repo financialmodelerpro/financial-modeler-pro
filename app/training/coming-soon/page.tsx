@@ -1,4 +1,4 @@
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { getTrainingComingSoonState } from '@/src/lib/shared/trainingComingSoon';
 import { TrainingComingSoon } from '../ComingSoon';
 

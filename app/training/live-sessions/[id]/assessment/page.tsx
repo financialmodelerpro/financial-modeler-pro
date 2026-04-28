@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { getTrainingCookieSession } from '@/src/lib/training/trainingSessionCookie';
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 import {
   getAssessment,
   getStudentAttempts,

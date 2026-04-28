@@ -14,7 +14,7 @@
  *   5. Hand off to `sendCampaign()` so the same batch + recipient_log +
  *      retry path applies as manual sends.
  */
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 import { sendCampaign } from './sender';
 import { renderForEvent, type TemplateVars } from './templates';
 

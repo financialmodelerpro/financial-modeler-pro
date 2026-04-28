@@ -8,7 +8,7 @@
  * variables render as empty string (not the literal `{token}`) so partial
  * data does not produce ugly placeholders in the email.
  */
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 
 export interface NewsletterTemplate {
   id: string;

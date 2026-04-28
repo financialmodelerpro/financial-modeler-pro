@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
-import { getAllPageSections } from '@/src/lib/shared/cms';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
+import { getAllPageSections } from '@/src/shared/cms';
 import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
 import { CalendlyEmbed } from '@/src/components/booking/CalendlyEmbed';
 

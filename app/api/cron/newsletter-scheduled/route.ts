@@ -9,9 +9,9 @@
  * /api/cron/auto-launch-check).
  */
 import { NextRequest } from 'next/server';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { sendCampaign } from '@/src/lib/newsletter/sender';
-import type { SegmentKey } from '@/src/lib/newsletter/segments';
+import { getServerClient } from '@/src/core/db/supabase';
+import { sendCampaign } from '@/src/shared/newsletter/sender';
+import type { SegmentKey } from '@/src/shared/newsletter/segments';
 
 export const runtime = 'nodejs';
 export const maxDuration = 300;

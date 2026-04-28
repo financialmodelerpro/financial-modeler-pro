@@ -1,9 +1,9 @@
 'use client';
 
 import React from 'react';
-import type { ProjectType } from '@/src/types/project.types';
-import type { PermissionMap } from '@/src/types/settings.types';
-import { formatCurrency, formatNumber } from '@/src/core/core-formatters';
+import type { ProjectType } from '@/src/core/types/project.types';
+import type { PermissionMap } from '@/src/core/types/settings.types';
+import { formatCurrency, formatNumber } from '@/src/core/formatters';
 import type { StorageShape } from './RealEstatePlatform';
 
 interface OverviewScreenProps {

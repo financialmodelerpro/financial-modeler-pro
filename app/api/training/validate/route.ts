@@ -13,10 +13,10 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { isDeviceTrusted } from '@/src/lib/shared/deviceTrust';
+import { getServerClient } from '@/src/core/db/supabase';
+import { isDeviceTrusted } from '@/src/shared/auth/deviceTrust';
 import { getTrainingComingSoonState } from '@/src/lib/shared/trainingComingSoon';
-import { isTrainingIdentifierBypassed } from '@/src/lib/shared/hubBypassList';
+import { isTrainingIdentifierBypassed } from '@/src/shared/comingSoon/bypassList';
 import bcrypt from 'bcryptjs';
 
 const SESSION_MAX_AGE = 60 * 60; // 1 hour

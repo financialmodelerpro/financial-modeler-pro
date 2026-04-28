@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 import { MediaPickerButton } from '@/src/components/admin/MediaPicker';
 import { RichTextEditor } from '@/src/components/admin/RichTextEditor';
-import type { BrandingConfig } from '@/src/types/branding.types';
+import type { BrandingConfig } from '@/src/core/types/branding.types';
 
 const SECTION = 'header_settings';
 

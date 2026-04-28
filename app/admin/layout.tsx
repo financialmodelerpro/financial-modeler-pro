@@ -1,6 +1,6 @@
 'use client';
 
-import { useRequireAdmin } from '@/src/hooks/useRequireAdmin';
+import { useRequireAdmin } from '@/src/shared/hooks/useRequireAdmin';
 import { usePathname } from 'next/navigation';
 
 /**

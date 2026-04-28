@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useBrandingStore } from '@/src/core/core-state';
+import { useBrandingStore } from '@/src/core/state';
 import { loadBranding } from '@/src/core/branding';
 import { DARKEN_DARK, DARKEN_DEEP, DARKEN_NAVY } from '@/src/constants/app';
 

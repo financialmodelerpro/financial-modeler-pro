@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { serverClient } from '@/src/lib/shared/supabase';
-import { hashPassword } from '@/src/lib/shared/password';
-import { verifyCaptcha } from '@/src/lib/shared/captcha';
-import { createConfirmationToken } from '@/src/lib/shared/emailConfirmation';
-import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
-import { confirmEmailTemplate } from '@/src/lib/email/templates/confirmEmail';
+import { serverClient } from '@/src/core/db/supabase';
+import { hashPassword } from '@/src/shared/auth/password';
+import { verifyCaptcha } from '@/src/shared/auth/captcha';
+import { createConfirmationToken } from '@/src/shared/auth/emailConfirmation';
+import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
+import { confirmEmailTemplate } from '@/src/shared/email/templates/confirmEmail';
 import { canEmailRegisterModeling } from '@/src/lib/shared/modelingAccess';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';

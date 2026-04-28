@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
+import { authOptions } from '@/src/shared/auth/nextauth';
 import { loadBrandPack } from '@/src/lib/marketing-studio/brand';
 
 export const runtime = 'nodejs';

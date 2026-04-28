@@ -1,16 +1,16 @@
 // v-cms-training-066
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { COURSES } from '@/src/config/courses';
-import { getCmsContent, cms, getTestimonialsForPage, getAllPageSections } from '@/src/lib/shared/cms';
+import { getCmsContent, cms, getTestimonialsForPage, getAllPageSections } from '@/src/shared/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
 import { CurriculumCard, type CourseDescription } from './CurriculumCard';
 import { TestimonialsCarousel } from './TestimonialsCarousel';
 import { UpcomingSessionsPreview } from './UpcomingSessionsPreview';
-import { CourseJsonLd } from '@/src/components/seo/StructuredData';
+import { CourseJsonLd } from '@/src/shared/seo/components/StructuredData';
 
 export const revalidate = 0;
 

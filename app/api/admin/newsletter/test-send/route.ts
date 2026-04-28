@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
-import { sendTestEmail } from '@/src/lib/newsletter/sender';
-import { getTemplate, renderTemplate, type TemplateVars } from '@/src/lib/newsletter/templates';
+import { authOptions } from '@/src/shared/auth/nextauth';
+import { sendTestEmail } from '@/src/shared/newsletter/sender';
+import { getTemplate, renderTemplate, type TemplateVars } from '@/src/shared/newsletter/templates';
 
 interface TestBody {
   subject?: string;

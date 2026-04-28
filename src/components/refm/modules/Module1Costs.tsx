@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useState } from 'react';
-import type { CostItem, CostInputMode, ProjectType, AreaMetrics } from '@/src/types/project.types';
-import { formatNumber, formatCurrency } from '@/src/core/core-formatters';
+import type { CostItem, CostInputMode, ProjectType, AreaMetrics } from '@/src/core/types/project.types';
+import { formatNumber, formatCurrency } from '@/src/core/formatters';
 import { STAGE_COLOR, STAGE_BG_RGBA, PHASE_COLOR, ASSET_COLOR, KPI_ACCENT } from '@/src/styles/tokens';
 
 // ── Types ─────────────────────────────────────────────────────────────────────

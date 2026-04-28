@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse, after } from 'next/server';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
-import { quizResultTemplate } from '@/src/lib/email/templates/quizResult';
-import { lockedOutTemplate } from '@/src/lib/email/templates/lockedOut';
+import { getServerClient } from '@/src/core/db/supabase';
+import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
+import { quizResultTemplate } from '@/src/shared/email/templates/quizResult';
+import { lockedOutTemplate } from '@/src/shared/email/templates/lockedOut';
 import { issueCertificateForStudent } from '@/src/lib/training/certificateEngine';
 import { deleteInProgressForKey } from '@/src/lib/training/attemptInProgress';
 

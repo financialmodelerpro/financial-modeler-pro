@@ -1,11 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 import { DetailClient, type DetailSession } from './DetailClient';
-import { EventJsonLd, BreadcrumbJsonLd } from '@/src/components/seo/StructuredData';
-import { canonicalUrl } from '@/src/lib/seo/canonical';
+import { EventJsonLd, BreadcrumbJsonLd } from '@/src/shared/seo/components/StructuredData';
+import { canonicalUrl } from '@/src/shared/seo/canonical';
 
 export const dynamic = 'force-dynamic';
 

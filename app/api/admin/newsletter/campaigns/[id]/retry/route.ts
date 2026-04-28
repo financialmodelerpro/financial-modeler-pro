@@ -12,10 +12,10 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { sendCampaign } from '@/src/lib/newsletter/sender';
-import type { ResolvedRecipient } from '@/src/lib/newsletter/segments';
+import { authOptions } from '@/src/shared/auth/nextauth';
+import { getServerClient } from '@/src/core/db/supabase';
+import { sendCampaign } from '@/src/shared/newsletter/sender';
+import type { ResolvedRecipient } from '@/src/shared/newsletter/segments';
 
 interface CampaignRow {
   id:          string;

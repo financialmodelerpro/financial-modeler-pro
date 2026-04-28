@@ -3,9 +3,9 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { verifyPassword, hashPassword } from '@/src/lib/shared/password';
+import { authOptions } from '@/src/shared/auth/nextauth';
+import { getServerClient } from '@/src/core/db/supabase';
+import { verifyPassword, hashPassword } from '@/src/shared/auth/password';
 
 export async function PATCH(req: NextRequest) {
   const session = await getServerSession(authOptions);

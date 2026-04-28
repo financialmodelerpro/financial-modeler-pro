@@ -1,10 +1,10 @@
 // v-cms-modeling-070
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { PLATFORMS } from '@/src/config/platforms';
-import { getCmsContent, cms, getModules, getTestimonialsForPage, getAllPageSections } from '@/src/lib/shared/cms';
-import type { Module } from '@/src/lib/shared/cms';
+import { getCmsContent, cms, getModules, getTestimonialsForPage, getAllPageSections } from '@/src/shared/cms';
+import type { Module } from '@/src/shared/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
 

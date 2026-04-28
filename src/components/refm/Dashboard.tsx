@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import type { ProjectType, ModelType } from '@/src/types/project.types';
-import { formatCurrency, formatNumber } from '@/src/core/core-formatters';
+import type { ProjectType, ModelType } from '@/src/core/types/project.types';
+import { formatCurrency, formatNumber } from '@/src/core/formatters';
 import type { StorageShape } from './RealEstatePlatform';
 
 interface DashboardProps {

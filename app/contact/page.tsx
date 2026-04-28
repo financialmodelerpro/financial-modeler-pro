@@ -2,8 +2,8 @@
  * /contact - Public contact page
  */
 import Link from 'next/link';
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
-import { getCmsContent, cms, getAllPageSections } from '@/src/lib/shared/cms';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
+import { getCmsContent, cms, getAllPageSections } from '@/src/shared/cms';
 import { ContactForm } from './ContactForm';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
 import { SectionRenderer } from '@/src/components/cms/SectionRenderer';

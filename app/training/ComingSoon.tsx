@@ -2,7 +2,7 @@
 
 import { useState, FormEvent } from 'react';
 import Link from 'next/link';
-import { CountdownTimer } from '@/src/components/shared/CountdownTimer';
+import { CountdownTimer } from '@/src/shared/components/CountdownTimer';
 
 const NAVY = '#0D2E5A';
 const GREEN = '#2EAA4A';

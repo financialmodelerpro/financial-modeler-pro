@@ -11,9 +11,9 @@ import {
   Flame, Zap, Target, Rocket, Trophy, Timer, Footprints, Sparkles,
   Eye, Download, X, PlayCircle,
 } from 'lucide-react';
-import { extractYouTubeId } from '@/src/lib/shared/cms';
+import { extractYouTubeId } from '@/src/shared/cms';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training/training-session';
-import { useInactivityLogout } from '@/src/hooks/useInactivityLogout';
+import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
 import { COURSES } from '@/src/config/courses';
 import { calculateCourseProgress } from '@/src/lib/training/progressCalculator';
 import {
@@ -32,7 +32,7 @@ import {
   FeedbackModal,
   ProfileModal,
 } from '@/src/components/training/dashboard';
-import { ShareExperienceModal } from '@/src/components/shared/ShareExperienceModal';
+import { ShareExperienceModal } from '@/src/shared/components/ShareExperienceModal';
 import { LiveSessionsContent } from '@/src/components/training/dashboard/LiveSessionsContent';
 import { LiveSessionsSection } from '@/src/components/training/dashboard/LiveSessionsSection';
 import { formatShareDate } from '@/src/lib/training/shareTemplates';

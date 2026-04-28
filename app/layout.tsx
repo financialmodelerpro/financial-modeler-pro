@@ -3,11 +3,11 @@ import { Inter } from 'next/font/google';
 import { Analytics } from '@vercel/analytics/next';
 import { SpeedInsights } from '@vercel/speed-insights/next';
 import './globals.css';
-import SessionProviderWrapper from '@/src/components/shared/SessionProviderWrapper';
-import BrandingThemeApplier from '@/src/components/shared/BrandingThemeApplier';
-import { ToastProvider } from '@/src/components/ui/Toaster';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { OrganizationJsonLd, WebSiteJsonLd } from '@/src/components/seo/StructuredData';
+import SessionProviderWrapper from '@/src/shared/components/SessionProviderWrapper';
+import BrandingThemeApplier from '@/src/shared/components/BrandingThemeApplier';
+import { ToastProvider } from '@/src/shared/components/ui/Toaster';
+import { getServerClient } from '@/src/core/db/supabase';
+import { OrganizationJsonLd, WebSiteJsonLd } from '@/src/shared/seo/components/StructuredData';
 
 const inter = Inter({ subsets: ['latin'] });
 

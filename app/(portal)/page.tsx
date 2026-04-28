@@ -15,14 +15,14 @@ import {
   getTestimonialsForPage,
   getSectionStyles,
   getAllPageSections,
-} from '@/src/lib/shared/cms';
+} from '@/src/shared/cms';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { SiteFollowPopup } from '@/src/components/shared/SiteFollowPopup';
+import { SiteFollowPopup } from '@/src/shared/components/SiteFollowPopup';
 import { SectionRenderer } from '@/src/components/cms/SectionRenderer';
 import { ArticleCard, ArticleCardPlaceholder } from '@/src/components/landing/ArticleCard';
 import { InlineEdit } from '@/src/components/landing/InlineEdit';
 import { AdminEditBar } from '@/src/components/landing/AdminEditBar';
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { CmsField, cmsVisible } from '@/src/components/cms/CmsField';
 
 export const revalidate = 0;

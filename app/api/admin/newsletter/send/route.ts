@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { sendCampaign } from '@/src/lib/newsletter/sender';
-import { getTemplate, renderTemplate, type TemplateVars } from '@/src/lib/newsletter/templates';
-import type { SegmentKey } from '@/src/lib/newsletter/segments';
+import { authOptions } from '@/src/shared/auth/nextauth';
+import { getServerClient } from '@/src/core/db/supabase';
+import { sendCampaign } from '@/src/shared/newsletter/sender';
+import { getTemplate, renderTemplate, type TemplateVars } from '@/src/shared/newsletter/templates';
+import type { SegmentKey } from '@/src/shared/newsletter/segments';
 
 interface SendBody {
   /** Direct subject + body (manual compose path). Mutually exclusive with templateKey. */

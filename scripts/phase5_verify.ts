@@ -9,7 +9,7 @@
  *   npx tsx --env-file=.env.local scripts/phase5_verify.ts
  */
 
-import { getServerClient } from '../src/lib/shared/supabase';
+import { getServerClient } from '../src/core/db/supabase';
 
 const TARGETS: Array<{ email: string; tab_key?: string }> = [
   { email: 'muhammadtayyabmadni07@gmail.com' },

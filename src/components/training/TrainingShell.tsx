@@ -8,7 +8,7 @@ import {
   FileText, User, LogOut, ChevronLeft, ChevronRight, Star,
 } from 'lucide-react';
 import { getTrainingSession, clearTrainingSession } from '@/src/lib/training/training-session';
-import { useInactivityLogout } from '@/src/hooks/useInactivityLogout';
+import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
 import { WelcomeModal } from './WelcomeModal';
 
 const NAVY = '#0D2E5A';

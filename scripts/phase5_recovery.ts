@@ -34,7 +34,7 @@
 
 import { promises as fs } from 'fs';
 import path from 'path';
-import { getServerClient } from '../src/lib/shared/supabase';
+import { getServerClient } from '../src/core/db/supabase';
 
 const BACKUP_DIR = path.join(process.cwd(), 'supabase', 'backups');
 const REPORT_FILE = path.join(BACKUP_DIR, `phase5_recovery_${new Date().toISOString().split('T')[0]}.json`);

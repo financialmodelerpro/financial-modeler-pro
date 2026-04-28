@@ -3,7 +3,7 @@
  * Used by server components (ISR) to fetch content from Supabase
  */
 
-import { getServerClient } from './supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

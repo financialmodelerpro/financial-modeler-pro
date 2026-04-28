@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 import { DEFAULT_BRAND_MENTION, DEFAULT_FOUNDER_MENTION } from '@/src/lib/training/shareTemplates';
 
 export const dynamic = 'force-dynamic';

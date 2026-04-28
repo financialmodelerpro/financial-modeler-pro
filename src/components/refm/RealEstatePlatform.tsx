@@ -4,9 +4,9 @@ import React, { useState, useEffect, useCallback } from 'react';
 import type {
   ModelType, ProjectType, CostInputMode, FinancingMode,
   RepaymentMethod, CostItem, LandParcel, AreaMetrics, FinancingResult,
-} from '@/src/types/project.types';
-import { ROLES, ROLE_META, MODULE_VISIBILITY, PERMISSIONS, useBrandingStore } from '@/src/core/core-state';
-import type { Role, ModuleKey, PermissionMap } from '@/src/types/settings.types';
+} from '@/src/core/types/project.types';
+import { ROLES, ROLE_META, MODULE_VISIBILITY, PERMISSIONS, useBrandingStore } from '@/src/core/state';
+import type { Role, ModuleKey, PermissionMap } from '@/src/core/types/settings.types';
 
 import Topbar from './Topbar';
 import Sidebar from './Sidebar';
@@ -21,7 +21,7 @@ import ProjectModal from './modals/ProjectModal';
 import VersionModal from './modals/VersionModal';
 import RbacModal from './modals/RbacModal';
 import ExportModal from './modals/ExportModal';
-import UpgradePrompt from '@/src/components/shared/UpgradePrompt';
+import UpgradePrompt from '@/src/shared/components/UpgradePrompt';
 
 // ── Storage helpers ──────────────────────────────────────────────────────────
 export interface StorageProject {

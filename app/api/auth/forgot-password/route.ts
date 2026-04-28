@@ -5,9 +5,9 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes, createHash } from 'crypto';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
-import { passwordResetTemplate } from '@/src/lib/email/templates/passwordReset';
+import { getServerClient } from '@/src/core/db/supabase';
+import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
+import { passwordResetTemplate } from '@/src/shared/email/templates/passwordReset';
 
 const TOKEN_TTL_MINUTES = 60;
 

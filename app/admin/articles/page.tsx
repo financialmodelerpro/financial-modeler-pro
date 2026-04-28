@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 import { CmsAdminNav } from '@/src/components/admin/CmsAdminNav';
 
 async function getAllArticles() {

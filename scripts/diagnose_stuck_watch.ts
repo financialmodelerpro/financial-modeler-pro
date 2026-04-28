@@ -34,7 +34,7 @@
 
 import { promises as fs } from 'fs';
 import path from 'path';
-import { getServerClient } from '../src/lib/shared/supabase';
+import { getServerClient } from '../src/core/db/supabase';
 
 const THRESHOLD = 70;            // current default; mirrors training_settings.watch_enforcement_threshold
 const AUTO_FLOOR = 30;           // watch% >= this AND stuck > 7d -> auto-unblock candidate

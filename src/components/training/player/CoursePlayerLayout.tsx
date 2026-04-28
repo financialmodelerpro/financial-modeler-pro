@@ -8,7 +8,7 @@ import type { Interval } from '@/src/lib/training/watchTracker';
 import { YouTubeComments } from '../YouTubeComments';
 import { StudentNotes } from '../StudentNotes';
 import { CourseTopBar } from './CourseTopBar';
-import { FollowPopup } from '@/src/components/shared/FollowPopup';
+import { FollowPopup } from '@/src/shared/components/FollowPopup';
 
 const STORAGE_KEY = 'fmp_support_banner_dismissed';
 

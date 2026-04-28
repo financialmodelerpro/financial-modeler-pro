@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
+import { authOptions } from '@/src/shared/auth/nextauth';
 import { getModelingRegisterComingSoonState } from '@/src/lib/shared/modelingComingSoon';
 import { isEmailWhitelisted } from '@/src/lib/shared/modelingAccess';
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { RegisterForm } from './RegisterForm';
 import { ModelingRegisterComingSoonWrapper } from './ComingSoonWrapper';
 

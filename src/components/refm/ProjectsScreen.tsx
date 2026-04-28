@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import type { PermissionMap } from '@/src/types/settings.types';
+import type { PermissionMap } from '@/src/core/types/settings.types';
 import type { StorageShape } from './RealEstatePlatform';
 
 interface ProjectsScreenProps {

@@ -1,7 +1,7 @@
 import { ImageResponse } from 'next/og';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { getCmsContent, cms, getAllPageSections } from '@/src/lib/shared/cms';
-import { loadOgFonts } from '@/src/lib/shared/ogFonts';
+import { getServerClient } from '@/src/core/db/supabase';
+import { getCmsContent, cms, getAllPageSections } from '@/src/shared/cms';
+import { loadOgFonts } from '@/src/shared/ogFonts';
 import sharp from 'sharp';
 
 export const runtime = 'nodejs';

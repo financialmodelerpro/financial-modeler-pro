@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { writeAuditLog } from '@/src/lib/shared/audit';
+import { authOptions } from '@/src/shared/auth/nextauth';
+import { getServerClient } from '@/src/core/db/supabase';
+import { writeAuditLog } from '@/src/shared/audit';
 
 // ── Admin guard ───────────────────────────────────────────────────────────────
 async function requireAdmin() {

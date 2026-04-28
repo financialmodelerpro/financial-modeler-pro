@@ -10,7 +10,7 @@ import { COURSES } from '@/src/config/courses';
 import { startTimer, getTimerStatus } from '@/src/lib/training/videoTimer';
 import { WatchProgressBar } from '@/src/components/training/WatchProgressBar';
 import { allRegularSessionsPassed, type LiveLinksMap, type SessionProgress } from '@/src/components/training/dashboard/types';
-import { extractYouTubeId } from '@/src/lib/shared/cms';
+import { extractYouTubeId } from '@/src/shared/cms';
 import type { WatchProgressPayload } from '@/src/components/training/YouTubePlayer';
 import { hydrateIntervals, serializeIntervals, type Interval } from '@/src/lib/training/watchTracker';
 

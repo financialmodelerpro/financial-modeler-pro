@@ -38,7 +38,7 @@
 import { promises as fs } from 'fs';
 import path from 'path';
 import { listAllStudents, getAllCertificates, type StudentSummary, type CertRow } from '../src/lib/training/sheets';
-import { getServerClient } from '../src/lib/shared/supabase';
+import { getServerClient } from '../src/core/db/supabase';
 
 const BACKUP_DIR = path.join(process.cwd(), 'supabase', 'backups');
 

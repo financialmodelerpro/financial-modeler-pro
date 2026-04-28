@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
-import { sendTemplatedEmail } from '@/src/lib/email/sendTemplatedEmail';
+import { authOptions } from '@/src/shared/auth/nextauth';
+import { sendTemplatedEmail } from '@/src/shared/email/sendTemplatedEmail';
 
 async function checkAdmin() {
   const session = await getServerSession(authOptions);

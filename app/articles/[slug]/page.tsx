@@ -1,10 +1,10 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { getArticleBySlug, estimateReadTime } from '@/src/lib/shared/cms';
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
-import { ArticleJsonLd, BreadcrumbJsonLd } from '@/src/components/seo/StructuredData';
-import { canonicalUrl } from '@/src/lib/seo/canonical';
+import { getArticleBySlug, estimateReadTime } from '@/src/shared/cms';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
+import { ArticleJsonLd, BreadcrumbJsonLd } from '@/src/shared/seo/components/StructuredData';
+import { canonicalUrl } from '@/src/shared/seo/canonical';
 
 export const revalidate = 60;
 

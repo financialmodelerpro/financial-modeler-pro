@@ -21,8 +21,8 @@
  */
 
 import { NextRequest } from 'next/server';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { sendTemplatedEmail, buildSessionPlaceholders } from '@/src/lib/email/sendTemplatedEmail';
+import { getServerClient } from '@/src/core/db/supabase';
+import { sendTemplatedEmail, buildSessionPlaceholders } from '@/src/shared/email/sendTemplatedEmail';
 
 export const runtime = 'nodejs';
 export const maxDuration = 120;

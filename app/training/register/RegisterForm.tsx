@@ -2,10 +2,10 @@
 
 import { useState, useRef } from 'react';
 import Link from 'next/link';
-import { Navbar } from '@/src/components/layout/Navbar';
+import { Navbar } from '@/src/shared/components/layout/Navbar';
 import HCaptcha from '@hcaptcha/react-hcaptcha';
-import { PhoneInput } from '@/src/components/shared/PhoneInput';
-import { PreLaunchBanner } from '@/src/components/shared/PreLaunchBanner';
+import { PhoneInput } from '@/src/shared/components/PhoneInput';
+import { PreLaunchBanner } from '@/src/shared/components/PreLaunchBanner';
 
 interface TrainingRegisterFormProps {
   /** True while the Training Hub is in Coming Soon mode - shows a

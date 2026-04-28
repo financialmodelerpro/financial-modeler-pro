@@ -5,7 +5,7 @@ import { signIn } from 'next-auth/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 // Navbar now rendered by server page.tsx via NavbarServer
 import HCaptcha from '@hcaptcha/react-hcaptcha';
-import { PhoneInput } from '@/src/components/shared/PhoneInput';
+import { PhoneInput } from '@/src/shared/components/PhoneInput';
 
 type Mode = 'signin' | 'signup';
 

@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { getCourseWithLessons } from '@/src/lib/shared/cms';
+import { getCourseWithLessons } from '@/src/shared/cms';
 import { VideoPlayer } from '@/src/components/landing/VideoPlayer';
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 
 export const revalidate = 60;
 

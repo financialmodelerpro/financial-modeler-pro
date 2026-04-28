@@ -19,7 +19,7 @@
 
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import sharp from 'sharp';
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 // PendingCertificate shape ported inline so the engine doesn't import
 // anything from sheets.ts post-Apps-Script-migration. Fields match what
 // findAllEligibleFromSupabase() + the admin force-issue branch produce.
@@ -43,8 +43,8 @@ export interface PendingCertificate {
 import { verifyWatchThresholdMet } from '@/src/lib/training/watchThresholdVerifier';
 import { checkEligibility, type EligibilityResult } from '@/src/lib/training/certificateEligibility';
 import { COURSES } from '@/src/config/courses';
-import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
-import { certificateIssuedTemplate } from '@/src/lib/email/templates/certificateIssued';
+import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
+import { certificateIssuedTemplate } from '@/src/shared/email/templates/certificateIssued';
 
 const MAIN_URL   = process.env.NEXT_PUBLIC_MAIN_URL   ?? 'https://financialmodelerpro.com';
 // Verification page lives on the Training Hub subdomain — /verify/:id is

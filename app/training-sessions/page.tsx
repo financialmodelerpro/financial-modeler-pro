@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
-import { NavbarServer } from '@/src/components/layout/NavbarServer';
+import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { SharedFooter } from '@/src/components/landing/SharedFooter';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { getAllPageSections } from '@/src/lib/shared/cms';
-import { canonicalUrl } from '@/src/lib/seo/canonical';
+import { getServerClient } from '@/src/core/db/supabase';
+import { getAllPageSections } from '@/src/shared/cms';
+import { canonicalUrl } from '@/src/shared/seo/canonical';
 import { SessionsClient, type PublicSession, type HeroContent } from './SessionsClient';
 
 // Canonical lives on the learn subdomain because main-domain hits are 307'd to

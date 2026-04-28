@@ -15,9 +15,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/src/lib/shared/supabase';
-import { sendEmail, FROM } from '@/src/lib/email/sendEmail';
-import { otpVerificationTemplate } from '@/src/lib/email/templates/otpVerification';
+import { getServerClient } from '@/src/core/db/supabase';
+import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
+import { otpVerificationTemplate } from '@/src/shared/email/templates/otpVerification';
 import crypto from 'crypto';
 
 function generateOTP(): string {

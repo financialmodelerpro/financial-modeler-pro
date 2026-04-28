@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import type { Role } from '@/src/types/settings.types';
-import { ROLES, ROLE_META, PERMISSIONS } from '@/src/core/core-state';
+import type { Role } from '@/src/core/types/settings.types';
+import { ROLES, ROLE_META, PERMISSIONS } from '@/src/core/state';
 
 interface RbacModalProps {
   rbacSelectedRole: Role;

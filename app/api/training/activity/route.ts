@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 
 const BADGE_DEFS: { key: string; label: string; icon: string; check: (p: number, streak: number, perfect: boolean, speed: boolean) => boolean }[] = [
   { key: 'first_step',   label: 'First Step',      icon: '👣', check: (p) => p >= 1 },

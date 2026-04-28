@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
-import { authOptions } from '@/src/lib/shared/auth';
+import { authOptions } from '@/src/shared/auth/nextauth';
 import { getCourseDetails, updateCourseLink } from '@/src/lib/training/sheets';
-import { getServerClient } from '@/src/lib/shared/supabase';
+import { getServerClient } from '@/src/core/db/supabase';
 
 // ── In-memory cache (5 minutes) ───────────────────────────────────────────────
 const _cache = new Map<string, { sessions: unknown[]; courses: Record<string, unknown>; at: number }>();
