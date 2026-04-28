@@ -107,20 +107,38 @@ function deriveGrade(finalScore: number, avgScore: number): string {
   return 'Pass';
 }
 
-/** Generate sequential certificate ID: FMP-3SFM-2026-0001 */
-async function generateCertificateId(courseCode: string): Promise<string> {
-  const sb   = getServerClient();
-  const year = new Date().getFullYear();
+/**
+ * Derive a certificate ID from the student's registration ID by inserting
+ * the course code, e.g. registration `FMP-2026-0016` + course `3SFM` becomes
+ * cert ID `FMP-3SFM-2026-0016`.
+ *
+ * The previous version used a per-course sequential counter (count rows with
+ * the same prefix, add 1). That decoupled cert-ID order from registration
+ * order, so a late-registering student who passed first would receive a
+ * lower sequence number than an earlier-registering student who passed
+ * later. The user-visible bug: `FMP-2026-0016` received `FMP-3SFM-2026-0002`
+ * because they were the second 3SFM cert issued, not the sixteenth.
+ *
+ * Year and sequence are taken from the registration ID (NOT the current
+ * date), so a 2025 registrant receives a 2025-stamped cert even if the
+ * exam clears in 2026.
+ *
+ * Uniqueness invariant: `(registration_id, course_code)` is unique by
+ * construction (one student can only have one cert per course), so the
+ * derived `FMP-{COURSE}-{YEAR}-{SEQ}` is unique. The DB-level guard
+ * `uniq_student_certificates_certificate_id` (migration 111) remains as
+ * the hard backstop.
+ */
+function deriveCertificateId(courseCode: string, registrationId: string): string {
+  const m = /^FMP-(\d{4})-(\d{4})$/.exec(registrationId.trim().toUpperCase());
+  if (!m) {
+    throw new Error(
+      `Cannot derive cert ID; registration ID is not in FMP-YYYY-NNNN form: ${registrationId}`,
+    );
+  }
   const code = courseCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  const prefix = `FMP-${code}-${year}-`;
-
-  const { count } = await sb
-    .from('student_certificates')
-    .select('*', { count: 'exact', head: true })
-    .like('certificate_id', `${prefix}%`);
-
-  const seq = String((count ?? 0) + 1).padStart(4, '0');
-  return `${prefix}${seq}`;
+  const [, year, seq] = m;
+  return `FMP-${code}-${year}-${seq}`;
 }
 
 // ── PDF Generation ────────────────────────────────────────────────────────────
@@ -468,7 +486,7 @@ export async function issueCertificateForPending(
   }
 
   try {
-    const certificateId   = await generateCertificateId(cert.courseCode);
+    const certificateId   = deriveCertificateId(cert.courseCode, cert.registrationId);
     const verificationUrl = `${LEARN_URL}/verify/${certificateId}`;
     const grade           = cert.grade || deriveGrade(cert.finalScore ?? 0, cert.avgScore ?? 0);
     const issueDate       = cert.completionDate || new Date().toISOString();
