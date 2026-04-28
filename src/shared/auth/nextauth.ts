@@ -4,7 +4,17 @@ import { cookies } from 'next/headers';
 import { serverClient } from '@/src/core/db/supabase';
 import { verifyPassword } from '@/src/shared/auth/password';
 import { isDeviceTrusted, DEVICE_COOKIE_NAME } from '@/src/shared/auth/deviceTrust';
+// TODO post-restructure-2.7: dependency-invert NextAuth `authorize()` so
+// the modeling-hub-specific gating (Coming Soon + whitelist) is injected
+// as a per-hub callback rather than imported here. Today these two lines
+// couple shared/auth to the modeling hub. NextAuth is genuinely cross-cutting
+// (admin + modeling + future hubs), so the right fix is to expose an
+// `authorizeOptions: { extraGates: BypassCheck[] }` opt and have the
+// modeling hub register its gate from `src/hubs/modeling/auth/`. Surfaced
+// by `boundaries/dependencies` rule added in Phase 2.7.
+// eslint-disable-next-line boundaries/dependencies
 import { getModelingSigninComingSoonState } from '@/src/hubs/modeling/lib/comingSoon';
+// eslint-disable-next-line boundaries/dependencies
 import { isEmailWhitelisted } from '@/src/hubs/modeling/lib/access';
 
 export const authOptions: AuthOptions = {
