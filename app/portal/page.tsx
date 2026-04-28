@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import { PLATFORMS } from '@/src/config/platforms';
-import type { Platform } from '@/src/config/platforms';
+import { PLATFORMS } from '@/src/hubs/modeling/config/platforms';
+import type { Platform } from '@/src/hubs/modeling/config/platforms';
 import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
 
 // ── Constants ─────────────────────────────────────────────────────────────────

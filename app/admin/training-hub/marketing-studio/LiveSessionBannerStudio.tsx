@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import type { LiveSessionBannerContent, LayoutOverrides } from '@/src/lib/marketing-studio/types';
-import { DIMENSIONS } from '@/src/lib/marketing-studio/types';
-import { LIVE_SESSION_LAYOUT } from '@/src/lib/marketing-studio/templates/live-session';
+import type { LiveSessionBannerContent, LayoutOverrides } from '@/src/features/marketing-studio/types';
+import { DIMENSIONS } from '@/src/features/marketing-studio/types';
+import { LIVE_SESSION_LAYOUT } from '@/src/features/marketing-studio/templates/live-session';
 import {
   StudioShell, Field, BackgroundPicker, ZoneVisibilityPanel,
   inputStyle, textareaStyle, selectStyle, cardStyle,

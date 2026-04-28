@@ -5,7 +5,7 @@ import { verifyCaptcha } from '@/src/shared/auth/captcha';
 import { createConfirmationToken } from '@/src/shared/auth/emailConfirmation';
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { confirmEmailTemplate } from '@/src/shared/email/templates/confirmEmail';
-import { canEmailRegisterModeling } from '@/src/lib/shared/modelingAccess';
+import { canEmailRegisterModeling } from '@/src/hubs/modeling/lib/access';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
 

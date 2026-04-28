@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { sendAutoNewsletter } from '@/src/shared/newsletter/autoNotify';
-import { createCalendarEventWithMeeting, isTeamsConfigured, TeamsIntegrationError } from '@/src/lib/integrations/teamsMeetings';
+import { createCalendarEventWithMeeting, isTeamsConfigured, TeamsIntegrationError } from '@/src/integrations/teams/teamsMeetings';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const DEFAULT_SESSION_DURATION_MINUTES = 90;

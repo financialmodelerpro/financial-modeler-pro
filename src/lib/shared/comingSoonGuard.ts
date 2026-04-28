@@ -1,9 +1,9 @@
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import { getTrainingComingSoonState } from '@/src/hubs/training/lib/comingSoon';
-import { getModelingComingSoonState } from './modelingComingSoon';
+import { getModelingComingSoonState } from '@/src/hubs/modeling/lib/comingSoon';
 import { isTrainingIdentifierBypassed } from '@/src/shared/comingSoon/bypassList';
-import { isEmailWhitelisted } from './modelingAccess';
+import { isEmailWhitelisted } from '@/src/hubs/modeling/lib/access';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 

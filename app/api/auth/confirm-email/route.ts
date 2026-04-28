@@ -15,7 +15,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyConfirmationToken, markTokenUsed } from '@/src/shared/auth/emailConfirmation';
 import { serverClient } from '@/src/core/db/supabase';
-import { canEmailRegisterModeling } from '@/src/lib/shared/modelingAccess';
+import { canEmailRegisterModeling } from '@/src/hubs/modeling/lib/access';
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com';
 

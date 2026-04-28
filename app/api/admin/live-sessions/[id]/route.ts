@@ -4,7 +4,7 @@ import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { sendTemplatedEmail, buildSessionPlaceholders } from '@/src/shared/email/sendTemplatedEmail';
 import { sendAutoNewsletter } from '@/src/shared/newsletter/autoNotify';
-import { updateMeetingOrEvent, deleteMeetingOrEvent, isTeamsConfigured } from '@/src/lib/integrations/teamsMeetings';
+import { updateMeetingOrEvent, deleteMeetingOrEvent, isTeamsConfigured } from '@/src/integrations/teams/teamsMeetings';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 const AUTO_DELETE_TEAMS_MEETING_ON_SESSION_DELETE = true;

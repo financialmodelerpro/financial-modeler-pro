@@ -2,7 +2,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 import {
   getModelingSigninComingSoonState,
   getModelingRegisterComingSoonState,
-} from './modelingComingSoon';
+} from './comingSoon';
 
 /**
  * Modeling Hub access gate (migration 136).

@@ -1,8 +1,8 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import type { RenderRequest, UploadedAsset } from '@/src/lib/marketing-studio/types';
-import type { TemplateLayout } from '@/src/lib/marketing-studio/layout';
+import type { RenderRequest, UploadedAsset } from '@/src/features/marketing-studio/types';
+import type { TemplateLayout } from '@/src/features/marketing-studio/layout';
 
 const RENDER_URL = '/api/admin/training-hub/marketing-studio/render';
 const UPLOADS_URL = '/api/admin/training-hub/marketing-studio/uploads';

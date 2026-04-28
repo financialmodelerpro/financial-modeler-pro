@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
-import { testTeamsConnection, isTeamsConfigured } from '@/src/lib/integrations/teamsMeetings';
+import { testTeamsConnection, isTeamsConfigured } from '@/src/integrations/teams/teamsMeetings';
 
 async function checkAdmin() {
   const session = await getServerSession(authOptions);

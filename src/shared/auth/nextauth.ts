@@ -4,8 +4,8 @@ import { cookies } from 'next/headers';
 import { serverClient } from '@/src/core/db/supabase';
 import { verifyPassword } from '@/src/shared/auth/password';
 import { isDeviceTrusted, DEVICE_COOKIE_NAME } from '@/src/shared/auth/deviceTrust';
-import { getModelingSigninComingSoonState } from '@/src/lib/shared/modelingComingSoon';
-import { isEmailWhitelisted } from '@/src/lib/shared/modelingAccess';
+import { getModelingSigninComingSoonState } from '@/src/hubs/modeling/lib/comingSoon';
+import { isEmailWhitelisted } from '@/src/hubs/modeling/lib/access';
 
 export const authOptions: AuthOptions = {
   session: { strategy: 'jwt', maxAge: 60 * 60 }, // 1 hour

@@ -2,7 +2,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
-import { PLATFORMS } from '@/src/config/platforms';
+import { PLATFORMS } from '@/src/hubs/modeling/config/platforms';
 import { getCmsContent, cms, getModules, getTestimonialsForPage, getAllPageSections } from '@/src/shared/cms';
 import type { Module } from '@/src/shared/cms';
 import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';

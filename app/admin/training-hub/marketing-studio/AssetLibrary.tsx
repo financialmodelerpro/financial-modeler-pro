@@ -2,7 +2,7 @@
 
 import React, { useRef, useState } from 'react';
 import { useUploadedAssets } from './studio-shared';
-import type { UploadedAsset } from '@/src/lib/marketing-studio/types';
+import type { UploadedAsset } from '@/src/features/marketing-studio/types';
 
 const MAX_BYTES = 10 * 1024 * 1024;
 

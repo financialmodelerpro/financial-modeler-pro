@@ -4,8 +4,8 @@ import { useSession, signOut } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import Link from 'next/link';
-import { PLATFORMS } from '@/src/config/platforms';
-import type { Platform } from '@/src/config/platforms';
+import { PLATFORMS } from '@/src/hubs/modeling/config/platforms';
+import type { Platform } from '@/src/hubs/modeling/config/platforms';
 import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
 
 const MAIN_URL = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodelerpro.com';

@@ -1,11 +1,11 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
-import type { LinkedInBannerContent, LayoutOverrides } from '@/src/lib/marketing-studio/types';
-import { DIMENSIONS } from '@/src/lib/marketing-studio/types';
+import type { LinkedInBannerContent, LayoutOverrides } from '@/src/features/marketing-studio/types';
+import { DIMENSIONS } from '@/src/features/marketing-studio/types';
 import {
   LINKEDIN_PROFILE_LAYOUT, LINKEDIN_POST_LAYOUT, LINKEDIN_QUOTE_LAYOUT,
-} from '@/src/lib/marketing-studio/templates/linkedin-banner';
+} from '@/src/features/marketing-studio/templates/linkedin-banner';
 import {
   StudioShell, Field, BackgroundPicker, ZoneVisibilityPanel,
   inputStyle, textareaStyle, selectStyle, cardStyle,

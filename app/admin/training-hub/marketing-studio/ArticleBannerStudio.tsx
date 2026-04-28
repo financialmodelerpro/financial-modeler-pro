@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import type { ArticleBannerContent, LayoutOverrides } from '@/src/lib/marketing-studio/types';
-import { DIMENSIONS } from '@/src/lib/marketing-studio/types';
-import { ARTICLE_BANNER_LAYOUT } from '@/src/lib/marketing-studio/templates/article-banner';
+import type { ArticleBannerContent, LayoutOverrides } from '@/src/features/marketing-studio/types';
+import { DIMENSIONS } from '@/src/features/marketing-studio/types';
+import { ARTICLE_BANNER_LAYOUT } from '@/src/features/marketing-studio/templates/article-banner';
 import {
   StudioShell, Field, BackgroundPicker, ZoneVisibilityPanel,
   inputStyle, textareaStyle, selectStyle, cardStyle,

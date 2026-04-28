@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import type { TemplateLayout } from '@/src/lib/marketing-studio/layout';
-import { mergeLayout, clampRect } from '@/src/lib/marketing-studio/layout';
-import type { LayoutOverrides } from '@/src/lib/marketing-studio/types';
+import type { TemplateLayout } from '@/src/features/marketing-studio/layout';
+import { mergeLayout, clampRect } from '@/src/features/marketing-studio/layout';
+import type { LayoutOverrides } from '@/src/features/marketing-studio/types';
 
 interface Props {
   /** Template's canvas + zone defaults + descriptors. */

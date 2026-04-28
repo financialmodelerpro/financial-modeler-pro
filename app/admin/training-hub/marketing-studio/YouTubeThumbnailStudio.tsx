@@ -1,9 +1,9 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import type { YouTubeThumbnailContent, LayoutOverrides } from '@/src/lib/marketing-studio/types';
-import { DIMENSIONS } from '@/src/lib/marketing-studio/types';
-import { YOUTUBE_THUMB_LAYOUT } from '@/src/lib/marketing-studio/templates/youtube-thumbnail';
+import type { YouTubeThumbnailContent, LayoutOverrides } from '@/src/features/marketing-studio/types';
+import { DIMENSIONS } from '@/src/features/marketing-studio/types';
+import { YOUTUBE_THUMB_LAYOUT } from '@/src/features/marketing-studio/templates/youtube-thumbnail';
 import {
   StudioShell, Field, BackgroundPicker, ZoneVisibilityPanel,
   inputStyle, textareaStyle, selectStyle, cardStyle,

@@ -3,8 +3,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
-import { PLATFORMS, getPlatform } from '@/src/config/platforms';
-import type { PlatformModule } from '@/src/config/platforms';
+import { PLATFORMS, getPlatform } from '@/src/hubs/modeling/config/platforms';
+import type { PlatformModule } from '@/src/hubs/modeling/config/platforms';
 import { getModules, getAllPageSections } from '@/src/shared/cms';
 import { CmsField, cmsVisible } from '@/src/hubs/main/components/cms/CmsField';
 

@@ -1,6 +1,6 @@
 import type { MetadataRoute } from 'next';
 import { getServerClient } from '@/src/core/db/supabase';
-import { PLATFORMS } from '@/src/config/platforms';
+import { PLATFORMS } from '@/src/hubs/modeling/config/platforms';
 
 export const revalidate = 3600; // regenerate hourly
 

@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
-import { getModelingSigninComingSoonState } from '@/src/lib/shared/modelingComingSoon';
-import { isEmailWhitelisted } from '@/src/lib/shared/modelingAccess';
+import { getModelingSigninComingSoonState } from '@/src/hubs/modeling/lib/comingSoon';
+import { isEmailWhitelisted } from '@/src/hubs/modeling/lib/access';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
 import { SignInForm } from './SignInForm';
 import { ModelingComingSoonWrapper } from './ComingSoonWrapper';
