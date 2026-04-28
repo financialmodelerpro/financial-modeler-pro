@@ -42,7 +42,7 @@ export interface PendingCertificate {
 }
 import { verifyWatchThresholdMet } from '@/src/hubs/training/lib/watch/watchThresholdVerifier';
 import { checkEligibility, type EligibilityResult } from '@/src/hubs/training/lib/certificates/certificateEligibility';
-import { COURSES } from '@/src/config/courses';
+import { COURSES } from '@/src/hubs/training/config/courses';
 import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { certificateIssuedTemplate } from '@/src/shared/email/templates/certificateIssued';
 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { getStudentProgressFromSupabase as getStudentProgress } from '@/src/hubs/training/lib/progress/progressFromSupabase';
-import { COURSES } from '@/src/config/courses';
+import { COURSES } from '@/src/hubs/training/config/courses';
 
 export const dynamic = 'force-dynamic';
 

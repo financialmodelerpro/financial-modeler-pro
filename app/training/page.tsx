@@ -2,7 +2,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { NavbarServer } from '@/src/shared/components/layout/NavbarServer';
-import { COURSES } from '@/src/config/courses';
+import { COURSES } from '@/src/hubs/training/config/courses';
 import { getCmsContent, cms, getTestimonialsForPage, getAllPageSections } from '@/src/shared/cms';
 import { SharedFooter } from '@/src/hubs/main/components/landing/SharedFooter';
 import { getServerClient } from '@/src/core/db/supabase';

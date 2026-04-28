@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { COURSES } from '@/src/config/courses';
+import { COURSES } from '@/src/hubs/training/config/courses';
 
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 

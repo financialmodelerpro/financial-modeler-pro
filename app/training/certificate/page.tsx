@@ -13,7 +13,7 @@ interface SheetCertificate {
   issuedAt:      string;
   certifierUrl:  string;
 }
-import { COURSES } from '@/src/config/courses';
+import { COURSES } from '@/src/hubs/training/config/courses';
 import { getServerClient } from '@/src/core/db/supabase';
 import { ShareCertificateButton } from './ShareCertificateButton';
 

@@ -1,5 +1,5 @@
 import { getServerClient } from '@/src/core/db/supabase';
-import { COURSES } from '@/src/config/courses';
+import { COURSES } from '@/src/hubs/training/config/courses';
 
 /**
  * Verify that a student met the watch threshold for every session in a course

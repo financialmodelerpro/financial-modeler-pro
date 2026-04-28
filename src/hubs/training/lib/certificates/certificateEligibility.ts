@@ -16,7 +16,7 @@
  *      considered grandfathered (pre-migration-103) and waived.
  */
 
-import { COURSES } from '@/src/config/courses';
+import { COURSES } from '@/src/hubs/training/config/courses';
 import { getServerClient } from '@/src/core/db/supabase';
 import { getStudentProgressFromSupabase as getStudentProgress } from '@/src/hubs/training/lib/progress/progressFromSupabase';
 

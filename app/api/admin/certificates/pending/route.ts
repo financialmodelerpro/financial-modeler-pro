@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '@/src/shared/auth/nextauth';
 import { getServerClient } from '@/src/core/db/supabase';
 import { findAllEligibleFromSupabase } from '@/src/hubs/training/lib/certificates/certificateEligibility';
-import { COURSES } from '@/src/config/courses';
+import { COURSES } from '@/src/hubs/training/config/courses';
 
 export const dynamic = 'force-dynamic';
 

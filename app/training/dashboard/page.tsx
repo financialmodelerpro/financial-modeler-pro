@@ -14,7 +14,7 @@ import {
 import { extractYouTubeId } from '@/src/shared/cms';
 import { getTrainingSession, clearTrainingSession } from '@/src/hubs/training/lib/session/training-session';
 import { useInactivityLogout } from '@/src/shared/hooks/useInactivityLogout';
-import { COURSES } from '@/src/config/courses';
+import { COURSES } from '@/src/hubs/training/config/courses';
 import { calculateCourseProgress } from '@/src/hubs/training/lib/progress/progressCalculator';
 import {
   type LiveLinksMap,

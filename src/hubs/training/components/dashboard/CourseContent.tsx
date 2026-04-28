@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
-import { COURSES } from '@/src/config/courses';
+import { COURSES } from '@/src/hubs/training/config/courses';
 import type { SessionProgress, Certificate, LiveLinksMap, CourseDescsMap } from './types';
 import { allRegularSessionsPassed } from './types';
 import { calculateCourseProgress } from '@/src/hubs/training/lib/progress/progressCalculator';

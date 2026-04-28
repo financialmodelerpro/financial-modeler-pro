@@ -6,7 +6,7 @@ import Link from 'next/link';
 import { getTrainingSession } from '@/src/hubs/training/lib/session/training-session';
 import { TrainingShell } from '@/src/hubs/training/components/TrainingShell';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/hubs/training/components/player/CoursePlayerLayout';
-import { COURSES } from '@/src/config/courses';
+import { COURSES } from '@/src/hubs/training/config/courses';
 import { startTimer, getTimerStatus } from '@/src/hubs/training/lib/watch/videoTimer';
 import { WatchProgressBar } from '@/src/hubs/training/components/WatchProgressBar';
 import { allRegularSessionsPassed, type LiveLinksMap, type SessionProgress } from '@/src/hubs/training/components/dashboard/types';

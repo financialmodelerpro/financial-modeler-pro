@@ -1,6 +1,6 @@
 // Shared types and helper functions for the Training Dashboard
 
-import { COURSES } from '@/src/config/courses';
+import { COURSES } from '@/src/hubs/training/config/courses';
 
 export interface LiveSessionLink { tabKey: string; sessionName: string; description?: string; youtubeUrl: string; formUrl: string; videoDuration: number; isFinal: boolean; hasVideo: boolean; }
 export type LiveLinksMap = Record<string, LiveSessionLink>;

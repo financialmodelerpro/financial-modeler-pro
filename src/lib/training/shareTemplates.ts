@@ -19,7 +19,7 @@
  * fields), so call-site code stays the same.
  */
 
-import { COURSES } from '@/src/config/courses';
+import { COURSES } from '@/src/hubs/training/config/courses';
 
 /** Default mention text — fallback when training_settings hasn't been seeded yet. */
 export const DEFAULT_BRAND_MENTION   = 'FinancialModelerPro';

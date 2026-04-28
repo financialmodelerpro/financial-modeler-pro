@@ -1,4 +1,4 @@
-import type { CourseConfig, Session } from '@/src/config/courses';
+import type { CourseConfig, Session } from '@/src/hubs/training/config/courses';
 import type { SessionProgress } from '@/src/hubs/training/components/dashboard/types';
 
 /**

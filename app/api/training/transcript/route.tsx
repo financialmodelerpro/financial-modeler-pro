@@ -5,7 +5,7 @@ import {
 } from '@react-pdf/renderer';
 import { getStudentProgressFromSupabase as getStudentProgress } from '@/src/hubs/training/lib/progress/progressFromSupabase';
 import { getServerClient } from '@/src/core/db/supabase';
-import { COURSES } from '@/src/config/courses';
+import { COURSES } from '@/src/hubs/training/config/courses';
 
 // ── Brand colours ─────────────────────────────────────────────────────────────
 const C = {

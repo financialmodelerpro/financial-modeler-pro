@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import type { CourseConfig } from '@/src/config/courses';
+import type { CourseConfig } from '@/src/hubs/training/config/courses';
 
 export interface CourseDescription {
   tagline?: string;

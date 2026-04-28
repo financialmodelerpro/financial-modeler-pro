@@ -10,7 +10,7 @@ import type {
   SubmitAssessmentResult,
   QuestionResult,
 } from '@/src/hubs/training/lib/appsScript/sheets';
-import { COURSES } from '@/src/config/courses';
+import { COURSES } from '@/src/hubs/training/config/courses';
 import { shareTo, FMP_TRAINING_URL } from '@/src/lib/training/share';
 import { useShareTemplate } from '@/src/lib/training/useShareTemplate';
 import { renderShareTemplate, formatShareDate } from '@/src/lib/training/shareTemplates';
