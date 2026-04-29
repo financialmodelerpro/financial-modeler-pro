@@ -30,11 +30,22 @@ export default function OverviewScreen({
   onLoadVersion, onSaveVersion,
   setActiveModule, setActiveTab, can,
 }: OverviewScreenProps) {
-  if (!activeProjectId) {
+  const proj = activeProjectId ? storageData.projects[activeProjectId] : null;
+
+  // Two empty-state cases collapse to the same UX:
+  //   1. activeProjectId is null (nothing selected yet).
+  //   2. activeProjectId is set but the project no longer exists in storage
+  //      (e.g. deleted in another tab, or hydration mid-flight). Previously
+  //      this returned `null` silently, which rendered a blank Overview
+  //      screen — indistinguishable from a broken page.
+  if (!proj || !activeProjectId) {
+    const reason = activeProjectId
+      ? 'The selected project is no longer available. Pick a different project to continue.'
+      : 'No project selected. Go to Projects and select a project first.';
     return (
       <div className="module-view">
         <div className="state-empty">
-          📋 No project selected. Go to Projects and select a project first.
+          📋 {reason}
         </div>
         <div style={{ marginTop: 'var(--sp-2)', textAlign: 'center' }}>
           <button className="btn-primary" onClick={() => setActiveModule('projects')}>
@@ -44,9 +55,6 @@ export default function OverviewScreen({
       </div>
     );
   }
-
-  const proj = storageData.projects[activeProjectId];
-  if (!proj) return null;
 
   const versions = Object.entries(proj.versions || {});
 

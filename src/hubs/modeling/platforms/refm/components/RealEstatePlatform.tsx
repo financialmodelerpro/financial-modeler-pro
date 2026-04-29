@@ -212,6 +212,16 @@ export default function RealEstatePlatform() {
   // ── Init from localStorage ──
   useEffect(() => {
     const s = loadStorage();
+    // Defensive: if activeProjectId references a project that no longer
+    // exists (e.g. deleted in another tab, or storage was hand-edited),
+    // drop the stale pointer before hydrating component state. Otherwise
+    // the Overview screen's "project missing" path would render
+    // indefinitely until the user manually re-selects a project.
+    if (s.activeProjectId && !s.projects[s.activeProjectId]) {
+      s.activeProjectId = null;
+      s.activeVersionId = null;
+      saveStorage(s);
+    }
     setStorageData(s);
     if (s.activeProjectId) setActiveProjectId(s.activeProjectId);
     if (s.activeVersionId) setActiveVersionId(s.activeVersionId);
