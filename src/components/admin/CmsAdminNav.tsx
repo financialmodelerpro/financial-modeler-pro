@@ -37,6 +37,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: 'Certificate Designer', href: '/admin/certificate-designer',        icon: '🎨',
     matchPaths: ['/admin/certificates', '/admin/certificate-editor', '/admin/badge-editor', '/admin/transcript-editor'] },
   { label: 'Assessments',       href: '/admin/training-hub/assessments',       icon: '📋' },
+  { label: 'Model Submissions', href: '/admin/training-hub/model-submissions', icon: '📥' },
   { label: 'Communications Hub', href: '/admin/communications-hub',             icon: '📬',
     matchPaths: ['/admin/training-hub/communications', '/admin/training-hub/live-sessions/email-settings', '/admin/training-hub/share-templates', '/admin/newsletter'] },
   { label: 'Marketing Studio',  href: '/admin/training-hub/marketing-studio',  icon: '🎨' },
