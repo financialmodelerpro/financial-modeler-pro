@@ -171,7 +171,10 @@ export default function ModelingDashboardPage() {
   const [profileDropdown, setProfileDropdown] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
-  const [logoHeight, setLogoHeight] = useState<number>(28);
+  // Defaults match NavbarServer / Navbar on the main site so header chrome is
+  // consistent across all three subdomains. CMS keys override at runtime.
+  const [logoHeight, setLogoHeight] = useState<number>(36);
+  const [headerHeight, setHeaderHeight] = useState<number>(64);
   const profileRef = useRef<HTMLDivElement>(null);
 
   useInactivityLogout({
@@ -194,15 +197,19 @@ export default function ModelingDashboardPage() {
     }
   }, []);
 
-  // Fetch CMS logo (same pattern as Training Hub dashboard)
+  // Fetch CMS header settings — same source-of-truth as the main-site
+  // NavbarServer, so logo and header chrome are consistent across all three
+  // subdomains. The keys are read from cms_content section='header_settings'.
   useEffect(() => {
-    fetch('/api/cms?section=header_settings&keys=logo_url,logo_height_px')
+    fetch('/api/cms?section=header_settings&keys=logo_url,logo_height_px,header_height_px')
       .then(r => r.json())
       .then((d: { map?: Record<string, string> }) => {
         const url = d.map?.['header_settings__logo_url'];
-        const h   = d.map?.['header_settings__logo_height_px'];
+        const lh  = d.map?.['header_settings__logo_height_px'];
+        const hh  = d.map?.['header_settings__header_height_px'];
         if (url) setLogoUrl(url);
-        if (h)   setLogoHeight(parseInt(h, 10) || 28);
+        if (lh)  setLogoHeight(parseInt(lh, 10) || 36);
+        if (hh)  setHeaderHeight(parseInt(hh, 10) || 64);
       })
       .catch(() => {});
   }, []);
@@ -294,9 +301,10 @@ export default function ModelingDashboardPage() {
 
       <div className="mh-mob-backdrop" onClick={() => setMobileSidebarOpen(false)} />
 
-      {/* TOP NAV */}
+      {/* TOP NAV — height + logo size driven by cms_content.header_settings
+          so this header matches the main-site Navbar across all subdomains. */}
       <div style={{
-        background: theme.topbarBg, padding: '0 20px', height: 56,
+        background: theme.topbarBg, padding: '0 20px', minHeight: headerHeight,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         position: 'sticky', top: 0, zIndex: 150,
         boxShadow: '0 2px 12px rgba(0,0,0,0.2)',
@@ -363,7 +371,7 @@ export default function ModelingDashboardPage() {
       </div>
 
       {/* BODY */}
-      <div style={{ display: 'flex', minHeight: 'calc(100vh - 56px)' }}>
+      <div style={{ display: 'flex', minHeight: `calc(100vh - ${headerHeight}px)` }}>
 
         <aside
           className="mh-sidebar"
@@ -371,8 +379,8 @@ export default function ModelingDashboardPage() {
             width: sidebarW, flexShrink: 0,
             background: theme.sidebarBg,
             display: 'flex', flexDirection: 'column',
-            position: 'sticky', top: 56,
-            height: 'calc(100vh - 56px)',
+            position: 'sticky', top: headerHeight,
+            height: `calc(100vh - ${headerHeight}px)`,
             overflowY: 'auto', overflowX: 'hidden',
             transition: 'width 0.28s ease',
             borderRight: '1px solid rgba(255,255,255,0.08)',
