@@ -73,6 +73,7 @@
     --color-warning-text:  var(--color-navy);
     --color-retail:        var(--color-navy-dark);
     --color-accent-warm:   #7C2D12;  /* deep terracotta — KPI accent for "earth/area" metrics; not CMS-overridable */
+    --color-on-primary-navy: #FFFFFF; /* text/icons placed on --color-primary-navy surfaces; brand-locked white, NOT overridden by dark mode (the navy chrome stays navy in both themes, so the foreground must stay white) */
 
     /* ── Surface & Neutral Aliases ── */
     --color-bg:            var(--color-grey-pale);

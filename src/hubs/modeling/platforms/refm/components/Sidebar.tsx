@@ -140,7 +140,8 @@ export default function Sidebar({
                 {isModule1 && !sidebarCollapsed && (
                   <span
                     style={{
-                      fontSize: '10px', color: 'rgba(255,255,255,0.4)',
+                      fontSize: '10px',
+                      color: 'color-mix(in srgb, var(--color-on-primary-navy) 40%, transparent)',
                       marginLeft: '4px', flexShrink: 0,
                       transition: 'transform 0.2s ease',
                       transform: sidebarSubOpen ? 'rotate(90deg)' : 'rotate(0deg)',
@@ -205,7 +206,11 @@ export default function Sidebar({
           title={`Role: ${roleMeta?.label}. Click to switch.`}
         >
           <div className="sb-role-dot" style={{ background: roleMeta?.dotColor }} />
-          <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.65)', fontWeight: 600 }}>
+          <span style={{
+            fontSize: '11px',
+            color: 'color-mix(in srgb, var(--color-on-primary-navy) 65%, transparent)',
+            fontWeight: 600,
+          }}>
             {roleMeta?.label}
           </span>
         </div>
