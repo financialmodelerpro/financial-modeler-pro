@@ -4,6 +4,36 @@ import React from 'react';
 import type { ProjectType, ModelType } from '@/src/core/types/project.types';
 import { formatCurrency, formatNumber } from '@/src/core/formatters';
 import type { StorageShape } from './RealEstatePlatform';
+import { MODULES, type ModuleStatus } from '../lib/modules-config';
+
+// Visual treatment per ModuleStatus. Tokens routed through Phase 4.x design
+// vars + color-mix() so the roadmap respects light/dark theme automatically.
+const STATUS_BADGE: Record<ModuleStatus, { label: string; bg: string; fg: string; border: string }> = {
+  done: {
+    label:  '✓ DONE',
+    bg:     'color-mix(in srgb, var(--color-success) 12%, transparent)',
+    fg:     'var(--color-success)',
+    border: 'color-mix(in srgb, var(--color-success) 25%, transparent)',
+  },
+  soon: {
+    label:  'SOON',
+    bg:     'color-mix(in srgb, var(--color-heading) 4%, transparent)',
+    fg:     'var(--color-muted)',
+    border: 'var(--color-border)',
+  },
+  pro: {
+    label:  'PRO',
+    bg:     'color-mix(in srgb, var(--color-primary) 10%, transparent)',
+    fg:     'var(--color-primary)',
+    border: 'color-mix(in srgb, var(--color-primary) 25%, transparent)',
+  },
+  enterprise: {
+    label:  'ENTERPRISE',
+    bg:     'color-mix(in srgb, var(--color-gold-dark) 10%, transparent)',
+    fg:     'var(--color-gold-dark)',
+    border: 'color-mix(in srgb, var(--color-gold-dark) 25%, transparent)',
+  },
+};
 
 interface DashboardProps {
   projectName: string;
@@ -145,7 +175,7 @@ export default function Dashboard({
         </div>
       </div>
 
-      {/* Module status grid */}
+      {/* Module status grid — driven by MODULES from lib/modules-config.ts */}
       <div className="module-card" style={{ padding: 'var(--sp-3)' }}>
         <h3 style={{
           fontSize: '11px', fontWeight: 'var(--fw-semibold)',
@@ -155,39 +185,34 @@ export default function Dashboard({
           Module Roadmap
         </h3>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          {[
-            { num: 1, label: 'Project Setup & Financial Structure', done: true },
-            { num: 2, label: 'Revenue & Sales Projections',         done: false },
-            { num: 3, label: 'Operating Expenses & Cash Flow',      done: false },
-            { num: 4, label: 'Returns & Valuation Analysis',        done: false },
-            { num: 5, label: 'Financial Statements',                done: false },
-            { num: 6, label: 'Reports & Visualizations',            done: false },
-          ].map(m => (
-            <div key={m.num} style={{
-              display: 'flex', alignItems: 'center', gap: '10px',
-              padding: '8px 0',
-              borderBottom: m.num < 6 ? '1px solid var(--color-border-light)' : 'none',
-            }}>
-              <span style={{
-                fontSize: '10px', fontWeight: 700, padding: '2px 7px',
-                borderRadius: '20px', flexShrink: 0,
-                background: m.done
-                  ? 'color-mix(in srgb, var(--color-success) 12%, transparent)'
-                  : 'color-mix(in srgb, var(--color-heading) 4%, transparent)',
-                color: m.done ? 'var(--color-success)' : 'var(--color-muted)',
-                border: `1px solid ${m.done ? 'color-mix(in srgb, var(--color-success) 25%, transparent)' : 'var(--color-border)'}`,
+          {MODULES.map((m, i) => {
+            const isLast = i === MODULES.length - 1;
+            const badge = STATUS_BADGE[m.status];
+            return (
+              <div key={m.key} style={{
+                display: 'flex', alignItems: 'center', gap: '10px',
+                padding: '8px 0',
+                borderBottom: isLast ? 'none' : '1px solid var(--color-border-light)',
               }}>
-                {m.done ? '✓ DONE' : 'SOON'}
-              </span>
-              <span style={{
-                fontSize: 'var(--font-meta)',
-                color: m.done ? 'var(--color-body)' : 'var(--color-muted)',
-                fontWeight: m.done ? 'var(--fw-semibold)' : 'var(--fw-normal)',
-              }}>
-                Module {m.num} - {m.label}
-              </span>
-            </div>
-          ))}
+                <span style={{
+                  fontSize: '10px', fontWeight: 700, padding: '2px 7px',
+                  borderRadius: '20px', flexShrink: 0,
+                  background: badge.bg,
+                  color: badge.fg,
+                  border: `1px solid ${badge.border}`,
+                }}>
+                  {badge.label}
+                </span>
+                <span style={{
+                  fontSize: 'var(--font-meta)',
+                  color: m.status === 'done' ? 'var(--color-body)' : 'var(--color-muted)',
+                  fontWeight: m.status === 'done' ? 'var(--fw-semibold)' : 'var(--fw-normal)',
+                }}>
+                  Module {m.num} - {m.longLabel}
+                </span>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

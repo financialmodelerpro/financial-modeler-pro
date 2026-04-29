@@ -22,6 +22,7 @@ import VersionModal from './modals/VersionModal';
 import RbacModal from './modals/RbacModal';
 import ExportModal from './modals/ExportModal';
 import UpgradePrompt from '@/src/shared/components/UpgradePrompt';
+import { MODULES } from '../lib/modules-config';
 
 // ── Storage helpers ──────────────────────────────────────────────────────────
 export interface StorageProject {
@@ -94,22 +95,41 @@ export const COUNTRY_DATA = [
 ];
 
 // ── Sidebar modules ───────────────────────────────────────────────────────────
-export const sidebarModules = [
-  { key: 'dashboard', icon: '📊', label: 'Dashboard',                  featureKey: null,        requiredPlan: null,           badge: null,   badgeClass: '' },
-  { key: 'projects',  icon: '🏗️', label: 'Projects',                   featureKey: null,        requiredPlan: null,           badge: null,   badgeClass: '' },
-  { key: 'overview',  icon: '📋', label: 'Overview',                   featureKey: null,        requiredPlan: null,           badge: null,   badgeClass: '',       disabledReason: 'Select a project first' },
-  { key: 'module1',   icon: '🧱', label: 'Module 1 - Setup',           featureKey: 'module_1',  requiredPlan: 'free',         badge: '✓',    badgeClass: 'badge-done' },
-  { key: 'module2',   icon: '💰', label: 'Module 2 - Revenue',         featureKey: 'module_2',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module3',   icon: '📉', label: 'Module 3 - OpEx',            featureKey: 'module_3',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module4',   icon: '📈', label: 'Module 4 - Returns',         featureKey: 'module_4',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module5',   icon: '📑', label: 'Module 5 - Financials',      featureKey: 'module_5',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module6',   icon: '📊', label: 'Module 6 - Reports',         featureKey: 'module_6',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module7',   icon: '🔀', label: 'Module 7 - Scenarios',       featureKey: 'module_7',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module8',   icon: '🏙️', label: 'Module 8 - Portfolio',       featureKey: 'module_8',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module9',   icon: '📡', label: 'Module 9 - Market Data',     featureKey: 'module_9',  requiredPlan: 'free',         badge: 'SOON', badgeClass: 'badge-soon', disabled: true, disabledReason: 'Coming soon' },
-  { key: 'module10',  icon: '🤝', label: 'Module 10 - Collaborate',    featureKey: 'module_10', requiredPlan: 'professional', disabled: true,  badge: null, badgeClass: '', disabledReason: 'Requires Professional plan' },
-  { key: 'module11',  icon: '🔌', label: 'Module 11 - API Access',     featureKey: 'module_11', requiredPlan: 'enterprise',   disabled: true,  badge: null, badgeClass: '', disabledReason: 'Requires Enterprise plan' },
-] as const;
+// The three static nav entries (Dashboard, Projects, Overview) are not modules;
+// the 11 module rows are derived from the shared MODULES constant in
+// `../lib/modules-config.ts` so Sidebar + Dashboard never drift.
+interface SidebarNavItem {
+  key: string;
+  icon: string;
+  label: string;
+  featureKey: string | null;
+  requiredPlan: 'free' | 'professional' | 'enterprise' | null;
+  badge: string | null;
+  badgeClass: string;
+  disabled?: boolean;
+  disabledReason?: string;
+}
+
+const STATIC_NAV: readonly SidebarNavItem[] = [
+  { key: 'dashboard', icon: '📊', label: 'Dashboard', featureKey: null, requiredPlan: null, badge: null, badgeClass: '' },
+  { key: 'projects',  icon: '🏗️', label: 'Projects',  featureKey: null, requiredPlan: null, badge: null, badgeClass: '' },
+  { key: 'overview',  icon: '📋', label: 'Overview',  featureKey: null, requiredPlan: null, badge: null, badgeClass: '', disabledReason: 'Select a project first' },
+];
+
+export const sidebarModules: readonly SidebarNavItem[] = [
+  ...STATIC_NAV,
+  ...MODULES.map((m): SidebarNavItem => ({
+    key: m.key,
+    icon: m.icon,
+    label: `Module ${m.num} - ${m.shortLabel}`,
+    featureKey: m.featureKey,
+    requiredPlan: m.requiredPlan,
+    badge:      m.status === 'done' ? '✓'    : m.status === 'soon' ? 'SOON' : null,
+    badgeClass: m.status === 'done' ? 'badge-done' : m.status === 'soon' ? 'badge-soon' : '',
+    disabled: m.disabled,
+    disabledReason: m.disabledReason,
+  })),
+];
 
 export const m1Tabs = [
   { key: 'timeline',  icon: '📅', label: 'Timeline' },
