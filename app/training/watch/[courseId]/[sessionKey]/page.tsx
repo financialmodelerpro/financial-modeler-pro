@@ -342,16 +342,15 @@ export default function CourseWatchPage() {
   // Assessment URL - always use the internal route (Apps Script formUrl is deprecated)
   const assessmentUrl = `/training/assessment/${encodeURIComponent(tk)}`;
 
-  // Mark Complete unlocks the moment the YT player signals the end of
-  // the video. End detection chain (any one fires `setVideoEnded(true)`
-  // via handleVideoEnded):
-  //   1. PlayerState.ENDED event from YT IFrame API
-  //   2. tick fallback: currentTime >= duration - 1
-  //   3. PAUSED-at-tail fallback: PAUSED with currentTime >= duration - 1
-  // All three live in YouTubePlayer.tsx and funnel through onEnded
-  // (single-fire guarded). Skip-to-end is permitted by design -- the
-  // certificate credibility comes from the model-submission gate
-  // (migration 148), not from gating watch percentage.
+  // Mark Complete unlocks 20 seconds before the video ends so the student
+  // can watch the wrap-up and click immediately. Detection chain (any one
+  // fires `setVideoEnded(true)` via handleVideoEnded, single-fire guarded
+  // inside YouTubePlayer):
+  //   1. tick: currentTime >= duration - 20 (primary unlock signal)
+  //   2. PlayerState.ENDED event from YT IFrame API (final fallback)
+  //   3. PAUSED-at-tail: PAUSED with currentTime >= duration - 1
+  // Skip-to-end is permitted by design -- certificate credibility comes
+  // from the model-submission gate (migration 148), not watch percentage.
   const markCompleteCallback = videoEnded && !markedComplete ? handleMarkComplete : undefined;
 
   return (

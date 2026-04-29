@@ -77,13 +77,18 @@ interface YouTubePlayerProps {
   onPlaying?: () => void;
   onPaused?: () => void;
   /**
-   * Fires exactly once per mount when the video reaches its end. Two
-   * triggers cover the common YouTube edge cases:
-   *   - YT PlayerState.ENDED (the reliable path for most videos)
-   *   - tick fallback: when `currentTime >= duration - 1`, which catches
-   *     videos where ENDED doesn't emit (end-screen cards, quality
-   *     switch at the tail, autoplay-then-stop behavior). Both paths
-   *     guard against double-fire via `endedFiredRef`.
+   * Fires exactly once per mount when the video reaches the near-end
+   * window. Three triggers cover the common YouTube edge cases:
+   *   - tick fallback: `currentTime >= duration - 20` during normal
+   *     playback (this is the primary unlock signal -- Mark Complete
+   *     surfaces 20 seconds before the video ends so the student can
+   *     watch the close-out and click immediately).
+   *   - YT PlayerState.ENDED (final fallback for videos where the tick
+   *     missed -- e.g. mounted past d-20).
+   *   - PAUSED-at-tail: PAUSED with `currentTime >= duration - 1` covers
+   *     the corner case where the student scrubs to the last second and
+   *     pauses before the next tick fires.
+   * All three guard against double-fire via `endedFired`.
    */
   onEnded?: () => void;
   /**
@@ -183,12 +188,14 @@ export function YouTubePlayer({
         const c = pos();
         trackerRef.current = onTick(trackerRef.current, c);
         const d = dur();
-        // End-of-video fallback. YT's PlayerState.ENDED is usually reliable,
-        // but some videos (those with end-screen cards, mid-playback quality
-        // switches, or when the player is auto-muted) skip the event. If
-        // the playhead reaches the final second of a known duration, treat
-        // that as "ended" and fire.
-        if (d > 0 && c >= d - 1) fireEndedOnce();
+        // Near-end unlock window. Mark Complete surfaces the moment the
+        // playhead crosses (duration - 20s), giving students a 20-second
+        // runway to watch the outro / wrap-up before clicking. PlayerState.ENDED
+        // still fires later as a final dedup'd fallback for videos where the
+        // tick missed (e.g. mounted past d-20). For videos shorter than 20s,
+        // d - 20 is negative so this fires on the first tick after PLAYING --
+        // acceptable, the student is by definition near the end.
+        if (d > 0 && c >= d - 20) fireEndedOnce();
         report(false);
       }, 1000);
     }
