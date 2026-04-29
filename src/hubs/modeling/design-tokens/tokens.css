@@ -1,0 +1,133 @@
+/**
+ * Modeling Hub — Tailwind v4 + CSS-vars bridge
+ *
+ * This file is OPTIONAL in Phase 1. The TypeScript token tree in `colors.ts`
+ * is the source of truth. Cell primitives consume the tokens directly via TS
+ * imports + inline styles, so they work without this CSS file being loaded.
+ *
+ * Phase 2-4 retrofit: import this from `app/refm/layout.tsx` (or any other
+ * Modeling Hub layout) when consumers want to use Tailwind utility classes
+ * like `bg-mh-chrome-header`, `text-mh-fast-input`, `bg-mh-fast-assumption`.
+ *
+ * The `@theme` block declares the custom properties Tailwind v4 turns into
+ * utility classes. The `:root` and `.dark` selectors below establish the
+ * runtime light/dark values for components that prefer CSS-vars over
+ * inline-styled token literals.
+ *
+ * To switch to dark mode, add the `dark` class to any ancestor element
+ * (typically `<html class="dark">`). The `@custom-variant` declaration
+ * registers the class strategy so `dark:bg-mh-chrome-surface` and friends
+ * work in JSX.
+ *
+ * IMPORTANT: keep these values in sync with `colors.ts`. The TypeScript
+ * tokens are canonical; this file mirrors them for the CSS pipeline.
+ */
+
+/* Class-strategy dark mode for Tailwind v4. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Chrome — light defaults */
+  --color-mh-chrome-page-bg:              #F9FAFB;
+  --color-mh-chrome-surface:              #FFFFFF;
+  --color-mh-chrome-surface-muted:        #F3F4F6;
+  --color-mh-chrome-border:               #E5E7EB;
+  --color-mh-chrome-border-strong:        #D1D5DB;
+  --color-mh-chrome-divider:              #E5E7EB;
+  --color-mh-chrome-text:                 #374151;
+  --color-mh-chrome-text-heading:         #0D2E5A;
+  --color-mh-chrome-text-muted:           #6B7280;
+  --color-mh-chrome-text-inverse:         #FFFFFF;
+  --color-mh-chrome-top-bar:              #0D2E5A;
+  --color-mh-chrome-top-bar-text:         #FFFFFF;
+  --color-mh-chrome-sidebar:              #0D2E5A;
+  --color-mh-chrome-sidebar-text:         #E5E7EB;
+  --color-mh-chrome-sidebar-active:       #1E3A8A;
+  --color-mh-chrome-sidebar-active-text:  #FFFFFF;
+  --color-mh-chrome-table-header:         #1E3A8A;
+  --color-mh-chrome-table-header-text:    #FFFFFF;
+  --color-mh-chrome-table-row-alt:        #F0F4FA;
+  --color-mh-chrome-table-row-hover:      #DBE5F4;
+  --color-mh-chrome-table-total:          #14306E;
+  --color-mh-chrome-section-header:       #1E3A8A;
+  --color-mh-chrome-section-header-text:  #FFFFFF;
+
+  /* FAST — light defaults */
+  --color-mh-fast-input-text:       #0070C0;
+  --color-mh-fast-input-bg:         #FFFFFF;
+  --color-mh-fast-formula-text:     #000000;
+  --color-mh-fast-formula-bg:       #F3F4F6;
+  --color-mh-fast-linked-text:      #00B050;
+  --color-mh-fast-linked-bg:        #FFFFFF;
+  --color-mh-fast-external-text:    #FF0000;
+  --color-mh-fast-external-bg:      #FFFFFF;
+  --color-mh-fast-assumption-text:  #0070C0;
+  --color-mh-fast-assumption-bg:    #FFFF99;
+  --color-mh-fast-header-text:      #FFFFFF;
+  --color-mh-fast-header-bg:        #1E3A8A;
+
+  /* Navy + grey scales — exposed so consumers can write `bg-mh-navy-700` etc. */
+  --color-mh-navy-50:   #F0F4FA;
+  --color-mh-navy-100:  #DBE5F4;
+  --color-mh-navy-200:  #B7CBE9;
+  --color-mh-navy-300:  #93B0DD;
+  --color-mh-navy-400:  #6F95D2;
+  --color-mh-navy-500:  #4A7AC6;
+  --color-mh-navy-600:  #2D6BA8;
+  --color-mh-navy-700:  #1E5594;
+  --color-mh-navy-800:  #1E3A8A;
+  --color-mh-navy-900:  #14306E;
+  --color-mh-navy-950:  #0D2E5A;
+
+  --color-mh-grey-50:   #F9FAFB;
+  --color-mh-grey-100:  #F3F4F6;
+  --color-mh-grey-200:  #E5E7EB;
+  --color-mh-grey-300:  #D1D5DB;
+  --color-mh-grey-400:  #9CA3AF;
+  --color-mh-grey-500:  #6B7280;
+  --color-mh-grey-600:  #4B5563;
+  --color-mh-grey-700:  #374151;
+  --color-mh-grey-800:  #1F2937;
+  --color-mh-grey-900:  #111827;
+  --color-mh-grey-950:  #030712;
+}
+
+/* Dark-mode overrides — apply to any subtree under `.dark`. */
+.dark {
+  --color-mh-chrome-page-bg:              #030712;
+  --color-mh-chrome-surface:              #111827;
+  --color-mh-chrome-surface-muted:        #1F2937;
+  --color-mh-chrome-border:               #374151;
+  --color-mh-chrome-border-strong:        #4B5563;
+  --color-mh-chrome-divider:              #1F2937;
+  --color-mh-chrome-text:                 #F3F4F6;
+  --color-mh-chrome-text-heading:         #FFFFFF;
+  --color-mh-chrome-text-muted:           #9CA3AF;
+  --color-mh-chrome-text-inverse:         #0D2E5A;
+  --color-mh-chrome-top-bar:              #000000;
+  --color-mh-chrome-top-bar-text:         #FFFFFF;
+  --color-mh-chrome-sidebar:              #000000;
+  --color-mh-chrome-sidebar-text:         #D1D5DB;
+  --color-mh-chrome-sidebar-active:       #1E5594;
+  --color-mh-chrome-sidebar-active-text:  #FFFFFF;
+  --color-mh-chrome-table-header:         #1E5594;
+  --color-mh-chrome-table-header-text:    #FFFFFF;
+  --color-mh-chrome-table-row-alt:        #1F2937;
+  --color-mh-chrome-table-row-hover:      #14306E;
+  --color-mh-chrome-table-total:          #1E3A8A;
+  --color-mh-chrome-section-header:       #1E5594;
+  --color-mh-chrome-section-header-text:  #FFFFFF;
+
+  --color-mh-fast-input-text:       #4FC3F7;
+  --color-mh-fast-input-bg:         #111827;
+  --color-mh-fast-formula-text:     #F3F4F6;
+  --color-mh-fast-formula-bg:       #1F2937;
+  --color-mh-fast-linked-text:      #66BB6A;
+  --color-mh-fast-linked-bg:        #111827;
+  --color-mh-fast-external-text:    #EF5350;
+  --color-mh-fast-external-bg:      #111827;
+  --color-mh-fast-assumption-text:  #4FC3F7;
+  --color-mh-fast-assumption-bg:    #5C4D00;
+  --color-mh-fast-header-text:      #FFFFFF;
+  --color-mh-fast-header-bg:        #1E5594;
+}
