@@ -2,18 +2,12 @@
  * Native-Supabase certificate eligibility.
  *
  * Decides whether a student has earned a cert for a course using ONLY the
- * Supabase tables. Invariant: we never trust Apps Script's pending flag to
- * determine eligibility — that was the source of the missed-certificate bug.
+ * Supabase tables.
  *
  * Rules:
  *   1. Every non-final session in COURSES[courseId].sessions must have a
  *      `passed = true` row in `training_assessment_results`.
  *   2. The final session (isFinal = true) must also have a passed row.
- *   3. Watch threshold must be met for every required session (unless global
- *      enforcement is off, or the session has an explicit bypass set in
- *      training_settings). Grandfathering: a session with no watch_history
- *      row, or one where total_seconds = 0 AND watch_seconds = 0, is
- *      considered grandfathered (pre-migration-103) and waived.
  */
 
 import { COURSES } from '@/src/hubs/training/config/courses';
@@ -26,21 +20,9 @@ export interface EligibilityResult {
   email: string;
   passedSessions: string[];              // tab_keys that are passed
   missingSessions: Array<{ tabKey: string; title: string }>;
-  watchThresholdMet: boolean;
-  watchDetails: Record<string, { pct: number; bypassed: boolean; grandfathered: boolean }>;
   finalScore: number | null;
   avgScore: number | null;
   reason?: string;
-}
-
-interface WatchEnforcement { enabled: boolean; threshold: number; bypass: Record<string, boolean> }
-
-async function getSettings(keys: string[]): Promise<Record<string, string>> {
-  const sb = getServerClient();
-  const { data } = await sb.from('training_settings').select('key, value').in('key', keys);
-  const out: Record<string, string> = {};
-  for (const r of (data ?? []) as { key: string; value: string }[]) out[r.key] = r.value;
-  return out;
 }
 
 /** Build tab_keys for a course in the same format `training_assessment_results` stores them. */
@@ -60,22 +42,9 @@ function courseTabKeys(courseId: string): { regular: string[]; final: string | n
   return { regular, final, labels };
 }
 
-async function loadWatchEnforcement(tabKeys: string[]): Promise<WatchEnforcement> {
-  const bypassKeys = tabKeys.map(tk => `watch_enforcement_bypass_${tk}`);
-  const s = await getSettings(['watch_enforcement_enabled', 'watch_enforcement_threshold', ...bypassKeys]);
-  const bypass: Record<string, boolean> = {};
-  for (const tk of tabKeys) bypass[tk] = s[`watch_enforcement_bypass_${tk}`] === 'true';
-  return {
-    enabled: s.watch_enforcement_enabled !== 'false',
-    threshold: Math.max(0, Math.min(100, parseInt(s.watch_enforcement_threshold ?? '70', 10) || 70)),
-    bypass,
-  };
-}
-
 export async function checkEligibility(
   email: string,
   courseId: string,
-  options: { bypassWatch?: boolean } = {},
 ): Promise<EligibilityResult> {
   const normalizedEmail = email.toLowerCase();
   const code = courseId.toUpperCase();
@@ -83,14 +52,13 @@ export async function checkEligibility(
 
   const empty: EligibilityResult = {
     eligible: false, course: code, email: normalizedEmail,
-    passedSessions: [], missingSessions: [], watchThresholdMet: false,
-    watchDetails: {}, finalScore: null, avgScore: null,
+    passedSessions: [], missingSessions: [],
+    finalScore: null, avgScore: null,
   };
   if (!regular.length || !final) {
     return { ...empty, reason: 'Course not found' };
   }
 
-  const allTabKeys = [...regular, final];
   const sb = getServerClient();
   const course = COURSES[courseId] ?? COURSES[courseId.toLowerCase()]!;
   const finalSessionId = course.sessions.find(s => s.isFinal)?.id ?? '';
@@ -174,64 +142,12 @@ export async function checkEligibility(
     };
   }
 
-  // 2. Watch threshold (with grandfathering + per-session bypass).
-  const watchDetails: Record<string, { pct: number; bypassed: boolean; grandfathered: boolean }> = {};
-  let watchMet = true;
-  // Hoisted so the failure reporter below can name exactly which sessions
-  // fell short. Defaults to 70 if enforcement isn't loaded (bypassWatch path).
-  let effectiveThreshold = 70;
-
-  if (!options.bypassWatch) {
-    const enforce = await loadWatchEnforcement(allTabKeys);
-    effectiveThreshold = enforce.threshold;
-    if (enforce.enabled) {
-      const { data: watchRows } = await sb
-        .from('certification_watch_history')
-        .select('tab_key, watch_percentage, total_seconds, watch_seconds')
-        .eq('student_email', normalizedEmail)
-        .in('tab_key', allTabKeys);
-      const watchMap = new Map((watchRows ?? []).map(r => [r.tab_key as string, r]));
-
-      for (const tk of allTabKeys) {
-        const row = watchMap.get(tk);
-        const pct = Number(row?.watch_percentage ?? 0);
-        const totalSec = Number(row?.total_seconds ?? 0);
-        const watchSec = Number(row?.watch_seconds ?? 0);
-        // Grandfather: either no row at all, or row exists with no tracking data
-        // captured (predates migration 103).
-        const grandfathered = !row || (totalSec === 0 && watchSec === 0);
-        const bypassed = enforce.bypass[tk] === true;
-        watchDetails[tk] = { pct, bypassed, grandfathered };
-        if (!bypassed && !grandfathered && pct < enforce.threshold) watchMet = false;
-      }
-    }
-  }
-
-  if (!watchMet) {
-    const failed = Object.entries(watchDetails)
-      .filter(([, d]) => !d.bypassed && !d.grandfathered && d.pct < effectiveThreshold)
-      .map(([tk]) => tk);
-    return {
-      ...empty,
-      passedSessions,
-      watchThresholdMet: false,
-      watchDetails,
-      finalScore,
-      avgScore,
-      reason: failed.length
-        ? `Watch threshold not met on ${failed.length} session${failed.length === 1 ? '' : 's'}: ${failed.join(', ')}`
-        : `Watch threshold not met on one or more sessions`,
-    };
-  }
-
   return {
     eligible: true,
     course: code,
     email: normalizedEmail,
     passedSessions,
     missingSessions: [],
-    watchThresholdMet: true,
-    watchDetails,
     finalScore,
     avgScore,
   };

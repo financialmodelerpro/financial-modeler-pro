@@ -7,7 +7,6 @@ import { getTrainingSession } from '@/src/hubs/training/lib/session/training-ses
 import { FilePreviewModal } from '@/src/hubs/training/components/dashboard/FilePreviewModal';
 import { TrainingShell } from '@/src/hubs/training/components/TrainingShell';
 import { CoursePlayerLayout, type SidebarSession } from '@/src/hubs/training/components/player/CoursePlayerLayout';
-import { WatchProgressBar } from '@/src/hubs/training/components/WatchProgressBar';
 import { CalendarDropdown } from '@/src/hubs/training/components/CalendarDropdown';
 import { extractYouTubeId } from '@/src/shared/cms';
 import type { WatchProgressPayload } from '@/src/hubs/training/components/YouTubePlayer';
@@ -103,28 +102,15 @@ export default function LiveSessionDetailPage() {
   const [isWatched, setIsWatched] = useState(false);
   const [videoEnded, setVideoEnded] = useState(false);
 
-  // Watch-enforcement state (mirrors the 3SFM watch page pattern)
-  const [enforcement, setEnforcement] = useState<{ enabled: boolean; threshold: number; sessionBypass: boolean; isAdmin: boolean }>({
-    enabled: true, threshold: 70, sessionBypass: false, isAdmin: false,
-  });
   const [baselineWatchedSec, setBaselineWatchedSec] = useState(0);
   // Hydrated from the watch_intervals JSONB column (migration 146). Seeds
   // the YouTubePlayer's tracker on mount so cross-session watch%
-  // accumulates -- without this seed the tracker stays at the largest
-  // single contiguous run forever (the smoking-gun bug).
+  // accumulates for analytics.
   const [initialIntervals, setInitialIntervals] = useState<Interval[]>([]);
-  const [liveWatchSec, setLiveWatchSec] = useState(0);
-  const [liveTotalSec, setLiveTotalSec] = useState(0);
   // Resume position captured from DB on mount. Passed once to the YT player
   // via playerVars.start so the video opens at the student's last position
-  // instead of 0:00. Cleared (zeroed) when completed = true so a rewatch
-  // starts from the beginning, and clamped below total-30 to avoid seeking
-  // past-end (YT would loop back to 0 in that case).
+  // instead of 0:00.
   const [resumeAtSec, setResumeAtSec] = useState(0);
-  // Tracks the YT player's currentTime — used to evaluate the "last
-  // 20 seconds" near-end window. Monotonic-max so seeking backward
-  // doesn't collapse the gate once it's open.
-  const [liveCurrentPos, setLiveCurrentPos] = useState(0);
   const lastPostedRef = useRef<{ sec: number; at: number }>({ sec: 0, at: 0 });
 
   useEffect(() => {
@@ -132,46 +118,29 @@ export default function LiveSessionDetailPage() {
     if (!sess) { router.replace('/training/signin'); return; }
     setStudentSession(sess);
 
-    const tk = `LIVE_${params.id}`;
     Promise.all([
       fetch(`/api/training/live-sessions/${params.id}`).then(r => r.json()),
       fetch(`/api/training/live-sessions/${params.id}/register?email=${encodeURIComponent(sess.email)}`).then(r => r.json()),
-      fetch(`/api/training/watch-enforcement?tabKeys=${encodeURIComponent(tk)}`).then(r => r.json()).catch(() => null),
       fetch(`/api/training/live-sessions/${params.id}/watched?email=${encodeURIComponent(sess.email)}`).then(r => r.json()).catch(() => null),
-    ]).then(([sessionData, regData, enforceJson, watchJson]) => {
+    ]).then(([sessionData, regData, watchJson]) => {
       setSession(sessionData.session ?? null);
       setRegistered(regData.registered ?? false);
       setJoinLinkAvailable(regData.joinLinkAvailable ?? false);
       setRegCount(regData.registrationCount ?? 0);
-
-      if (enforceJson) {
-        setEnforcement({
-          enabled:       enforceJson.enabled !== false,
-          threshold:     typeof enforceJson.threshold === 'number' ? enforceJson.threshold : 70,
-          sessionBypass: !!enforceJson.sessionBypass?.[tk],
-          isAdmin:       !!enforceJson.isAdmin,
-        });
-      }
 
       if (watchJson && typeof watchJson === 'object') {
         const base = Math.max(0, Math.round(Number(watchJson.watch_seconds ?? 0)));
         const total = Math.max(0, Math.round(Number(watchJson.total_seconds ?? 0)));
         const pos = Math.max(0, Math.round(Number(watchJson.last_position ?? 0)));
         setBaselineWatchedSec(base);
-        setLiveWatchSec(base);
-        setLiveTotalSec(total);
         // Hydrate prior intervals so the tracker can union them with
-        // the current session's playback (migration 146 fix).
+        // the current session's playback (analytics only).
         setInitialIntervals(hydrateIntervals(watchJson.watch_intervals ?? []));
         if (watchJson.status === 'completed') {
           setIsWatched(true);
           setVideoEnded(true);
-          // Already finished — rewatch starts fresh at 0.
           setResumeAtSec(0);
         } else if (pos > 10 && (total === 0 || pos < total - 30)) {
-          // Resume only when the stored position is meaningfully inside
-          // the video. < 10s: barely started, just play from 0. Too close
-          // to end: skip (YT's start param loops back to 0 past-end).
           setResumeAtSec(pos);
         }
       }
@@ -250,20 +219,11 @@ export default function LiveSessionDetailPage() {
   // in the DB. Without this the last 5-10s of every session was dropped.
   const handleProgress = useCallback((payload: WatchProgressPayload) => {
     const { watchedSec, totalSec, currentPos, intervals, force } = payload;
-    // Monotonic-upward only — mirror the 3SFM watch page. The player's
-    // tracker is seeded with baselineWatchedSec captured at mount, which
-    // is 0 until the watch-history fetch finishes. Without the max-
-    // floor here, a returning student's liveWatchSec gets clobbered
-    // below the DB baseline as soon as playback reports in, dropping
-    // watchPct below threshold and keeping Mark Complete hidden.
-    setLiveWatchSec(prev => Math.max(prev, baselineWatchedSec, watchedSec));
-    if (totalSec > 0) setLiveTotalSec(prev => Math.max(prev, totalSec));
-    if (currentPos > 0) setLiveCurrentPos(prev => Math.max(prev, currentPos));
-
     if (!studentSession?.email) return;
 
-    // Throttle: POST every ≥10s OR when value grew by ≥5s, plus always the
+    // Throttle: POST every >=10s OR when value grew by >=5s, plus always the
     // first one and always when force=true (close events bypass throttle).
+    // Analytics only -- no UI consumes liveWatchSec/liveTotalSec anymore.
     const now = Date.now();
     const last = lastPostedRef.current;
     const delta = watchedSec - last.sec;
@@ -284,7 +244,7 @@ export default function LiveSessionDetailPage() {
         watch_intervals: serializeIntervals(intervals),
       }),
     }).catch(() => {});
-  }, [studentSession, params.id, isWatched, baselineWatchedSec]);
+  }, [studentSession, params.id, isWatched]);
 
   const handleVideoEnded = useCallback(() => { setVideoEnded(true); }, []);
 
@@ -530,22 +490,11 @@ export default function LiveSessionDetailPage() {
             email: studentSession.email,
             regId: studentSession.registrationId,
             status: 'completed',
-            watch_seconds: liveWatchSec,
-            total_seconds: liveTotalSec,
           }),
         });
-        // Don't flip isWatched=true on rejection. The previous code
-        // set it unconditionally, so a 403 ("threshold not met") would
-        // show "Completed" on the client but the DB row stayed
-        // in_progress. Next page-load would then show no button at
-        // all (my filter fix). Parsing the JSON gives the student a
-        // readable explanation.
         if (!res.ok) {
-          const err = await res.json().catch(() => ({})) as { error?: string; current?: number; required?: number };
-          const msg = err.current != null && err.required != null
-            ? `${err.error ?? 'Not complete yet'} (watched ${err.current}%, need ${err.required}%).`
-            : err.error ?? 'Could not mark complete. Please try again.';
-          alert(msg);
+          const err = await res.json().catch(() => ({})) as { error?: string };
+          alert(err.error ?? 'Could not mark complete. Please try again.');
           return;
         }
         setIsWatched(true);
@@ -556,112 +505,7 @@ export default function LiveSessionDetailPage() {
       }
     };
 
-    // Manual override (Phase 3): student confirms via checkbox at >= 50%.
-    // Server enforces pct >= 50 AND wall-clock elapsed >= total * 0.8.
-    const handleManualComplete = async () => {
-      if (!studentSession?.email) return;
-      try {
-        const res = await fetch(`/api/training/live-sessions/${session.id}/watched`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            email: studentSession.email,
-            regId: studentSession.registrationId,
-            status: 'completed',
-            watch_seconds: liveWatchSec,
-            total_seconds: liveTotalSec,
-            manual_override: true,
-          }),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({})) as {
-            error?: string; current?: number; required?: number;
-            elapsedSec?: number; requiredSec?: number;
-          };
-          const detail = err.requiredSec != null && err.elapsedSec != null
-            ? `${err.error ?? 'Override blocked'} (page open for ${Math.round(err.elapsedSec / 60)} min, need ~${Math.round(err.requiredSec / 60)} min).`
-            : err.current != null && err.required != null
-            ? `${err.error ?? 'Override blocked'} (watched ${err.current}%, need at least ${err.required}%).`
-            : err.error ?? 'Could not mark complete. Please keep watching.';
-          alert(detail);
-          return;
-        }
-        setIsWatched(true);
-        setPlaylistSessions(prev => prev.map(s => s.id === session.id ? { ...s, watched: true } : s));
-      } catch (e) {
-        console.error('[LiveSession] handleManualComplete failed', e);
-        alert('Network error. Could not mark complete. Please try again.');
-      }
-    };
-
-    // Watch-enforcement gate:
-    //
-    //   canMarkComplete = bypassActive || thresholdMet
-    //
-    // Mirrors the 3SFM watch page. The interval-merging tracker only
-    // credits real-time playback, so seeking forward cannot inflate
-    // watchPct. The threshold check is the actual anti-skip guard, and
-    // the server re-checks the stored watch_percentage before accepting
-    // status='completed', so a tampered POST also bounces.
-    //
-    // We previously also required the playhead to be inside the last 20s
-    // (or videoEnded). That hid the button for returning students who
-    // had already cleared threshold but had not scrubbed to the end.
-    const watchPct = liveTotalSec > 0
-      ? Math.min(100, Math.round((liveWatchSec / liveTotalSec) * 100))
-      : 0;
-    const thresholdMet = watchPct >= enforcement.threshold;
-    const bypassActive = !enforcement.enabled || enforcement.sessionBypass || enforcement.isAdmin;
-    const canMarkComplete = bypassActive || thresholdMet;
-
-    const markCompleteCallback = canMarkComplete && !isWatched ? handleMarkComplete : undefined;
-
-    // Manual override (Phase 3 / migration 147). Available when watch%
-    // is in the [50, threshold) band, the auto path isn't open, and
-    // the row isn't already completed. Server enforces the elapsed
-    // time check before honouring.
-    const manualOverrideAvailable =
-      !markCompleteCallback &&
-      !isWatched &&
-      !bypassActive &&
-      watchPct >= 50;
-    const manualCompleteCallback = manualOverrideAvailable ? handleManualComplete : undefined;
-
-    // Ghost hint shown in the top bar when no Mark Complete path is
-    // active. Surfaced once the student starts playing.
-    let watchHint: string | undefined;
-    if (!markCompleteCallback && !manualCompleteCallback && !isWatched && liveTotalSec > 0 && liveCurrentPos > 0) {
-      watchHint = `Watching… ${watchPct}%`;
-    }
-
-    if (typeof window !== 'undefined') {
-      console.log('[LiveSession state]', {
-        isWatched,
-        videoEnded,
-        liveWatchSec,
-        liveTotalSec,
-        liveCurrentPos,
-        watchPct,
-        threshold: enforcement.threshold,
-        thresholdMet,
-        bypassActive,
-        canMarkComplete,
-        markCompleteCallback: markCompleteCallback ? 'SET' : 'UNDEFINED',
-        watchHint: watchHint ?? 'none',
-      });
-    }
-
-    // Progress bar sits in the scroll area above Mark Complete (CourseTopBar).
-    // Only render while the student is actively watching (not yet completed).
-    const progressBar = !isWatched ? (
-      <WatchProgressBar
-        watchPct={watchPct}
-        threshold={enforcement.threshold}
-        enforcing={enforcement.enabled}
-        adminBypass={enforcement.isAdmin}
-        sessionBypass={enforcement.sessionBypass}
-      />
-    ) : null;
+    const markCompleteCallback = videoEnded && !isWatched ? handleMarkComplete : undefined;
 
     return (
       <CoursePlayerLayout
@@ -675,9 +519,7 @@ export default function LiveSessionDetailPage() {
         nextSessionHref={nextSess?.href}
         isWatched={isWatched}
         onMarkComplete={markCompleteCallback}
-        onManualComplete={manualCompleteCallback}
         isCompleted={isWatched}
-        watchHint={watchHint}
         videoId={hasVideo ? ytId! : undefined}
         sessionId={session.id}
         studentEmail={studentSession?.email}
@@ -685,7 +527,6 @@ export default function LiveSessionDetailPage() {
         baselineWatchedSeconds={baselineWatchedSec}
         initialIntervals={initialIntervals}
         resumePositionSeconds={resumeAtSec}
-        belowVideoContent={progressBar}
         onVideoProgress={handleProgress}
         onVideoEnded={handleVideoEnded}
         bannerUrl={session.banner_url}

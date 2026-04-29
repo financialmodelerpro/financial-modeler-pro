@@ -43,7 +43,6 @@ interface RecordedProps extends CommonProps {
   variant: 'recorded';
   watch?: WatchHistoryEntry;
   attemptSummary?: AttemptSummary | null;
-  watchThreshold?: number;
 }
 
 type Props = UpcomingProps | RecordedProps;
@@ -451,12 +450,9 @@ export function LiveSessionCardLarge(props: Props) {
 
   // ── Recorded ─────────────────────────────────────────────────────────────
   const watch = props.watch;
-  const pct = watch ? Math.min(100, Math.max(0, Number(watch.watch_percentage ?? 0))) : 0;
-  const watched = watch?.status === 'completed' || pct >= 100;
-  const inProgress = !watched && pct > 0;
+  const watched = watch?.status === 'completed';
+  const inProgress = !watched && watch?.status === 'in_progress';
   const attempt = props.attemptSummary;
-  const watchThreshold = props.watchThreshold ?? 70;
-  const watchMet = pct >= watchThreshold;
   const hasAssessment = !!session.has_assessment;
   const assessmentPassed = attempt?.passed === true;
   const assessmentLocked = attempt ? (!attempt.passed && attempt.attempts >= attempt.maxAttempts) : false;
@@ -465,9 +461,9 @@ export function LiveSessionCardLarge(props: Props) {
   const ctaBg = watched ? NAVY : inProgress ? ORANGE : TEAL;
 
   // Achievement card eligibility:
-  //   - With assessment   → must pass
-  //   - Without assessment → watch ≥ threshold
-  const cardEligible = hasAssessment ? assessmentPassed : watchMet;
+  //   - With assessment   -> must pass
+  //   - Without assessment -> watched (Mark Complete fired on video end)
+  const cardEligible = hasAssessment ? assessmentPassed : watched;
 
   return (
     <>
@@ -554,16 +550,10 @@ export function LiveSessionCardLarge(props: Props) {
             </Link>
 
             {hasAssessment && !assessmentPassed && !assessmentLocked && (
-              watchMet ? (
-                <Link href={`/training/live-sessions/${session.id}/assessment`}
-                  style={{ ...primaryBtn('#1B4F8A'), flex: '1 1 140px' }}>
-                  <FileText size={13} /> {attempt && attempt.attempts > 0 ? 'Retake Assessment →' : 'Take Assessment →'}
-                </Link>
-              ) : (
-                <span style={{ ...primaryBtn('#F3F4F6', '#9CA3AF'), cursor: 'default', flex: '1 1 140px' }}>
-                  <Lock size={13} /> Keep watching to unlock
-                </span>
-              )
+              <Link href={`/training/live-sessions/${session.id}/assessment`}
+                style={{ ...primaryBtn('#1B4F8A'), flex: '1 1 140px' }}>
+                <FileText size={13} /> {attempt && attempt.attempts > 0 ? 'Retake Assessment →' : 'Take Assessment →'}
+              </Link>
             )}
 
             <button

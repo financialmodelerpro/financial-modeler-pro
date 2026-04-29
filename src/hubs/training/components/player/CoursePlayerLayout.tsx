@@ -98,38 +98,25 @@ interface CoursePlayerLayoutProps {
   nextSessionHref?: string;
   isWatched?: boolean;
   onMarkComplete?: () => void;
-  /** Manual override path (Phase 3 / migration 147). Surfaces a
-   *  checkbox + Mark Complete button in CourseTopBar when watch% is
-   *  in the [50, threshold) band -- safety valve for students whose
-   *  tracker undershot. Server validates pct >= 50 AND wall-clock
-   *  elapsed >= total_seconds * 0.8 before honouring. */
-  onManualComplete?: () => void;
   isCompleted?: boolean;
   assessmentUrl?: string;
   assessmentReady?: boolean;
   assessmentPassed?: boolean;
-  /** Ghost hint shown in the top bar's action area when neither the
-   *  Mark Complete button nor the Completed badge is active. See
-   *  CourseTopBar for details. */
-  watchHint?: string;
   onVideoPlaying?: () => void;
   onVideoEnded?: () => void;
   /** Fires periodically with the full progress payload (interval-merged
-   *  watched seconds + the snapshot intervals + a `force` flag set on
-   *  real close events). The watch page POSTs the snapshot intervals so
-   *  cross-session watch% accumulates correctly (migration 146). */
+   *  watched seconds + the snapshot intervals). The watch page POSTs the
+   *  snapshot so cross-session watch_seconds accumulates correctly for
+   *  analytics. The numbers do not gate any UI any more. */
   onVideoProgress?: (payload: WatchProgressPayload) => void;
   /** Seed the player's tracker with seconds already persisted to DB. */
   baselineWatchedSeconds?: number;
   /** Seed the player's tracker with the JSONB watch_intervals from the
    *  DB so a returning student's prior watch is union-merged with the
-   *  current session. Without this the tracker stays anchored at the
-   *  largest single contiguous run forever. */
+   *  current session for analytics accuracy. */
   initialIntervals?: Interval[];
   /** Resume video playback from this position (seconds) — threaded to YouTubePlayer.playerVars.start. */
   resumePositionSeconds?: number;
-  /** Optional UI block rendered directly above the Mark Complete area — e.g. watch progress bar. */
-  belowVideoContent?: React.ReactNode;
   // Video (optional - may not have embedded video)
   videoId?: string;
   sessionId?: string;
@@ -170,9 +157,9 @@ const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialm
 export function CoursePlayerLayout({
   title, youtubeUrl, channelId, showLikeButton,
   sessionTitle, sessionDescription, sessionUrl,
-  nextSessionHref, isWatched, onMarkComplete, onManualComplete, isCompleted,
-  assessmentUrl, assessmentReady, assessmentPassed, watchHint, onVideoPlaying, onVideoEnded,
-  onVideoProgress, baselineWatchedSeconds, initialIntervals, resumePositionSeconds, belowVideoContent,
+  nextSessionHref, isWatched, onMarkComplete, isCompleted,
+  assessmentUrl, assessmentReady, assessmentPassed, onVideoPlaying, onVideoEnded,
+  onVideoProgress, baselineWatchedSeconds, initialIntervals, resumePositionSeconds,
   videoId, sessionId, studentEmail, studentRegId,
   bannerUrl, instructorName, instructorTitle,
   scheduledDatetime, timezone, durationMinutes, difficultyLevel, tags,
@@ -294,12 +281,10 @@ export function CoursePlayerLayout({
         nextSessionHref={nextSessionHref}
         isWatched={isWatched}
         onMarkComplete={hasVideo ? onMarkComplete : undefined}
-        onManualComplete={hasVideo ? onManualComplete : undefined}
         isCompleted={isCompleted}
         assessmentUrl={assessmentUrl}
         assessmentReady={assessmentReady}
         assessmentPassed={assessmentPassed}
-        watchHint={watchHint}
         backUrl={backUrl}
         backLabel={backLabel}
         topOffset={mainNavHeight}
@@ -477,7 +462,6 @@ export function CoursePlayerLayout({
                 />
               </div>
               <div style={{ padding: 'clamp(14px, 4vw, 24px) clamp(14px, 4vw, 32px)', maxWidth: 860 }}>
-                {belowVideoContent}
                 {children}
                 {studentEmail && sessionId && (
                   <StudentNotes sessionId={sessionId} studentEmail={studentEmail} />

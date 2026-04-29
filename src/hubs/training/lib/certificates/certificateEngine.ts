@@ -40,7 +40,6 @@ export interface PendingCertificate {
   verificationUrl?:  string;
   qrCodeUrl?:        string;
 }
-import { verifyWatchThresholdMet } from '@/src/hubs/training/lib/watch/watchThresholdVerifier';
 import { checkEligibility, type EligibilityResult } from '@/src/hubs/training/lib/certificates/certificateEligibility';
 import { getModelSubmissionStatus } from '@/src/hubs/training/lib/modelSubmission/checkApproval';
 import { COURSES } from '@/src/hubs/training/config/courses';
@@ -469,7 +468,7 @@ export async function generateBadgePng(data: {
  *   - /api/admin/certificates/force-issue can call it directly to bypass the
  *     eligibility gate for one student
  *
- * `options.force` skips the watch-threshold verification — use only when an
+ * `options.force` skips the model-submission gate — use only when an
  * admin has explicitly chosen to override (audit trail recorded by caller).
  */
 export async function issueCertificateForPending(
@@ -479,12 +478,6 @@ export async function issueCertificateForPending(
   const sb = getServerClient();
 
   if (!options.force) {
-    const verify = await verifyWatchThresholdMet(cert.email, cert.courseCode);
-    if (!verify.ok) {
-      const list = verify.failed.map(f => `${f.tabKey}(${f.pct}%)`).join(', ');
-      return { ok: false, error: `watch_threshold_not_met: ${list}` };
-    }
-
     // Migration 148 / Phase B gate: when the per-course
     // `model_submission_required_<course>` flag is on, the cert is held
     // until the student's most-recent model submission is approved.

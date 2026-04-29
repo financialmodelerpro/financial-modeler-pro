@@ -189,12 +189,7 @@ export function YouTubePlayer({
         // the playhead reaches the final second of a known duration, treat
         // that as "ended" and fire.
         if (d > 0 && c >= d - 1) fireEndedOnce();
-        // Bypass the 9.5s report throttle during the last 20 seconds so
-        // the parent's `currentPos` state reflects the near-end window
-        // within ~1s of crossing it -- Mark Complete unlocks snappily
-        // instead of waiting for the next throttled emit.
-        const nearEnd = d > 0 && c >= d - 20;
-        report(nearEnd);
+        report(false);
       }, 1000);
     }
     function stopTickCheck() {

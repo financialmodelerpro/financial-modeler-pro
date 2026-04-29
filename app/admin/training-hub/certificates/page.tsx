@@ -64,7 +64,6 @@ export default function CertificatesPage() {
     email: string;
     passedSessions: string[];
     missingSessions: Array<{ tabKey: string; title: string }>;
-    watchThresholdMet: boolean;
     reason?: string;
   }>(null);
   const [fiResult, setFiResult] = useState<null | { certificateId: string; certPdfUrl: string; badgeUrl: string }>(null);
@@ -405,7 +404,6 @@ export default function CertificatesPage() {
                 {fiCheck.missingSessions.length > 0 && (
                   <> · Missing: {fiCheck.missingSessions.map(m => m.tabKey).join(', ')}</>
                 )}
-                {' · '}Watch threshold: <strong>{fiCheck.watchThresholdMet ? 'met' : 'not met'}</strong>
               </div>
             </div>
           )}

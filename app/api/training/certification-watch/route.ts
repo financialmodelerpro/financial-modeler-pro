@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
-import { getWatchEnforcement, canCompleteWith } from '@/src/hubs/training/lib/watch/watchEnforcementCheck';
 import { detectVideoChange } from '@/src/hubs/training/lib/watch/detectVideoChange';
 import {
   hydrateIntervals,
@@ -29,22 +28,12 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ history: data ?? [] });
 }
 
-/** Manual override floor (Phase 3, migration 147). Below this percentage
- *  the override path is closed regardless of how long the page was open. */
-const MANUAL_OVERRIDE_FLOOR_PCT = 50;
-
-/** Wall-clock fraction of the video duration that must elapse since
- *  video_load_at before the manual override path becomes available. 0.8
- *  means a 30-minute video requires the page open for ~24 minutes. */
-const MANUAL_OVERRIDE_TIME_FRACTION = 0.8;
-
 /**
  * POST /api/training/certification-watch
  * Upserts a watch record. Body: {
  *   student_email, tab_key, course_id, status,
  *   watch_seconds?, total_seconds?, last_position?,
- *   watch_intervals?,    (snapshot from the client tracker; migration 146)
- *   manual_override?     (Phase 3 / migration 147 -- student override path)
+ *   watch_intervals?    (snapshot from the client tracker; migration 146)
  * }
  *
  * Guards:
@@ -55,17 +44,11 @@ const MANUAL_OVERRIDE_TIME_FRACTION = 0.8;
  *    fall back to MAX(existing, incoming) on the scalar so stale or
  *    lower-value updates never shrink the persisted progress.
  *  - On the FIRST POST per row (existing.video_load_at is null), the server
- *    stamps `video_load_at = now()` so the manual override elapsed-time
- *    check has a server-anchored origin. Client-supplied timestamps are
- *    ignored; clock-tampered clients cannot advance the anchor.
- *  - When `manual_override === true` is set on a status='completed' POST,
- *    two extra checks run:
- *      (a) merged watch_percentage >= MANUAL_OVERRIDE_FLOOR_PCT (50%)
- *      (b) wall-clock elapsed since video_load_at >= total_seconds * 0.8
- *    If either fails the request bounces with 403; the row stays
- *    in_progress.
- *  - completed_via is stamped for provenance: 'threshold' on the auto
- *    path, 'manual' on a successful override.
+ *    stamps `video_load_at = now()` for analytics provenance.
+ *
+ * Watch enforcement was removed; Mark Complete is now a simple video-ended
+ * trigger on the client. The tracker still emits intervals so analytics
+ * and the per-live-session-assessment optional gate keep working.
  */
 export async function POST(req: NextRequest) {
   const body = await req.json() as {
@@ -77,7 +60,6 @@ export async function POST(req: NextRequest) {
     total_seconds?: number;
     last_position?: number;
     watch_intervals?: unknown;
-    manual_override?: boolean;
   };
 
   const { student_email, tab_key, course_id, status } = body;
@@ -210,73 +192,11 @@ export async function POST(req: NextRequest) {
     if (existing?.video_load_at) return null;          // preserve existing (handled below by omitting from upsert)
     return nowIso;                                     // first POST -> stamp now
   })();
-  const videoLoadAtMsForCheck = existing?.video_load_at
-    ? new Date(existing.video_load_at).getTime()
-    : nowMs;                                           // first-POST: anchor is now (so override is naturally blocked)
-
   const wantsCompleted = effectiveStatus === 'completed' && existing?.status !== 'completed';
-  const isManualOverride = body.manual_override === true && wantsCompleted;
-
-  // Manual override path. Two independent checks, both required to pass.
-  // We evaluate this BEFORE the auto-threshold path so a request flagged
-  // manual_override=true that also happens to clear threshold is still
-  // logged as completed_via='manual' (admin-visible signal that the
-  // student went through the override flow).
-  if (isManualOverride) {
-    if (pct < MANUAL_OVERRIDE_FLOOR_PCT) {
-      console.warn('[certification-watch] manual override rejected -- below floor', {
-        tab_key, email, pct, floor: MANUAL_OVERRIDE_FLOOR_PCT,
-      });
-      return NextResponse.json({
-        success: false,
-        error: 'Watch progress too low for manual override',
-        current: pct,
-        required: MANUAL_OVERRIDE_FLOOR_PCT,
-        path: 'manual_override',
-      }, { status: 403 });
-    }
-    if (mergedTotal > 0) {
-      const requiredElapsedMs = mergedTotal * MANUAL_OVERRIDE_TIME_FRACTION * 1000;
-      const actualElapsedMs   = nowMs - videoLoadAtMsForCheck;
-      if (actualElapsedMs < requiredElapsedMs) {
-        console.warn('[certification-watch] manual override rejected -- not enough time elapsed', {
-          tab_key, email, actualElapsedMs, requiredElapsedMs, mergedTotal,
-        });
-        return NextResponse.json({
-          success: false,
-          error: 'Not enough time has elapsed since you opened this video',
-          elapsedSec: Math.round(actualElapsedMs / 1000),
-          requiredSec: Math.round(requiredElapsedMs / 1000),
-          path: 'manual_override',
-        }, { status: 403 });
-      }
-    }
-  } else if (wantsCompleted) {
-    // Auto-threshold path. Refuse to flip this row to 'completed' when
-    // the stored watch percentage is still below threshold. The client
-    // tracker caps intervals by wall-clock elapsed time, and this check
-    // makes a tampered submit (status='completed' with fabricated
-    // values) bounce with 403.
-    const enforcement = await getWatchEnforcement(tab_key);
-    if (!canCompleteWith(enforcement, pct)) {
-      console.warn('[certification-watch] Completion rejected -- below threshold', {
-        tab_key, email, pct, threshold: enforcement.threshold,
-        mergedWatch, mergedTotal,
-      });
-      return NextResponse.json({
-        success: false,
-        error: 'Watch threshold not met',
-        current: pct,
-        required: enforcement.threshold,
-        path: 'threshold',
-      }, { status: 403 });
-    }
-  }
 
   console.log('[certification-watch] upsert', {
     tab_key, email, status: effectiveStatus, mergedWatch, mergedTotal, pct,
     intervalsProvided, intervalCount: mergedIntervals.length,
-    isManualOverride,
   });
 
   const record: Record<string, unknown> = {
@@ -292,9 +212,9 @@ export async function POST(req: NextRequest) {
   };
   if (typeof body.last_position === 'number') record.last_position = Math.max(0, Math.round(body.last_position));
   if (videoLoadAtToWrite !== null) record.video_load_at = videoLoadAtToWrite;
-  if (effectiveStatus === 'completed' && existing?.status !== 'completed') {
+  if (wantsCompleted) {
     record.completed_at = nowIso;
-    record.completed_via = isManualOverride ? 'manual' : 'threshold';
+    record.completed_via = 'threshold';
   }
   // On a detected video swap, clear the old completed_at so the row
   // doesn't present as "still completed" on the new video.

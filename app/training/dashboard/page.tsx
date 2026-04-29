@@ -151,8 +151,6 @@ export default function TrainingDashboardPage() {
   // certification watch history (tracks video watch status per session)
   const [certWatchCompleted, setCertWatchCompleted] = useState<Set<string>>(new Set());
   const [certWatchInProgress, setCertWatchInProgress] = useState<Set<string>>(new Set());
-  const [watchPctMap, setWatchPctMap] = useState<Map<string, number>>(new Map());
-  const [watchThreshold, setWatchThreshold] = useState<number>(70);
   // Model-submission gate (migration 148, Phase E.1). One status per course
   // code, fetched in parallel with the rest of the dashboard payload. Drives
   // the soft-launch banner, the Final Exam SessionCard lock, and the
@@ -338,13 +336,12 @@ export default function TrainingDashboardPage() {
         try { const r = await p; return await r.json() as T; } catch { return fallback; }
       };
 
-      const [json, detailsJson, notesJson, profileJson, certWatchJson, enforcementJson, modelGate3sfmJson, modelGateBvmJson] = await Promise.all([
+      const [json, detailsJson, notesJson, profileJson, certWatchJson, modelGate3sfmJson, modelGateBvmJson] = await Promise.all([
         safeJson(fetch(`/api/training/progress?${progressParams}`), { success: false } as { success: boolean; fallback?: boolean; data?: ProgressData }),
         safeJson(fetch('/api/training/course-details'), {} as { sessions?: { tabKey: string; sessionName: string; youtubeUrl: string; formUrl: string; videoDuration: number; isFinal: boolean; hasVideo: boolean }[]; courses?: CourseDescsMap; timerBypassed?: boolean }),
         safeJson(fetch(`/api/training/notes?registrationId=${encodeURIComponent(sess.registrationId)}`), {} as { notes?: { session_key: string; content: string }[] }),
         safeJson(fetch(`/api/training/profile?registrationId=${encodeURIComponent(sess.registrationId)}`), {} as { profile?: { job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; streak_days?: number; total_points?: number; display_name?: string; avatar_url?: string } | null }),
         safeJson(fetch(`/api/training/certification-watch?email=${encodeURIComponent(sess.email)}`), {} as { history?: { tab_key: string; status: string; watch_percentage?: number }[] }),
-        safeJson(fetch('/api/training/watch-enforcement'), {} as { threshold?: number }),
         safeJson(fetch('/api/training/model-submission?courseCode=3SFM'), {} as { status?: ModelSubmissionStatusResult }),
         safeJson(fetch('/api/training/model-submission?courseCode=BVM'),  {} as { status?: ModelSubmissionStatusResult }),
       ]);
@@ -364,18 +361,12 @@ export default function TrainingDashboardPage() {
       // Apply certification watch history
       const completed = new Set<string>();
       const inProg = new Set<string>();
-      const pctMap = new Map<string, number>();
       for (const h of certWatchJson.history ?? []) {
         if (h.status === 'completed') completed.add(h.tab_key);
         else if (h.status === 'in_progress') inProg.add(h.tab_key);
-        if (typeof h.watch_percentage === 'number') pctMap.set(h.tab_key, h.watch_percentage);
       }
       setCertWatchCompleted(completed);
       setCertWatchInProgress(inProg);
-      setWatchPctMap(pctMap);
-
-      // Apply watch enforcement threshold
-      if (typeof enforcementJson.threshold === 'number') setWatchThreshold(enforcementJson.threshold);
 
       // Apply profile + streak/points
       if (profileJson.profile) {
@@ -1629,8 +1620,6 @@ export default function TrainingDashboardPage() {
                 timerBypassed={timerBypassed}
                 completedWatchKeys={certWatchCompleted}
                 inProgressWatchKeys={certWatchInProgress}
-                watchPctMap={watchPctMap}
-                watchThreshold={watchThreshold}
                 modelGate={modelGateMap[(activeCourse === 'bvm' ? 'bvm' : displayCourse) === 'bvm' ? 'BVM' : '3SFM']}
                 onModelSubmitted={() => { if (localSession) void loadData(localSession, true); }}
               />

@@ -19,7 +19,6 @@ interface Props {
   registrationId: string;
   watch?: WatchHistoryEntry;
   attempt?: AttemptSummary | null;
-  watchThreshold?: number;
 }
 
 /**
@@ -35,7 +34,7 @@ interface Props {
  *     Assessment chip disappear, but Share/Card stay visible once watched
  */
 export function RecordedLiveSessionRow({
-  session, idx, studentEmail, studentName, registrationId, watch, attempt, watchThreshold = 70,
+  session, idx, studentEmail, studentName, registrationId, watch, attempt,
 }: Props) {
   const tabKey = `LIVE_${session.id}`;
   const [noteContent, setNoteContent] = useState('');
@@ -58,21 +57,11 @@ export function RecordedLiveSessionRow({
   }
 
   const hasAssessment = !!session.has_assessment;
-  const watchPct = Math.min(100, Math.max(0, Number(watch?.watch_percentage ?? 0)));
-  const watchCompleted = watch?.status === 'completed' || watchPct >= 100;
-  const watchMet = watchPct >= watchThreshold;
+  const watchCompleted = watch?.status === 'completed';
+  const watchInProgress = !watchCompleted && (watch?.status === 'in_progress');
 
   // Build SessionCard's `prog` from either the quiz attempt (if there's an
-  // assessment) or the watch record (if there isn't).
-  //
-  // Issue 2 fix: for non-assessment sessions we now treat EITHER
-  // watchMet OR watchCompleted as "passed". Previously only watchMet
-  // qualified — so a student who completed via Mark Complete under
-  // a per-session / admin bypass (pct below threshold but status
-  // flipped to 'completed') was denied the Share + Achievement Card
-  // buttons even though the server had accepted the completion.
-  // watchCompleted captures that case. For normal (non-bypass) students
-  // both flags fire together so behavior is unchanged.
+  // assessment) or the watch record (status='completed' only).
   const prog = hasAssessment
     ? (attempt && attempt.attempts > 0
         ? {
@@ -83,7 +72,7 @@ export function RecordedLiveSessionRow({
             completedAt: watch?.watched_at ?? null,
           }
         : undefined)
-    : ((watchCompleted || watchMet)
+    : (watchCompleted
         ? {
             sessionId: session.id,
             passed: true,
@@ -117,10 +106,8 @@ export function RecordedLiveSessionRow({
       onNoteSave={saveNote}
       feedbackGiven={true}
       onFeedbackRequest={() => {}}
-      isWatched={watchCompleted || watchMet}
-      isInProgress={!watchCompleted && watchPct > 0 && watchPct < watchThreshold}
-      watchPercentage={watchPct || undefined}
-      watchThreshold={watchThreshold}
+      isWatched={watchCompleted}
+      isInProgress={watchInProgress}
       courseName={courseName}
       studentName={studentName}
       // Live-session overrides:

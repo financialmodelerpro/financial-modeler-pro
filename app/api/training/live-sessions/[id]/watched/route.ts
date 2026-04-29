@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
-import { getWatchEnforcement, canCompleteWith } from '@/src/hubs/training/lib/watch/watchEnforcementCheck';
 import { detectVideoChange } from '@/src/hubs/training/lib/watch/detectVideoChange';
 import {
   hydrateIntervals,
@@ -20,17 +19,7 @@ interface WatchedPayload {
   total_seconds?: number;
   last_position?: number;
   watch_intervals?: unknown;
-  manual_override?: boolean;
 }
-
-/** Manual override floor (Phase 3, migration 147). Below this percentage
- *  the override path is closed regardless of how long the page was open. */
-const MANUAL_OVERRIDE_FLOOR_PCT = 50;
-
-/** Wall-clock fraction of the video duration that must elapse since
- *  video_load_at before the manual override path becomes available. 0.8
- *  means a 30-minute video requires the page open for ~24 minutes. */
-const MANUAL_OVERRIDE_TIME_FRACTION = 0.8;
 
 /**
  * POST /api/training/live-sessions/[id]/watched
@@ -40,21 +29,14 @@ const MANUAL_OVERRIDE_TIME_FRACTION = 0.8;
  *
  * Body:
  *   { email, regId, status?, watch_seconds?, total_seconds?, last_position?,
- *     watch_intervals?, manual_override? }
+ *     watch_intervals? }
  *
  * - `status` defaults to 'completed' for backwards compatibility with callers
  *   that just want to mark a recording watched (+50 points, awarded once).
  * - When `watch_intervals` is provided we union them with the existing JSONB
  *   column (migration 146) and recompute watch_seconds from the merged set.
- *   Legacy callers that omit intervals fall back to MAX(existing, incoming)
- *   on the scalar so stale updates never shrink the persisted progress.
- * - `video_load_at` is server-stamped on the FIRST progress POST per row
- *   (when null in the DB). Manual override uses (now - video_load_at) as
- *   its elapsed-time anchor.
- * - When `manual_override === true` is set on a status='completed' POST,
- *   the auto-threshold check is bypassed in favour of the override
- *   checks: pct >= 50 AND elapsed >= total_seconds * 0.8. Either fail
- *   bounces 403 and the row stays in_progress.
+ *   Used for analytics; Mark Complete itself is gated client-side on the
+ *   YouTube ENDED event.
  */
 export async function POST(
   req: NextRequest,
@@ -184,69 +166,11 @@ export async function POST(
       if (existing?.video_load_at) return null;
       return nowIso;
     })();
-    const videoLoadAtMsForCheck = existing?.video_load_at
-      ? new Date(existing.video_load_at).getTime()
-      : nowMs;
-
-    const wantsCompleted = status === 'completed' && existing?.status !== 'completed';
-    const isManualOverride = body.manual_override === true && wantsCompleted;
-
-    // Manual override path. Two independent checks, both required to pass.
-    if (isManualOverride) {
-      if (pct < MANUAL_OVERRIDE_FLOOR_PCT) {
-        console.warn('[watched] manual override rejected -- below floor', {
-          session_id: id, email, pct, floor: MANUAL_OVERRIDE_FLOOR_PCT,
-        });
-        return NextResponse.json({
-          success: false,
-          error: 'Watch progress too low for manual override',
-          current: pct,
-          required: MANUAL_OVERRIDE_FLOOR_PCT,
-          path: 'manual_override',
-        }, { status: 403 });
-      }
-      if (mergedTotalSec > 0) {
-        const requiredElapsedMs = mergedTotalSec * MANUAL_OVERRIDE_TIME_FRACTION * 1000;
-        const actualElapsedMs   = nowMs - videoLoadAtMsForCheck;
-        if (actualElapsedMs < requiredElapsedMs) {
-          console.warn('[watched] manual override rejected -- not enough time elapsed', {
-            session_id: id, email, actualElapsedMs, requiredElapsedMs, mergedTotalSec,
-          });
-          return NextResponse.json({
-            success: false,
-            error: 'Not enough time has elapsed since you opened this video',
-            elapsedSec: Math.round(actualElapsedMs / 1000),
-            requiredSec: Math.round(requiredElapsedMs / 1000),
-            path: 'manual_override',
-          }, { status: 403 });
-        }
-      }
-    } else if (wantsCompleted) {
-      // Auto-threshold path. Reject when the stored watch percentage is
-      // still below threshold. Belt and braces -- the client tracker
-      // caps intervals by wall-clock, this rejects a tampered submit.
-      const enforcement = await getWatchEnforcement(`LIVE_${id}`);
-      if (!canCompleteWith(enforcement, pct)) {
-        console.warn('[watched] Completion rejected -- below threshold', {
-          session_id: id, email, pct, threshold: enforcement.threshold,
-          mergedWatchSec, mergedTotalSec, incomingWatchSec, incomingTotalSec,
-        });
-        return NextResponse.json({
-          success: false,
-          error: 'Watch threshold not met',
-          current: pct,
-          required: enforcement.threshold,
-          path: 'threshold',
-        }, { status: 403 });
-      }
-    }
-
     console.log('[watched] upsert', {
       session_id: id, email, status,
       mergedStatus: existing?.status === 'completed' || status === 'completed' ? 'completed' : 'in_progress',
       mergedWatchSec, mergedTotalSec, pct,
       intervalsProvided, intervalCount: mergedIntervals.length,
-      isManualOverride,
     });
 
     // Once completed, stay completed -- progress ticks shouldn't demote.
@@ -278,7 +202,7 @@ export async function POST(
       upsertRow.watched_at = nowIso;
     }
     if (mergedStatus === 'completed' && existing?.status !== 'completed') {
-      upsertRow.completed_via = isManualOverride ? 'manual' : 'threshold';
+      upsertRow.completed_via = 'threshold';
     }
     // Video-swap reset: clear the legacy completion timestamp + points
     // flag so the new video's completion re-awards cleanly.

@@ -44,10 +44,6 @@ export interface SessionCardProps {
   isWatched?: boolean;
   /** Video is in progress (from certification_watch_history) */
   isInProgress?: boolean;
-  /** Actual watched percentage (0-100) from interval-merged tracker */
-  watchPercentage?: number;
-  /** Threshold to unlock assessment/Mark Complete */
-  watchThreshold?: number;
   /** Course name for share context */
   courseName?: string;
   /** Student name for achievement card */
@@ -81,7 +77,7 @@ export function SessionCard({
   sessionTitle, sessionId, maxAttempts, questionCount, passingScore,
   idx, prog, locked, ytUrl, isFinal, passedCount, regularCount,
   tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
-  bvmLocked, watchLocked, timerBypassed, courseId, isWatched, isInProgress, watchPercentage, watchThreshold, courseName, studentName,
+  bvmLocked, watchLocked, timerBypassed, courseId, isWatched, isInProgress, courseName, studentName,
   watchHref, assessmentHref, hideAssessment, hideNotes, labelOverride,
   hasAssessment, durationMinutes, lockReason,
 }: SessionCardProps) {

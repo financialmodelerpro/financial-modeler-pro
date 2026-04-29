@@ -60,10 +60,6 @@ export interface CourseContentProps {
   completedWatchKeys?: Set<string>;
   /** Tab keys where video is in progress */
   inProgressWatchKeys?: Set<string>;
-  /** Watched percentage per tab_key, for the per-session progress bar */
-  watchPctMap?: Map<string, number>;
-  /** Threshold from training_settings (default 70) */
-  watchThreshold?: number;
   /** Model-submission gate snapshot for this course (migration 148, Phase E).
    * Drives the soft-launch banner, the Final Exam SessionCard lock copy,
    * and the Exam-Prep-Mode replacement panel. Null when the dashboard has
@@ -74,7 +70,7 @@ export interface CourseContentProps {
   onModelSubmitted?: () => void;
 }
 
-export function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating, studentName, studentEmail, onShare, testimonialSubmitted, onOpenTestimonial, notes, onNoteSave, feedbackGiven, onFeedbackRequest, bvmLocked, sfmProgress = 0, sfmTotal = 0, onSwitchTo3sfm, timerBypassed, completedWatchKeys, inProgressWatchKeys, watchPctMap, watchThreshold, modelGate, onModelSubmitted }: CourseContentProps) {
+export function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating, studentName, studentEmail, onShare, testimonialSubmitted, onOpenTestimonial, notes, onNoteSave, feedbackGiven, onFeedbackRequest, bvmLocked, sfmProgress = 0, sfmTotal = 0, onSwitchTo3sfm, timerBypassed, completedWatchKeys, inProgressWatchKeys, modelGate, onModelSubmitted }: CourseContentProps) {
   const course = COURSES[courseId];
   if (!course) return null;
 
@@ -426,8 +422,6 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
               courseId={courseId}
               isWatched={completedWatchKeys?.has(tk)}
               isInProgress={inProgressWatchKeys?.has(tk)}
-              watchPercentage={watchPctMap?.get(tk)}
-              watchThreshold={watchThreshold}
               courseName={course.title}
               studentName={studentName}
               lockReason={isFinalRow && gateBlocksFinal ? finalLockReason : undefined}
