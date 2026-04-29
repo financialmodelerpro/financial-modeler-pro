@@ -43,7 +43,7 @@ export default async function ModelingRegisterPage({ searchParams }: PageProps) 
   // Soon" while their JWT is perfectly valid.
   const session = await getServerSession(authOptions);
   if (session?.user) {
-    redirect('/portal');
+    redirect('/modeling/dashboard');
   }
 
   if (!state.enabled) {

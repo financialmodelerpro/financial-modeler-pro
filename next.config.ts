@@ -197,20 +197,6 @@ const nextConfig: NextConfig = {
         has: [{ type: 'host' as const, value: MAIN_HOST_RE }],
       },
 
-      // Main domain → app. for /signin (Modeling Hub auth host).
-      // Restores the post-signin /portal → /signin chain when a session
-      // expires: /portal is served on main (it's in MAIN_PATHS), so the
-      // unauth handler's `router.replace('/signin')` resolves to main —
-      // which has no /signin route and 404s without this rule. 307
-      // (temporary) so the destination can change without long-lived
-      // browser cache. Host regex matches both apex and www.
-      {
-        source: '/signin',
-        destination: `${APP_URL}/signin`,
-        permanent: false,
-        has: [{ type: 'host' as const, value: MAIN_HOST_RE }],
-      },
-
       // Main domain → app. for /refm/* and /modeling/*
       {
         source: '/refm/:path*',

@@ -34,7 +34,6 @@ export default function robots(): MetadataRoute.Robots {
           '/training/submit-testimonial',
           '/training/coming-soon',
           '/modeling/dashboard',
-          '/portal',
           '/modeling/signin',
           '/modeling/register',
           '/modeling/confirm-email',

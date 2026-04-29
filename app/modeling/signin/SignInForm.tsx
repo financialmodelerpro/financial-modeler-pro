@@ -29,7 +29,7 @@ const labelStyle: React.CSSProperties = {
 function ModelingSignInInner() {
   const router       = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl  = searchParams.get('callbackUrl') ?? '/portal';
+  const callbackUrl  = searchParams.get('callbackUrl') ?? '/modeling/dashboard';
 
   const [mode,     setMode]     = useState<Mode>((searchParams.get('tab') === 'signup' || searchParams.get('tab') === 'register') ? 'signup' : 'signin');
   const [name,     setName]     = useState('');

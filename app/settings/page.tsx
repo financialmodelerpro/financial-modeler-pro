@@ -205,7 +205,7 @@ export default function SettingsPage() {
           Settings
         </span>
         <div style={{ flex: 1 }} />
-        <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/portal`} style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, textDecoration: 'none', marginRight: 8 }}>← Modeling Hub</a>
+        <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/modeling/dashboard`} style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, textDecoration: 'none', marginRight: 8 }}>← Modeling Hub</a>
         <a href="/"       style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, textDecoration: 'none', marginRight: 16 }}>← Portal</a>
         <button
           onClick={async () => { setSigningOut(true); await signOut({ callbackUrl: '/' }); }}
