@@ -24,6 +24,8 @@ interface TopbarProps {
   onOpenVersions: () => void;
   onOpenRbac: () => void;
   onExportClick?: () => void;
+  darkMode: boolean;
+  onToggleDark: () => void;
 }
 
 // ── Quick Colour Panel ────────────────────────────────────────────────────────
@@ -101,6 +103,7 @@ export default function Topbar({
   currentUserRole, can,
   onSave, onOpenProjects, onOpenVersions, onOpenRbac,
   onExportClick,
+  darkMode, onToggleDark,
 }: TopbarProps) {
   const roleMeta = ROLE_META[currentUserRole];
   const branding = useBrandingStore((s) => s.branding);
@@ -246,6 +249,17 @@ export default function Topbar({
       <Link href="/settings" className="portal-back-btn" title="Settings">
         ⚙️
       </Link>
+
+      {/* Dark mode toggle — flips REFM workspace palette only */}
+      <button
+        type="button"
+        onClick={onToggleDark}
+        className="portal-back-btn"
+        title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+        aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+      >
+        {darkMode ? '☀️' : '🌙'}
+      </button>
 
       {/* Hub link — back to Modeling Hub sidebar landing */}
       <Link href="/modeling/dashboard" className="portal-back-btn" title="Back to Modeling Hub">

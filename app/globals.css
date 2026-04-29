@@ -1165,3 +1165,42 @@ thead th:first-child { border-radius: 0; }
 .fmp-cms-content:not(.fmp-rich-text) > p { margin: 0 0 14px; }
 .fmp-cms-content:not(.fmp-rich-text) > p:last-child { margin-bottom: 0; }
 
+/* ════════════════════════════════════════════════════
+   REFM Dark Mode (workspace-scoped)
+   `body[data-refm-theme="dark"]` is set by RealEstatePlatform.tsx on mount
+   when the user has toggled dark mode. The attribute is removed on unmount
+   so admin pages and Training Hub never see these overrides.
+   The toolbar (.pm-toolbar) sits OUTSIDE .app-shell and intentionally keeps
+   its default tokens — it is already a dark navy bar in light mode and reads
+   correctly against both themes. Only the workspace inner (.app-shell and
+   its descendants) flips palette.
+════════════════════════════════════════════════════ */
+body[data-refm-theme="dark"] {
+    --color-bg: #0F1419;
+}
+body[data-refm-theme="dark"] .app-shell {
+    --color-bg:           #0F1419;
+    --color-surface:      #1A222F;
+    --color-grey-white:   #1A222F;
+    --color-grey-pale:    #1F2A3A;
+    --color-border:       #2A3543;
+    --color-border-light: #2A3543;
+    --color-muted:        #94A3B8;
+    --color-meta:         #94A3B8;
+    --color-body:         #D1D5DB;
+    --color-grey-dark:    #D1D5DB;
+    --color-heading:      #F1F5F9;
+    --color-row-alt:      #1F2A3A;
+    --color-row-hover:    #243246;
+    --color-input-bg:     #2D2C1F;
+    --color-warning-bg:   #2D2C1F;
+    --color-warning-text: #F1F5F9;
+    --color-navy-light:   #243246;
+    --color-navy-pale:    #1F2A3A;
+    --shadow-1:           0 4px 12px rgba(0,0,0,0.4);
+    --shadow-2:           0 6px 16px rgba(0,0,0,0.5);
+    --shadow-hover:       0 4px 10px rgba(0,0,0,0.45);
+    background: var(--color-bg);
+    color: var(--color-body);
+}
+

@@ -262,6 +262,43 @@ export default function RealEstatePlatform() {
     return () => document.body.classList.remove('refm-active');
   }, []);
 
+  // ── Dark mode (workspace-scoped) ──
+  // Theme intent is independent of the Modeling Hub sidebar layout, so we
+  // use a separate localStorage key (`refmDarkMode`) from the hub's
+  // `modelingDarkMode`. A user may want a dark workspace for sustained
+  // modeling sessions while keeping the hub light, or vice versa.
+  const [darkMode, setDarkMode] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const stored = localStorage.getItem('refmDarkMode');
+    if (stored === 'true' || stored === 'false') {
+      setDarkMode(stored === 'true');
+    } else if (window.matchMedia?.('(prefers-color-scheme: dark)').matches) {
+      setDarkMode(true);
+    }
+  }, []);
+
+  // Sync the data attribute on <body>. Theme overrides in globals.css are
+  // scoped to `body[data-refm-theme="dark"]` so admin and Training Hub get
+  // zero leakage — the attribute exists only while RealEstatePlatform is
+  // mounted and is removed on unmount.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    document.body.dataset.refmTheme = darkMode ? 'dark' : 'light';
+    return () => { delete document.body.dataset.refmTheme; };
+  }, [darkMode]);
+
+  const toggleDarkMode = useCallback(() => {
+    setDarkMode(prev => {
+      const next = !prev;
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('refmDarkMode', String(next));
+      }
+      return next;
+    });
+  }, []);
+
   // ── Toast auto-dismiss ──
   useEffect(() => {
     if (pmToast) {
@@ -1315,6 +1352,8 @@ export default function RealEstatePlatform() {
         onOpenVersions={() => setPmModal('version')}
         onOpenRbac={() => { setRbacSelectedRole(currentUserRole); setRbacModalOpen(true); }}
         onExportClick={() => setExportModalOpen(true)}
+        darkMode={darkMode}
+        onToggleDark={toggleDarkMode}
       />
 
       <div className="app-shell">
