@@ -21,9 +21,9 @@ export default async function ModelingSignInPage() {
   if (session?.user) {
     const role  = (session.user as { role?: string }).role;
     const email = session.user.email ?? null;
-    if (role === 'admin') redirect('/modeling/dashboard');
-    if (!state.enabled) redirect('/modeling/dashboard');
-    if (email && await isEmailWhitelisted(email)) redirect('/modeling/dashboard');
+    if (role === 'admin') redirect('/portal');
+    if (!state.enabled) redirect('/portal');
+    if (email && await isEmailWhitelisted(email)) redirect('/portal');
   }
 
   if (state.enabled) {
