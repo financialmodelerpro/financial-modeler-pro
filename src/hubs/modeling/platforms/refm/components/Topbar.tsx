@@ -7,7 +7,7 @@ import type { Role } from '@/src/core/types/settings.types';
 import type { PermissionMap } from '@/src/core/types/settings.types';
 import { ROLE_META } from '@/src/core/state';
 import { useBrandingStore } from '@/src/core/state';
-import { getPlatformLogo } from '@/src/core/branding';
+import { getPlatformLogo, DEFAULT_BRANDING } from '@/src/core/branding';
 import OfficeColorPicker from '@/src/shared/components/ui/OfficeColorPicker';
 import type { StorageProject } from './RealEstatePlatform';
 
@@ -57,9 +57,9 @@ function QuickColorPanel({
         position: 'fixed', zIndex: 999999,
         top, left, width: panelW,
         background: 'var(--color-grey-white)',
-        border: '1px solid #D0D0D0',
+        border: '1px solid var(--color-border)',
         borderRadius: 8,
-        boxShadow: '0 8px 32px rgba(0,0,0,0.22)',
+        boxShadow: '0 8px 32px color-mix(in srgb, var(--color-heading) 22%, transparent)',
         padding: '12px 14px 14px',
         fontFamily: 'Inter, sans-serif',
       }}
@@ -72,7 +72,7 @@ function QuickColorPanel({
         <OfficeColorPicker
           label="Primary Colour"
           desc="Buttons, active states, sidebar accents"
-          value={branding.primaryColor || '#1B4F8A'}
+          value={branding.primaryColor || DEFAULT_BRANDING.primaryColor}
           onChange={(hex) => {
             if (hex) updateField('primaryColor', hex);
           }}
@@ -82,13 +82,13 @@ function QuickColorPanel({
       <OfficeColorPicker
         label="Secondary / Accent"
         desc="Charts, highlights, badges"
-        value={branding.secondaryColor || '#2EAA4A'}
+        value={branding.secondaryColor || DEFAULT_BRANDING.secondaryColor}
         onChange={(hex) => {
           if (hex) updateField('secondaryColor', hex);
         }}
       />
 
-      <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid #F0F0F0', fontSize: 10, color: 'var(--color-muted)' }}>
+      <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--color-border-light)', fontSize: 10, color: 'var(--color-muted)' }}>
         Changes apply instantly across the platform.
       </div>
     </div>
@@ -174,12 +174,16 @@ export default function Topbar({
       {hasUnsaved && (
         <span style={{
           width: '7px', height: '7px', borderRadius: '50%',
-          background: '#f59e0b', flexShrink: 0,
-          boxShadow: '0 0 6px rgba(245,158,11,0.7)',
+          background: 'var(--color-input-border)', flexShrink: 0,
+          boxShadow: '0 0 6px color-mix(in srgb, var(--color-input-border) 70%, transparent)',
         }} title="Unsaved changes" />
       )}
       {lastSavedAt && !hasUnsaved && (
-        <span style={{ fontSize: '10px', color: 'rgba(255,255,255,0.4)', flexShrink: 0 }}>
+        <span style={{
+          fontSize: '10px',
+          color: 'color-mix(in srgb, var(--color-on-primary-navy) 40%, transparent)',
+          flexShrink: 0,
+        }}>
           Saved {lastSavedAt}
         </span>
       )}
@@ -193,7 +197,7 @@ export default function Topbar({
           {hasUnsaved && (
             <span style={{
               width: '6px', height: '6px', borderRadius: '50%',
-              background: '#fbbf24', marginLeft: '4px', display: 'inline-block',
+              background: 'var(--color-input-border)', marginLeft: '4px', display: 'inline-block',
             }} />
           )}
         </button>
@@ -217,8 +221,12 @@ export default function Topbar({
             onClick={handleColorBtn}
             title="Platform colour picker"
             style={{
-              border: colorPanelOpen ? '1.5px solid #0078D4' : '1.5px solid rgba(255,255,255,0.15)',
-              background: colorPanelOpen ? 'rgba(0,120,212,0.15)' : 'transparent',
+              border: colorPanelOpen
+                ? '1.5px solid var(--color-primary)'
+                : '1.5px solid color-mix(in srgb, var(--color-on-primary-navy) 15%, transparent)',
+              background: colorPanelOpen
+                ? 'color-mix(in srgb, var(--color-primary) 15%, transparent)'
+                : 'transparent',
               padding: '4px 9px',
               transition: 'border-color 0.15s, background 0.15s',
             }}
@@ -271,7 +279,10 @@ export default function Topbar({
         onClick={() => signOut({ callbackUrl: '/' })}
         className="portal-back-btn"
         title="Sign out"
-        style={{ border: '1px solid rgba(239,68,68,0.4)', color: '#fca5a5' }}
+        style={{
+          border: '1px solid color-mix(in srgb, var(--color-negative) 40%, transparent)',
+          color: 'var(--color-negative)',
+        }}
       >
         Sign Out
       </button>
