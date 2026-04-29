@@ -14,6 +14,29 @@ Use this file to resume development in a new chat session. Read `CLAUDE.md` firs
 
 ---
 
+## Certificate credibility upgrade — model-submission gate (complete, 2026-04-29; gate dormant)
+
+Migration 148 plus six rollout phases (A → F.4) shipped during the 2026-04-29 session. The full code path is in production but the gate is **dormant**: every per-course `model_submission_required_<course>` flag in `training_settings` ships `'false'`, so until admin flips one, the system behaves exactly like the pre-migration platform.
+
+**Manual cutover procedure:**
+
+1. **Apply migration 148** via the Supabase dashboard (idempotent — re-runs are no-ops). This creates the `model_submissions` table, the private `model-submissions` storage bucket, and seeds 7 settings rows.
+2. **Configure Phase F.1 admin alerts** at `/admin/training-settings` → Model Submission Gate → "📧 New-submission email alerts": enter the recipient email, leave the Alerts toggle ON, click Save. Empty recipient = alerts off (documented).
+3. **Populate Phase F.2 guidance** in the same card → "📝 Per-course guidance + sample template": write what students should build for 3SFM and BVM, paste optional sample-template URLs (Supabase storage, Drive, GitHub — anything `https://`). Save each course independently. The student card backs out to a baked default if guidance is empty.
+4. **Broadcast the existing-student notice** via `npx tsx --env-file=.env.local scripts/model_submission_notice_broadcast.ts --scope all --dry-run` (preview), then drop `--dry-run` to send. Per-scope idempotency stamps in `training_settings` prevent duplicate sends; use `--force` only after investigating a partial-failure run.
+5. **Wait the configured notice period** (`model_submission_notice_days`, default 7) so students have time to start building.
+6. **Flip the per-course gate** at `/admin/training-settings` → Model Submission Gate. Toggle `Require Model for 3SFM` and/or `Require Model for BVM` ON. The confirm dialog explains the immediate effect (Final Exam SessionCard switches to a "Submit your model" lock for every student who has not yet sat the Final Exam). Each flip is captured in `admin_audit_log` with action `model_submission_gate_change` + before/after values.
+7. **Optionally flip `Announcement Only` OFF** once enforcement is live so the soft-launch banner stops showing alongside the live upload UI.
+
+**Daily operations:**
+- Reviews land in the queue at `/admin/training-hub/model-submissions`. Status / course / search filters + paginated list. Each row opens a modal with student details, file preview iframe, reviewer-note textarea, and Approve / Reject actions.
+- The 08:00 UTC stale-submission cron at `/api/cron/model-submission-stale` emails a digest to the F.1 recipient when any pending submission has been waiting longer than `model_submission_stale_threshold_days` (default 2). Reuses the F.1 enable + recipient settings.
+- Force-issue from `/admin/training-hub/certificates` continues to bypass the gate as the documented admin escape hatch (the cert engine respects `options.force=true`).
+
+**Rolling back:** to disable the gate after enabling it, flip `model_submission_required_<course>` back to `'false'` via the admin UI. Already-pending rows stay in the queue and remain reviewable, but they no longer block the Final Exam. To remove the feature entirely, drop the table and bucket via a new migration (data + uploaded files are lost) — schema-only re-introduction is just re-applying migration 148.
+
+---
+
 ## 8-phase folder restructure (complete, 2026-04-29)
 
 Phases 2.1–2.8 of `RESTRUCTURE_PLAN.md` shipped as separate commits, each independently revertable, with `npm run verify` (type-check + lint + build) green between every step.

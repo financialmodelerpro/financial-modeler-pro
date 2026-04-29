@@ -81,6 +81,7 @@ app/admin/
 │   + cohorts/ + communications/page.tsx (5-line redirect -> /admin/communications-hub?tab=campaigns) + course-details/ + students/ + instructors/
 │   + share-templates/page.tsx (5-line redirect -> /admin/communications-hub?tab=share-templates)
 │   + daily-roundup/            # Daily certifications roundup: date picker + per-student checklist + live preview + Share Roundup via ShareModal (migration 117 template)
+│   + model-submissions/        # Model-submission review queue (migration 148): admin-only list with status / course / search filters, pagination, "View File" iframe modal in the review dialog (admin proxy at /api/admin/model-submissions/[id]/file streams from the private bucket), Approve / Reject actions with reviewer note. Sidebar entry "Model Submissions" 📥 in CmsAdminNav.
 │   + marketing-studio/         # Training Hub Marketing Studio (rebuild 2026-04-24, migration 142; multi-instructor + drag-resize follow-up commit b0823b9): page.tsx tab shell + LinkedInBannerStudio.tsx (3 variants) + LiveSessionBannerStudio.tsx (auto-fills from live_sessions incl. instructor_id) + YouTubeThumbnailStudio.tsx + ArticleBannerStudio.tsx (auto-fills from articles) + AssetLibrary.tsx (uploads) + studio-shared.tsx (shared primitives incl. useAutoRender 350ms-debounce hook) + InstructorPicker.tsx (multi-select checklist with photo thumbs, name, title, default badge, selection-rank chips) + LayoutEditor.tsx (drag-and-resize zone overlay on the server PNG; move = drag box, resize = drag right edge / bottom edge / SE corner)
 ├── training-settings/page.tsx
 ├── transcript-editor/page.tsx     # 5-line redirect -> /admin/certificate-designer?tab=transcript (consolidated 2026-04-24)
@@ -218,7 +219,8 @@ app/api/training/
 ├── watch-enforcement/             # GET: {enabled, threshold, sessionBypass[tabKey], isAdmin} — powers watch page gating
 ├── youtube-comments/              # GET: cached YouTube comments (24h DB cache via youtube_comments_cache)
 ├── achievement-image/route.tsx    # GET: dynamic OG achievement card image (satori ImageResponse, sharp SVG→PNG logo)
-└── tour-status/route.ts           # POST: toggle training_registrations_meta.tour_completed — one-shot dashboard walkthrough (migration 120)
+├── tour-status/route.ts           # POST: toggle training_registrations_meta.tour_completed — one-shot dashboard walkthrough (migration 120)
+└── model-submission/              # GET ?courseCode=3SFM|BVM → ModelSubmissionStatusResult for the dashboard card. POST FormData (file, courseCode, studentNotes?) uploads a model to the private model-submissions bucket and inserts a model_submissions row with status='pending_review'. Validates: auth via training_session cookie, courseCode normalization, gate-on check, one-pending guard (409), attempts cap (403), file extension allow-list, MIME detection, file size cap (clamped 1-50 MB via training_settings). On success: fires fire-and-forget admin alert email via next/server `after()` (Phase F.1, gated by model_submission_admin_notify_enabled + model_submission_admin_notify_email). Migration 148.
 ```
 
 ### Admin
@@ -237,6 +239,10 @@ app/api/admin/
 ├── certificates/check-eligibility/ # POST { email, courseCode } → full EligibilityResult (passedSessions, missingSessions, watchThresholdMet, reason)
 ├── certificates/force-issue/    # POST { email, courseCode, nameOverride?, regIdOverride? } — bypasses watch threshold; records issued_via='forced' + issued_by_admin
 ├── certificates/resend-email/   # POST { certificateId } — rebuilds + resends certificateIssuedTemplate and stamps student_certificates.email_sent_at
+├── model-submissions/                # GET: list + filter (status / course / search) + paginated; admin queue at /admin/training-hub/model-submissions (migration 148)
+├── model-submissions/[id]/review/    # POST { decision: 'approve' | 'reject', reviewNote }: writes review + audit log + fires modelSubmissionApproved/Rejected email
+├── model-submissions/[id]/file/      # GET: admin-only proxy that streams the upload from the private model-submissions bucket so the bucket can stay private
+├── training-settings/model-submission-gate/ # POST { key, value }: audit-logged write for the 3 gate flags. Admin-only. Writes admin_audit_log action='model_submission_gate_change' with before/after values. Other gate-related K/V pairs (notify settings, guidance, sample URL) go through the generic /api/admin/training-settings endpoint.
 ├── share-templates/             # GET: list all templates + merged ShareSettings (admin editor)
 ├── share-templates/[key]/       # PATCH: update single template (title/template_text/hashtags/mention_brand/mention_founder/active)
 ├── share-templates/settings/    # PATCH: brand_mention / founder_mention / brand_prefix_at / founder_prefix_at — strips leading @ on mention inputs, re-reads full settings after write
@@ -307,6 +313,7 @@ app/api/
 # cron/session-reminders — per-registration reminder flag model (migration 122): reads session_registrations.reminder_{24h,1h}_sent; CRON_SECRET bearer auth.
 # cron/auto-launch-check — (disabled UI) flips {hub}_coming_soon='false' + one-shot auto_launch='false' when launch_date <= now(). Gated by AUTO_LAUNCH_UI_ENABLED=false in LaunchStatusCard; Vercel Hobby only supports daily crons so vercel.json entry was rolled back.
 # cron/newsletter-scheduled — NEW 2026-04-27. CRON_SECRET bearer auth. Polls newsletter_campaigns WHERE status='scheduled' AND scheduled_at <= now() (limit 20/tick); for each, calls sendCampaign() with the stored subject/body/target_hub/segment. Per-campaign try/catch flips a single failure to status='failed' without aborting the rest of the batch. vercel.json schedule: daily at 07:00 UTC (Hobby tier limit; finer cadence requires Pro). Reuses CRON_SECRET — no new env var.
+# cron/model-submission-stale — NEW 2026-04-29 (Phase F.3). CRON_SECRET bearer auth. Polls model_submissions WHERE status='pending_review' AND submitted_at <= now() - INTERVAL <model_submission_stale_threshold_days> (default 2 days, capped 1-30) and emails a digest to model_submission_admin_notify_email. Reuses the F.1 enable + recipient settings (no separate kill-switch). Skips silently when the toggle is off, recipient empty, or the queue is clean. No per-row "reminder_sent" flag — daily until handled is the posture. vercel.json schedule: daily at 08:00 UTC.
 ├── export/excel/ + pdf/
 ├── health/ modeling/submit-testimonial/
 ├── permissions/ projects/ qr/
