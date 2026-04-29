@@ -215,8 +215,8 @@ app/api/training/
 ├── live-sessions/[id]/watched/    # GET (status) + POST. POST accepts watch_seconds/total_seconds/last_position/watch_intervals/manual_override. Server unions incoming + existing JSONB watch_intervals (mig 146) and recomputes watch_seconds from the merged set with a wall-clock rate limit on the new portion. Stamps video_load_at on first POST (mig 147), stamps completed_via on flip to completed ('threshold' or 'manual'). Manual override path requires pct >= 50 AND elapsed >= total_seconds * 0.8; 403 with diagnostics on either fail. Awards 50 points on first transition to completed.
 ├── live-sessions/registration-status-batch/ # POST: batch status
 ├── watch-history/                 # GET: student watch history (session_watch_history rows)
-├── certification-watch/           # GET (returns rows with watch_intervals JSONB so the player can hydrate the tracker on mount) + POST. POST body: { student_email, tab_key, course_id, status, watch_seconds?, total_seconds?, last_position?, watch_intervals?, manual_override? }. Server unions incoming + existing JSONB watch_intervals (mig 146) and recomputes watch_seconds from the merged set with a wall-clock rate limit on the new portion. Legacy callers without intervals fall back to MAX(existing, incoming) on the scalar. Stamps video_load_at on first POST (mig 147). On flip to completed: completed_via='threshold' for the auto path (pct >= watch_enforcement_threshold) or 'manual' for the override path (manual_override=true with pct >= 50 AND wall-clock elapsed >= total_seconds * 0.8). 403 with diagnostic info on either gate fail. Video swap auto-detection resets intervals + clears completed_via.
-├── watch-enforcement/             # GET: {enabled, threshold, sessionBypass[tabKey], isAdmin} — powers watch page gating
+├── certification-watch/           # GET (returns rows with watch_intervals JSONB so the player can hydrate the tracker on mount) + POST. POST body: { student_email, tab_key, course_id, status, watch_seconds?, total_seconds?, last_position?, watch_intervals? }. Server unions incoming + existing JSONB watch_intervals (mig 146) and recomputes watch_seconds from the merged set with a wall-clock rate limit on the new portion. Legacy callers without intervals fall back to MAX(existing, incoming) on the scalar. Stamps video_load_at on first POST. On flip to completed: completed_via='threshold' (legacy column kept). Video swap auto-detection resets intervals + clears completed_via. (Threshold + manual_override gates removed 2026-04-29 with watch enforcement.)
+# DELETED 2026-04-29: watch-enforcement/ — global watch-threshold gate retired
 ├── youtube-comments/              # GET: cached YouTube comments (24h DB cache via youtube_comments_cache)
 ├── achievement-image/route.tsx    # GET: dynamic OG achievement card image (satori ImageResponse, sharp SVG→PNG logo)
 ├── tour-status/route.ts           # POST: toggle training_registrations_meta.tour_completed — one-shot dashboard walkthrough (migration 120)
@@ -236,7 +236,7 @@ app/api/admin/
 ├── certificates/by-date/        # GET ?date=YYYY-MM-DD → every cert_status='Issued' row for the UTC calendar day (powers Daily Roundup admin page)
 ├── certificates/pending/        # GET: eligible-but-not-issued list (powers safety-net panel on /admin/training-hub/certificates)
 ├── certificates/issue-pending/  # POST { email, courseCode } | { all: true } — single-student or bulk issue via issueCertificateForStudent; idempotent via pre-check + unique index
-├── certificates/check-eligibility/ # POST { email, courseCode } → full EligibilityResult (passedSessions, missingSessions, watchThresholdMet, reason)
+├── certificates/check-eligibility/ # POST { email, courseCode } → full EligibilityResult (passedSessions, missingSessions, reason). watchThresholdMet/watchDetails dropped 2026-04-29 with watch enforcement.
 ├── certificates/force-issue/    # POST { email, courseCode, nameOverride?, regIdOverride? } — bypasses watch threshold; records issued_via='forced' + issued_by_admin
 ├── certificates/resend-email/   # POST { certificateId } — rebuilds + resends certificateIssuedTemplate and stamps student_certificates.email_sent_at
 ├── model-submissions/                # GET: list + filter (status / course / search) + paginated; admin queue at /admin/training-hub/model-submissions (migration 148)
@@ -288,7 +288,7 @@ app/api/admin/
 ├── training-hub/marketing-studio/instructors/    # GET: every active instructor row (active=true ordered by display_order). Powers the multi-select InstructorPicker (added 2026-04-24, commit b0823b9).
 ├── training-hub/marketing-studio/uploads/        # GET (list) + POST (upload PNG/JPEG/WebP, max 10 MB) — writes to marketing-assets bucket + marketing_uploaded_assets table
 ├── training-hub/marketing-studio/uploads/[id]/   # PATCH (rename) + DELETE (storage + DB cleanup in lockstep)
-├── watch-enforcement-stats/             # GET: distinct tab_keys in certification_watch_history + per-key stats (for admin dynamic session list)
+# DELETED 2026-04-29: watch-enforcement-stats/ — admin Watch Enforcement card retired
 ├── sessions/[tabKey]/reset-watch-progress/ # POST: admin-only nuclear reset — deletes every watch-history row for the session. Routes by prefix: LIVE_<uuid> → session_watch_history; else → certification_watch_history (tab_key match). Paired with red buttons in both session editors. (2026-04-21)
 ├── sessions/[tabKey]/force-complete-for-student/ # POST { email, reason }: admin-only per-student force-unlock. Mirrors reset-watch-progress's prefix routing (LIVE_ vs cert). Flips status='completed' + completed_via='admin_override' + completed_at=now (cert) / watched_at=now (live), clamps watch_percentage to the row's actual coverage, awards +50 points on live-session rows that hadn't received them. Idempotent: returns alreadyCompleted=true on already-done rows without overwriting honest 'threshold'/'manual' provenance. Writes to admin_audit_log with action='watch_force_complete' + previous state + reason. Phase 4 / migration 147. Surfaced via Force Unlock buttons in the Progress modal on /admin/training-hub/students.
 ├── generate-images/             # POST: satori+sharp generate mission/vision PNGs → Supabase
@@ -458,7 +458,7 @@ src/hubs/training/
 │   ├── StudentNotes.tsx              # Per-session student notes with bold/bullet toolbar + auto-save
 │   ├── SubscribeModal.tsx            # YouTube subscribe modal
 │   ├── TrainingShell.tsx             # Shared layout (header + sidebar + footer + mobile nav + CMS logo)
-│   ├── WatchProgressBar.tsx          # Re-enabled Phase 4. Color-coded fill + dashed threshold marker.
+# DELETED 2026-04-29: WatchProgressBar.tsx — student-facing watch UI retired
 │   ├── WelcomeModal.tsx              # First-visit modal (configurable localStorage key)
 │   ├── YouTubeComments.tsx           # Cached YouTube comments (24h DB cache)
 │   ├── YouTubePlayer.tsx             # YT IFrame API player. Interval-merging tracker in useRef (mig 146 Phase 2). startSeconds resume + initialIntervals JSONB hydration. Emits onProgress(WatchProgressPayload) with force=true on real close events.
@@ -483,7 +483,7 @@ src/hubs/training/
     ├── progress/                     # progressCalculator.ts, progressFromSupabase.ts
     ├── session/                      # training-session.ts, trainingSessionCookie.ts
     ├── share/resolveCourseName.ts    # Training-specific course name resolver
-    ├── watch/                        # detectVideoChange.ts, videoTimer.ts, watchEnforcementCheck.ts, watchThresholdVerifier.ts, watchTracker.ts
+    ├── watch/                        # detectVideoChange.ts, videoTimer.ts, watchTracker.ts (watchEnforcementCheck.ts + watchThresholdVerifier.ts deleted 2026-04-29)
     ├── comingSoon.ts                 # Training-Hub Coming-Soon state reader
     └── ensureNotComingSoon.ts        # Training-Hub Coming-Soon page guard (composes shouldGateComingSoon primitive with bypass list)
 ```

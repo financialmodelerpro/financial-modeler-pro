@@ -14,6 +14,17 @@ Use this file to resume development in a new chat session. Read `CLAUDE.md` firs
 
 ---
 
+## Watch enforcement removed; Mark Complete simplified (complete, 2026-04-29)
+
+Two commits closed out the watch-enforcement experiment that started in migration 103:
+
+- **`f583c70`** — global watch-percentage gate retired. 5 files deleted (`app/api/training/watch-enforcement/route.ts`, `app/api/admin/watch-enforcement-stats/route.ts`, `src/hubs/training/components/WatchProgressBar.tsx`, `src/hubs/training/lib/watch/watchEnforcementCheck.ts`, `src/hubs/training/lib/watch/watchThresholdVerifier.ts`). Server-side: `/api/training/certification-watch` + `/api/training/live-sessions/[id]/watched` no longer 403 on threshold and dropped the `manual_override` block; `verifyWatchThresholdMet` removed from `certificateEngine.issueCertificateForPending`; `loadWatchEnforcement` + `watchThresholdMet` + `watchDetails` removed from `certificateEligibility` and the consumer in `/admin/training-hub/certificates`. Client-side: enforcement state, manual override checkbox, ghost watch hint, `WatchProgressBar` mount, and the fetch to `/api/training/watch-enforcement` all stripped from both watch pages. Admin: the entire Watch Enforcement card on `/admin/training-settings` removed (global toggle, threshold slider, per-session bypass table, search/filters/sort, bulk row actions, summary stats, helper components, type definitions). Settings keys (`watch_enforcement_enabled` / `watch_enforcement_threshold` / `watch_enforcement_bypass_*`) remain in `training_settings` but no code reads them. Net: -1548 lines across 21 files. The interval-merging tracker stays running for analytics fidelity (admin Watch Progress + Platform Analytics + per-live-session-assessment opt-in `require_watch_before_assessment` gate).
+- **`f790fa9`** — Mark Complete now surfaces 20 seconds before the video ends. The tick fallback inside `YouTubePlayer.tsx` changed from `currentTime >= duration - 1` to `currentTime >= duration - 20`. Detection chain (single-fire guarded by `endedFired`): tick at d-20 (primary), `PlayerState.ENDED` (final fallback), PAUSED-at-`d - 1` (corner case). Both watch pages share the `onEnded` prop so the change applies uniformly.
+
+**No new files, no new packages, no schema changes, no new API routes.** Skip-to-end is now permitted by design — certificate credibility comes from the model-submission gate (migration 148), not watch percentage.
+
+---
+
 ## Certificate credibility upgrade — model-submission gate (complete, 2026-04-29; gate dormant)
 
 Migration 148 plus six rollout phases (A → F.4) shipped during the 2026-04-29 session. The full code path is in production but the gate is **dormant**: every per-course `model_submission_required_<course>` flag in `training_settings` ships `'false'`, so until admin flips one, the system behaves exactly like the pre-migration platform.
