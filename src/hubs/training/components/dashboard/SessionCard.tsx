@@ -71,6 +71,10 @@ export interface SessionCardProps {
    * URL so both the with-assessment and without-assessment variants show a
    * duration chip / stat. */
   durationMinutes?: number;
+  /** Optional override for the lock-explainer copy shown when isFinal && locked.
+   * Used by the model-submission gate to swap the default
+   * "X of N sessions passed" text for "Awaiting model approval" etc. */
+  lockReason?: string;
 }
 
 export function SessionCard({
@@ -79,7 +83,7 @@ export function SessionCard({
   tabKey, videoDuration, regId, noteContent, onNoteSave, feedbackGiven, onFeedbackRequest,
   bvmLocked, watchLocked, timerBypassed, courseId, isWatched, isInProgress, watchPercentage, watchThreshold, courseName, studentName,
   watchHref, assessmentHref, hideAssessment, hideNotes, labelOverride,
-  hasAssessment, durationMinutes,
+  hasAssessment, durationMinutes, lockReason,
 }: SessionCardProps) {
   const [notesOpen, setNotesOpen] = useState(false);
   const [noteText, setNoteText] = useState(noteContent);
@@ -186,7 +190,7 @@ export function SessionCard({
             </div>
             {isFinal && locked && (
               <div style={{ fontSize: 11, color: '#DC2626', marginTop: 3, fontWeight: 600 }}>
-                {passedCount} of {regularCount} sessions passed - complete all to unlock
+                {lockReason ?? `${passedCount} of ${regularCount} sessions passed - complete all to unlock`}
               </div>
             )}
             {isFinal && !locked && (

@@ -191,6 +191,24 @@ export default function AssessmentPage() {
 
     const { email, registrationId: regId } = session;
 
+    // Migration 148 / Phase E.1 - model-submission gate. For final exams, ask
+    // the server whether the per-course gate is on AND the student has not
+    // been approved. If blocked, redirect to the dashboard so the student
+    // sees the unified ModelSubmissionCard + Final Exam Lock panel instead
+    // of a deeplink that would 403 on submit. Non-final tab keys skip the
+    // check. Failure modes are fail-open (cert engine still gates issuance).
+    if (tabKey.toUpperCase().endsWith('_FINAL')) {
+      try {
+        const courseCode = tabKey.toUpperCase().startsWith('BVM') ? 'BVM' : '3SFM';
+        const gateRes = await fetch(`/api/training/model-submission?courseCode=${courseCode}`);
+        const gateJson = await gateRes.json() as { status?: { required?: boolean; hasApproved?: boolean } };
+        if (gateJson.status?.required === true && gateJson.status.hasApproved !== true) {
+          router.replace(`/training/dashboard?course=${courseCode.toLowerCase()}&gate=model-submission`);
+          return;
+        }
+      } catch { /* fail-open - submit-assessment + cert engine still gate */ }
+    }
+
     // Quick Supabase check - if already passed, block immediately (no Apps Script delay)
     try {
       const sbCheck = await fetch(`/api/training/progress?email=${encodeURIComponent(email)}&registrationId=${encodeURIComponent(regId)}`);

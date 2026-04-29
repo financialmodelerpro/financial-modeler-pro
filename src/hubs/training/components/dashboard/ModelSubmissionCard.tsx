@@ -91,8 +91,16 @@ export function ModelSubmissionCard({ courseCode, courseLabel, initialStatus, on
   const [success, setSuccess] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Hydrate / refresh from the dedicated GET when the parent didn't pass a
-  // pre-loaded value, or after a successful submit.
+  // Sync external initialStatus changes into local state. The parent
+  // (dashboard) refetches on forceRefresh after a successful upload, so
+  // a fresh `initialStatus` should overwrite our local copy. The useState
+  // initializer only runs on first render and would otherwise miss it.
+  useEffect(() => {
+    if (initialStatus) setStatus(initialStatus);
+  }, [initialStatus]);
+
+  // Hydrate from the dedicated GET when the parent didn't pass a pre-loaded
+  // value. Skipped when initialStatus is provided (E.1 dashboard hoist).
   useEffect(() => {
     if (initialStatus) return;
     let alive = true;

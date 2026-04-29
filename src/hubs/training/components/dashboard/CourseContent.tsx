@@ -11,6 +11,7 @@ import { SessionCard } from './SessionCard';
 import { FilePreviewModal } from './FilePreviewModal';
 import { ModelSubmissionCard } from './ModelSubmissionCard';
 import { formatShareDate, type ShareVars } from '@/src/shared/share/shareTemplates';
+import type { ModelSubmissionStatusResult } from '@/src/hubs/training/lib/modelSubmission/types';
 
 /**
  * Every share button raised from this component flows through the central
@@ -63,9 +64,17 @@ export interface CourseContentProps {
   watchPctMap?: Map<string, number>;
   /** Threshold from training_settings (default 70) */
   watchThreshold?: number;
+  /** Model-submission gate snapshot for this course (migration 148, Phase E).
+   * Drives the soft-launch banner, the Final Exam SessionCard lock copy,
+   * and the Exam-Prep-Mode replacement panel. Null when the dashboard has
+   * not loaded the gate yet; treated as "no gate" for layout purposes. */
+  modelGate?: ModelSubmissionStatusResult | null;
+  /** Fired after a successful model upload so the parent can re-fetch
+   * everything (cert visibility, gate state) without a page reload. */
+  onModelSubmitted?: () => void;
 }
 
-export function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating, studentName, studentEmail, onShare, testimonialSubmitted, onOpenTestimonial, notes, onNoteSave, feedbackGiven, onFeedbackRequest, bvmLocked, sfmProgress = 0, sfmTotal = 0, onSwitchTo3sfm, timerBypassed, completedWatchKeys, inProgressWatchKeys, watchPctMap, watchThreshold }: CourseContentProps) {
+export function CourseContent({ courseId, progressMap, certificates, liveLinks, courseDescs, regId, onDownloadTranscript, generating, studentName, studentEmail, onShare, testimonialSubmitted, onOpenTestimonial, notes, onNoteSave, feedbackGiven, onFeedbackRequest, bvmLocked, sfmProgress = 0, sfmTotal = 0, onSwitchTo3sfm, timerBypassed, completedWatchKeys, inProgressWatchKeys, watchPctMap, watchThreshold, modelGate, onModelSubmitted }: CourseContentProps) {
   const course = COURSES[courseId];
   if (!course) return null;
 
@@ -172,6 +181,21 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
   const certColor = bvmLocked ? '#9CA3AF' : (certStatus === 'Earned' ? '#C9A84C' : certStatus === 'Eligible' ? '#2EAA4A' : '#6B7280');
   const hasAny = passedCount > 0;
   const isOfficial = finalPassed || !!courseCert;
+
+  // Model-submission gate (migration 148, Phase E.1). When the per-course
+  // required flag is on AND the student has no approved row, the Final Exam
+  // is locked even after every regular session has been passed. The server
+  // gates in /api/training/submit-assessment + issueCertificateForPending
+  // (Phase B) are authoritative; the UI branches below just keep the
+  // dashboard from showing actions the server will refuse.
+  const gateBlocksFinal = modelGate?.required === true && modelGate?.hasApproved !== true;
+  const finalLockReason = gateBlocksFinal
+    ? (modelGate?.latestStatus === 'pending_review'
+        ? 'Awaiting model approval - check your inbox for the decision.'
+      : modelGate?.latestStatus === 'rejected'
+        ? 'Your model needs another pass. Resubmit from the panel above.'
+        : 'Submit your financial model from the panel above to unlock the Final Exam.')
+    : undefined;
 
   // "About This Course" - courses API keys by category (e.g. '3SFM', 'BVM')
   const desc = courseDescs[course.shortTitle] ?? courseDescs[course.shortTitle.toLowerCase()];
@@ -282,12 +306,15 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
           per-course required flag is OFF and announcementOnly is OFF, so this
           mount point is safe regardless of gate state. Soft-launch
           announcement banner is visible to all students; upload UI only
-          renders once an admin flips required_<course> to 'true'. */}
+          renders once an admin flips required_<course> to 'true'.
+          E.1: dashboard hoists the status fetch and threads it in via
+          modelGate. The card's internal fetch becomes a no-op. */}
       {!bvmLocked && (course.id === '3sfm' || course.id === 'bvm') && (
         <ModelSubmissionCard
           courseCode={course.id === 'bvm' ? 'BVM' : '3SFM'}
           courseLabel={course.title}
-          initialStatus={null}
+          initialStatus={modelGate ?? null}
+          onSubmitted={onModelSubmitted}
         />
       )}
 
@@ -354,7 +381,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
           if (bvmLocked) {
             locked = true;
           } else if (isFinalRow) {
-            locked = !allRegularPassed;
+            locked = !allRegularPassed || gateBlocksFinal;
           } else if (idx > 0) {
             const prev = course.sessions[idx - 1];
             locked = !progressMap.get(prev.id)?.passed;
@@ -403,13 +430,32 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
               watchThreshold={watchThreshold}
               courseName={course.title}
               studentName={studentName}
+              lockReason={isFinalRow && gateBlocksFinal ? finalLockReason : undefined}
             />
           );
         })}
       </div>
 
+      {/* ── Final Exam Lock (replaces Exam Prep Mode when the model gate is
+              active per Phase E.1). Only one of the two ever renders. */}
+      {gateBlocksFinal && allRegularPassed && !courseCert && !finalPassed && finalSession && (
+        <div style={{ background: 'linear-gradient(135deg,#FFFBEB,#FEF3C7)', border: '1px solid #FCD34D', borderRadius: 12, padding: '18px 22px', marginBottom: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 800, color: '#92400E', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <span>🔒 Final Exam locked - model approval required</span>
+          </div>
+          <div style={{ fontSize: 12.5, color: '#78350F', lineHeight: 1.55, marginBottom: 4 }}>
+            You have completed every {course.id === 'bvm' ? 'lesson' : 'session'} for <strong>{course.shortTitle}</strong>. To unlock the Final Exam,{' '}
+            {modelGate?.latestStatus === 'pending_review'
+              ? 'wait for the admin review of your submitted model. We typically respond within 5 business days and you will be emailed when a decision is made.'
+            : modelGate?.latestStatus === 'rejected'
+              ? 'review the reviewer note in the model panel above and upload a revised version. You have ' + (modelGate?.attemptsRemaining ?? 0) + ' attempt' + ((modelGate?.attemptsRemaining ?? 0) === 1 ? '' : 's') + ' remaining.'
+              : 'submit the financial model you have built using the panel above. An admin will review it within 5 business days.'}
+          </div>
+        </div>
+      )}
+
       {/* ── Exam Prep Mode ───────────────────────────────────────────────── */}
-      {!courseCert && allRegularPassed && !finalPassed && finalSession && (progressMap.get(finalSession.id)?.attempts ?? 0) === 0 && (
+      {!gateBlocksFinal && !courseCert && allRegularPassed && !finalPassed && finalSession && (progressMap.get(finalSession.id)?.attempts ?? 0) === 0 && (
         <div style={{ background: 'linear-gradient(135deg,#EFF6FF,#DBEAFE)', border: '1px solid #93C5FD', borderRadius: 12, padding: '18px 22px', marginBottom: 20 }}>
           <div style={{ fontSize: 13, fontWeight: 800, color: '#1E3A8A', marginBottom: 8 }}>🎯 Exam Prep Mode - You are ready for the Final Exam!</div>
           <div style={{ fontSize: 12, color: '#1E40AF', marginBottom: 12 }}>Review your weakest sessions before sitting the final:</div>

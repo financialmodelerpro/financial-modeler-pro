@@ -37,6 +37,7 @@ import { LiveSessionsContent } from '@/src/hubs/training/components/dashboard/Li
 import { LiveSessionsSection } from '@/src/hubs/training/components/dashboard/LiveSessionsSection';
 import { formatShareDate } from '@/src/shared/share/shareTemplates';
 import { DashboardTour } from '@/src/hubs/training/components/DashboardTour';
+import type { ModelSubmissionStatusResult } from '@/src/hubs/training/lib/modelSubmission/types';
 
 // ── Badge metadata ─────────────────────────────────────────────────────────────
 type LucideIcon = typeof Flame;
@@ -152,6 +153,11 @@ export default function TrainingDashboardPage() {
   const [certWatchInProgress, setCertWatchInProgress] = useState<Set<string>>(new Set());
   const [watchPctMap, setWatchPctMap] = useState<Map<string, number>>(new Map());
   const [watchThreshold, setWatchThreshold] = useState<number>(70);
+  // Model-submission gate (migration 148, Phase E.1). One status per course
+  // code, fetched in parallel with the rest of the dashboard payload. Drives
+  // the soft-launch banner, the Final Exam SessionCard lock, and the
+  // Final Exam Lock panel that replaces Exam Prep Mode when the gate fires.
+  const [modelGateMap, setModelGateMap] = useState<Record<'3SFM' | 'BVM', ModelSubmissionStatusResult | null>>({ '3SFM': null, 'BVM': null });
   const [studentProfile, setStudentProfile]       = useState<{ job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; display_name?: string; avatar_url?: string } | null>(null);
   const [avatarUploading, setAvatarUploading]     = useState(false);
   // avatarPreview replaced by cropImageSrc + react-easy-crop
@@ -332,14 +338,23 @@ export default function TrainingDashboardPage() {
         try { const r = await p; return await r.json() as T; } catch { return fallback; }
       };
 
-      const [json, detailsJson, notesJson, profileJson, certWatchJson, enforcementJson] = await Promise.all([
+      const [json, detailsJson, notesJson, profileJson, certWatchJson, enforcementJson, modelGate3sfmJson, modelGateBvmJson] = await Promise.all([
         safeJson(fetch(`/api/training/progress?${progressParams}`), { success: false } as { success: boolean; fallback?: boolean; data?: ProgressData }),
         safeJson(fetch('/api/training/course-details'), {} as { sessions?: { tabKey: string; sessionName: string; youtubeUrl: string; formUrl: string; videoDuration: number; isFinal: boolean; hasVideo: boolean }[]; courses?: CourseDescsMap; timerBypassed?: boolean }),
         safeJson(fetch(`/api/training/notes?registrationId=${encodeURIComponent(sess.registrationId)}`), {} as { notes?: { session_key: string; content: string }[] }),
         safeJson(fetch(`/api/training/profile?registrationId=${encodeURIComponent(sess.registrationId)}`), {} as { profile?: { job_title?: string; company?: string; location?: string; linkedin_url?: string; notify_milestones?: boolean; notify_reminders?: boolean; streak_days?: number; total_points?: number; display_name?: string; avatar_url?: string } | null }),
         safeJson(fetch(`/api/training/certification-watch?email=${encodeURIComponent(sess.email)}`), {} as { history?: { tab_key: string; status: string; watch_percentage?: number }[] }),
         safeJson(fetch('/api/training/watch-enforcement'), {} as { threshold?: number }),
+        safeJson(fetch('/api/training/model-submission?courseCode=3SFM'), {} as { status?: ModelSubmissionStatusResult }),
+        safeJson(fetch('/api/training/model-submission?courseCode=BVM'),  {} as { status?: ModelSubmissionStatusResult }),
       ]);
+
+      // Apply model-submission gate snapshot per course. Both courses always
+      // fetched - both endpoints early-exit fast when the gate is dormant.
+      setModelGateMap({
+        '3SFM': modelGate3sfmJson.status ?? null,
+        'BVM':  modelGateBvmJson.status ?? null,
+      });
 
       // Apply notes
       const notesMap: Record<string, string> = {};
@@ -1616,6 +1631,8 @@ export default function TrainingDashboardPage() {
                 inProgressWatchKeys={certWatchInProgress}
                 watchPctMap={watchPctMap}
                 watchThreshold={watchThreshold}
+                modelGate={modelGateMap[(activeCourse === 'bvm' ? 'bvm' : displayCourse) === 'bvm' ? 'BVM' : '3SFM']}
+                onModelSubmitted={() => { if (localSession) void loadData(localSession, true); }}
               />
             </>
           )}
