@@ -443,7 +443,7 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
               ? 'wait for the admin review of your submitted model. We typically respond within 5 business days and you will be emailed when a decision is made.'
             : modelGate?.latestStatus === 'rejected'
               ? 'review the reviewer note in the model panel above and upload a revised version. You have ' + (modelGate?.attemptsRemaining ?? 0) + ' attempt' + ((modelGate?.attemptsRemaining ?? 0) === 1 ? '' : 's') + ' remaining.'
-              : 'submit the financial model you have built using the panel above. An admin will review it within 5 business days.'}
+              : 'submit the financial model you have built using the panel above. Our experts team will review it within 5 business days.'}
           </div>
         </div>
       )}

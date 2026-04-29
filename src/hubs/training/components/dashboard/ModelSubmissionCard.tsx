@@ -228,7 +228,7 @@ export function ModelSubmissionCard({ courseCode, courseLabel, initialStatus, on
         setError(json.message ?? json.error ?? 'Upload failed');
         return;
       }
-      setSuccess('Submitted. An admin will review your model within 5 business days.');
+      setSuccess('Submitted. Our experts team will review your model within 5 business days.');
       setFile(null);
       setNotes('');
       if (inputRef.current) inputRef.current.value = '';
@@ -266,9 +266,9 @@ export function ModelSubmissionCard({ courseCode, courseLabel, initialStatus, on
         </div>
         <div style={{ fontSize: 12.5, color: '#78350F', lineHeight: 1.55, marginLeft: 28, marginBottom: 10 }}>
           Soon, before unlocking the Final Exam for <strong>{courseLabel}</strong>, you will need to submit
-          the financial model you have built. An admin will review it on an effort-based pass/reject
-          basis. You will get up to 3 attempts and a 5 business day review window. We will email you
-          when this requirement goes live so you have time to prepare.
+          the financial model you have built. Our experts team will review it on an effort-based
+          pass/reject basis. You will get up to 3 attempts and a 5 business day review window. We
+          will email you when this requirement goes live so you have time to prepare.
         </div>
         <div style={{ marginLeft: 28 }}>
           <GuidancePanel
@@ -419,13 +419,6 @@ export function ModelSubmissionCard({ courseCode, courseLabel, initialStatus, on
           {latest.review_note}
         </div>
       )}
-
-      {/* Explainer */}
-      <div style={{ fontSize: 12.5, color: '#374151', lineHeight: 1.55, marginBottom: 12 }}>
-        Build your own financial model for <strong>{courseLabel}</strong> and upload it as an Excel file
-        (.xlsx, .xls, .xlsm) or PDF. An admin will review it within 5 business days. Approval unlocks
-        the Final Exam. Each rejection consumes one of your 3 attempts.
-      </div>
 
       {/* Per-course guidance + optional sample template */}
       <GuidancePanel
