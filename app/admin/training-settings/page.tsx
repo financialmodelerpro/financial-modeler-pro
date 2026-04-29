@@ -13,6 +13,14 @@ const inputStyle: React.CSSProperties = {
   background: '#FFFBEB', boxSizing: 'border-box', color: '#1B3A6B',
 };
 
+// Friendly labels for the model-submission gate keys. Used in toast copy
+// + confirm dialog headings.
+const LABEL_BY_KEY: Record<string, string> = {
+  model_submission_announcement_only: 'Announcement Only',
+  model_submission_required_3sfm:     'Require Model for 3SFM',
+  model_submission_required_bvm:      'Require Model for BVM',
+};
+
 
 interface LiveSessionRow {
   id: string;
@@ -61,6 +69,22 @@ export default function TrainingSettingsPage() {
   const [shuffleQuestions, setShuffleQuestions] = useState(true);
   const [shuffleOptions, setShuffleOptions]     = useState(false);
   const [shuffleSaving, setShuffleSaving]       = useState(false);
+
+  // Model-submission gate (migration 148) — three soft-launch flags. Audit-
+  // logged via /api/admin/training-settings/model-submission-gate so every
+  // cutover decision lands in admin_audit_log.
+  const [msAnnouncementOnly, setMsAnnouncementOnly] = useState(true);
+  const [msRequired3sfm,     setMsRequired3sfm]     = useState(false);
+  const [msRequiredBvm,      setMsRequiredBvm]      = useState(false);
+  const [msSavingKey,        setMsSavingKey]        = useState<string | null>(null);
+  const [msConfirm,          setMsConfirm]          = useState<{
+    key: 'model_submission_announcement_only' | 'model_submission_required_3sfm' | 'model_submission_required_bvm';
+    nextValue: boolean;
+    title: string;
+    body: string;
+    confirmLabel: string;
+    danger: boolean;
+  } | null>(null);
 
   // WhatsApp Group URL (migration 123)
   const [whatsappUrl, setWhatsappUrl]         = useState('');
@@ -229,6 +253,12 @@ export default function TrainingSettingsPage() {
       setLiveSessions(Array.isArray(stats.liveSessions) ? stats.liveSessions : []);
       setShuffleQuestions(s.shuffle_questions_enabled !== 'false');
       setShuffleOptions(s.shuffle_options_enabled === 'true');
+      // Model-submission gate flags. announcement_only defaults true per
+      // migration 148; required_<course> defaults false. Treat a missing
+      // row as the documented default (matches the cert engine + UI gate).
+      setMsAnnouncementOnly(s.model_submission_announcement_only !== 'false');
+      setMsRequired3sfm(s.model_submission_required_3sfm === 'true');
+      setMsRequiredBvm(s.model_submission_required_bvm === 'true');
       const wa = (s.whatsapp_group_url ?? '').trim();
       setWhatsappUrl(wa);
       setSavedWhatsappUrl(wa);
@@ -261,6 +291,39 @@ export default function TrainingSettingsPage() {
       showToast('Save failed');
     }
     setShuffleSaving(false);
+  };
+
+  // Audit-logged write for the model-submission gate flags. Returns true on
+  // success so the caller can flip its local optimistic state once the
+  // server has accepted the change.
+  const saveModelGateFlag = async (
+    key: 'model_submission_announcement_only' | 'model_submission_required_3sfm' | 'model_submission_required_bvm',
+    nextValue: boolean,
+  ): Promise<boolean> => {
+    setMsSavingKey(key);
+    try {
+      const res = await fetch('/api/admin/training-settings/model-submission-gate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key, value: nextValue ? 'true' : 'false' }),
+      });
+      const json = await res.json() as { ok?: boolean; error?: string; message?: string };
+      if (!res.ok || !json.ok) {
+        showToast(json.message ?? json.error ?? 'Save failed');
+        return false;
+      }
+      // Apply locally only after the server confirms.
+      if (key === 'model_submission_announcement_only') setMsAnnouncementOnly(nextValue);
+      else if (key === 'model_submission_required_3sfm') setMsRequired3sfm(nextValue);
+      else if (key === 'model_submission_required_bvm')  setMsRequiredBvm(nextValue);
+      showToast(`${LABEL_BY_KEY[key]} → ${nextValue ? 'ON' : 'OFF'}`);
+      return true;
+    } catch (e) {
+      showToast(`Save failed: ${(e as Error).message}`);
+      return false;
+    } finally {
+      setMsSavingKey(null);
+    }
   };
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
@@ -926,6 +989,124 @@ export default function TrainingSettingsPage() {
               </div>
             </div>
 
+            {/* Model Submission Gate Card (migration 148, Phase E.2)
+                Audit-logged via /api/admin/training-settings/model-submission-gate.
+                Three soft-launch flags:
+                  announcement_only: drives the dashboard banner (heads-up).
+                  required_3sfm:     hard gate on 3SFM Final Exam.
+                  required_bvm:      hard gate on BVM Final Exam.
+                Both required toggles ship 'false' so this card is the only
+                way to actually start enforcing without direct DB access. */}
+            <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '24px 28px', marginBottom: 24, maxWidth: 780 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B', marginBottom: 4 }}>📥 Model Submission Gate</div>
+              <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 16, lineHeight: 1.55 }}>
+                Controls whether students must upload a built financial model for admin review before the Final Exam unlocks. Soft-launch posture: keep <strong>Announcement Only</strong> ON for the notice period, then flip the per-course <strong>Require Model</strong> toggle to start enforcement. Every flip is recorded in the admin audit log.
+              </div>
+
+              {/* Current state pill row */}
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                <StatePill label="Announcement Only" on={msAnnouncementOnly} onLabel="ON" offLabel="OFF" tone={msAnnouncementOnly ? 'amber' : 'gray'} />
+                <StatePill label="Require 3SFM" on={msRequired3sfm} onLabel="ENFORCING" offLabel="DORMANT" tone={msRequired3sfm ? 'red' : 'gray'} />
+                <StatePill label="Require BVM"  on={msRequiredBvm}  onLabel="ENFORCING" offLabel="DORMANT" tone={msRequiredBvm  ? 'red' : 'gray'} />
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* announcement_only — flipping has no enforcement risk so no
+                    confirm dialog. ON shows banner, OFF hides it. */}
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, cursor: msSavingKey ? 'not-allowed' : 'pointer' }}>
+                  <div style={{ paddingRight: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B' }}>📢 Announcement Only (soft-launch banner)</div>
+                    <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2, lineHeight: 1.55 }}>
+                      ON: dashboard shows an amber heads-up panel telling students that model submission is coming soon. OFF: panel hidden. Flipping this never blocks any student; it only changes what the dashboard looks like.
+                    </div>
+                  </div>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: msAnnouncementOnly ? '#92400E' : '#6B7280' }}>
+                      {msAnnouncementOnly ? 'ON' : 'OFF'}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={msAnnouncementOnly}
+                      onChange={e => void saveModelGateFlag('model_submission_announcement_only', e.target.checked)}
+                      disabled={msSavingKey !== null}
+                    />
+                  </div>
+                </label>
+
+                {/* required_3sfm — confirm before flip. ON = enforce; OFF = remove gate. */}
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: msRequired3sfm ? '#FEF2F2' : '#F9FAFB', border: `1px solid ${msRequired3sfm ? '#FECACA' : '#E5E7EB'}`, borderRadius: 8, cursor: msSavingKey ? 'not-allowed' : 'pointer' }}>
+                  <div style={{ paddingRight: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B' }}>🔒 Require Model for 3SFM Final Exam</div>
+                    <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2, lineHeight: 1.55 }}>
+                      ON: every 3SFM student must upload an admin-approved model before the Final Exam unlocks. OFF: gate dormant, exam is gated only by completing the regular sessions. Server-enforced in three layers (UI lock, submit-assessment route, certificate engine).
+                    </div>
+                  </div>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: msRequired3sfm ? '#991B1B' : '#6B7280' }}>
+                      {msRequired3sfm ? 'ENFORCING' : 'DORMANT'}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={msRequired3sfm}
+                      onChange={e => {
+                        const next = e.target.checked;
+                        setMsConfirm({
+                          key: 'model_submission_required_3sfm',
+                          nextValue: next,
+                          title: next ? 'Enforce 3SFM model gate?' : 'Remove 3SFM model gate?',
+                          body: next
+                            ? 'This will lock the 3SFM Final Exam for every student until they upload a model that you approve. Students currently at "Final Exam Ready" state will see the Final Exam SessionCard switch to a "Submit your model" lock immediately. Already-passed students keep their certificates; this only affects students who have not yet sat the Final Exam.'
+                            : 'This will unlock the 3SFM Final Exam for every student regardless of whether they have submitted a model. Already-pending submissions stay in the queue and remain reviewable, but they no longer block the exam.',
+                          confirmLabel: next ? 'Enforce gate' : 'Remove gate',
+                          danger: next,
+                        });
+                      }}
+                      disabled={msSavingKey !== null}
+                    />
+                  </div>
+                </label>
+
+                {/* required_bvm — same pattern as 3SFM. */}
+                <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: msRequiredBvm ? '#FEF2F2' : '#F9FAFB', border: `1px solid ${msRequiredBvm ? '#FECACA' : '#E5E7EB'}`, borderRadius: 8, cursor: msSavingKey ? 'not-allowed' : 'pointer' }}>
+                  <div style={{ paddingRight: 12 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B' }}>🔒 Require Model for BVM Final Exam</div>
+                    <div style={{ fontSize: 11, color: '#6B7280', marginTop: 2, lineHeight: 1.55 }}>
+                      ON: every BVM student must upload an admin-approved model before the Final Exam unlocks. OFF: gate dormant. Independent of the 3SFM toggle so you can stage the cutover one course at a time.
+                    </div>
+                  </div>
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: msRequiredBvm ? '#991B1B' : '#6B7280' }}>
+                      {msRequiredBvm ? 'ENFORCING' : 'DORMANT'}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={msRequiredBvm}
+                      onChange={e => {
+                        const next = e.target.checked;
+                        setMsConfirm({
+                          key: 'model_submission_required_bvm',
+                          nextValue: next,
+                          title: next ? 'Enforce BVM model gate?' : 'Remove BVM model gate?',
+                          body: next
+                            ? 'This will lock the BVM Final Exam for every student until they upload a model that you approve. Students currently at "Final Exam Ready" state will see the Final Exam SessionCard switch to a "Submit your model" lock immediately. Already-passed students keep their certificates; this only affects students who have not yet sat the Final Exam.'
+                            : 'This will unlock the BVM Final Exam for every student regardless of whether they have submitted a model. Already-pending submissions stay in the queue and remain reviewable, but they no longer block the exam.',
+                          confirmLabel: next ? 'Enforce gate' : 'Remove gate',
+                          danger: next,
+                        });
+                      }}
+                      disabled={msSavingKey !== null}
+                    />
+                  </div>
+                </label>
+              </div>
+
+              {/* Cutover hint - mirrors the documented procedure from
+                  migration 148's comment block. */}
+              <div style={{ marginTop: 14, padding: '10px 12px', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, fontSize: 11.5, color: '#1E3A5F', lineHeight: 1.55 }}>
+                <strong>Documented cutover:</strong> keep <em>Announcement Only</em> ON for the documented notice period, then flip the per-course <em>Require Model</em> toggle. Once enforcement is live you can flip <em>Announcement Only</em> OFF so the soft-launch banner stops showing alongside the live upload UI. Force-issue (<code>/admin/training-hub/certificates</code>) keeps bypassing the gate as an admin escape hatch.
+              </div>
+            </div>
+
             {/* Training Hub Launch Status - two independent toggles so
                 signin + register can be controlled separately (migration 135).
                 Typical pre-launch: signin OFF (existing students can log in),
@@ -974,7 +1155,82 @@ export default function TrainingSettingsPage() {
           {toast}
         </div>
       )}
+
+      {/* Model-submission gate confirm dialog (Phase E.2). Required for every
+          required_<course> flip in either direction; announcement_only flips
+          do not surface this dialog because they cannot block any student. */}
+      {msConfirm && (
+        <div
+          onClick={() => msSavingKey === null && setMsConfirm(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(13,46,90,0.55)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{ background: '#fff', borderRadius: 12, width: '100%', maxWidth: 520, padding: 22, boxShadow: '0 20px 60px rgba(0,0,0,0.25)' }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+              Confirm cutover
+            </div>
+            <h2 style={{ fontSize: 18, fontWeight: 800, color: msConfirm.danger ? '#991B1B' : '#1B3A6B', margin: '0 0 10px' }}>
+              {msConfirm.danger ? '⚠️ ' : ''}{msConfirm.title}
+            </h2>
+            <p style={{ fontSize: 13, color: '#374151', lineHeight: 1.6, marginBottom: 14 }}>
+              {msConfirm.body}
+            </p>
+            {msConfirm.danger && (
+              <div style={{ marginBottom: 14, padding: '10px 12px', background: '#FEF2F2', border: '1px solid #FECACA', borderRadius: 8, fontSize: 12, color: '#7F1D1D', lineHeight: 1.5 }}>
+                <strong>Heads-up:</strong> students mid-attempt on the Final Exam right now are unaffected; the gate runs at start + submit, not during. Open submissions in the review queue stay valid - approve them and the matching student is unblocked immediately.
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => setMsConfirm(null)}
+                disabled={msSavingKey !== null}
+                style={{ padding: '9px 16px', borderRadius: 6, border: '1px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: 13, fontWeight: 700, cursor: msSavingKey !== null ? 'not-allowed' : 'pointer' }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  const ok = await saveModelGateFlag(msConfirm.key, msConfirm.nextValue);
+                  if (ok) setMsConfirm(null);
+                }}
+                disabled={msSavingKey !== null}
+                style={{ padding: '9px 18px', borderRadius: 6, border: 'none', background: msConfirm.danger ? '#DC2626' : '#1B4F8A', color: '#fff', fontSize: 13, fontWeight: 700, cursor: msSavingKey !== null ? 'not-allowed' : 'pointer' }}
+              >
+                {msSavingKey === msConfirm.key ? 'Saving...' : msConfirm.confirmLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
+  );
+}
+
+function StatePill({ label, on, onLabel, offLabel, tone }: {
+  label: string;
+  on: boolean;
+  onLabel: string;
+  offLabel: string;
+  tone: 'amber' | 'red' | 'gray';
+}) {
+  const palette = on
+    ? (tone === 'amber' ? { bg: '#FEF3C7', fg: '#92400E', border: '#FDE68A' }
+      : tone === 'red'  ? { bg: '#FEE2E2', fg: '#991B1B', border: '#FECACA' }
+      :                   { bg: '#F3F4F6', fg: '#374151', border: '#E5E7EB' })
+    : { bg: '#F3F4F6', fg: '#6B7280', border: '#E5E7EB' };
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 6,
+      padding: '4px 10px', borderRadius: 12,
+      background: palette.bg, color: palette.fg,
+      border: `1px solid ${palette.border}`,
+      fontSize: 11, fontWeight: 700,
+    }}>
+      <span style={{ opacity: 0.7 }}>{label}</span>
+      <span style={{ letterSpacing: '0.04em' }}>· {on ? onLabel : offLabel}</span>
+    </span>
   );
 }
 
