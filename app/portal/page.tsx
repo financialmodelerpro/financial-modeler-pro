@@ -138,7 +138,22 @@ export default function AppHubPage() {
   const [collapsed,        setCollapsed]        = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [profileDropdown,  setProfileDropdown]  = useState(false);
+  const [cmsLogo,          setCmsLogo]          = useState<{ url?: string; height?: string }>({});
   const profileRef = useRef<HTMLDivElement>(null);
+
+  // Fetch CMS logo (header_settings.logo_url + logo_height_px). Same source
+  // as TrainingShell so a single CMS edit propagates to every workspace.
+  useEffect(() => {
+    fetch('/api/cms?section=header_settings&keys=logo_url,logo_height_px')
+      .then(r => r.json())
+      .then((d: { map?: Record<string, string> }) => {
+        const m = d.map ?? {};
+        const url = m['header_settings__logo_url'];
+        const h = m['header_settings__logo_height_px'];
+        if (url) setCmsLogo({ url, height: h || '32' });
+      })
+      .catch(() => {});
+  }, []);
 
   useInactivityLogout({
     onLogout: async () => { await signOut({ redirect: false }); },
@@ -246,12 +261,23 @@ export default function AppHubPage() {
           >
             ☰
           </button>
-          <a href={`${MAIN_URL}/`} style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', flexShrink: 0 }}>
-            <div style={{ width: 28, height: 28, borderRadius: 6, background: 'linear-gradient(135deg,#3B82F6,#1D4ED8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>📐</div>
-            <div>
-              <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', lineHeight: 1 }}>Financial Modeler Pro</div>
-              <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>App Hub</div>
-            </div>
+          <a href={`${MAIN_URL}/`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none', flexShrink: 0 }}>
+            {cmsLogo.url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={cmsLogo.url}
+                alt="Financial Modeler Pro"
+                style={{ height: `${cmsLogo.height ?? 32}px`, width: 'auto', display: 'block' }}
+              />
+            ) : (
+              <div style={{ width: 28, height: 28, borderRadius: 6, background: 'linear-gradient(135deg,#3B82F6,#1D4ED8)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>📐</div>
+            )}
+            {!cmsLogo.url && (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: '#fff', lineHeight: 1 }}>Financial Modeler Pro</div>
+                <div style={{ fontSize: 9, fontWeight: 700, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.08em', textTransform: 'uppercase' }}>App Hub</div>
+              </div>
+            )}
           </a>
         </div>
 
