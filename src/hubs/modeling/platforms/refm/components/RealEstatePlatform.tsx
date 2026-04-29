@@ -820,6 +820,45 @@ export default function RealEstatePlatform() {
     setHasUnsaved(true);
   }, [projectType]);
 
+  // ── Edit project (rename + relocate) ──
+  // Mutates the currently-active project's name + location in localStorage,
+  // syncs component state so the Sidebar pill, Topbar context button,
+  // Overview header, Dashboard tile, and ProjectsScreen list all reflect
+  // the new values immediately. Wired into ProjectModal in `mode='edit'`.
+  const handleEditProject = useCallback((name: string, location: string) => {
+    if (!activeProjectId) return;
+    const s = loadStorage();
+    const proj = s.projects[activeProjectId];
+    if (!proj) return;
+    proj.name = name;
+    proj.location = location;
+    proj.lastModified = new Date().toISOString();
+    saveStorage(s);
+    setStorageData(s);
+    setProjectName(name);
+    setPmModal(null);
+    setPmInputVal('');
+    setPmLocationVal('');
+    setPmToast({ msg: `✓ Project "${name}" updated`, color: 'var(--color-green-dark)' });
+  }, [activeProjectId]);
+
+  // Open the edit modal, optionally for a specific project from the list.
+  // When `pid` is provided, also makes that project the active one so the
+  // modal — which reads `activeProjectData` for its prefilled values —
+  // shows the right content.
+  const handleEditProjectClick = useCallback((pid?: string) => {
+    if (pid && pid !== activeProjectId) {
+      const s = loadStorage();
+      s.activeProjectId = pid;
+      saveStorage(s);
+      setStorageData(s);
+      setActiveProjectId(pid);
+      const proj = s.projects[pid];
+      if (proj) setProjectName(proj.name);
+    }
+    setPmModal('edit');
+  }, [activeProjectId]);
+
   // ── Delete project ──
   const handleDeleteProject = useCallback((pid: string) => {
     const s = loadStorage();
@@ -1058,6 +1097,7 @@ export default function RealEstatePlatform() {
             activeProjectId={activeProjectId}
             onSelectProject={handleSelectProject}
             onCreateProject={() => setPmModal('new')}
+            onEditProject={handleEditProjectClick}
             onDeleteProject={handleDeleteProject}
             setActiveModule={setActiveModule}
             can={can}
@@ -1078,6 +1118,7 @@ export default function RealEstatePlatform() {
             totalCapex={totalCapex}
             onLoadVersion={handleLoadVersion}
             onSaveVersion={() => setPmModal('version')}
+            onEditProject={() => handleEditProjectClick()}
             setActiveModule={setActiveModule}
             setActiveTab={setActiveTab}
             can={can}
@@ -1405,7 +1446,7 @@ export default function RealEstatePlatform() {
           setPmInputVal={setPmInputVal}
           pmLocationVal={pmLocationVal}
           setPmLocationVal={setPmLocationVal}
-          onConfirm={handleCreateProject}
+          onConfirm={pmModal === 'edit' ? handleEditProject : handleCreateProject}
           onClose={() => setPmModal(null)}
         />
       )}

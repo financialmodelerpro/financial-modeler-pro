@@ -9,6 +9,7 @@ interface ProjectsScreenProps {
   activeProjectId: string | null;
   onSelectProject: (pid: string) => void;
   onCreateProject: () => void;
+  onEditProject: (pid: string) => void;
   onDeleteProject: (pid: string) => void;
   setActiveModule: (m: string) => void;
   can: (permission: keyof PermissionMap) => boolean;
@@ -24,7 +25,7 @@ const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
 
 export default function ProjectsScreen({
   storageData, activeProjectId,
-  onSelectProject, onCreateProject, onDeleteProject,
+  onSelectProject, onCreateProject, onEditProject, onDeleteProject,
   setActiveModule, can,
 }: ProjectsScreenProps) {
   const [search, setSearch] = useState('');
@@ -170,6 +171,20 @@ export default function ProjectsScreen({
                   >
                     Open →
                   </button>
+                  {can('canEditProject') && (
+                    <button
+                      className="btn-secondary"
+                      style={{ fontSize: '12px', padding: '5px 10px' }}
+                      title="Edit project name & location"
+                      aria-label="Edit project name & location"
+                      onClick={e => {
+                        e.stopPropagation();
+                        onEditProject(pid);
+                      }}
+                    >
+                      ✏️
+                    </button>
+                  )}
                   {can('canDeleteProject') && (
                     <button
                       className="btn-danger"

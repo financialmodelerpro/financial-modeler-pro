@@ -18,6 +18,7 @@ interface OverviewScreenProps {
   totalCapex: number;
   onLoadVersion: (pid: string, vid: string) => void;
   onSaveVersion: () => void;
+  onEditProject: () => void;
   setActiveModule: (m: string) => void;
   setActiveTab: (t: string) => void;
   can: (permission: keyof PermissionMap) => boolean;
@@ -27,7 +28,7 @@ export default function OverviewScreen({
   storageData, activeProjectId, activeVersionId,
   projectName, projectType, currency,
   totalLandValue, totalProjectGFA, totalCapex,
-  onLoadVersion, onSaveVersion,
+  onLoadVersion, onSaveVersion, onEditProject,
   setActiveModule, setActiveTab, can,
 }: OverviewScreenProps) {
   const proj = activeProjectId ? storageData.projects[activeProjectId] : null;
@@ -70,12 +71,45 @@ export default function OverviewScreen({
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 'var(--sp-3)' }}>
         <div>
-          <h1 style={{
-            fontSize: 'var(--font-h1)', fontWeight: 'var(--fw-bold)',
-            color: 'var(--color-heading)', margin: 0, letterSpacing: '-0.02em',
-          }}>
-            {proj.name}
-          </h1>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <h1 style={{
+              fontSize: 'var(--font-h1)', fontWeight: 'var(--fw-bold)',
+              color: 'var(--color-heading)', margin: 0, letterSpacing: '-0.02em',
+            }}>
+              {proj.name}
+            </h1>
+            {can('canEditProject') && (
+              <button
+                type="button"
+                onClick={onEditProject}
+                title="Edit project name & location"
+                aria-label="Edit project name & location"
+                style={{
+                  background: 'transparent',
+                  border: '1px solid var(--color-border)',
+                  borderRadius: 'var(--radius-sm)',
+                  width: 30, height: 30,
+                  cursor: 'pointer',
+                  fontSize: 14, lineHeight: 1,
+                  color: 'var(--color-meta)',
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'border-color 0.15s, color 0.15s, background 0.15s',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.borderColor = 'var(--color-primary)';
+                  e.currentTarget.style.color = 'var(--color-primary)';
+                  e.currentTarget.style.background = 'color-mix(in srgb, var(--color-primary) 6%, transparent)';
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.borderColor = 'var(--color-border)';
+                  e.currentTarget.style.color = 'var(--color-meta)';
+                  e.currentTarget.style.background = 'transparent';
+                }}
+              >
+                ✏️
+              </button>
+            )}
+          </div>
           <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-body)', marginTop: '6px' }}>
             {proj.status} · {projectType} · {proj.location || 'No location set'}
           </p>
