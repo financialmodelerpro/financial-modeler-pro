@@ -26,7 +26,7 @@ export async function accountConfirmationTemplate({ name, email, confirmUrl }: A
     ${p('This confirmation link expires in 24 hours.', 'font-size:13px;color:#64748B;')}
     ` : `
     <div style="text-align:center;margin:28px 0;">
-      ${button('Go to Modeling Hub', `${APP_URL}/portal`)}
+      ${button('Go to Modeling Hub', `${APP_URL}/modeling/dashboard`)}
     </div>
     `}
 
@@ -34,7 +34,7 @@ export async function accountConfirmationTemplate({ name, email, confirmUrl }: A
     ${p('If you did not create this account, please contact our support team immediately.', 'font-size:13px;color:#64748B;')}
   `);
 
-  const text = `Welcome to Financial Modeler Pro!\n\nHi ${name},\n\nYour account has been created for ${email}.\n\n${confirmUrl ? `Confirm your email: ${confirmUrl}\n\n` : ''}Access the Modeling Hub: ${APP_URL}/portal`;
+  const text = `Welcome to Financial Modeler Pro!\n\nHi ${name},\n\nYour account has been created for ${email}.\n\n${confirmUrl ? `Confirm your email: ${confirmUrl}\n\n` : ''}Access the Modeling Hub: ${APP_URL}/modeling/dashboard`;
 
   return { subject, html, text };
 }

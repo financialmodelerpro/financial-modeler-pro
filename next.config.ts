@@ -9,9 +9,16 @@ const APP_URL   = 'https://app.financialmodelerpro.com';
 // `/verify` deliberately NOT in this list: certificate verification is Training
 // Hub content and should stay on learn.* (that's the host the QR codes encode
 // and the host users should see in their address bar when scanning).
+//
+// `/portal` deliberately NOT in this list: the Modeling Hub canonical landing
+// is `app.*/modeling/dashboard` (sidebar layout). Apex `/portal` is now a
+// thin redirect page (`app/portal/page.tsx`) that bounces to that URL so
+// stale bookmarks keep working. Including `/portal` here would have made
+// `app.*/portal` redirect to apex first, which drops the NextAuth session
+// cookie (cookie scoped to app.* by default) and breaks post-signin auth.
 const MAIN_PATHS = [
   '/about', '/articles', '/pricing', '/contact', '/login',
-  '/forgot-password', '/reset-password', '/admin', '/portal',
+  '/forgot-password', '/reset-password', '/admin',
   '/t', '/testimonials', '/confidentiality', '/privacy-policy',
 ];
 

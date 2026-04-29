@@ -205,8 +205,7 @@ export default function SettingsPage() {
           Settings
         </span>
         <div style={{ flex: 1 }} />
-        <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/modeling/dashboard`} style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, textDecoration: 'none', marginRight: 8 }}>← Modeling Hub</a>
-        <a href="/"       style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, textDecoration: 'none', marginRight: 16 }}>← Portal</a>
+        <a href={`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://app.financialmodelerpro.com'}/modeling/dashboard`} style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, textDecoration: 'none', marginRight: 16 }}>← Modeling Hub</a>
         <button
           onClick={async () => { setSigningOut(true); await signOut({ callbackUrl: '/' }); }}
           disabled={signingOut}
@@ -393,7 +392,7 @@ export default function SettingsPage() {
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12, marginBottom: 24, paddingBottom: 24, borderBottom: '1px solid #fecaca' }}>
             <div>
               <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-heading)' }}>Sign out</div>
-              <div style={{ fontSize: 12, color: 'var(--color-meta)' }}>You will be redirected to the portal.</div>
+              <div style={{ fontSize: 12, color: 'var(--color-meta)' }}>You will be redirected to the home page.</div>
             </div>
             <button
               onClick={async () => { setSigningOut(true); await signOut({ callbackUrl: '/' }); }}

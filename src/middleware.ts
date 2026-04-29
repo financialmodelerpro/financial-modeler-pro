@@ -23,7 +23,7 @@ import type { NextRequest } from 'next/server';
  *                                   stale 308 entry gets replaced the
  *                                   next time the URL is requested)
  *   - `/admin/:path+` unauth    -> 307 `/admin` (query stripped)
- *   - `/admin/:path+` non-admin -> 307 `/portal`
+ *   - `/admin/:path+` non-admin -> 307 apex `/`
  *
  * All redirects carry:
  *     Cache-Control: no-store, no-cache, must-revalidate, max-age=0
@@ -70,7 +70,7 @@ export async function middleware(req: NextRequest) {
   if (pathname.startsWith('/admin/')) {
     const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
     if (!token) return noCacheRedirect(req, '/admin');
-    if ((token as { role?: string }).role !== 'admin') return noCacheRedirect(req, '/portal');
+    if ((token as { role?: string }).role !== 'admin') return noCacheRedirect(req, '/');
   }
 
   return NextResponse.next();

@@ -247,9 +247,9 @@ export default function Topbar({
         ⚙️
       </Link>
 
-      {/* Portal link */}
-      <Link href="/portal" className="portal-back-btn" title="Back to portal">
-        ← Portal
+      {/* Hub link — back to Modeling Hub sidebar landing */}
+      <Link href="/modeling/dashboard" className="portal-back-btn" title="Back to Modeling Hub">
+        ← Hub
       </Link>
 
       {/* Sign out */}
