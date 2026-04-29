@@ -93,7 +93,7 @@ export default function OverviewScreen({
       }}>
         {[
           { label: 'Land Value',  value: formatCurrency(totalLandValue, currency), color: 'var(--color-green-dark)' },
-          { label: 'Total GFA',   value: `${formatNumber(totalProjectGFA)} sqm`,   color: '#7C2D12' },
+          { label: 'Total GFA',   value: `${formatNumber(totalProjectGFA)} sqm`,   color: 'var(--color-accent-warm)' },
           { label: 'Total CapEx', value: formatCurrency(totalCapex, currency),      color: 'var(--color-navy)' },
           { label: 'Versions',    value: String(versions.length),                  color: 'var(--color-grey-mid)' },
         ].map((kpi, i) => (
@@ -161,8 +161,12 @@ export default function OverviewScreen({
                   style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                     padding: '10px 12px', borderRadius: 'var(--radius-sm)',
-                    border: isActive ? '1px solid rgba(22,101,52,0.4)' : '1px solid var(--color-border)',
-                    background: isActive ? 'rgba(22,101,52,0.06)' : 'transparent',
+                    border: isActive
+                      ? '1px solid color-mix(in srgb, var(--color-success) 40%, transparent)'
+                      : '1px solid var(--color-border)',
+                    background: isActive
+                      ? 'color-mix(in srgb, var(--color-success) 6%, transparent)'
+                      : 'transparent',
                   }}
                 >
                   <div>
@@ -175,8 +179,9 @@ export default function OverviewScreen({
                       {isActive && (
                         <span style={{
                           fontSize: '9px', fontWeight: 700, padding: '1px 7px',
-                          borderRadius: '20px', background: 'rgba(22,101,52,0.15)',
-                          color: 'var(--color-green-dark)',
+                          borderRadius: '20px',
+                          background: 'color-mix(in srgb, var(--color-success) 15%, transparent)',
+                          color: 'var(--color-success)',
                         }}>LOADED</span>
                       )}
                     </div>
