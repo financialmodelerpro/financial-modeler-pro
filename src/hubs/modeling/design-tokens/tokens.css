@@ -51,6 +51,14 @@
   --color-mh-chrome-table-total:          #14306E;
   --color-mh-chrome-section-header:       #1E3A8A;
   --color-mh-chrome-section-header-text:  #FFFFFF;
+  --color-mh-chrome-asset-accent:         #1B6E50;
+  --color-mh-chrome-asset-accent-text:    #FFFFFF;
+  --color-mh-chrome-timeline-constr-bg:       #FFF9E6;
+  --color-mh-chrome-timeline-constr-bg-alt:   #FFF2CC;
+  --color-mh-chrome-timeline-constr-text:     #78350F;
+  --color-mh-chrome-timeline-ops-bg:           #E8F5FF;
+  --color-mh-chrome-timeline-ops-bg-alt:       #DAE8FC;
+  --color-mh-chrome-timeline-ops-text:         #1E3A8A;
 
   /* FAST — light defaults */
   --color-mh-fast-input-text:       #0070C0;
@@ -117,6 +125,14 @@
   --color-mh-chrome-table-total:          #1E3A8A;
   --color-mh-chrome-section-header:       #1E5594;
   --color-mh-chrome-section-header-text:  #FFFFFF;
+  --color-mh-chrome-asset-accent:         #22C55E;
+  --color-mh-chrome-asset-accent-text:    #FFFFFF;
+  --color-mh-chrome-timeline-constr-bg:       #3F2E0A;
+  --color-mh-chrome-timeline-constr-bg-alt:   #5C4D00;
+  --color-mh-chrome-timeline-constr-text:     #F2C088;
+  --color-mh-chrome-timeline-ops-bg:           #1E3A5F;
+  --color-mh-chrome-timeline-ops-bg-alt:       #22466F;
+  --color-mh-chrome-timeline-ops-text:         #DBE5F4;
 
   --color-mh-fast-input-text:       #4FC3F7;
   --color-mh-fast-input-bg:         #111827;

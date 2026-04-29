@@ -97,6 +97,22 @@ export interface ChromePalette {
 
   sectionHeader:     string;  // section title strip
   sectionHeaderText: string;
+
+  // Asset sub-section accent (Residential / Hospitality / Retail bands).
+  // Distinct from the canonical navy chrome so an asset sub-table reads as
+  // a child of the parent module section.
+  assetAccent:       string;
+  assetAccentText:   string;
+
+  // Timeline period tints — for tables whose columns map to periods on the
+  // construction → operations axis. Used by Module 1 Costs / Financing in
+  // both the web UI (Phase 4) and the Excel exporter (Phase 2).
+  timelineConstrBg:    string;  // construction period column tint (zebra base)
+  timelineConstrBgAlt: string;  // construction period zebra alt
+  timelineConstrText:  string;  // text colour on construction period header
+  timelineOpsBg:       string;  // operations period column tint (zebra base)
+  timelineOpsBgAlt:    string;  // operations period zebra alt
+  timelineOpsText:     string;  // text colour on operations period header
 }
 
 export const chromeColors: { light: ChromePalette; dark: ChromePalette } = {
@@ -128,6 +144,16 @@ export const chromeColors: { light: ChromePalette; dark: ChromePalette } = {
 
     sectionHeader:     navyScale[800],
     sectionHeaderText: '#FFFFFF',
+
+    assetAccent:       '#1B6E50',  // forest green
+    assetAccentText:   '#FFFFFF',
+
+    timelineConstrBg:    '#FFF9E6',  // cream
+    timelineConstrBgAlt: '#FFF2CC',  // stronger cream for zebra
+    timelineConstrText:  '#78350F',  // gold-dark
+    timelineOpsBg:       '#E8F5FF',  // pale blue
+    timelineOpsBgAlt:    '#DAE8FC',  // stronger pale blue for zebra
+    timelineOpsText:     navyScale[800],
   },
   dark: {
     pageBg:            greyScale[950],
@@ -157,6 +183,16 @@ export const chromeColors: { light: ChromePalette; dark: ChromePalette } = {
 
     sectionHeader:     navyScale[700],
     sectionHeaderText: '#FFFFFF',
+
+    assetAccent:       '#22C55E',  // brighter green for dark-mode contrast
+    assetAccentText:   '#FFFFFF',
+
+    timelineConstrBg:    '#3F2E0A',  // muted dark amber
+    timelineConstrBgAlt: '#5C4D00',
+    timelineConstrText:  '#F2C088',
+    timelineOpsBg:       '#1E3A5F',
+    timelineOpsBgAlt:    '#22466F',
+    timelineOpsText:     '#DBE5F4',
   },
 };
 

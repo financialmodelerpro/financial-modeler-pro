@@ -122,14 +122,24 @@ Dark mode is class-strategy: add `class="dark"` to any ancestor (typically `<htm
 
 The CMS admin can change the primary brand colour at runtime via `/admin/header-settings`. The change writes to `branding_config.primary_color` in Supabase and is applied to the live web UI by `BrandingThemeApplier` (in `src/core/branding/`), which sets `--color-primary` on `:root`.
 
-This Modeling Hub token system stays decoupled from that channel by design — it bakes in the *current* CMS default (`#1E3A8A` from `DEFAULT_BRANDING.primaryColor`) as a TypeScript hex literal, so:
-
-- **Web UI**: Modeling Hub web components use the baked-in literal directly. If you want them to follow CMS overrides, change `BRAND_NAVY` in `colors.ts` to `'var(--color-primary)'` (CSS) or wire a runtime resolver. This is a deliberate Phase 4 decision per platform — REFM may want to follow CMS, FP&A may want to lock to its own anchor.
-- **Excel + PDF exports**: always use the baked-in literal regardless of CMS state. Exports cannot read CSS vars at server render time, and the canonical FAST palette is intentionally stable across deploys.
+This Modeling Hub token system stays decoupled from that channel by design — it bakes in the *current* CMS default (`#1E3A8A` from `DEFAULT_BRANDING.primaryColor`) as a TypeScript hex literal.
 
 If the canonical CMS default ever changes, update both:
 1. `src/core/branding/index.ts:13` — `DEFAULT_BRANDING.primaryColor`
 2. `src/hubs/modeling/design-tokens/colors.ts` — `BRAND_NAVY`
+
+### Per-platform decision
+
+Whether a Modeling Hub web component follows the CMS `--color-primary` override or stays locked on the baked-in `BRAND_NAVY` is a per-platform call. Decisions to date:
+
+| Surface | Source | Rationale |
+|---------|--------|-----------|
+| **REFM web UI** (Phase 4 retrofit target) | Follows CMS `--color-primary` | Consistent with how Training Hub already behaves; admin can rebrand the live workspace without a deploy. |
+| **Excel exporter** (Phase 2, shipped) | Locked on baked-in `BRAND_NAVY` | Server-rendered xlsx cannot read browser CSS vars; the canonical FAST + chrome palette must stay stable across deploys so a model exported in 2026 opens on the same colours in 2028. |
+| **PDF exporter** (Phase 3 retrofit target) | Locked on baked-in `BRAND_NAVY` | Same reasoning as Excel. Printed/saved deliverables must stay deterministic. |
+| Future platforms (BVM, FP&A, ERM, PFM, LBO, CFM, EUM, SVM, BCM) | Decide at retrofit | Default to *follow CMS* unless the platform has a concrete reason to lock (e.g. white-label re-introduction). |
+
+The mechanic for *follow CMS*: in JSX, replace direct `chromeColors.light.X` references with `var(--color-primary)` (or a derived chain) wherever the brand navy appears. The cell primitives accept inline-style overrides via the standard `style` prop, so a consumer can override `BRAND_NAVY`-derived defaults without forking the primitive.
 
 ## Helpers for the exporters
 
@@ -157,8 +167,8 @@ const { r, g, b } = toRgbTriple(fastColors.light.formulaText);
 - Adding a new spacing value? Add a semantic name to `semanticSpacing` rather than reaching for a raw `spacing[3]` in component code.
 - Light + dark must stay shape-identical. Adding a key to `light` requires adding it to `dark` in the same commit.
 
-## What's pending (Phase 2-4)
+## What's pending (Phase 3-4)
 
-- **Phase 2**: Excel exporter (`app/api/export/excel/route.ts`) retrofit. Replace inline ARGB literals with `toArgb(fastColors.light.X)` calls.
-- **Phase 3**: PDF exporter (`app/api/export/pdf/route.ts`) retrofit. Replace inline hex literals with `fastColors.light.X` references.
-- **Phase 4**: Module 1 component retrofit. Swap inline color styles for tokens; replace hand-rolled cells with `<InputCell>` / `<FormulaCell>` / `<AssumptionCell>` / `<LinkedCell>` / `<SectionHeader>` / `<TableHeader>` / `<KpiCard>`. Then a grep for `bg-blue-`, `text-yellow-`, `#1E3A8A`, etc., across `src/hubs/modeling/` should return zero hits outside this folder.
+- **Phase 2 — shipped.** Excel exporter (`app/api/export/excel/route.ts`) consumes tokens via `toArgb(fastColors.light.X)` / `toArgb(chromeColors.light.X)`. Zero hardcoded hex literals remain in the route. `buildWorkbook(payload)` extracted as a pure function so a fixture script (`scripts/excel-export-fixture.ts`) can produce a deterministic xlsx without spinning up the dev server. Run `npx tsx scripts/excel-export-fixture.ts` to generate the diff baseline. Eight new chrome tokens added to support the retrofit: `assetAccent`, `assetAccentText`, `timelineConstrBg`, `timelineConstrBgAlt`, `timelineConstrText`, `timelineOpsBg`, `timelineOpsBgAlt`, `timelineOpsText` (with parallel dark variants).
+- **Phase 3**: PDF exporter (`app/api/export/pdf/route.ts`) retrofit. Replace inline hex literals with `fastColors.light.X` / `chromeColors.light.X` references. Use the same fixture-runner pattern as Phase 2 if useful.
+- **Phase 4**: Module 1 component retrofit. Swap inline colour styles for tokens; replace hand-rolled cells with `<InputCell>` / `<FormulaCell>` / `<AssumptionCell>` / `<LinkedCell>` / `<SectionHeader>` / `<TableHeader>` / `<KpiCard>`. Phase 4 is also where REFM web UI gets wired to follow CMS `--color-primary` (see § Per-platform decision). After Phase 4, a grep for `bg-blue-`, `text-yellow-`, `#1E3A8A`, etc., across `src/hubs/modeling/` should return zero hits outside this folder.
