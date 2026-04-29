@@ -95,6 +95,15 @@ export default function TrainingSettingsPage() {
   const [msNotifyEmailSavedAt, setMsNotifyEmailSavedAt] = useState('');
   const [msNotifySaving,  setMsNotifySaving]  = useState(false);
 
+  // F.2 - per-course guidance text + optional sample template URL. Empty
+  // guidance falls back to a baked default in the student card; empty
+  // sample URL hides the download CTA.
+  const [msGuidance3sfm,  setMsGuidance3sfm]  = useState('');
+  const [msGuidanceBvm,   setMsGuidanceBvm]   = useState('');
+  const [msSampleUrl3sfm, setMsSampleUrl3sfm] = useState('');
+  const [msSampleUrlBvm,  setMsSampleUrlBvm]  = useState('');
+  const [msGuidanceSavingKey, setMsGuidanceSavingKey] = useState<'3SFM' | 'BVM' | null>(null);
+
   // WhatsApp Group URL (migration 123)
   const [whatsappUrl, setWhatsappUrl]         = useState('');
   const [savedWhatsappUrl, setSavedWhatsappUrl] = useState('');
@@ -274,6 +283,12 @@ export default function TrainingSettingsPage() {
       const recip = (s.model_submission_admin_notify_email ?? '').trim();
       setMsNotifyEmail(recip);
       setMsNotifyEmailSavedAt(recip);
+      // F.2 per-course guidance + sample URL hydration. Strings stay empty
+      // when unset; the student card backs out to a baked default per course.
+      setMsGuidance3sfm(s.model_submission_guidance_3sfm ?? '');
+      setMsGuidanceBvm(s.model_submission_guidance_bvm ?? '');
+      setMsSampleUrl3sfm(s.model_submission_sample_url_3sfm ?? '');
+      setMsSampleUrlBvm(s.model_submission_sample_url_bvm ?? '');
       const wa = (s.whatsapp_group_url ?? '').trim();
       setWhatsappUrl(wa);
       setSavedWhatsappUrl(wa);
@@ -377,6 +392,45 @@ export default function TrainingSettingsPage() {
       showToast('Save failed');
     }
     setMsNotifySaving(false);
+  };
+
+  // F.2 - per-course guidance + sample URL save. One POST per course so the
+  // two cards save independently. URL is loosely validated (http/https only)
+  // so a typo can be corrected without a DB roundtrip.
+  const saveGuidance = async (course: '3SFM' | 'BVM') => {
+    const guidance = (course === '3SFM' ? msGuidance3sfm : msGuidanceBvm).trim();
+    const rawUrl   = (course === '3SFM' ? msSampleUrl3sfm : msSampleUrlBvm).trim();
+    if (rawUrl && !/^https?:\/\//i.test(rawUrl)) {
+      showToast('Sample URL must start with http:// or https://');
+      return;
+    }
+    setMsGuidanceSavingKey(course);
+    try {
+      const lc = course.toLowerCase();
+      const res = await fetch('/api/admin/training-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          [`model_submission_guidance_${lc}`]:   guidance,
+          [`model_submission_sample_url_${lc}`]: rawUrl,
+        }),
+      });
+      if (res.ok) {
+        if (course === '3SFM') {
+          setMsGuidance3sfm(guidance);
+          setMsSampleUrl3sfm(rawUrl);
+        } else {
+          setMsGuidanceBvm(guidance);
+          setMsSampleUrlBvm(rawUrl);
+        }
+        showToast(`${course} guidance saved`);
+      } else {
+        showToast('Save failed');
+      }
+    } catch {
+      showToast('Save failed');
+    }
+    setMsGuidanceSavingKey(null);
   };
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
@@ -1225,6 +1279,114 @@ export default function TrainingSettingsPage() {
                     ? <>✓ Alerts will go to <strong>{msNotifyEmailSavedAt}</strong></>
                     : <>⚠ Alerts are <strong>OFF</strong> (toggle disabled or recipient empty)</>}
                 </div>
+              </div>
+
+              {/* F.2 - Per-course guidance + sample template URL. Two
+                  independent cards (3SFM + BVM) so each course can be
+                  populated on its own timeline. Empty guidance falls back
+                  to a baked default in the student card; empty sample URL
+                  hides the download CTA. */}
+              <div style={{ marginTop: 18 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B', marginBottom: 4 }}>📝 Per-course guidance + sample template</div>
+                <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 12, lineHeight: 1.55 }}>
+                  Tell students what to build for each course. Leave guidance empty to fall back to the platform default. The sample URL is optional - paste a Supabase storage link, Google Drive link, or any https URL pointing at a downloadable model template.
+                </div>
+
+                {(['3SFM', 'BVM'] as const).map(course => {
+                  const guidance = course === '3SFM' ? msGuidance3sfm : msGuidanceBvm;
+                  const setGuidance = course === '3SFM' ? setMsGuidance3sfm : setMsGuidanceBvm;
+                  const sampleUrl = course === '3SFM' ? msSampleUrl3sfm : msSampleUrlBvm;
+                  const setSampleUrl = course === '3SFM' ? setMsSampleUrl3sfm : setMsSampleUrlBvm;
+                  const saving = msGuidanceSavingKey === course;
+                  const courseLabel = course === '3SFM' ? '3-Statement Financial Modeling' : 'Business Valuation Modeling';
+
+                  return (
+                    <div
+                      key={course}
+                      style={{
+                        marginBottom: 12,
+                        padding: '14px 16px',
+                        background: '#F9FAFB',
+                        border: '1px solid #E5E7EB',
+                        borderRadius: 8,
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: '#0D2E5A' }}>
+                          {course} <span style={{ color: '#6B7280', fontWeight: 500 }}>· {courseLabel}</span>
+                        </div>
+                        {!guidance && (
+                          <span style={{ fontSize: 10, color: '#92400E', background: '#FEF3C7', padding: '2px 8px', borderRadius: 10, fontWeight: 700 }}>
+                            USING DEFAULT
+                          </span>
+                        )}
+                      </div>
+
+                      <label style={{ display: 'block', fontSize: 11, color: '#6B7280', fontWeight: 600, marginBottom: 4 }}>
+                        Guidance text shown on the student card
+                      </label>
+                      <textarea
+                        value={guidance}
+                        onChange={e => setGuidance(e.target.value)}
+                        disabled={saving}
+                        rows={4}
+                        maxLength={2000}
+                        placeholder={`What should the student build for ${course}? Plain text, or a few bullet points. Empty = use the platform default copy.`}
+                        style={{
+                          width: '100%',
+                          padding: '8px 10px',
+                          border: '1px solid #D1D5DB',
+                          borderRadius: 6,
+                          fontSize: 12,
+                          fontFamily: 'inherit',
+                          resize: 'vertical',
+                          marginBottom: 10,
+                        }}
+                      />
+
+                      <label style={{ display: 'block', fontSize: 11, color: '#6B7280', fontWeight: 600, marginBottom: 4 }}>
+                        Sample template download URL (optional)
+                      </label>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                        <input
+                          type="url"
+                          placeholder="https://..."
+                          value={sampleUrl}
+                          onChange={e => setSampleUrl(e.target.value)}
+                          disabled={saving}
+                          style={{
+                            flex: '1 1 280px',
+                            minWidth: 240,
+                            padding: '8px 10px',
+                            border: '1px solid #D1D5DB',
+                            borderRadius: 6,
+                            fontSize: 12,
+                            color: '#1F2937',
+                            background: saving ? '#F3F4F6' : '#fff',
+                          }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void saveGuidance(course)}
+                          disabled={saving}
+                          style={{
+                            padding: '8px 16px',
+                            background: '#1B3A6B',
+                            color: '#fff',
+                            border: 'none',
+                            borderRadius: 6,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: saving ? 'not-allowed' : 'pointer',
+                            opacity: saving ? 0.6 : 1,
+                          }}
+                        >
+                          {saving ? 'Saving...' : `Save ${course}`}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 

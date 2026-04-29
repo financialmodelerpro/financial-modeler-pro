@@ -59,6 +59,73 @@ function formatDate(iso: string | null | undefined): string {
   }
 }
 
+/**
+ * Baked-in fallback guidance per course. Used when training_settings has no
+ * per-course override saved. Admin override at /admin/training-settings wins
+ * once populated. Kept short and concrete so an unprepared student still
+ * gets a usable scope from the empty-state.
+ */
+const DEFAULT_GUIDANCE: Record<'3SFM' | 'BVM', string> = {
+  '3SFM':
+    'Build an integrated 3-statement model (Income Statement, Balance Sheet, Cash Flow) for any public or private company you choose. Include 5 years of historical actuals plus a 5-year projection. Show working capital, capex, debt schedule, and a depreciation roll. Submit as Excel (.xlsx / .xlsm) or PDF.',
+  'BVM':
+    'Build a DCF + comparable-company valuation for any public company. Show your WACC derivation, terminal value calculation, and a sensitivity table on growth + WACC. Comparables tab should include 4-6 peers with EV/EBITDA and P/E multiples. Submit as Excel (.xlsx / .xlsm) or PDF.',
+};
+
+/**
+ * Renders the per-course guidance + optional sample download link. Used in
+ * every student-facing branch except Approved (no point telling a passed
+ * student what to build).
+ */
+function GuidancePanel({
+  courseCode, courseLabel, guidance, sampleUrl,
+}: { courseCode: '3SFM' | 'BVM'; courseLabel: string; guidance: string; sampleUrl: string | null }) {
+  const text = guidance || DEFAULT_GUIDANCE[courseCode];
+  return (
+    <div style={{
+      marginBottom: 12,
+      padding: '12px 14px',
+      background: '#F8FAFC',
+      border: '1px solid #E2E8F0',
+      borderRadius: 8,
+    }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+        What to build for {courseLabel}
+      </div>
+      <div style={{
+        fontSize: 12.5,
+        color: '#334155',
+        lineHeight: 1.6,
+        whiteSpace: 'pre-wrap',
+      }}>{text}</div>
+      {sampleUrl && (
+        <div style={{ marginTop: 10 }}>
+          <a
+            href={sampleUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '6px 12px',
+              background: '#fff',
+              border: '1px solid #BFDBFE',
+              borderRadius: 6,
+              fontSize: 12,
+              fontWeight: 600,
+              color: '#1D4ED8',
+              textDecoration: 'none',
+            }}
+          >
+            ⬇ Download sample template
+          </a>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StatusPill({ tone, label }: { tone: 'amber' | 'green' | 'red' | 'gray'; label: string }) {
   const palette = {
     amber: { bg: '#FEF3C7', fg: '#92400E', border: '#FDE68A' },
@@ -197,11 +264,19 @@ export function ModelSubmissionCard({ courseCode, courseLabel, initialStatus, on
           </div>
           <StatusPill tone="amber" label="Heads-up" />
         </div>
-        <div style={{ fontSize: 12.5, color: '#78350F', lineHeight: 1.55, marginLeft: 28 }}>
+        <div style={{ fontSize: 12.5, color: '#78350F', lineHeight: 1.55, marginLeft: 28, marginBottom: 10 }}>
           Soon, before unlocking the Final Exam for <strong>{courseLabel}</strong>, you will need to submit
           the financial model you have built. An admin will review it on an effort-based pass/reject
           basis. You will get up to 3 attempts and a 5 business day review window. We will email you
           when this requirement goes live so you have time to prepare.
+        </div>
+        <div style={{ marginLeft: 28 }}>
+          <GuidancePanel
+            courseCode={courseCode}
+            courseLabel={courseLabel}
+            guidance={status.guidance}
+            sampleUrl={status.sampleUrl}
+          />
         </div>
       </div>
     );
@@ -351,6 +426,14 @@ export function ModelSubmissionCard({ courseCode, courseLabel, initialStatus, on
         (.xlsx, .xls, .xlsm) or PDF. An admin will review it within 5 business days. Approval unlocks
         the Final Exam. Each rejection consumes one of your 3 attempts.
       </div>
+
+      {/* Per-course guidance + optional sample template */}
+      <GuidancePanel
+        courseCode={courseCode}
+        courseLabel={courseLabel}
+        guidance={status.guidance}
+        sampleUrl={status.sampleUrl}
+      />
 
       {/* File picker */}
       <div style={{ marginBottom: 10 }}>

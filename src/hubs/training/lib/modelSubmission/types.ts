@@ -49,4 +49,18 @@ export interface ModelSubmissionStatusResult {
   maxAttempts: number;
   /** Latest submission row (most-recent submitted_at), if any. */
   latest: ModelSubmissionRow | null;
+  /**
+   * Per-course guidance copy shown on the student card. Empty string when
+   * unset; the card falls back to a baked-in default in that case so the
+   * gate is self-explanatory out of the box. Admin can override at
+   * /admin/training-settings.
+   */
+  guidance: string;
+  /**
+   * Optional sample-model download URL shown alongside guidance. Null when
+   * unset; the card hides the "Download sample template" CTA in that case.
+   * Stored as a free-text URL so admin can point at any host (Supabase
+   * storage, Drive, GitHub, etc).
+   */
+  sampleUrl: string | null;
 }

@@ -72,6 +72,8 @@ export async function getModelSubmissionStatus(
     attemptsRemaining: 3,
     maxAttempts: 3,
     latest: null,
+    guidance: '',
+    sampleUrl: null,
   };
   if (!code) return baseDefaults;
 
@@ -79,6 +81,8 @@ export async function getModelSubmissionStatus(
     `model_submission_required_${code.toLowerCase()}`,
     'model_submission_max_attempts',
     'model_submission_announcement_only',
+    `model_submission_guidance_${code.toLowerCase()}`,
+    `model_submission_sample_url_${code.toLowerCase()}`,
   ]);
   const required = settings[`model_submission_required_${code.toLowerCase()}`] === 'true';
   const announcementOnly = settings.model_submission_announcement_only !== 'false';
@@ -86,6 +90,12 @@ export async function getModelSubmissionStatus(
     1,
     Math.min(10, parseInt(settings.model_submission_max_attempts ?? '3', 10) || 3),
   );
+  const guidance = (settings[`model_submission_guidance_${code.toLowerCase()}`] ?? '').trim();
+  const rawSampleUrl = (settings[`model_submission_sample_url_${code.toLowerCase()}`] ?? '').trim();
+  // Sanity-check the URL: only http(s) schemes allowed, otherwise null. The
+  // student card renders this as a clickable anchor so a `javascript:` or
+  // similar opaque scheme is a real XSS hazard.
+  const sampleUrl = /^https?:\/\//i.test(rawSampleUrl) ? rawSampleUrl : null;
 
   const sb = getServerClient();
   // Postgres ilike on `LOWER(email)`-indexed column. Matches the index
@@ -113,5 +123,7 @@ export async function getModelSubmissionStatus(
     attemptsRemaining,
     maxAttempts,
     latest,
+    guidance,
+    sampleUrl,
   };
 }
