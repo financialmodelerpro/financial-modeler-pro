@@ -86,6 +86,15 @@
     --color-row-alt:       var(--color-navy-pale);
     --color-row-hover:     var(--color-navy-light);
 
+    /* ── Workspace shell tokens ── */
+    /* Used by /portal (Modeling Hub sidebar workspace). The .dark block
+       below overrides these for dark mode. Dark-mode scope is contained
+       to whatever element carries `class="dark"` — see app/portal/page.tsx
+       which applies it to its outermost <div> based on user toggle.
+       Adding the dark scope to other workspaces is opt-in per shell. */
+    --workspace-top-nav: var(--color-navy-darkest);
+    --workspace-sidebar: var(--color-navy-darkest);
+
     /* ── Elevation ── */
     --shadow-1:     0 4px 12px rgba(0,0,0,0.04);
     --shadow-2:     0 6px 16px rgba(0,0,0,0.06);
@@ -123,6 +132,27 @@
 
     /* ── Transitions ── */
     --transition: all 0.2s ease;
+}
+
+/* ── Dark mode overrides ──────────────────────────────────────────────────
+   Scoped to any subtree under `.dark` (typically applied to a workspace
+   shell's outermost <div>; see /portal). Brand colors (--color-primary,
+   --color-success, etc.) intentionally stay constant across themes so
+   the brand identity is preserved; only neutrals + surfaces swap.
+   Additive — does not modify any existing :root token. */
+.dark {
+    --color-bg:            #0F172A;  /* slate-900 — page bg */
+    --color-surface:       #1E293B;  /* slate-800 — cards, panels */
+    --color-border:        #334155;  /* slate-700 */
+    --color-border-light:  #1F2937;
+    --color-body:          #E5E7EB;  /* slate-200 */
+    --color-meta:          #94A3B8;  /* slate-400 */
+    --color-muted:         #64748B;  /* slate-500 */
+    --color-heading:       #F1F5F9;  /* slate-100 */
+    --color-row-alt:       #1F2937;
+    --color-row-hover:     #283747;
+    --workspace-top-nav:   #000000;  /* deepen top nav in dark */
+    --workspace-sidebar:   #000000;  /* deepen sidebar in dark */
 }
 
 html, body { height: 100%; }

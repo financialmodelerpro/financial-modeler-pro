@@ -49,9 +49,9 @@ function PlatformCard({ platform }: { platform: Platform }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        background: '#fff',
+        background: 'var(--color-surface)',
         borderRadius: 14,
-        border: `1.5px solid ${isLive && hovered ? platform.color + '55' : isLive ? platform.color + '28' : '#E5E7EB'}`,
+        border: `1.5px solid ${isLive && hovered ? platform.color + '55' : isLive ? platform.color + '28' : 'var(--color-border)'}`,
         padding: '24px 22px',
         display: 'flex',
         flexDirection: 'column',
@@ -90,14 +90,14 @@ function PlatformCard({ platform }: { platform: Platform }) {
           <div style={{ fontSize: 10, fontWeight: 800, color: platform.color, letterSpacing: '0.07em', textTransform: 'uppercase', marginBottom: 3 }}>
             {platform.shortName}
           </div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#111827', lineHeight: 1.3 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-heading)', lineHeight: 1.3 }}>
             {platform.name}
           </div>
         </div>
       </div>
 
       {/* Tagline */}
-      <p style={{ fontSize: 12.5, color: '#6B7280', lineHeight: 1.6, margin: 0, flexGrow: 1 }}>
+      <p style={{ fontSize: 12.5, color: 'var(--color-meta)', lineHeight: 1.6, margin: 0, flexGrow: 1 }}>
         {platform.tagline}
       </p>
 
@@ -139,7 +139,33 @@ export default function AppHubPage() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [profileDropdown,  setProfileDropdown]  = useState(false);
   const [cmsLogo,          setCmsLogo]          = useState<{ url?: string; height?: string }>({});
+  const [theme,            setTheme]            = useState<'light' | 'dark'>('light');
   const profileRef = useRef<HTMLDivElement>(null);
+
+  // Restore theme on mount: localStorage override first, then system preference.
+  // Brand colors stay constant across themes (see globals.css .dark block);
+  // only neutrals + surfaces swap. Brief FOUC for dark-mode users is
+  // accepted; matches the appHubSidebarCollapsed restore pattern below.
+  /* eslint-disable react-hooks/set-state-in-effect -- one-time hydration from localStorage + matchMedia */
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const stored = localStorage.getItem('fmp-portal-theme');
+    if (stored === 'light' || stored === 'dark') {
+      setTheme(stored);
+      return;
+    }
+    const prefersDark = window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+    setTheme(prefersDark ? 'dark' : 'light');
+  }, []);
+  /* eslint-enable react-hooks/set-state-in-effect */
+
+  function toggleTheme() {
+    const next: 'light' | 'dark' = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('fmp-portal-theme', next);
+    }
+  }
 
   // Fetch CMS logo (header_settings.logo_url + logo_height_px). Same source
   // as TrainingShell so a single CMS edit propagates to every workspace.
@@ -213,7 +239,7 @@ export default function AppHubPage() {
   ];
 
   return (
-    <div style={{ fontFamily: "'Inter', sans-serif", background: '#F5F7FA', minHeight: '100vh', color: '#374151' }}>
+    <div className={theme === 'dark' ? 'dark' : ''} style={{ fontFamily: "'Inter', sans-serif", background: 'var(--color-bg)', minHeight: '100vh', color: 'var(--color-body)' }}>
 
       <style>{`
         @keyframes spin { to { transform: rotate(360deg); } }
@@ -247,7 +273,7 @@ export default function AppHubPage() {
 
       {/* ── TOP NAV ──────────────────────────────────────────────────────────── */}
       <div style={{
-        background: '#0D2E5A', padding: '0 20px', height: 56,
+        background: 'var(--workspace-top-nav)', padding: '0 20px', height: 56,
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         position: 'sticky', top: 0, zIndex: 150,
         boxShadow: '0 2px 12px rgba(0,0,0,0.2)',
@@ -327,7 +353,7 @@ export default function AppHubPage() {
           className="hub-sidebar"
           style={{
             width: sidebarW, flexShrink: 0,
-            background: '#0D2E5A',
+            background: 'var(--workspace-sidebar)',
             display: 'flex', flexDirection: 'column',
             position: 'sticky', top: 56,
             height: 'calc(100vh - 56px)',
@@ -407,8 +433,30 @@ export default function AppHubPage() {
             })}
           </div>
 
-          {/* ─ Bottom: collapse toggle + sign out ─ */}
+          {/* ─ Bottom: theme toggle + sign out + collapse ─ */}
           <div style={{ padding: collapsed ? '10px 6px' : '10px 10px', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+            {/* Theme toggle — light/dark cycle, persisted to localStorage */}
+            <div
+              className="hub-nav-item"
+              onClick={toggleTheme}
+              title={collapsed ? `Switch to ${theme === 'dark' ? 'light' : 'dark'} mode` : undefined}
+              style={{
+                display: 'flex', alignItems: 'center', gap: collapsed ? 0 : 10,
+                justifyContent: collapsed ? 'center' : 'flex-start',
+                padding: collapsed ? '11px 0' : '10px 12px',
+                borderRadius: 8, cursor: 'pointer',
+                marginBottom: 6,
+                borderLeft: '3px solid transparent',
+              }}
+            >
+              <span style={{ fontSize: 16, flexShrink: 0 }}>{theme === 'dark' ? '☀️' : '🌙'}</span>
+              {!collapsed && (
+                <span style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.7)' }}>
+                  {theme === 'dark' ? 'Light Mode' : 'Dark Mode'}
+                </span>
+              )}
+            </div>
+
             {/* Sign out */}
             <div
               className="hub-nav-item"
@@ -451,10 +499,10 @@ export default function AppHubPage() {
         >
           {/* Welcome */}
           <div style={{ marginBottom: 36 }}>
-            <h1 style={{ fontSize: 26, fontWeight: 800, color: '#0D2E5A', margin: '0 0 6px' }}>
+            <h1 style={{ fontSize: 26, fontWeight: 800, color: 'var(--color-heading)', margin: '0 0 6px' }}>
               Welcome back{user.name ? `, ${user.name.split(' ')[0]}` : ''}
             </h1>
-            <p style={{ fontSize: 13.5, color: '#6B7280', margin: 0, lineHeight: 1.6 }}>
+            <p style={{ fontSize: 13.5, color: 'var(--color-meta)', margin: 0, lineHeight: 1.6 }}>
               Select a platform to open your modeling workspace.
             </p>
           </div>
@@ -463,10 +511,10 @@ export default function AppHubPage() {
           {livePlatforms.length > 0 && (
             <section style={{ marginBottom: 40 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                <h2 style={{ fontSize: 13, fontWeight: 700, color: '#374151', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                <h2 style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-body)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   Available Platforms
                 </h2>
-                <span style={{ fontSize: 11, color: '#9CA3AF' }}>{livePlatforms.length} live</span>
+                <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>{livePlatforms.length} live</span>
               </div>
               <div
                 className="hub-grid"
@@ -481,10 +529,10 @@ export default function AppHubPage() {
           {comingPlatforms.length > 0 && (
             <section>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                <h2 style={{ fontSize: 13, fontWeight: 700, color: '#374151', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                <h2 style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-body)', margin: 0, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                   Coming Soon
                 </h2>
-                <span style={{ fontSize: 11, color: '#9CA3AF' }}>{comingPlatforms.length} platforms</span>
+                <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>{comingPlatforms.length} platforms</span>
               </div>
               <div
                 className="hub-grid"
