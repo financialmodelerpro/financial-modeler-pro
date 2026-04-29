@@ -16,11 +16,11 @@ interface ProjectsScreenProps {
 }
 
 const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
-  'Draft':     { bg: 'rgba(107,114,128,0.12)', color: 'var(--color-grey-mid)' },
-  'Active':    { bg: 'rgba(22,101,52,0.12)',   color: 'var(--color-green-dark)' },
-  'IC Review': { bg: 'rgba(245,158,11,0.12)',  color: '#92400e' },
-  'Approved':  { bg: 'rgba(30,58,138,0.12)',   color: 'var(--color-navy)' },
-  'Archived':  { bg: 'rgba(153,27,27,0.1)',    color: 'var(--color-negative)' },
+  'Draft':     { bg: 'color-mix(in srgb, var(--color-grey-mid) 12%, transparent)',     color: 'var(--color-grey-mid)' },
+  'Active':    { bg: 'color-mix(in srgb, var(--color-success) 12%, transparent)',      color: 'var(--color-success)' },
+  'IC Review': { bg: 'color-mix(in srgb, var(--color-input-border) 12%, transparent)', color: 'var(--color-gold-dark)' },
+  'Approved':  { bg: 'color-mix(in srgb, var(--color-primary) 12%, transparent)',      color: 'var(--color-primary)' },
+  'Archived':  { bg: 'color-mix(in srgb, var(--color-negative) 10%, transparent)',     color: 'var(--color-negative)' },
 };
 
 export default function ProjectsScreen({
@@ -132,8 +132,9 @@ export default function ProjectsScreen({
                       <span style={{
                         fontSize: '10px', fontWeight: 700, padding: '2px 8px',
                         borderRadius: '20px',
-                        background: 'rgba(22,101,52,0.15)', color: 'var(--color-green-dark)',
-                        border: '1px solid rgba(22,101,52,0.3)',
+                        background: 'color-mix(in srgb, var(--color-success) 15%, transparent)',
+                        color: 'var(--color-success)',
+                        border: '1px solid color-mix(in srgb, var(--color-success) 30%, transparent)',
                       }}>
                         ACTIVE
                       </span>
