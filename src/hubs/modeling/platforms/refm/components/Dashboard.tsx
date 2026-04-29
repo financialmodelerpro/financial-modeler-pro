@@ -50,7 +50,7 @@ export default function Dashboard({
       label: 'Total GFA',
       value: totalProjectGFA > 0 ? `${formatNumber(totalProjectGFA)} sqm` : '-',
       sub: 'Gross Floor Area',
-      color: '#7C2D12',
+      color: 'var(--color-accent-warm)',
     },
     {
       label: 'Total CapEx',
@@ -119,8 +119,8 @@ export default function Dashboard({
           </p>
           <div style={{ marginTop: 'var(--sp-2)' }}>
             <span style={{
-              background: 'rgba(22,101,52,0.12)', color: 'var(--color-success)',
-              border: '1px solid rgba(22,101,52,0.25)', borderRadius: '20px',
+              background: 'color-mix(in srgb, var(--color-success) 12%, transparent)', color: 'var(--color-success)',
+              border: '1px solid color-mix(in srgb, var(--color-success) 25%, transparent)', borderRadius: '20px',
               fontSize: '10px', fontWeight: 700, padding: '2px 8px',
             }}>✓ COMPLETE</span>
           </div>
@@ -137,8 +137,8 @@ export default function Dashboard({
           </p>
           <div style={{ marginTop: 'var(--sp-2)' }}>
             <span style={{
-              background: 'rgba(30,58,138,0.1)', color: 'var(--color-primary)',
-              border: '1px solid rgba(30,58,138,0.2)', borderRadius: '20px',
+              background: 'color-mix(in srgb, var(--color-primary) 10%, transparent)', color: 'var(--color-primary)',
+              border: '1px solid color-mix(in srgb, var(--color-primary) 20%, transparent)', borderRadius: '20px',
               fontSize: '10px', fontWeight: 700, padding: '2px 8px',
             }}>{totalProjects} PROJECT{totalProjects !== 1 ? 'S' : ''}</span>
           </div>
@@ -171,9 +171,11 @@ export default function Dashboard({
               <span style={{
                 fontSize: '10px', fontWeight: 700, padding: '2px 7px',
                 borderRadius: '20px', flexShrink: 0,
-                background: m.done ? 'rgba(22,101,52,0.12)' : 'rgba(0,0,0,0.04)',
+                background: m.done
+                  ? 'color-mix(in srgb, var(--color-success) 12%, transparent)'
+                  : 'color-mix(in srgb, var(--color-heading) 4%, transparent)',
                 color: m.done ? 'var(--color-success)' : 'var(--color-muted)',
-                border: `1px solid ${m.done ? 'rgba(22,101,52,0.25)' : 'var(--color-border)'}`,
+                border: `1px solid ${m.done ? 'color-mix(in srgb, var(--color-success) 25%, transparent)' : 'var(--color-border)'}`,
               }}>
                 {m.done ? '✓ DONE' : 'SOON'}
               </span>

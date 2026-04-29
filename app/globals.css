@@ -72,6 +72,7 @@
     --color-warning-bg:    var(--color-input-bg);
     --color-warning-text:  var(--color-navy);
     --color-retail:        var(--color-navy-dark);
+    --color-accent-warm:   #7C2D12;  /* deep terracotta — KPI accent for "earth/area" metrics; not CMS-overridable */
 
     /* ── Surface & Neutral Aliases ── */
     --color-bg:            var(--color-grey-pale);
