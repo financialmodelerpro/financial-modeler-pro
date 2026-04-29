@@ -1,0 +1,74 @@
+{
+  "_comment": "Module 1 reference fixture for regression-guard snapshot. Generic mixed-use sample (no real client / project names). Exercises: 2 land parcels with different rates + cash/in-kind splits, all 3 assets visible with non-default deduct/efficiency per asset, manual phasing on Construction, percent_base referencing two prior items, line-mode debt with capitalized interest, 1-period overlap, repayment over half operations periods.",
+
+  "projectName": "Sample Mixed-Use Development",
+  "projectType": "mixed-use",
+  "country": "Saudi Arabia",
+  "currency": "SAR",
+  "modelType": "annual",
+  "projectStart": "2026-01-01",
+  "constructionPeriods": 4,
+  "operationsPeriods": 6,
+  "overlapPeriods": 1,
+
+  "landParcels": [
+    { "id": 1, "name": "Parcel A (Premium)", "area": 60000, "rate": 3000, "cashPct": 70, "inKindPct": 30 },
+    { "id": 2, "name": "Parcel B (Standard)", "area": 40000, "rate": 2000, "cashPct": 50, "inKindPct": 50 }
+  ],
+
+  "projectRoadsPct": 12,
+  "projectFAR": 1.6,
+  "projectNonEnclosedPct": 8,
+
+  "residentialPercent": 50,
+  "hospitalityPercent": 30,
+  "retailPercent": 20,
+
+  "residentialDeductPct": 8,
+  "residentialEfficiency": 88,
+  "hospitalityDeductPct": 12,
+  "hospitalityEfficiency": 80,
+  "retailDeductPct": 15,
+  "retailEfficiency": 92,
+
+  "showResidential": true,
+  "showHospitality": true,
+  "showRetail": true,
+
+  "costInputMode": "separate",
+  "nextCostId": 5,
+
+  "residentialCosts": [
+    { "id": 1, "name": "Land (Cash Portion)", "method": "fixed",                "value": 50000000, "baseType": "", "startPeriod": 0, "endPeriod": 0, "phasing": "even",                                              "canDelete": false },
+    { "id": 2, "name": "Construction Cost",   "method": "rate_bua",             "value": 4500,     "baseType": "", "startPeriod": 1, "endPeriod": 4, "phasing": { "type": "manual", "values": [40, 30, 20, 10] },   "canDelete": true  },
+    { "id": 3, "name": "Infrastructure",      "method": "rate_total_allocated", "value": 200,      "baseType": "", "startPeriod": 1, "endPeriod": 4, "phasing": "even",                                              "canDelete": true  },
+    { "id": 4, "name": "Professional Fee",    "method": "percent_base",         "value": 8,        "baseType": "", "selectedIds": [2, 3], "startPeriod": 1, "endPeriod": 4, "phasing": "even",                       "canDelete": true  }
+  ],
+
+  "hospitalityCosts": [
+    { "id": 1, "name": "Land (Cash Portion)", "method": "fixed",                "value": 30000000, "baseType": "", "startPeriod": 0, "endPeriod": 0, "phasing": "even",                                              "canDelete": false },
+    { "id": 2, "name": "Construction Cost",   "method": "rate_bua",             "value": 5200,     "baseType": "", "startPeriod": 1, "endPeriod": 4, "phasing": { "type": "manual", "values": [40, 30, 20, 10] },   "canDelete": true  },
+    { "id": 3, "name": "Infrastructure",      "method": "rate_total_allocated", "value": 200,      "baseType": "", "startPeriod": 1, "endPeriod": 4, "phasing": "even",                                              "canDelete": true  },
+    { "id": 4, "name": "Professional Fee",    "method": "percent_base",         "value": 7,        "baseType": "", "selectedIds": [2, 3], "startPeriod": 1, "endPeriod": 4, "phasing": "even",                       "canDelete": true  }
+  ],
+
+  "retailCosts": [
+    { "id": 1, "name": "Land (Cash Portion)", "method": "fixed",                "value": 20000000, "baseType": "", "startPeriod": 0, "endPeriod": 0, "phasing": "even",                                              "canDelete": false },
+    { "id": 2, "name": "Construction Cost",   "method": "rate_bua",             "value": 3800,     "baseType": "", "startPeriod": 1, "endPeriod": 4, "phasing": { "type": "manual", "values": [40, 30, 20, 10] },   "canDelete": true  },
+    { "id": 3, "name": "Infrastructure",      "method": "rate_total_allocated", "value": 200,      "baseType": "", "startPeriod": 1, "endPeriod": 4, "phasing": "even",                                              "canDelete": true  },
+    { "id": 4, "name": "Professional Fee",    "method": "percent_base",         "value": 6,        "baseType": "", "selectedIds": [2, 3], "startPeriod": 1, "endPeriod": 4, "phasing": "even",                       "canDelete": true  }
+  ],
+
+  "interestRate": 7.5,
+  "financingMode": "line",
+  "globalDebtPct": 60,
+  "capitalizeInterest": true,
+  "repaymentPeriods": 3,
+  "repaymentMethod": "fixed",
+  "lineRatios": {
+    "Land (Cash Portion)": 70,
+    "Construction Cost": 65,
+    "Infrastructure": 55,
+    "Professional Fee": 50
+  }
+}
