@@ -62,14 +62,14 @@ function formatDate(iso: string | null | undefined): string {
 /**
  * Baked-in fallback guidance per course. Used when training_settings has no
  * per-course override saved. Admin override at /admin/training-settings wins
- * once populated. Kept short and concrete so an unprepared student still
- * gets a usable scope from the empty-state.
+ * once populated -- the constant is a pure code-level last resort and never
+ * written to the DB, so existing customizations survive deploys.
  */
 const DEFAULT_GUIDANCE: Record<'3SFM' | 'BVM', string> = {
   '3SFM':
-    'Build an integrated 3-statement model (Income Statement, Balance Sheet, Cash Flow) for any public or private company you choose. Include 5 years of historical actuals plus a 5-year projection. Show working capital, capex, debt schedule, and a depreciation roll. Submit as Excel (.xlsx / .xlsm) or PDF.',
+    'Build your own 3-Statement Financial Model and upload it as an Excel file (.xlsx, .xls, .xlsm) or PDF. Our experts team will review it within 5 business days. Approval unlocks the Final Exam. Each rejection consumes one of your 3 attempts.',
   'BVM':
-    'Build a DCF + comparable-company valuation for any public company. Show your WACC derivation, terminal value calculation, and a sensitivity table on growth + WACC. Comparables tab should include 4-6 peers with EV/EBITDA and P/E multiples. Submit as Excel (.xlsx / .xlsm) or PDF.',
+    'Build your own Business Valuation Model (DCF + Comps) using the case studies from the course and upload it as an Excel file (.xlsx, .xls, .xlsm) or PDF. Our experts team will review it within 5 business days. Approval unlocks the Final Exam. Each rejection consumes one of your 3 attempts.',
 };
 
 /**
