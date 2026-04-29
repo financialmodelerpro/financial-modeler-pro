@@ -1,7 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { getServerClient } from '@/src/core/db/supabase';
 import { getTrainingCookieSession } from '@/src/hubs/training/lib/session/trainingSessionCookie';
 import { getModelSubmissionStatus } from '@/src/hubs/training/lib/modelSubmission/checkApproval';
+import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
+import { modelSubmissionAdminAlertTemplate } from '@/src/shared/email/templates/modelSubmissionAdminAlert';
+import { COURSES } from '@/src/hubs/training/config/courses';
 
 // FormData uploads can stretch past the 10s default on slower connections;
 // cap at 60s like submit-assessment so a 9 MB xlsx on a 1 Mbps link still
@@ -221,6 +224,65 @@ export async function POST(req: NextRequest) {
   console.log('[model-submission POST] accepted', {
     email: cleanEmail, regId, courseCode: code,
     attempt: attemptNumber, size: file.size, ext,
+  });
+
+  // Phase F.1 - admin alert email. Fire-and-forget after the response so
+  // the student never waits on it. Honors two settings (both safe-defaulted
+  // by migration 148):
+  //   model_submission_admin_notify_enabled - 'true' | 'false', default 'true'
+  //   model_submission_admin_notify_email   - recipient address, default ''
+  // Empty recipient is the documented "off" state - log + skip rather than
+  // erroring. Email failure is logged but never surfaces to the student.
+  after(async () => {
+    try {
+      const sb2 = getServerClient();
+      const { data: settingsRows } = await sb2
+        .from('training_settings')
+        .select('key, value')
+        .in('key', [
+          'model_submission_admin_notify_enabled',
+          'model_submission_admin_notify_email',
+        ]);
+      const settings: Record<string, string> = {};
+      for (const r of (settingsRows ?? []) as { key: string; value: string }[]) settings[r.key] = r.value;
+      const enabled = settings.model_submission_admin_notify_enabled !== 'false';
+      const recipient = (settings.model_submission_admin_notify_email ?? '').trim();
+      if (!enabled || !recipient) {
+        console.log('[model-submission POST] admin alert skipped', { enabled, hasRecipient: !!recipient });
+        return;
+      }
+
+      // Best-effort student-name lookup so the alert subject opens with a
+      // friendly name instead of just the email. Falls back to email-only
+      // when the meta row is missing.
+      const { data: metaRow } = await sb2
+        .from('training_registrations_meta')
+        .select('name')
+        .ilike('email', cleanEmail)
+        .maybeSingle();
+      const studentName = ((metaRow as { name?: string } | null)?.name ?? '').trim() || null;
+
+      const courseEntry = Object.values(COURSES).find(c => c.shortTitle.toUpperCase() === code);
+      const courseLabel = courseEntry?.title ?? code;
+
+      const { subject, html, text } = await modelSubmissionAdminAlertTemplate({
+        studentName,
+        studentEmail: cleanEmail,
+        registrationId: regId || null,
+        courseLabel,
+        courseCode: code,
+        fileName: file.name,
+        fileSize: file.size,
+        attemptNumber,
+        maxAttempts: status.maxAttempts,
+        studentNotes: studentNotes,
+        submissionId: (row as { id: string }).id,
+      });
+      await sendEmail({ to: recipient, subject, html, text, from: FROM.training });
+      console.log('[model-submission POST] admin alert sent', { recipient });
+    } catch (alertErr) {
+      console.error('[model-submission POST] admin alert failed (non-fatal):', alertErr);
+    }
   });
 
   return NextResponse.json({

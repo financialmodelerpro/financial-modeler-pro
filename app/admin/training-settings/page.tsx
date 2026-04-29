@@ -86,6 +86,15 @@ export default function TrainingSettingsPage() {
     danger: boolean;
   } | null>(null);
 
+  // F.1 - admin notification settings. Two K/V keys:
+  //   model_submission_admin_notify_enabled - 'true' | 'false', default 'true'
+  //   model_submission_admin_notify_email   - free-text recipient, default ''
+  // Empty recipient is documented as "off" - the upload route logs + skips.
+  const [msNotifyEnabled, setMsNotifyEnabled] = useState(true);
+  const [msNotifyEmail,   setMsNotifyEmail]   = useState('');
+  const [msNotifyEmailSavedAt, setMsNotifyEmailSavedAt] = useState('');
+  const [msNotifySaving,  setMsNotifySaving]  = useState(false);
+
   // WhatsApp Group URL (migration 123)
   const [whatsappUrl, setWhatsappUrl]         = useState('');
   const [savedWhatsappUrl, setSavedWhatsappUrl] = useState('');
@@ -259,6 +268,12 @@ export default function TrainingSettingsPage() {
       setMsAnnouncementOnly(s.model_submission_announcement_only !== 'false');
       setMsRequired3sfm(s.model_submission_required_3sfm === 'true');
       setMsRequiredBvm(s.model_submission_required_bvm === 'true');
+      // Admin-alert email settings (F.1). Default enabled=true, recipient=''.
+      // Empty recipient is documented as "off" - the upload route logs + skips.
+      setMsNotifyEnabled(s.model_submission_admin_notify_enabled !== 'false');
+      const recip = (s.model_submission_admin_notify_email ?? '').trim();
+      setMsNotifyEmail(recip);
+      setMsNotifyEmailSavedAt(recip);
       const wa = (s.whatsapp_group_url ?? '').trim();
       setWhatsappUrl(wa);
       setSavedWhatsappUrl(wa);
@@ -324,6 +339,44 @@ export default function TrainingSettingsPage() {
     } finally {
       setMsSavingKey(null);
     }
+  };
+
+  // F.1 - admin notification settings save. Writes both keys in one POST
+  // through the generic /api/admin/training-settings endpoint. No audit
+  // log entry: notification recipient is operational config, not a gate
+  // change. Email format is loosely validated client-side; server upserts
+  // whatever is sent so a typo can be corrected without a DB roundtrip.
+  const saveNotifySettings = async () => {
+    const trimmed = msNotifyEmail.trim();
+    if (trimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+      showToast('Enter a valid email address or leave empty');
+      return;
+    }
+    setMsNotifySaving(true);
+    try {
+      const res = await fetch('/api/admin/training-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model_submission_admin_notify_enabled: msNotifyEnabled ? 'true' : 'false',
+          model_submission_admin_notify_email:   trimmed,
+        }),
+      });
+      if (res.ok) {
+        setMsNotifyEmail(trimmed);
+        setMsNotifyEmailSavedAt(trimmed);
+        showToast(
+          !msNotifyEnabled || !trimmed
+            ? 'Saved. Admin alerts are OFF (toggle disabled or recipient empty).'
+            : 'Admin alert settings saved',
+        );
+      } else {
+        showToast('Save failed');
+      }
+    } catch {
+      showToast('Save failed');
+    }
+    setMsNotifySaving(false);
   };
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3500); };
@@ -1104,6 +1157,74 @@ export default function TrainingSettingsPage() {
                   migration 148's comment block. */}
               <div style={{ marginTop: 14, padding: '10px 12px', background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 8, fontSize: 11.5, color: '#1E3A5F', lineHeight: 1.55 }}>
                 <strong>Documented cutover:</strong> keep <em>Announcement Only</em> ON for the documented notice period, then flip the per-course <em>Require Model</em> toggle. Once enforcement is live you can flip <em>Announcement Only</em> OFF so the soft-launch banner stops showing alongside the live upload UI. Force-issue (<code>/admin/training-hub/certificates</code>) keeps bypassing the gate as an admin escape hatch.
+              </div>
+
+              {/* F.1 - Admin notification settings. Two K/V keys gating the
+                  fire-and-forget alert email fired by POST /api/training/
+                  model-submission. Empty recipient OR disabled toggle = OFF
+                  (the upload route logs + skips). Default ON + empty so
+                  alerts stay dormant until admin enters their address. */}
+              <div style={{ marginTop: 18, padding: '14px 16px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B', marginBottom: 4 }}>📧 New-submission email alerts</div>
+                <div style={{ fontSize: 11, color: '#6B7280', marginBottom: 12, lineHeight: 1.55 }}>
+                  When a student uploads a model, fire a fire-and-forget email to the recipient below so you do not have to refresh the queue to spot new arrivals. Disable the toggle <em>or</em> leave the recipient empty to turn alerts off; the submission row is still recorded either way.
+                </div>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={msNotifyEnabled}
+                    onChange={e => setMsNotifyEnabled(e.target.checked)}
+                    disabled={msNotifySaving}
+                  />
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#1B3A6B' }}>
+                    {msNotifyEnabled ? 'Alerts enabled' : 'Alerts disabled'}
+                  </span>
+                </label>
+
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+                  <input
+                    type="email"
+                    placeholder="admin@example.com"
+                    value={msNotifyEmail}
+                    onChange={e => setMsNotifyEmail(e.target.value)}
+                    disabled={msNotifySaving}
+                    style={{
+                      flex: '1 1 280px',
+                      minWidth: 240,
+                      padding: '8px 12px',
+                      border: '1px solid #D1D5DB',
+                      borderRadius: 6,
+                      fontSize: 13,
+                      color: '#1F2937',
+                      background: msNotifySaving ? '#F3F4F6' : '#fff',
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void saveNotifySettings()}
+                    disabled={msNotifySaving}
+                    style={{
+                      padding: '8px 16px',
+                      background: '#1B3A6B',
+                      color: '#fff',
+                      border: 'none',
+                      borderRadius: 6,
+                      fontSize: 12,
+                      fontWeight: 700,
+                      cursor: msNotifySaving ? 'not-allowed' : 'pointer',
+                      opacity: msNotifySaving ? 0.6 : 1,
+                    }}
+                  >
+                    {msNotifySaving ? 'Saving...' : 'Save'}
+                  </button>
+                </div>
+
+                <div style={{ marginTop: 8, fontSize: 11, color: msNotifyEnabled && msNotifyEmailSavedAt ? '#065F46' : '#92400E' }}>
+                  {msNotifyEnabled && msNotifyEmailSavedAt
+                    ? <>✓ Alerts will go to <strong>{msNotifyEmailSavedAt}</strong></>
+                    : <>⚠ Alerts are <strong>OFF</strong> (toggle disabled or recipient empty)</>}
+                </div>
               </div>
             </div>
 
