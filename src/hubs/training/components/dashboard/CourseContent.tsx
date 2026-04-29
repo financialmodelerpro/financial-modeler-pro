@@ -9,6 +9,7 @@ import { calculateCourseProgress } from '@/src/hubs/training/lib/progress/progre
 import { AboutThisCourse } from './AboutThisCourse';
 import { SessionCard } from './SessionCard';
 import { FilePreviewModal } from './FilePreviewModal';
+import { ModelSubmissionCard } from './ModelSubmissionCard';
 import { formatShareDate, type ShareVars } from '@/src/shared/share/shareTemplates';
 
 /**
@@ -276,6 +277,19 @@ export function CourseContent({ courseId, progressMap, certificates, liveLinks, 
           </div>
         </div>
       </div>
+
+      {/* Model submission gate (migration 148). Card hides itself when the
+          per-course required flag is OFF and announcementOnly is OFF, so this
+          mount point is safe regardless of gate state. Soft-launch
+          announcement banner is visible to all students; upload UI only
+          renders once an admin flips required_<course> to 'true'. */}
+      {!bvmLocked && (course.id === '3sfm' || course.id === 'bvm') && (
+        <ModelSubmissionCard
+          courseCode={course.id === 'bvm' ? 'BVM' : '3SFM'}
+          courseLabel={course.title}
+          initialStatus={null}
+        />
+      )}
 
       {/* Stats Row */}
       <div className="dash-stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20, opacity: bvmLocked ? 0.55 : 1, transition: 'opacity 0.2s' }}>

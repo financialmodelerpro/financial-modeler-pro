@@ -14,3 +14,4 @@ export { FeedbackModal } from './FeedbackModal';
 export { ProfileModal } from './ProfileModal';
 export { LiveSessionCard } from './LiveSessionCard';
 export { LiveSessionsSection } from './LiveSessionsSection';
+export { ModelSubmissionCard } from './ModelSubmissionCard';
