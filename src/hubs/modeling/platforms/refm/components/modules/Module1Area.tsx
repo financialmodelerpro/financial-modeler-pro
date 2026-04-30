@@ -53,8 +53,14 @@ const inputStyle: React.CSSProperties = {
   width: '100%',
   boxSizing: 'border-box',
   fontFamily: 'Inter, sans-serif',
-  background: 'var(--color-warning-bg)',
-  color: 'var(--color-warning-text)',
+  background: 'var(--color-navy-pale)',
+  color: 'var(--color-navy)',
+  fontWeight: 'var(--fw-semibold)',
+};
+
+const calcOutputStyle: React.CSSProperties = {
+  background: 'var(--color-grey-pale)',
+  color: 'var(--color-heading)',
   fontWeight: 'var(--fw-semibold)',
 };
 
@@ -158,7 +164,6 @@ export default function Module1Area({
                   <tr key={p.id}>
                     <td>
                       <input
-                        className="input-assumption"
                         style={{ ...inputStyle, minWidth: '100px' }}
                         type="text"
                         value={p.name}
@@ -168,7 +173,6 @@ export default function Module1Area({
                     </td>
                     <td>
                       <input
-                        className="input-assumption"
                         style={{ ...inputStyle, textAlign: 'right' }}
                         type="number"
                         min={0}
@@ -179,7 +183,6 @@ export default function Module1Area({
                     </td>
                     <td>
                       <input
-                        className="input-assumption"
                         style={{ ...inputStyle, textAlign: 'right' }}
                         type="number"
                         min={0}
@@ -191,7 +194,6 @@ export default function Module1Area({
                     <td style={{ fontWeight: 'var(--fw-semibold)' }}>{formatNumber(totalVal)}</td>
                     <td>
                       <input
-                        className="input-assumption"
                         style={{ ...inputStyle, textAlign: 'right' }}
                         type="number"
                         min={0}
@@ -203,7 +205,6 @@ export default function Module1Area({
                     </td>
                     <td>
                       <input
-                        className="input-assumption"
                         style={{ ...inputStyle, textAlign: 'right' }}
                         type="number"
                         min={0}
@@ -267,7 +268,6 @@ export default function Module1Area({
               </label>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <input
-                  className="input-assumption"
                   style={{ ...inputStyle, flex: 1 }}
                   type="number"
                   min={row.min}
@@ -292,8 +292,10 @@ export default function Module1Area({
             <span style={{
               fontSize: '10px', fontWeight: 700, padding: '2px 8px',
               borderRadius: '20px',
-              background: assetMixValid ? 'rgba(22,101,52,0.12)' : 'rgba(153,27,27,0.12)',
-              color: assetMixValid ? 'var(--color-green-dark)' : 'var(--color-negative)',
+              background: assetMixValid
+                ? 'color-mix(in srgb, var(--color-success) 12%, transparent)'
+                : 'color-mix(in srgb, var(--color-negative) 12%, transparent)',
+              color: assetMixValid ? 'var(--color-success)' : 'var(--color-negative)',
             }}>
               {assetMixTotal.toFixed(0)}% {assetMixValid ? '✓' : '⚠'}
             </span>
@@ -304,17 +306,17 @@ export default function Module1Area({
               <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-navy)', marginBottom: '5px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 🏠 Residential %
               </label>
-              <input className="input-assumption" style={inputStyle} type="number" min={0} max={100} value={residentialPercent}
+              <input style={inputStyle} type="number" min={0} max={100} value={residentialPercent}
                 onChange={e => setResidentialPercent(Number(e.target.value))} disabled={readOnly} />
             </div>
           )}
 
           {showHospitality && (
             <div style={{ marginBottom: 'var(--sp-2)' }}>
-              <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: '#7c3aed', marginBottom: '5px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-navy-mid)', marginBottom: '5px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 🏨 Hospitality %
               </label>
-              <input className="input-assumption" style={inputStyle} type="number" min={0} max={100} value={hospitalityPercent}
+              <input style={inputStyle} type="number" min={0} max={100} value={hospitalityPercent}
                 onChange={e => setHospitalityPercent(Number(e.target.value))} disabled={readOnly} />
             </div>
           )}
@@ -323,7 +325,7 @@ export default function Module1Area({
             <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-retail)', marginBottom: '5px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               🏪 Retail %
             </label>
-            <input className="input-assumption" style={inputStyle} type="number" min={0} max={100} value={retailPercent}
+            <input style={inputStyle} type="number" min={0} max={100} value={retailPercent}
               onChange={e => setRetailPercent(Number(e.target.value))} disabled={readOnly} />
           </div>
 
@@ -345,12 +347,12 @@ export default function Module1Area({
             <>
               <div>
                 <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-navy)', marginBottom: '5px', display: 'block' }}>Residential Deduct %</label>
-                <input className="input-assumption" style={inputStyle} type="number" min={0} max={50} value={residentialDeductPct}
+                <input style={inputStyle} type="number" min={0} max={50} value={residentialDeductPct}
                   onChange={e => setResidentialDeductPct(Number(e.target.value))} disabled={readOnly} />
               </div>
               <div>
                 <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-navy)', marginBottom: '5px', display: 'block' }}>Residential Efficiency %</label>
-                <input className="input-assumption" style={inputStyle} type="number" min={50} max={100} value={residentialEfficiency}
+                <input style={inputStyle} type="number" min={50} max={100} value={residentialEfficiency}
                   onChange={e => setResidentialEfficiency(Number(e.target.value))} disabled={readOnly} />
               </div>
             </>
@@ -358,13 +360,13 @@ export default function Module1Area({
           {showHospitality && (
             <>
               <div>
-                <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: '#7c3aed', marginBottom: '5px', display: 'block' }}>Hospitality Deduct %</label>
-                <input className="input-assumption" style={inputStyle} type="number" min={0} max={50} value={hospitalityDeductPct}
+                <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-navy-mid)', marginBottom: '5px', display: 'block' }}>Hospitality Deduct %</label>
+                <input style={inputStyle} type="number" min={0} max={50} value={hospitalityDeductPct}
                   onChange={e => setHospitalityDeductPct(Number(e.target.value))} disabled={readOnly} />
               </div>
               <div>
-                <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: '#7c3aed', marginBottom: '5px', display: 'block' }}>Hospitality Efficiency %</label>
-                <input className="input-assumption" style={inputStyle} type="number" min={50} max={100} value={hospitalityEfficiency}
+                <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-navy-mid)', marginBottom: '5px', display: 'block' }}>Hospitality Efficiency %</label>
+                <input style={inputStyle} type="number" min={50} max={100} value={hospitalityEfficiency}
                   onChange={e => setHospitalityEfficiency(Number(e.target.value))} disabled={readOnly} />
               </div>
             </>
@@ -373,12 +375,12 @@ export default function Module1Area({
             <>
               <div>
                 <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-retail)', marginBottom: '5px', display: 'block' }}>Retail Deduct %</label>
-                <input className="input-assumption" style={inputStyle} type="number" min={0} max={50} value={retailDeductPct}
+                <input style={inputStyle} type="number" min={0} max={50} value={retailDeductPct}
                   onChange={e => setRetailDeductPct(Number(e.target.value))} disabled={readOnly} />
               </div>
               <div>
                 <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-retail)', marginBottom: '5px', display: 'block' }}>Retail Efficiency %</label>
-                <input className="input-assumption" style={inputStyle} type="number" min={50} max={100} value={retailEfficiency}
+                <input style={inputStyle} type="number" min={50} max={100} value={retailEfficiency}
                   onChange={e => setRetailEfficiency(Number(e.target.value))} disabled={readOnly} />
               </div>
             </>
@@ -386,8 +388,8 @@ export default function Module1Area({
         </div>
       </div>
 
-      {/* Area Hierarchy Output */}
-      <div className="module-card" style={{ padding: 'var(--sp-3)', marginTop: 'var(--sp-2)' }}>
+      {/* Area Hierarchy Output — calculated panel (FAST formula grey-pale + heading) */}
+      <div className="module-card" style={{ padding: 'var(--sp-3)', marginTop: 'var(--sp-2)', background: calcOutputStyle.background }}>
         <h3 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--sp-2)', marginTop: 0 }}>
           Area Hierarchy (sqm)
         </h3>
@@ -397,9 +399,9 @@ export default function Module1Area({
               <tr>
                 <th style={{ textAlign: 'left' }}>Level</th>
                 <th>Total Project</th>
-                {showResidential && <th style={{ color: '#93c5fd' }}>Residential</th>}
-                {showHospitality && <th style={{ color: '#c4b5fd' }}>Hospitality</th>}
-                {showRetail     && <th style={{ color: '#fca5a5' }}>Retail</th>}
+                {showResidential && <th style={{ color: 'color-mix(in srgb, var(--color-on-primary-navy) 60%, var(--color-navy))' }}>Residential</th>}
+                {showHospitality && <th style={{ color: 'color-mix(in srgb, var(--color-on-primary-navy) 60%, var(--color-gold))' }}>Hospitality</th>}
+                {showRetail     && <th style={{ color: 'color-mix(in srgb, var(--color-on-primary-navy) 60%, var(--color-negative))' }}>Retail</th>}
               </tr>
             </thead>
             <tbody>
