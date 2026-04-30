@@ -1,14 +1,21 @@
 'use client';
 
 import React from 'react';
+import { PLAN_COLOR as TOKEN_PLAN_COLOR } from '@/src/styles/tokens';
 
 interface PlanBadgeProps {
   requiredPlan: 'professional' | 'enterprise';
 }
 
+// Plan tier base colour. Professional flows through the brand navy CSS var
+// so the badge follows the REFM workspace dark-mode override; enterprise
+// pulls the brand-locked purple from tokens.ts (intentionally off-canon —
+// see PLAN_COLOR comment in src/styles/tokens.ts). bg + border are derived
+// from the base via color-mix so the original 10% / 25% alpha relationship
+// is preserved without inline hex suffixes.
 const PLAN_COLOR: Record<string, string> = {
-  professional: '#2563EB',
-  enterprise:   '#7C3AED',
+  professional: 'var(--color-navy)',
+  enterprise:   TOKEN_PLAN_COLOR.enterprise.color,
 };
 const PLAN_LABEL: Record<string, string> = {
   professional: 'PRO',
@@ -16,7 +23,7 @@ const PLAN_LABEL: Record<string, string> = {
 };
 
 export default function PlanBadge({ requiredPlan }: PlanBadgeProps) {
-  const color = PLAN_COLOR[requiredPlan] ?? '#2563EB';
+  const color = PLAN_COLOR[requiredPlan] ?? PLAN_COLOR.professional;
   const label = PLAN_LABEL[requiredPlan] ?? 'PRO';
   return (
     <span style={{
@@ -25,9 +32,9 @@ export default function PlanBadge({ requiredPlan }: PlanBadgeProps) {
       letterSpacing: '0.07em',
       padding: '2px 6px',
       borderRadius: 4,
-      background: `${color}1A`,
+      background: `color-mix(in srgb, ${color} 10%, transparent)`,
       color,
-      border: `1px solid ${color}40`,
+      border: `1px solid color-mix(in srgb, ${color} 25%, transparent)`,
       textTransform: 'uppercase',
       flexShrink: 0,
       fontFamily: 'Inter, sans-serif',
