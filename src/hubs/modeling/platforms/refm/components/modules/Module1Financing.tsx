@@ -55,9 +55,15 @@ const inputStyle: React.CSSProperties = {
   width: '100%',
   boxSizing: 'border-box',
   fontFamily: 'Inter, sans-serif',
-  background: 'var(--color-warning-bg)',
-  color: 'var(--color-warning-text)',
+  background: 'var(--color-navy-pale)',
+  color: 'var(--color-navy)',
   fontWeight: 600,
+};
+
+const calcOutputStyle: React.CSSProperties = {
+  background: 'var(--color-grey-pale)',
+  color: 'var(--color-heading)',
+  fontWeight: 'var(--fw-semibold)',
 };
 
 const labelStyle: React.CSSProperties = {
@@ -208,7 +214,7 @@ export default function Module1Financing({
     });
 
     const dpLabel = (i: number) => modelType === 'monthly' ? `Month ${i}` : `Year ${i}`;
-    const PD_DEEP = 'var(--color-navy, #1B4F8A)';
+    const PD_DEEP = 'var(--color-navy)';
     const PD_DARK = SCHEDULE_TITLE_BG.debt;
 
     const DrawdownByPeriod = ({ isDebt }: { isDebt: boolean }) => {
@@ -226,13 +232,13 @@ export default function Module1Financing({
       return (
         <div style={{ marginTop: 'var(--sp-3)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '10px' }}>
-            <div style={{ padding: '7px 14px', borderRadius: 'var(--radius-sm)', fontWeight: 700, fontSize: '12px', background: titleBg, color: 'white' }}>{titleLabel}</div>
+            <div style={{ padding: '7px 14px', borderRadius: 'var(--radius-sm)', fontWeight: 700, fontSize: '12px', background: titleBg, color: 'var(--color-on-primary-navy)' }}>{titleLabel}</div>
             <span style={{ fontSize: '11px', color: 'var(--color-muted)' }}>Period-wise drawdowns follow cost phasing - construction periods only</span>
           </div>
           <div style={{ overflowX: 'auto', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
             <table style={{ borderCollapse: 'collapse', fontSize: 'var(--font-meta)', width: '100%', minWidth: `${Math.max(600, (numP + 2) * 100)}px` }}>
               <thead>
-                <tr style={{ background: PD_DEEP, color: 'white' }}>
+                <tr style={{ background: PD_DEEP, color: 'var(--color-on-primary-navy)' }}>
                   <th style={{ padding: '9px 12px', textAlign: 'left', minWidth: '220px', position: 'sticky', left: 0, background: PD_DEEP, zIndex: 2 }}>Cost Item / Asset</th>
                   <th style={{ padding: '9px 8px', textAlign: 'right', minWidth: '110px' }}>Total</th>
                   {Array.from({ length: numP }, (_, i) => (
@@ -282,10 +288,10 @@ export default function Module1Financing({
                 })}
               </tbody>
               <tfoot>
-                <tr style={{ background: PD_DEEP, color: 'white', borderTop: '3px solid var(--color-green-dark)' }}>
-                  <td style={{ padding: '10px 12px', fontWeight: 700, position: 'sticky', left: 0, background: PD_DEEP, color: 'white' }}>GRAND TOTAL</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700, color: 'white' }}>{formatNumber(filtGrandTotal)}</td>
-                  {filtGrandDist.map((v, i) => <td key={i} style={{ padding: '10px 7px', textAlign: 'right', fontWeight: 700, color: 'white' }}>{v > 0 ? formatNumber(v) : '-'}</td>)}
+                <tr style={{ background: PD_DEEP, color: 'var(--color-on-primary-navy)', borderTop: '3px solid var(--color-green-dark)' }}>
+                  <td style={{ padding: '10px 12px', fontWeight: 700, position: 'sticky', left: 0, background: PD_DEEP, color: 'var(--color-on-primary-navy)' }}>GRAND TOTAL</td>
+                  <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700, color: 'var(--color-on-primary-navy)' }}>{formatNumber(filtGrandTotal)}</td>
+                  {filtGrandDist.map((v, i) => <td key={i} style={{ padding: '10px 7px', textAlign: 'right', fontWeight: 700, color: 'var(--color-on-primary-navy)' }}>{v > 0 ? formatNumber(v) : '-'}</td>)}
                 </tr>
               </tfoot>
             </table>
@@ -306,11 +312,11 @@ export default function Module1Financing({
       const filtGrandTotal = filtGrandDist.reduce((s, v) => s + v, 0);
       return (
         <div style={{ marginTop: 'var(--sp-2)' }}>
-          <div style={{ padding: '7px 14px', borderRadius: 'var(--radius-sm)', fontWeight: 700, fontSize: '12px', background: titleBg, color: 'white', display: 'inline-block', marginBottom: '10px' }}>{titleLabel}</div>
+          <div style={{ padding: '7px 14px', borderRadius: 'var(--radius-sm)', fontWeight: 700, fontSize: '12px', background: titleBg, color: 'var(--color-on-primary-navy)', display: 'inline-block', marginBottom: '10px' }}>{titleLabel}</div>
           <div style={{ overflowX: 'auto', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
             <table style={{ borderCollapse: 'collapse', fontSize: 'var(--font-meta)', width: '100%', minWidth: `${Math.max(500, (numP + 2) * 100)}px` }}>
               <thead>
-                <tr style={{ background: PD_DEEP, color: 'white' }}>
+                <tr style={{ background: PD_DEEP, color: 'var(--color-on-primary-navy)' }}>
                   <th style={{ padding: '9px 12px', textAlign: 'left', minWidth: '180px', position: 'sticky', left: 0, background: PD_DEEP, zIndex: 2 }}>Asset</th>
                   <th style={{ padding: '9px 8px', textAlign: 'right', minWidth: '110px' }}>Total</th>
                   {Array.from({ length: numP }, (_, i) => <th key={i} style={{ padding: '9px 7px', textAlign: 'right', minWidth: '90px', fontSize: '11px' }}>{dpLabel(i)}</th>)}
@@ -330,10 +336,10 @@ export default function Module1Financing({
                 })}
               </tbody>
               <tfoot>
-                <tr style={{ background: PD_DEEP, color: 'white', borderTop: '3px solid var(--color-green-dark)' }}>
-                  <td style={{ padding: '10px 12px', fontWeight: 700, position: 'sticky', left: 0, background: PD_DEEP, color: 'white' }}>TOTAL</td>
-                  <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700, color: 'white' }}>{formatNumber(filtGrandTotal)}</td>
-                  {filtGrandDist.map((v, i) => <td key={i} style={{ padding: '10px 7px', textAlign: 'right', fontWeight: 700, color: 'white' }}>{v > 0 ? formatNumber(v) : '-'}</td>)}
+                <tr style={{ background: PD_DEEP, color: 'var(--color-on-primary-navy)', borderTop: '3px solid var(--color-green-dark)' }}>
+                  <td style={{ padding: '10px 12px', fontWeight: 700, position: 'sticky', left: 0, background: PD_DEEP, color: 'var(--color-on-primary-navy)' }}>TOTAL</td>
+                  <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700, color: 'var(--color-on-primary-navy)' }}>{formatNumber(filtGrandTotal)}</td>
+                  {filtGrandDist.map((v, i) => <td key={i} style={{ padding: '10px 7px', textAlign: 'right', fontWeight: 700, color: 'var(--color-on-primary-navy)' }}>{v > 0 ? formatNumber(v) : '-'}</td>)}
                 </tr>
               </tfoot>
             </table>
@@ -351,7 +357,7 @@ export default function Module1Financing({
             ['Total Debt',                  allDebt,       'var(--color-primary)',               'var(--color-primary)'],
             ['Total Equity',               allEq,         'var(--color-green-dark)',              'var(--color-green-dark)'],
           ] as [string, number, string, string][]).map(([lbl, val, textClr, accentClr]) => (
-            <div key={lbl} style={{ background: 'var(--color-grey-white)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-grey-light)', overflow: 'hidden', boxShadow: 'var(--shadow-1, 0 1px 3px rgba(0,0,0,0.07))', textAlign: 'center' }}>
+            <div key={lbl} style={{ background: 'var(--color-grey-white)', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-grey-light)', overflow: 'hidden', boxShadow: 'var(--shadow-1)', textAlign: 'center' }}>
               <div style={{ height: '3px', background: accentClr }} />
               <div style={{ padding: '14px 16px' }}>
                 <div style={{ fontSize: 'var(--font-micro)', fontWeight: 600, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '6px' }}>{lbl}</div>
@@ -375,7 +381,7 @@ export default function Module1Financing({
                   padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 600, cursor: 'pointer',
                   fontFamily: 'Inter, sans-serif', border: '1px solid',
                   background: fsFilter === fb.key ? 'var(--color-primary)' : 'var(--color-grey-white)',
-                  color: fsFilter === fb.key ? 'white' : 'var(--color-body)',
+                  color: fsFilter === fb.key ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
                   borderColor: fsFilter === fb.key ? 'var(--color-primary)' : 'var(--color-border)',
                 }}>{fb.label}</button>
               ))}
@@ -385,7 +391,7 @@ export default function Module1Financing({
           <div style={{ overflowX: 'auto', borderRadius: 'var(--radius-sm)', border: '1px solid var(--color-border)' }}>
             <table style={{ borderCollapse: 'collapse', fontSize: 'var(--font-body)', width: '100%' }}>
               <thead>
-                <tr style={{ background: PD_DEEP, color: 'white' }}>
+                <tr style={{ background: PD_DEEP, color: 'var(--color-on-primary-navy)' }}>
                   <th style={{ padding: '10px 12px', textAlign: 'left', minWidth: '220px', position: 'sticky', left: 0, background: PD_DEEP, zIndex: 2 }}>Cost Item / Asset</th>
                   <th style={{ padding: '10px 10px', textAlign: 'right', minWidth: '120px' }}>Total</th>
                   <th style={{ padding: '10px 10px', textAlign: 'center', minWidth: '90px' }}>Debt %</th>
@@ -400,7 +406,7 @@ export default function Module1Financing({
                   const ePct = 100 - dPct;
                   const debtInput = (
                     financingMode === 'line'
-                      ? <input className="input-assumption" style={{ ...inputStyle, padding: '3px 6px', width: '60px', textAlign: 'right', fontSize: '12px' }}
+                      ? <input style={{ ...inputStyle, padding: '3px 6px', width: '60px', textAlign: 'right', fontSize: '12px' }}
                           type="number" min={0} max={100} step={1} value={dPct}
                           onChange={e => setLineDebtPct(line.name, Number(e.target.value))} disabled={readOnly} />
                       : <>{dPct}%</>
@@ -408,7 +414,7 @@ export default function Module1Financing({
                   if (fsFilter !== 'combined') {
                     const assetTotal = line.assetDists[fsFilter]?.reduce((s, v) => s + v, 0) || 0;
                     if (assetTotal === 0) return null;
-                    const rowBg = ni % 2 === 0 ? 'var(--color-grey-white)' : 'var(--color-row-alt, #F9FAFB)';
+                    const rowBg = ni % 2 === 0 ? 'var(--color-grey-white)' : 'var(--color-row-alt)';
                     return (
                       <tr key={line.name} style={{ background: rowBg }}>
                         <td style={{ padding: '9px 12px', fontWeight: 600, color: 'var(--color-body)', position: 'sticky', left: 0, background: rowBg, zIndex: 1 }}>{line.name}</td>
@@ -450,8 +456,8 @@ export default function Module1Financing({
                 })}
               </tbody>
               <tfoot>
-                <tr style={{ background: PD_DEEP, color: 'white', borderTop: '3px solid var(--color-green-dark)' }}>
-                  <td style={{ padding: '10px 12px', fontWeight: 700, position: 'sticky', left: 0, background: PD_DEEP, color: 'white' }}>GRAND TOTAL</td>
+                <tr style={{ background: PD_DEEP, color: 'var(--color-on-primary-navy)', borderTop: '3px solid var(--color-green-dark)' }}>
+                  <td style={{ padding: '10px 12px', fontWeight: 700, position: 'sticky', left: 0, background: PD_DEEP, color: 'var(--color-on-primary-navy)' }}>GRAND TOTAL</td>
                   <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700 }}>
                     {formatNumber(fsFilter === 'combined' ? fsGrandTotal : (fsAssetTotals[fsFilter] || 0))}
                   </td>
@@ -498,7 +504,7 @@ export default function Module1Financing({
   ) => (
     <div style={{ marginBottom: 'var(--sp-3)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-        <div style={{ padding: '6px 14px', borderRadius: 'var(--radius-sm)', fontWeight: 700, fontSize: '12px', background: titleBg, color: 'white' }}>
+        <div style={{ padding: '6px 14px', borderRadius: 'var(--radius-sm)', fontWeight: 700, fontSize: '12px', background: titleBg, color: 'var(--color-on-primary-navy)' }}>
           {title}
         </div>
         {note && (
@@ -535,7 +541,7 @@ export default function Module1Financing({
               const isTotalRow = row.style === 'total';
               return (
                 <tr key={ri} style={{
-                  background: isTotalRow ? 'rgba(27,79,138,0.05)' : ri % 2 === 0 ? 'var(--color-grey-white)' : 'rgba(0,0,0,0.01)',
+                  background: isTotalRow ? 'color-mix(in srgb, var(--color-primary) 5%, transparent)' : ri % 2 === 0 ? 'var(--color-grey-white)' : 'color-mix(in srgb, var(--color-heading) 1%, transparent)',
                 }}>
                   <td style={{ fontWeight: isTotalRow ? 700 : 400, fontSize: '12px', color: rowColors[row.style] }}>
                     {row.label}
@@ -683,9 +689,9 @@ export default function Module1Financing({
         {/* KPI strip */}
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: 'var(--sp-2)' }}>
           {[
-            ['Total Debt',    totalDebtComb,     'var(--color-primary-dark)', 'white'],
-            ['Total Equity',  totalEquityComb,   'var(--color-green-dark)',    'white'],
-            ['Finance Cost',  totalInterestComb, 'var(--color-gold-dark)',                   'white'],
+            ['Total Debt',    totalDebtComb,     'var(--color-primary-dark)', 'var(--color-on-primary-navy)'],
+            ['Total Equity',  totalEquityComb,   'var(--color-green-dark)',    'var(--color-on-primary-navy)'],
+            ['Finance Cost',  totalInterestComb, 'var(--color-gold-dark)',                   'var(--color-on-primary-navy)'],
           ].map(([l, v, bg, c]) => (
             <span key={String(l)} style={{ padding: '4px 12px', borderRadius: 'var(--radius-sm)', background: String(bg), color: String(c), fontSize: '12px', fontWeight: 700 }}>
               {l}: {currency} {formatNumber(Number(v))}
@@ -796,7 +802,7 @@ export default function Module1Financing({
                   style={{
                     flex: 1, padding: '8px', borderRadius: 'var(--radius-sm)',
                     border: financingMode === mode ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
-                    background: financingMode === mode ? 'rgba(27,79,138,0.08)' : 'var(--color-surface)',
+                    background: financingMode === mode ? 'color-mix(in srgb, var(--color-primary) 8%, transparent)' : 'var(--color-surface)',
                     cursor: readOnly ? 'not-allowed' : 'pointer',
                     fontWeight: financingMode === mode ? 700 : 400,
                     color: financingMode === mode ? 'var(--color-primary)' : 'var(--color-body)',
@@ -813,8 +819,7 @@ export default function Module1Financing({
             <label style={labelStyle}>Debt % of CapEx (LTV)</label>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <input
-                className="input-assumption"
-                style={{ ...inputStyle, flex: 1 }}
+                  style={{ ...inputStyle, flex: 1 }}
                 type="range"
                 min={0} max={100} step={1}
                 value={globalDebtPct}
@@ -822,8 +827,7 @@ export default function Module1Financing({
                 disabled={readOnly}
               />
               <input
-                className="input-assumption"
-                style={{ ...inputStyle, width: '70px', flex: 'none' }}
+                  style={{ ...inputStyle, width: '70px', flex: 'none' }}
                 type="number"
                 min={0} max={100} step={1}
                 value={globalDebtPct}
@@ -845,7 +849,6 @@ export default function Module1Financing({
           <div style={{ marginBottom: 'var(--sp-2)' }}>
             <label style={labelStyle}>Interest Rate (% p.a.)</label>
             <input
-              className="input-assumption"
               style={inputStyle}
               type="number"
               min={0} max={30} step={0.1}
@@ -878,7 +881,6 @@ export default function Module1Financing({
           <div style={{ marginBottom: 'var(--sp-2)' }}>
             <label style={labelStyle}>Repayment Method</label>
             <select
-              className="input-assumption"
               style={inputStyle}
               value={repaymentMethod}
               onChange={e => setRepaymentMethod(e.target.value as RepaymentMethod)}
@@ -890,7 +892,7 @@ export default function Module1Financing({
             {repaymentMethod === 'cashsweep' && (
               <div style={{
                 marginTop: '8px', padding: '8px 12px',
-                background: 'rgba(201,168,76,0.10)', border: '1px solid rgba(146,64,14,0.2)',
+                background: 'color-mix(in srgb, var(--color-gold) 10%, transparent)', border: '1px solid color-mix(in srgb, var(--color-gold-dark) 20%, transparent)',
                 borderRadius: 'var(--radius-sm)', fontSize: '11px', color: 'var(--color-gold-dark)', lineHeight: '1.5',
               }}>
                 ⚠️ <strong>Pending Module 5 link</strong> - Once Financial Statements are finalized (Module 5),
@@ -903,7 +905,6 @@ export default function Module1Financing({
           <div style={{ marginBottom: 'var(--sp-2)' }}>
             <label style={labelStyle}>Repayment Period ({periodLabel})</label>
             <input
-              className="input-assumption"
               style={inputStyle}
               type="number"
               min={1}
@@ -919,8 +920,8 @@ export default function Module1Financing({
 
           {/* Summary box */}
           <div style={{
-            background: 'rgba(27,79,138,0.04)',
-            border: '1px solid rgba(27,79,138,0.12)',
+            background: 'color-mix(in srgb, var(--color-primary) 4%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--color-primary) 12%, transparent)',
             borderRadius: 'var(--radius-sm)',
             padding: '12px',
           }}>
@@ -953,7 +954,7 @@ export default function Module1Financing({
                 <button key={v} onClick={() => setActiveFinView(v)} style={{
                   padding: '5px 12px', borderRadius: 'var(--radius-sm)', fontSize: '11px',
                   border: activeFinView === v ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
-                  background: activeFinView === v ? 'rgba(27,79,138,0.08)' : 'var(--color-surface)',
+                  background: activeFinView === v ? 'color-mix(in srgb, var(--color-primary) 8%, transparent)' : 'var(--color-surface)',
                   cursor: 'pointer', fontWeight: activeFinView === v ? 700 : 400,
                   color: activeFinView === v ? 'var(--color-primary)' : 'var(--color-body)',
                   fontFamily: 'Inter, sans-serif',
@@ -974,7 +975,7 @@ export default function Module1Financing({
               {fsFilter !== 'combined' && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: 'var(--sp-2)', padding: '8px 16px', borderRadius: 'var(--radius-sm)', fontSize: '13px', fontWeight: 600, background: 'var(--color-grey-pale)', color: 'var(--color-primary)', border: '1px solid var(--color-grey-light)' }}>
                   <span>🔍 Filtered:</span>
-                  <span style={{ padding: '2px 12px', borderRadius: '20px', color: 'white', fontSize: '12px', fontWeight: 700, background: 'var(--color-navy)' }}>
+                  <span style={{ padding: '2px 12px', borderRadius: '20px', color: 'var(--color-on-primary-navy)', fontSize: '12px', fontWeight: 700, background: 'var(--color-navy)' }}>
                     {{ residential: 'Residential', hospitality: 'Hospitality', retail: 'Retail' }[fsFilter]}
                   </span>
                   <span style={{ fontSize: '11px', color: 'var(--color-muted)', marginLeft: '4px' }}>· Change filter in Financing Summary tab</span>
@@ -1008,7 +1009,7 @@ export default function Module1Financing({
                       padding: '10px 16px', borderRadius: 'var(--radius-sm)',
                       background: tab.color, marginBottom: 'var(--sp-2)',
                     }}>
-                      <span style={{ fontWeight: 700, fontSize: '14px', color: 'white' }}>
+                      <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--color-on-primary-navy)' }}>
                         {tab.label}
                       </span>
                       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -1019,7 +1020,7 @@ export default function Module1Financing({
                         ].map(([lbl, val]) => (
                           <span key={String(lbl)} style={{
                             padding: '3px 10px', borderRadius: '20px', fontSize: '11px', fontWeight: 700,
-                            background: 'rgba(255,255,255,0.18)', color: 'white',
+                            background: 'color-mix(in srgb, var(--color-on-primary-navy) 18%, transparent)', color: 'var(--color-on-primary-navy)',
                           }}>
                             {lbl}: {currency} {formatNumber(Number(val))}
                           </span>
