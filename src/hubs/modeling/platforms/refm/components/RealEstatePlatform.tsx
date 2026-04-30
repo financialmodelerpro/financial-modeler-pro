@@ -1326,20 +1326,20 @@ export default function RealEstatePlatform() {
             {!hasFullM8 && (
               <div style={{
                 position: 'absolute', inset: 0, zIndex: 5,
-                background: 'rgba(255,255,255,0.85)', backdropFilter: 'blur(3px)',
+                background: 'color-mix(in srgb, var(--color-surface) 85%, transparent)', backdropFilter: 'blur(3px)',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
               }}>
                 <div style={{ textAlign: 'center', padding: '24px 32px', maxWidth: 360 }}>
                   <div style={{ fontSize: 32, marginBottom: 10 }}>🔒</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: '#111827', marginBottom: 6 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--color-heading)', marginBottom: 6 }}>
                     Upgrade to edit financials
                   </div>
-                  <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 16, lineHeight: 1.6 }}>
+                  <p style={{ fontSize: 12, color: 'var(--color-meta)', marginBottom: 16, lineHeight: 1.6 }}>
                     Upgrade to Professional to edit Portfolio financials. Outputs are visible in read-only mode.
                   </p>
                   <a href="/settings" style={{
-                    display: 'inline-block', padding: '8px 20px', background: '#2563EB',
-                    color: '#fff', borderRadius: 6, fontSize: 13, fontWeight: 700, textDecoration: 'none',
+                    display: 'inline-block', padding: '8px 20px', background: 'var(--color-primary)',
+                    color: 'var(--color-on-primary-navy)', borderRadius: 6, fontSize: 13, fontWeight: 700, textDecoration: 'none',
                   }}>
                     Upgrade to Professional →
                   </a>
@@ -1510,7 +1510,7 @@ export default function RealEstatePlatform() {
         <div
           style={{
             position: 'fixed', inset: 0, zIndex: 1999,
-            background: 'rgba(0,0,0,0.45)',
+            background: 'color-mix(in srgb, var(--color-heading) 45%, transparent)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             padding: 16,
           }}
