@@ -44,15 +44,15 @@ export default function ProjectModal({
             <div style={{ fontSize: '15px', fontWeight: 700 }}>
               {mode === 'new' ? '🏗️ Create New Project' : '✏️ Edit Project'}
             </div>
-            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>
+            <div style={{ fontSize: '11px', color: 'color-mix(in srgb, var(--color-on-primary-navy) 50%, transparent)', marginTop: '2px' }}>
               {mode === 'new' ? 'Define the project name and location' : 'Update project details'}
             </div>
           </div>
           <button
             onClick={onClose}
             style={{
-              background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '6px',
-              width: '28px', height: '28px', cursor: 'pointer', color: 'white', fontSize: '14px',
+              background: 'color-mix(in srgb, var(--color-on-primary-navy) 10%, transparent)', border: 'none', borderRadius: '6px',
+              width: '28px', height: '28px', cursor: 'pointer', color: 'var(--color-on-primary-navy)', fontSize: '14px',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
           >
@@ -114,7 +114,7 @@ export default function ProjectModal({
 
           <div style={{
             background: 'var(--color-navy-light)',
-            border: '1px solid rgba(30,58,138,0.12)',
+            border: '1px solid color-mix(in srgb, var(--color-primary) 12%, transparent)',
             borderRadius: 'var(--radius-sm)',
             padding: '10px 12px',
             fontSize: '12px', color: 'var(--color-meta)',
