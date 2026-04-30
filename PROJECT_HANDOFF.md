@@ -1,5 +1,5 @@
 # Project Handoff — Financial Modeler Pro
-**Snapshot date: 2026-04-29**
+**Snapshot date: 2026-04-30**
 
 Use this file to resume development in a new chat session. Read `CLAUDE.md` first for strict project rules.
 
@@ -11,6 +11,20 @@ Use this file to resume development in a new chat session. Read `CLAUDE.md` firs
 - `CLAUDE-TODO.md` — Backlog, pending REFM modules, future platforms
 - `ARCHITECTURE.md` — Three-tier folder structure rationale, alias guide, boundary rules, how to add a platform/hub
 - `RESTRUCTURE_PLAN.md` — 8-phase folder restructure plan (executed 2026-04-28 → 2026-04-29; complete)
+
+---
+
+## Modeling Hub foundation rebuild + REFM dark mode + Phase 4.2-4.5 retrofits (complete, 2026-04-30)
+
+Eleven commits (`93ab0af`, `005e7ce`, `b4691b7`, `afd0e4d`, `6ae4344`, `dba0952`, `a75708f`, `e20f436`, `9a0fe71`, `cfca60a`, `11e098b`) completed three connected pieces of work:
+
+**1. Phase 4 cookie-scope rollback (Option A)** — `93ab0af` reverted prior Phase 4 commits that introduced a NextAuth cookie-scope regression. Verified functional match to baseline `bcea1a7`.
+
+**2. Foundation rebuild — Modeling Hub canonical landing on `app.*` subdomain** — eliminated cross-subdomain assumptions before resuming Phase 4. `app/portal/page.tsx` collapsed to a 5-line `redirect('${APP_URL}/modeling/dashboard')`. `/portal` removed from `MAIN_PATHS` in `next.config.ts`. `src/middleware.ts` swapped its non-admin `/admin/*` rejection redirect from `/portal` to `/`. `src/shared/email/templates/accountConfirmation.ts` re-targeted both `${APP_URL}/portal` references. `app/modeling/dashboard/page.tsx` repurposed from a 3-card grid to the canonical sidebar layout — server-fetches CMS keys `logo_url` + `logo_height_px` + `header_height_px` (defaults 36 / 64, matching main-site `NavbarServer`); renders topbar at `minHeight: headerHeight` and sidebar at `top: headerHeight, height: calc(100vh - ${headerHeight}px)`. Hub-level dark mode toggle via `localStorage['modelingDarkMode']` (default → `prefers-color-scheme`); `data-theme` does NOT leak into `/admin` or `/training`. **Cookie-scope bug deliberately out-of-scope** — NextAuth config NOT modified per session constraint; documented as a deferred known issue in CLAUDE-TODO.md.
+
+**3. REFM workspace dark mode + Phase 4.2-4.5 retrofits + project name editing + Module Roadmap consolidation** — (a) ☀️/🌙 toggle in REFM Topbar with own `localStorage['refmDarkMode']` key (separate from hub toggle), default → `prefers-color-scheme`, scoped via `body[data-refm-theme="dark"] .app-shell` so it never bleeds into admin/training. New design token `--color-on-primary-navy: #FFFFFF` added to `app/globals.css` (NOT overridden in dark scope) — required because `--color-grey-white` is overridden to `#1A222F` in dark and would have flipped white-on-navy chrome to invisible. (b) Phase 4.2 OverviewScreen.tsx (4 literals + edit pencil + actionable empty state). Phase 4.3 ProjectsScreen.tsx (STATUS_COLORS + ACTIVE pill + per-row edit pencil). Phase 4.4 Sidebar.tsx (2 literals via `--color-on-primary-navy`). Phase 4.5 Topbar.tsx (12 literals; imports `DEFAULT_BRANDING` for OfficeColorPicker hex fallbacks since the picker uses `hexToRgb` and rejects CSS vars; `← Portal` → `← Hub`). (c) Project name editing wired: ProjectModal already supported edit mode but `onConfirm` was hardcoded — new `handleEditProject(name, location)` callback in `RealEstatePlatform.tsx` mutates active project, syncs state, persists to `localStorage refm_v2`, fires toast. Two UI entry points: Overview header pencil + ProjectsScreen row pencil, both gated on `can('canEditProject')`. Defensive hydration: `loadFromStorage()` drops a stale `activeProjectId` if it doesn't resolve. (d) Module Roadmap consolidation: Sidebar listed all 11 modules but Dashboard only showed 1-6 (drift bug). Both surfaces now consume `MODULES` from new file `src/hubs/modeling/platforms/refm/lib/modules-config.ts` (11 entries; `ModuleStatus = 'done' | 'soon' | 'pro' | 'enterprise'`). Dashboard introduces `STATUS_BADGE` map routed through design tokens + `color-mix()`.
+
+**No new packages, no schema changes, no new API routes.** **One new file**: `src/hubs/modeling/platforms/refm/lib/modules-config.ts`. Type-check + build green at every commit; Module 1 regression-guard snapshot stays at 17.5 KB baseline (exit 0 each step).
 
 ---
 
@@ -223,22 +237,23 @@ Net source-tree state: 0 cross-hub violations on the original 5; one TODO-tracke
 
 ---
 
-## 3. Last 10 Git Commits
+## 3. Last 11 Git Commits (2026-04-30 session)
 
 | Hash | Date | Message |
 |------|------|---------|
-| `670fb51` | 2026-04-28 | Phase 5: Force-unlock 4 stuck students using admin endpoint |
-| `e2dd9a4` | 2026-04-28 | Show watch percentage to students and add admin force-unlock tools |
-| `13cb260` | 2026-04-28 | Add manual override path for stuck watch tracking |
-| `756816e` | 2026-04-28 | Add stuck-watch diagnostic + 2026-04-28 snapshot |
-| `c9a20e4` | 2026-04-28 | fix(watch-tracking): persist intervals across sessions, fix race conditions |
-| `c666ca1` | 2026-04-28 | Add comprehensive platform inventory for restructure planning |
-| `04d1551` | 2026-04-28 | docs: reflect 2026-04-28 branding merge + pricing simplification |
-| `777e1bf` | 2026-04-28 | refactor(pricing): remove Plans tab + drop pricing_plans (migration 145) |
-| `50e22fa` | 2026-04-28 | refactor(pricing): remove Page Content tab; /pricing reads from page_sections |
-| `ab5db30` | 2026-04-28 | refactor(admin): merge Branding into Header Settings |
+| `11e098b` | 2026-04-30 | Phase 4.5: Topbar.tsx token retrofit |
+| `cfca60a` | 2026-04-30 | REFM: project name editing + defensive hydration cleanup |
+| `9a0fe71` | 2026-04-30 | Phase 4.4: Sidebar.tsx token retrofit |
+| `e20f436` | 2026-04-30 | REFM Dashboard: consume MODULES from modules-config |
+| `dba0952` | 2026-04-30 | REFM: lift modules to single source of truth (lib/modules-config.ts) |
+| `a75708f` | 2026-04-30 | Phase 4.3: ProjectsScreen.tsx token retrofit |
+| `6ae4344` | 2026-04-30 | REFM: per-row Edit pencil on ProjectsScreen |
+| `afd0e4d` | 2026-04-30 | Phase 4.2: OverviewScreen.tsx retrofit + edit pencil + empty state |
+| `b4691b7` | 2026-04-30 | REFM: workspace dark mode toggle + --color-on-primary-navy token |
+| `005e7ce` | 2026-04-30 | Foundation rebuild: Modeling Hub canonical landing on app.* subdomain |
+| `93ab0af` | 2026-04-30 | Revert Phase 4 cookie-scope regression (Option A rollback) |
 
-Most recent session shipped the watch tracking rebuild (Phases 2-5 + migrations 146 + 147 + surgical recovery for 4 stuck students). The session before it was an admin cleanup sprint (Branding merged into Header Settings, Pricing tabs simplified, migration 145 drops `pricing_plans`).
+Most recent session was the Modeling Hub foundation rebuild (Path 2): rolled back the prior Phase 4 cookie-scope regression, then eliminated cross-subdomain assumptions by collapsing `/portal` to a redirect and making `/modeling/dashboard` the canonical post-signin landing on `app.*`. Then resumed Phase 4 retrofits 4.2-4.5, added REFM workspace dark mode, wired project name editing, and consolidated Module Roadmap into a single source of truth at `src/hubs/modeling/platforms/refm/lib/modules-config.ts`. The session before it shipped the watch enforcement removal + model-submission guidance hardening (2026-04-29).
 
 ---
 
@@ -333,7 +348,35 @@ Configured in `vercel.json`. Calls `processPendingCertificates()` with 5-minute 
 
 ## 7. What Was Last Being Worked On
 
-The last session (2026-04-28) was a **follow-up admin cleanup** continuing the trim work from 2026-04-27. Three further surfaces consolidated:
+The last session (2026-04-30) was a **Modeling Hub foundation rebuild + Phase 4.x retrofit resumption**. Eleven commits across three connected pieces of work:
+
+### Changes made (commits `93ab0af` → `11e098b`)
+- **Phase 4 cookie-scope rollback (Option A, `93ab0af`)**: combined revert of prior Phase 4 commits that introduced a NextAuth cookie-scope regression. Verified functional match to baseline `bcea1a7`, snapshot diff exit 0, type-check + build clean, then pushed.
+- **Foundation rebuild on app.* subdomain (`005e7ce`)**: eliminated cross-subdomain assumptions before resuming Phase 4. `app/portal/page.tsx` collapsed to a 5-line `redirect('${APP_URL}/modeling/dashboard')`. `/portal` removed from `MAIN_PATHS` in `next.config.ts`. `src/middleware.ts` swapped non-admin `/admin/*` rejection redirect from `/portal` to `/`. `accountConfirmation.ts` re-targeted `${APP_URL}/portal` references. `app/modeling/dashboard/page.tsx` repurposed from a 3-card grid to the canonical sidebar layout (server-fetches CMS keys for header dimensions; renders topbar + sidebar; owns hub-level dark mode via `localStorage['modelingDarkMode']`). Cookie-scope bug deliberately out-of-scope per session constraint — NextAuth config NOT modified; documented as deferred known issue.
+- **REFM workspace dark mode (`b4691b7`)**: ☀️/🌙 toggle in Topbar with own `localStorage['refmDarkMode']` key. New design token `--color-on-primary-navy: #FFFFFF` (NOT overridden in dark) added to `globals.css` because `--color-grey-white` is overridden to `#1A222F` in dark scope and would have flipped white-on-navy chrome to invisible. Theme scoped via `body[data-refm-theme="dark"] .app-shell`.
+- **Phase 4.2 OverviewScreen.tsx (`afd0e4d`)**: 4 hardcoded literals replaced + edit pencil ✏️ next to project name + actionable empty state when activeProjectId is stale.
+- **Project edit pencil + Phase 4.3 ProjectsScreen.tsx (`6ae4344` + `a75708f`)**: per-row pencil ✏️ Edit button + token retrofit (STATUS_COLORS map + ACTIVE pill).
+- **Module Roadmap consolidation (`dba0952` + `e20f436`)**: new file `src/hubs/modeling/platforms/refm/lib/modules-config.ts` is single source of truth for all 11 modules; Sidebar + Dashboard both consume it. Drift bug (Sidebar showed 11, Dashboard showed 1-6) fixed.
+- **Phase 4.4 Sidebar.tsx (`9a0fe71`)**: 2 inline rgba literals replaced via `--color-on-primary-navy`.
+- **Project name editing wired (`cfca60a`)**: `handleEditProject(name, location)` callback in `RealEstatePlatform.tsx` mutates active project, syncs state, persists to `localStorage refm_v2`. Defensive hydration cleanup of stale activeProjectId.
+- **Phase 4.5 Topbar.tsx (`11e098b`)**: 12 hardcoded literals replaced; imports `DEFAULT_BRANDING` so OfficeColorPicker fallbacks stay as actual hex; `← Portal` → `← Hub`.
+
+**Net total**: 11 commits, 1 new file (`modules-config.ts`), 13 modified files, 0 packages, 0 schema changes, 0 new API routes.
+
+### Manual action required
+None. All changes are code-only.
+
+### Unfinished from that session
+None — all 11 commits shipped to `origin/main`. Type-check + full build passed at every step. Module 1 regression-guard snapshot stays at 17.5 KB baseline (exit 0 each step).
+
+### Deferred known issue
+**NextAuth cookie scope** — Phase 4 had attempted to introduce a Domain-attribute cookie scope to support cross-subdomain navigation, and that change broke admin auth. The Path 2 foundation rebuild eliminated the cross-subdomain assumption (Modeling Hub is end-to-end on `app.*`), so the default exact-host cookie scope works. If a future session needs SSO between admin/main + app.*, revisit Phase 4's commits as the starting point and wire the CSRF + session token cookies together so they share a domain-scope policy; do NOT cherry-pick just the cookie config.
+
+---
+
+## 7-prior. Earlier session (2026-04-28) — admin cleanup follow-up
+
+The 2026-04-28 session was a **follow-up admin cleanup** continuing the trim work from 2026-04-27. Three further surfaces consolidated:
 
 ### Changes made (commits `ab5db30` → `777e1bf`)
 - **Part A** (`ab5db30`): Branding merged into Header Settings. After 2026-04-27's Phase 4 reduced `/admin/branding` to two color fields, the dedicated page was a thin wrapper. Brand Colors section moved to the top of `/admin/header-settings`, wired to the same `/api/branding` GET + PATCH endpoints. `saveAll()` now fires the cms_content writes plus `/api/branding` PATCH in parallel. `/admin/branding/page.tsx` reduced to a 5-line server `redirect('/admin/header-settings')`. Sidebar Branding entry removed; Header Settings gains `matchPaths: ['/admin/branding']` so the rail stays highlighted on stale links. `BrandingThemeApplier` + `branding_config` table + `--color-primary` / `--color-secondary` injection all unchanged. Net -349 / +102.
@@ -400,7 +443,8 @@ None — all 3 commits shipped to `origin/main`. Type-check + full build passed 
 
 ## Migrations Status
 
-**Latest**: `147_completed_via.sql` (watch tracking rebuild Phase 3 — manual override + provenance).
-**Next number**: `148` (numbering gaps at `069`, `073`, `127` are skipped, not missing — see CLAUDE-DB.md).
-**Manual apply**: migrations `146` + `147` must be applied via Supabase dashboard before deploy. Both idempotent (`ADD COLUMN IF NOT EXISTS`).
+**Latest**: `148_model_submissions.sql` (model-submission gate — 2026-04-29; gate dormant by default).
+**Next number**: `149` (numbering gaps at `069`, `073`, `127` are skipped, not missing — see CLAUDE-DB.md).
+**Manual apply**: migration `148` must be applied via Supabase dashboard before deploy (idempotent). Migrations `146` + `147` are also manual-apply (idempotent `ADD COLUMN IF NOT EXISTS`).
 **Rule**: Never edit existing migrations; create new numbered files.
+**2026-04-30 session**: no new migrations.

@@ -4,6 +4,58 @@
 
 ---
 
+## Recently Completed — Modeling Hub foundation rebuild + REFM dark mode + Phase 4.2-4.5 retrofits + project edit + Module Roadmap consolidation (2026-04-30 session, 11 commits)
+
+| Phase | Status |
+|-------|--------|
+| **Phase 4 cookie-scope rollback (Option A)** | Complete (commit `93ab0af` — combined revert). Reverted the prior Phase 4 commits that had introduced a NextAuth cookie-scope regression. Verified functional match to baseline `bcea1a7`, snapshot diff exit 0, type-check + build clean, then pushed. |
+| **Foundation rebuild — canonical landing on app.* subdomain** | Complete (commit `005e7ce`). `app/portal/page.tsx` collapsed to a 5-line `redirect('${APP_URL}/modeling/dashboard')`. `/portal` removed from `MAIN_PATHS` in `next.config.ts`. `src/middleware.ts` swapped its non-admin `/admin/*` rejection redirect from `/portal` to `/`. `src/shared/email/templates/accountConfirmation.ts` re-targeted both `${APP_URL}/portal` references to `${APP_URL}/modeling/dashboard`. `app/modeling/dashboard/page.tsx` repurposed from a 3-card grid to the canonical sidebar layout: server-fetches CMS keys `logo_url` + `logo_height_px` + `header_height_px` (defaults 36 / 64 — match main-site `NavbarServer`); renders topbar at `minHeight: headerHeight` and sidebar at `top: headerHeight, height: calc(100vh - ${headerHeight}px)`. Hub-level dark mode toggle via `localStorage['modelingDarkMode']` (default → `prefers-color-scheme`), `data-theme` attribute does NOT leak into `/admin` or `/training`. **Cookie-scope bug deliberately out-of-scope** — NextAuth config NOT modified per session constraint. |
+| **REFM workspace dark mode** | Complete (commit `b4691b7`). ☀️/🌙 toggle in Topbar between ⚙️ Settings and ← Hub. Own `localStorage['refmDarkMode']` key (separate from `modelingDarkMode`); default → `prefers-color-scheme`. Theme scoped via `body[data-refm-theme="dark"] .app-shell` so it never bleeds into admin or training. New design token `--color-on-primary-navy: #FFFFFF` added to `app/globals.css` (NOT overridden in dark scope) because `--color-grey-white` is overridden to `#1A222F` in dark and would have flipped white-on-navy chrome to invisible. Dark mode override block declares overrides for bg, surface, grey-white, grey-pale, border, border-light, muted, meta, body, grey-dark, heading, row-alt, row-hover, input-bg, warning-bg, warning-text, navy-light, navy-pale, shadow-1/2/hover. |
+| **Phase 4.2 — OverviewScreen.tsx token retrofit + project edit + defensive empty state** | Complete (commit `afd0e4d`). 4 hardcoded literals replaced (Total GFA accent + active-version border/bg + LOADED pill) routed through design tokens + `color-mix()`. Pencil ✏️ button next to project name h1 gated on `can('canEditProject')`. Replaced silent `if (!proj) return null` with an actionable empty card so a stale `activeProjectId` no longer renders a blank Overview. TypeScript narrowing fix: `if (!proj || !activeProjectId)` to satisfy `onLoadVersion(activeProjectId, vid)` typing. |
+| **Project name editing wired** | Complete (commit `cfca60a`). ProjectModal already supported edit mode but `onConfirm` was hardcoded. New `handleEditProject(name, location)` callback in `RealEstatePlatform.tsx` mutates active project, syncs state, persists to localStorage `refm_v2`, fires toast. New `handleEditProjectClick(pid?)` opens modal in edit mode. Two UI entry points: Overview header pencil + ProjectsScreen row pencil. Defensive hydration: `loadFromStorage()` drops stale `activeProjectId` if it doesn't resolve to a real project (covers cross-tab delete). |
+| **Phase 4.3 — ProjectsScreen.tsx token retrofit + edit button** | Complete (commits `6ae4344` + `a75708f`). STATUS_COLORS map + ACTIVE pill — 5 rgba literals + 1 hex (`#92400e` → `var(--color-gold-dark)`) routed through `color-mix()`. Normalized `var(--color-green-dark)` → `var(--color-success)`. Per-row pencil ✏️ Edit button between Open and Delete (gated on `can('canEditProject')`, stops propagation). Two separate commits per session protocol — Task 1 (edit button) committed first, then Task 2 (token retrofit) committed second. |
+| **Module Roadmap consolidation (Sidebar + Dashboard drift fix)** | Complete (commits `dba0952` + `e20f436`). Sidebar listed all 11 modules but Dashboard Module Roadmap only showed 1-6 (two parallel hardcoded lists). Both surfaces now consume `MODULES` from new file `src/hubs/modeling/platforms/refm/lib/modules-config.ts` (single source of truth: 11 entries, `ModuleStatus = 'done' \| 'soon' \| 'pro' \| 'enterprise'`, `ModulePlan = 'free' \| 'professional' \| 'enterprise'`). `shortLabel` for narrow sidebar rail, `longLabel` for wide dashboard rows. Dashboard introduces `STATUS_BADGE` map (4 variants routed through design tokens + `color-mix()`). |
+| **Phase 4.4 — Sidebar.tsx token retrofit** | Complete (commit `9a0fe71`). 2 inline rgba literals replaced with `color-mix(in srgb, var(--color-on-primary-navy) X%, transparent)`. All visual states verified to render correctly in light + dark via the new `--color-on-primary-navy` token. |
+| **Phase 4.5 — Topbar.tsx token retrofit** | Complete (commit `11e098b`). 12 hardcoded literals replaced. Imports `DEFAULT_BRANDING` from `@/src/core/branding` so OfficeColorPicker fallbacks stay as actual hex strings (the picker requires `hexToRgb`-able input — CSS vars wouldn't work) — keeps source file free of inline hex while preserving picker compatibility. `← Portal` (with `/portal` href) replaced with `← Hub` linking to `/modeling/dashboard`. Sign Out button border alpha via `color-mix`. |
+
+**Net total**: 11 commits across the foundation rebuild + dark mode + Phase 4.2-4.5 retrofit + project edit + Module Roadmap consolidation.
+
+**Packages installed this session: none.**
+
+**Schema changes this session: none.**
+
+**New API routes this session: none.**
+
+**New non-route files this session:**
+- `src/hubs/modeling/platforms/refm/lib/modules-config.ts` — single source of truth for all 11 REFM modules, consumed by Sidebar.tsx + Dashboard.tsx.
+
+**Modified files (top-level):**
+- `app/portal/page.tsx` — full rewrite as 5-line server redirect
+- `app/modeling/dashboard/page.tsx` — full rewrite as canonical sidebar layout (server-fetch CMS header keys + dark mode + topbar + sidebar)
+- `next.config.ts` — `/portal` removed from `MAIN_PATHS`
+- `src/middleware.ts` — non-admin `/admin/*` redirect from `/portal` to `/`
+- `src/shared/email/templates/accountConfirmation.ts` — both `${APP_URL}/portal` → `${APP_URL}/modeling/dashboard`
+- `app/settings/page.tsx` — duplicate `← Portal` link removed; "redirected to the portal" → "redirected to the home page"
+- `app/globals.css` — new `--color-on-primary-navy: #FFFFFF` token + REFM dark mode override block (`body[data-refm-theme="dark"]` + `body[data-refm-theme="dark"] .app-shell`)
+- `src/hubs/modeling/platforms/refm/components/Topbar.tsx` — Phase 4.5 retrofit + ☀️/🌙 toggle + ← Hub link
+- `src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx` — REFM dark mode state + handleEditProject callbacks + defensive hydration cleanup + sidebarModules derived from MODULES
+- `src/hubs/modeling/platforms/refm/components/OverviewScreen.tsx` — Phase 4.2 retrofit + edit pencil + actionable empty state
+- `src/hubs/modeling/platforms/refm/components/ProjectsScreen.tsx` — Phase 4.3 retrofit + per-row edit pencil
+- `src/hubs/modeling/platforms/refm/components/Sidebar.tsx` — Phase 4.4 retrofit
+- `src/hubs/modeling/platforms/refm/components/Dashboard.tsx` — Module Roadmap consolidation (consumes MODULES from modules-config)
+
+**Manual action required**: none. All changes are code-only. Module 1 regression-guard snapshot stays at 17.5 KB baseline (exit 0 each step).
+
+### Foundation Rebuild Follow-Ups
+
+| Item | Notes |
+|------|-------|
+| **NextAuth cookie scope (deferred known issue)** | Phase 4 had attempted to introduce a Domain-attribute cookie scope so the modeling hub could survive cross-subdomain navigation, and that change broke admin auth in subtle ways (cookie now visible to all `*.financialmodelerpro.com` hosts but rejected by NextAuth's CSRF token comparison). The Path 2 foundation rebuild eliminated the cross-subdomain assumption — Modeling Hub is end-to-end on `app.*` so the default exact-host cookie scope works. NextAuth config is intentionally unchanged in this session. **If a future session needs to introduce a Domain attribute** (e.g. for SSO between admin/main + app.*), revisit Phase 4's commits as the starting point and wire the CSRF + session token cookies together so they share a domain-scope policy; do NOT cherry-pick just the cookie config. |
+| **Verify dark mode doesn't leak into admin / training** | Both REFM (`body[data-refm-theme="dark"] .app-shell`) and Modeling Hub layout (`data-theme` on root container of `/modeling/dashboard` only) use scoped selectors. Verified manually during the session. Re-test if any new admin or training surface starts mounting the modeling hub layout or REFM components. |
+| **OfficeColorPicker hex requirement** | Topbar.tsx imports `DEFAULT_BRANDING` for picker fallbacks because the picker uses `hexToRgb()` internally and rejects non-hex strings (including CSS var references). Document this as a known constraint if more pickers are added. Future enhancement: extend OfficeColorPicker to resolve CSS vars at the boundary so callers can pass tokens. |
+
+---
+
 ## Recently Completed — Watch Tracking Rebuild (2026-04-28 session, commits `c9a20e4` → `670fb51`, migrations 146 + 147)
 
 | Phase | Status |

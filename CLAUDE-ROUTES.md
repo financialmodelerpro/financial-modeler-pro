@@ -23,7 +23,7 @@ app/
 ├── contact/page.tsx
 ├── forgot-password/page.tsx
 ├── login/page.tsx               # Full admin login UI (200 response, no redirect)
-├── portal/page.tsx              # Authenticated app hub (all platforms grid)
+├── portal/page.tsx              # 5-line redirect → ${APP_URL}/modeling/dashboard (2026-04-30). Modeling Hub is canonically on app.* subdomain; this main-domain entry is preserved only so historical bookmarks keep working. Removed from MAIN_PATHS in next.config.ts.
 ├── pricing/page.tsx
 ├── reset-password/page.tsx
 ├── settings/page.tsx
@@ -146,7 +146,7 @@ app/modeling/
 ├── ComingSoon.tsx               # Coming soon page component (shared by signin/register)
 ├── [slug]/page.tsx              # CMS platform sub-pages (071-072), revalidate=0
 ├── confirm-email/page.tsx
-├── dashboard/page.tsx
+├── dashboard/page.tsx           # Canonical post-signin landing on app.* (rebuilt 2026-04-30). Server-fetches CMS keys logo_url + logo_height_px + header_height_px (defaults 36 / 64) so the hub topbar matches main-site NavbarServer dimensions. Renders the sidebar layout (topbar minHeight=headerHeight, sidebar top=headerHeight + height=calc(100vh - {headerHeight}px)). Owns its own dark-mode toggle via localStorage['modelingDarkMode'] (default → prefers-color-scheme), data-theme attribute does NOT leak into /admin or /training surfaces.
 ├── register/page.tsx            # Server component - gates on modeling_hub_register_coming_soon (migration 136); supports ?email=whitelisted@address shortcut that server-verifies the whitelist and renders the form with the email locked; otherwise renders ModelingRegisterComingSoonWrapper
 ├── register/RegisterForm.tsx    # Client signup form; accepts optional invitedEmail prop that pre-fills + locks the email input with a green "✓ Invited" affordance
 ├── register/ComingSoonWrapper.tsx # Register-side Coming Soon wrapper: reads ?bypass=true for QA, otherwise renders ModelingComingSoon(variant='register')
@@ -504,9 +504,13 @@ src/hubs/modeling/
     │   │   ├── ProjectsScreen.tsx  RealEstatePlatform.tsx  Sidebar.tsx  Topbar.tsx
     │   │   ├── modals/ (Export, Project, Rbac, Version)
     │   │   └── modules/ (Module1Area, Module1Costs, Module1Financing, Module1Timeline)
+    │   │   # Topbar.tsx hosts ☀️/🌙 dark-mode toggle (2026-04-30) — own localStorage['refmDarkMode'] key (separate from hub-level modelingDarkMode); default → prefers-color-scheme; theme scoped via body[data-refm-theme="dark"] .app-shell so it never bleeds into /admin or /training.
+    │   │   # Sidebar.tsx + Dashboard.tsx (2026-04-30): both surfaces consume MODULES from ../lib/modules-config to eliminate the 1-6 vs 1-11 drift bug. Sidebar derives sidebarModules = [...STATIC_NAV, ...MODULES.map(toSidebarItem)]; Dashboard's Module Roadmap maps MODULES with longLabel + STATUS_BADGE map (4 variants done/soon/pro/enterprise routed through design tokens + color-mix).
+    │   │   # OverviewScreen.tsx + ProjectsScreen.tsx + RealEstatePlatform.tsx (2026-04-30): pencil ✏️ Edit Project entry points (Overview header pencil + ProjectsScreen row pencil) gated on can('canEditProject'), wired through new handleEditProject(name, location) callback that mutates active project, syncs state, persists to localStorage refm_v2. Defensive hydration cleanup drops a stale activeProjectId if it doesn't resolve to a real project so Overview no longer silently blanks.
     │   └── lib/
     │       ├── export/ (excel-formula, excel-static, pdf)
-    │       └── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))
+    │       ├── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))
+    │       └── modules-config.ts     # NEW 2026-04-30 — single source of truth for all 11 REFM modules. Exports `MODULES: readonly ModuleConfig[]`, types `ModuleStatus = 'done' | 'soon' | 'pro' | 'enterprise'` and `ModulePlan = 'free' | 'professional' | 'enterprise'`. Per-module fields: num, key, icon, shortLabel (sidebar), longLabel (dashboard), featureKey, requiredPlan, status, disabled, disabledReason. Consumed by both Sidebar.tsx and Dashboard.tsx so adding/renaming/reordering a module requires editing one list.
     └── bcm/  bvm/  cfm/  erm/  eum/  fpa/  lbo/  pfm/  svm/   # Coming-soon stubs (config-driven)
 ```
 

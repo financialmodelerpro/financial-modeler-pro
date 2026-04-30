@@ -124,7 +124,8 @@
       "Bash(ls -la app/admin/announcements)",
       "Bash(rm -f app/api/admin/pricing/plans/route.ts)",
       "Bash(rmdir app/api/admin/pricing/plans)",
-      "Bash(awk '{print $1}')"
+      "Bash(awk '{print $1}')",
+      "Bash(echo \"EXIT_CODE=$?\")"
     ]
   }
 }
