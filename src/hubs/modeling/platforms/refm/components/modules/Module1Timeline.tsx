@@ -27,8 +27,14 @@ const inputStyle: React.CSSProperties = {
   width: '100%',
   boxSizing: 'border-box',
   fontFamily: 'Inter, sans-serif',
-  background: 'var(--color-warning-bg)',
-  color: 'var(--color-warning-text)',
+  background: 'var(--color-navy-pale)',
+  color: 'var(--color-navy)',
+  fontWeight: 'var(--fw-semibold)',
+};
+
+const calcOutputStyle: React.CSSProperties = {
+  background: 'var(--color-grey-pale)',
+  color: 'var(--color-heading)',
   fontWeight: 'var(--fw-semibold)',
 };
 
@@ -103,8 +109,8 @@ export default function Module1Timeline({
                   style={{
                     display: 'inline-flex', alignItems: 'center', gap: 4,
                     fontSize: 10, fontWeight: 700, padding: '3px 8px',
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                    color: '#fff', border: 'none', borderRadius: 4,
+                    background: 'linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%)',
+                    color: 'var(--color-on-primary-navy)', border: 'none', borderRadius: 4,
                     cursor: 'pointer', letterSpacing: '0.04em', flexShrink: 0,
                   }}
                   title="AI Assist (Pro)"
@@ -114,7 +120,6 @@ export default function Module1Timeline({
               )}
             </div>
             <input
-              className="input-assumption"
               style={inputStyle}
               type="text"
               value={projectName}
@@ -127,7 +132,6 @@ export default function Module1Timeline({
           <div style={{ marginBottom: 'var(--sp-2)' }}>
             <label style={labelStyle}>Project Type</label>
             <select
-              className="input-assumption"
               style={inputStyle}
               value={projectType}
               onChange={e => setProjectType(e.target.value as ProjectType)}
@@ -191,7 +195,7 @@ export default function Module1Timeline({
                         style={{
                           display: 'flex', alignItems: 'center', gap: '10px',
                           width: '100%', padding: '8px 12px', border: 'none',
-                          background: c.name === country ? 'rgba(30,58,138,0.08)' : 'transparent',
+                          background: c.name === country ? 'color-mix(in srgb, var(--color-primary) 8%, transparent)' : 'transparent',
                           cursor: 'pointer', fontSize: 'var(--font-body)',
                           textAlign: 'left', fontFamily: 'Inter, sans-serif',
                         }}
@@ -210,7 +214,6 @@ export default function Module1Timeline({
           <div style={{ marginBottom: 'var(--sp-2)' }}>
             <label style={labelStyle}>Currency</label>
             <input
-              className="input-assumption"
               style={inputStyle}
               type="text"
               value={currency}
@@ -238,7 +241,7 @@ export default function Module1Timeline({
                   style={{
                     flex: 1, padding: '8px', borderRadius: 'var(--radius-sm)',
                     border: modelType === mt ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
-                    background: modelType === mt ? 'rgba(30,58,138,0.08)' : 'var(--color-surface)',
+                    background: modelType === mt ? 'color-mix(in srgb, var(--color-primary) 10%, transparent)' : 'var(--color-surface)',
                     cursor: readOnly ? 'not-allowed' : 'pointer',
                     fontWeight: modelType === mt ? 'var(--fw-bold)' : 'var(--fw-normal)',
                     color: modelType === mt ? 'var(--color-primary)' : 'var(--color-body)',
@@ -255,7 +258,6 @@ export default function Module1Timeline({
           <div style={{ marginBottom: 'var(--sp-2)' }}>
             <label style={labelStyle}>Project Start Date</label>
             <input
-              className="input-assumption"
               style={inputStyle}
               type="date"
               value={projectStart}
@@ -268,7 +270,6 @@ export default function Module1Timeline({
             <div>
               <label style={labelStyle}>Construction ({periodLabel})</label>
               <input
-                className="input-assumption"
                 style={inputStyle}
                 type="number"
                 min={1}
@@ -281,7 +282,6 @@ export default function Module1Timeline({
             <div>
               <label style={labelStyle}>Operations ({periodLabel})</label>
               <input
-                className="input-assumption"
                 style={inputStyle}
                 type="number"
                 min={1}
@@ -296,7 +296,6 @@ export default function Module1Timeline({
           <div style={{ marginBottom: 'var(--sp-2)' }}>
             <label style={labelStyle}>Overlap ({periodLabel})</label>
             <input
-              className="input-assumption"
               style={inputStyle}
               type="number"
               min={0}
@@ -310,10 +309,10 @@ export default function Module1Timeline({
             </div>
           </div>
 
-          {/* Timeline summary */}
+          {/* Timeline summary — calculated outputs (FAST formula black-on-grey) */}
           <div style={{
-            background: 'rgba(30,58,138,0.05)',
-            border: '1px solid rgba(30,58,138,0.15)',
+            background: calcOutputStyle.background,
+            border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius-sm)',
             padding: '12px',
             marginTop: 'var(--sp-1)',
@@ -346,27 +345,27 @@ export default function Module1Timeline({
         <div style={{ display: 'flex', gap: '4px', height: '40px', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
           <div style={{
             flex: constructionPeriods,
-            background: 'rgba(30,58,138,0.75)',
+            background: 'color-mix(in srgb, var(--color-primary) 75%, transparent)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'white', fontSize: '11px', fontWeight: 700,
+            color: 'var(--color-on-primary-navy)', fontSize: '11px', fontWeight: 700,
           }}>
             Construction · {constructionPeriods} {periodLabel}
           </div>
           {overlapPeriods > 0 && (
             <div style={{
               flex: overlapPeriods,
-              background: 'linear-gradient(90deg, rgba(30,58,138,0.75), rgba(22,101,52,0.75))',
+              background: 'linear-gradient(90deg, color-mix(in srgb, var(--color-primary) 75%, transparent), color-mix(in srgb, var(--color-success) 75%, transparent))',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'white', fontSize: '10px', fontWeight: 700,
+              color: 'var(--color-on-primary-navy)', fontSize: '10px', fontWeight: 700,
             }}>
               Overlap
             </div>
           )}
           <div style={{
             flex: operationsPeriods,
-            background: 'rgba(22,101,52,0.75)',
+            background: 'color-mix(in srgb, var(--color-success) 75%, transparent)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'white', fontSize: '11px', fontWeight: 700,
+            color: 'var(--color-on-primary-navy)', fontSize: '11px', fontWeight: 700,
           }}>
             Operations · {operationsPeriods} {periodLabel}
           </div>
