@@ -34,15 +34,15 @@ export default function VersionModal({
         <div className="pm-modal-header">
           <div>
             <div style={{ fontSize: '15px', fontWeight: 700 }}>📌 Version Management</div>
-            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.5)', marginTop: '2px' }}>
+            <div style={{ fontSize: '11px', color: 'color-mix(in srgb, var(--color-on-primary-navy) 50%, transparent)', marginTop: '2px' }}>
               {proj?.name ?? 'No project selected'}
             </div>
           </div>
           <button
             onClick={onClose}
             style={{
-              background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: '6px',
-              width: '28px', height: '28px', cursor: 'pointer', color: 'white', fontSize: '14px',
+              background: 'color-mix(in srgb, var(--color-on-primary-navy) 10%, transparent)', border: 'none', borderRadius: '6px',
+              width: '28px', height: '28px', cursor: 'pointer', color: 'var(--color-on-primary-navy)', fontSize: '14px',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
             }}
           >
@@ -110,7 +110,7 @@ export default function VersionModal({
               </div>
 
               <div style={{
-                background: 'var(--color-green-light)', border: '1px solid #BBF7D0',
+                background: 'var(--color-green-light)', border: '1px solid var(--color-green)',
                 borderRadius: 'var(--radius-sm)', padding: '10px 12px',
                 fontSize: '12px', color: 'var(--color-green-dark)',
               }}>
@@ -134,8 +134,8 @@ export default function VersionModal({
                         style={{
                           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                           padding: '10px 12px', borderRadius: 'var(--radius-sm)',
-                          border: isActive ? '1px solid rgba(22,101,52,0.4)' : '1px solid var(--color-border)',
-                          background: isActive ? 'rgba(22,101,52,0.06)' : 'transparent',
+                          border: isActive ? '1px solid color-mix(in srgb, var(--color-success) 40%, transparent)' : '1px solid var(--color-border)',
+                          background: isActive ? 'color-mix(in srgb, var(--color-success) 6%, transparent)' : 'transparent',
                         }}
                       >
                         <div>
@@ -144,7 +144,7 @@ export default function VersionModal({
                             {isActive && (
                               <span style={{
                                 fontSize: '9px', fontWeight: 700, padding: '1px 7px',
-                                borderRadius: '20px', background: 'rgba(22,101,52,0.15)', color: 'var(--color-green-dark)',
+                                borderRadius: '20px', background: 'color-mix(in srgb, var(--color-success) 15%, transparent)', color: 'var(--color-success)',
                               }}>LOADED</span>
                             )}
                           </div>
