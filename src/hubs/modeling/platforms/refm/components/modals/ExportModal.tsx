@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { PLAN_COLOR as TOKEN_PLAN_COLOR } from '@/src/styles/tokens';
 
 type SubscriptionPlan = 'free' | 'professional' | 'enterprise';
 
@@ -24,10 +25,18 @@ interface ExportModalProps {
   exportingPdf:   boolean;
 }
 
+// Plan tier colour. Free flows through the brand grey-mid CSS var, so the
+// 'Free' badge tracks REFM dark-mode; professional uses the brand navy
+// (also matches canonical PLAN_COLOR.professional.color === COLOR.navy in
+// src/styles/tokens.ts); enterprise uses the brand-locked purple imported
+// from tokens.ts (see PLAN_COLOR comment block there). bg / border pill
+// derivations were originally `${planColor}06` / `${planColor}18` /
+// `${planColor}30` 8-digit-hex alpha suffixes — those only worked when
+// planColor was a literal hex string, so now derived via color-mix.
 const PLAN_COLOR: Record<SubscriptionPlan, string> = {
-  free:         '#6b7280',
-  professional: '#2563EB',
-  enterprise:   '#7C3AED',
+  free:         'var(--color-grey-mid)',
+  professional: 'var(--color-navy)',
+  enterprise:   TOKEN_PLAN_COLOR.enterprise.color,
 };
 const PLAN_LABEL: Record<SubscriptionPlan, string> = {
   free:         'Free',
@@ -96,7 +105,7 @@ export default function ExportModal({
     <div
       style={{
         position: 'fixed', inset: 0, zIndex: 2000,
-        background: 'rgba(0,0,0,0.55)',
+        background: 'color-mix(in srgb, var(--color-heading) 55%, transparent)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: 16,
       }}
@@ -104,8 +113,8 @@ export default function ExportModal({
     >
       <div
         style={{
-          background: '#fff', borderRadius: 14,
-          boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
+          background: 'var(--color-surface)', borderRadius: 14,
+          boxShadow: 'var(--shadow-modal)',
           width: '100%', maxWidth: 480,
           overflow: 'hidden',
           fontFamily: 'Inter, sans-serif',
@@ -116,11 +125,11 @@ export default function ExportModal({
         <div style={{
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '18px 24px 16px',
-          borderBottom: '1px solid #E5E7EB',
+          borderBottom: '1px solid var(--color-border)',
         }}>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: '#111827' }}>Export</div>
-            <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--color-heading)' }}>Export</div>
+            <div style={{ fontSize: 12, color: 'var(--color-meta)', marginTop: 2 }}>
               Choose an export format
             </div>
           </div>
@@ -128,7 +137,7 @@ export default function ExportModal({
             onClick={onClose}
             style={{
               background: 'none', border: 'none', cursor: 'pointer',
-              color: '#9CA3AF', fontSize: 20, lineHeight: 1, padding: 4,
+              color: 'var(--color-muted)', fontSize: 20, lineHeight: 1, padding: 4,
             }}
           >
             ✕
@@ -149,8 +158,8 @@ export default function ExportModal({
                   display: 'flex', alignItems: 'center', gap: 14,
                   padding: '12px 14px',
                   borderRadius: 8,
-                  border: unlocked ? '1.5px solid #E5E7EB' : `1.5px solid ${planColor}30`,
-                  background: unlocked ? '#fff' : `${planColor}06`,
+                  border: unlocked ? '1.5px solid var(--color-border)' : `1.5px solid color-mix(in srgb, ${planColor} 19%, transparent)`,
+                  background: unlocked ? 'var(--color-surface)' : `color-mix(in srgb, ${planColor} 2%, transparent)`,
                   cursor: unlocked ? 'pointer' : 'default',
                   opacity: opt.exporting ? 0.6 : 1,
                   transition: 'box-shadow 0.15s, border-color 0.15s',
@@ -166,14 +175,14 @@ export default function ExportModal({
 
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: unlocked ? '#111827' : '#6B7280' }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: unlocked ? 'var(--color-heading)' : 'var(--color-meta)' }}>
                       {opt.label}
                     </span>
                     {!unlocked && (
                       <span style={{
                         fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 4,
-                        background: `${planColor}18`, color: planColor,
-                        border: `1px solid ${planColor}30`,
+                        background: `color-mix(in srgb, ${planColor} 9%, transparent)`, color: planColor,
+                        border: `1px solid color-mix(in srgb, ${planColor} 19%, transparent)`,
                         letterSpacing: '0.07em', textTransform: 'uppercase',
                         flexShrink: 0,
                       }}>
@@ -181,7 +190,7 @@ export default function ExportModal({
                       </span>
                     )}
                   </div>
-                  <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>
+                  <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>
                     {opt.description}
                   </div>
                 </div>
@@ -189,24 +198,24 @@ export default function ExportModal({
                 <div style={{ flexShrink: 0 }}>
                   {unlocked ? (
                     opt.exporting ? (
-                      <span style={{ fontSize: 12, color: '#6B7280' }}>Exporting…</span>
+                      <span style={{ fontSize: 12, color: 'var(--color-meta)' }}>Exporting…</span>
                     ) : (
                       opt.onExport ? (
                         <span style={{
-                          fontSize: 11, fontWeight: 700, color: '#fff',
-                          background: '#1B4F8A', padding: '5px 12px', borderRadius: 6,
+                          fontSize: 11, fontWeight: 700, color: 'var(--color-on-primary-navy)',
+                          background: 'var(--color-primary)', padding: '5px 12px', borderRadius: 6,
                         }}>
                           Download →
                         </span>
                       ) : (
-                        <span style={{ fontSize: 11, color: '#9CA3AF' }}>SOON</span>
+                        <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>SOON</span>
                       )
                     )
                   ) : (
                     <a
                       href="/settings"
                       style={{
-                        fontSize: 11, fontWeight: 700, color: '#fff',
+                        fontSize: 11, fontWeight: 700, color: 'var(--color-on-primary-navy)',
                         background: planColor, padding: '5px 10px', borderRadius: 6,
                         textDecoration: 'none', whiteSpace: 'nowrap',
                       }}
