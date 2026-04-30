@@ -80,9 +80,15 @@ const inputStyle: React.CSSProperties = {
   width: '100%',
   boxSizing: 'border-box',
   fontFamily: 'Inter, sans-serif',
-  background: 'var(--color-warning-bg)',
-  color: 'var(--color-warning-text)',
+  background: 'var(--color-navy-pale)',
+  color: 'var(--color-navy)',
   fontWeight: 600,
+};
+
+const calcOutputStyle: React.CSSProperties = {
+  background: 'var(--color-grey-pale)',
+  color: 'var(--color-heading)',
+  fontWeight: 'var(--fw-semibold)',
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -243,7 +249,6 @@ function CostTable({
           {/* Cost Name */}
           <td style={{ minWidth: 150 }}>
             <input
-              className="input-assumption"
               style={inputStyle}
               type="text"
               value={cost.name}
@@ -255,7 +260,6 @@ function CostTable({
           {/* Stage + Scope */}
           <td style={{ minWidth: 90 }}>
             <select
-              className="input-assumption"
               style={{ ...inputStyle, fontSize: '11px' }}
               value={getStage(cost)}
               onChange={e => setStage(cost.id, Number(e.target.value))}
@@ -266,7 +270,6 @@ function CostTable({
               <option value={3}>Stage 3</option>
             </select>
             <select
-              className="input-assumption"
               style={{ ...inputStyle, fontSize: '10px', marginTop: '2px' }}
               value={getScope(cost)}
               onChange={e => setScope(cost.id, e.target.value)}
@@ -280,7 +283,6 @@ function CostTable({
           {/* Method + Base Selection */}
           <td style={{ minWidth: 200 }}>
             <select
-              className="input-assumption"
               style={{ ...inputStyle, fontSize: '11px' }}
               value={cost.method}
               onChange={e => updateCost(cost.id, 'method', e.target.value)}
@@ -306,7 +308,7 @@ function CostTable({
                       style={{
                         padding: '1px 6px', fontSize: '9px', borderRadius: '3px',
                         border: getDevFeeMode(cost) === mode ? '1px solid var(--color-primary)' : '1px solid var(--color-border)',
-                        background: getDevFeeMode(cost) === mode ? 'rgba(27,79,138,0.1)' : 'var(--color-surface)',
+                        background: getDevFeeMode(cost) === mode ? 'color-mix(in srgb, var(--color-primary) 10%, transparent)' : 'var(--color-surface)',
                         cursor: readOnly ? 'not-allowed' : 'pointer',
                         fontWeight: getDevFeeMode(cost) === mode ? 700 : 400,
                         color: getDevFeeMode(cost) === mode ? 'var(--color-primary)' : 'var(--color-muted)',
@@ -341,7 +343,6 @@ function CostTable({
           {/* Value */}
           <td style={{ minWidth: 80 }}>
             <input
-              className="input-assumption"
               style={{ ...inputStyle, textAlign: 'right' }}
               type="number"
               min={0}
@@ -360,7 +361,6 @@ function CostTable({
           {/* Start */}
           <td style={{ minWidth: 60 }}>
             <input
-              className="input-assumption"
               style={{ ...inputStyle, textAlign: 'center' }}
               type="number"
               min={1}
@@ -374,7 +374,6 @@ function CostTable({
           {/* End */}
           <td style={{ minWidth: 60 }}>
             <input
-              className="input-assumption"
               style={{ ...inputStyle, textAlign: 'center' }}
               type="number"
               min={1}
@@ -388,7 +387,6 @@ function CostTable({
           {/* Phasing */}
           <td style={{ minWidth: 90 }}>
             <select
-              className="input-assumption"
               style={{ ...inputStyle, fontSize: '11px' }}
               value={phasingMode}
               onChange={e => {
@@ -435,7 +433,6 @@ function CostTable({
                       {getPeriodLabel(cost.startPeriod - 1 + i, projectStart, modelType)}
                     </div>
                     <input
-                      className="input-assumption"
                       style={{ ...inputStyle, width: '58px', textAlign: 'right', fontSize: '11px' }}
                       type="number"
                       min={0}
@@ -452,7 +449,7 @@ function CostTable({
                 {dist.slice(1).map((v, i) => (
                   <div key={i} style={{
                     padding: '3px 7px', borderRadius: '4px', fontSize: '10px',
-                    background: v > 0 ? 'rgba(27,79,138,0.08)' : 'var(--color-grey-pale)',
+                    background: v > 0 ? 'color-mix(in srgb, var(--color-primary) 8%, transparent)' : 'var(--color-grey-pale)',
                     color: v > 0 ? 'var(--color-primary)' : 'var(--color-muted)',
                     fontWeight: v > 0 ? 600 : 400,
                   }}>
@@ -488,7 +485,7 @@ function CostTable({
               onClick={() => addRow(stageNum)}
               style={{
                 marginLeft: '12px', padding: '1px 8px', fontSize: '10px',
-                background: STAGE_COLOR[stageNum], color: '#fff',
+                background: STAGE_COLOR[stageNum], color: 'var(--color-on-primary-navy)',
                 border: 'none', borderRadius: '3px', cursor: 'pointer',
               }}
             >
@@ -568,7 +565,6 @@ function CostTable({
                   {/* Start period - editable */}
                   <td style={{ minWidth: 60 }}>
                     <input
-                      className="input-assumption"
                       style={{ ...inputStyle, textAlign: 'center' }}
                       type="number"
                       min={0}
@@ -586,7 +582,6 @@ function CostTable({
                   {/* End period - editable */}
                   <td style={{ minWidth: 60 }}>
                     <input
-                      className="input-assumption"
                       style={{ ...inputStyle, textAlign: 'center' }}
                       type="number"
                       min={cost.startPeriod}
@@ -634,7 +629,7 @@ function CostTable({
             {periodTotals.map((v, i) => (
               <div key={i} style={{
                 padding: '6px 10px', borderRadius: '6px',
-                background: v > 0 ? 'rgba(27,79,138,0.08)' : 'var(--color-grey-pale)',
+                background: v > 0 ? 'color-mix(in srgb, var(--color-primary) 8%, transparent)' : 'var(--color-grey-pale)',
                 border: '1px solid var(--color-border)', fontSize: '11px',
               }}>
                 <div style={{ fontSize: '10px', color: 'var(--color-muted)', fontWeight: 700 }}>{periodLabels[i]}</div>
@@ -875,7 +870,7 @@ export default function Module1Costs({
                 style={{
                   padding: '4px 10px', borderRadius: 'var(--radius-sm)',
                   border: allocBasis === basis ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
-                  background: allocBasis === basis ? 'rgba(27,79,138,0.08)' : 'var(--color-surface)',
+                  background: allocBasis === basis ? 'color-mix(in srgb, var(--color-primary) 8%, transparent)' : 'var(--color-surface)',
                   cursor: readOnly ? 'not-allowed' : 'pointer',
                   fontWeight: allocBasis === basis ? 700 : 400,
                   color: allocBasis === basis ? 'var(--color-primary)' : 'var(--color-body)',
@@ -895,7 +890,7 @@ export default function Module1Costs({
               style={{
                 padding: '6px 12px', borderRadius: 'var(--radius-sm)',
                 border: costInputMode === mode ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
-                background: costInputMode === mode ? 'rgba(27,79,138,0.08)' : 'var(--color-surface)',
+                background: costInputMode === mode ? 'color-mix(in srgb, var(--color-primary) 8%, transparent)' : 'var(--color-surface)',
                 cursor: readOnly ? 'not-allowed' : 'pointer',
                 fontWeight: costInputMode === mode ? 700 : 400,
                 color: costInputMode === mode ? 'var(--color-primary)' : 'var(--color-body)',
@@ -1107,7 +1102,7 @@ export default function Module1Costs({
                 style={{
                   padding: '4px 10px', borderRadius: 'var(--radius-sm)', fontSize: '11px',
                   border: activeCostFilter === f.key ? '2px solid var(--color-primary)' : '1px solid var(--color-border)',
-                  background: activeCostFilter === f.key ? 'rgba(27,79,138,0.08)' : 'var(--color-surface)',
+                  background: activeCostFilter === f.key ? 'color-mix(in srgb, var(--color-primary) 8%, transparent)' : 'var(--color-surface)',
                   cursor: 'pointer', fontWeight: activeCostFilter === f.key ? 700 : 400,
                   color: activeCostFilter === f.key ? 'var(--color-primary)' : 'var(--color-body)',
                   fontFamily: 'Inter, sans-serif',
