@@ -63,8 +63,8 @@ export default function RbacModal({ rbacSelectedRole, setRbacSelectedRole, onApp
                     {isSelected && (
                       <span style={{
                         fontSize: '9px', fontWeight: 700, padding: '1px 7px',
-                        borderRadius: '20px', background: 'rgba(59,130,246,0.2)',
-                        color: '#93c5fd', border: '1px solid rgba(59,130,246,0.3)',
+                        borderRadius: '20px', background: 'color-mix(in srgb, var(--color-primary) 20%, transparent)',
+                        color: 'color-mix(in srgb, var(--color-on-primary-navy) 60%, var(--color-navy))', border: '1px solid color-mix(in srgb, var(--color-primary) 30%, transparent)',
                       }}>
                         SELECTED
                       </span>
