@@ -158,7 +158,42 @@ export interface AssetClass {
   // the Area Program tab; set via the Area Program tab (M1.7/5).
   plotId?: string;
   zoneId?: string;
+  // M1.7/3: strategy + secondary allocation. Primary defaults to
+  // DEFAULT_STRATEGY_BY_CATEGORY[category] when unset; primaryStrategyPct
+  // defaults to 100 (i.e. the asset is fully one strategy). Secondary
+  // is undefined unless the user enables a split (e.g. strata-sell
+  // ground-floor retail of an otherwise leased tower).
+  primaryStrategy?:    AssetStrategy;
+  primaryStrategyPct?: number;
+  secondaryStrategy?:  AssetStrategy;
+  secondaryStrategyPct?: number;
+  // M1.7/3: per-asset area-cascade assumption inputs feeding
+  // computeAreaCascade. All optional — Area Program tab seeds
+  // industry-typical defaults (mep 12, BoH 8, otherTech 4) when
+  // undefined and the user can override per-asset.
+  mepPct?:            number;
+  backOfHousePct?:    number;
+  otherTechnicalPct?: number;
+  // Per-asset GFA allocation override on this plot. When undefined,
+  // the asset takes a pro-rata share of the plot's totalBuiltGFA in
+  // proportion to its allocationPct (the existing field) within the
+  // plot. Setting this fixes the asset's GFA in absolute sqm.
+  gfaOverrideSqm?:    number;
 }
+
+// ── Industry-typical area-cascade defaults (M1.7/3) ────────────────────────
+// Used by the Area Program tab when an asset lacks per-asset overrides.
+// Sources: developer-side rules of thumb. MEP higher for hospitality
+// (cooling/kitchen loads), BoH higher for hospitality (laundry / staff
+// areas), other-tech relatively constant.
+export const DEFAULT_AREA_CASCADE_BY_CATEGORY: Record<AssetCategory, {
+  mepPct: number; backOfHousePct: number; otherTechnicalPct: number;
+}> = {
+  Sell:    { mepPct:  8, backOfHousePct:  3, otherTechnicalPct: 3 },
+  Lease:   { mepPct: 12, backOfHousePct:  5, otherTechnicalPct: 4 },
+  Operate: { mepPct: 15, backOfHousePct: 12, otherTechnicalPct: 5 },
+  Hybrid:  { mepPct: 12, backOfHousePct:  8, otherTechnicalPct: 4 },
+};
 
 // ── Strategy enum (Architecture section 1A; Project West vocabulary) ──────
 // A Plot's assets each pick a Primary Strategy + an optional Secondary
@@ -267,6 +302,23 @@ export interface SubUnit {
   metricValue: number;
   unitPrice: number;
   priceEscalationPct?: number;
+  // M1.7/3: parking demand inputs.
+  //   metric === 'count': parkingBaysPerUnit means bays per dwelling /
+  //     hotel key. Default lookup via DEFAULT_PARKING_BAYS_BY_SUBUNIT_TYPE
+  //     keyed on `name` (e.g. "Studio" -> 1.0, "2BR" -> 1.6, "Hotel
+  //     Key" -> 1.0). Custom names default to 1.0 in the Area Program
+  //     tab seed logic.
+  //   metric === 'area': parkingBaysPerUnit means bays per 25 sqm of
+  //     the asset's GFA share for this sub-unit (e.g. Office "1.0"
+  //     means 1 bay / 25 sqm GFA). The Area Program tab divides
+  //     metricValue by 25 before multiplying.
+  parkingBaysPerUnit?: number;
+  // Per-sub-unit GFA / GLA allocation share (for assets where one
+  // SubUnit type covers part of an asset's GLA — e.g. retail asset
+  // with Anchor (40%), In-line (50%), F&B (10%)). When omitted the
+  // sub-unit is treated as having metricValue * unitArea sqm via
+  // metric semantics.
+  gfaSharePct?: number;
 }
 
 // ── CostLine (extended from M1.R) ──────────────────────────────────────────
@@ -373,6 +425,37 @@ export function makeDefaultPhase(
     operationsPeriods,
     overlapPeriods,
   };
+}
+
+// ── M1.7/3 resolvers for asset / sub-unit defaults ────────────────────────
+// Pure helpers callers (Area Program tab + verify-m17.ts + future Excel
+// export) use to read effective values when the persisted asset / sub-
+// unit field is undefined. Keeps the per-type logic in one place so
+// future tweaks (e.g. region-specific parking ratios) live next to
+// the constants they override.
+
+export function resolveAssetStrategy(asset: Pick<AssetClass, 'category' | 'primaryStrategy'>): AssetStrategy {
+  return asset.primaryStrategy ?? DEFAULT_STRATEGY_BY_CATEGORY[asset.category];
+}
+
+export function resolveAssetCascadePcts(asset: Pick<AssetClass, 'category' | 'mepPct' | 'backOfHousePct' | 'otherTechnicalPct'>): {
+  mepPct: number; backOfHousePct: number; otherTechnicalPct: number;
+} {
+  const def = DEFAULT_AREA_CASCADE_BY_CATEGORY[asset.category];
+  return {
+    mepPct:            asset.mepPct            ?? def.mepPct,
+    backOfHousePct:    asset.backOfHousePct    ?? def.backOfHousePct,
+    otherTechnicalPct: asset.otherTechnicalPct ?? def.otherTechnicalPct,
+  };
+}
+
+export function resolveSubUnitParkingBays(subUnit: Pick<SubUnit, 'name' | 'metric' | 'metricValue' | 'parkingBaysPerUnit'>): number {
+  const ratio = subUnit.parkingBaysPerUnit ?? DEFAULT_PARKING_BAYS_BY_SUBUNIT_TYPE[subUnit.name] ?? 1.0;
+  if (subUnit.metric === 'count') {
+    return Math.max(0, subUnit.metricValue) * ratio;
+  }
+  // metric === 'area': ratio is bays-per-25-sqm
+  return (Math.max(0, subUnit.metricValue) / 25) * ratio;
 }
 
 // Plot factory (M1.7). Industry-typical defaults; users override per-plot
