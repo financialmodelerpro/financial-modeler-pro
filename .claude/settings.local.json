@@ -136,7 +136,14 @@
       "Bash(echo \"MIG=$?\")",
       "Bash(echo \"BUILD=$?\")",
       "Bash(echo \"LINT=$?\")",
-      "Bash(echo \"TS=$?\")"
+      "Bash(echo \"TS=$?\")",
+      "Bash(echo \"BASELINE=$?\")",
+      "Bash(cat \"C:\\\\\\\\Users\\\\\\\\HP\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\claude\\\\\\\\D--FMP-financial-modeler-pro\\\\\\\\e318ef1a-d277-47db-a897-c7b480c3cb2f\\\\\\\\tasks\\\\\\\\bdfup4ho8.output\")",
+      "PowerShell(Add-Type -AssemblyName System.IO.Compression.FileSystem; $zip = [System.IO.Compression.ZipFile]::OpenRead\\(\"D:\\\\FMP\\\\financial-modeler-pro\\\\REFM_Build_Prompts_v2.1.xlsx\"\\); $zip.Entries | ForEach-Object { Write-Output $_.FullName }; $zip.Dispose\\(\\))",
+      "Bash(awk 'BEGIN{RS=\"<row \"} /M1\\\\.6|Module 1 Supabase|refm_projects/' .xlsx-extract/xl/worksheets/sheet3.xml)",
+      "PowerShell(Copy-Item *)",
+      "Bash(npm i *)",
+      "Bash(npx playwright *)"
     ]
   }
 }
