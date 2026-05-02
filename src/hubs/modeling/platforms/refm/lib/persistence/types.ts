@@ -4,8 +4,12 @@
  * Hand-rolled mirror of the Supabase schema in
  * `supabase/migrations/149_refm_projects.sql`. The project does not run
  * the Supabase CLI today, so types are not auto-generated; this file is
- * the authoritative TS view of the two REFM tables and is wired into the
- * server / browser Supabase clients via SupabaseClient<RefmDatabase>.
+ * the authoritative TS view of the two REFM tables.
+ *
+ * The shared `serverClient` in `src/core/db/supabase.ts` is intentionally
+ * untyped to match the rest of the project's query style. Callers cast
+ * results back to these row types at the call site (server.ts has thin
+ * helpers that do this so each route doesn't repeat the boilerplate).
  *
  * When the schema changes:
  *   1. Add the migration in supabase/migrations/.
@@ -41,28 +45,9 @@ export interface RefmProjectRow {
   updated_at:          string;
 }
 
-export interface RefmProjectInsert {
-  id?:                 string;
-  user_id:             string;
-  name:                string;
-  location?:           string | null;
-  status?:             ProjectStatus;
-  asset_mix?:          string[];
-  schema_version?:     number;
-  current_version_id?: string | null;
-  created_at?:         string;
-  updated_at?:         string;
-}
-
-export interface RefmProjectUpdate {
-  name?:               string;
-  location?:           string | null;
-  status?:             ProjectStatus;
-  asset_mix?:          string[];
-  schema_version?:     number;
-  current_version_id?: string | null;
-  updated_at?:         string;
-}
+// Picker-list shape (subset of RefmProjectRow excluding user_id, which
+// the API filters on but doesn't need to send back to the owning user).
+export type RefmProjectListItem = Omit<RefmProjectRow, 'user_id'>;
 
 // ── refm_project_versions row shape ─────────────────────────────────────────
 // `snapshot` is the full HydrateSnapshot from module1-store. Stored as
@@ -79,37 +64,5 @@ export interface RefmProjectVersionRow {
   created_at:      string;
 }
 
-export interface RefmProjectVersionInsert {
-  id?:              string;
-  project_id:       string;
-  version_number:   number;
-  schema_version?:  number;
-  snapshot:         HydrateSnapshot;
-  label?:           string | null;
-  created_at?:      string;
-}
-
-// ── Database type for SupabaseClient<RefmDatabase> ──────────────────────────
-// Matches the structure Supabase JS expects. Only the two new tables are
-// declared here; the rest of the project uses untyped queries against
-// the global `serverClient` / `getServerClient()`.
-export interface RefmDatabase {
-  public: {
-    Tables: {
-      refm_projects: {
-        Row:    RefmProjectRow;
-        Insert: RefmProjectInsert;
-        Update: RefmProjectUpdate;
-      };
-      refm_project_versions: {
-        Row:    RefmProjectVersionRow;
-        Insert: RefmProjectVersionInsert;
-        Update: Partial<RefmProjectVersionInsert>;
-      };
-    };
-    Views: Record<string, never>;
-    Functions: Record<string, never>;
-    Enums: Record<string, never>;
-    CompositeTypes: Record<string, never>;
-  };
-}
+// Version-list shape: snapshot omitted to keep the picker query light.
+export type RefmProjectVersionListItem = Omit<RefmProjectVersionRow, 'snapshot'>;
