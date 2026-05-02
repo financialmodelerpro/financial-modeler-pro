@@ -29,6 +29,8 @@ import {
   DEFAULT_LEGACY_ASSETS,
   DEFAULT_SUB_PROJECT_ID,
   makeDefaultPhase,
+  makeDefaultSubProject,
+  makeDefaultMasterHolding,
 } from './module1-types';
 import type { HydrateSnapshot } from './module1-store';
 import { DEFAULT_MODULE1_STATE } from './module1-store';
@@ -163,6 +165,14 @@ export function migrateLegacyToNew(legacy: LegacyV2Snapshot): NewV3Snapshot {
     currency:           legacy.currency,
     modelType:          legacy.modelType,
     projectStart:       legacy.projectStart,
+
+    // M1.5 hierarchy fields. Legacy v2 had no concept of these, so we
+    // wrap the project in a single sub-project (named after the
+    // project) and seed an empty MH (disabled). Sub-units start
+    // empty; users add inventory via the new Hierarchy tab.
+    masterHolding: makeDefaultMasterHolding(),
+    subProjects:   [makeDefaultSubProject(legacy.projectName, legacy.currency)],
+    subUnits:      [],
 
     phases,
 

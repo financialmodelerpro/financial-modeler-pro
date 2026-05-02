@@ -29,8 +29,15 @@ import type {
   RepaymentMethod,
   LandParcel,
 } from '@core/types/project.types';
-import type { AssetClass, Phase, CostLine } from './module1-types';
-import { DEFAULT_LEGACY_ASSETS, DEFAULT_SUB_PROJECT_ID, makeDefaultPhase } from './module1-types';
+import type { AssetClass, Phase, CostLine, MasterHolding, SubProject, SubUnit } from './module1-types';
+import {
+  DEFAULT_LEGACY_ASSETS,
+  DEFAULT_SUB_PROJECT_ID,
+  DEFAULT_PHASE_ID,
+  makeDefaultPhase,
+  makeDefaultSubProject,
+  makeDefaultMasterHolding,
+} from './module1-types';
 
 // ── Store shape ─────────────────────────────────────────────────────────────
 export interface Module1Store {
@@ -41,6 +48,24 @@ export interface Module1Store {
   currency: string;
   modelType: ModelType;
   projectStart: string;
+
+  // ── 5-layer hierarchy (Phase M1.5; Architecture sheet section 1) ──
+  // Master Holding is optional (singleton). enabled=false hides the
+  // Hierarchy panel for it. Single-project users keep this disabled.
+  masterHolding: MasterHolding;
+  // Sub-Projects: 1..N. Default new project has 1; Hierarchy tab adds
+  // more for fund-style projects. Currency is per-sub-project (v1
+  // currency rule from Architecture section 3).
+  subProjects: SubProject[];
+  // Sub-Units: per-asset inventory. Empty until user populates from
+  // the Hierarchy tab.
+  subUnits: SubUnit[];
+  // Active selectors: which sub-project + phase the non-Hierarchy tabs
+  // operate on. UI-only state (not part of HydrateSnapshot below;
+  // never persisted to disk so opening a saved project resets to the
+  // first available sub-project + phase).
+  activeSubProjectId: string;
+  activePhaseId: string;
 
   // Phases (replaces single constructionPeriods / operationsPeriods / overlapPeriods)
   phases: Phase[];
@@ -97,6 +122,26 @@ export interface Module1Store {
   addPhase: (phase: Phase) => void;
   removePhase: (id: string) => void;
 
+  // Master Holding actions (singleton — toggle enabled to show / hide)
+  setMasterHolding: (mh: MasterHolding) => void;
+  updateMasterHolding: (patch: Partial<MasterHolding>) => void;
+
+  // Sub-Project actions
+  setSubProjects: (subProjects: SubProject[]) => void;
+  addSubProject: (subProject: SubProject) => void;
+  updateSubProject: (id: string, patch: Partial<SubProject>) => void;
+  removeSubProject: (id: string) => void;
+
+  // Sub-Unit actions
+  setSubUnits: (subUnits: SubUnit[]) => void;
+  addSubUnit: (subUnit: SubUnit) => void;
+  updateSubUnit: (id: string, patch: Partial<SubUnit>) => void;
+  removeSubUnit: (id: string) => void;
+
+  // Active-selection actions (UI-only; not persisted)
+  setActiveSubProjectId: (id: string) => void;
+  setActivePhaseId: (id: string) => void;
+
   // Cost actions
   setCosts: (costs: CostLine[]) => void;
   setCostsForAsset: (assetId: string, costs: CostLine[]) => void;
@@ -112,10 +157,13 @@ export interface Module1Store {
 }
 
 // ── Hydration shape ────────────────────────────────────────────────────────
-// Strictly the project-state slice of the store; nav/UI state stays local
-// to React components.
+// The project-state slice of the store. Persisted to disk on save and
+// restored on load. activeSubProjectId / activePhaseId are intentionally
+// excluded — they are UI-only and reset to the first available
+// sub-project / phase whenever a snapshot loads.
 export type HydrateSnapshot = Pick<Module1Store,
   | 'projectName' | 'projectType' | 'country' | 'currency' | 'modelType' | 'projectStart'
+  | 'masterHolding' | 'subProjects' | 'subUnits'
   | 'phases' | 'landParcels' | 'projectRoadsPct' | 'projectFAR' | 'projectNonEnclosedPct'
   | 'assets' | 'costs' | 'costInputMode' | 'nextCostId'
   | 'costStage' | 'costScope' | 'costDevFeeMode' | 'allocBasis'
@@ -124,6 +172,10 @@ export type HydrateSnapshot = Pick<Module1Store,
 >;
 
 // ── Defaults ────────────────────────────────────────────────────────────────
+// Brand-new project defaults: 1 SubProject + 1 Phase + 3 canonical
+// assets (the seed). The 3-asset seed will be dropped in M1.5/5 when
+// the Hierarchy tab can stand in for asset creation; left here for now
+// so the M1.R verify script still passes.
 export const DEFAULT_MODULE1_STATE: HydrateSnapshot = {
   projectName: 'Skyline',
   projectType: 'mixed-use',
@@ -131,6 +183,10 @@ export const DEFAULT_MODULE1_STATE: HydrateSnapshot = {
   currency: 'SAR',
   modelType: 'annual',
   projectStart: '2025-01-01',
+
+  masterHolding: makeDefaultMasterHolding(),
+  subProjects:   [makeDefaultSubProject('Skyline', 'SAR')],
+  subUnits:      [],
 
   phases: [makeDefaultPhase(DEFAULT_SUB_PROJECT_ID, 4, 5, 0)],
 
@@ -167,6 +223,10 @@ export function createModule1Store() {
   return create<Module1Store>((set) => ({
     ...DEFAULT_MODULE1_STATE,
 
+    // UI-only active selectors (not part of HydrateSnapshot).
+    activeSubProjectId: DEFAULT_SUB_PROJECT_ID,
+    activePhaseId:      DEFAULT_PHASE_ID,
+
     setProjectMeta: (patch) => set(patch),
     setLand:        (patch) => set(patch),
     setFinancing:   (patch) => set(patch),
@@ -177,8 +237,9 @@ export function createModule1Store() {
     })),
     addAsset:     (asset) => set((s) => ({ assets: [...s.assets, asset] })),
     removeAsset:  (id) => set((s) => ({
-      assets: s.assets.filter(a => a.id !== id),
-      costs:  s.costs.filter(c => c.assetId !== id),
+      assets:   s.assets.filter(a => a.id !== id),
+      costs:    s.costs.filter(c => c.assetId !== id),
+      subUnits: s.subUnits.filter(u => u.assetId !== id),
     })),
 
     setPhases:    (phases) => set({ phases }),
@@ -188,8 +249,53 @@ export function createModule1Store() {
     addPhase:     (phase) => set((s) => ({ phases: [...s.phases, phase] })),
     removePhase:  (id) => set((s) => ({
       phases: s.phases.filter(p => p.id !== id),
-      costs:  s.costs.filter(c => c.phaseId !== id),
+      // Cascading cleanup: assets bound to the deleted phase are
+      // dropped (and their costs with them); costs that referenced
+      // the phase via phaseId become global to the sub-project (the
+      // phaseId is cleared rather than the line being deleted, so
+      // phase-removal preserves cost data the user has entered).
+      assets: s.assets.filter(a => a.phaseId !== id),
+      costs:  s.costs
+        .filter(c => !s.assets.some(a => a.id === c.assetId && a.phaseId === id))
+        .map(c => (c.phaseId === id ? { ...c, phaseId: undefined } : c)),
     })),
+
+    setMasterHolding:    (mh) => set({ masterHolding: mh }),
+    updateMasterHolding: (patch) => set((s) => ({ masterHolding: { ...s.masterHolding, ...patch } })),
+
+    setSubProjects:   (subProjects) => set({ subProjects }),
+    addSubProject:    (subProject) => set((s) => ({ subProjects: [...s.subProjects, subProject] })),
+    updateSubProject: (id, patch) => set((s) => ({
+      subProjects: s.subProjects.map(sp => (sp.id === id ? { ...sp, ...patch } : sp)),
+    })),
+    removeSubProject: (id) => set((s) => ({
+      subProjects: s.subProjects.filter(sp => sp.id !== id),
+      // Cascade: drop phases / assets / costs / sub-units owned by
+      // the removed sub-project. Active selectors that pointed into
+      // the removed sub-project get reset to the first remaining one
+      // (or the default ids if no sub-projects remain — UI must
+      // render an empty-state in that case).
+      phases:   s.phases.filter(p => p.subProjectId !== id),
+      assets:   s.assets.filter(a => a.subProjectId !== id),
+      costs:    s.costs.filter(c => c.subProjectId !== id),
+      subUnits: s.subUnits.filter(u => {
+        const owningAsset = s.assets.find(a => a.id === u.assetId);
+        return owningAsset ? owningAsset.subProjectId !== id : true;
+      }),
+      activeSubProjectId: s.activeSubProjectId === id
+        ? (s.subProjects.find(sp => sp.id !== id)?.id ?? DEFAULT_SUB_PROJECT_ID)
+        : s.activeSubProjectId,
+    })),
+
+    setSubUnits:    (subUnits) => set({ subUnits }),
+    addSubUnit:     (subUnit) => set((s) => ({ subUnits: [...s.subUnits, subUnit] })),
+    updateSubUnit:  (id, patch) => set((s) => ({
+      subUnits: s.subUnits.map(u => (u.id === id ? { ...u, ...patch } : u)),
+    })),
+    removeSubUnit:  (id) => set((s) => ({ subUnits: s.subUnits.filter(u => u.id !== id) })),
+
+    setActiveSubProjectId: (id) => set({ activeSubProjectId: id }),
+    setActivePhaseId:      (id) => set({ activePhaseId: id }),
 
     setCosts:           (costs) => set({ costs }),
     setCostsForAsset:   (assetId, costs) => set((s) => ({
@@ -259,4 +365,33 @@ export const selectCostsByAsset = (s: Module1Store): Record<string, CostLine[]> 
     (out[c.assetId] ??= []).push(c);
   }
   return out;
+};
+
+// ── Hierarchy selectors (Phase M1.5) ───────────────────────────────────────
+export const selectActiveSubProject = (s: Module1Store): SubProject | undefined =>
+  s.subProjects.find(sp => sp.id === s.activeSubProjectId);
+
+export const selectPhasesForSubProject = (subProjectId: string) => (s: Module1Store): Phase[] =>
+  s.phases.filter(p => p.subProjectId === subProjectId);
+
+export const selectAssetsForPhase = (phaseId: string) => (s: Module1Store): AssetClass[] =>
+  s.assets.filter(a => a.phaseId === phaseId);
+
+export const selectAssetsForSubProject = (subProjectId: string) => (s: Module1Store): AssetClass[] =>
+  s.assets.filter(a => a.subProjectId === subProjectId);
+
+export const selectSubUnitsForAsset = (assetId: string) => (s: Module1Store): SubUnit[] =>
+  s.subUnits.filter(u => u.assetId === assetId);
+
+// Costs scoped to the active phase: includes phase-specific costs (phaseId
+// matches) AND sub-project-global costs (phaseId undefined). Used by the
+// non-Hierarchy tabs once they migrate to phase context (M1.5/11).
+export const selectCostsForActivePhase = (s: Module1Store): CostLine[] => {
+  const subProjectAssetIds = new Set(
+    s.assets.filter(a => a.subProjectId === s.activeSubProjectId).map(a => a.id)
+  );
+  return s.costs.filter(c =>
+    subProjectAssetIds.has(c.assetId) &&
+    (c.phaseId === undefined || c.phaseId === s.activePhaseId)
+  );
 };
