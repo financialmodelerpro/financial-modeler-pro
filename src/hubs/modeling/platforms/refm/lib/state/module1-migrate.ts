@@ -27,6 +27,7 @@ import type { AssetClass, Phase, CostLine } from './module1-types';
 import {
   LEGACY_ASSET_IDS,
   DEFAULT_LEGACY_ASSETS,
+  DEFAULT_SUB_PROJECT_ID,
   makeDefaultPhase,
 } from './module1-types';
 import type { HydrateSnapshot } from './module1-store';
@@ -143,7 +144,7 @@ export function migrateLegacyToNew(legacy: LegacyV2Snapshot): NewV3Snapshot {
   ];
 
   const phases: Phase[] = [
-    makeDefaultPhase(legacy.constructionPeriods, legacy.operationsPeriods, legacy.overlapPeriods),
+    makeDefaultPhase(DEFAULT_SUB_PROJECT_ID, legacy.constructionPeriods, legacy.operationsPeriods, legacy.overlapPeriods),
   ];
 
   const costs: CostLine[] = [
@@ -220,7 +221,7 @@ export function toLegacySnapshot(s: HydrateSnapshot): LegacyV2Snapshot {
     }
   }
 
-  const phase = s.phases[0] ?? makeDefaultPhase(0, 0, 0);
+  const phase = s.phases[0] ?? makeDefaultPhase(DEFAULT_SUB_PROJECT_ID, 0, 0, 0);
 
   const stripAssetId = (c: CostLine): CostItem => {
     const out: Partial<CostLine> = { ...c };

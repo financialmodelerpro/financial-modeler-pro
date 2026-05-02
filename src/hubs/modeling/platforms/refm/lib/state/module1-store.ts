@@ -30,7 +30,7 @@ import type {
   LandParcel,
 } from '@core/types/project.types';
 import type { AssetClass, Phase, CostLine } from './module1-types';
-import { DEFAULT_LEGACY_ASSETS, makeDefaultPhase } from './module1-types';
+import { DEFAULT_LEGACY_ASSETS, DEFAULT_SUB_PROJECT_ID, makeDefaultPhase } from './module1-types';
 
 // ── Store shape ─────────────────────────────────────────────────────────────
 export interface Module1Store {
@@ -132,7 +132,7 @@ export const DEFAULT_MODULE1_STATE: HydrateSnapshot = {
   modelType: 'annual',
   projectStart: '2025-01-01',
 
-  phases: [makeDefaultPhase(4, 5, 0)],
+  phases: [makeDefaultPhase(DEFAULT_SUB_PROJECT_ID, 4, 5, 0)],
 
   landParcels: [
     { id: 1, name: 'Land 1', area: 100000, rate: 500, cashPct: 60, inKindPct: 40 },

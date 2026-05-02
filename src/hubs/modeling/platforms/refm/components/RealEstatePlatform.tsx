@@ -11,7 +11,7 @@ import type { Role, ModuleKey, PermissionMap } from '@/src/core/types/settings.t
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../lib/state/module1-store';
 import { hydrationFromAnySnapshot, toLegacySnapshot, type LegacyV2Snapshot } from '../lib/state/module1-migrate';
-import { LEGACY_ASSET_IDS, makeDefaultPhase, type CostLine } from '../lib/state/module1-types';
+import { LEGACY_ASSET_IDS, DEFAULT_SUB_PROJECT_ID, makeDefaultPhase, type CostLine } from '../lib/state/module1-types';
 
 // Module-scope helper used by the store-setter wrappers below. Hoisted
 // out of the component so it does not need to appear in any useCallback
@@ -261,7 +261,7 @@ export default function RealEstatePlatform() {
     const p0 = s.phases[0];
     if (!p0) {
       // Defensive: if hydration didn't seed a phase, mint one from the patch.
-      s.setPhases([makeDefaultPhase(patch.constructionPeriods ?? 0, patch.operationsPeriods ?? 0, patch.overlapPeriods ?? 0)]);
+      s.setPhases([makeDefaultPhase(DEFAULT_SUB_PROJECT_ID, patch.constructionPeriods ?? 0, patch.operationsPeriods ?? 0, patch.overlapPeriods ?? 0)]);
       return;
     }
     s.updatePhase(p0.id, { ...p0, ...patch, operationsStart: Math.max(1, (patch.constructionPeriods ?? p0.constructionPeriods) - (patch.overlapPeriods ?? p0.overlapPeriods) + 1) });
