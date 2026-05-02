@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import type {
   ModelType, ProjectType, CostInputMode, FinancingMode,
   RepaymentMethod, CostItem, LandParcel, AreaMetrics, FinancingResult,
@@ -8,6 +8,17 @@ import type {
 import { buildAssetFinancing as buildAssetFinancingCore } from '@/src/core/calculations';
 import { ROLES, ROLE_META, MODULE_VISIBILITY, PERMISSIONS, useBrandingStore } from '@/src/core/state';
 import type { Role, ModuleKey, PermissionMap } from '@/src/core/types/settings.types';
+import { useShallow } from 'zustand/react/shallow';
+import { useModule1Store } from '../lib/state/module1-store';
+import { hydrationFromAnySnapshot, toLegacySnapshot, type LegacyV2Snapshot } from '../lib/state/module1-migrate';
+import { LEGACY_ASSET_IDS, makeDefaultPhase, type CostLine } from '../lib/state/module1-types';
+
+// Module-scope helper used by the store-setter wrappers below. Hoisted
+// out of the component so it does not need to appear in any useCallback
+// dependency list (its identity is stable across renders).
+type StoreUpdater<T> = T | ((prev: T) => T);
+const resolveStoreUpdater = <T,>(updater: StoreUpdater<T>, prev: T): T =>
+  typeof updater === 'function' ? (updater as (p: T) => T)(prev) : updater;
 
 import Topbar from './Topbar';
 import Sidebar from './Sidebar';
@@ -160,55 +171,170 @@ export default function RealEstatePlatform() {
   const [rbacModalOpen, setRbacModalOpen] = useState(false);
   const [rbacSelectedRole, setRbacSelectedRole] = useState<Role>(ROLES.ADMIN);
 
-  // ── Timeline state ──
-  const [projectName, setProjectName] = useState('Skyline');
-  const [projectType, setProjectType] = useState<ProjectType>('mixed-use');
-  const [country, setCountry] = useState('Saudi Arabia');
-  const [currency, setCurrency] = useState('SAR');
-  const [modelType, setModelType] = useState<ModelType>('annual');
-  const [projectStart, setProjectStart] = useState('2025-01-01');
-  const [constructionPeriods, setConstructionPeriods] = useState(4);
-  const [operationsPeriods, setOperationsPeriods] = useState(5);
-  const [overlapPeriods, setOverlapPeriods] = useState(0);
+  // ── Project state (lifted to Zustand store, Phase M1.R/4) ──
+  // Primitive scalars: pulled in one shallow read so the component re-renders
+  // exactly when one of them changes.
+  const {
+    projectName, projectType, country, currency, modelType, projectStart,
+    projectRoadsPct, projectFAR, projectNonEnclosedPct,
+    costInputMode, nextCostId,
+    interestRate, financingMode, globalDebtPct, capitalizeInterest,
+    repaymentPeriods, repaymentMethod,
+    allocBasis,
+  } = useModule1Store(useShallow((s) => ({
+    projectName: s.projectName,
+    projectType: s.projectType,
+    country: s.country,
+    currency: s.currency,
+    modelType: s.modelType,
+    projectStart: s.projectStart,
+    projectRoadsPct: s.projectRoadsPct,
+    projectFAR: s.projectFAR,
+    projectNonEnclosedPct: s.projectNonEnclosedPct,
+    costInputMode: s.costInputMode,
+    nextCostId: s.nextCostId,
+    interestRate: s.interestRate,
+    financingMode: s.financingMode,
+    globalDebtPct: s.globalDebtPct,
+    capitalizeInterest: s.capitalizeInterest,
+    repaymentPeriods: s.repaymentPeriods,
+    repaymentMethod: s.repaymentMethod,
+    allocBasis: s.allocBasis,
+  })));
 
-  // ── Land & Area ──
-  const [landParcels, setLandParcels] = useState<LandParcel[]>([
-    { id: 1, name: 'Land 1', area: 100000, rate: 500, cashPct: 60, inKindPct: 40 },
-  ]);
-  const [projectRoadsPct, setProjectRoadsPct] = useState(10);
-  const [projectFAR, setProjectFAR] = useState(1.5);
-  const [projectNonEnclosedPct, setProjectNonEnclosedPct] = useState(0);
-  const [residentialPercent, setResidentialPercent] = useState(50);
-  const [hospitalityPercent, setHospitalityPercent] = useState(30);
-  const [retailPercent, setRetailPercent] = useState(20);
-  const [residentialDeductPct, setResidentialDeductPct] = useState(10);
-  const [residentialEfficiency, setResidentialEfficiency] = useState(85);
-  const [hospitalityDeductPct, setHospitalityDeductPct] = useState(15);
-  const [hospitalityEfficiency, setHospitalityEfficiency] = useState(80);
-  const [retailDeductPct, setRetailDeductPct] = useState(5);
-  const [retailEfficiency, setRetailEfficiency] = useState(90);
+  // Reference-typed slices: each store update produces a new array/object,
+  // so React's === comparison drives re-renders correctly.
+  const phases        = useModule1Store((s) => s.phases);
+  const landParcels   = useModule1Store((s) => s.landParcels);
+  const assets        = useModule1Store((s) => s.assets);
+  const allCosts      = useModule1Store((s) => s.costs);
+  const lineRatios    = useModule1Store((s) => s.lineRatios);
+  const costStage     = useModule1Store((s) => s.costStage);
+  const costScope     = useModule1Store((s) => s.costScope);
+  const costDevFeeMode = useModule1Store((s) => s.costDevFeeMode);
 
-  // ── Dev Costs ──
-  const [residentialCosts, setResidentialCosts] = useState<CostItem[]>([]);
-  const [hospitalityCosts, setHospitalityCosts] = useState<CostItem[]>([]);
-  const [retailCosts, setRetailCosts] = useState<CostItem[]>([]);
-  const [nextCostId, setNextCostId] = useState(100);
-  const [costInputMode, setCostInputMode] = useState<CostInputMode>('separate');
+  // Phase 0 scalars (single-phase projects). Multi-phase editing surfaces
+  // its own selectors when Module1Timeline gains the phase editor.
+  const constructionPeriods = phases[0]?.constructionPeriods ?? 4;
+  const operationsPeriods   = phases[0]?.operationsPeriods   ?? 5;
+  const overlapPeriods      = phases[0]?.overlapPeriods      ?? 0;
 
-  // ── Financing ──
-  const [interestRate, setInterestRate] = useState(7.5);
-  const [financingMode, setFinancingMode] = useState<FinancingMode>('fixed');
-  const [globalDebtPct, setGlobalDebtPct] = useState(60);
-  const [capitalizeInterest, setCapitalizeInterest] = useState(false);
-  const [repaymentPeriods, setRepaymentPeriods] = useState(5);
-  const [repaymentMethod, setRepaymentMethod] = useState<RepaymentMethod>('fixed');
-  const [lineRatios, setLineRatios] = useState<Record<string, number>>({});
+  // Per-asset scalars derived from the assets[] array. The 3 canonical
+  // legacy ids survive as named lookups so downstream code that still
+  // talks in residential / hospitality / retail keeps working.
+  const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a] as const)), [assets]);
+  const resAsset  = assetById.get(LEGACY_ASSET_IDS.residential);
+  const hospAsset = assetById.get(LEGACY_ASSET_IDS.hospitality);
+  const retAsset  = assetById.get(LEGACY_ASSET_IDS.retail);
 
-  // ── Stage / scope / dev-fee state (V14) ──
-  const [costStage,     setCostStage]     = useState<Record<number, number>>({});
-  const [costScope,     setCostScope]     = useState<Record<number, string>>({});
-  const [costDevFeeMode, setCostDevFeeMode] = useState<Record<number, string>>({});
-  const [allocBasis,    setAllocBasis]    = useState<'direct_cost' | 'gfa'>('direct_cost');
+  const residentialPercent     = resAsset?.allocationPct ?? 0;
+  const hospitalityPercent     = hospAsset?.allocationPct ?? 0;
+  const retailPercent          = retAsset?.allocationPct ?? 0;
+  const residentialDeductPct   = resAsset?.deductPct     ?? 10;
+  const residentialEfficiency  = resAsset?.efficiencyPct ?? 85;
+  const hospitalityDeductPct   = hospAsset?.deductPct    ?? 15;
+  const hospitalityEfficiency  = hospAsset?.efficiencyPct ?? 80;
+  const retailDeductPct        = retAsset?.deductPct     ?? 5;
+  const retailEfficiency       = retAsset?.efficiencyPct ?? 90;
+
+  // Per-asset cost arrays derived from the flat costs[] list.
+  const residentialCosts = useMemo(() => allCosts.filter((c) => c.assetId === LEGACY_ASSET_IDS.residential), [allCosts]);
+  const hospitalityCosts = useMemo(() => allCosts.filter((c) => c.assetId === LEGACY_ASSET_IDS.hospitality), [allCosts]);
+  const retailCosts      = useMemo(() => allCosts.filter((c) => c.assetId === LEGACY_ASSET_IDS.retail),      [allCosts]);
+
+  // ── Setter wrappers ──
+  // The component still passes setX(value) / setX(prev => next) callbacks
+  // to its tab children. These wrappers translate that React-shaped API
+  // into store action calls so the tabs stay unchanged.
+  type Updater<T> = StoreUpdater<T>;
+
+  const setProjectName  = useCallback((v: string) => useModule1Store.getState().setProjectMeta({ projectName: v }), []);
+  const setProjectType  = useCallback((v: ProjectType) => useModule1Store.getState().setProjectMeta({ projectType: v }), []);
+  const setCountry      = useCallback((v: string) => useModule1Store.getState().setProjectMeta({ country: v }), []);
+  const setCurrency     = useCallback((v: string) => useModule1Store.getState().setProjectMeta({ currency: v }), []);
+  const setModelType    = useCallback((v: ModelType) => useModule1Store.getState().setProjectMeta({ modelType: v }), []);
+  const setProjectStart = useCallback((v: string) => useModule1Store.getState().setProjectMeta({ projectStart: v }), []);
+
+  // Phase-0 scalar setters: write through the single phase's id.
+  const writePhase0 = useCallback((patch: Partial<{ constructionPeriods: number; operationsPeriods: number; overlapPeriods: number }>) => {
+    const s = useModule1Store.getState();
+    const p0 = s.phases[0];
+    if (!p0) {
+      // Defensive: if hydration didn't seed a phase, mint one from the patch.
+      s.setPhases([makeDefaultPhase(patch.constructionPeriods ?? 0, patch.operationsPeriods ?? 0, patch.overlapPeriods ?? 0)]);
+      return;
+    }
+    s.updatePhase(p0.id, { ...p0, ...patch, operationsStart: Math.max(1, (patch.constructionPeriods ?? p0.constructionPeriods) - (patch.overlapPeriods ?? p0.overlapPeriods) + 1) });
+  }, []);
+  const setConstructionPeriods = useCallback((v: number) => writePhase0({ constructionPeriods: v }), [writePhase0]);
+  const setOperationsPeriods   = useCallback((v: number) => writePhase0({ operationsPeriods: v }),   [writePhase0]);
+  const setOverlapPeriods      = useCallback((v: number) => writePhase0({ overlapPeriods: v }),      [writePhase0]);
+
+  // Land parcel updater (supports React's prev-callback form).
+  const setLandParcels = useCallback((updater: Updater<LandParcel[]>) => {
+    const s = useModule1Store.getState();
+    s.setLand({ landParcels: resolveStoreUpdater(updater, s.landParcels) });
+  }, []);
+  const setProjectRoadsPct       = useCallback((v: number) => useModule1Store.getState().setLand({ projectRoadsPct: v }), []);
+  const setProjectFAR            = useCallback((v: number) => useModule1Store.getState().setLand({ projectFAR: v }), []);
+  const setProjectNonEnclosedPct = useCallback((v: number) => useModule1Store.getState().setLand({ projectNonEnclosedPct: v }), []);
+
+  // Per-asset field setters: write into assets[] by canonical id.
+  const updateAssetField = useCallback((assetId: string, patch: Partial<{ allocationPct: number; deductPct: number; efficiencyPct: number; visible: boolean }>) => {
+    useModule1Store.getState().updateAsset(assetId, patch);
+  }, []);
+  const setResidentialPercent     = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.residential, { allocationPct: v }), [updateAssetField]);
+  const setHospitalityPercent     = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.hospitality, { allocationPct: v }), [updateAssetField]);
+  const setRetailPercent          = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.retail,      { allocationPct: v }), [updateAssetField]);
+  const setResidentialDeductPct   = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.residential, { deductPct:     v }), [updateAssetField]);
+  const setResidentialEfficiency  = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.residential, { efficiencyPct: v }), [updateAssetField]);
+  const setHospitalityDeductPct   = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.hospitality, { deductPct:     v }), [updateAssetField]);
+  const setHospitalityEfficiency  = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.hospitality, { efficiencyPct: v }), [updateAssetField]);
+  const setRetailDeductPct        = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.retail,      { deductPct:     v }), [updateAssetField]);
+  const setRetailEfficiency       = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.retail,      { efficiencyPct: v }), [updateAssetField]);
+
+  // Per-asset cost setters: stamp the assetId on every line so the flat
+  // costs[] list stays consistent with its assetId discriminator.
+  const setCostsForAssetWrapper = useCallback((assetId: string, updater: Updater<CostItem[]>) => {
+    const s = useModule1Store.getState();
+    const prev: CostItem[] = s.costs.filter((c) => c.assetId === assetId);
+    const next = resolveStoreUpdater(updater, prev);
+    const stamped: CostLine[] = next.map((c) => ({ ...(c as CostItem), assetId }));
+    s.setCostsForAsset(assetId, stamped);
+  }, []);
+  const setResidentialCosts = useCallback((updater: Updater<CostItem[]>) => setCostsForAssetWrapper(LEGACY_ASSET_IDS.residential, updater), [setCostsForAssetWrapper]);
+  const setHospitalityCosts = useCallback((updater: Updater<CostItem[]>) => setCostsForAssetWrapper(LEGACY_ASSET_IDS.hospitality, updater), [setCostsForAssetWrapper]);
+  const setRetailCosts      = useCallback((updater: Updater<CostItem[]>) => setCostsForAssetWrapper(LEGACY_ASSET_IDS.retail,      updater), [setCostsForAssetWrapper]);
+
+  const setCostInputMode = useCallback((v: CostInputMode) => useModule1Store.getState().setCostInputMode(v), []);
+  const setNextCostId    = useCallback((updater: Updater<number>) => {
+    const s = useModule1Store.getState();
+    s.setNextCostId(resolveStoreUpdater(updater, s.nextCostId));
+  }, []);
+  const setCostStage     = useCallback((updater: Updater<Record<number, number>>) => {
+    const s = useModule1Store.getState();
+    s.setCostStage(resolveStoreUpdater(updater, s.costStage));
+  }, []);
+  const setCostScope     = useCallback((updater: Updater<Record<number, string>>) => {
+    const s = useModule1Store.getState();
+    s.setCostScope(resolveStoreUpdater(updater, s.costScope));
+  }, []);
+  const setCostDevFeeMode = useCallback((updater: Updater<Record<number, string>>) => {
+    const s = useModule1Store.getState();
+    s.setCostDevFeeMode(resolveStoreUpdater(updater, s.costDevFeeMode));
+  }, []);
+  const setAllocBasis    = useCallback((v: 'direct_cost' | 'gfa') => useModule1Store.getState().setAllocBasis(v), []);
+
+  const setInterestRate       = useCallback((v: number) => useModule1Store.getState().setFinancing({ interestRate: v }), []);
+  const setFinancingMode      = useCallback((v: FinancingMode) => useModule1Store.getState().setFinancing({ financingMode: v }), []);
+  const setGlobalDebtPct      = useCallback((v: number) => useModule1Store.getState().setFinancing({ globalDebtPct: v }), []);
+  const setCapitalizeInterest = useCallback((v: boolean) => useModule1Store.getState().setFinancing({ capitalizeInterest: v }), []);
+  const setRepaymentPeriods   = useCallback((v: number) => useModule1Store.getState().setFinancing({ repaymentPeriods: v }), []);
+  const setRepaymentMethod    = useCallback((v: RepaymentMethod) => useModule1Store.getState().setFinancing({ repaymentMethod: v }), []);
+  const setLineRatios         = useCallback((updater: Updater<Record<string, number>>) => {
+    const s = useModule1Store.getState();
+    s.setFinancing({ lineRatios: resolveStoreUpdater(updater, s.lineRatios) });
+  }, []);
 
   // ── Project Manager ──
   const [pmModal, setPmModal] = useState<string | null>(null);
@@ -524,7 +650,7 @@ export default function RealEstatePlatform() {
 
   const setLineDebtPct = useCallback((name: string, val: number) => {
     setLineRatios(prev => ({ ...prev, [name]: Math.min(100, Math.max(0, parseFloat(String(val)) || 0)) }));
-  }, []);
+  }, [setLineRatios]);
 
   // ── calcSameForAllDisplayTotal ──
   const calcSameForAllDisplayTotal = useCallback((cost: CostItem): number => {
@@ -603,13 +729,13 @@ export default function RealEstatePlatform() {
       const landLine = prev.find(c => c.canDelete === false);
       return [...(landLine ? [landLine] : []), ...nonLand.map(c => ({ ...c }))];
     });
-  }, [showHospitality, showRetail]);
+  }, [showHospitality, showRetail, setHospitalityCosts, setRetailCosts]);
 
   // ── handleCostInputModeChange ──
   const handleCostInputModeChange = useCallback((newMode: CostInputMode) => {
     if (newMode === 'same-for-all') syncSameForAllToAllAssets(residentialCosts);
     setCostInputMode(newMode);
-  }, [syncSameForAllToAllAssets, residentialCosts]);
+  }, [syncSameForAllToAllAssets, residentialCosts, setCostInputMode]);
 
   // ── buildAssetFinancing ──
   // Phase M1.R/3: this is now a thin wrapper around the pure
@@ -665,32 +791,17 @@ export default function RealEstatePlatform() {
   const finRet  = showRetail      ? buildAssetFinancing('retail')       : null;
 
   // ── Snapshot ──
-  const getSnapshot = useCallback(() => ({
-    version: 2, savedAt: new Date().toISOString(),
-    projectName, projectType, country, currency, modelType,
-    projectStart, constructionPeriods, operationsPeriods, overlapPeriods,
-    landParcels, projectRoadsPct, projectFAR, projectNonEnclosedPct,
-    residentialPercent, hospitalityPercent, retailPercent,
-    residentialDeductPct, residentialEfficiency,
-    hospitalityDeductPct, hospitalityEfficiency,
-    retailDeductPct, retailEfficiency,
-    residentialCosts, hospitalityCosts, retailCosts,
-    costInputMode, nextCostId,
-    interestRate, financingMode, globalDebtPct, capitalizeInterest,
-    repaymentPeriods, repaymentMethod, lineRatios,
-  }), [
-    projectName, projectType, country, currency, modelType,
-    projectStart, constructionPeriods, operationsPeriods, overlapPeriods,
-    landParcels, projectRoadsPct, projectFAR, projectNonEnclosedPct,
-    residentialPercent, hospitalityPercent, retailPercent,
-    residentialDeductPct, residentialEfficiency,
-    hospitalityDeductPct, hospitalityEfficiency,
-    retailDeductPct, retailEfficiency,
-    residentialCosts, hospitalityCosts, retailCosts,
-    costInputMode, nextCostId,
-    interestRate, financingMode, globalDebtPct, capitalizeInterest,
-    repaymentPeriods, repaymentMethod, lineRatios,
-  ]);
+  // Reads the current store slice and serializes via toLegacySnapshot so
+  // the on-disk shape stays at v2 (storage schema bump to v3 is in a
+  // future phase). Custom assets, if present, would be dropped here with
+  // a one-time console warn; the 3 canonical assets round-trip cleanly.
+  const getSnapshot = useCallback((): LegacyV2Snapshot & { savedAt: string } => {
+    const s = useModule1Store.getState();
+    const legacy = toLegacySnapshot(s);
+    return { ...legacy, savedAt: new Date().toISOString() };
+    // No deps: useModule1Store.getState() reads the live store at call
+    // time, and savedAt is regenerated each invocation.
+  }, []);
 
   // ── Save version ──
   const handleSaveVersion = useCallback((versionName: string) => {
@@ -740,7 +851,7 @@ export default function RealEstatePlatform() {
     setPmModal(null);
     setPmToast({ msg: `✓ Project "${name}" created`, color: 'var(--color-green-dark)' });
     setHasUnsaved(true);
-  }, [projectType]);
+  }, [projectType, setProjectName]);
 
   // ── Edit project (rename + relocate) ──
   // Mutates the currently-active project's name + location in localStorage,
@@ -762,7 +873,7 @@ export default function RealEstatePlatform() {
     setPmInputVal('');
     setPmLocationVal('');
     setPmToast({ msg: `✓ Project "${name}" updated`, color: 'var(--color-green-dark)' });
-  }, [activeProjectId]);
+  }, [activeProjectId, setProjectName]);
 
   // Open the edit modal, optionally for a specific project from the list.
   // When `pid` is provided, also makes that project the active one so the
@@ -779,7 +890,7 @@ export default function RealEstatePlatform() {
       if (proj) setProjectName(proj.name);
     }
     setPmModal('edit');
-  }, [activeProjectId]);
+  }, [activeProjectId, setProjectName]);
 
   // ── Delete project ──
   const handleDeleteProject = useCallback((pid: string) => {
@@ -797,38 +908,16 @@ export default function RealEstatePlatform() {
   }, []);
 
   // ── Load version ──
+  // Uses the M1.R migrator: saved snapshots may be in legacy v2 shape
+  // (3 hardcoded asset cost arrays + scalar percents) or new v3 shape
+  // (assets[]/phases[]/costs[]); hydrationFromAnySnapshot handles both
+  // and produces a HydrateSnapshot the store can swallow in one call.
   const handleLoadVersion = useCallback((pid: string, vid: string) => {
     const s = loadStorage();
     const ver = s.projects[pid]?.versions[vid];
     if (!ver?.data) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const d = ver.data as any;
-    if (d.projectName   !== undefined) setProjectName(d.projectName);
-    if (d.projectType   !== undefined) setProjectType(d.projectType);
-    if (d.country       !== undefined) setCountry(d.country);
-    if (d.currency      !== undefined) setCurrency(d.currency);
-    if (d.modelType     !== undefined) setModelType(d.modelType);
-    if (d.projectStart  !== undefined) setProjectStart(d.projectStart);
-    if (d.constructionPeriods !== undefined) setConstructionPeriods(d.constructionPeriods);
-    if (d.operationsPeriods   !== undefined) setOperationsPeriods(d.operationsPeriods);
-    if (d.overlapPeriods      !== undefined) setOverlapPeriods(d.overlapPeriods);
-    if (d.landParcels         !== undefined) setLandParcels(d.landParcels);
-    if (d.projectRoadsPct     !== undefined) setProjectRoadsPct(d.projectRoadsPct);
-    if (d.projectFAR          !== undefined) setProjectFAR(d.projectFAR);
-    if (d.residentialPercent  !== undefined) setResidentialPercent(d.residentialPercent);
-    if (d.hospitalityPercent  !== undefined) setHospitalityPercent(d.hospitalityPercent);
-    if (d.retailPercent       !== undefined) setRetailPercent(d.retailPercent);
-    if (d.residentialCosts    !== undefined) setResidentialCosts(d.residentialCosts);
-    if (d.hospitalityCosts    !== undefined) setHospitalityCosts(d.hospitalityCosts);
-    if (d.retailCosts         !== undefined) setRetailCosts(d.retailCosts);
-    if (d.costInputMode       !== undefined) setCostInputMode(d.costInputMode);
-    if (d.interestRate        !== undefined) setInterestRate(d.interestRate);
-    if (d.financingMode       !== undefined) setFinancingMode(d.financingMode);
-    if (d.globalDebtPct       !== undefined) setGlobalDebtPct(d.globalDebtPct);
-    if (d.capitalizeInterest  !== undefined) setCapitalizeInterest(d.capitalizeInterest);
-    if (d.repaymentPeriods    !== undefined) setRepaymentPeriods(d.repaymentPeriods);
-    if (d.repaymentMethod     !== undefined) setRepaymentMethod(d.repaymentMethod);
-    if (d.lineRatios          !== undefined) setLineRatios(d.lineRatios);
+    const hydrate = hydrationFromAnySnapshot(ver.data);
+    useModule1Store.getState().hydrate(hydrate);
     s.activeProjectId = pid;
     s.activeVersionId = vid;
     saveStorage(s);
@@ -854,7 +943,7 @@ export default function RealEstatePlatform() {
       const latest = vids[vids.length - 1];
       handleLoadVersion(pid, latest);
     }
-  }, [handleLoadVersion]);
+  }, [handleLoadVersion, setProjectName]);
 
   // ── Computed totals for financing - derived from finRes/finHosp/finRet lineItems ──
   const _allFins = [
