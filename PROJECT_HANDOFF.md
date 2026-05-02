@@ -14,6 +14,37 @@ Use this file to resume development in a new chat session. Read `CLAUDE.md` firs
 
 ---
 
+## REFM Phase 4.6-4.15 design-token retrofit (continuation, 2026-04-30)
+
+Eleven commits (`cd9740f`, `71e4822`, `273ec50`, `0226e22`, `7a318cd`, `2e486c1`, `f0535b8`, `e16d333`, `71f72ce`, `97d6de7`, `48e5f3d`) closed out the entire REFM `src/hubs/modeling/platforms/refm/` design-token retrofit started in the prior session. Strict scope: visual-only (no routing, layout, calculation, or logic changes); hex/rgba/`'white'`/`input-assumption` grep returns zero matches per file; Module 1 regression-guard snapshot exit 0; type-check + build green at every commit.
+
+**FAST cell pattern established (Phase 4.6, propagated through 4.7-4.9)** — Module 1 input cells now use `inputStyle = { background: 'var(--color-navy-pale)', color: 'var(--color-navy)' }` and calculated outputs use `calcOutputStyle` keyed off `var(--color-grey-pale)` instead of the global `.input-assumption` class. Removing the className at the call site is required because the class uses `!important` in `globals.css` and would override inline blue. Indentation drift after `replace_all` className removal was fixed via three targeted Edits in Phase 4.8.
+
+**Per-phase commits:**
+
+| # | Commit | File | What changed |
+|---|--------|------|--------------|
+| 4.6 | `cd9740f` | `Module1Timeline.tsx` | 7 className refs + 9 hex/rgba; AI Assist gradient purple→navy; phase bars via `color-mix()` |
+| 4.7 | `273ec50` | `Module1Area.tsx` | 15 className + 8 hex/rgba; hospitality `#7c3aed` → `var(--color-navy-mid)`; Area Hierarchy `<th>` pastels via `color-mix(var(--color-on-primary-navy) 60%, var(--color-navy/--color-gold/--color-negative))`; module-card bg → `var(--color-grey-pale)` (calculated panel signal) |
+| 4.8 | `0226e22` | `Module1Costs.tsx` | 11 className + 7 hex/rgba; 5× `rgba(27,79,138,0.08)` → 8% navy color-mix; `'#fff'` on Stage Add → `var(--color-on-primary-navy)`; three-line indentation drift fixed |
+| 4.9 | `7a318cd` | `Module1Financing.tsx` | Largest sweep: 16 hex/rgba + 6 className + 24× `'white'`; stripped dead CSS-var fallbacks (`var(--color-navy, #1B4F8A)` → `var(--color-navy)`, `var(--shadow-1, ...)` → `var(--shadow-1)`, `var(--color-row-alt, ...)` → `var(--color-row-alt)`); all `'white'` → `'var(--color-on-primary-navy)'` |
+| 4.10 | `2e486c1` | `PlanBadge.tsx` | 3 hex sites + alpha-derivation rewrite. Imports `PLAN_COLOR as TOKEN_PLAN_COLOR` from `@/src/styles/tokens`. `${color}1A`/`${color}40` hex-suffix alpha → `color-mix(in srgb, ${color} 10%/25%, transparent)` so it works with CSS-var values |
+| 4.11 | `f0535b8` | `ProjectModal.tsx` | 3 rgba + 1 `'white'` |
+| 4.12 | `e16d333` | `VersionModal.tsx` | 6 hex/rgba + 1 `'white'`; `#BBF7D0` → `var(--color-green)` |
+| 4.13 | `71f72ce` | `RbacModal.tsx` | 2 hex/rgba; SELECTED pill Tailwind blue triad → brand navy via `color-mix(in srgb, var(--color-primary) 20%/30%, transparent)` |
+| 4.14 | `97d6de7` | `ExportModal.tsx` | 19 hex/rgba + 5 `'white'`/`'#fff'`; `#6b7280`→`var(--color-grey-mid)`; `#2563EB`→`var(--color-navy)`; `#7C3AED`→`TOKEN_PLAN_COLOR.enterprise.color`; same alpha-derivation rewrite as PlanBadge |
+| 4.15 | `48e5f3d` | `RealEstatePlatform.tsx` | 6 hex/rgba in JSX overlay blocks. Dark-mode plumbing (lines 295-330: `darkMode` useState, `body.dataset.refmTheme` useEffect, `toggleDarkMode` callback) preserved byte-identical |
+| docs | `71e4822` | docs + settings | Compacted CLAUDE.md + refreshed handoff/feature/route/todo notes between Phases 4.6 and 4.7 |
+
+**Canonical resolutions made during this sweep:**
+- Hospitality color: `#7c3aed` was off-canon Tailwind enterprise-tier purple; `Module1Financing.tsx:122` already maps hospitality to `var(--color-navy-mid)` — aligned every REFM hospitality reference
+- PLAN_COLOR is now centralized in `src/styles/tokens.ts` — components import from the canonical palette so per-file grep stays clean even where CSS vars cannot be used (PLAN_COLOR.enterprise stays as a literal hex inside tokens.ts because color-mix on CSS-var values doesn't survive in places like react-pdf)
+- Hex-suffix alpha pattern (`${color}1A` / `${color}40`) replaced with `color-mix(in srgb, ${color} 10%/25%, transparent)` so it works whether `${color}` is a literal hex or a `var(--token)` reference
+
+**No new files, no new packages, no schema changes, no new API routes.** **Modified files:** 10 REFM components + 4 docs (`CLAUDE.md`, `CLAUDE-FEATURES.md`, `CLAUDE-TODO.md`, `PROJECT_HANDOFF.md`). Module 1 regression-guard snapshot stayed at 17.5 KB baseline; type-check + build green throughout. Both light + dark REFM themes render correctly.
+
+---
+
 ## Modeling Hub foundation rebuild + REFM dark mode + Phase 4.2-4.5 retrofits (complete, 2026-04-30)
 
 Eleven commits (`93ab0af`, `005e7ce`, `b4691b7`, `afd0e4d`, `6ae4344`, `dba0952`, `a75708f`, `e20f436`, `9a0fe71`, `cfca60a`, `11e098b`) completed three connected pieces of work:
@@ -237,23 +268,23 @@ Net source-tree state: 0 cross-hub violations on the original 5; one TODO-tracke
 
 ---
 
-## 3. Last 11 Git Commits (2026-04-30 session)
+## 3. Last 11 Git Commits (2026-04-30 continuation session — Phases 4.6-4.15)
 
 | Hash | Date | Message |
 |------|------|---------|
-| `11e098b` | 2026-04-30 | Phase 4.5: Topbar.tsx token retrofit |
-| `cfca60a` | 2026-04-30 | REFM: project name editing + defensive hydration cleanup |
-| `9a0fe71` | 2026-04-30 | Phase 4.4: Sidebar.tsx token retrofit |
-| `e20f436` | 2026-04-30 | REFM Dashboard: consume MODULES from modules-config |
-| `dba0952` | 2026-04-30 | REFM: lift modules to single source of truth (lib/modules-config.ts) |
-| `a75708f` | 2026-04-30 | Phase 4.3: ProjectsScreen.tsx token retrofit |
-| `6ae4344` | 2026-04-30 | REFM: per-row Edit pencil on ProjectsScreen |
-| `afd0e4d` | 2026-04-30 | Phase 4.2: OverviewScreen.tsx retrofit + edit pencil + empty state |
-| `b4691b7` | 2026-04-30 | REFM: workspace dark mode toggle + --color-on-primary-navy token |
-| `005e7ce` | 2026-04-30 | Foundation rebuild: Modeling Hub canonical landing on app.* subdomain |
-| `93ab0af` | 2026-04-30 | Revert Phase 4 cookie-scope regression (Option A rollback) |
+| `48e5f3d` | 2026-04-30 | Phase 4.15: retrofit RealEstatePlatform onto design tokens (last in sweep) |
+| `97d6de7` | 2026-04-30 | Phase 4.14: retrofit ExportModal onto design tokens |
+| `71f72ce` | 2026-04-30 | Phase 4.13: retrofit RbacModal onto design tokens |
+| `e16d333` | 2026-04-30 | Phase 4.12: retrofit VersionModal onto design tokens |
+| `f0535b8` | 2026-04-30 | Phase 4.11: retrofit ProjectModal onto design tokens |
+| `2e486c1` | 2026-04-30 | Phase 4.10: retrofit PlanBadge onto design tokens |
+| `7a318cd` | 2026-04-30 | Phase 4.9: retrofit Module1Financing onto design tokens (FAST cell pattern) |
+| `0226e22` | 2026-04-30 | Phase 4.8: retrofit Module1Costs onto design tokens (FAST cell pattern) |
+| `273ec50` | 2026-04-30 | Phase 4.7: retrofit Module1Area onto design tokens (FAST cell pattern from Phase 4.6) |
+| `71e4822` | 2026-04-30 | docs + settings: compact CLAUDE.md, refresh handoff/feature/route/todo notes |
+| `cd9740f` | 2026-04-30 | Phase 4.6: retrofit Module1Timeline onto design tokens + establish FAST cell pattern for Module 1 |
 
-Most recent session was the Modeling Hub foundation rebuild (Path 2): rolled back the prior Phase 4 cookie-scope regression, then eliminated cross-subdomain assumptions by collapsing `/portal` to a redirect and making `/modeling/dashboard` the canonical post-signin landing on `app.*`. Then resumed Phase 4 retrofits 4.2-4.5, added REFM workspace dark mode, wired project name editing, and consolidated Module Roadmap into a single source of truth at `src/hubs/modeling/platforms/refm/lib/modules-config.ts`. The session before it shipped the watch enforcement removal + model-submission guidance hardening (2026-04-29).
+The continuation session closed out the entire REFM design-token retrofit. Prior session (also 2026-04-30, commits `93ab0af` → `11e098b`) had completed Phases 4.2-4.5 plus the Modeling Hub foundation rebuild on `app.*` subdomain + REFM workspace dark mode + Module Roadmap consolidation. With Phases 4.6-4.15 shipped, all REFM components in `src/hubs/modeling/platforms/refm/` are now canonical-token-only — `grep -E '(#[0-9a-f]{3,8}|rgba?\(|"white"|input-assumption)'` returns zero matches across the folder.
 
 ---
 
@@ -348,7 +379,9 @@ Configured in `vercel.json`. Calls `processPendingCertificates()` with 5-minute 
 
 ## 7. What Was Last Being Worked On
 
-The last session (2026-04-30) was a **Modeling Hub foundation rebuild + Phase 4.x retrofit resumption**. Eleven commits across three connected pieces of work:
+The most recent session (2026-04-30 continuation) was the **REFM Phase 4.6-4.15 design-token retrofit closeout** — eleven commits (10 retrofit + 1 docs compaction) finishing the entire `src/hubs/modeling/platforms/refm/` token sweep. See the top section "REFM Phase 4.6-4.15 design-token retrofit (continuation, 2026-04-30)" for the per-phase commit table. **Net: 10 component files + 4 docs modified, 0 new files, 0 packages, 0 schema changes, 0 new API routes.** Module 1 regression-guard snapshot stayed at 17.5 KB baseline (exit 0 each step); type-check + build green at every commit; both light and dark REFM themes verified.
+
+The session before that (2026-04-30, commits `93ab0af` → `11e098b`) was a **Modeling Hub foundation rebuild + Phase 4.x retrofit resumption**. Eleven commits across three connected pieces of work:
 
 ### Changes made (commits `93ab0af` → `11e098b`)
 - **Phase 4 cookie-scope rollback (Option A, `93ab0af`)**: combined revert of prior Phase 4 commits that introduced a NextAuth cookie-scope regression. Verified functional match to baseline `bcea1a7`, snapshot diff exit 0, type-check + build clean, then pushed.
@@ -447,4 +480,5 @@ None — all 3 commits shipped to `origin/main`. Type-check + full build passed 
 **Next number**: `149` (numbering gaps at `069`, `073`, `127` are skipped, not missing — see CLAUDE-DB.md).
 **Manual apply**: migration `148` must be applied via Supabase dashboard before deploy (idempotent). Migrations `146` + `147` are also manual-apply (idempotent `ADD COLUMN IF NOT EXISTS`).
 **Rule**: Never edit existing migrations; create new numbered files.
-**2026-04-30 session**: no new migrations.
+**2026-04-30 session (Phases 4.2-4.5 + foundation rebuild)**: no new migrations.
+**2026-04-30 continuation session (Phases 4.6-4.15)**: no new migrations.

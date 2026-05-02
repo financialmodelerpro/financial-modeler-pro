@@ -4,6 +4,58 @@
 
 ---
 
+## Recently Completed — REFM Phase 4.6-4.15 design-token retrofit (2026-04-30 continuation session, 10 retrofit commits + 1 docs commit)
+
+Closes Phase 4. Every component under `src/hubs/modeling/platforms/refm/` is now hex / rgba / 'white' / `input-assumption`-free end-to-end (verified by repo-wide grep, 0 matches). Establishes the FAST cell pattern that supersedes the yellow `.input-assumption` class inside REFM.
+
+| Phase | File | Hash | Status |
+|-------|------|------|--------|
+| **Phase 4.6** | `Module1Timeline.tsx` | `cd9740f` | Complete. 9 hex/rgba + 7 className refs. **First Module 1 tab** to adopt the FAST cell pattern that 4.7-4.9 then mirrored: `inputStyle` (blue) and `calcOutputStyle` (grey-pale + heading) constants per file. Inputs flip from yellow `.input-assumption` to `var(--color-navy-pale)` bg + `var(--color-navy)` text; the className must be removed at the call site because the global `!important` rule in `app/globals.css` would otherwise override the inline blue back to yellow. Timeline visual phase bars retoken'd via `color-mix(var(--color-primary)/--color-success, transparent)` at 75%. |
+| **Phase 4.7** | `Module1Area.tsx` | `273ec50` | Complete. 8 hex/rgba + 15 className refs. Hospitality label colour (3 occurrences) migrated from off-canon `#7c3aed` (Tailwind enterprise-tier purple) to `var(--color-navy-mid)` matching the canonical hospitality mapping in `Module1Financing.tsx:122`. Area Hierarchy table column-header pastels (`#93c5fd / #c4b5fd / #fca5a5`) retoken'd to `color-mix(var(--color-on-primary-navy) 60%, var(--color-navy/--color-gold/--color-negative))` — three distinct hues kept (blue / gold / red) so the column triad stays visually scannable. Hospitality pastel moved from violet to pale-gold (no purple token in the system). Area Hierarchy module-card inline-bg overridden to `var(--color-grey-pale)` to signal the calculated-outputs panel under FAST. |
+| **Phase 4.8** | `Module1Costs.tsx` | `0226e22` | Complete. 7 hex/rgba + 11 className refs. Active-pill backgrounds (5 buttons sharing the navy 8% tint) folded to `color-mix(var(--color-primary) 8%, transparent)`; dev-fee mode toggle kept the slightly stronger 10% pp differential. `STAGE_COLOR[stageNum]` / `STAGE_BG_RGBA[stageNum]` / `PHASE_COLOR` imports from `src/styles/tokens.ts` left untouched — they are the canonical JS-side stage palette per the policy comment at the top of tokens.ts. |
+| **Phase 4.9** | `Module1Financing.tsx` | `7a318cd` | Complete. 40 hex/rgba/'white' literals + 6 className refs — largest single retrofit. 24× hardcoded `'white'` (debt/equity/total schedule headers + asset chip + KPI tuple) all routed through `var(--color-on-primary-navy)` (brand-locked white in both modes). Dead `var(--color-navy, #1B4F8A)` / `var(--shadow-1, ..., rgba)` / `var(--color-row-alt, #F9FAFB)` defensive fallbacks stripped — tokens are always defined globally so the `, #literal` halves were unreachable. Subtle `rgba(0,0,0,0.01)` alt-row tint kept at 1% intent via `color-mix(var(--color-heading) 1%, transparent)` rather than flattening to `var(--color-row-alt)` (which would be ~5× stronger). Gold-tint card (rates callout) folded to `color-mix(var(--color-gold)/--color-gold-dark, transparent)`. |
+| **Phase 4.10** | `PlanBadge.tsx` | `2e486c1` | Complete. 3 hex sites + alpha-derivation pattern. Plan tier base colour map relocated through `src/styles/tokens.ts` PLAN_COLOR canonical: `'#2563EB'` (Tailwind blue-600) → `'var(--color-navy)'` (matches `PLAN_COLOR.professional.color === COLOR.navy`); `'#7C3AED'` → `TOKEN_PLAN_COLOR.enterprise.color` (intentional off-canon purple per tokens.ts comment, no purple CSS var by design); fallback aligned. The `${color}1A` / `${color}40` 8-digit-hex alpha pattern (only viable when `${color}` is a literal hex) rewritten to `color-mix(in srgb, ${color} 10%/25%, transparent)` so it works with CSS-var values. Visual delta: PRO badge text shifts from blue-600 to brand navy; ENTERPRISE unchanged. |
+| **Phase 4.11** | `modals/ProjectModal.tsx` | `f0535b8` | Complete. 3 rgba sites + 1 'white'. On-navy header chrome (subtitle + close button) routed through `color-mix(var(--color-on-primary-navy), transparent)`; info-tip card border `rgba(30,58,138,0.12)` → `color-mix(var(--color-primary) 12%, transparent)`. |
+| **Phase 4.12** | `modals/VersionModal.tsx` | `e16d333` | Complete. 6 hex/rgba + 1 'white'. Same on-navy header chrome as 4.11. Save-version success-card border `'#BBF7D0'` (Tailwind green-200) → `var(--color-green)` matching the `.alert-success` border in app/globals.css. Active-version row + LOADED pill folded through `color-mix(var(--color-success), transparent)`; LOADED text colour normalised to `var(--color-success)` (same value via :root alias as Phase 4.2 / 4.7). |
+| **Phase 4.13** | `modals/RbacModal.tsx` | `71f72ce` | Complete. 2 hex/rgba sites — both on the SELECTED pill that floats on the dark `.rbac-role-card` surface. Tailwind blue triad (`rgba(59,130,246,0.2)` / `#93c5fd` / `rgba(59,130,246,0.3)`) collapsed to brand navy + the same `color-mix(var(--color-on-primary-navy) 60%, var(--color-navy))` pale-navy pattern Phase 4.7 used for the Area hierarchy residential `<th>`. |
+| **Phase 4.14** | `modals/ExportModal.tsx` | `97d6de7` | Complete. 19 hex/rgba sites + 5 'white'/'#fff' + a 3-key plan tier colour map driving 4 separate alpha-suffix derivations — the largest single retrofit (the modal had its own self-contained Tailwind-gray palette: gray-200 / 400 / 500 / 700 / 900 plus Tailwind blue-600). Plan-tier colour map relocated through tokens.ts (free → `var(--color-grey-mid)`, professional → `var(--color-navy)`, enterprise → `TOKEN_PLAN_COLOR.enterprise.color`). All gray-N hexes folded onto canonical FMP tokens (`var(--color-heading)` / `var(--color-meta)` / `var(--color-muted)` / `var(--color-border)` / `var(--color-surface)`). Plan-pill bg/border alpha derivations rewritten via `color-mix` so they work with the new CSS-var inputs. **Behaviour delta**: in REFM dark mode the modal now picks up the dark workspace palette (grey-pale → `#1F2A3A`, surface → `#1A222F`); previously a bright white slab on the dark workspace. |
+| **Phase 4.15** | `RealEstatePlatform.tsx` | `48e5f3d` | Complete. 6 hex/rgba sites in two JSX overlay blocks (Module 8 'Upgrade to edit financials' lock overlay + the upgrade-prompt modal backdrop). **Critical**: the dark-mode plumbing block at lines 295-330 (`darkMode` useState + `body.dataset.refmTheme` useEffect + `toggleDarkMode` callback) is byte-identical post-retrofit — verified — so the workspace toggle continues to flip themes and persist to `localStorage['refmDarkMode']`. **Behaviour delta**: Module 8 lock overlay's frosted-white slab `rgba(255,255,255,0.85)` swapped to `color-mix(var(--color-surface) 85%, transparent)`, so it now frosts the dark workspace surface in dark mode rather than imposing a bright white slab. |
+
+**Net total**: 10 retrofit commits + 1 docs/settings compaction commit (`71e4822`).
+
+**Packages installed this session: none.**
+
+**Schema changes this session: none.**
+
+**New API routes this session: none.**
+
+**New non-route files this session: none.** All 10 retrofit commits are pure edits to existing files.
+
+**Modified files (REFM only):**
+- `src/hubs/modeling/platforms/refm/components/modules/Module1Timeline.tsx` — Phase 4.6 (FAST cell pattern established)
+- `src/hubs/modeling/platforms/refm/components/modules/Module1Area.tsx` — Phase 4.7
+- `src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx` — Phase 4.8
+- `src/hubs/modeling/platforms/refm/components/modules/Module1Financing.tsx` — Phase 4.9
+- `src/hubs/modeling/platforms/refm/components/PlanBadge.tsx` — Phase 4.10
+- `src/hubs/modeling/platforms/refm/components/modals/ProjectModal.tsx` — Phase 4.11
+- `src/hubs/modeling/platforms/refm/components/modals/VersionModal.tsx` — Phase 4.12
+- `src/hubs/modeling/platforms/refm/components/modals/RbacModal.tsx` — Phase 4.13
+- `src/hubs/modeling/platforms/refm/components/modals/ExportModal.tsx` — Phase 4.14
+- `src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx` — Phase 4.15 (orchestrator, dark-mode plumbing untouched)
+
+**Verification per phase (all green)**: Module 1 regression-guard snapshot (`npx tsx scripts/module1-snapshot-diff.ts`) stayed at 17.5 KB baseline (exit 0) every step; `npm run type-check` clean every step; `npm run build` compiled successfully every step.
+
+**Manual action required**: eyeball verification in BOTH light + dark modes for each phase per the per-commit `⚠️` notes — the visual deltas are documented in each commit body. Specifically for Phase 4.15: open the REFM workspace, toggle dark mode on/off via the topbar ☀️/🌙 control, and reload to confirm the theme persists across hard reload and that the body[data-refm-theme] attribute is removed when leaving the workspace (no leakage into admin / training surfaces). Module 8 lock overlay frosting now follows `var(--color-surface)`, so it'll be a dark frosted slab in dark mode (intended visual delta from prior bright-white slab).
+
+### Phase 4.6-4.15 Follow-Ups
+
+| Item | Notes |
+|------|-------|
+| **Eyeball verification across all 10 retrofits** | Owed before any further visual work. Each commit body lists the specific elements to inspect. The colour-mix derivations are mathematically equivalent to the prior alpha values (or +/- 1pp for rounding), so visual deltas should be subtle except where explicitly documented (Phase 4.10 PRO badge blue→navy, Phase 4.7 hospitality purple→navy-mid + Area pastel violet→gold, Phase 4.14 ExportModal in dark mode, Phase 4.15 Module 8 lock-overlay frosting). |
+| **REFM Module 2-11 retrofits** | Out of scope for Phase 4 (those modules are not yet built — see Module Roadmap). When they ship, they should be authored with the FAST pattern from day one (`inputStyle`/`calcOutputStyle` constants, no `.input-assumption` className) so we don't re-accumulate inline literals. |
+
+---
+
 ## Recently Completed — Modeling Hub foundation rebuild + REFM dark mode + Phase 4.2-4.5 retrofits + project edit + Module Roadmap consolidation (2026-04-30 session, 11 commits)
 
 | Phase | Status |

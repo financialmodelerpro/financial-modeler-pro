@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-10**
+**Last updated: 2026-04-30**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md) — Database tables, storage buckets, migrations log
@@ -171,7 +171,8 @@ Use `/signin`, `/register`, `/forgot` for all training/modeling auth links.
 - Spacing: 8px grid — `--sp-1` (8px) through `--sp-5` (48px)
 - Typography: `--font-h1` through `--font-micro`
 - Component classes: `.card`, `.kpi-card`, `.btn-primary`, `.table-standard`
-- Financial inputs: `.input-assumption` class (yellow bg `--color-warning-bg`)
+- Financial inputs (Training Hub + admin): `.input-assumption` class (yellow bg `--color-warning-bg`)
+- **REFM (Module 1 tabs + shell + modals) uses FAST input blue** instead of `.input-assumption` — `var(--color-navy-pale)` bg + `var(--color-navy)` text via the local `inputStyle` constant in each component. Established Phases 4.6 → 4.15 (2026-04-30). Calculated outputs use the same pattern's `calcOutputStyle` (`var(--color-grey-pale)` bg + `var(--color-heading)` text). The `.input-assumption` class is reserved for actual financial-model assumption cells (rates, ratios, escalators) and continues to apply outside REFM.
 - **Do NOT use Tailwind utility classes for layout tokens**
 
 ---

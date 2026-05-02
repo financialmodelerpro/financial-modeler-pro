@@ -125,7 +125,18 @@
       "Bash(rm -f app/api/admin/pricing/plans/route.ts)",
       "Bash(rmdir app/api/admin/pricing/plans)",
       "Bash(awk '{print $1}')",
-      "Bash(echo \"EXIT_CODE=$?\")"
+      "Bash(echo \"EXIT_CODE=$?\")",
+      "Bash(py --version)",
+      "Bash(py -c \"import openpyxl; print\\('openpyxl', openpyxl.__version__\\)\")",
+      "PowerShell(python --version; python -c \"import openpyxl; print\\('openpyxl', openpyxl.__version__\\)\")",
+      "Bash(echo \"TS_EXIT=$?\")",
+      "Bash(echo \"SNAP_EXIT=$?\")",
+      "Bash(echo \"BUILD_EXIT=$?\")",
+      "Bash(echo \"SNAP=$?\")",
+      "Bash(echo \"MIG=$?\")",
+      "Bash(echo \"BUILD=$?\")",
+      "Bash(echo \"LINT=$?\")",
+      "Bash(echo \"TS=$?\")"
     ]
   }
 }
