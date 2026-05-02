@@ -1,0 +1,142 @@
+{
+  "_comment": "Module 1 multi-phase regression fixture (Phase M1.5/12). v4 HydrateSnapshot — phases array carries 2 phases under one sub-project, with assets + costs distributed across them. Phase A carries Residential (built first); Phase B carries Hospitality + Retail (cuts in after Phase A's construction). Costs are stamped with phaseId so each phase's capex is clearly attributable. Asset percents (50/30/20) sum to 100% across all phases — the project's area hierarchy is project-wide. Cost line ids are unique within each asset (the ids 1..4 collision across assets matches the legacy V14 semantic). Master Holding stays disabled — the M1.5/10 panel is a structure-only feature, MH P&L lives in M8.1.",
+
+  "projectName": "Multi-Phase Mixed-Use",
+  "projectType": "mixed-use",
+  "country": "Saudi Arabia",
+  "currency": "SAR",
+  "modelType": "annual",
+  "projectStart": "2026-01-01",
+
+  "masterHolding": {
+    "id": "mh_1",
+    "name": "Master Holding",
+    "enabled": false,
+    "landCostMethod": "fixed",
+    "landCostValue": 0,
+    "masterDebtPrincipal": 0,
+    "masterDebtRate": 0,
+    "masterDebtTermPeriods": 0
+  },
+
+  "subProjects": [
+    {
+      "id": "subproject_1",
+      "name": "Multi-Phase Mixed-Use",
+      "currency": "SAR",
+      "masterHoldingId": null,
+      "revenueShareToMaster": 0
+    }
+  ],
+
+  "subUnits": [],
+
+  "phases": [
+    {
+      "id": "phase_a",
+      "name": "Phase A",
+      "subProjectId": "subproject_1",
+      "constructionStart": 1,
+      "constructionPeriods": 4,
+      "operationsStart": 5,
+      "operationsPeriods": 6,
+      "overlapPeriods": 0
+    },
+    {
+      "id": "phase_b",
+      "name": "Phase B",
+      "subProjectId": "subproject_1",
+      "constructionStart": 5,
+      "constructionPeriods": 5,
+      "operationsStart": 10,
+      "operationsPeriods": 8,
+      "overlapPeriods": 0
+    }
+  ],
+
+  "landParcels": [
+    { "id": 1, "name": "Parcel A (Premium)",  "area": 60000, "rate": 3000, "cashPct": 70, "inKindPct": 30 },
+    { "id": 2, "name": "Parcel B (Standard)", "area": 40000, "rate": 2000, "cashPct": 50, "inKindPct": 50 }
+  ],
+
+  "projectRoadsPct": 12,
+  "projectFAR": 1.6,
+  "projectNonEnclosedPct": 8,
+
+  "assets": [
+    {
+      "id": "residential",
+      "name": "Residential",
+      "type": "High-end Apartments",
+      "category": "Sell",
+      "allocationPct": 50,
+      "deductPct": 8,
+      "efficiencyPct": 88,
+      "visible": true,
+      "subProjectId": "subproject_1",
+      "phaseId": "phase_a"
+    },
+    {
+      "id": "hospitality",
+      "name": "Hospitality",
+      "type": "Hotel 5-star",
+      "category": "Operate",
+      "allocationPct": 30,
+      "deductPct": 12,
+      "efficiencyPct": 80,
+      "visible": true,
+      "subProjectId": "subproject_1",
+      "phaseId": "phase_b"
+    },
+    {
+      "id": "retail",
+      "name": "Retail",
+      "type": "Retail",
+      "category": "Lease",
+      "allocationPct": 20,
+      "deductPct": 15,
+      "efficiencyPct": 92,
+      "visible": true,
+      "subProjectId": "subproject_1",
+      "phaseId": "phase_b"
+    }
+  ],
+
+  "costs": [
+    { "id": 1, "name": "Land (Cash Portion)", "method": "fixed",                "value": 50000000, "baseType": "", "startPeriod": 0, "endPeriod": 0, "phasing": "even",                                            "canDelete": false, "assetId": "residential", "phaseId": "phase_a" },
+    { "id": 2, "name": "Construction Cost",   "method": "rate_bua",             "value": 4500,     "baseType": "", "startPeriod": 1, "endPeriod": 4, "phasing": { "type": "manual", "values": [40, 30, 20, 10] }, "canDelete": true,  "assetId": "residential", "phaseId": "phase_a" },
+    { "id": 3, "name": "Infrastructure",      "method": "rate_total_allocated", "value": 200,      "baseType": "", "startPeriod": 1, "endPeriod": 4, "phasing": "even",                                            "canDelete": true,  "assetId": "residential", "phaseId": "phase_a" },
+    { "id": 4, "name": "Professional Fee",    "method": "percent_base",         "value": 8,        "baseType": "", "selectedIds": [2, 3], "startPeriod": 1, "endPeriod": 4, "phasing": "even",                     "canDelete": true,  "assetId": "residential", "phaseId": "phase_a" },
+
+    { "id": 1, "name": "Land (Cash Portion)", "method": "fixed",                "value": 30000000, "baseType": "", "startPeriod": 0, "endPeriod": 0, "phasing": "even",                                            "canDelete": false, "assetId": "hospitality", "phaseId": "phase_b" },
+    { "id": 2, "name": "Construction Cost",   "method": "rate_bua",             "value": 5200,     "baseType": "", "startPeriod": 1, "endPeriod": 5, "phasing": { "type": "manual", "values": [25, 25, 20, 20, 10] }, "canDelete": true,  "assetId": "hospitality", "phaseId": "phase_b" },
+    { "id": 3, "name": "Infrastructure",      "method": "rate_total_allocated", "value": 200,      "baseType": "", "startPeriod": 1, "endPeriod": 5, "phasing": "even",                                            "canDelete": true,  "assetId": "hospitality", "phaseId": "phase_b" },
+    { "id": 4, "name": "Professional Fee",    "method": "percent_base",         "value": 7,        "baseType": "", "selectedIds": [2, 3], "startPeriod": 1, "endPeriod": 5, "phasing": "even",                     "canDelete": true,  "assetId": "hospitality", "phaseId": "phase_b" },
+
+    { "id": 1, "name": "Land (Cash Portion)", "method": "fixed",                "value": 20000000, "baseType": "", "startPeriod": 0, "endPeriod": 0, "phasing": "even",                                            "canDelete": false, "assetId": "retail",      "phaseId": "phase_b" },
+    { "id": 2, "name": "Construction Cost",   "method": "rate_bua",             "value": 3800,     "baseType": "", "startPeriod": 1, "endPeriod": 5, "phasing": { "type": "manual", "values": [25, 25, 20, 20, 10] }, "canDelete": true,  "assetId": "retail",      "phaseId": "phase_b" },
+    { "id": 3, "name": "Infrastructure",      "method": "rate_total_allocated", "value": 200,      "baseType": "", "startPeriod": 1, "endPeriod": 5, "phasing": "even",                                            "canDelete": true,  "assetId": "retail",      "phaseId": "phase_b" },
+    { "id": 4, "name": "Professional Fee",    "method": "percent_base",         "value": 6,        "baseType": "", "selectedIds": [2, 3], "startPeriod": 1, "endPeriod": 5, "phasing": "even",                     "canDelete": true,  "assetId": "retail",      "phaseId": "phase_b" }
+  ],
+
+  "costInputMode": "separate",
+  "nextCostId": 5,
+
+  "costStage": {},
+  "costScope": {},
+  "costDevFeeMode": {},
+  "allocBasis": "direct_cost",
+
+  "interestRate": 7.5,
+  "financingMode": "line",
+  "globalDebtPct": 60,
+  "capitalizeInterest": true,
+  "repaymentPeriods": 3,
+  "repaymentMethod": "fixed",
+  "lineRatios": {
+    "Land (Cash Portion)": 70,
+    "Construction Cost": 65,
+    "Infrastructure": 55,
+    "Professional Fee": 50
+  }
+}

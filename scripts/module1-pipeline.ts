@@ -71,6 +71,7 @@ import {
   type LegacyV2Snapshot,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import { LEGACY_ASSET_IDS } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import type { HydrateSnapshot } from '../src/hubs/modeling/platforms/refm/lib/state/module1-store';
 
 // ── Fixture shape ────────────────────────────────────────────────────────────
 // Mirrors the on-disk fixture (`tests/fixtures/module1-reference.json`),
@@ -210,15 +211,15 @@ export function runPipeline(input: Module1Input): Module1Snapshot {
   };
   const v4 = hydrationFromAnySnapshot(legacyV2);
 
-  // 2. Multi-phase guard. The legacy fixture must collapse to exactly
-  //    one Phase (the migrator emits one). Multi-phase aggregation is
-  //    intentionally not built yet — it lands in M1.5/12 alongside the
-  //    multi-phase fixture and a separate baseline. Throwing here keeps
-  //    accidental wiring from silently producing wrong totals.
+  // 2. Single-phase guard. runPipeline is the legacy bit-identical
+  //    path: the fixture collapses to exactly one phase. Multi-phase
+  //    snapshots use runMultiPhasePipeline (added in M1.5/12) so the
+  //    legacy baseline and multi-phase baseline stay in their own
+  //    files and can each evolve at their own pace.
   if (v4.phases.length !== 1) {
     throw new Error(
-      `Module1 pipeline: multi-phase aggregation is stubbed (got ${v4.phases.length} phases). ` +
-      `M1.5/12 will introduce the multi-phase fixture + per-phase rollup logic.`,
+      `Module1 pipeline (single-phase path): expected 1 phase, got ${v4.phases.length}. ` +
+      `Use runMultiPhasePipeline for multi-phase fixtures.`,
     );
   }
   const phase = v4.phases[0];
@@ -348,5 +349,238 @@ export function runPipeline(input: Module1Input): Module1Snapshot {
     areaHierarchy:  hierarchy,
     perAsset,
     summary: { totalCapex, totalDebt, totalEquity, totalInterest, totalPeriods },
+  };
+}
+
+// ── Multi-phase pipeline (Phase M1.5/12) ─────────────────────────────────────
+// Operates on the v4 HydrateSnapshot directly (no v2 round-trip) so the
+// fixture file can carry phases[].length > 1 explicitly. For each phase
+// the pipeline iterates the assets bound to it (assets where
+// asset.phaseId === phase.id) and runs the same per-asset calc as the
+// single-phase path:
+//
+//   - Land aggregates + area hierarchy stay PROJECT-level (one
+//     calculation). The legacy assetType-keyed area math
+//     (residential/hospitality/retail) means area allocation percents
+//     are project-wide regardless of which phase an asset lives in.
+//   - costsFor(phase, assetId) filters to that phase's own cost lines:
+//     either explicitly (cost.phaseId === phase.id) or implicitly
+//     (cost.phaseId undefined = global to the sub-project, attributed
+//     to whichever phase its asset lives in).
+//   - Per-phase totals roll into a project-level summary.
+//
+// Multi-phase math correctness for non-canonical asset shapes is out of
+// scope for M1.5; this commit ships the structural baseline so the
+// regression-guard catches future calc-engine drift.
+
+export interface MultiPhasePhaseSnapshot {
+  phaseId: string;
+  phaseName: string;
+  subProjectId: string;
+  constructionStart: number;
+  constructionPeriods: number;
+  operationsStart: number;
+  operationsPeriods: number;
+  overlapPeriods: number;
+  // Per-asset entries are keyed by canonical legacy id so the JSON
+  // shape stays stable even when phases gain / lose assets.
+  perAsset: {
+    residential: AssetSnapshot | null;
+    hospitality: AssetSnapshot | null;
+    retail:      AssetSnapshot | null;
+  };
+  summary: {
+    totalCapex: number;
+    totalDebt: number;
+    totalEquity: number;
+    totalInterest: number;
+    totalPeriods: number;
+  };
+}
+
+export interface MultiPhaseSnapshot {
+  fixtureLabel: string;
+  landAggregates: ReturnType<typeof calculateLandAggregates>;
+  areaHierarchy: ReturnType<typeof calculateAreaHierarchy>;
+  perPhase: MultiPhasePhaseSnapshot[];
+  summary: {
+    totalCapex: number;
+    totalDebt: number;
+    totalEquity: number;
+    totalInterest: number;
+    totalPhases: number;
+  };
+}
+
+// Loader for the v4 fixture format (HydrateSnapshot serialized to JSON).
+export function loadV4Fixture(path: string): HydrateSnapshot {
+  const raw = readFileSync(path, 'utf-8');
+  const obj = JSON.parse(raw) as Record<string, unknown>;
+  // Strip any documentation field the fixture carries (mirrors the
+  // legacy fixture's _comment passthrough).
+  const cleaned: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(obj)) {
+    if (k.startsWith('_')) continue;
+    cleaned[k] = v;
+  }
+  return cleaned as unknown as HydrateSnapshot;
+}
+
+export function runMultiPhasePipeline(v4: HydrateSnapshot): MultiPhaseSnapshot {
+  // Project-level land + area hierarchy. Same calculation as the
+  // single-phase path; legacy assetType-driven area math means these
+  // stay project-wide.
+  const land = calculateLandAggregates(v4.landParcels);
+
+  const findAsset = (id: string) => v4.assets.find(a => a.id === id);
+  const resAsset  = findAsset(LEGACY_ASSET_IDS.residential);
+  const hospAsset = findAsset(LEGACY_ASSET_IDS.hospitality);
+  const retAsset  = findAsset(LEGACY_ASSET_IDS.retail);
+
+  // The legacy area helpers require all three canonical-asset percents;
+  // a missing asset reads as 0% allocation / 0 visible.
+  const residentialPercent  = resAsset?.allocationPct  ?? 0;
+  const hospitalityPercent  = hospAsset?.allocationPct ?? 0;
+  const retailPercent       = retAsset?.allocationPct  ?? 0;
+  const residentialDeductPct  = resAsset?.deductPct     ?? 0;
+  const residentialEfficiency = resAsset?.efficiencyPct ?? 0;
+  const hospitalityDeductPct  = hospAsset?.deductPct    ?? 0;
+  const hospitalityEfficiency = hospAsset?.efficiencyPct ?? 0;
+  const retailDeductPct       = retAsset?.deductPct     ?? 0;
+  const retailEfficiency      = retAsset?.efficiencyPct ?? 0;
+  const showResidential = !!resAsset?.visible;
+  const showHospitality = !!hospAsset?.visible;
+  const showRetail      = !!retAsset?.visible;
+
+  const hierarchy = calculateAreaHierarchy({
+    totalLandArea:        land.totalLandArea,
+    landValuePerSqm:      land.landValuePerSqm,
+    cashPercent:          land.cashPercent,
+    inKindPercent:        land.inKindPercent,
+    projectRoadsPct:      v4.projectRoadsPct,
+    projectFAR:           v4.projectFAR,
+    projectNonEnclosedPct: v4.projectNonEnclosedPct,
+    residentialPercent, hospitalityPercent, retailPercent,
+    residentialDeductPct, residentialEfficiency,
+    hospitalityDeductPct, hospitalityEfficiency,
+    retailDeductPct, retailEfficiency,
+    showResidential, showHospitality, showRetail,
+  });
+
+  const assetPercents: Record<string, number> = { residential: residentialPercent, hospitality: hospitalityPercent, retail: retailPercent };
+  const showFlags: Record<string, boolean> = { residential: showResidential, hospitality: showHospitality, retail: showRetail };
+
+  // Per-phase iteration. Phases are emitted in store order so the
+  // baseline is stable regardless of how the fixture happens to list
+  // them.
+  const perPhase: MultiPhasePhaseSnapshot[] = v4.phases.map(phase => {
+    // Costs attributable to this phase: phase-specific cost lines (whose
+    // phaseId matches), plus sub-project-global cost lines (phaseId
+    // undefined) inherited by every phase under that sub-project.
+    const phaseCostsForAsset = (assetId: string): CostItem[] => {
+      const asset = findAsset(assetId);
+      if (!asset || asset.phaseId !== phase.id) return [];
+      return v4.costs.filter(c =>
+        c.assetId === assetId &&
+        (c.phaseId === undefined || c.phaseId === phase.id),
+      );
+    };
+
+    const buildAssetSnapshot = (assetType: AssetKey, costs: CostItem[]): AssetSnapshot => {
+      const areas = getAreas(assetType, {
+        hierarchy,
+        landAggregates:     land,
+        residentialPercent, hospitalityPercent, retailPercent,
+        projectNDA:         hierarchy.projectNDA,
+      });
+
+      const costItemTotals = costs.map(c => ({
+        name:  c.name,
+        total: calculateItemTotal(c, assetType, areas, costs, v4.costInputMode, assetPercents, showFlags),
+      }));
+
+      const costDistributions = costs.map(c => ({
+        name: c.name,
+        dist: distributeCost(c, assetType, phase.constructionPeriods, areas, costs, v4.costInputMode, assetPercents, showFlags),
+      }));
+
+      const financing = buildAssetFinancing({
+        assetType,
+        areas,
+        costs,
+        constructionPeriods: phase.constructionPeriods,
+        operationsPeriods:   phase.operationsPeriods,
+        interestRate:        v4.interestRate,
+        modelType:           v4.modelType,
+        repaymentPeriods:    v4.repaymentPeriods,
+        capitalizeInterest:  v4.capitalizeInterest,
+        costInputMode:       v4.costInputMode,
+        financingMode:       v4.financingMode,
+        globalDebtPct:       v4.globalDebtPct,
+        lineRatios:          v4.lineRatios,
+        assetPercents,
+        showFlags,
+      });
+
+      return { areas, costItemTotals, costDistributions, financing };
+    };
+
+    // An asset contributes to a phase if it is bound to it AND visible.
+    const resCosts  = phaseCostsForAsset(LEGACY_ASSET_IDS.residential);
+    const hospCosts = phaseCostsForAsset(LEGACY_ASSET_IDS.hospitality);
+    const retCosts  = phaseCostsForAsset(LEGACY_ASSET_IDS.retail);
+
+    const phasePerAsset = {
+      residential: (showResidential && resAsset?.phaseId  === phase.id) ? buildAssetSnapshot('residential', resCosts)  : null,
+      hospitality: (showHospitality && hospAsset?.phaseId === phase.id) ? buildAssetSnapshot('hospitality', hospCosts) : null,
+      retail:      (showRetail      && retAsset?.phaseId  === phase.id) ? buildAssetSnapshot('retail',      retCosts)  : null,
+    };
+
+    const sumAssetTotals = (key: 'totalDebt' | 'totalEquity' | 'totalInterest') =>
+      (phasePerAsset.residential?.financing[key] ?? 0) +
+      (phasePerAsset.hospitality?.financing[key] ?? 0) +
+      (phasePerAsset.retail?.financing[key]      ?? 0);
+
+    const totalDebt     = sumAssetTotals('totalDebt');
+    const totalEquity   = sumAssetTotals('totalEquity');
+    const totalInterest = sumAssetTotals('totalInterest');
+
+    return {
+      phaseId:             phase.id,
+      phaseName:           phase.name,
+      subProjectId:        phase.subProjectId,
+      constructionStart:   phase.constructionStart,
+      constructionPeriods: phase.constructionPeriods,
+      operationsStart:     phase.operationsStart,
+      operationsPeriods:   phase.operationsPeriods,
+      overlapPeriods:      phase.overlapPeriods,
+      perAsset:            phasePerAsset,
+      summary: {
+        totalCapex:    totalDebt + totalEquity,
+        totalDebt,
+        totalEquity,
+        totalInterest,
+        totalPeriods:  phase.constructionPeriods + phase.operationsPeriods,
+      },
+    };
+  });
+
+  // Project-level rollup: sum across phases.
+  const projectTotalDebt     = perPhase.reduce((s, p) => s + p.summary.totalDebt,     0);
+  const projectTotalEquity   = perPhase.reduce((s, p) => s + p.summary.totalEquity,   0);
+  const projectTotalInterest = perPhase.reduce((s, p) => s + p.summary.totalInterest, 0);
+
+  return {
+    fixtureLabel:   v4.projectName,
+    landAggregates: land,
+    areaHierarchy:  hierarchy,
+    perPhase,
+    summary: {
+      totalCapex:    projectTotalDebt + projectTotalEquity,
+      totalDebt:     projectTotalDebt,
+      totalEquity:   projectTotalEquity,
+      totalInterest: projectTotalInterest,
+      totalPhases:   perPhase.length,
+    },
   };
 }
