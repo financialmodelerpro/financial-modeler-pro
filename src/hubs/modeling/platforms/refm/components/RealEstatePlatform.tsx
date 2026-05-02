@@ -38,6 +38,7 @@ import Module1Area from './modules/Module1Area';
 import Module1Costs from './modules/Module1Costs';
 import Module1Financing from './modules/Module1Financing';
 import Module1Hierarchy from './modules/Module1Hierarchy';
+import Module1AreaProgram from './modules/Module1AreaProgram';
 import ProjectModal from './modals/ProjectModal';
 import VersionModal from './modals/VersionModal';
 import RbacModal from './modals/RbacModal';
@@ -200,11 +201,12 @@ export const sidebarModules: readonly SidebarNavItem[] = [
 // M1.5/6 - M1.5/10; for now M1.5/5 ships an onboarding empty-state so
 // the routing has somewhere to send the user.
 export const m1Tabs = [
-  { key: 'hierarchy', icon: '🗂️', label: 'Hierarchy' },
-  { key: 'timeline',  icon: '📅', label: 'Timeline' },
-  { key: 'area',      icon: '🗺️', label: 'Land & Area' },
-  { key: 'costs',     icon: '💸', label: 'Dev Costs' },
-  { key: 'financing', icon: '🏦', label: 'Financing' },
+  { key: 'hierarchy',    icon: '🗂️', label: 'Hierarchy' },
+  { key: 'timeline',     icon: '📅', label: 'Timeline' },
+  { key: 'area',         icon: '🗺️', label: 'Land & Area' },
+  { key: 'area-program', icon: '📐', label: 'Area Program' },
+  { key: 'costs',        icon: '💸', label: 'Dev Costs' },
+  { key: 'financing',    icon: '🏦', label: 'Financing' },
 ];
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -1552,6 +1554,7 @@ export default function RealEstatePlatform() {
             {/* Tab content */}
             <div className="tab-content" style={{ padding: 'var(--sp-3)' }}>
               {activeTab === 'hierarchy' && <Module1Hierarchy />}
+              {activeTab === 'area-program' && <Module1AreaProgram />}
               {activeTab === 'timeline' && (
                 <Module1Timeline
                   projectName={projectName} setProjectName={setProjectName}
