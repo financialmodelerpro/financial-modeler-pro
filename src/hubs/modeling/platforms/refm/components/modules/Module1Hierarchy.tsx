@@ -61,14 +61,20 @@
  *     understand what comes next. The Sub-Unit add button keeps its
  *     compact style but gains a 1-line hint above it explaining what
  *     a Sub-Unit is for that asset's category.
- *   - M1.5b/4 (this commit): first-time empty state. When a brand-new
- *     project has zero Sub-Projects, replace the regular tree (which
- *     would just show the disabled MH card and a single "+ Add
- *     Sub-Project" button) with a single centered card that pairs two
- *     clear CTAs: Quick Setup (wizard) and Manual Setup (reveal the
- *     full tree). Brief one-line description under each button. The
- *     Manual mode toggle lives in local state so the user can flip
- *     back and forth without losing the empty-tree CRUD progress.
+ *   - M1.5b/4: first-time empty state. When a brand-new project has
+ *     zero Sub-Projects, replace the regular tree (which would just
+ *     show the disabled MH card and a single "+ Add Sub-Project"
+ *     button) with a single centered card that pairs two clear CTAs:
+ *     Quick Setup (wizard) and Manual Setup (reveal the full tree).
+ *   - M1.5b/5 (this commit): Quick Setup wizard. Modal-style 4-step
+ *     form (Sub-Project basics → Timeline → First Asset → Sub-Units)
+ *     that creates a Sub-Project + Phase + Asset + N Sub-Units in one
+ *     transactional click. Backdrop click and Esc close; Tab cycles
+ *     through fields naturally; aria-modal on the dialog. "Switch to
+ *     Manual Setup" link inside the wizard preserves what the user
+ *     has typed. Reachable from the header link, the first-time CTA,
+ *     and (when sub-projects already exist) a wizard-aware "+ Add
+ *     Sub-Project (wizard)" button alongside the inline-edit path.
  *
  * The component subscribes to useModule1Store directly; CRUD goes
  * straight through the store actions (add/update/remove SubProject /
@@ -837,6 +843,458 @@ function MasterHoldingEditor({ initial, currency, onSave, onCancel }: MasterHold
   );
 }
 
+// ── Quick Setup wizard (M1.5b/5) ───────────────────────────────────────────
+// 4-step modal that lets a first-time user mint a complete starter
+// hierarchy in one click. The wizard never writes incrementally to the
+// store — the user assembles a local draft and we dispatch all the
+// add* actions transactionally on Create. Switching to Manual Setup
+// preserves the draft (it just isn't applied), so the user doesn't
+// lose typed values when they bail out.
+//
+// Accessibility:
+//   - role=dialog + aria-modal=true on the inner card
+//   - aria-labelledby points at the wizard title
+//   - Esc closes the modal
+//   - Backdrop click closes the modal
+//   - Tab cycles through fields naturally (no forced focus trap; the
+//     Esc + close button + backdrop are sufficient escape hatches)
+interface QuickSetupDraft {
+  // Step 1
+  subProjectName: string;
+  currency: string;
+  // Step 2
+  phaseName: string;
+  constructionPeriods: number;
+  operationsPeriods: number;
+  overlapPeriods: number;
+  // Step 3
+  assetName: string;
+  assetCategory: AssetCategory;
+  assetType: string;
+  allocationPct: number;
+  deductPct: number;
+  efficiencyPct: number;
+  // Step 4
+  subUnits: Array<{
+    name: string;
+    metric: 'count' | 'area';
+    metricValue: number;
+    unitPrice: number;
+    priceEscalationPct: number;
+  }>;
+}
+
+interface QuickSetupWizardProps {
+  initial: QuickSetupDraft;
+  onCreate: (draft: QuickSetupDraft) => void;
+  onSwitchToManual: () => void;
+  onClose: () => void;
+}
+
+function QuickSetupWizard({ initial, onCreate, onSwitchToManual, onClose }: QuickSetupWizardProps) {
+  const [draft, setDraft] = useState<QuickSetupDraft>(initial);
+  const [step, setStep]   = useState<1 | 2 | 3 | 4>(1);
+  const titleId = 'quick-setup-wizard-title';
+
+  // Esc closes. Bound to window so the listener catches the key even
+  // when focus is on a button inside the dialog.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  const setField = <K extends keyof QuickSetupDraft>(k: K, v: QuickSetupDraft[K]) =>
+    setDraft(prev => ({ ...prev, [k]: v }));
+
+  const subUnitTypeOptions = PREBUILT_ASSET_TYPES[draft.assetCategory];
+  const stepLabels = ['Sub-Project', 'Timeline', 'First Asset', 'Sub-Units'];
+
+  // Validation per step controls the Next/Create button's enabled state.
+  const stepValid =
+    step === 1 ? draft.subProjectName.trim() !== '' && draft.currency.trim() !== '' :
+    step === 2 ? draft.phaseName.trim() !== '' && draft.constructionPeriods >= 0 && draft.operationsPeriods >= 0 :
+    step === 3 ? draft.assetName.trim() !== '' :
+    /* step 4 */ true;  // Sub-units are skippable
+
+  return (
+    <div
+      role="presentation"
+      onClick={onClose}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 1000,
+        background: 'color-mix(in srgb, var(--color-heading) 55%, transparent)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 'var(--sp-3)',
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: 'var(--color-surface)',
+          color: 'var(--color-body)',
+          borderRadius: 'var(--radius-md)',
+          boxShadow: 'var(--shadow-modal)',
+          maxWidth: 640,
+          width: '100%',
+          maxHeight: '90vh',
+          overflowY: 'auto',
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
+        {/* Header */}
+        <div style={{
+          padding: 'var(--sp-3)',
+          borderBottom: '1px solid var(--color-border)',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--sp-2)',
+          background: `color-mix(in srgb, var(--color-navy) 4%, var(--color-surface))`,
+          borderTopLeftRadius: 'var(--radius-md)',
+          borderTopRightRadius: 'var(--radius-md)',
+        }}>
+          <div>
+            <h3 id={titleId} style={{ fontSize: 'var(--font-section)', fontWeight: 'var(--fw-bold)', color: 'var(--color-heading)', margin: 0 }}>
+              ⚡ Quick Setup
+            </h3>
+            <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 4 }}>
+              Step {step} of 4 — {stepLabels[step - 1]}
+            </div>
+          </div>
+          <button
+            type="button"
+            aria-label="Close wizard"
+            onClick={onClose}
+            style={{
+              background: 'transparent',
+              border: 'none',
+              fontSize: 22,
+              color: 'var(--color-meta)',
+              cursor: 'pointer',
+              padding: '4px 10px',
+              lineHeight: 1,
+            }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Step indicator dots */}
+        <div style={{ display: 'flex', gap: 6, padding: '0 var(--sp-3)', marginTop: 'var(--sp-2)' }}>
+          {[1, 2, 3, 4].map(n => (
+            <div
+              key={n}
+              style={{
+                flex: 1,
+                height: 4,
+                borderRadius: 2,
+                background: n <= step
+                  ? 'var(--color-primary)'
+                  : 'color-mix(in srgb, var(--color-meta) 25%, transparent)',
+                transition: 'background 0.2s ease',
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: 'var(--sp-3)', flex: 1 }}>
+          {step === 1 && (
+            <div>
+              <p style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 0 }}>
+                Name your independent financing unit and pick its currency.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px', gap: 'var(--sp-2)' }}>
+                <div>
+                  <label style={labelStyle}>Sub-Project name</label>
+                  <input
+                    type="text" autoFocus
+                    value={draft.subProjectName}
+                    onChange={(e) => setField('subProjectName', e.target.value)}
+                    style={{ ...inputStyle, width: '100%' }}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Currency</label>
+                  <input
+                    type="text"
+                    value={draft.currency}
+                    onChange={(e) => setField('currency', e.target.value.toUpperCase().slice(0, 4))}
+                    style={{ ...inputStyle, width: '100%' }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {step === 2 && (
+            <div>
+              <p style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 0 }}>
+                Define the first phase&apos;s timeline. Most projects use a single phase that covers construction + operations.
+              </p>
+              <div style={{ marginBottom: 'var(--sp-2)' }}>
+                <label style={labelStyle}>Phase name</label>
+                <input
+                  type="text" autoFocus
+                  value={draft.phaseName}
+                  onChange={(e) => setField('phaseName', e.target.value)}
+                  style={{ ...inputStyle, width: '100%' }}
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)' }}>
+                <div>
+                  <label style={labelStyle}>Construction periods</label>
+                  <input
+                    type="number" min={0} step={1}
+                    value={draft.constructionPeriods}
+                    onChange={(e) => setField('constructionPeriods', Math.max(0, Number(e.target.value) || 0))}
+                    style={{ ...inputStyle, width: '100%' }}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Operations periods</label>
+                  <input
+                    type="number" min={0} step={1}
+                    value={draft.operationsPeriods}
+                    onChange={(e) => setField('operationsPeriods', Math.max(0, Number(e.target.value) || 0))}
+                    style={{ ...inputStyle, width: '100%' }}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Overlap periods</label>
+                  <input
+                    type="number" min={0} step={1}
+                    value={draft.overlapPeriods}
+                    onChange={(e) => setField('overlapPeriods', Math.max(0, Number(e.target.value) || 0))}
+                    style={{ ...inputStyle, width: '100%' }}
+                  />
+                </div>
+              </div>
+              <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 'var(--sp-1)' }}>
+                Operations will start at period {Math.max(1, 1 + draft.constructionPeriods - draft.overlapPeriods)} (= 1 + construction − overlap).
+              </div>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div>
+              <p style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 0 }}>
+                Add the first asset. The 20 prebuilt types cover the common cases — switch category to filter the list.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+                <div>
+                  <label style={labelStyle}>Asset name</label>
+                  <input
+                    type="text" autoFocus
+                    value={draft.assetName}
+                    onChange={(e) => setField('assetName', e.target.value)}
+                    style={{ ...inputStyle, width: '100%' }}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Category</label>
+                  <select
+                    value={draft.assetCategory}
+                    onChange={(e) => {
+                      const next = e.target.value as AssetCategory;
+                      setDraft(prev => ({ ...prev, assetCategory: next, assetType: PREBUILT_ASSET_TYPES[next][0] }));
+                    }}
+                    style={{ ...inputStyle, width: '100%' }}
+                  >
+                    <option value="Sell">Sell</option>
+                    <option value="Operate">Operate</option>
+                    <option value="Lease">Lease</option>
+                    <option value="Hybrid">Hybrid</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>Type</label>
+                  <select
+                    value={draft.assetType}
+                    onChange={(e) => setField('assetType', e.target.value)}
+                    style={{ ...inputStyle, width: '100%' }}
+                  >
+                    {subUnitTypeOptions.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)' }}>
+                <div>
+                  <label style={labelStyle}>Allocation %</label>
+                  <input
+                    type="number" min={0} max={100} step={0.5}
+                    value={draft.allocationPct}
+                    onChange={(e) => setField('allocationPct', Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                    style={{ ...inputStyle, width: '100%' }}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Deduct %</label>
+                  <input
+                    type="number" min={0} max={100} step={0.5}
+                    value={draft.deductPct}
+                    onChange={(e) => setField('deductPct', Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                    style={{ ...inputStyle, width: '100%' }}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>Efficiency %</label>
+                  <input
+                    type="number" min={0} max={100} step={0.5}
+                    value={draft.efficiencyPct}
+                    onChange={(e) => setField('efficiencyPct', Math.max(0, Math.min(100, Number(e.target.value) || 0)))}
+                    style={{ ...inputStyle, width: '100%' }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {step === 4 && (
+            <div>
+              <p style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 0 }}>
+                Optional — add inventory now or skip and come back later from the Hierarchy tab.
+              </p>
+              {draft.subUnits.length === 0 && (
+                <div style={{ ...emptyHintStyle, marginBottom: 'var(--sp-2)', textAlign: 'center', padding: 'var(--sp-2)' }}>
+                  No sub-units yet. Click ＋ below to add one, or hit Create to skip.
+                </div>
+              )}
+              {draft.subUnits.map((u, idx) => (
+                <div key={idx} style={{ ...cardBase, padding: 'var(--sp-2)', marginBottom: 'var(--sp-1)' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 100px 100px', gap: 'var(--sp-2)', alignItems: 'end' }}>
+                    <div>
+                      <label style={labelStyle}>Name</label>
+                      <input
+                        type="text" value={u.name}
+                        onChange={(e) => setDraft(prev => ({ ...prev, subUnits: prev.subUnits.map((x, i) => i === idx ? { ...x, name: e.target.value } : x) }))}
+                        style={{ ...inputStyle, width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>Metric</label>
+                      <select
+                        value={u.metric}
+                        onChange={(e) => setDraft(prev => ({ ...prev, subUnits: prev.subUnits.map((x, i) => i === idx ? { ...x, metric: e.target.value as 'count' | 'area' } : x) }))}
+                        style={{ ...inputStyle, width: '100%' }}
+                      >
+                        <option value="count">Count</option>
+                        <option value="area">Area</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={labelStyle}>{u.metric === 'count' ? '#' : 'sqm'}</label>
+                      <input
+                        type="number" min={0} value={u.metricValue}
+                        onChange={(e) => setDraft(prev => ({ ...prev, subUnits: prev.subUnits.map((x, i) => i === idx ? { ...x, metricValue: Math.max(0, Number(e.target.value) || 0) } : x) }))}
+                        style={{ ...inputStyle, width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={labelStyle}>{draft.currency} / {u.metric === 'count' ? 'unit' : 'sqm'}</label>
+                      <input
+                        type="number" min={0} value={u.unitPrice}
+                        onChange={(e) => setDraft(prev => ({ ...prev, subUnits: prev.subUnits.map((x, i) => i === idx ? { ...x, unitPrice: Math.max(0, Number(e.target.value) || 0) } : x) }))}
+                        style={{ ...inputStyle, width: '100%' }}
+                      />
+                    </div>
+                  </div>
+                  <div style={{ marginTop: 6, textAlign: 'right' }}>
+                    <button
+                      type="button" onClick={() => setDraft(prev => ({ ...prev, subUnits: prev.subUnits.filter((_, i) => i !== idx) }))}
+                      style={{ ...iconBtnStyle, color: 'var(--color-negative)' }}
+                    >
+                      🗑 Remove
+                    </button>
+                  </div>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => {
+                  const defaultMetric: 'count' | 'area' = draft.assetCategory === 'Lease' ? 'area' : 'count';
+                  setDraft(prev => ({
+                    ...prev,
+                    subUnits: [...prev.subUnits, { name: `Sub-Unit ${prev.subUnits.length + 1}`, metric: defaultMetric, metricValue: 0, unitPrice: 0, priceEscalationPct: 0 }],
+                  }));
+                }}
+                style={{
+                  width: '100%', padding: 8, marginTop: 4,
+                  background: 'transparent',
+                  color: tokens.subUnitAccent,
+                  border: `1px dashed color-mix(in srgb, ${tokens.subUnitAccent} 50%, var(--color-border))`,
+                  borderRadius: 6, cursor: 'pointer', fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)',
+                }}
+              >
+                ＋ Add Sub-Unit
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={{
+          padding: 'var(--sp-2) var(--sp-3)',
+          borderTop: '1px solid var(--color-border)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 'var(--sp-2)',
+          flexWrap: 'wrap',
+        }}>
+          <button
+            type="button"
+            onClick={onSwitchToManual}
+            style={{
+              background: 'transparent', border: 'none',
+              color: 'var(--color-meta)', cursor: 'pointer',
+              fontSize: 'var(--font-meta)', textDecoration: 'underline',
+              padding: '4px 8px',
+            }}
+          >
+            ✎ Switch to Manual Setup
+          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {step > 1 && (
+              <button type="button" onClick={() => setStep(s => (s - 1) as 1 | 2 | 3 | 4)} style={ghostBtnStyle}>
+                ← Back
+              </button>
+            )}
+            {step < 4 ? (
+              <button
+                type="button"
+                onClick={() => stepValid && setStep(s => (s + 1) as 1 | 2 | 3 | 4)}
+                disabled={!stepValid}
+                style={{
+                  ...primaryBtnStyle,
+                  opacity: stepValid ? 1 : 0.5,
+                  cursor: stepValid ? 'pointer' : 'not-allowed',
+                }}
+              >
+                Next →
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => onCreate(draft)}
+                style={primaryBtnStyle}
+              >
+                ✓ Create
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 export default function Module1Hierarchy() {
   const { masterHolding, subProjects, phases, assets, subUnits, currency, projectName } = useModule1Store(useShallow((s) => ({
@@ -896,6 +1354,13 @@ export default function Module1Hierarchy() {
   // need to persist; first-time UX should always be available when the
   // user empties the project.
   const [manualMode, setManualMode] = useState(false);
+
+  // M1.5b/5: Quick Setup wizard open state. The wizard is reachable
+  // from three places: (1) the header "Switch to Quick Setup" link,
+  // (2) the first-time-empty Quick Setup CTA, and (3) the inline
+  // wizard-aware "+ Add Sub-Project (wizard)" button shown alongside
+  // the existing inline-add path.
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const toggleCollapsed = (s: Set<string>, setS: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) => {
     setS(prev => {
@@ -1154,14 +1619,82 @@ export default function Module1Hierarchy() {
   const totalAssets   = assets.length;
   const totalSubUnits = subUnits.length;
 
-  // M1.5b/1: Quick Setup launcher. Placeholder until the wizard ships
-  // in M1.5b/5 — for now it surfaces a friendly explainer instead of
-  // a half-built modal so the link is wired but the feature isn't
-  // half-baked.
-  const launchQuickSetup = () => {
-    if (typeof window !== 'undefined') {
-      window.alert('Quick Setup wizard arrives in M1.5b/5. For now, use "+ Add Sub-Project" / "+ Add Phase" / "+ Add Asset" inline below.');
-    }
+  // M1.5b/5: Quick Setup launcher. Opens the wizard modal.
+  const launchQuickSetup = () => setWizardOpen(true);
+
+  // M1.5b/5: wizard initial draft. When sub-projects already exist,
+  // ordinal jumps to subProjects.length+1 so the default name doesn't
+  // collide with an existing one.
+  const wizardInitialDraft: QuickSetupDraft = {
+    subProjectName: subProjects.length === 0 ? projectName : `Sub-Project ${subProjects.length + 1}`,
+    currency,
+    phaseName:           'Phase 1',
+    constructionPeriods: 4,
+    operationsPeriods:   5,
+    overlapPeriods:      0,
+    assetName:           'Asset 1',
+    assetCategory:       'Sell',
+    assetType:           PREBUILT_ASSET_TYPES.Sell[0],
+    allocationPct:       100,
+    deductPct:           10,
+    efficiencyPct:       85,
+    subUnits:            [],
+  };
+
+  // M1.5b/5: transactional create. Mints a Sub-Project + Phase + Asset
+  // (+ N Sub-Units) in one click via the existing store actions. We
+  // build the ids inline and pass them through so each downstream call
+  // has the parent id without re-reading the store. After create we
+  // close the wizard and clear manual mode (no longer needed once the
+  // tree has data).
+  const handleWizardCreate = (d: QuickSetupDraft) => {
+    const subProjectId = `subproject_${Date.now()}`;
+    const phaseId      = `phase_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const assetId      = `asset_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+
+    addSubProject({
+      id: subProjectId,
+      name: d.subProjectName.trim(),
+      currency: d.currency.trim() || currency,
+      masterHoldingId: null,
+      revenueShareToMaster: 0,
+    });
+    addPhase({
+      id: phaseId,
+      name: d.phaseName.trim(),
+      subProjectId,
+      constructionStart: 1,
+      constructionPeriods: d.constructionPeriods,
+      operationsStart: Math.max(1, 1 + d.constructionPeriods - d.overlapPeriods),
+      operationsPeriods: d.operationsPeriods,
+      overlapPeriods: d.overlapPeriods,
+    });
+    addAsset({
+      id: assetId,
+      name: d.assetName.trim(),
+      type: d.assetType,
+      category: d.assetCategory,
+      allocationPct: d.allocationPct,
+      deductPct: d.deductPct,
+      efficiencyPct: d.efficiencyPct,
+      visible: true,
+      subProjectId,
+      phaseId,
+    });
+    d.subUnits.forEach((u, idx) => {
+      addSubUnit({
+        id: `subunit_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+        assetId,
+        name: u.name.trim() || `Sub-Unit ${idx + 1}`,
+        metric: u.metric,
+        metricValue: u.metricValue,
+        unitPrice: u.unitPrice,
+        priceEscalationPct: u.priceEscalationPct,
+      });
+    });
+
+    setWizardOpen(false);
+    setManualMode(false);
   };
 
   return (
@@ -1801,20 +2334,40 @@ export default function Module1Hierarchy() {
             />
           </div>
         ) : (
-          <button
-            onClick={() => setEditingId('__new__')}
-            style={{
-              ...primaryBtnStyle,
-              width: '100%',
-              padding: 10,
-              background: 'transparent',
-              color: tokens.subProjAccent,
-              border: `1px dashed color-mix(in srgb, ${tokens.subProjAccent} 50%, var(--color-border))`,
-              marginTop: 4,
-            }}
-          >
-            ＋ Add Sub-Project
-          </button>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 8, marginTop: 4 }}>
+            <button
+              onClick={() => setEditingId('__new__')}
+              style={{
+                ...primaryBtnStyle,
+                width: '100%',
+                padding: 10,
+                background: 'transparent',
+                color: tokens.subProjAccent,
+                border: `1px dashed color-mix(in srgb, ${tokens.subProjAccent} 50%, var(--color-border))`,
+              }}
+            >
+              ＋ Add Sub-Project
+            </button>
+            {/* M1.5b/5: wizard-aware add path. Mints SP + Phase + Asset
+               + Sub-Units in one go for users who'd rather walk through
+               a guided flow than build piece by piece. */}
+            <button
+              onClick={launchQuickSetup}
+              aria-label="Add Sub-Project via Quick Setup wizard"
+              style={{
+                padding: '0 14px',
+                background: 'transparent',
+                color: tokens.subProjAccent,
+                border: `1px solid color-mix(in srgb, ${tokens.subProjAccent} 35%, var(--color-border))`,
+                borderRadius: 6,
+                cursor: 'pointer',
+                fontSize: 'var(--font-meta)',
+                fontWeight: 'var(--fw-semibold)',
+              }}
+            >
+              ⚡ via Wizard
+            </button>
+          </div>
         )}
       </div>
 
@@ -1823,6 +2376,18 @@ export default function Module1Hierarchy() {
         Tip: hover any tier label's ⓘ for an explainer. Use the chevrons to collapse a busy tree. The breadcrumb at the top tracks your active Sub-Project + Phase.
       </p>
       </>
+      )}
+
+      {/* M1.5b/5: Quick Setup wizard. Rendered conditionally so the
+         dialog DOM only exists when open (cleaner for screen readers,
+         no leftover Esc handlers when closed). */}
+      {wizardOpen && (
+        <QuickSetupWizard
+          initial={wizardInitialDraft}
+          onCreate={handleWizardCreate}
+          onSwitchToManual={() => { setWizardOpen(false); setManualMode(true); }}
+          onClose={() => setWizardOpen(false)}
+        />
       )}
     </div>
   );
