@@ -4,6 +4,41 @@
 
 ---
 
+## Recently Completed — REFM Module 1 Phase M1.7 Area Program (2026-05-02, 8 commits)
+
+Closes M1.7. Adds the new "Area Program" tab between Land & Area and Dev Costs in REFM Module 1, introducing **Plot** (between Phase and Asset) and optional **Zone** (logical sub-division of Plot) entities, per-asset **Strategy** (Develop & Sell / Lease / Operate, Primary + optional Secondary with allocation %), per-asset **area cascade** overrides (MEP / Back-of-House / Other Technical %, GFA override), per-asset **Sub-Unit schedule** (Studio / 1BR / 2BR / 3BR / Hotel Key / Office / Retail) with parking-bays-per-unit override, live computed envelope panel, live cascade preview, and per-plot parking allocator readout (surface / vertical / basement bays vs. capacity, deficit warning).
+
+**Per-commit shape:**
+
+| # | Commit | What changed |
+|---|--------|--------------|
+| 1 | `fd2767e` | `module1-types.ts` + `module1-store.ts` + `module1-migrate.ts` — Plot + Zone interfaces, AssetStrategy enum, industry-typical defaults (FAR 3.0 / coverage 60% / basement eff. 95% / bay sizes 25/40/44 sqm / parking ratios), `makeDefaultPlot` factory, HydrateSnapshot extended with `plots[] / zones[]`, store CRUD with cascade-aware deletes (removePlot drops zones + clears asset.plotId/zoneId; removePhase / removeSubProject extended to cascade through plots/zones), selectors (`selectPlotsForPhase`, `selectZonesForPlot`, `selectAssetsForPlot`, `selectActivePlot`), `enrichWithHierarchyDefaults` pads missing `plots: [] / zones: []` on pre-M1.7 payloads. |
+| 2 | `baa0e27` | `@core/calculations/index.ts` — 4 new pure functions: `computePlotEnvelope`, `computeAreaCascade`, `computePlotParkingCapacity`, `allocateParking` (waterfall: surface → vertical → basement). Inputs are plain scalars / objects so REFM types stay out of `@core` (one-way dep preserved). |
+| 3 | `af471e7` | `module1-types.ts` — AssetClass extended with `primaryStrategy / primaryStrategyPct / secondaryStrategy / secondaryStrategyPct / mepPct / backOfHousePct / otherTechnicalPct / gfaOverrideSqm`. SubUnit extended with `parkingBaysPerUnit / gfaSharePct`. `DEFAULT_AREA_CASCADE_BY_CATEGORY` (Sell 8/3/3, Lease 12/5/4, Operate 15/12/5, Hybrid 12/8/4). Pure resolver helpers (`resolveAssetStrategy`, `resolveAssetCascadePcts`, `resolveSubUnitParkingBays`). |
+| 4 | `041feaa` | New regression-guard track for M1.7 calc surface: `tests/fixtures/module1-areaprogram.json` (1 plot / 2 zones / 3 assets / 3 sub-units), `runAreaProgramPipeline` in `scripts/module1-pipeline.ts`, `scripts/module1-areaprogram-snapshot.ts` (baseline writer), `scripts/module1-areaprogram-diff.ts` (bit-identical comparison), `tests/snapshots/module1-areaprogram-baseline.json` (2.8 KB). |
+| 5 | `ac2f2c5` | NEW component `Module1AreaProgram.tsx` — store-direct tab with Plot CRUD (envelope inputs + computed envelope panel + ⚠ Over-FAR badge), Zone CRUD (inline name + areaSharePct), per-asset Strategy + cascade-pct overrides + zone picker + GFA override + live cascade preview, Asset assignment picker for unbound assets in the active phase. `RealEstatePlatform.tsx` wires `{ key: 'area-program', icon: '📐', label: 'Area Program' }` between Land & Area and Dev Costs. |
+| 6 | `4ea532f` | `Plot.verticalParkingFloors?` (optional, default 0). New `SubUnitTable` per asset (inline editable Type / Metric / Quantity / Parking-bays-per-unit override / live Bays Demanded / Delete; `<datalist>` of category-specific suggestions). New `ParkingSummary` per plot (Required / Surface / Vertical / Basement / Total Allocated; flips to negative-bg + ⚠ deficit badge when demand > capacity). |
+| 7 | `f8b6bfd` | Installed `@playwright/test ^1.59.1` + chromium. NEW `scripts/verify-m17.ts` (5-section verifier per the standing per-phase preference). 25 pass / 0 fail / 2 skip without dev server. |
+| 8 | `8659b0c` | Doc sweep: `CLAUDE-FEATURES.md` gets full Area Program row, `CLAUDE-ROUTES.md` adds Module1AreaProgram + Module1Hierarchy to module list, `CLAUDE-DB.md` notes the JSONB extension on `refm_project_versions.snapshot` (no new tables). |
+
+Plus: `396bc1b` (working-tree cleanup — gitignored xlsx-extract artifacts, bumped reference workbooks).
+
+**Memory:** `project_m17_patterns.md` (7 locked-in patterns: additive HydrateSnapshot extensions, `@core` stays REFM-type-free, resolver helpers, separate snapshot-diff track per surface, multi-level cascade-aware deletes, codified verifier template, store-direct tabs hold across modules).
+
+**No new tables, no new API routes** — M1.7 extends the `refm_projects.snapshot` JSONB shape additively. `enrichWithHierarchyDefaults` pads `plots: [] / zones: []` on legacy snapshots so loads are non-breaking.
+
+**Verification at phase close (all green):**
+- `npm run type-check`: clean
+- `module1-snapshot-diff`: 17.5 KB matches baseline (untouched)
+- `module1-multiphase-diff`: 23.0 KB matches baseline (untouched)
+- `module1-areaprogram-diff`: 2.8 KB matches baseline (NEW)
+- `npm run build`: clean
+- `verify-m17.ts`: 25 pass / 0 fail / 2 skip without dev server
+
+**Manual action remaining:** none — Migration 149 (refm_projects + refm_project_versions tables, applied during M1.6) is sufficient for M1.7's JSONB extension.
+
+---
+
 ## Recently Completed — REFM Phase 4.6-4.15 design-token retrofit (2026-04-30 continuation session, 10 retrofit commits + 1 docs commit)
 
 Closes Phase 4. Every component under `src/hubs/modeling/platforms/refm/` is now hex / rgba / 'white' / `input-assumption`-free end-to-end (verified by repo-wide grep, 0 matches). Establishes the FAST cell pattern that supersedes the yellow `.input-assumption` class inside REFM.

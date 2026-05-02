@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-04-30**
+**Last updated: 2026-05-02**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md) — Database tables, storage buckets, migrations log
@@ -172,7 +172,7 @@ Use `/signin`, `/register`, `/forgot` for all training/modeling auth links.
 - Typography: `--font-h1` through `--font-micro`
 - Component classes: `.card`, `.kpi-card`, `.btn-primary`, `.table-standard`
 - Financial inputs (Training Hub + admin): `.input-assumption` class (yellow bg `--color-warning-bg`)
-- **REFM (Module 1 tabs + shell + modals) uses FAST input blue** instead of `.input-assumption` — `var(--color-navy-pale)` bg + `var(--color-navy)` text via the local `inputStyle` constant in each component. Established Phases 4.6 → 4.15 (2026-04-30). Calculated outputs use the same pattern's `calcOutputStyle` (`var(--color-grey-pale)` bg + `var(--color-heading)` text). The `.input-assumption` class is reserved for actual financial-model assumption cells (rates, ratios, escalators) and continues to apply outside REFM.
+- **REFM (Module 1 tabs + shell + modals + new Area Program tab) uses FAST input blue** instead of `.input-assumption` — `var(--color-navy-pale)` bg + `var(--color-navy)` text via the local `inputStyle` constant in each component. Established Phases 4.6 → 4.15 (2026-04-30) and extended into the M1.7 Area Program tab (2026-05-02). Calculated outputs use the same pattern's `calcOutputStyle` (`var(--color-grey-pale)` bg + `var(--color-heading)` text). The `.input-assumption` class is reserved for actual financial-model assumption cells (rates, ratios, escalators) and continues to apply outside REFM.
 - **Do NOT use Tailwind utility classes for layout tokens**
 
 ---
@@ -205,7 +205,30 @@ Use `/signin`, `/register`, `/forgot` for all training/modeling auth links.
 npm run type-check   # tsc --noEmit — must be zero errors
 npm run build        # next build --webpack (avoids MAX_PATH on Windows/OneDrive)
 npm run verify       # type-check + lint + build
+
+# Module 1 regression-guard snapshot diffs (run per commit; all 3 must be exit 0)
+npx tsx scripts/module1-snapshot-diff.ts        # legacy single-phase, 17.5 KB baseline
+npx tsx scripts/module1-multiphase-diff.ts      # multi-phase v4, 23.0 KB baseline
+npx tsx scripts/module1-areaprogram-diff.ts     # M1.7 Area Program, 2.8 KB baseline
+
+# Per-phase verifier (5 sections: DB / routes / calc / state / Playwright UI)
+npx tsx --env-file=.env.local scripts/verify-m17.ts   # M1.7; pattern repeats per future phase
 ```
+
+### Per-phase verification workflow (M1.7+)
+Standing preference (2026-05-02): every REFM phase ships a `scripts/verify-[phaseId].ts`
+covering 5 sections — (1) Database / persistence (Supabase JSONB roundtrip via service-role),
+(2) Route smoke tests (401-without-auth gates; skips when `localhost:3000` is down),
+(3) Calculation correctness (snapshot diffs + targeted assertions on fixture inputs),
+(4) State integrity (load fixture into store, mutate via store actions, assert cascade),
+(5) UI rendering (Playwright headless light + dark screenshots saved to
+`tests/screenshots/[phase]/{light,dark}-*.png`; skips when dev server is down or Playwright
+not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
+`ON DELETE CASCADE` cleans downstream rows on teardown. M1.7 reference: 25 pass / 0 fail
+/ 2 skip without dev server.
+
+**Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
+(`npx playwright install chromium`).
 
 ### Health Check
 `GET /api/health` -> `{ status: 'ok', platform: 'financial-modeler-pro', version: '3.0', timestamp }`

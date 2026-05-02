@@ -1,5 +1,5 @@
 # Project Handoff — Financial Modeler Pro
-**Snapshot date: 2026-04-30**
+**Snapshot date: 2026-05-02**
 
 Use this file to resume development in a new chat session. Read `CLAUDE.md` first for strict project rules.
 
@@ -11,6 +11,82 @@ Use this file to resume development in a new chat session. Read `CLAUDE.md` firs
 - `CLAUDE-TODO.md` — Backlog, pending REFM modules, future platforms
 - `ARCHITECTURE.md` — Three-tier folder structure rationale, alias guide, boundary rules, how to add a platform/hub
 - `RESTRUCTURE_PLAN.md` — 8-phase folder restructure plan (executed 2026-04-28 → 2026-04-29; complete)
+
+---
+
+## REFM Module 1 Phase M1.7 — Area Program (complete, 2026-05-02, 8 commits)
+
+Closes the M1.7 scope from the REFM Build Prompts sheet. Adds the
+**Area Program** tab (📐 between Land & Area and Dev Costs) introducing
+**Plot** (between Phase and Asset) and optional **Zone** (logical sub-
+divisions of a Plot) entities, per-asset **Strategy** (Develop & Sell /
+Lease / Operate, Primary + optional Secondary with allocation %), per-
+asset **area cascade** (TBA → BUA → GFA → GSA/GLA → MEP → basement
+parking → back-of-house → other technical), per-asset **Sub-Unit
+schedule** with parking-bays-per-unit overrides, and a per-plot
+**parking allocator** (waterfall: surface → vertical → basement, with
+deficit warning when demand > capacity).
+
+**Per-commit shape:**
+
+| # | Commit | What changed |
+|---|--------|--------------|
+| 1 | `fd2767e` | Plot + Zone types in `module1-types.ts`; HydrateSnapshot extended with `plots[] / zones[]`; store CRUD with cascade-aware deletes (removePlot drops zones + clears asset.plotId/zoneId, removePhase / removeSubProject extended to cascade through plots/zones); industry-typical defaults (FAR 3.0 / coverage 60% / basement eff. 95% / bay sizes 25/40/44 sqm / parking ratios) + `makeDefaultPlot` factory; selectors. |
+| 2 | `baa0e27` | 4 new pure functions in `@core/calculations`: `computePlotEnvelope` / `computeAreaCascade` / `computePlotParkingCapacity` / `allocateParking`. Inputs are plain scalars / objects so REFM types stay out of `@core` (one-way dep preserved). |
+| 3 | `af471e7` | AssetClass + SubUnit gain optional cascade / strategy / parking-ratio fields. Pure resolver helpers (`resolveAssetStrategy`, `resolveAssetCascadePcts`, `resolveSubUnitParkingBays`) live next to the constants they read. `DEFAULT_AREA_CASCADE_BY_CATEGORY` keyed Sell 8/3/3, Lease 12/5/4, Operate 15/12/5, Hybrid 12/8/4. |
+| 4 | `041feaa` | NEW regression-guard track for the M1.7 calc surface: `tests/fixtures/module1-areaprogram.json` + `tests/snapshots/module1-areaprogram-baseline.json` (2.8 KB) + `runAreaProgramPipeline` in `module1-pipeline.ts` + `module1-areaprogram-snapshot.ts` (writer) + `module1-areaprogram-diff.ts` (bit-identical comparison). Joins the M1.R legacy single-phase track (17.5 KB) and the M1.5 multi-phase track (23.0 KB) — each track evolves independently. |
+| 5 | `ac2f2c5` | NEW component `Module1AreaProgram.tsx` (store-direct tab). Plot CRUD with envelope inputs + computed-envelope panel + ⚠ Over-FAR badge. Zone CRUD with inline name + areaSharePct. Per-asset Strategy + cascade-pct overrides + zone picker + GFA override + live cascade preview. Asset assignment picker for unbound assets in the active phase. `RealEstatePlatform.tsx` wires the new tab. |
+| 6 | `4ea532f` | `Plot.verticalParkingFloors?` (optional, default 0). NEW `SubUnitTable` per asset (inline editable schedule with category-aware `<datalist>` suggestions; live Bays Demanded). NEW `ParkingSummary` per plot (Required / Surface / Vertical / Basement / Total Allocated cells; flips to negative-bg + ⚠ deficit badge when demand > capacity). |
+| 7 | `f8b6bfd` | Installed `@playwright/test ^1.59.1` + chromium. NEW `scripts/verify-m17.ts` (5-section verifier per the standing per-phase preference: DB JSONB roundtrip, route 401 smoke, calc correctness via 3 snapshot diffs + spot assertions, store CRUD + cascade integrity, Playwright headless light/dark sign-in screenshots + `/refm` gate confirm). |
+| 8 | `8659b0c` | Doc sweep — `CLAUDE-FEATURES.md` / `CLAUDE-ROUTES.md` / `CLAUDE-DB.md` updated with the M1.7 row, Module1AreaProgram entry, and JSONB-extension note (no new tables). |
+
+Plus: `396bc1b` working-tree cleanup (gitignored xlsx-extract artifacts, bumped reference workbooks).
+
+**New files (exact paths):**
+- `src/hubs/modeling/platforms/refm/components/modules/Module1AreaProgram.tsx`
+- `scripts/module1-areaprogram-snapshot.ts`
+- `scripts/module1-areaprogram-diff.ts`
+- `scripts/verify-m17.ts`
+- `tests/fixtures/module1-areaprogram.json`
+- `tests/snapshots/module1-areaprogram-baseline.json`
+- `Project West  - Area Program.xlsx` (data-shape reference)
+- `REFM_Build_Prompts_v2.1.xlsx` (Phase prompts source of truth)
+
+**Modified files:**
+- `src/hubs/modeling/platforms/refm/lib/state/module1-types.ts` (Plot + Zone + AssetStrategy + cascade defaults + resolvers + Plot.verticalParkingFloors)
+- `src/hubs/modeling/platforms/refm/lib/state/module1-store.ts` (HydrateSnapshot extended, Plot/Zone CRUD, multi-level cascading deletes, selectors)
+- `src/hubs/modeling/platforms/refm/lib/state/module1-migrate.ts` (`enrichWithHierarchyDefaults` pads `plots: [] / zones: []`; `migrateLegacyToNew` emits empty plots/zones)
+- `src/core/calculations/index.ts` (4 new pure calc engines)
+- `scripts/module1-pipeline.ts` (`runAreaProgramPipeline` + types)
+- `src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx` (tab wiring)
+- `package.json` + `package-lock.json` (Playwright dev dep)
+- `.gitignore` (xlsx-extract patterns)
+- `.claude/settings.local.json` (allow-list grew during M1.7 work)
+- `CLAUDE.md` / `CLAUDE-FEATURES.md` / `CLAUDE-ROUTES.md` / `CLAUDE-DB.md` / `CLAUDE-TODO.md` / `PROJECT_HANDOFF.md` (this file)
+
+**No new API routes** — M1.7 extends the `refm_projects.snapshot` JSONB shape additively, reusing the M1.6 routes (`/api/refm/projects`, `/api/refm/projects/:id`, `/api/refm/projects/:id/versions`, `/api/refm/projects/:id/versions/:versionId`, `/api/refm/projects/:id/duplicate`).
+
+**No new tables, no migrations** — JSONB absorbs the new keys (`snapshot.plots[]`, `snapshot.zones[]`, AssetClass / SubUnit optional fields) natively. Pre-M1.7 snapshots load via `enrichWithHierarchyDefaults`.
+
+**New dev dep:** `@playwright/test ^1.59.1` + chromium browser (`npx playwright install chromium`).
+
+**Verification at phase close (all green):**
+- `npm run type-check`: clean
+- `module1-snapshot-diff`: 17.5 KB matches baseline (untouched)
+- `module1-multiphase-diff`: 23.0 KB matches baseline (untouched)
+- `module1-areaprogram-diff`: 2.8 KB matches baseline (NEW)
+- `npm run build`: clean
+- `npx tsx --env-file=.env.local scripts/verify-m17.ts`: 25 pass / 0 fail / 2 skip
+  (sections 2 routes + 5 Playwright skip cleanly when `localhost:3000` is down;
+  fire automatically when `npm run dev` is up)
+
+**Patterns memory:** `project_m17_patterns.md` captures the 7 locked-in patterns —
+additive HydrateSnapshot extensions, `@core` stays REFM-type-free, resolver helpers,
+separate snapshot-diff track per surface, multi-level cascade-aware deletes, codified
+verifier template, store-direct tabs hold across modules.
+
+**Manual action required:** none. Migration 149 (refm_projects + refm_project_versions
+tables, applied during M1.6) is sufficient for M1.7's JSONB extension.
 
 ---
 
@@ -165,7 +241,7 @@ Net source-tree state: 0 cross-hub violations on the original 5; one TODO-tracke
 | Forgot/reset password | ✅ Complete | `app/forgot-password/` + `app/reset-password/` pages |
 | Inactivity logout | ✅ Complete | On portal + dashboard |
 | Modeling dashboard | ✅ Complete | Platform cards grid, routes to `/refm` for REFM |
-| REFM — Module 1: Project Setup | ✅ Complete | Timeline, Land & Area, Dev Costs, Financing |
+| REFM — Module 1: Project Setup | ✅ Complete | Hierarchy (M1.5), Timeline, Land & Area, **Area Program (M1.7, 2026-05-02)**, Dev Costs, Financing. Persistence via Supabase (M1.6). |
 | REFM — Module 5: Financial Statements | ✅ Complete | Implementation exists |
 | REFM — Module 6: Reports & Visualizations | ✅ Complete | Implementation exists |
 | REFM — Module 2: Revenue Analysis | ⏳ Pending | Stub only (empty exports) |
