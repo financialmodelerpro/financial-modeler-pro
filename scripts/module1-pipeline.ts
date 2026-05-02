@@ -22,6 +22,28 @@
  * @core/calculations so the React component, the snapshot pipeline, and
  * any future consumer (Excel formula export, M11 dashboard) all import
  * from a single source of truth.
+ *
+ * ─── M1.5/4: v4 hierarchy on the read path ───
+ *
+ * The fixture file on disk is still legacy v2 (3 hardcoded asset arrays
+ * + scalar per-asset metrics). M1.5/4 routes that v2 payload through
+ * `hydrationFromAnySnapshot` so the pipeline runs against the same v4
+ * `HydrateSnapshot` shape the React store consumes in production. The
+ * canonical 3-asset / single-phase fixture round-trips bit-identical
+ * because:
+ *   - the migrator preserves cost line ids and concatenation order,
+ *   - it preserves the 3 canonical asset ids (residential / hospitality
+ *     / retail) with their allocation / deduct / efficiency scalars,
+ *   - we iterate visible canonical assets in the same residential →
+ *     hospitality → retail order,
+ *   - phase[0] supplies the legacy
+ *     constructionPeriods/operationsPeriods/overlapPeriods scalars
+ *     unchanged.
+ *
+ * Multi-phase iteration is intentionally stubbed: when the v4 snapshot
+ * contains more than one Phase, the pipeline throws so the silent-wrong-
+ * output trap stays visible until the M1.5/12 multi-phase fixture +
+ * baseline land.
  */
 
 import { readFileSync } from 'node:fs';
@@ -42,9 +64,19 @@ import type {
   RepaymentMethod,
   LandParcel,
   FinancingResult,
+  ProjectType,
 } from '@core/types/project.types';
+import {
+  hydrationFromAnySnapshot,
+  type LegacyV2Snapshot,
+} from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
+import { LEGACY_ASSET_IDS } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 // ── Fixture shape ────────────────────────────────────────────────────────────
+// Mirrors the on-disk fixture (`tests/fixtures/module1-reference.json`),
+// which is still the legacy v2 shape. The pipeline immediately lifts
+// this into the v4 HydrateSnapshot via the production migrator so all
+// downstream calc reads from the same shape the React store sees.
 export interface Module1Input {
   projectName: string;
   projectType: string;
@@ -134,75 +166,158 @@ export function loadFixture(path: string): Module1Input {
 
 // ── Pipeline runner ──────────────────────────────────────────────────────────
 export function runPipeline(input: Module1Input): Module1Snapshot {
-  const land = calculateLandAggregates(input.landParcels);
+  // 1. Lift the v2 fixture into the v4 HydrateSnapshot shape via the
+  //    same path the React store uses in production. This is the SUT
+  //    for "how does a saved project become live store state" — the
+  //    snapshot pipeline must exercise it so a regression in either
+  //    the migrator or the calc engine surfaces here.
+  const legacyV2: LegacyV2Snapshot = {
+    version:               2,
+    projectName:           input.projectName,
+    projectType:           input.projectType as ProjectType,
+    country:               input.country,
+    currency:              input.currency,
+    modelType:             input.modelType,
+    projectStart:          input.projectStart,
+    constructionPeriods:   input.constructionPeriods,
+    operationsPeriods:     input.operationsPeriods,
+    overlapPeriods:        input.overlapPeriods,
+    landParcels:           input.landParcels,
+    projectRoadsPct:       input.projectRoadsPct,
+    projectFAR:            input.projectFAR,
+    projectNonEnclosedPct: input.projectNonEnclosedPct,
+    residentialPercent:    input.residentialPercent,
+    hospitalityPercent:    input.hospitalityPercent,
+    retailPercent:         input.retailPercent,
+    residentialDeductPct:  input.residentialDeductPct,
+    residentialEfficiency: input.residentialEfficiency,
+    hospitalityDeductPct:  input.hospitalityDeductPct,
+    hospitalityEfficiency: input.hospitalityEfficiency,
+    retailDeductPct:       input.retailDeductPct,
+    retailEfficiency:      input.retailEfficiency,
+    residentialCosts:      input.residentialCosts,
+    hospitalityCosts:      input.hospitalityCosts,
+    retailCosts:           input.retailCosts,
+    costInputMode:         input.costInputMode,
+    nextCostId:            input.nextCostId,
+    interestRate:          input.interestRate,
+    financingMode:         input.financingMode,
+    globalDebtPct:         input.globalDebtPct,
+    capitalizeInterest:    input.capitalizeInterest,
+    repaymentPeriods:      input.repaymentPeriods,
+    repaymentMethod:       input.repaymentMethod,
+    lineRatios:            input.lineRatios,
+  };
+  const v4 = hydrationFromAnySnapshot(legacyV2);
+
+  // 2. Multi-phase guard. The legacy fixture must collapse to exactly
+  //    one Phase (the migrator emits one). Multi-phase aggregation is
+  //    intentionally not built yet — it lands in M1.5/12 alongside the
+  //    multi-phase fixture and a separate baseline. Throwing here keeps
+  //    accidental wiring from silently producing wrong totals.
+  if (v4.phases.length !== 1) {
+    throw new Error(
+      `Module1 pipeline: multi-phase aggregation is stubbed (got ${v4.phases.length} phases). ` +
+      `M1.5/12 will introduce the multi-phase fixture + per-phase rollup logic.`,
+    );
+  }
+  const phase = v4.phases[0];
+
+  // 3. Look up the 3 canonical assets from the v4 shape. The migrator
+  //    always emits them in residential / hospitality / retail order,
+  //    but we look them up by id so a future fixture that reorders the
+  //    visible flag still produces a stable per-asset snapshot.
+  const findAsset = (id: string) => {
+    const a = v4.assets.find(x => x.id === id);
+    if (!a) throw new Error(`Module1 pipeline: migrated v4 snapshot missing canonical asset id "${id}"`);
+    return a;
+  };
+  const resAsset  = findAsset(LEGACY_ASSET_IDS.residential);
+  const hospAsset = findAsset(LEGACY_ASSET_IDS.hospitality);
+  const retAsset  = findAsset(LEGACY_ASSET_IDS.retail);
+
+  // 4. Land + area hierarchy. All scalars come from the v4 store
+  //    (sub-project-level after M1.5; project-level pre-M1.5 — the
+  //    migrator carries them forward 1:1).
+  const land = calculateLandAggregates(v4.landParcels);
 
   const hierarchy = calculateAreaHierarchy({
     totalLandArea:        land.totalLandArea,
     landValuePerSqm:      land.landValuePerSqm,
     cashPercent:          land.cashPercent,
     inKindPercent:        land.inKindPercent,
-    projectRoadsPct:      input.projectRoadsPct,
-    projectFAR:           input.projectFAR,
-    projectNonEnclosedPct: input.projectNonEnclosedPct,
-    residentialPercent:   input.residentialPercent,
-    hospitalityPercent:   input.hospitalityPercent,
-    retailPercent:        input.retailPercent,
-    residentialDeductPct: input.residentialDeductPct,
-    residentialEfficiency: input.residentialEfficiency,
-    hospitalityDeductPct: input.hospitalityDeductPct,
-    hospitalityEfficiency: input.hospitalityEfficiency,
-    retailDeductPct:      input.retailDeductPct,
-    retailEfficiency:     input.retailEfficiency,
-    showResidential:      input.showResidential,
-    showHospitality:      input.showHospitality,
-    showRetail:           input.showRetail,
+    projectRoadsPct:      v4.projectRoadsPct,
+    projectFAR:           v4.projectFAR,
+    projectNonEnclosedPct: v4.projectNonEnclosedPct,
+    residentialPercent:   resAsset.allocationPct,
+    hospitalityPercent:   hospAsset.allocationPct,
+    retailPercent:        retAsset.allocationPct,
+    residentialDeductPct: resAsset.deductPct,
+    residentialEfficiency: resAsset.efficiencyPct,
+    hospitalityDeductPct: hospAsset.deductPct,
+    hospitalityEfficiency: hospAsset.efficiencyPct,
+    retailDeductPct:      retAsset.deductPct,
+    retailEfficiency:     retAsset.efficiencyPct,
+    showResidential:      resAsset.visible,
+    showHospitality:      hospAsset.visible,
+    showRetail:           retAsset.visible,
   });
 
   const assetPercents: Record<string, number> = {
-    residential: input.residentialPercent,
-    hospitality: input.hospitalityPercent,
-    retail:      input.retailPercent,
+    residential: resAsset.allocationPct,
+    hospitality: hospAsset.allocationPct,
+    retail:      retAsset.allocationPct,
   };
   const showFlags: Record<string, boolean> = {
-    residential: input.showResidential,
-    hospitality: input.showHospitality,
-    retail:      input.showRetail,
+    residential: resAsset.visible,
+    hospitality: hospAsset.visible,
+    retail:      retAsset.visible,
   };
+
+  // Per-asset cost lookup against the flat v4 costs[] keyed by assetId.
+  // Array.filter preserves order, and the migrator concatenates the
+  // three legacy arrays in residential / hospitality / retail order, so
+  // each asset's CostItem[] equals the original {asset}Costs array.
+  // The CostLine -> CostItem assignment is structural (CostLine extends
+  // CostItem with optional assetId/phaseId/subProjectId); the calc
+  // helpers ignore the extra fields.
+  const costsFor = (assetId: string): CostItem[] =>
+    v4.costs.filter(c => c.assetId === assetId);
 
   const buildAssetSnapshot = (assetType: AssetKey, costs: CostItem[]): AssetSnapshot => {
     const areas = getAreas(assetType, {
       hierarchy,
       landAggregates:     land,
-      residentialPercent: input.residentialPercent,
-      hospitalityPercent: input.hospitalityPercent,
-      retailPercent:      input.retailPercent,
+      residentialPercent: resAsset.allocationPct,
+      hospitalityPercent: hospAsset.allocationPct,
+      retailPercent:      retAsset.allocationPct,
       projectNDA:         hierarchy.projectNDA,
     });
 
     const costItemTotals = costs.map(c => ({
       name:  c.name,
-      total: calculateItemTotal(c, assetType, areas, costs, input.costInputMode, assetPercents, showFlags),
+      total: calculateItemTotal(c, assetType, areas, costs, v4.costInputMode, assetPercents, showFlags),
     }));
 
     const costDistributions = costs.map(c => ({
       name: c.name,
-      dist: distributeCost(c, assetType, input.constructionPeriods, areas, costs, input.costInputMode, assetPercents, showFlags),
+      dist: distributeCost(c, assetType, phase.constructionPeriods, areas, costs, v4.costInputMode, assetPercents, showFlags),
     }));
 
     const financing = buildAssetFinancing({
       assetType,
       areas,
       costs,
-      constructionPeriods: input.constructionPeriods,
-      operationsPeriods:   input.operationsPeriods,
-      interestRate:        input.interestRate,
-      modelType:           input.modelType,
-      repaymentPeriods:    input.repaymentPeriods,
-      capitalizeInterest:  input.capitalizeInterest,
-      costInputMode:       input.costInputMode,
-      financingMode:       input.financingMode,
-      globalDebtPct:       input.globalDebtPct,
-      lineRatios:          input.lineRatios,
+      constructionPeriods: phase.constructionPeriods,
+      operationsPeriods:   phase.operationsPeriods,
+      interestRate:        v4.interestRate,
+      modelType:           v4.modelType,
+      repaymentPeriods:    v4.repaymentPeriods,
+      capitalizeInterest:  v4.capitalizeInterest,
+      costInputMode:       v4.costInputMode,
+      financingMode:       v4.financingMode,
+      globalDebtPct:       v4.globalDebtPct,
+      lineRatios:          v4.lineRatios,
       assetPercents,
       showFlags,
     });
@@ -211,9 +326,9 @@ export function runPipeline(input: Module1Input): Module1Snapshot {
   };
 
   const perAsset = {
-    residential: input.showResidential ? buildAssetSnapshot('residential', input.residentialCosts) : null,
-    hospitality: input.showHospitality ? buildAssetSnapshot('hospitality', input.hospitalityCosts) : null,
-    retail:      input.showRetail      ? buildAssetSnapshot('retail',      input.retailCosts)      : null,
+    residential: resAsset.visible  ? buildAssetSnapshot('residential', costsFor(LEGACY_ASSET_IDS.residential)) : null,
+    hospitality: hospAsset.visible ? buildAssetSnapshot('hospitality', costsFor(LEGACY_ASSET_IDS.hospitality)) : null,
+    retail:      retAsset.visible  ? buildAssetSnapshot('retail',      costsFor(LEGACY_ASSET_IDS.retail))      : null,
   };
 
   const sumAssetTotals = (key: 'totalDebt' | 'totalEquity' | 'totalInterest') =>
@@ -225,10 +340,10 @@ export function runPipeline(input: Module1Input): Module1Snapshot {
   const totalEquity   = sumAssetTotals('totalEquity');
   const totalInterest = sumAssetTotals('totalInterest');
   const totalCapex    = totalDebt + totalEquity;
-  const totalPeriods  = input.constructionPeriods + input.operationsPeriods;
+  const totalPeriods  = phase.constructionPeriods + phase.operationsPeriods;
 
   return {
-    fixtureLabel: input.projectName,
+    fixtureLabel: v4.projectName,
     landAggregates: land,
     areaHierarchy:  hierarchy,
     perAsset,
