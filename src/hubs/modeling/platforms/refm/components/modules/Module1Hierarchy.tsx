@@ -36,12 +36,22 @@
  *     inline editor for name + landCostMethod + landCostValue +
  *     master-debt principal/rate/term. P&L math stays out of scope —
  *     that lives in M8.1 per the M1.5 ratification.
- *   - M1.5b/1 (this commit): UX polish - inline tooltips on each tier
- *     label (hover / focus / click reveals a positioned bubble with the
+ *   - M1.5b/1: UX polish - inline tooltips on each tier label
+ *     (hover / focus / click reveals a positioned bubble with the
  *     short Architecture-section-1 description), page header context
  *     bar with quick stats line ("X Sub-Projects, Y Phases, Z Assets,
  *     N Sub-Units") and a "Switch to Quick Setup" link (the launcher
  *     itself wires up in M1.5b/5).
+ *   - M1.5b/2 (this commit): visual hierarchy clarity. Indentation per
+ *     level bumped (var(--sp-2) → var(--sp-3)) so the parent / child
+ *     relationship reads at a glance. Each Sub-Project / Phase / Asset
+ *     gets an expand / collapse chevron (default expanded; collapsed
+ *     state is local to the component, not persisted). Per-tier card
+ *     background tint applied via color-mix(accent 4%, surface) so the
+ *     tint reinforces depth without adding new tokens. A sticky
+ *     breadcrumb (Project > active Sub-Project > active Phase) renders
+ *     when the user scrolls past the page header so they always know
+ *     where they are in deep trees.
  *
  * The component subscribes to useModule1Store directly; CRUD goes
  * straight through the store actions (add/update/remove SubProject /
@@ -49,7 +59,7 @@
  * module1-store.ts.
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import type { AssetCategory, AssetClass, MasterHolding, Phase, SubProject, SubUnit } from '../../lib/state/module1-types';
@@ -113,11 +123,67 @@ const emptyHintStyle: React.CSSProperties = {
   padding: '4px 0',
 };
 
+// M1.5b/2: indentation bumped from sp-2 (8px) to sp-3 (16px) so each
+// nested layer is unambiguously offset from its parent. Border rail
+// retained at the slimmer width but the margin/padding does the visual
+// work. Marg-top adds a touch of breathing room between the parent
+// node and its first child.
 const indentBlockStyle = (accent: string): React.CSSProperties => ({
-  marginLeft: 'var(--sp-2)',
-  paddingLeft: 'var(--sp-2)',
+  marginLeft: 'var(--sp-3)',
+  paddingLeft: 'var(--sp-3)',
+  marginTop: 6,
   borderLeft: `2px solid color-mix(in srgb, ${accent} 35%, var(--color-border))`,
 });
+
+// M1.5b/2: per-tier card background tint. The base cardBase uses solid
+// surface; this helper adds a faint accent wash on top so each tier
+// reads as its own visual band even when many cards stack. The tint
+// intensity is intentionally low (4%) so contrast against text stays
+// well within WCAG AA in both themes.
+const tieredCardStyle = (accent: string, extra?: React.CSSProperties): React.CSSProperties => ({
+  ...cardBase,
+  background: `color-mix(in srgb, ${accent} 4%, var(--color-surface))`,
+  borderLeft: `4px solid ${accent}`,
+  ...extra,
+});
+
+// M1.5b/2: chevron toggle button. Reused by every collapsible row.
+// aria-expanded reflects the actual state; clicking flips it. Keyboard:
+// Enter / Space activate (default for <button>).
+interface ChevronToggleProps {
+  collapsed: boolean;
+  onToggle: () => void;
+  label: string;
+}
+function ChevronToggle({ collapsed, onToggle, label }: ChevronToggleProps) {
+  return (
+    <button
+      type="button"
+      aria-expanded={!collapsed}
+      aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${label}`}
+      onClick={onToggle}
+      style={{
+        background: 'transparent',
+        border: 'none',
+        cursor: 'pointer',
+        padding: 0,
+        marginRight: 6,
+        width: 18,
+        height: 18,
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        color: 'var(--color-meta)',
+        fontSize: 12,
+        lineHeight: 1,
+        transition: 'transform 0.15s ease',
+        transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+      }}
+    >
+      ▼
+    </button>
+  );
+}
 
 // FAST blue input (per CLAUDE.md REFM convention).
 const inputStyle: React.CSSProperties = {
@@ -756,13 +822,14 @@ function MasterHoldingEditor({ initial, currency, onSave, onCancel }: MasterHold
 
 // ── Component ──────────────────────────────────────────────────────────────
 export default function Module1Hierarchy() {
-  const { masterHolding, subProjects, phases, assets, subUnits, currency } = useModule1Store(useShallow((s) => ({
+  const { masterHolding, subProjects, phases, assets, subUnits, currency, projectName } = useModule1Store(useShallow((s) => ({
     masterHolding: s.masterHolding,
     subProjects:   s.subProjects,
     phases:        s.phases,
     assets:        s.assets,
     subUnits:      s.subUnits,
     currency:      s.currency,
+    projectName:   s.projectName,
   })));
 
   // Pull mutating actions outside of the shallow read so they don't
@@ -796,6 +863,51 @@ export default function Module1Hierarchy() {
   const [editingSubUnitId, setEditingSubUnitId] = useState<string | null>(null);
   // Master Holding editor open / closed (singleton — id-less toggle).
   const [editingMH, setEditingMH] = useState(false);
+
+  // M1.5b/2: collapsed-state Sets per tier. Stored in local component
+  // state (not the Zustand store) — collapsed-ness is a UI concern, not
+  // project data, and shouldn't persist across page loads or sync to
+  // Supabase in M1.6. Default = expanded (id NOT in the set).
+  const [collapsedSubProjects, setCollapsedSubProjects] = useState<Set<string>>(new Set());
+  const [collapsedPhases, setCollapsedPhases]           = useState<Set<string>>(new Set());
+  const [collapsedAssets, setCollapsedAssets]           = useState<Set<string>>(new Set());
+
+  const toggleCollapsed = (s: Set<string>, setS: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) => {
+    setS(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  // M1.5b/2: sticky breadcrumb visibility. Show only after the user has
+  // scrolled past the page header (so it doesn't double up the title).
+  // IntersectionObserver on a sentinel element below the header is more
+  // robust than a scroll handler — fires once per visibility change and
+  // doesn't run on every wheel event.
+  const headerSentinelRef = useRef<HTMLDivElement | null>(null);
+  const [showBreadcrumb, setShowBreadcrumb] = useState(false);
+  useEffect(() => {
+    const el = headerSentinelRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const obs = new IntersectionObserver(
+      (entries) => setShowBreadcrumb(!entries[0].isIntersecting),
+      { threshold: 0 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
+  // Active sub-project + phase for the breadcrumb. Falls back to the
+  // first available so the breadcrumb is never empty when there's
+  // *something* to show.
+  const activeSubProjectId = useModule1Store((s) => s.activeSubProjectId);
+  const activePhaseId      = useModule1Store((s) => s.activePhaseId);
+  const breadcrumbSubProject = subProjects.find(sp => sp.id === activeSubProjectId) ?? subProjects[0];
+  const breadcrumbPhase      = breadcrumbSubProject
+    ? phases.find(p => p.id === activePhaseId && p.subProjectId === breadcrumbSubProject.id)
+      ?? phases.find(p => p.subProjectId === breadcrumbSubProject.id)
+    : undefined;
 
   const phasesBySubProject = (subProjectId: string) =>
     phases.filter(p => p.subProjectId === subProjectId);
@@ -1028,7 +1140,45 @@ export default function Module1Hierarchy() {
   };
 
   return (
-    <div style={{ maxWidth: 1100, margin: '0 auto', padding: 'var(--sp-3) 0' }}>
+    <div style={{ maxWidth: 1100, margin: '0 auto', padding: 'var(--sp-3) 0', position: 'relative' }}>
+      {/* M1.5b/2: sticky breadcrumb. Renders only after the header
+         scrolls out of view (IntersectionObserver on headerSentinelRef).
+         Carries Project > active Sub-Project > active Phase so the user
+         always knows where they are when scrolled deep. */}
+      {showBreadcrumb && breadcrumbSubProject && (
+        <div
+          role="navigation"
+          aria-label="Hierarchy breadcrumb"
+          style={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 30,
+            margin: '0 calc(-1 * var(--sp-3)) var(--sp-2)',
+            padding: '8px var(--sp-3)',
+            background: 'color-mix(in srgb, var(--color-navy) 6%, var(--color-surface))',
+            borderBottom: '1px solid var(--color-border)',
+            backdropFilter: 'saturate(140%) blur(6px)',
+            fontSize: 'var(--font-meta)',
+            color: 'var(--color-meta)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+            flexWrap: 'wrap',
+          }}
+        >
+          <span>🗂️</span>
+          <span style={{ color: 'var(--color-heading)', fontWeight: 'var(--fw-semibold)' }}>{projectName}</span>
+          <span style={{ color: 'var(--color-border)' }}>›</span>
+          <span style={{ color: tokens.subProjAccent, fontWeight: 'var(--fw-semibold)' }}>{breadcrumbSubProject.name}</span>
+          {breadcrumbPhase && (
+            <>
+              <span style={{ color: 'var(--color-border)' }}>›</span>
+              <span style={{ color: tokens.phaseAccent, fontWeight: 'var(--fw-semibold)' }}>{breadcrumbPhase.name}</span>
+            </>
+          )}
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h2 style={{ fontSize: 'var(--font-section)', fontWeight: 'var(--fw-bold)', color: 'var(--color-heading)', margin: '0 0 4px' }}>
@@ -1092,6 +1242,12 @@ export default function Module1Hierarchy() {
         </div>
       </div>
 
+      {/* M1.5b/2: scroll sentinel for the sticky breadcrumb. The
+         IntersectionObserver in the component body fires when this
+         element leaves the viewport — that's the moment the breadcrumb
+         appears. Empty + zero-height so it's invisible. */}
+      <div ref={headerSentinelRef} aria-hidden style={{ height: 1, width: '100%' }} />
+
       {/* ── Master Holding (optional, toggleable) ── */}
       <div style={{
         ...cardBase,
@@ -1153,18 +1309,26 @@ export default function Module1Hierarchy() {
         ) : subProjects.map(sp => {
           const sps = phasesBySubProject(sp.id);
           const isEditing = editingId === sp.id;
+          const spCollapsed = collapsedSubProjects.has(sp.id);
           return (
-            <div key={sp.id} style={{ ...cardBase, borderLeft: `4px solid ${tokens.subProjAccent}` }}>
+            <div key={sp.id} style={tieredCardStyle(tokens.subProjAccent)}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                <div style={{ flex: 1 }}>
-                  <TierLabel label="Sub-Project" accent={tokens.subProjAccent} tierKey="subProject" />
-                  <div style={nodeNameStyle}>{sp.name}</div>
-                  <div style={metaRowStyle}>
-                    <span style={metaPillStyle}>💱 {sp.currency}</span>
-                    {sp.masterHoldingId
-                      ? <span style={metaPillStyle}>↑ Rolls up to MH ({sp.revenueShareToMaster}% revenue share)</span>
-                      : <span style={metaPillStyle}>Standalone (no Master Holding)</span>}
-                    <span style={metaPillStyle}>📅 {sps.length} phase{sps.length === 1 ? '' : 's'}</span>
+                <div style={{ flex: 1, display: 'flex', alignItems: 'flex-start', gap: 0 }}>
+                  <ChevronToggle
+                    collapsed={spCollapsed}
+                    onToggle={() => toggleCollapsed(collapsedSubProjects, setCollapsedSubProjects, sp.id)}
+                    label={`Sub-Project ${sp.name}`}
+                  />
+                  <div style={{ flex: 1 }}>
+                    <TierLabel label="Sub-Project" accent={tokens.subProjAccent} tierKey="subProject" />
+                    <div style={nodeNameStyle}>{sp.name}</div>
+                    <div style={metaRowStyle}>
+                      <span style={metaPillStyle}>💱 {sp.currency}</span>
+                      {sp.masterHoldingId
+                        ? <span style={metaPillStyle}>↑ Rolls up to MH ({sp.revenueShareToMaster}% revenue share)</span>
+                        : <span style={metaPillStyle}>Standalone (no Master Holding)</span>}
+                      <span style={metaPillStyle}>📅 {sps.length} phase{sps.length === 1 ? '' : 's'}</span>
+                    </div>
                   </div>
                 </div>
                 {!isEditing && (
@@ -1197,6 +1361,7 @@ export default function Module1Hierarchy() {
               )}
 
               {/* ── Phases under this Sub-Project ── */}
+              {!spCollapsed && (
               <div style={indentBlockStyle(tokens.phaseAccent)}>
                 {sps.length === 0 && editingPhaseId !== `phase__new__:${sp.id}` && (
                   <div style={emptyHintStyle}>No phases yet.</div>
@@ -1204,17 +1369,25 @@ export default function Module1Hierarchy() {
                 {sps.map(phase => {
                   const phaseAssets = assetsByPhase(phase.id);
                   const isEditingPhase = editingPhaseId === phase.id;
+                  const phCollapsed = collapsedPhases.has(phase.id);
                   return (
-                    <div key={phase.id} style={{ ...cardBase, borderLeft: `4px solid ${tokens.phaseAccent}` }}>
+                    <div key={phase.id} style={tieredCardStyle(tokens.phaseAccent)}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                        <div style={{ flex: 1 }}>
-                          <TierLabel label="Phase" accent={tokens.phaseAccent} tierKey="phase" />
-                          <div style={nodeNameStyle}>{phase.name}</div>
-                          <div style={metaRowStyle}>
-                            <span style={metaPillStyle}>🛠 Construction: {phase.constructionPeriods} periods (start {phase.constructionStart})</span>
-                            <span style={metaPillStyle}>🏨 Operations: {phase.operationsPeriods} periods (start {phase.operationsStart})</span>
-                            {phase.overlapPeriods > 0 && <span style={metaPillStyle}>↔ Overlap: {phase.overlapPeriods}</span>}
-                            <span style={metaPillStyle}>🧱 {phaseAssets.length} asset{phaseAssets.length === 1 ? '' : 's'}</span>
+                        <div style={{ flex: 1, display: 'flex', alignItems: 'flex-start', gap: 0 }}>
+                          <ChevronToggle
+                            collapsed={phCollapsed}
+                            onToggle={() => toggleCollapsed(collapsedPhases, setCollapsedPhases, phase.id)}
+                            label={`Phase ${phase.name}`}
+                          />
+                          <div style={{ flex: 1 }}>
+                            <TierLabel label="Phase" accent={tokens.phaseAccent} tierKey="phase" />
+                            <div style={nodeNameStyle}>{phase.name}</div>
+                            <div style={metaRowStyle}>
+                              <span style={metaPillStyle}>🛠 Construction: {phase.constructionPeriods} periods (start {phase.constructionStart})</span>
+                              <span style={metaPillStyle}>🏨 Operations: {phase.operationsPeriods} periods (start {phase.operationsStart})</span>
+                              {phase.overlapPeriods > 0 && <span style={metaPillStyle}>↔ Overlap: {phase.overlapPeriods}</span>}
+                              <span style={metaPillStyle}>🧱 {phaseAssets.length} asset{phaseAssets.length === 1 ? '' : 's'}</span>
+                            </div>
                           </div>
                         </div>
                         {!isEditingPhase && (
@@ -1246,6 +1419,7 @@ export default function Module1Hierarchy() {
                       )}
 
                       {/* ── Assets under this Phase ── */}
+                      {!phCollapsed && (
                       <div style={indentBlockStyle(tokens.assetAccent)}>
                         {phaseAssets.length === 0 && editingAssetId !== `asset__new__:${phase.id}` && (
                           <div style={emptyHintStyle}>No assets in this phase.</div>
@@ -1253,21 +1427,29 @@ export default function Module1Hierarchy() {
                         {phaseAssets.map(asset => {
                           const aSubUnits = subUnitsByAsset(asset.id);
                           const isEditingAsset = editingAssetId === asset.id;
+                          const asCollapsed = collapsedAssets.has(asset.id);
                           return (
-                            <div key={asset.id} style={{ ...cardBase, borderLeft: `4px solid ${tokens.assetAccent}` }}>
+                            <div key={asset.id} style={tieredCardStyle(tokens.assetAccent)}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                                <div style={{ flex: 1 }}>
-                                  <TierLabel label="Asset" accent={tokens.assetAccent} tierKey="asset" />
-                                  <div style={nodeNameStyle}>
-                                    {asset.name}
-                                    {!asset.visible && <span style={{ marginLeft: 8, fontSize: 'var(--font-micro)', color: 'var(--color-meta)', fontWeight: 'var(--fw-normal)' }}>(hidden)</span>}
-                                  </div>
-                                  <div style={metaRowStyle}>
-                                    <span style={metaPillStyle}>🏷 {asset.category} · {asset.type}</span>
-                                    <span style={metaPillStyle}>📊 {asset.allocationPct}% allocation</span>
-                                    <span style={metaPillStyle}>➖ {asset.deductPct}% deduct</span>
-                                    <span style={metaPillStyle}>⚙ {asset.efficiencyPct}% efficiency</span>
-                                    <span style={metaPillStyle}>📦 {aSubUnits.length} sub-unit{aSubUnits.length === 1 ? '' : 's'}</span>
+                                <div style={{ flex: 1, display: 'flex', alignItems: 'flex-start', gap: 0 }}>
+                                  <ChevronToggle
+                                    collapsed={asCollapsed}
+                                    onToggle={() => toggleCollapsed(collapsedAssets, setCollapsedAssets, asset.id)}
+                                    label={`Asset ${asset.name}`}
+                                  />
+                                  <div style={{ flex: 1 }}>
+                                    <TierLabel label="Asset" accent={tokens.assetAccent} tierKey="asset" />
+                                    <div style={nodeNameStyle}>
+                                      {asset.name}
+                                      {!asset.visible && <span style={{ marginLeft: 8, fontSize: 'var(--font-micro)', color: 'var(--color-meta)', fontWeight: 'var(--fw-normal)' }}>(hidden)</span>}
+                                    </div>
+                                    <div style={metaRowStyle}>
+                                      <span style={metaPillStyle}>🏷 {asset.category} · {asset.type}</span>
+                                      <span style={metaPillStyle}>📊 {asset.allocationPct}% allocation</span>
+                                      <span style={metaPillStyle}>➖ {asset.deductPct}% deduct</span>
+                                      <span style={metaPillStyle}>⚙ {asset.efficiencyPct}% efficiency</span>
+                                      <span style={metaPillStyle}>📦 {aSubUnits.length} sub-unit{aSubUnits.length === 1 ? '' : 's'}</span>
+                                    </div>
                                   </div>
                                 </div>
                                 {!isEditingAsset && (
@@ -1287,6 +1469,7 @@ export default function Module1Hierarchy() {
                               )}
 
                               {/* ── Sub-Units under this Asset ── */}
+                              {!asCollapsed && (
                               <div style={indentBlockStyle(tokens.subUnitAccent)}>
                                 {aSubUnits.map(unit => {
                                   const isEditingSubUnit = editingSubUnitId === unit.id;
@@ -1354,6 +1537,7 @@ export default function Module1Hierarchy() {
                                   </button>
                                 )}
                               </div>
+                              )}
                             </div>
                           );
                         })}
@@ -1385,6 +1569,7 @@ export default function Module1Hierarchy() {
                           </button>
                         )}
                       </div>
+                      )}
                     </div>
                   );
                 })}
@@ -1416,6 +1601,7 @@ export default function Module1Hierarchy() {
                   </button>
                 )}
               </div>
+              )}
             </div>
           );
         })}
