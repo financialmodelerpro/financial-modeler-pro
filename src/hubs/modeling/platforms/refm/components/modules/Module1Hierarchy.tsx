@@ -52,7 +52,7 @@
  *     (Project > active Sub-Project > active Phase) renders when the
  *     user scrolls past the page header so they always know where
  *     they are in deep trees.
- *   - M1.5b/3 (this commit): empty-state cards at each level. The bare
+ *   - M1.5b/3: empty-state cards at each level. The bare
  *     "No phases yet." / "No assets in this phase." hints are replaced
  *     with centered cards that pair a clear CTA ("+ Add first Phase",
  *     "+ Add first Asset") with a 1-line explainer of why the user
@@ -61,6 +61,14 @@
  *     understand what comes next. The Sub-Unit add button keeps its
  *     compact style but gains a 1-line hint above it explaining what
  *     a Sub-Unit is for that asset's category.
+ *   - M1.5b/4 (this commit): first-time empty state. When a brand-new
+ *     project has zero Sub-Projects, replace the regular tree (which
+ *     would just show the disabled MH card and a single "+ Add
+ *     Sub-Project" button) with a single centered card that pairs two
+ *     clear CTAs: Quick Setup (wizard) and Manual Setup (reveal the
+ *     full tree). Brief one-line description under each button. The
+ *     Manual mode toggle lives in local state so the user can flip
+ *     back and forth without losing the empty-tree CRUD progress.
  *
  * The component subscribes to useModule1Store directly; CRUD goes
  * straight through the store actions (add/update/remove SubProject /
@@ -881,6 +889,14 @@ export default function Module1Hierarchy() {
   const [collapsedPhases, setCollapsedPhases]           = useState<Set<string>>(new Set());
   const [collapsedAssets, setCollapsedAssets]           = useState<Set<string>>(new Set());
 
+  // M1.5b/4: manual-mode flag. When subProjects.length === 0, the page
+  // shows the first-time CTA card (Quick Setup vs Manual Setup) by
+  // default. Clicking Manual Setup flips this flag, which reveals the
+  // regular tree so the user can build by hand. Local-only state — no
+  // need to persist; first-time UX should always be available when the
+  // user empties the project.
+  const [manualMode, setManualMode] = useState(false);
+
   const toggleCollapsed = (s: Set<string>, setS: React.Dispatch<React.SetStateAction<Set<string>>>, id: string) => {
     setS(prev => {
       const next = new Set(prev);
@@ -1256,6 +1272,79 @@ export default function Module1Hierarchy() {
          element leaves the viewport — that's the moment the breadcrumb
          appears. Empty + zero-height so it's invisible. */}
       <div ref={headerSentinelRef} aria-hidden style={{ height: 1, width: '100%' }} />
+
+      {/* ── M1.5b/4: First-time gate ──
+         Brand-new project (zero sub-projects) AND user hasn't opted into
+         manual mode → show a single centered CTA card instead of the
+         full tree. This skips both the MH card AND the empty Sub-
+         Projects block so the user sees one clear next step. */}
+      {(subProjects.length === 0 && !manualMode) ? (
+        <div
+          role="region"
+          aria-label="Set up your project structure"
+          style={{
+            ...cardBase,
+            maxWidth: 720,
+            margin: '40px auto',
+            padding: 'var(--sp-4)',
+            textAlign: 'center',
+            background: `color-mix(in srgb, ${tokens.subProjAccent} 5%, var(--color-surface))`,
+            border: `1px solid color-mix(in srgb, ${tokens.subProjAccent} 30%, var(--color-border))`,
+          }}
+        >
+          <div style={{ fontSize: 40, marginBottom: 8 }}>🗂️</div>
+          <h3 style={{ fontSize: 'var(--font-section)', fontWeight: 'var(--fw-bold)', color: 'var(--color-heading)', margin: '0 0 6px' }}>
+            Set up your project structure
+          </h3>
+          <p style={{ fontSize: 'var(--font-body)', color: 'var(--color-meta)', maxWidth: 520, margin: '0 auto var(--sp-3)', lineHeight: 1.6 }}>
+            Pick the path that fits how you want to start. You can switch between modes later — both write to the same hierarchy.
+          </p>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--sp-2)', justifyContent: 'center', maxWidth: 540, margin: '0 auto' }}>
+            {/* Quick Setup CTA */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+              <button
+                type="button"
+                onClick={launchQuickSetup}
+                aria-label="Open the Quick Setup wizard"
+                style={{
+                  ...primaryBtnStyle,
+                  padding: '12px 18px',
+                  fontSize: 'var(--font-body)',
+                  background: tokens.subProjAccent,
+                  color: 'var(--color-on-primary-navy)',
+                }}
+              >
+                ⚡ Quick Setup
+              </button>
+              <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>
+                A 4-step wizard. Best for single-project, single-phase builds.
+              </span>
+            </div>
+            {/* Manual Setup CTA */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+              <button
+                type="button"
+                onClick={() => setManualMode(true)}
+                aria-label="Switch to Manual Setup and reveal the full hierarchy tree"
+                style={{
+                  ...ghostBtnStyle,
+                  padding: '12px 18px',
+                  fontSize: 'var(--font-body)',
+                  color: tokens.subProjAccent,
+                  borderColor: `color-mix(in srgb, ${tokens.subProjAccent} 50%, var(--color-border))`,
+                }}
+              >
+                ✎ Manual Setup
+              </button>
+              <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>
+                Reveal the full tree and add Sub-Projects / Phases / Assets one at a time.
+              </span>
+            </div>
+          </div>
+        </div>
+      ) : (
+      <>
 
       {/* ── Master Holding (optional, toggleable) ── */}
       <div style={{
@@ -1731,8 +1820,10 @@ export default function Module1Hierarchy() {
 
       {/* Footer hint */}
       <p style={{ marginTop: 'var(--sp-3)', fontSize: 'var(--font-meta)', color: 'var(--color-meta)', fontStyle: 'italic', textAlign: 'center' }}>
-        Next: Sub-Project + Phase selectors at the top of the Timeline / Land &amp; Area / Dev Costs / Financing tabs (M1.5/11).
+        Tip: hover any tier label's ⓘ for an explainer. Use the chevrons to collapse a busy tree. The breadcrumb at the top tracks your active Sub-Project + Phase.
       </p>
+      </>
+      )}
     </div>
   );
 }
