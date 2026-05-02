@@ -31,7 +31,6 @@ import type {
 } from '@core/types/project.types';
 import type { AssetClass, Phase, CostLine, MasterHolding, SubProject, SubUnit } from './module1-types';
 import {
-  DEFAULT_LEGACY_ASSETS,
   DEFAULT_SUB_PROJECT_ID,
   DEFAULT_PHASE_ID,
   makeDefaultPhase,
@@ -172,10 +171,12 @@ export type HydrateSnapshot = Pick<Module1Store,
 >;
 
 // ── Defaults ────────────────────────────────────────────────────────────────
-// Brand-new project defaults: 1 SubProject + 1 Phase + 3 canonical
-// assets (the seed). The 3-asset seed will be dropped in M1.5/5 when
-// the Hierarchy tab can stand in for asset creation; left here for now
-// so the M1.R verify script still passes.
+// Brand-new project defaults (post Phase M1.5/5): 1 SubProject + 1
+// Phase + ZERO assets. The legacy 3-asset seed is gone — the Hierarchy
+// tab is now the canonical place to add the project's first assets, and
+// RealEstatePlatform routes new projects (assets.length === 0) onto it
+// as the default landing tab. Existing v2 / v3 snapshots still
+// hydrate with their preserved 3-asset shape via the migrator.
 export const DEFAULT_MODULE1_STATE: HydrateSnapshot = {
   projectName: 'Skyline',
   projectType: 'mixed-use',
@@ -197,7 +198,7 @@ export const DEFAULT_MODULE1_STATE: HydrateSnapshot = {
   projectFAR: 1.5,
   projectNonEnclosedPct: 0,
 
-  assets: DEFAULT_LEGACY_ASSETS.map(a => ({ ...a })),
+  assets: [],
   costs: [],
   costInputMode: 'separate',
   nextCostId: 100,

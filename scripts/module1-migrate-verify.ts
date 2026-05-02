@@ -147,8 +147,11 @@ function main() {
   console.log('OK hydrationFromAnySnapshot routes both v2 and v3');
 
   // 6. Robustness: bogus snapshot falls back to defaults rather than throwing.
+  // Post Phase M1.5/5 the defaults seed assets=[] (the legacy 3-asset
+  // seed was dropped in favour of the Hierarchy tab onboarding flow), so
+  // a fall-back hydrate yields zero assets and zero costs.
   const bogus = hydrationFromAnySnapshot({ junk: true });
-  if (bogus.assets.length !== 3 || bogus.costs.length !== 0) fail('bogus snapshot did not fall back to defaults');
+  if (bogus.assets.length !== 0 || bogus.costs.length !== 0) fail(`bogus snapshot did not fall back to defaults (assets=${bogus.assets.length}, costs=${bogus.costs.length})`);
   console.log('OK bogus input falls back to defaults');
 
   // ── M1.5 hierarchy checks ────────────────────────────────────────────────

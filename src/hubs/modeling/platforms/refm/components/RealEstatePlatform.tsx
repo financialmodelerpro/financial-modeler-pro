@@ -143,7 +143,12 @@ export const sidebarModules: readonly SidebarNavItem[] = [
   })),
 ];
 
+// `hierarchy` is the new M1.5 default-landing tab for brand-new
+// projects (assets.length === 0). The full tree-view + CRUD lands in
+// M1.5/6 - M1.5/10; for now M1.5/5 ships an onboarding empty-state so
+// the routing has somewhere to send the user.
 export const m1Tabs = [
+  { key: 'hierarchy', icon: '🗂️', label: 'Hierarchy' },
   { key: 'timeline',  icon: '📅', label: 'Timeline' },
   { key: 'area',      icon: '🗺️', label: 'Land & Area' },
   { key: 'costs',     icon: '💸', label: 'Dev Costs' },
@@ -153,8 +158,15 @@ export const m1Tabs = [
 // ── Main component ────────────────────────────────────────────────────────────
 export default function RealEstatePlatform() {
   // ── Navigation ──
+  // activeTab default is 'hierarchy' (M1.5/5): brand-new sessions land
+  // on the Hierarchy tab so the user sees the asset-creation flow first
+  // rather than a half-empty Timeline. handleLoadVersion (existing
+  // project) and handleCreateProject (new project) both re-route this
+  // explicitly after store hydration so the choice always reflects
+  // assets.length AT THE TIME the project becomes active, not at first
+  // mount.
   const [activeModule, setActiveModule] = useState('dashboard');
-  const [activeTab, setActiveTab] = useState('timeline');
+  const [activeTab, setActiveTab] = useState('hierarchy');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarSubOpen, setSidebarSubOpen] = useState(true);
 
@@ -380,22 +392,29 @@ export default function RealEstatePlatform() {
   // and the post-load case (a saved snapshot whose costs[] for an asset
   // somehow ended up empty would otherwise render an empty Costs tab
   // with no way to recover short of a hard reload).
+  //
+  // Phase M1.5/5: each branch is gated on the corresponding asset
+  // actually existing in the store. Brand-new projects start with
+  // assets=[] and are routed to the Hierarchy tab to create their
+  // first asset; we must NOT stamp orphaned cost lines with a
+  // residential/hospitality/retail assetId when no such asset exists,
+  // or the costs[] array would carry referentially-invalid rows.
   useEffect(() => {
-    if (residentialCosts.length === 0) {
+    if (resAsset && residentialCosts.length === 0) {
       const initLandValue = (totalLandArea * cashPercent / 100) * (residentialPercent / 100) * landValuePerSqm;
       setResidentialCosts([
         { id: 1, name: 'Land (Cash Portion)', method: 'fixed', value: initLandValue, baseType: '', selectedIds: [], startPeriod: 0, endPeriod: 0, phasing: 'even', canDelete: false },
         ...makeDefaultCosts(2),
       ]);
     }
-    if (hospitalityCosts.length === 0) {
+    if (hospAsset && hospitalityCosts.length === 0) {
       const initLandValue = (totalLandArea * cashPercent / 100) * (hospitalityPercent / 100) * landValuePerSqm;
       setHospitalityCosts([
         { id: 1, name: 'Land (Cash Portion)', method: 'fixed', value: initLandValue, baseType: '', selectedIds: [], startPeriod: 0, endPeriod: 0, phasing: 'even', canDelete: false },
         ...makeDefaultCosts(2),
       ]);
     }
-    if (retailCosts.length === 0) {
+    if (retAsset && retailCosts.length === 0) {
       const initLandValue = (totalLandArea * cashPercent / 100) * (retailPercent / 100) * landValuePerSqm;
       setRetailCosts([
         { id: 1, name: 'Land (Cash Portion)', method: 'fixed', value: initLandValue, baseType: '', selectedIds: [], startPeriod: 0, endPeriod: 0, phasing: 'even', canDelete: false },
@@ -405,9 +424,12 @@ export default function RealEstatePlatform() {
     // The closure reads totalLandArea / cashPercent / landValuePerSqm
     // (declared further down the component body) at call time. We list
     // landParcels here as the upstream source that drives all three.
+    // resAsset/hospAsset/retAsset gate each branch so brand-new
+    // empty-assets projects don't get orphan cost rows seeded.
   }, [
     residentialCosts.length, hospitalityCosts.length, retailCosts.length,
     landParcels, residentialPercent, hospitalityPercent, retailPercent,
+    resAsset, hospAsset, retAsset,
     setResidentialCosts, setHospitalityCosts, setRetailCosts,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -881,6 +903,11 @@ export default function RealEstatePlatform() {
     setActiveVersionId(null);
     setProjectName(name);
     setPmModal(null);
+    // M1.5/5 default-landing: brand-new projects always open on the
+    // Hierarchy tab (the legacy 3-asset seed is gone, so Timeline /
+    // Costs / Financing have nothing to render until the user defines
+    // their first asset).
+    setActiveTab('hierarchy');
     setPmToast({ msg: `✓ Project "${name}" created`, color: 'var(--color-green-dark)' });
     setHasUnsaved(true);
   }, [projectType, setProjectName]);
@@ -957,6 +984,10 @@ export default function RealEstatePlatform() {
     setActiveProjectId(pid);
     setActiveVersionId(vid);
     setHasUnsaved(false);
+    // M1.5/5 default-landing: existing/migrated projects (assets > 0)
+    // open on Timeline; empty-assets snapshots open on Hierarchy so
+    // the user sees the asset-creation flow first.
+    setActiveTab(hydrate.assets.length > 0 ? 'timeline' : 'hierarchy');
     setPmToast({ msg: `✓ Loaded: ${ver.name}`, color: 'var(--color-navy)' });
   }, []);
 
@@ -1199,6 +1230,41 @@ export default function RealEstatePlatform() {
 
             {/* Tab content */}
             <div className="tab-content" style={{ padding: 'var(--sp-3)' }}>
+              {/* M1.5/5 placeholder. Real tree-view + Sub-Project /
+                 Phase / Asset / Sub-Unit CRUD lands in M1.5/6 - M1.5/10.
+                 Until then the empty-state explains where the user is
+                 and what comes next. */}
+              {activeTab === 'hierarchy' && (
+                <div style={{
+                  maxWidth: 720, margin: '40px auto', padding: 'var(--sp-3)',
+                  background: 'var(--color-surface)', border: '1px solid var(--color-border)',
+                  borderRadius: 8,
+                }}>
+                  <h2 style={{ fontSize: 'var(--font-section)', fontWeight: 'var(--fw-bold)', color: 'var(--color-heading)', marginBottom: 'var(--sp-2)' }}>
+                    🗂️ Project Hierarchy
+                  </h2>
+                  <p style={{ fontSize: 'var(--font-body)', color: 'var(--color-meta)', lineHeight: 1.6, marginBottom: 'var(--sp-2)' }}>
+                    The 5-layer hierarchy lives here:&nbsp;
+                    <strong>Master Holding → Sub-Project → Phase → Asset → Sub-Unit</strong>.
+                    Single-project users will see one Sub-Project with one
+                    Phase; fund-style projects can add more Sub-Projects
+                    and roll them up under a Master Holding.
+                  </p>
+                  <p style={{ fontSize: 'var(--font-body)', color: 'var(--color-meta)', lineHeight: 1.6 }}>
+                    Phase M1.5/5 wires the routing only — the read-only
+                    tree view lands in M1.5/6, then Sub-Project / Phase /
+                    Asset / Sub-Unit CRUD across M1.5/7 - M1.5/10.
+                  </p>
+                  {assets.length === 0 && (
+                    <p style={{ fontSize: 'var(--font-body)', color: 'var(--color-warning-text)', marginTop: 'var(--sp-2)', padding: 'var(--sp-2)', background: 'var(--color-warning-bg)', borderRadius: 6 }}>
+                      This project has no assets yet. Once the Hierarchy
+                      CRUD ships you will define them here; until then,
+                      the Timeline / Land &amp; Area / Dev Costs / Financing
+                      tabs render an empty state.
+                    </p>
+                  )}
+                </div>
+              )}
               {activeTab === 'timeline' && (
                 <Module1Timeline
                   projectName={projectName} setProjectName={setProjectName}
