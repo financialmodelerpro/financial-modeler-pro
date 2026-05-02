@@ -226,6 +226,42 @@ export default function RealEstatePlatform() {
   const costScope     = useModule1Store((s) => s.costScope);
   const costDevFeeMode = useModule1Store((s) => s.costDevFeeMode);
 
+  // ── M1.5/11: active sub-project + phase selectors ──
+  // Hierarchy-tab CRUD lets the user maintain N sub-projects and N
+  // phases per sub-project. Until each legacy tab (Timeline / Land &
+  // Area / Dev Costs / Financing) gains full phase-aware reads, the
+  // selectors at minimum let the user *see* which sub-project + phase
+  // the current data slice corresponds to and switch between them. The
+  // single-phase fixture pipeline keeps using phase[0] for math; the
+  // selectors are wired into the store so future per-tab phase
+  // awareness can read activeSubProjectId / activePhaseId directly.
+  const subProjects        = useModule1Store((s) => s.subProjects);
+  const activeSubProjectId = useModule1Store((s) => s.activeSubProjectId);
+  const activePhaseId      = useModule1Store((s) => s.activePhaseId);
+  const setActiveSubProjectId = useModule1Store((s) => s.setActiveSubProjectId);
+  const setActivePhaseId      = useModule1Store((s) => s.setActivePhaseId);
+  const phasesForActiveSubProject = useMemo(
+    () => phases.filter(p => p.subProjectId === activeSubProjectId),
+    [phases, activeSubProjectId],
+  );
+
+  // Clamp the active selectors when the underlying lists change. If
+  // the previously-active sub-project / phase was deleted (or the
+  // store hydrated to a fresh project that doesn't have it), fall back
+  // to the first available so the dropdowns never read 'invalid'.
+  useEffect(() => {
+    if (subProjects.length === 0) return;
+    if (!subProjects.some(sp => sp.id === activeSubProjectId)) {
+      setActiveSubProjectId(subProjects[0].id);
+    }
+  }, [subProjects, activeSubProjectId, setActiveSubProjectId]);
+  useEffect(() => {
+    if (phasesForActiveSubProject.length === 0) return;
+    if (!phasesForActiveSubProject.some(p => p.id === activePhaseId)) {
+      setActivePhaseId(phasesForActiveSubProject[0].id);
+    }
+  }, [phasesForActiveSubProject, activePhaseId, setActivePhaseId]);
+
   // Phase 0 scalars (single-phase projects). Multi-phase editing surfaces
   // its own selectors when Module1Timeline gains the phase editor.
   const constructionPeriods = phases[0]?.constructionPeriods ?? 4;
@@ -1228,6 +1264,70 @@ export default function RealEstatePlatform() {
                 </button>
               ))}
             </div>
+
+            {/* M1.5/11: Sub-Project + Phase context selectors. Shown
+               only on the legacy non-Hierarchy tabs — the Hierarchy
+               tab is the canonical CRUD surface for both lists, so
+               putting the selectors there too would be redundant.
+               Hidden when the project has 0 sub-projects or 0 phases
+               (brand-new empty-assets project). FAST navy-pale per the
+               REFM input convention. */}
+            {activeTab !== 'hierarchy' && subProjects.length > 0 && phasesForActiveSubProject.length > 0 && (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 'var(--sp-2)',
+                padding: '8px var(--sp-3)',
+                borderBottom: '1px solid var(--color-border)',
+                background: 'color-mix(in srgb, var(--color-navy) 3%, var(--color-surface))',
+              }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--font-meta)', color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 'var(--fw-semibold)' }}>
+                  Sub-Project
+                  <select
+                    value={activeSubProjectId}
+                    onChange={(e) => setActiveSubProjectId(e.target.value)}
+                    style={{
+                      padding: '4px 8px',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: 'var(--font-meta)',
+                      fontFamily: 'Inter, sans-serif',
+                      background: 'var(--color-navy-pale)',
+                      color: 'var(--color-navy)',
+                      fontWeight: 'var(--fw-semibold)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {subProjects.map(sp => <option key={sp.id} value={sp.id}>{sp.name}</option>)}
+                  </select>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 'var(--font-meta)', color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 'var(--fw-semibold)' }}>
+                  Phase
+                  <select
+                    value={activePhaseId}
+                    onChange={(e) => setActivePhaseId(e.target.value)}
+                    style={{
+                      padding: '4px 8px',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-sm)',
+                      fontSize: 'var(--font-meta)',
+                      fontFamily: 'Inter, sans-serif',
+                      background: 'var(--color-navy-pale)',
+                      color: 'var(--color-navy)',
+                      fontWeight: 'var(--fw-semibold)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {phasesForActiveSubProject.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                </label>
+                {phasesForActiveSubProject.length > 1 && (
+                  <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', fontStyle: 'italic', marginLeft: 'auto' }}>
+                    Per-tab phase-aware reads land progressively across M1.6+; today the legacy tabs render phase[0] math.
+                  </span>
+                )}
+              </div>
+            )}
 
             {/* Tab content */}
             <div className="tab-content" style={{ padding: 'var(--sp-3)' }}>
