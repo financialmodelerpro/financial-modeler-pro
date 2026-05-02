@@ -28,14 +28,20 @@
  *     metric defaulting per Architecture section 7 (Lease → area,
  *     otherwise count). Asset delete confirms the sub-unit + cost
  *     cascade; sub-unit delete is a simple confirm.
- *   - M1.5/10 (this commit): Master Holding panel + toggle. Enabled
- *     flag drives a switch in the MH header card; flipping enabled→off
- *     while sub-projects roll up under it shows a confirm and clears
- *     their masterHoldingId/revenueShareToMaster fields so we never
- *     leave a dangling reference. When enabled, an Edit button opens
- *     the inline editor for name + landCostMethod + landCostValue +
+ *   - M1.5/10: Master Holding panel + toggle. Enabled flag drives a
+ *     switch in the MH header card; flipping enabled→off while sub-
+ *     projects roll up under it shows a confirm and clears their
+ *     masterHoldingId/revenueShareToMaster fields so we never leave a
+ *     dangling reference. When enabled, an Edit button opens the
+ *     inline editor for name + landCostMethod + landCostValue +
  *     master-debt principal/rate/term. P&L math stays out of scope —
  *     that lives in M8.1 per the M1.5 ratification.
+ *   - M1.5b/1 (this commit): UX polish - inline tooltips on each tier
+ *     label (hover / focus / click reveals a positioned bubble with the
+ *     short Architecture-section-1 description), page header context
+ *     bar with quick stats line ("X Sub-Projects, Y Phases, Z Assets,
+ *     N Sub-Units") and a "Switch to Quick Setup" link (the launcher
+ *     itself wires up in M1.5b/5).
  *
  * The component subscribes to useModule1Store directly; CRUD goes
  * straight through the store actions (add/update/remove SubProject /
@@ -167,6 +173,106 @@ const ghostBtnStyle: React.CSSProperties = {
   fontWeight: 'var(--fw-semibold)',
   cursor: 'pointer',
 };
+
+// ── Tier copy (Architecture sheet section 1) ────────────────────────────────
+// Short, opinionated explainers per layer. Surfaced via TierLabel's
+// tooltip — first-time users hover/click the ⓘ to learn what each
+// layer is for without leaving the page. Intentionally short (one
+// paragraph) so the bubble doesn't dominate the screen.
+type TierKey = 'masterHolding' | 'subProject' | 'phase' | 'asset' | 'subUnit';
+
+const TIER_TOOLTIPS: Record<TierKey, string> = {
+  masterHolding: 'Optional. Use when you have multiple Sub-Projects under one parent entity (e.g., a real estate fund holding 7 funds, each with own land + debt + returns). Most projects skip this.',
+  subProject:    'An independent financing unit. One Sub-Project = one fund / project / standalone development. Has its own equity, debt, returns. Most users have just 1 Sub-Project.',
+  phase:         'A sequenced timeline chunk within a Sub-Project. Most projects have 1 Phase. Add more Phases for staged developments where Phase 2 starts construction years after Phase 1.',
+  asset:         'A building or operating entity. One asset = one building or one operating unit type (e.g., 5-Star Hotel, Branded Apartments Tower 1, Retail Podium).',
+  subUnit:       'Inventory inside an Asset. For Sell: 1BR / 2BR / Branded Suite. For Operate: Twin Key / King Key. For Lease: optional split by floor or zone.',
+};
+
+// ── TierLabel: tier badge + inline tooltip trigger ─────────────────────────
+// Renders the tier name as the badge that already existed (tierLabelStyle)
+// PLUS an info icon to its right. The icon is a real <button> so it's
+// keyboard-focusable, has an aria-label, and announces its bound copy
+// to assistive tech. Hover OR keyboard focus opens the bubble; Esc or
+// blur closes it. Click toggles a "pinned" mode so users can read at
+// their own pace.
+interface TierLabelProps {
+  label: string;
+  accent: string;
+  tierKey: TierKey;
+}
+
+function TierLabel({ label, accent, tierKey }: TierLabelProps) {
+  const [open, setOpen] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const visible = open || pinned;
+  const tip = TIER_TOOLTIPS[tierKey];
+
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+      <span style={tierLabelStyle(accent)}>{label}</span>
+      <button
+        type="button"
+        aria-label={`What is a ${label}? ${tip}`}
+        aria-expanded={visible}
+        title={tip}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => { setOpen(false); setPinned(false); }}
+        onClick={() => setPinned(p => !p)}
+        onKeyDown={(e) => { if (e.key === 'Escape') { setOpen(false); setPinned(false); (e.target as HTMLElement).blur(); } }}
+        style={{
+          marginBottom: 4,
+          width: 18,
+          height: 18,
+          borderRadius: '50%',
+          border: '1px solid color-mix(in srgb, var(--color-meta) 35%, transparent)',
+          background: 'transparent',
+          color: 'var(--color-meta)',
+          fontSize: 11,
+          fontWeight: 'var(--fw-bold)',
+          fontFamily: 'Inter, sans-serif',
+          cursor: 'pointer',
+          padding: 0,
+          lineHeight: 1,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        ⓘ
+      </button>
+      {visible && (
+        <span
+          role="tooltip"
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 6px)',
+            left: 0,
+            zIndex: 20,
+            maxWidth: 360,
+            minWidth: 240,
+            padding: '8px 10px',
+            background: 'var(--color-surface)',
+            color: 'var(--color-body)',
+            border: `1px solid color-mix(in srgb, ${accent} 35%, var(--color-border))`,
+            borderLeft: `3px solid ${accent}`,
+            borderRadius: 6,
+            fontSize: 'var(--font-meta)',
+            lineHeight: 1.5,
+            boxShadow: 'var(--shadow-2)',
+            fontWeight: 'var(--fw-normal)',
+            textTransform: 'none',
+            letterSpacing: 'normal',
+          }}
+        >
+          {tip}
+        </span>
+      )}
+    </span>
+  );
+}
 
 // ── Sub-Project edit row ───────────────────────────────────────────────────
 // Inline editor used for both "edit existing" and "add new" flows. Uses
@@ -906,6 +1012,21 @@ export default function Module1Hierarchy() {
     };
   };
 
+  // M1.5b/1: Quick stats line for the page header context bar.
+  const totalPhases   = phases.length;
+  const totalAssets   = assets.length;
+  const totalSubUnits = subUnits.length;
+
+  // M1.5b/1: Quick Setup launcher. Placeholder until the wizard ships
+  // in M1.5b/5 — for now it surfaces a friendly explainer instead of
+  // a half-built modal so the link is wired but the feature isn't
+  // half-baked.
+  const launchQuickSetup = () => {
+    if (typeof window !== 'undefined') {
+      window.alert('Quick Setup wizard arrives in M1.5b/5. For now, use "+ Add Sub-Project" / "+ Add Phase" / "+ Add Asset" inline below.');
+    }
+  };
+
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto', padding: 'var(--sp-3) 0' }}>
       {/* Header */}
@@ -915,8 +1036,60 @@ export default function Module1Hierarchy() {
         </h2>
         <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-meta)', margin: 0, lineHeight: 1.6 }}>
           5-layer structure: <strong>Master Holding → Sub-Project → Phase → Asset → Sub-Unit</strong>. All five tiers are
-          live (toggle Master Holding on/off in the panel below; the others have add / edit / delete inline).
+          live (toggle Master Holding on/off in the panel below; the others have add / edit / delete inline). Hover the
+          ⓘ on any tier label below for a one-line explainer.
         </p>
+
+        {/* ── M1.5b/1: quick stats + Quick Setup launcher ── */}
+        <div
+          style={{
+            marginTop: 'var(--sp-2)',
+            padding: '8px 12px',
+            background: 'color-mix(in srgb, var(--color-navy) 4%, var(--color-surface))',
+            border: '1px solid var(--color-border)',
+            borderRadius: 6,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 'var(--sp-2)',
+          }}
+        >
+          <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-body)', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            <span style={{ fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)' }}>📊 Project at a glance:</span>
+            <span><strong style={{ color: 'var(--color-heading)' }}>{subProjects.length}</strong> Sub-Project{subProjects.length === 1 ? '' : 's'}</span>
+            <span style={{ color: 'var(--color-border)' }}>·</span>
+            <span><strong style={{ color: 'var(--color-heading)' }}>{totalPhases}</strong> Phase{totalPhases === 1 ? '' : 's'}</span>
+            <span style={{ color: 'var(--color-border)' }}>·</span>
+            <span><strong style={{ color: 'var(--color-heading)' }}>{totalAssets}</strong> Asset{totalAssets === 1 ? '' : 's'}</span>
+            <span style={{ color: 'var(--color-border)' }}>·</span>
+            <span><strong style={{ color: 'var(--color-heading)' }}>{totalSubUnits}</strong> Sub-Unit{totalSubUnits === 1 ? '' : 's'}</span>
+            {masterHolding.enabled && (
+              <>
+                <span style={{ color: 'var(--color-border)' }}>·</span>
+                <span style={{ color: tokens.mhAccent, fontWeight: 'var(--fw-semibold)' }}>MH active</span>
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={launchQuickSetup}
+            aria-label="Switch to Quick Setup wizard"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: tokens.subProjAccent,
+              fontSize: 'var(--font-meta)',
+              fontWeight: 'var(--fw-semibold)',
+              cursor: 'pointer',
+              padding: '4px 8px',
+              textDecoration: 'underline',
+              fontFamily: 'Inter, sans-serif',
+            }}
+          >
+            ⚡ Switch to Quick Setup
+          </button>
+        </div>
       </div>
 
       {/* ── Master Holding (optional, toggleable) ── */}
@@ -927,7 +1100,7 @@ export default function Module1Hierarchy() {
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
           <div style={{ flex: 1 }}>
-            <div style={tierLabelStyle(tokens.mhAccent)}>Master Holding</div>
+            <TierLabel label="Master Holding" accent={tokens.mhAccent} tierKey="masterHolding" />
             {masterHolding.enabled ? (
               <>
                 <div style={nodeNameStyle}>{masterHolding.name}</div>
@@ -984,7 +1157,7 @@ export default function Module1Hierarchy() {
             <div key={sp.id} style={{ ...cardBase, borderLeft: `4px solid ${tokens.subProjAccent}` }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                 <div style={{ flex: 1 }}>
-                  <div style={tierLabelStyle(tokens.subProjAccent)}>Sub-Project</div>
+                  <TierLabel label="Sub-Project" accent={tokens.subProjAccent} tierKey="subProject" />
                   <div style={nodeNameStyle}>{sp.name}</div>
                   <div style={metaRowStyle}>
                     <span style={metaPillStyle}>💱 {sp.currency}</span>
@@ -1035,7 +1208,7 @@ export default function Module1Hierarchy() {
                     <div key={phase.id} style={{ ...cardBase, borderLeft: `4px solid ${tokens.phaseAccent}` }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                         <div style={{ flex: 1 }}>
-                          <div style={tierLabelStyle(tokens.phaseAccent)}>Phase</div>
+                          <TierLabel label="Phase" accent={tokens.phaseAccent} tierKey="phase" />
                           <div style={nodeNameStyle}>{phase.name}</div>
                           <div style={metaRowStyle}>
                             <span style={metaPillStyle}>🛠 Construction: {phase.constructionPeriods} periods (start {phase.constructionStart})</span>
@@ -1084,7 +1257,7 @@ export default function Module1Hierarchy() {
                             <div key={asset.id} style={{ ...cardBase, borderLeft: `4px solid ${tokens.assetAccent}` }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                                 <div style={{ flex: 1 }}>
-                                  <div style={tierLabelStyle(tokens.assetAccent)}>Asset</div>
+                                  <TierLabel label="Asset" accent={tokens.assetAccent} tierKey="asset" />
                                   <div style={nodeNameStyle}>
                                     {asset.name}
                                     {!asset.visible && <span style={{ marginLeft: 8, fontSize: 'var(--font-micro)', color: 'var(--color-meta)', fontWeight: 'var(--fw-normal)' }}>(hidden)</span>}
@@ -1121,7 +1294,7 @@ export default function Module1Hierarchy() {
                                     <div key={unit.id} style={{ ...cardBase, borderLeft: `4px solid ${tokens.subUnitAccent}`, marginBottom: 'var(--sp-1)' }}>
                                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                                         <div style={{ flex: 1 }}>
-                                          <div style={tierLabelStyle(tokens.subUnitAccent)}>Sub-Unit</div>
+                                          <TierLabel label="Sub-Unit" accent={tokens.subUnitAccent} tierKey="subUnit" />
                                           <div style={nodeNameStyle}>{unit.name}</div>
                                           <div style={metaRowStyle}>
                                             <span style={metaPillStyle}>{unit.metric === 'count' ? '#' : '㎡'} {unit.metricValue.toLocaleString()} {unit.metric === 'count' ? 'units' : 'sqm'}</span>
