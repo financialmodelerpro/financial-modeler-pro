@@ -22,13 +22,20 @@
  *     overlapPeriods (operationsStart auto-derived from the same
  *     formula makeDefaultPhase uses). Delete confirms the bound asset /
  *     cost cascade.
- *   - M1.5/9 (this commit): Asset + Sub-Unit CRUD per Phase — add /
- *     inline-edit / delete with PREBUILT_ASSET_TYPES bucketed by
- *     category (4 categories × 20 types from Architecture section 2),
- *     and Sub-Unit metric defaulting per Architecture section 7
- *     (Lease → area, otherwise count). Asset delete confirms the
- *     sub-unit + cost cascade; sub-unit delete is a simple confirm.
- *   - M1.5/10 (upcoming): Master Holding panel + toggle.
+ *   - M1.5/9: Asset + Sub-Unit CRUD per Phase — add / inline-edit /
+ *     delete with PREBUILT_ASSET_TYPES bucketed by category (4
+ *     categories × 20 types from Architecture section 2), and Sub-Unit
+ *     metric defaulting per Architecture section 7 (Lease → area,
+ *     otherwise count). Asset delete confirms the sub-unit + cost
+ *     cascade; sub-unit delete is a simple confirm.
+ *   - M1.5/10 (this commit): Master Holding panel + toggle. Enabled
+ *     flag drives a switch in the MH header card; flipping enabled→off
+ *     while sub-projects roll up under it shows a confirm and clears
+ *     their masterHoldingId/revenueShareToMaster fields so we never
+ *     leave a dangling reference. When enabled, an Edit button opens
+ *     the inline editor for name + landCostMethod + landCostValue +
+ *     master-debt principal/rate/term. P&L math stays out of scope —
+ *     that lives in M8.1 per the M1.5 ratification.
  *
  * The component subscribes to useModule1Store directly; CRUD goes
  * straight through the store actions (add/update/remove SubProject /
@@ -39,7 +46,7 @@
 import React, { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import type { AssetCategory, AssetClass, Phase, SubProject, SubUnit } from '../../lib/state/module1-types';
+import type { AssetCategory, AssetClass, MasterHolding, Phase, SubProject, SubUnit } from '../../lib/state/module1-types';
 import { PREBUILT_ASSET_TYPES } from '../../lib/state/module1-types';
 
 // ── Visual tokens ──────────────────────────────────────────────────────────
@@ -211,7 +218,7 @@ function SubProjectEditor({ initial, masterHoldingEnabled, onSave, onCancel }: S
             })}
           />
           Roll up under Master Holding
-          {!masterHoldingEnabled && <span style={{ color: 'var(--color-meta)', fontStyle: 'italic' }}>(enable MH first in M1.5/10)</span>}
+          {!masterHoldingEnabled && <span style={{ color: 'var(--color-meta)', fontStyle: 'italic' }}>(enable Master Holding first in the panel above)</span>}
         </label>
 
         {draft.masterHoldingId && (
@@ -538,6 +545,109 @@ function SubUnitEditor({ initial, parentCategory: _parentCategory, currency, onS
   );
 }
 
+// ── Master Holding edit row ────────────────────────────────────────────────
+// Inline editor for the Master Holding singleton (name + land cost
+// method/value + master debt scalars). Toggling enabled is handled at
+// the parent level so we can run the cleanup-warn flow when going from
+// enabled → disabled with sub-projects still rolled up.
+interface MasterHoldingEditorProps {
+  initial: MasterHolding;
+  currency: string;
+  onSave: (next: MasterHolding) => void;
+  onCancel: () => void;
+}
+
+function MasterHoldingEditor({ initial, currency, onSave, onCancel }: MasterHoldingEditorProps) {
+  const [draft, setDraft] = useState<MasterHolding>(initial);
+
+  return (
+    <div style={{ marginTop: 8, padding: 'var(--sp-2)', background: 'color-mix(in srgb, var(--color-primary) 4%, var(--color-surface))', border: '1px dashed var(--color-border)', borderRadius: 6 }}>
+      <div style={{ marginBottom: 'var(--sp-2)' }}>
+        <label style={labelStyle}>Master Holding name</label>
+        <input
+          type="text"
+          value={draft.name}
+          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+          style={{ ...inputStyle, width: '100%' }}
+        />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+        <div>
+          <label style={labelStyle}>Land cost method</label>
+          <select
+            value={draft.landCostMethod}
+            onChange={(e) => setDraft({ ...draft, landCostMethod: e.target.value as 'fixed' | 'rate_total_allocated' })}
+            style={{ ...inputStyle, width: '100%' }}
+          >
+            <option value="fixed">Fixed amount</option>
+            <option value="rate_total_allocated">Rate × total allocated land</option>
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>
+            {draft.landCostMethod === 'fixed' ? `Land cost (${currency})` : 'Land rate'}
+          </label>
+          <input
+            type="number" min={0} step={1}
+            value={draft.landCostValue}
+            onChange={(e) => setDraft({ ...draft, landCostValue: Math.max(0, Number(e.target.value) || 0) })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 'var(--sp-1)', fontSize: 'var(--font-meta)', color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 'var(--fw-semibold)' }}>
+        Master-level debt (land acquisition)
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+        <div>
+          <label style={labelStyle}>Principal ({currency})</label>
+          <input
+            type="number" min={0} step={1}
+            value={draft.masterDebtPrincipal}
+            onChange={(e) => setDraft({ ...draft, masterDebtPrincipal: Math.max(0, Number(e.target.value) || 0) })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Interest rate %</label>
+          <input
+            type="number" min={0} step={0.05}
+            value={draft.masterDebtRate}
+            onChange={(e) => setDraft({ ...draft, masterDebtRate: Math.max(0, Number(e.target.value) || 0) })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Term (periods)</label>
+          <input
+            type="number" min={0} step={1}
+            value={draft.masterDebtTermPeriods}
+            onChange={(e) => setDraft({ ...draft, masterDebtTermPeriods: Math.max(0, Number(e.target.value) || 0) })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+      </div>
+
+      <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', fontStyle: 'italic', marginBottom: 'var(--sp-2)' }}>
+        Master Holding P&amp;L / consolidation math is out of scope here — it lands in M8.1 (Portfolio rollup). M1.5 captures the structure only.
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button onClick={onCancel} style={ghostBtnStyle}>Cancel</button>
+        <button
+          onClick={() => onSave(draft)}
+          disabled={!draft.name.trim()}
+          style={{ ...primaryBtnStyle, opacity: !draft.name.trim() ? 0.5 : 1, cursor: !draft.name.trim() ? 'not-allowed' : 'pointer' }}
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 export default function Module1Hierarchy() {
   const { masterHolding, subProjects, phases, assets, subUnits, currency } = useModule1Store(useShallow((s) => ({
@@ -551,6 +661,8 @@ export default function Module1Hierarchy() {
 
   // Pull mutating actions outside of the shallow read so they don't
   // count as state changes — getState() at call time is enough.
+  const updateMasterHolding = useModule1Store((s) => s.updateMasterHolding);
+  const setSubProjects      = useModule1Store((s) => s.setSubProjects);
   const addSubProject    = useModule1Store((s) => s.addSubProject);
   const updateSubProject = useModule1Store((s) => s.updateSubProject);
   const removeSubProject = useModule1Store((s) => s.removeSubProject);
@@ -576,6 +688,8 @@ export default function Module1Hierarchy() {
   // Sub-Unit editor: 'unit__new__:<assetId>' = adding under that asset;
   // '<subUnitId>' = editing inline.
   const [editingSubUnitId, setEditingSubUnitId] = useState<string | null>(null);
+  // Master Holding editor open / closed (singleton — id-less toggle).
+  const [editingMH, setEditingMH] = useState(false);
 
   const phasesBySubProject = (subProjectId: string) =>
     phases.filter(p => p.subProjectId === subProjectId);
@@ -749,6 +863,35 @@ export default function Module1Hierarchy() {
     if (editingSubUnitId === unit.id) setEditingSubUnitId(null);
   };
 
+  // Master Holding toggle. Going off when sub-projects are still rolled
+  // up under it would orphan their masterHoldingId pointers, so we
+  // confirm and clear them before flipping the switch.
+  const handleToggleMasterHolding = (next: boolean) => {
+    if (!next) {
+      const rolledUp = subProjects.filter(sp => sp.masterHoldingId);
+      if (rolledUp.length > 0) {
+        const ok = window.confirm(
+          `Disable Master Holding?\n\n` +
+          `${rolledUp.length} sub-project${rolledUp.length === 1 ? '' : 's'} (${rolledUp.map(sp => sp.name).join(', ')}) currently roll up under it. ` +
+          `They will be detached (masterHoldingId cleared, revenue share reset to 0) so the disable doesn't leave dangling references.\n\n` +
+          `Continue?`,
+        );
+        if (!ok) return;
+        setSubProjects(subProjects.map(sp => sp.masterHoldingId
+          ? { ...sp, masterHoldingId: null, revenueShareToMaster: 0 }
+          : sp,
+        ));
+      }
+    }
+    updateMasterHolding({ enabled: next });
+    if (!next) setEditingMH(false);
+  };
+
+  const handleSaveMasterHolding = (next: MasterHolding) => {
+    updateMasterHolding(next);
+    setEditingMH(false);
+  };
+
   const newSubUnitDraft = (asset: AssetClass, ordinal: number): SubUnit => {
     // Default metric per Architecture section 7: Lease → area, otherwise count.
     const metric: 'count' | 'area' = asset.category === 'Lease' ? 'area' : 'count';
@@ -771,34 +914,64 @@ export default function Module1Hierarchy() {
           🗂️ Project Hierarchy
         </h2>
         <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-meta)', margin: 0, lineHeight: 1.6 }}>
-          5-layer structure: <strong>Master Holding → Sub-Project → Phase → Asset → Sub-Unit</strong>. Sub-Project, Phase,
-          Asset, and Sub-Unit CRUD are live; Master Holding panel + toggle arrives in M1.5/10.
+          5-layer structure: <strong>Master Holding → Sub-Project → Phase → Asset → Sub-Unit</strong>. All five tiers are
+          live (toggle Master Holding on/off in the panel below; the others have add / edit / delete inline).
         </p>
       </div>
 
-      {/* ── Master Holding (optional) ── */}
-      {masterHolding.enabled ? (
-        <div style={{ ...cardBase, borderLeft: `4px solid ${tokens.mhAccent}` }}>
-          <div style={tierLabelStyle(tokens.mhAccent)}>Master Holding</div>
-          <div style={nodeNameStyle}>{masterHolding.name}</div>
-          <div style={metaRowStyle}>
-            <span style={metaPillStyle}>
-              📐 Land cost: {masterHolding.landCostMethod === 'fixed' ? `${currency} ${masterHolding.landCostValue.toLocaleString()}` : `${masterHolding.landCostValue} (rate × allocated)`}
-            </span>
-            <span style={metaPillStyle}>
-              🏦 Master debt: {currency} {masterHolding.masterDebtPrincipal.toLocaleString()} @ {masterHolding.masterDebtRate}% / {masterHolding.masterDebtTermPeriods} periods
-            </span>
+      {/* ── Master Holding (optional, toggleable) ── */}
+      <div style={{
+        ...cardBase,
+        borderLeft: `4px solid ${masterHolding.enabled ? tokens.mhAccent : `color-mix(in srgb, ${tokens.mhAccent} 30%, var(--color-border))`}`,
+        background: masterHolding.enabled ? 'var(--color-surface)' : 'transparent',
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+          <div style={{ flex: 1 }}>
+            <div style={tierLabelStyle(tokens.mhAccent)}>Master Holding</div>
+            {masterHolding.enabled ? (
+              <>
+                <div style={nodeNameStyle}>{masterHolding.name}</div>
+                <div style={metaRowStyle}>
+                  <span style={metaPillStyle}>
+                    📐 Land cost: {masterHolding.landCostMethod === 'fixed' ? `${currency} ${masterHolding.landCostValue.toLocaleString()}` : `${masterHolding.landCostValue} (rate × allocated)`}
+                  </span>
+                  <span style={metaPillStyle}>
+                    🏦 Master debt: {currency} {masterHolding.masterDebtPrincipal.toLocaleString()} @ {masterHolding.masterDebtRate}% / {masterHolding.masterDebtTermPeriods} periods
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div style={emptyHintStyle}>
+                Disabled. Single-project layouts skip this layer; toggle on to
+                roll Sub-Projects up under a holding entity.
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Toggle switch */}
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 'var(--font-meta)', color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 'var(--fw-semibold)' }}>
+              <input
+                type="checkbox"
+                checked={masterHolding.enabled}
+                onChange={(e) => handleToggleMasterHolding(e.target.checked)}
+              />
+              Enabled
+            </label>
+            {masterHolding.enabled && !editingMH && (
+              <button title="Edit Master Holding" onClick={() => setEditingMH(true)} style={iconBtnStyle}>✏ Edit</button>
+            )}
           </div>
         </div>
-      ) : (
-        <div style={{ ...cardBase, borderLeft: `4px solid color-mix(in srgb, ${tokens.mhAccent} 30%, var(--color-border))`, background: 'transparent' }}>
-          <div style={tierLabelStyle(tokens.mhAccent)}>Master Holding</div>
-          <div style={emptyHintStyle}>
-            Disabled. Single-project layouts skip this layer; toggle on
-            from M1.5/10 onwards to roll Sub-Projects up under a holding entity.
-          </div>
-        </div>
-      )}
+
+        {masterHolding.enabled && editingMH && (
+          <MasterHoldingEditor
+            initial={masterHolding}
+            currency={currency}
+            onSave={handleSaveMasterHolding}
+            onCancel={() => setEditingMH(false)}
+          />
+        )}
+      </div>
 
       {/* ── Sub-Projects ── */}
       <div style={indentBlockStyle(tokens.subProjAccent)}>
@@ -1105,7 +1278,7 @@ export default function Module1Hierarchy() {
 
       {/* Footer hint */}
       <p style={{ marginTop: 'var(--sp-3)', fontSize: 'var(--font-meta)', color: 'var(--color-meta)', fontStyle: 'italic', textAlign: 'center' }}>
-        Next: Master Holding panel + toggle (M1.5/10).
+        Next: Sub-Project + Phase selectors at the top of the Timeline / Land &amp; Area / Dev Costs / Financing tabs (M1.5/11).
       </p>
     </div>
   );
