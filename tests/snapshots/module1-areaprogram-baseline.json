@@ -1,0 +1,107 @@
+{
+  "fixtureLabel": "AreaProgram Reference",
+  "perPlot": [
+    {
+      "plotId": "plot_1",
+      "plotName": "Plot A",
+      "phaseId": "phase_1",
+      "envelope": {
+        "maxGFA": 150000,
+        "footprint": 30000,
+        "typicalFootprint": 20000,
+        "podiumGFA": 60000,
+        "typicalGFA": 200000,
+        "totalBuiltGFA": 260000,
+        "publicArea": 20000,
+        "landscapeArea": 6000,
+        "hardscapeArea": 6000,
+        "surfaceParkingArea": 8000,
+        "basementGrossArea": 60000,
+        "basementUsableArea": 57000,
+        "utilizationPct": 173.33333333333334,
+        "isOverFAR": true
+      },
+      "capacity": {
+        "surfaceCapacityBays": 320,
+        "verticalCapacityBays": 0,
+        "basementCapacityBays": 1295
+      },
+      "parking": {
+        "surfaceBays": 320,
+        "verticalBays": 0,
+        "basementBays": 60,
+        "totalAllocated": 380,
+        "deficit": 0
+      },
+      "perAsset": [
+        {
+          "assetId": "residential",
+          "assetName": "Residential",
+          "category": "Sell",
+          "primaryStrategy": "Develop & Sell",
+          "gfaShare": 130000,
+          "cascade": {
+            "gfa": 130000,
+            "mep": 10400,
+            "backOfHouse": 3900,
+            "otherTechnical": 3900,
+            "netGFA": 111800,
+            "gsaGla": 95030,
+            "buaExcl": 137800,
+            "tba": 176700
+          },
+          "parkingBaysDemanded": 180
+        },
+        {
+          "assetId": "hospitality",
+          "assetName": "Hospitality",
+          "category": "Operate",
+          "primaryStrategy": "Develop & Operate",
+          "gfaShare": 78000,
+          "cascade": {
+            "gfa": 78000,
+            "mep": 11700,
+            "backOfHouse": 9360,
+            "otherTechnical": 3900,
+            "netGFA": 53040,
+            "gsaGla": 42432,
+            "buaExcl": 91260,
+            "tba": 120060
+          },
+          "parkingBaysDemanded": 200
+        },
+        {
+          "assetId": "retail",
+          "assetName": "Retail",
+          "category": "Lease",
+          "primaryStrategy": "Develop & Lease",
+          "gfaShare": 52000,
+          "cascade": {
+            "gfa": 52000,
+            "mep": 6240,
+            "backOfHouse": 2600,
+            "otherTechnical": 2080,
+            "netGFA": 41080,
+            "gsaGla": 36972,
+            "buaExcl": 56680,
+            "tba": 74320
+          },
+          "parkingBaysDemanded": 0
+        }
+      ],
+      "totalAssetGFA": 260000,
+      "totalGSAGLA": 174434,
+      "totalMEP": 28340,
+      "totalTBA": 371080,
+      "totalParkingBaysDemanded": 380
+    }
+  ],
+  "summary": {
+    "totalPlots": 1,
+    "totalAssetGFAAcrossPlots": 260000,
+    "totalGSAGLAAcrossPlots": 174434,
+    "totalParkingBaysDemanded": 380,
+    "totalParkingBaysAllocated": 380,
+    "totalParkingDeficit": 0
+  }
+}

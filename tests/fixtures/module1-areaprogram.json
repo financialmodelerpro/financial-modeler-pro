@@ -1,0 +1,152 @@
+{
+  "_comment": "Module 1 Area Program regression fixture (Phase M1.7/4). v4 HydrateSnapshot — single phase + 1 sub-project + 1 plot with 2 zones + 3 assets bound to the plot via plotId. Exercises the M1.7 calc path end-to-end: plot envelope (50,000 sqm, FAR 3.0, coverage 60%, 2 podium + 10 typical floors @ 40% coverage, 2 basements @ 95% efficiency), per-asset GFA share (pro-rata via allocationPct 50/30/20), per-asset cascade (residential gets defaults, hospitality / retail use category defaults), and parking allocation across 3 sub-units (Studio 100 + 2BR 80 + Hotel Key 200 -> 480 bays demanded, fits inside basement capacity).",
+
+  "projectName": "AreaProgram Reference",
+  "projectType": "mixed-use",
+  "country": "Saudi Arabia",
+  "currency": "SAR",
+  "modelType": "annual",
+  "projectStart": "2026-01-01",
+
+  "masterHolding": {
+    "id": "mh_1",
+    "name": "Master Holding",
+    "enabled": false,
+    "landCostMethod": "fixed",
+    "landCostValue": 0,
+    "masterDebtPrincipal": 0,
+    "masterDebtRate": 0,
+    "masterDebtTermPeriods": 0
+  },
+
+  "subProjects": [
+    {
+      "id": "subproject_1",
+      "name": "AreaProgram Reference",
+      "currency": "SAR",
+      "masterHoldingId": null,
+      "revenueShareToMaster": 0
+    }
+  ],
+
+  "phases": [
+    {
+      "id": "phase_1",
+      "name": "Phase 1",
+      "subProjectId": "subproject_1",
+      "constructionStart": 1,
+      "constructionPeriods": 4,
+      "operationsStart": 5,
+      "operationsPeriods": 8,
+      "overlapPeriods": 0
+    }
+  ],
+
+  "plots": [
+    {
+      "id": "plot_1",
+      "name": "Plot A",
+      "phaseId": "phase_1",
+      "plotArea": 50000,
+      "maxFAR": 3.0,
+      "coveragePct": 60,
+      "numberOfFloors": 12,
+      "podiumFloors": 2,
+      "typicalFloors": 10,
+      "typicalCoveragePct": 40,
+      "landscapePct": 30,
+      "hardscapePct": 30,
+      "surfaceBaySqm": 25,
+      "verticalBaySqm": 40,
+      "basementBaySqm": 44,
+      "basementCount": 2,
+      "basementEfficiencyPct": 95
+    }
+  ],
+
+  "zones": [
+    { "id": "zone_1a", "name": "Zone 1A (Residential)", "plotId": "plot_1", "areaSharePct": 60 },
+    { "id": "zone_1b", "name": "Zone 1B (Mixed)",       "plotId": "plot_1", "areaSharePct": 40 }
+  ],
+
+  "assets": [
+    {
+      "id": "residential",
+      "name": "Residential",
+      "type": "High-end Apartments",
+      "category": "Sell",
+      "allocationPct": 50,
+      "deductPct": 10,
+      "efficiencyPct": 85,
+      "visible": true,
+      "subProjectId": "subproject_1",
+      "phaseId": "phase_1",
+      "plotId": "plot_1",
+      "zoneId": "zone_1a",
+      "primaryStrategy": "Develop & Sell",
+      "primaryStrategyPct": 100
+    },
+    {
+      "id": "hospitality",
+      "name": "Hospitality",
+      "type": "Hotel 5-star",
+      "category": "Operate",
+      "allocationPct": 30,
+      "deductPct": 15,
+      "efficiencyPct": 80,
+      "visible": true,
+      "subProjectId": "subproject_1",
+      "phaseId": "phase_1",
+      "plotId": "plot_1",
+      "zoneId": "zone_1b",
+      "primaryStrategy": "Develop & Operate",
+      "primaryStrategyPct": 100
+    },
+    {
+      "id": "retail",
+      "name": "Retail",
+      "type": "Retail",
+      "category": "Lease",
+      "allocationPct": 20,
+      "deductPct": 5,
+      "efficiencyPct": 90,
+      "visible": true,
+      "subProjectId": "subproject_1",
+      "phaseId": "phase_1",
+      "plotId": "plot_1",
+      "zoneId": "zone_1b",
+      "primaryStrategy": "Develop & Lease",
+      "primaryStrategyPct": 100
+    }
+  ],
+
+  "subUnits": [
+    { "id": "su_studio", "assetId": "residential", "name": "Studio",    "metric": "count", "metricValue": 100, "unitPrice": 800000 },
+    { "id": "su_2br",    "assetId": "residential", "name": "2BR",       "metric": "count", "metricValue":  50, "unitPrice": 1500000 },
+    { "id": "su_key",    "assetId": "hospitality", "name": "Hotel Key", "metric": "count", "metricValue": 200, "unitPrice": 1200 }
+  ],
+
+  "landParcels": [
+    { "id": 1, "name": "Plot A Land", "area": 50000, "rate": 2500, "cashPct": 60, "inKindPct": 40 }
+  ],
+  "projectRoadsPct": 0,
+  "projectFAR": 3.0,
+  "projectNonEnclosedPct": 0,
+
+  "costs": [],
+  "costInputMode": "separate",
+  "nextCostId": 100,
+
+  "costStage": {},
+  "costScope": {},
+  "costDevFeeMode": {},
+  "allocBasis": "direct_cost",
+
+  "interestRate": 7.5,
+  "financingMode": "fixed",
+  "globalDebtPct": 60,
+  "capitalizeInterest": false,
+  "repaymentPeriods": 5,
+  "repaymentMethod": "fixed",
+  "lineRatios": {}
+}

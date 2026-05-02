@@ -54,7 +54,21 @@ import {
   calculateItemTotal,
   distributeCost,
   buildAssetFinancing,
+  computePlotEnvelope,
+  computeAreaCascade,
+  computePlotParkingCapacity,
+  allocateParking,
+  type PlotEnvelopeAreas,
+  type AreaCascadeResult,
+  type PlotCapacityResult,
+  type ParkingAllocationResult,
 } from '@core/calculations';
+import {
+  resolveAssetStrategy,
+  resolveAssetCascadePcts,
+  resolveSubUnitParkingBays,
+  type AssetStrategy,
+} from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import type {
   CostItem,
   AreaMetrics,
@@ -581,6 +595,187 @@ export function runMultiPhasePipeline(v4: HydrateSnapshot): MultiPhaseSnapshot {
       totalEquity:   projectTotalEquity,
       totalInterest: projectTotalInterest,
       totalPhases:   perPhase.length,
+    },
+  };
+}
+
+// ── Area-program pipeline (Phase M1.7/4) ────────────────────────────────────
+// Operates on a v4 HydrateSnapshot that carries plots[] / zones[] with
+// assets bound to specific plots via plotId. For each plot the pipeline
+// runs the M1.7/2 calc engines:
+//
+//   1. computePlotEnvelope(plot)              -> derived areas
+//   2. for each asset.plotId === plot.id:
+//        - GFA share = gfaOverrideSqm OR pro-rata allocationPct of
+//          the plot's totalBuiltGFA across other plot assets
+//        - basementShare placeholder (pro-rata of plot
+//          basementUsableArea by GFA share — filled in after parking)
+//        - computeAreaCascade(...) -> { mep, BoH, otherTech, gsaGla, BUA, TBA }
+//        - sum sub-unit parking bays via resolveSubUnitParkingBays
+//   3. computePlotParkingCapacity(envelope) + allocateParking(total demand)
+//
+// Output is keyed by plot id and stable across reruns (assets are
+// processed in store order, NOT sorted, to mirror UI row order).
+//
+// Independent of the legacy single-phase / multi-phase pipelines —
+// this one only fires when at least one plot exists. Pre-M1.7 fixtures
+// produce an empty perPlot array.
+
+export interface AreaProgramAssetSnapshot {
+  assetId:        string;
+  assetName:      string;
+  category:       string;
+  primaryStrategy: AssetStrategy;
+  gfaShare:       number;
+  cascade:        AreaCascadeResult;
+  parkingBaysDemanded: number;
+}
+
+export interface AreaProgramPlotSnapshot {
+  plotId:        string;
+  plotName:      string;
+  phaseId:       string;
+  envelope:      PlotEnvelopeAreas;
+  capacity:      PlotCapacityResult;
+  parking:       ParkingAllocationResult;
+  perAsset:      AreaProgramAssetSnapshot[];
+  // Roll-ups (sums across perAsset for at-a-glance plot KPIs).
+  totalAssetGFA: number;
+  totalGSAGLA:   number;
+  totalMEP:      number;
+  totalTBA:      number;
+  totalParkingBaysDemanded: number;
+}
+
+export interface AreaProgramSnapshot {
+  fixtureLabel:   string;
+  perPlot:        AreaProgramPlotSnapshot[];
+  summary: {
+    totalPlots:                 number;
+    totalAssetGFAAcrossPlots:   number;
+    totalGSAGLAAcrossPlots:     number;
+    totalParkingBaysDemanded:   number;
+    totalParkingBaysAllocated:  number;
+    totalParkingDeficit:        number;
+  };
+}
+
+export function runAreaProgramPipeline(v4: HydrateSnapshot): AreaProgramSnapshot {
+  const verticalParkingFloors = 0;  // M1.7/4 fixture default; future per-plot field
+
+  const perPlot: AreaProgramPlotSnapshot[] = v4.plots.map(plot => {
+    const envelope = computePlotEnvelope({
+      plotArea:              plot.plotArea,
+      maxFAR:                plot.maxFAR,
+      coveragePct:           plot.coveragePct,
+      podiumFloors:          plot.podiumFloors,
+      typicalFloors:         plot.typicalFloors,
+      typicalCoveragePct:    plot.typicalCoveragePct,
+      landscapePct:          plot.landscapePct,
+      hardscapePct:          plot.hardscapePct,
+      basementCount:         plot.basementCount,
+      basementEfficiencyPct: plot.basementEfficiencyPct,
+    });
+
+    const capacity = computePlotParkingCapacity({
+      envelope,
+      surfaceBaySqm:         plot.surfaceBaySqm,
+      verticalBaySqm:        plot.verticalBaySqm,
+      basementBaySqm:        plot.basementBaySqm,
+      verticalParkingFloors,
+    });
+
+    // Plot's assets in store order. allocPctSum is used for pro-rata
+    // GFA when no gfaOverrideSqm is set; missing-allocation defaults
+    // to equal weighting (1) so a plot with all-zero allocs still
+    // splits area cleanly.
+    const plotAssets = v4.assets.filter(a => a.plotId === plot.id);
+    const allocPctSum = plotAssets.reduce((s, a) => s + (a.allocationPct > 0 ? a.allocationPct : 0), 0);
+
+    // First pass: compute each asset's GFA share + parking demand.
+    const firstPass = plotAssets.map(asset => {
+      const gfaShare = asset.gfaOverrideSqm !== undefined
+        ? Math.max(0, asset.gfaOverrideSqm)
+        : (allocPctSum > 0
+            ? envelope.totalBuiltGFA * ((asset.allocationPct > 0 ? asset.allocationPct : 0) / allocPctSum)
+            : envelope.totalBuiltGFA / Math.max(1, plotAssets.length));
+      const subUnitsForAsset = v4.subUnits.filter(u => u.assetId === asset.id);
+      const parkingBaysDemanded = subUnitsForAsset.reduce((s, u) => s + resolveSubUnitParkingBays(u), 0);
+      return { asset, gfaShare, parkingBaysDemanded };
+    });
+
+    const totalParkingBaysDemanded = firstPass.reduce((s, p) => s + p.parkingBaysDemanded, 0);
+    const parking = allocateParking({
+      totalBaysRequired:    totalParkingBaysDemanded,
+      surfaceCapacityBays:  capacity.surfaceCapacityBays,
+      verticalCapacityBays: capacity.verticalCapacityBays,
+      basementCapacityBays: capacity.basementCapacityBays,
+    });
+
+    // Pro-rata basement share by GFA. Pure split — does NOT alter the
+    // asset's GFA, just stamps how much basement belongs to the asset
+    // for cascade.tba reporting.
+    const totalGFA = firstPass.reduce((s, p) => s + p.gfaShare, 0);
+
+    const perAsset: AreaProgramAssetSnapshot[] = firstPass.map(({ asset, gfaShare, parkingBaysDemanded }) => {
+      const cascadePcts = resolveAssetCascadePcts(asset);
+      const basementShare = totalGFA > 0
+        ? envelope.basementUsableArea * (gfaShare / totalGFA)
+        : 0;
+      const cascade = computeAreaCascade({
+        gfa: gfaShare,
+        ...cascadePcts,
+        efficiencyPct: asset.efficiencyPct,
+        basementShare,
+      });
+      return {
+        assetId:         asset.id,
+        assetName:       asset.name,
+        category:        asset.category,
+        primaryStrategy: resolveAssetStrategy(asset),
+        gfaShare,
+        cascade,
+        parkingBaysDemanded,
+      };
+    });
+
+    const totalAssetGFA = perAsset.reduce((s, a) => s + a.cascade.gfa, 0);
+    const totalGSAGLA   = perAsset.reduce((s, a) => s + a.cascade.gsaGla, 0);
+    const totalMEP      = perAsset.reduce((s, a) => s + a.cascade.mep, 0);
+    const totalTBA      = perAsset.reduce((s, a) => s + a.cascade.tba, 0);
+
+    return {
+      plotId:        plot.id,
+      plotName:      plot.name,
+      phaseId:       plot.phaseId,
+      envelope,
+      capacity,
+      parking,
+      perAsset,
+      totalAssetGFA,
+      totalGSAGLA,
+      totalMEP,
+      totalTBA,
+      totalParkingBaysDemanded,
+    };
+  });
+
+  const totalAssetGFAAcrossPlots = perPlot.reduce((s, p) => s + p.totalAssetGFA, 0);
+  const totalGSAGLAAcrossPlots   = perPlot.reduce((s, p) => s + p.totalGSAGLA, 0);
+  const totalParkingBaysDemanded = perPlot.reduce((s, p) => s + p.totalParkingBaysDemanded, 0);
+  const totalParkingBaysAllocated = perPlot.reduce((s, p) => s + p.parking.totalAllocated, 0);
+  const totalParkingDeficit       = perPlot.reduce((s, p) => s + p.parking.deficit, 0);
+
+  return {
+    fixtureLabel: v4.projectName,
+    perPlot,
+    summary: {
+      totalPlots:                perPlot.length,
+      totalAssetGFAAcrossPlots,
+      totalGSAGLAAcrossPlots,
+      totalParkingBaysDemanded,
+      totalParkingBaysAllocated,
+      totalParkingDeficit,
     },
   };
 }
