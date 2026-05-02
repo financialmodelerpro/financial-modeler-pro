@@ -236,3 +236,27 @@ export const selectActiveOperationsPeriods = (s: Module1Store): number =>
 
 export const selectActiveOverlapPeriods = (s: Module1Store): number =>
   s.phases[0]?.overlapPeriods ?? 0;
+
+// ── Multi-asset rendering selectors ────────────────────────────────────────
+// Used by Module1Costs / Module1Financing once they migrate from
+// hardcoded 3-asset rendering to data-driven iteration over visible
+// assets. Until that tab refactor lands, RealEstatePlatform.tsx still
+// derives per-asset slices manually for backward-compat with the tab
+// prop interfaces.
+
+// Returns visible assets in store order (insertion order). Stable
+// reference per render; pair with useShallow if components subscribe
+// to derived shapes that change frequently.
+export const selectVisibleAssetsOrdered = (s: Module1Store): AssetClass[] =>
+  s.assets.filter((a) => a.visible);
+
+// Returns a Record mapping asset id to its filtered cost lines. Useful
+// for tabs that need O(1) per-asset lookups while iterating
+// visibleAssets.
+export const selectCostsByAsset = (s: Module1Store): Record<string, CostLine[]> => {
+  const out: Record<string, CostLine[]> = {};
+  for (const c of s.costs) {
+    (out[c.assetId] ??= []).push(c);
+  }
+  return out;
+};

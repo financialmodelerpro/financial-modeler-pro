@@ -223,8 +223,10 @@ export function toLegacySnapshot(s: HydrateSnapshot): LegacyV2Snapshot {
   const phase = s.phases[0] ?? makeDefaultPhase(0, 0, 0);
 
   const stripAssetId = (c: CostLine): CostItem => {
-    const { assetId: _assetId, phaseId: _phaseId, ...rest } = c;
-    return rest;
+    const out: Partial<CostLine> = { ...c };
+    delete out.assetId;
+    delete out.phaseId;
+    return out as CostItem;
   };
 
   const residentialCosts = s.costs.filter(c => c.assetId === LEGACY_ASSET_IDS.residential).map(stripAssetId);
@@ -282,15 +284,19 @@ export function toLegacySnapshot(s: HydrateSnapshot): LegacyV2Snapshot {
 }
 
 // ── Top-level entry: any-shape snapshot -> new v3 hydration payload ────────
+const stripVersionAndSavedAt = (s: NewV3Snapshot): HydrateSnapshot => {
+  const out: Partial<NewV3Snapshot> = { ...s };
+  delete out.version;
+  delete out.savedAt;
+  return out as HydrateSnapshot;
+};
+
 export function hydrationFromAnySnapshot(snapshot: unknown): HydrateSnapshot {
   if (isNewV3(snapshot)) {
-    const { version: _v, savedAt: _s, ...rest } = snapshot;
-    return rest;
+    return stripVersionAndSavedAt(snapshot);
   }
   if (isLegacyV2(snapshot)) {
-    const v3 = migrateLegacyToNew(snapshot);
-    const { version: _v, savedAt: _s, ...rest } = v3;
-    return rest;
+    return stripVersionAndSavedAt(migrateLegacyToNew(snapshot));
   }
   // Unrecognized shape: fall back to defaults rather than throw, so a
   // hand-edited or corrupted localStorage entry does not brick the app.

@@ -375,6 +375,11 @@ export default function RealEstatePlatform() {
   }, []);
 
   // ── Default costs init (Land Cash id:1 canDelete:false + default items) ──
+  // Re-seeds whenever a per-asset cost array becomes empty: covers both
+  // the first-mount case (store hydrated to defaults with no cost lines)
+  // and the post-load case (a saved snapshot whose costs[] for an asset
+  // somehow ended up empty would otherwise render an empty Costs tab
+  // with no way to recover short of a hard reload).
   useEffect(() => {
     if (residentialCosts.length === 0) {
       const initLandValue = (totalLandArea * cashPercent / 100) * (residentialPercent / 100) * landValuePerSqm;
@@ -397,7 +402,14 @@ export default function RealEstatePlatform() {
         ...makeDefaultCosts(2),
       ]);
     }
-  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+    // The closure reads totalLandArea / cashPercent / landValuePerSqm
+    // (declared further down the component body) at call time. We list
+    // landParcels here as the upstream source that drives all three.
+  }, [
+    residentialCosts.length, hospitalityCosts.length, retailCosts.length,
+    landParcels, residentialPercent, hospitalityPercent, retailPercent,
+    setResidentialCosts, setHospitalityCosts, setRetailCosts,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Keep Land Cash value in sync when land inputs change ──
   useEffect(() => {
@@ -501,6 +513,26 @@ export default function RealEstatePlatform() {
   const showResidential  = projectType === 'residential' || projectType === 'mixed-use';
   const showHospitality  = projectType === 'hospitality' || projectType === 'mixed-use';
   const showRetail       = retailPercent > 0;
+
+  // Keep the store's assets[i].visible field in sync with the projectType
+  // / retailPercent semantics that drive show flags here. A custom asset
+  // added via the (forthcoming) multi-asset UI will manage its own
+  // visibility directly; for the 3 canonical legacy ids we mirror the
+  // derivation so toLegacySnapshot's read of allocationPct / visible
+  // round-trips cleanly even when storage is bumped to v3.
+  useEffect(() => {
+    const s = useModule1Store.getState();
+    const want: Record<string, boolean> = {
+      [LEGACY_ASSET_IDS.residential]: showResidential,
+      [LEGACY_ASSET_IDS.hospitality]: showHospitality,
+      [LEGACY_ASSET_IDS.retail]:      showRetail,
+    };
+    s.assets.forEach((a) => {
+      if (a.id in want && a.visible !== want[a.id]) {
+        s.updateAsset(a.id, { visible: want[a.id] });
+      }
+    });
+  }, [showResidential, showHospitality, showRetail]);
   const projectRoadsArea = totalLandArea * (projectRoadsPct / 100);
   const projectNDA       = totalLandArea - projectRoadsArea;
   const totalProjectGFA  = projectNDA * projectFAR;

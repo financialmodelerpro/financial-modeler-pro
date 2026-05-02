@@ -104,8 +104,10 @@ function main() {
   console.log('OK v3 shape spot-checks');
 
   // 4. Reverse adapter: new v3 -> legacy v2.
-  const { version: _v, savedAt: _s, ...hydrate } = v3;
-  const roundTrip = normalizeForCompare(toLegacySnapshot(hydrate));
+  const hydrate: Partial<typeof v3> = { ...v3 };
+  delete hydrate.version;
+  delete hydrate.savedAt;
+  const roundTrip = normalizeForCompare(toLegacySnapshot(hydrate as Parameters<typeof toLegacySnapshot>[0]));
 
   // savedAt is only present if the input had it (absent in the fixture),
   // and the fixture also carries a leading "_comment" doc field that is
