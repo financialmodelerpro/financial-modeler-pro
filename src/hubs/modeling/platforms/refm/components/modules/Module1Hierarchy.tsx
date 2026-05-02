@@ -42,16 +42,25 @@
  *     bar with quick stats line ("X Sub-Projects, Y Phases, Z Assets,
  *     N Sub-Units") and a "Switch to Quick Setup" link (the launcher
  *     itself wires up in M1.5b/5).
- *   - M1.5b/2 (this commit): visual hierarchy clarity. Indentation per
- *     level bumped (var(--sp-2) → var(--sp-3)) so the parent / child
- *     relationship reads at a glance. Each Sub-Project / Phase / Asset
- *     gets an expand / collapse chevron (default expanded; collapsed
- *     state is local to the component, not persisted). Per-tier card
- *     background tint applied via color-mix(accent 4%, surface) so the
- *     tint reinforces depth without adding new tokens. A sticky
- *     breadcrumb (Project > active Sub-Project > active Phase) renders
- *     when the user scrolls past the page header so they always know
- *     where they are in deep trees.
+ *   - M1.5b/2: visual hierarchy clarity. Indentation per level bumped
+ *     (var(--sp-2) → var(--sp-3)) so the parent / child relationship
+ *     reads at a glance. Each Sub-Project / Phase / Asset gets an
+ *     expand / collapse chevron (default expanded; collapsed state is
+ *     local to the component, not persisted). Per-tier card background
+ *     tint applied via color-mix(accent 4%, surface) so the tint
+ *     reinforces depth without adding new tokens. A sticky breadcrumb
+ *     (Project > active Sub-Project > active Phase) renders when the
+ *     user scrolls past the page header so they always know where
+ *     they are in deep trees.
+ *   - M1.5b/3 (this commit): empty-state cards at each level. The bare
+ *     "No phases yet." / "No assets in this phase." hints are replaced
+ *     with centered cards that pair a clear CTA ("+ Add first Phase",
+ *     "+ Add first Asset") with a 1-line explainer of why the user
+ *     might want one. The Phase empty state additionally renders the
+ *     4 PREBUILT_ASSET_TYPES category chips as a preview so users
+ *     understand what comes next. The Sub-Unit add button keeps its
+ *     compact style but gains a 1-line hint above it explaining what
+ *     a Sub-Unit is for that asset's category.
  *
  * The component subscribes to useModule1Store directly; CRUD goes
  * straight through the store actions (add/update/remove SubProject /
@@ -1364,7 +1373,35 @@ export default function Module1Hierarchy() {
               {!spCollapsed && (
               <div style={indentBlockStyle(tokens.phaseAccent)}>
                 {sps.length === 0 && editingPhaseId !== `phase__new__:${sp.id}` && (
-                  <div style={emptyHintStyle}>No phases yet.</div>
+                  <div
+                    style={{
+                      ...cardBase,
+                      background: `color-mix(in srgb, ${tokens.phaseAccent} 5%, var(--color-surface))`,
+                      border: `1px dashed color-mix(in srgb, ${tokens.phaseAccent} 40%, var(--color-border))`,
+                      textAlign: 'center',
+                      padding: 'var(--sp-3)',
+                    }}
+                  >
+                    <div style={{ fontSize: 24, marginBottom: 6 }}>📅</div>
+                    <div style={{ fontSize: 'var(--font-body)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)', marginBottom: 4 }}>
+                      No phases yet for {sp.name}
+                    </div>
+                    <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', maxWidth: 480, margin: '0 auto var(--sp-2)' }}>
+                      A Phase is a sequenced timeline chunk (construction + operations periods).
+                      Most projects need just one — add more for staged developments where Phase 2 starts after Phase 1.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditingPhaseId(`phase__new__:${sp.id}`)}
+                      style={{
+                        ...primaryBtnStyle,
+                        background: tokens.phaseAccent,
+                        color: 'var(--color-on-primary-navy)',
+                      }}
+                    >
+                      ＋ Add first Phase
+                    </button>
+                  </div>
                 )}
                 {sps.map(phase => {
                   const phaseAssets = assetsByPhase(phase.id);
@@ -1422,7 +1459,53 @@ export default function Module1Hierarchy() {
                       {!phCollapsed && (
                       <div style={indentBlockStyle(tokens.assetAccent)}>
                         {phaseAssets.length === 0 && editingAssetId !== `asset__new__:${phase.id}` && (
-                          <div style={emptyHintStyle}>No assets in this phase.</div>
+                          <div
+                            style={{
+                              ...cardBase,
+                              background: `color-mix(in srgb, ${tokens.assetAccent} 5%, var(--color-surface))`,
+                              border: `1px dashed color-mix(in srgb, ${tokens.assetAccent} 40%, var(--color-border))`,
+                              textAlign: 'center',
+                              padding: 'var(--sp-3)',
+                            }}
+                          >
+                            <div style={{ fontSize: 24, marginBottom: 6 }}>🧱</div>
+                            <div style={{ fontSize: 'var(--font-body)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)', marginBottom: 4 }}>
+                              No assets in {phase.name}
+                            </div>
+                            <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', maxWidth: 480, margin: '0 auto var(--sp-2)' }}>
+                              An Asset is a building or operating entity (e.g., 5-Star Hotel, Branded Apartments Tower 1).
+                              Pick from one of these categories:
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 'var(--sp-2)' }}>
+                              {(['Sell', 'Operate', 'Lease', 'Hybrid'] as const).map(cat => (
+                                <span
+                                  key={cat}
+                                  style={{
+                                    padding: '3px 10px',
+                                    borderRadius: 12,
+                                    fontSize: 'var(--font-micro)',
+                                    fontWeight: 'var(--fw-semibold)',
+                                    color: tokens.assetAccent,
+                                    background: `color-mix(in srgb, ${tokens.assetAccent} 12%, var(--color-surface))`,
+                                    border: `1px solid color-mix(in srgb, ${tokens.assetAccent} 35%, var(--color-border))`,
+                                  }}
+                                >
+                                  {cat}
+                                </span>
+                              ))}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setEditingAssetId(`asset__new__:${phase.id}`)}
+                              style={{
+                                ...primaryBtnStyle,
+                                background: tokens.assetAccent,
+                                color: 'var(--color-on-primary-navy)',
+                              }}
+                            >
+                              ＋ Add first Asset
+                            </button>
+                          </div>
                         )}
                         {phaseAssets.map(asset => {
                           const aSubUnits = subUnitsByAsset(asset.id);
@@ -1508,6 +1591,17 @@ export default function Module1Hierarchy() {
                                 })}
 
                                 {/* ── Add Sub-Unit ── */}
+                                {/* M1.5b/3: 1-line hint when the asset has no sub-units yet,
+                                   tailored to the asset's category. Disappears as soon as the
+                                   first sub-unit lands. */}
+                                {aSubUnits.length === 0 && editingSubUnitId !== `unit__new__:${asset.id}` && (
+                                  <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', fontStyle: 'italic', marginBottom: 4, paddingLeft: 4 }}>
+                                    {asset.category === 'Sell'    && 'Add inventory units (1BR, 2BR, Branded Suite, Villa V1/V2 …) to break the asset into sellable line items.'}
+                                    {asset.category === 'Operate' && 'Add operating keys (Twin Key, King Key, Suite, Studio …) so revenue can scale by ADR / occupancy.'}
+                                    {asset.category === 'Lease'   && 'Optional: split by floor or zone (Ground Floor Retail, Office L2, Anchor Pad …) when leases differ within the asset.'}
+                                    {asset.category === 'Hybrid'  && 'Add sub-units for whichever revenue streams apply — typically a mix of count-based and area-based units.'}
+                                  </div>
+                                )}
                                 {editingSubUnitId === `unit__new__:${asset.id}` ? (
                                   <div style={{ ...cardBase, borderLeft: `4px dashed ${tokens.subUnitAccent}` }}>
                                     <div style={tierLabelStyle(tokens.subUnitAccent)}>New Sub-Unit</div>
