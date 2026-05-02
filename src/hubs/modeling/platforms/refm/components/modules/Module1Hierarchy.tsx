@@ -13,23 +13,28 @@
  *
  * History:
  *   - M1.5/6: read-only tree view scaffold.
- *   - M1.5/7 (this commit): Sub-Project CRUD — add / inline-edit name +
- *     currency + Master-Holding rollup + revenue-share, delete with a
- *     cascade-aware confirmation that lists the phases / assets / costs
- *     / sub-units the store will drop.
- *   - M1.5/8-10 (upcoming): Phase CRUD, Asset + Sub-Unit CRUD, Master
- *     Holding panel + toggle.
+ *   - M1.5/7: Sub-Project CRUD — add / inline-edit name + currency +
+ *     Master-Holding rollup + revenue-share, delete with a cascade-
+ *     aware confirmation that lists the phases / assets / costs /
+ *     sub-units the store will drop.
+ *   - M1.5/8 (this commit): Phase CRUD per Sub-Project — add / inline-
+ *     edit name + constructionStart + constructionPeriods +
+ *     operationsPeriods + overlapPeriods (operationsStart auto-derived
+ *     from the same formula makeDefaultPhase uses). Delete confirms
+ *     the bound asset / cost cascade.
+ *   - M1.5/9-10 (upcoming): Asset + Sub-Unit CRUD, Master Holding panel
+ *     + toggle.
  *
  * The component subscribes to useModule1Store directly; CRUD goes
- * straight through the store actions (addSubProject / updateSubProject
- * / removeSubProject) which already implement the cascade rules
- * defined in module1-store.ts.
+ * straight through the store actions (add/update/remove SubProject /
+ * Phase) which already implement the cascade rules defined in
+ * module1-store.ts.
  */
 
 import React, { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import type { SubProject } from '../../lib/state/module1-types';
+import type { Phase, SubProject } from '../../lib/state/module1-types';
 
 // ── Visual tokens ──────────────────────────────────────────────────────────
 const tokens = {
@@ -234,6 +239,103 @@ function SubProjectEditor({ initial, masterHoldingEnabled, onSave, onCancel }: S
   );
 }
 
+// ── Phase edit row ─────────────────────────────────────────────────────────
+// Inline editor for both "edit existing" and "add new" Phase flows.
+// operationsStart is intentionally NOT user-editable: the store's
+// makeDefaultPhase derives it from constructionPeriods - overlapPeriods
+// + 1, and we keep that invariant on every save so manual edits can't
+// land the timeline in an inconsistent state. Multi-phase users who
+// want explicit gaps will get a follow-up control in M1.5/12.
+interface PhaseEditorProps {
+  initial: Phase;
+  onSave: (next: Phase) => void;
+  onCancel: () => void;
+}
+
+function PhaseEditor({ initial, onSave, onCancel }: PhaseEditorProps) {
+  const [draft, setDraft] = useState<Phase>(initial);
+
+  const operationsStart = Math.max(1, draft.constructionStart + draft.constructionPeriods - draft.overlapPeriods);
+
+  const commit = () => onSave({ ...draft, operationsStart });
+
+  return (
+    <div style={{ marginTop: 8, padding: 'var(--sp-2)', background: 'color-mix(in srgb, var(--color-info) 4%, var(--color-surface))', border: '1px dashed var(--color-border)', borderRadius: 6 }}>
+      <div style={{ marginBottom: 'var(--sp-2)' }}>
+        <label style={labelStyle}>Phase name</label>
+        <input
+          type="text"
+          value={draft.name}
+          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+          style={{ ...inputStyle, width: '100%' }}
+        />
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+        <div>
+          <label style={labelStyle}>Construction start</label>
+          <input
+            type="number"
+            min={1}
+            step={1}
+            value={draft.constructionStart}
+            onChange={(e) => setDraft({ ...draft, constructionStart: Math.max(1, Number(e.target.value) || 1) })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Construction periods</label>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={draft.constructionPeriods}
+            onChange={(e) => setDraft({ ...draft, constructionPeriods: Math.max(0, Number(e.target.value) || 0) })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Operations periods</label>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={draft.operationsPeriods}
+            onChange={(e) => setDraft({ ...draft, operationsPeriods: Math.max(0, Number(e.target.value) || 0) })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Overlap periods</label>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={draft.overlapPeriods}
+            onChange={(e) => setDraft({ ...draft, overlapPeriods: Math.max(0, Number(e.target.value) || 0) })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+      </div>
+
+      <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginBottom: 'var(--sp-2)' }}>
+        Operations start auto-derives to <strong>period {operationsStart}</strong> (= constructionStart + constructionPeriods − overlapPeriods).
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button onClick={onCancel} style={ghostBtnStyle}>Cancel</button>
+        <button
+          onClick={commit}
+          disabled={!draft.name.trim()}
+          style={{ ...primaryBtnStyle, opacity: !draft.name.trim() ? 0.5 : 1, cursor: !draft.name.trim() ? 'not-allowed' : 'pointer' }}
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 export default function Module1Hierarchy() {
   const { masterHolding, subProjects, phases, assets, subUnits, currency } = useModule1Store(useShallow((s) => ({
@@ -250,10 +352,16 @@ export default function Module1Hierarchy() {
   const addSubProject    = useModule1Store((s) => s.addSubProject);
   const updateSubProject = useModule1Store((s) => s.updateSubProject);
   const removeSubProject = useModule1Store((s) => s.removeSubProject);
+  const addPhase         = useModule1Store((s) => s.addPhase);
+  const updatePhase      = useModule1Store((s) => s.updatePhase);
+  const removePhase      = useModule1Store((s) => s.removePhase);
 
-  // editingId === '__new__' means the add-new editor is open; otherwise
-  // it's the id of the Sub-Project currently being edited inline.
+  // editingId === '__new__' means the add-new Sub-Project editor is open;
+  // otherwise it's the id of the Sub-Project currently being edited inline.
   const [editingId, setEditingId] = useState<string | null>(null);
+  // Phase editor: 'phase__new__:<subProjectId>' = adding a new phase to a
+  // specific Sub-Project; '<phaseId>' = editing that existing phase.
+  const [editingPhaseId, setEditingPhaseId] = useState<string | null>(null);
 
   const phasesBySubProject = (subProjectId: string) =>
     phases.filter(p => p.subProjectId === subProjectId);
@@ -320,6 +428,56 @@ export default function Module1Hierarchy() {
     revenueShareToMaster: 0,
   };
 
+  // Phase CRUD handlers.
+  const handleAddPhase = (subProjectId: string, next: Phase) => {
+    const id = `phase_${Date.now()}`;
+    addPhase({ ...next, id, subProjectId });
+    setEditingPhaseId(null);
+  };
+
+  const handleUpdatePhase = (phaseId: string, next: Phase) => {
+    updatePhase(phaseId, next);
+    setEditingPhaseId(null);
+  };
+
+  const handleRemovePhase = (phase: Phase) => {
+    const phaseAssets   = assets.filter(a => a.phaseId === phase.id);
+    const phaseAssetIds = new Set(phaseAssets.map(a => a.id));
+    const phaseSubUnits = subUnits.filter(u => phaseAssetIds.has(u.assetId));
+    // Costs scoped via the dropped assets are deleted; costs that
+    // referenced the phase via phaseId only are preserved (they get
+    // their phaseId cleared by the store cascade).
+    const allCosts = useModule1Store.getState().costs;
+    const droppedCosts = allCosts.filter(c => phaseAssetIds.has(c.assetId)).length;
+    const reparentedCosts = allCosts.filter(c => c.phaseId === phase.id && !phaseAssetIds.has(c.assetId)).length;
+
+    const lines: string[] = [];
+    lines.push(`${phaseAssets.length} asset${phaseAssets.length === 1 ? '' : 's'} bound to this phase`);
+    lines.push(`${phaseSubUnits.length} sub-unit${phaseSubUnits.length === 1 ? '' : 's'} under those assets`);
+    lines.push(`${droppedCosts} cost line${droppedCosts === 1 ? '' : 's'} (dropped)`);
+    if (reparentedCosts > 0) lines.push(`${reparentedCosts} cost line${reparentedCosts === 1 ? '' : 's'} reparented to sub-project scope (phaseId cleared)`);
+
+    const ok = window.confirm(
+      `Delete Phase "${phase.name}"?\n\n` +
+      `This will:\n  - ${lines.join('\n  - ')}\n\n` +
+      `This cannot be undone.`,
+    );
+    if (!ok) return;
+    removePhase(phase.id);
+    if (editingPhaseId === phase.id) setEditingPhaseId(null);
+  };
+
+  const newPhaseDraft = (subProjectId: string, ordinal: number): Phase => ({
+    id: '__new__',
+    name: `Phase ${ordinal}`,
+    subProjectId,
+    constructionStart: 1,
+    constructionPeriods: 4,
+    operationsStart: 5,
+    operationsPeriods: 5,
+    overlapPeriods: 0,
+  });
+
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto', padding: 'var(--sp-3) 0' }}>
       {/* Header */}
@@ -328,8 +486,8 @@ export default function Module1Hierarchy() {
           🗂️ Project Hierarchy
         </h2>
         <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-meta)', margin: 0, lineHeight: 1.6 }}>
-          5-layer structure: <strong>Master Holding → Sub-Project → Phase → Asset → Sub-Unit</strong>. Sub-Project CRUD is
-          live; Phase / Asset / Sub-Unit / Master Holding editing arrives in M1.5/8 - M1.5/10.
+          5-layer structure: <strong>Master Holding → Sub-Project → Phase → Asset → Sub-Unit</strong>. Sub-Project + Phase
+          CRUD are live; Asset / Sub-Unit / Master Holding editing arrives in M1.5/9 - M1.5/10.
         </p>
       </div>
 
@@ -409,20 +567,52 @@ export default function Module1Hierarchy() {
 
               {/* ── Phases under this Sub-Project ── */}
               <div style={indentBlockStyle(tokens.phaseAccent)}>
-                {sps.length === 0 ? (
+                {sps.length === 0 && editingPhaseId !== `phase__new__:${sp.id}` && (
                   <div style={emptyHintStyle}>No phases yet.</div>
-                ) : sps.map(phase => {
+                )}
+                {sps.map(phase => {
                   const phaseAssets = assetsByPhase(phase.id);
+                  const isEditingPhase = editingPhaseId === phase.id;
                   return (
                     <div key={phase.id} style={{ ...cardBase, borderLeft: `4px solid ${tokens.phaseAccent}` }}>
-                      <div style={tierLabelStyle(tokens.phaseAccent)}>Phase</div>
-                      <div style={nodeNameStyle}>{phase.name}</div>
-                      <div style={metaRowStyle}>
-                        <span style={metaPillStyle}>🛠 Construction: {phase.constructionPeriods} periods (start {phase.constructionStart})</span>
-                        <span style={metaPillStyle}>🏨 Operations: {phase.operationsPeriods} periods (start {phase.operationsStart})</span>
-                        {phase.overlapPeriods > 0 && <span style={metaPillStyle}>↔ Overlap: {phase.overlapPeriods}</span>}
-                        <span style={metaPillStyle}>🧱 {phaseAssets.length} asset{phaseAssets.length === 1 ? '' : 's'}</span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={tierLabelStyle(tokens.phaseAccent)}>Phase</div>
+                          <div style={nodeNameStyle}>{phase.name}</div>
+                          <div style={metaRowStyle}>
+                            <span style={metaPillStyle}>🛠 Construction: {phase.constructionPeriods} periods (start {phase.constructionStart})</span>
+                            <span style={metaPillStyle}>🏨 Operations: {phase.operationsPeriods} periods (start {phase.operationsStart})</span>
+                            {phase.overlapPeriods > 0 && <span style={metaPillStyle}>↔ Overlap: {phase.overlapPeriods}</span>}
+                            <span style={metaPillStyle}>🧱 {phaseAssets.length} asset{phaseAssets.length === 1 ? '' : 's'}</span>
+                          </div>
+                        </div>
+                        {!isEditingPhase && (
+                          <div style={{ display: 'flex', gap: 4 }}>
+                            <button
+                              title="Edit Phase"
+                              onClick={() => setEditingPhaseId(phase.id)}
+                              style={iconBtnStyle}
+                            >
+                              ✏ Edit
+                            </button>
+                            <button
+                              title="Delete Phase"
+                              onClick={() => handleRemovePhase(phase)}
+                              style={{ ...iconBtnStyle, color: 'var(--color-negative)' }}
+                            >
+                              🗑 Delete
+                            </button>
+                          </div>
+                        )}
                       </div>
+
+                      {isEditingPhase && (
+                        <PhaseEditor
+                          initial={phase}
+                          onSave={(next) => handleUpdatePhase(phase.id, next)}
+                          onCancel={() => setEditingPhaseId(null)}
+                        />
+                      )}
 
                       {/* ── Assets under this Phase ── */}
                       <div style={indentBlockStyle(tokens.assetAccent)}>
@@ -469,6 +659,33 @@ export default function Module1Hierarchy() {
                     </div>
                   );
                 })}
+
+                {/* ── Add Phase ── */}
+                {editingPhaseId === `phase__new__:${sp.id}` ? (
+                  <div style={{ ...cardBase, borderLeft: `4px dashed ${tokens.phaseAccent}` }}>
+                    <div style={tierLabelStyle(tokens.phaseAccent)}>New Phase</div>
+                    <PhaseEditor
+                      initial={newPhaseDraft(sp.id, sps.length + 1)}
+                      onSave={(next) => handleAddPhase(sp.id, next)}
+                      onCancel={() => setEditingPhaseId(null)}
+                    />
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setEditingPhaseId(`phase__new__:${sp.id}`)}
+                    style={{
+                      ...primaryBtnStyle,
+                      width: '100%',
+                      padding: 8,
+                      background: 'transparent',
+                      color: tokens.phaseAccent,
+                      border: `1px dashed color-mix(in srgb, ${tokens.phaseAccent} 50%, var(--color-border))`,
+                      marginTop: 4,
+                    }}
+                  >
+                    ＋ Add Phase to {sp.name}
+                  </button>
+                )}
               </div>
             </div>
           );
@@ -505,7 +722,7 @@ export default function Module1Hierarchy() {
 
       {/* Footer hint */}
       <p style={{ marginTop: 'var(--sp-3)', fontSize: 'var(--font-meta)', color: 'var(--color-meta)', fontStyle: 'italic', textAlign: 'center' }}>
-        Next: Phase CRUD (M1.5/8) → Asset + Sub-Unit CRUD (M1.5/9) → Master Holding (M1.5/10).
+        Next: Asset + Sub-Unit CRUD (M1.5/9) → Master Holding panel + toggle (M1.5/10).
       </p>
     </div>
   );
