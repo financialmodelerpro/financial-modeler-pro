@@ -338,21 +338,47 @@ const stripVersionAndSavedAt = (s: NewV3Snapshot): HydrateSnapshot => {
 };
 
 export function hydrationFromAnySnapshot(snapshot: unknown): HydrateSnapshot {
+  return hydrationFromAnySnapshotChecked(snapshot).snapshot;
+}
+
+// Recognition-aware variant. Same fall-back-to-defaults policy as the
+// classic helper above (unrecognized data does not brick the app), but
+// returns whether the input shape was actually recognized so callers
+// like the M1.6 migrator can surface "we substituted defaults"
+// warnings to the user instead of leaving them only in DevTools.
+//
+// `recognized: false` means the snapshot was neither v2 nor v3 shape
+// AND `.snapshot` is DEFAULT_MODULE1_STATE — any fields the user had
+// in the unrecognized blob are LOST. The migrator pushes a message to
+// `result.errors[]` in that case so the post-migration toast tells
+// the user which version of which project lost data.
+export interface CheckedHydration {
+  snapshot:   HydrateSnapshot;
+  recognized: boolean;
+}
+export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydration {
   if (isNewV3(snapshot)) {
     // A v3 snapshot from before M1.5 may be missing masterHolding /
     // subProjects / subUnits; enrich before returning so the store
     // hydrate always sees a complete v4-shaped payload.
-    return enrichWithHierarchyDefaults(stripVersionAndSavedAt(snapshot));
+    return {
+      snapshot: enrichWithHierarchyDefaults(stripVersionAndSavedAt(snapshot)),
+      recognized: true,
+    };
   }
   if (isLegacyV2(snapshot)) {
-    return enrichWithHierarchyDefaults(stripVersionAndSavedAt(migrateLegacyToNew(snapshot)));
+    return {
+      snapshot: enrichWithHierarchyDefaults(stripVersionAndSavedAt(migrateLegacyToNew(snapshot))),
+      recognized: true,
+    };
   }
-  // Unrecognized shape: fall back to defaults rather than throw, so a
-  // hand-edited or corrupted localStorage entry does not brick the app.
+  // Unrecognized shape: console.warn is preserved for parity with
+  // pre-M1.6/7 callers, but the boolean is the real signal — wrap
+  // callers should branch on it.
   if (typeof console !== 'undefined') {
     console.warn('[REFM] Unrecognized snapshot shape; falling back to defaults.');
   }
-  return { ...DEFAULT_MODULE1_STATE };
+  return { snapshot: { ...DEFAULT_MODULE1_STATE }, recognized: false };
 }
 
 // ── Test-only: reset the warn-once latch so unit tests can re-trigger it ──

@@ -29,7 +29,7 @@
 
 import { listProjects, createProject, saveVersion, type CreateProjectInput, type SaveVersionInput } from './client';
 import { hasMigrated, markMigrated } from './cache';
-import { hydrationFromAnySnapshot } from '../state/module1-migrate';
+import { hydrationFromAnySnapshotChecked } from '../state/module1-migrate';
 import { PROJECT_STATUSES, type ProjectStatus } from './types';
 
 // ── Legacy localStorage shape (mirror of pre-M1.6 RealEstatePlatform) ──────
@@ -137,15 +137,22 @@ export async function runOneShotMigration(userId: string): Promise<MigrationResu
 
     // Seed createProject with the OLDEST version's snapshot. This
     // becomes version_number=1 of the server project.
+    //
+    // M1.6/7: hydrationFromAnySnapshotChecked surfaces unrecognized
+    // shapes as `recognized: false` instead of silently substituting
+    // defaults. We still upload the (defaulted) snapshot — better to
+    // preserve project + label + subsequent versions than skip the
+    // whole project — but we tell the user via result.errors so the
+    // post-migration toast doesn't claim a clean success.
     const [firstVersionId, firstVersion] = versionEntries[0];
-    let firstSnapshot;
-    try {
-      firstSnapshot = hydrationFromAnySnapshot(firstVersion.data);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'unknown error';
-      result.errors.push(`Project "${proj.name}" version "${firstVersion.name}": snapshot rejected (${msg}); skipped.`);
-      continue;
+    const firstHydration = hydrationFromAnySnapshotChecked(firstVersion.data);
+    if (!firstHydration.recognized) {
+      result.errors.push(
+        `Project "${proj.name}" version "${firstVersion.name}": snapshot shape unrecognized; ` +
+        `uploaded as defaults (likely lost data).`
+      );
     }
+    const firstSnapshot = firstHydration.snapshot;
 
     const createInput: CreateProjectInput = {
       name:     proj.name,
@@ -165,21 +172,21 @@ export async function runOneShotMigration(userId: string): Promise<MigrationResu
     const newProjectId = created.data.project.id;
 
     // Walk remaining versions and save each one. Label propagates so
-    // VersionModal still shows the user's original names.
+    // VersionModal still shows the user's original names. Same
+    // recognized-flag handling as the first version above.
     for (let i = 1; i < versionEntries.length; i++) {
       const [, ver] = versionEntries[i];
-      let snapshot;
-      try {
-        snapshot = hydrationFromAnySnapshot(ver.data);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : 'unknown error';
-        result.errors.push(`Project "${proj.name}" version "${ver.name}": snapshot rejected (${msg}); skipped.`);
-        continue;
+      const hydration = hydrationFromAnySnapshotChecked(ver.data);
+      if (!hydration.recognized) {
+        result.errors.push(
+          `Project "${proj.name}" version "${ver.name}": snapshot shape unrecognized; ` +
+          `uploaded as defaults (likely lost data).`
+        );
       }
 
       const saveInput: SaveVersionInput = {
-        snapshot,
-        label: ver.name?.trim() || null,
+        snapshot: hydration.snapshot,
+        label:    ver.name?.trim() || null,
       };
       const saved = await saveVersion(newProjectId, saveInput);
       if (saved.error) {

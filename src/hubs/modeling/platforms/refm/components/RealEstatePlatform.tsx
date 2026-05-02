@@ -497,13 +497,32 @@ export default function RealEstatePlatform() {
     let cancelled = false;
     (async () => {
       // Step 1: migrator (best-effort; surfaces errors via toast).
+      // Toast color reflects outcome: green = clean, amber = uploaded
+      // some data but hit warnings (M1.6/7: includes "snapshot shape
+      // unrecognized; uploaded as defaults" cases — silent default-
+      // substitution would otherwise hide data loss). Console always
+      // gets the full per-error breakdown.
       if (userId) {
         const mig = await runOneShotMigration(userId);
-        if (mig.ran && mig.projectsCreated > 0) {
-          setPmToast({
-            msg: `Migrated ${mig.projectsCreated} project${mig.projectsCreated === 1 ? '' : 's'} (${mig.versionsCreated} version${mig.versionsCreated === 1 ? '' : 's'}) from your browser to the cloud.`,
-            color: 'var(--color-green-dark)',
-          });
+        if (mig.ran || mig.errors.length > 0) {
+          const projPart = `${mig.projectsCreated} project${mig.projectsCreated === 1 ? '' : 's'}`;
+          const verPart  = `${mig.versionsCreated} version${mig.versionsCreated === 1 ? '' : 's'}`;
+          const warnPart = mig.errors.length > 0
+            ? ` with ${mig.errors.length} warning${mig.errors.length === 1 ? '' : 's'} (see browser console)`
+            : '';
+          if (mig.projectsCreated > 0) {
+            setPmToast({
+              msg:   `Migrated ${projPart} (${verPart}) from your browser to the cloud${warnPart}.`,
+              color: mig.errors.length > 0 ? 'var(--color-gold-dark)' : 'var(--color-green-dark)',
+            });
+          } else if (mig.errors.length > 0) {
+            // Edge case: 0 projects created but errors fired (e.g.
+            // every legacy project had no versions). User should know.
+            setPmToast({
+              msg:   `Migration encountered ${mig.errors.length} warning${mig.errors.length === 1 ? '' : 's'} (see browser console).`,
+              color: 'var(--color-gold-dark)',
+            });
+          }
         }
         if (mig.errors.length && typeof console !== 'undefined') {
           console.warn('[REFM] migration errors:', mig.errors);
