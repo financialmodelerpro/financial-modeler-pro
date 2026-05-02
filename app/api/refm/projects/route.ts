@@ -40,7 +40,8 @@ export async function GET() {
   const { rows, error } = await listProjects(userId);
   if (error) return serverError(error);
   // Strip user_id before sending back — the caller is the owner; no
-  // need to mirror it on every list item.
+  // need to mirror it on every list item. version_count was already
+  // decorated by the helper.
   const projects = rows.map(({ user_id: _u, ...rest }) => rest);
   return NextResponse.json({ projects });
 }

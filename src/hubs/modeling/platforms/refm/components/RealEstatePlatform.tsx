@@ -9,9 +9,17 @@ import { buildAssetFinancing as buildAssetFinancingCore } from '@/src/core/calcu
 import { ROLES, ROLE_META, MODULE_VISIBILITY, PERMISSIONS, useBrandingStore } from '@/src/core/state';
 import type { Role, ModuleKey, PermissionMap } from '@/src/core/types/settings.types';
 import { useShallow } from 'zustand/react/shallow';
-import { useModule1Store } from '../lib/state/module1-store';
-import { hydrationFromAnySnapshot, toLegacySnapshot, type LegacyV2Snapshot } from '../lib/state/module1-migrate';
+import { useSession } from 'next-auth/react';
+import { useModule1Store, DEFAULT_MODULE1_STATE, type HydrateSnapshot } from '../lib/state/module1-store';
+// Phase M1.6: hydrationFromAnySnapshot import dropped — the sync
+// module owns hydration via attachToProject / loadVersionInto. The
+// legacy toLegacySnapshot path is retained only inside the store for
+// migration use; nothing in this component needs it post-M1.6.
 import { LEGACY_ASSET_IDS, DEFAULT_SUB_PROJECT_ID, makeDefaultPhase, type CostLine } from '../lib/state/module1-types';
+import * as pclient from '../lib/persistence/client';
+import { attachToProject as attachSyncToProject, detach as detachSync, loadVersionInto } from '../lib/persistence/module1-sync';
+import { runOneShotMigration } from '../lib/persistence/migrator';
+import { readActiveProjectId, writeActiveProjectId, clearCachedSnapshot } from '../lib/persistence/cache';
 
 // Module-scope helper used by the store-setter wrappers below. Hoisted
 // out of the component so it does not need to appear in any useCallback
@@ -37,7 +45,24 @@ import ExportModal from './modals/ExportModal';
 import UpgradePrompt from '@/src/shared/components/UpgradePrompt';
 import { MODULES } from '../lib/modules-config';
 
-// ── Storage helpers ──────────────────────────────────────────────────────────
+// ── Storage shape (consumer interface, post-M1.6) ───────────────────────────
+// StorageProject + StorageShape are kept as the contract that
+// ProjectsScreen / OverviewScreen / Dashboard / VersionModal still
+// consume. Pre-M1.6 these were pulled from `localStorage.refm_v2`;
+// post-M1.6 they're SYNTHESIZED from server data (refm_projects +
+// refm_project_versions, migration 149) inside RealEstatePlatform's
+// boot effect. The legacy localStorage blob is read once by the
+// one-shot migrator (lib/persistence/migrator.ts) and otherwise left
+// untouched for user-side verification.
+//
+// Per-project `versions` map is populated lazily — only the
+// currently-active project's version metadata is fetched. Other
+// project cards in the picker show their `version_count` (from the
+// list endpoint) but their `versions` dict stays empty.
+//
+// Per-version `data` is OMITTED from the synthesized shape (kept as
+// `null`). The active snapshot lives in the Zustand store via
+// attachToProject; the version-history UI doesn't need it pre-loaded.
 export interface StorageProject {
   name: string;
   createdAt: string;
@@ -46,6 +71,7 @@ export interface StorageProject {
   status: 'Draft' | 'Active' | 'IC Review' | 'Approved' | 'Archived';
   assetMix: string[];
   versions: Record<string, { name: string; createdAt: string; data: unknown }>;
+  versionCount?: number;   // populated from server `version_count` even when versions{} is empty
 }
 
 export interface StorageShape {
@@ -54,18 +80,43 @@ export interface StorageShape {
   activeVersionId: string | null;
 }
 
-const loadStorage = (): StorageShape => {
-  if (typeof window === 'undefined') return { projects: {}, activeProjectId: null, activeVersionId: null };
-  try {
-    const raw = localStorage.getItem('refm_v2');
-    if (!raw) return { projects: {}, activeProjectId: null, activeVersionId: null };
-    return JSON.parse(raw) as StorageShape;
-  } catch { return { projects: {}, activeProjectId: null, activeVersionId: null }; }
-};
+// HydrateSnapshot field list. Iterates DEFAULT_MODULE1_STATE keys so
+// adding a new field to the snapshot shape automatically participates
+// in saves without anyone touching this file. Mirrors module1-sync's
+// SNAPSHOT_KEYS.
+const SNAPSHOT_KEYS = Object.keys(DEFAULT_MODULE1_STATE) as Array<keyof HydrateSnapshot>;
 
-const saveStorage = (data: StorageShape) => {
-  if (typeof window !== 'undefined') localStorage.setItem('refm_v2', JSON.stringify(data));
-};
+function extractHydrateSnapshot(state: ReturnType<typeof useModule1Store.getState>): HydrateSnapshot {
+  const out = {} as HydrateSnapshot;
+  for (const k of SNAPSHOT_KEYS) {
+    (out as Record<string, unknown>)[k] = state[k];
+  }
+  return out;
+}
+
+// Project the server list endpoint into the StorageShape contract.
+// Versions are intentionally empty per the rule above; consumers that
+// need them request via fetchVersionsForProject() below.
+function projectsToStorageShape(
+  projects: pclient.RefmProjectSummary[],
+  activeProjectId: string | null,
+  activeVersionId: string | null,
+): StorageShape {
+  const out: StorageShape = { projects: {}, activeProjectId, activeVersionId };
+  for (const p of projects) {
+    out.projects[p.id] = {
+      name:         p.name,
+      createdAt:    p.created_at,
+      lastModified: p.updated_at,
+      location:     p.location ?? '',
+      status:       p.status,
+      assetMix:     p.asset_mix,
+      versions:     {},
+      versionCount: p.version_count,
+    };
+  }
+  return out;
+}
 
 // ── Default cost items ───────────────────────────────────────────────────────
 const makeDefaultCosts = (startId: number): CostItem[] => [
@@ -405,23 +456,96 @@ export default function RealEstatePlatform() {
     return () => setCurrentPlatform(null);
   }, [setCurrentPlatform]);
 
-  // ── Init from localStorage ──
-  useEffect(() => {
-    const s = loadStorage();
-    // Defensive: if activeProjectId references a project that no longer
-    // exists (e.g. deleted in another tab, or storage was hand-edited),
-    // drop the stale pointer before hydrating component state. Otherwise
-    // the Overview screen's "project missing" path would render
-    // indefinitely until the user manually re-selects a project.
-    if (s.activeProjectId && !s.projects[s.activeProjectId]) {
-      s.activeProjectId = null;
-      s.activeVersionId = null;
-      saveStorage(s);
-    }
-    setStorageData(s);
-    if (s.activeProjectId) setActiveProjectId(s.activeProjectId);
-    if (s.activeVersionId) setActiveVersionId(s.activeVersionId);
+  // ── Init from server (post-M1.6) ──
+  // Replaces the pre-M1.6 localStorage hydration. Order matters:
+  //   1. Run the one-shot migrator if user is authed and a legacy
+  //      `refm_v2` blob exists locally with no server projects yet.
+  //      Idempotency flag in localStorage prevents re-runs.
+  //   2. Fetch the user's projects from /api/refm/projects.
+  //   3. Synthesize the StorageShape contract from the response.
+  //   4. If a previously-active project id is cached and still exists
+  //      on the server, mark it active and call attachToProject (which
+  //      hydrates the store + wires the auto-save subscriber).
+  // Each step degrades gracefully: a server failure leaves the picker
+  // empty rather than blocking the whole UI.
+  const { data: session } = useSession();
+  const userId = (session?.user as { id?: string } | undefined)?.id ?? null;
+  const refreshActiveVersions = useCallback(async (pid: string) => {
+    const res = await pclient.listVersions(pid);
+    if (res.error || !res.data) return;
+    setStorageData(prev => {
+      const proj = prev.projects[pid];
+      if (!proj) return prev;
+      const versions: StorageProject['versions'] = {};
+      for (const v of res.data!.versions) {
+        versions[v.id] = {
+          name:      v.label ?? `Version ${v.version_number}`,
+          createdAt: v.created_at,
+          data:      null,   // not pre-loaded; loadVersionInto fetches on demand
+        };
+      }
+      return {
+        ...prev,
+        projects: {
+          ...prev.projects,
+          [pid]: { ...proj, versions, versionCount: res.data!.versions.length },
+        },
+      };
+    });
   }, []);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // Step 1: migrator (best-effort; surfaces errors via toast).
+      if (userId) {
+        const mig = await runOneShotMigration(userId);
+        if (mig.ran && mig.projectsCreated > 0) {
+          setPmToast({
+            msg: `Migrated ${mig.projectsCreated} project${mig.projectsCreated === 1 ? '' : 's'} (${mig.versionsCreated} version${mig.versionsCreated === 1 ? '' : 's'}) from your browser to the cloud.`,
+            color: 'var(--color-green-dark)',
+          });
+        }
+        if (mig.errors.length && typeof console !== 'undefined') {
+          console.warn('[REFM] migration errors:', mig.errors);
+        }
+      }
+      if (cancelled) return;
+
+      // Step 2: fetch project list from server.
+      const list = await pclient.listProjects();
+      if (cancelled) return;
+      const serverProjects = list.data?.projects ?? [];
+
+      // Step 3: pick last-active id. Prefer the cached one if it
+      // still exists; otherwise leave activeProjectId null.
+      const cachedActiveId = readActiveProjectId();
+      const restoredActive = cachedActiveId && serverProjects.some(p => p.id === cachedActiveId)
+        ? cachedActiveId
+        : null;
+      setStorageData(projectsToStorageShape(serverProjects, restoredActive, null));
+      if (restoredActive) setActiveProjectId(restoredActive);
+
+      // Step 4: attach to the restored project (load snapshot into
+      // the Zustand store + start auto-save loop).
+      if (restoredActive) {
+        const attachRes = await attachSyncToProject(restoredActive);
+        if (cancelled) return;
+        if (attachRes.error && attachRes.loaded === 'none') {
+          setPmToast({ msg: `Could not load project: ${attachRes.error}`, color: 'var(--color-negative)' });
+        }
+        // Pre-fill the version metadata so VersionModal / OverviewScreen
+        // render correct counts and entries from first paint.
+        await refreshActiveVersions(restoredActive);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [userId, refreshActiveVersions]);
+
+  // Tear down the auto-save subscriber on unmount (e.g. user navigates
+  // away from REFM). attachSyncToProject also calls detach internally
+  // before subscribing to a new project, so this only matters for the
+  // navigate-away case.
+  useEffect(() => () => detachSync(), []);
 
   // ── Default costs init (Land Cash id:1 canDelete:false + default items) ──
   // Re-seeds whenever a per-asset cost array becomes empty: covers both
@@ -881,169 +1005,246 @@ export default function RealEstatePlatform() {
   const finHosp = showHospitality ? buildAssetFinancing('hospitality')  : null;
   const finRet  = showRetail      ? buildAssetFinancing('retail')       : null;
 
-  // ── Snapshot ──
-  // Reads the current store slice and serializes via toLegacySnapshot so
-  // the on-disk shape stays at v2 (storage schema bump to v3 is in a
-  // future phase). Custom assets, if present, would be dropped here with
-  // a one-time console warn; the 3 canonical assets round-trip cleanly.
-  const getSnapshot = useCallback((): LegacyV2Snapshot & { savedAt: string } => {
-    const s = useModule1Store.getState();
-    const legacy = toLegacySnapshot(s);
-    return { ...legacy, savedAt: new Date().toISOString() };
-    // No deps: useModule1Store.getState() reads the live store at call
-    // time, and savedAt is regenerated each invocation.
-  }, []);
-
-  // ── Save version ──
+  // ── Save version (post-M1.6) ──
+  // Explicit user-named save. Posts to /api/refm/projects/[id]/versions
+  // with the current store snapshot + label. Auto-save (background,
+  // unlabeled) runs separately via the module1-sync subscriber and
+  // does not go through this handler.
   const handleSaveVersion = useCallback((versionName: string) => {
     if (!activeProjectId) {
       setPmToast({ msg: 'Select or create a project first', color: 'var(--color-negative)' });
       return;
     }
-    const s = loadStorage();
-    const versionId = `v_${Date.now()}`;
-    if (!s.projects[activeProjectId]) return;
-    s.projects[activeProjectId].versions = s.projects[activeProjectId].versions || {};
-    s.projects[activeProjectId].versions[versionId] = {
-      name: versionName || `Version ${Object.keys(s.projects[activeProjectId].versions).length + 1}`,
-      createdAt: new Date().toISOString(),
-      data: getSnapshot(),
-    };
-    s.projects[activeProjectId].lastModified = new Date().toISOString();
-    s.activeProjectId = activeProjectId;
-    s.activeVersionId = versionId;
-    saveStorage(s);
-    setStorageData(s);
-    setActiveVersionId(versionId);
-    setLastSavedAt(new Date().toLocaleTimeString());
-    setHasUnsaved(false);
-    setPmToast({ msg: '✓ Version saved', color: 'var(--color-green-dark)' });
-  }, [activeProjectId, getSnapshot]);
+    const pid = activeProjectId;
+    (async () => {
+      const liveState = useModule1Store.getState();
+      const snapshot = extractHydrateSnapshot(liveState);
+      const assetMix = liveState.assets.filter(a => a.visible).map(a => a.name);
+      const res = await pclient.saveVersion(pid, {
+        snapshot,
+        label: versionName || null,
+        assetMix,
+      });
+      if (res.error || !res.data) {
+        setPmToast({ msg: `Save failed: ${res.error ?? 'unknown error'}`, color: 'var(--color-negative)' });
+        return;
+      }
+      // Update local state to reflect the new version + bumped
+      // lastModified. Refreshing the full version list is cheap and
+      // guarantees the modal sees consistent ordering.
+      setActiveVersionId(res.data.version.id);
+      setLastSavedAt(new Date().toLocaleTimeString());
+      setHasUnsaved(false);
+      setPmToast({ msg: '✓ Version saved', color: 'var(--color-green-dark)' });
+      void refreshActiveVersions(pid);
+      // Also refresh the project tile (lastModified / asset_mix may
+      // have changed). One-line update; no need to re-fetch the list.
+      setStorageData(prev => {
+        const proj = prev.projects[pid];
+        if (!proj) return prev;
+        return {
+          ...prev,
+          projects: {
+            ...prev.projects,
+            [pid]: {
+              ...proj,
+              lastModified: res.data!.project.updated_at,
+              assetMix:     res.data!.project.asset_mix,
+            },
+          },
+        };
+      });
+    })();
+  }, [activeProjectId, refreshActiveVersions]);
 
-  // ── Create project ──
+  // ── Create project (post-M1.6) ──
+  // Resets the store to defaults (so the new project doesn't inherit
+  // the previous project's snapshot), then POSTs to /api/refm/projects
+  // with the default snapshot. Server returns the new id; we activate
+  // it and start the auto-save loop.
   const handleCreateProject = useCallback((name: string, location: string) => {
-    const s = loadStorage();
-    const pid = `proj_${Date.now()}`;
-    s.projects[pid] = {
-      name,
-      location,
-      createdAt: new Date().toISOString(),
-      lastModified: new Date().toISOString(),
-      status: 'Draft',
-      assetMix: [projectType],
-      versions: {},
-    };
-    s.activeProjectId = pid;
-    saveStorage(s);
-    setStorageData(s);
-    setActiveProjectId(pid);
-    setActiveVersionId(null);
-    setProjectName(name);
-    setPmModal(null);
-    // M1.5/5 default-landing: brand-new projects always open on the
-    // Hierarchy tab (the legacy 3-asset seed is gone, so Timeline /
-    // Costs / Financing have nothing to render until the user defines
-    // their first asset).
-    setActiveTab('hierarchy');
-    setPmToast({ msg: `✓ Project "${name}" created`, color: 'var(--color-green-dark)' });
-    setHasUnsaved(true);
+    (async () => {
+      // Detach the previous project's auto-save before resetting the
+      // store, otherwise the reset would trigger a save back into the
+      // outgoing project.
+      detachSync();
+      // Reset store to defaults so the new project starts clean.
+      useModule1Store.getState().hydrate({ ...DEFAULT_MODULE1_STATE, projectName: name });
+      const snapshotForApi = extractHydrateSnapshot(useModule1Store.getState());
+
+      const res = await pclient.createProject({
+        name,
+        snapshot: snapshotForApi,
+        location,
+        status:   'Draft',
+        assetMix: [projectType],
+      });
+      if (res.error || !res.data) {
+        setPmToast({ msg: `Create failed: ${res.error ?? 'unknown error'}`, color: 'var(--color-negative)' });
+        return;
+      }
+      const pid = res.data.project.id;
+      setStorageData(prev => ({
+        ...prev,
+        activeProjectId: pid,
+        projects: {
+          ...prev.projects,
+          [pid]: {
+            name:         res.data!.project.name,
+            location:     res.data!.project.location ?? '',
+            createdAt:    res.data!.project.created_at,
+            lastModified: res.data!.project.updated_at,
+            status:       res.data!.project.status,
+            assetMix:     res.data!.project.asset_mix,
+            versions:     { [res.data!.version.id]: {
+              name:      res.data!.version.label ?? `Version ${res.data!.version.version_number}`,
+              createdAt: res.data!.version.created_at,
+              data:      null,
+            }},
+            versionCount: 1,
+          },
+        },
+      }));
+      setActiveProjectId(pid);
+      setActiveVersionId(res.data.version.id);
+      writeActiveProjectId(pid);
+      // Start the auto-save loop on the newly-created project.
+      await attachSyncToProject(pid);
+      setProjectName(name);
+      setPmModal(null);
+      // M1.5/5 default-landing: brand-new projects always open on the
+      // Hierarchy tab (the legacy 3-asset seed is gone, so Timeline /
+      // Costs / Financing have nothing to render until the user
+      // defines their first asset).
+      setActiveTab('hierarchy');
+      setPmToast({ msg: `✓ Project "${name}" created`, color: 'var(--color-green-dark)' });
+      setHasUnsaved(false);
+    })();
   }, [projectType, setProjectName]);
 
-  // ── Edit project (rename + relocate) ──
-  // Mutates the currently-active project's name + location in localStorage,
-  // syncs component state so the Sidebar pill, Topbar context button,
-  // Overview header, Dashboard tile, and ProjectsScreen list all reflect
-  // the new values immediately. Wired into ProjectModal in `mode='edit'`.
+  // ── Edit project (rename + relocate, post-M1.6) ──
+  // PATCHes /api/refm/projects/[id]. Local state is mirrored after the
+  // server confirms; on failure the toast surfaces the error and
+  // local state stays as it was.
   const handleEditProject = useCallback((name: string, location: string) => {
     if (!activeProjectId) return;
-    const s = loadStorage();
-    const proj = s.projects[activeProjectId];
-    if (!proj) return;
-    proj.name = name;
-    proj.location = location;
-    proj.lastModified = new Date().toISOString();
-    saveStorage(s);
-    setStorageData(s);
-    setProjectName(name);
-    setPmModal(null);
-    setPmInputVal('');
-    setPmLocationVal('');
-    setPmToast({ msg: `✓ Project "${name}" updated`, color: 'var(--color-green-dark)' });
+    const pid = activeProjectId;
+    (async () => {
+      const res = await pclient.patchProject(pid, { name, location });
+      if (res.error || !res.data) {
+        setPmToast({ msg: `Update failed: ${res.error ?? 'unknown error'}`, color: 'var(--color-negative)' });
+        return;
+      }
+      setStorageData(prev => {
+        const proj = prev.projects[pid];
+        if (!proj) return prev;
+        return {
+          ...prev,
+          projects: {
+            ...prev.projects,
+            [pid]: {
+              ...proj,
+              name:         res.data!.project.name,
+              location:     res.data!.project.location ?? '',
+              lastModified: res.data!.project.updated_at,
+            },
+          },
+        };
+      });
+      setProjectName(name);
+      setPmModal(null);
+      setPmInputVal('');
+      setPmLocationVal('');
+      setPmToast({ msg: `✓ Project "${name}" updated`, color: 'var(--color-green-dark)' });
+    })();
   }, [activeProjectId, setProjectName]);
 
-  // Open the edit modal, optionally for a specific project from the list.
-  // When `pid` is provided, also makes that project the active one so the
-  // modal — which reads `activeProjectData` for its prefilled values —
-  // shows the right content.
+  // Open the edit modal, optionally for a specific project from the
+  // list. When `pid` is provided, also makes that project the active
+  // one so the modal — which reads `activeProjectData` for its
+  // prefilled values — shows the right content.
   const handleEditProjectClick = useCallback((pid?: string) => {
     if (pid && pid !== activeProjectId) {
-      const s = loadStorage();
-      s.activeProjectId = pid;
-      saveStorage(s);
-      setStorageData(s);
       setActiveProjectId(pid);
-      const proj = s.projects[pid];
+      writeActiveProjectId(pid);
+      setStorageData(prev => ({ ...prev, activeProjectId: pid }));
+      const proj = storageData.projects[pid];
       if (proj) setProjectName(proj.name);
     }
     setPmModal('edit');
-  }, [activeProjectId, setProjectName]);
+  }, [activeProjectId, storageData, setProjectName]);
 
-  // ── Delete project ──
+  // ── Delete project (post-M1.6) ──
+  // DELETEs /api/refm/projects/[id]. Cascades version rows server-side.
+  // Local cache for the deleted project is wiped so a subsequent
+  // "duplicate via cache" can't resurrect it.
   const handleDeleteProject = useCallback((pid: string) => {
-    const s = loadStorage();
-    delete s.projects[pid];
-    if (s.activeProjectId === pid) {
-      s.activeProjectId = null;
-      s.activeVersionId = null;
-      setActiveProjectId(null);
-      setActiveVersionId(null);
-    }
-    saveStorage(s);
-    setStorageData(s);
-    setPmToast({ msg: 'Project deleted', color: 'var(--color-negative)' });
-  }, []);
+    (async () => {
+      const res = await pclient.deleteProject(pid);
+      if (res.error) {
+        setPmToast({ msg: `Delete failed: ${res.error}`, color: 'var(--color-negative)' });
+        return;
+      }
+      clearCachedSnapshot(pid);
+      const wasActive = activeProjectId === pid;
+      if (wasActive) {
+        detachSync();
+        writeActiveProjectId(null);
+        setActiveProjectId(null);
+        setActiveVersionId(null);
+      }
+      setStorageData(prev => {
+        const next = { ...prev, projects: { ...prev.projects } };
+        delete next.projects[pid];
+        if (wasActive) { next.activeProjectId = null; next.activeVersionId = null; }
+        return next;
+      });
+      setPmToast({ msg: 'Project deleted', color: 'var(--color-negative)' });
+    })();
+  }, [activeProjectId]);
 
-  // ── Load version ──
-  // Uses the M1.R migrator: saved snapshots may be in legacy v2 shape
-  // (3 hardcoded asset cost arrays + scalar percents) or new v3 shape
-  // (assets[]/phases[]/costs[]); hydrationFromAnySnapshot handles both
-  // and produces a HydrateSnapshot the store can swallow in one call.
+  // ── Load version (post-M1.6) ──
+  // Replaces the in-store snapshot from a specific historical
+  // version row (via the sync module). The next user edit triggers
+  // an auto-save that becomes the new latest version, branching off
+  // the loaded one. Open assets-empty snapshots on the Hierarchy tab
+  // so the user sees the asset-creation flow first.
   const handleLoadVersion = useCallback((pid: string, vid: string) => {
-    const s = loadStorage();
-    const ver = s.projects[pid]?.versions[vid];
-    if (!ver?.data) return;
-    const hydrate = hydrationFromAnySnapshot(ver.data);
-    useModule1Store.getState().hydrate(hydrate);
-    s.activeProjectId = pid;
-    s.activeVersionId = vid;
-    saveStorage(s);
-    setStorageData(s);
-    setActiveProjectId(pid);
-    setActiveVersionId(vid);
-    setHasUnsaved(false);
-    // M1.5/5 default-landing: existing/migrated projects (assets > 0)
-    // open on Timeline; empty-assets snapshots open on Hierarchy so
-    // the user sees the asset-creation flow first.
-    setActiveTab(hydrate.assets.length > 0 ? 'timeline' : 'hierarchy');
-    setPmToast({ msg: `✓ Loaded: ${ver.name}`, color: 'var(--color-navy)' });
-  }, []);
+    (async () => {
+      const res = await loadVersionInto(pid, vid);
+      if (res.error) {
+        setPmToast({ msg: `Load failed: ${res.error}`, color: 'var(--color-negative)' });
+        return;
+      }
+      setActiveVersionId(vid);
+      setStorageData(prev => ({ ...prev, activeVersionId: vid }));
+      setHasUnsaved(false);
+      const hasAssets = useModule1Store.getState().assets.length > 0;
+      setActiveTab(hasAssets ? 'timeline' : 'hierarchy');
+      const verName = storageData.projects[pid]?.versions[vid]?.name;
+      setPmToast({ msg: `✓ Loaded: ${verName ?? 'version'}`, color: 'var(--color-navy)' });
+    })();
+  }, [storageData]);
 
-  // ── Select project ──
+  // ── Select project (post-M1.6) ──
+  // Switches the active project. Detach + attach handles the auto-save
+  // subscriber transition. Pre-fills version metadata so VersionModal /
+  // OverviewScreen render with correct counts on first open.
   const handleSelectProject = useCallback((pid: string) => {
-    const s = loadStorage();
-    s.activeProjectId = pid;
-    saveStorage(s);
-    setStorageData(s);
-    setActiveProjectId(pid);
-    const proj = s.projects[pid];
-    if (proj) setProjectName(proj.name);
-    // load latest version if exists
-    const vids = Object.keys(proj?.versions || {});
-    if (vids.length > 0) {
-      const latest = vids[vids.length - 1];
-      handleLoadVersion(pid, latest);
-    }
-  }, [handleLoadVersion, setProjectName]);
+    (async () => {
+      writeActiveProjectId(pid);
+      setActiveProjectId(pid);
+      setStorageData(prev => ({ ...prev, activeProjectId: pid }));
+      const proj = storageData.projects[pid];
+      if (proj) setProjectName(proj.name);
+      const attachRes = await attachSyncToProject(pid);
+      if (attachRes.error && attachRes.loaded === 'none') {
+        setPmToast({ msg: `Could not load project: ${attachRes.error}`, color: 'var(--color-negative)' });
+        return;
+      }
+      await refreshActiveVersions(pid);
+    })();
+  }, [storageData, setProjectName, refreshActiveVersions]);
 
   // ── Computed totals for financing - derived from finRes/finHosp/finRet lineItems ──
   const _allFins = [

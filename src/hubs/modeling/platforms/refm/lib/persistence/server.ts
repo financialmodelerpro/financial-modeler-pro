@@ -27,8 +27,12 @@ const VERSION_LIST_COLS =
   'id, project_id, version_number, schema_version, label, created_at';
 
 // ── refm_projects ───────────────────────────────────────────────────────────
+// Returns project rows decorated with `version_count` (computed via a
+// second query). Two round-trips per page render is acceptable; the
+// alternative (denormalized version_count column on refm_projects with
+// trigger upkeep) is more moving parts than the picker UX warrants.
 export async function listProjects(userId: string): Promise<{
-  rows: RefmProjectRow[];
+  rows: Array<RefmProjectRow & { version_count: number }>;
   error: string | null;
 }> {
   const sb = getServerClient();
@@ -38,7 +42,28 @@ export async function listProjects(userId: string): Promise<{
     .eq('user_id', userId)
     .order('updated_at', { ascending: false });
   if (error) return { rows: [], error: error.message };
-  return { rows: (data ?? []) as unknown as RefmProjectRow[], error: null };
+
+  const projects = (data ?? []) as unknown as RefmProjectRow[];
+  if (projects.length === 0) {
+    return { rows: [], error: null };
+  }
+
+  const projectIds = projects.map(p => p.id);
+  const { data: countRows, error: countErr } = await sb
+    .from('refm_project_versions')
+    .select('project_id')
+    .in('project_id', projectIds);
+  if (countErr) return { rows: [], error: countErr.message };
+
+  const counts: Record<string, number> = {};
+  for (const r of (countRows ?? []) as Array<{ project_id: string }>) {
+    counts[r.project_id] = (counts[r.project_id] ?? 0) + 1;
+  }
+
+  return {
+    rows: projects.map(p => ({ ...p, version_count: counts[p.id] ?? 0 })),
+    error: null,
+  };
 }
 
 export async function getProject(userId: string, projectId: string): Promise<{

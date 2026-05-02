@@ -102,7 +102,12 @@ export default function ProjectsScreen({
           {filtered.map(([pid, proj]) => {
             const isActive = pid === activeProjectId;
             const statusStyle = STATUS_COLORS[proj.status] ?? STATUS_COLORS['Draft'];
-            const versionCount = Object.keys(proj.versions || {}).length;
+            // Phase M1.6: prefer the server-decorated `versionCount`
+            // when present (set by RealEstatePlatform from the
+            // listProjects response). Fall back to counting the
+            // versions{} dict for the active project (which has the
+            // dict populated lazily after select).
+            const versionCount = proj.versionCount ?? Object.keys(proj.versions || {}).length;
 
             return (
               <div

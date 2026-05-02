@@ -47,7 +47,12 @@ export interface RefmProjectRow {
 
 // Picker-list shape (subset of RefmProjectRow excluding user_id, which
 // the API filters on but doesn't need to send back to the owning user).
-export type RefmProjectListItem = Omit<RefmProjectRow, 'user_id'>;
+// `version_count` is computed by the server (a second query against
+// refm_project_versions, joined in JS) so the picker can render
+// "📌 N versions" without fetching every snapshot.
+export type RefmProjectListItem = Omit<RefmProjectRow, 'user_id'> & {
+  version_count: number;
+};
 
 // ── refm_project_versions row shape ─────────────────────────────────────────
 // `snapshot` is the full HydrateSnapshot from module1-store. Stored as
