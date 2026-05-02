@@ -112,6 +112,27 @@ export function isNewV3(s: unknown): s is NewV3Snapshot {
   return o.version === 3 && Array.isArray(o.assets) && Array.isArray(o.phases) && Array.isArray(o.costs);
 }
 
+// ── M1.5 hierarchy enrichment ──────────────────────────────────────────────
+// A v3 snapshot from before M1.5 will be missing masterHolding /
+// subProjects / subUnits. enrichWithHierarchyDefaults pads those fields
+// in place so the downstream HydrateSnapshot consumer sees a complete
+// v4-compatible payload. This preserves the M1.R "storage stays at v2
+// on disk" decision: we never bumped storage to v3, but if some future
+// code path produced a bare-v3 snapshot, it still loads cleanly.
+export function enrichWithHierarchyDefaults(snapshot: HydrateSnapshot): HydrateSnapshot {
+  // The narrowed cast lets us check fields TS already considers
+  // present; the runtime branch is only hit when an older payload
+  // was de-serialized through `as HydrateSnapshot` without actually
+  // carrying the M1.5 fields.
+  const s = snapshot as Partial<HydrateSnapshot> & HydrateSnapshot;
+  return {
+    ...s,
+    masterHolding: s.masterHolding ?? makeDefaultMasterHolding(),
+    subProjects:   s.subProjects   ?? [makeDefaultSubProject(s.projectName, s.currency)],
+    subUnits:      s.subUnits      ?? [],
+  };
+}
+
 // ── Forward migration: legacy v2 -> new v3 ─────────────────────────────────
 // Lossless for the 3 canonical assets. The 3 legacy show flags are
 // derived from the legacy projectType + retailPercent semantics that
@@ -201,11 +222,13 @@ export function migrateLegacyToNew(legacy: LegacyV2Snapshot): NewV3Snapshot {
   };
 }
 
-// ── Reverse adapter: new v3 -> legacy v2 ───────────────────────────────────
-// Used while on-disk storage stays at v2. Custom assets (any id outside
-// the 3 canonical legacy ids) are dropped with a one-time console warn so
-// the user notices when their data is about to lose fidelity.
-let warnedAboutDroppedAssets = false;
+// ── Reverse adapter: new v3/v4 -> legacy v2 ───────────────────────────────
+// Used while on-disk storage stays at v2 (per Ahmad's M1.R / M1.5
+// scoping: storage v3+ bump deferred to M1.6 alongside Supabase
+// migration). Anything in the in-memory shape that v2 cannot
+// represent gets dropped here, with a warn-once-per-session surface
+// so the user notices the data is about to lose fidelity.
+let warnedAboutDroppedV4 = false;
 
 export function toLegacySnapshot(s: HydrateSnapshot): LegacyV2Snapshot {
   const findAsset = (id: string): AssetClass =>
@@ -217,16 +240,28 @@ export function toLegacySnapshot(s: HydrateSnapshot): LegacyV2Snapshot {
   const hosp = findAsset(LEGACY_ASSET_IDS.hospitality);
   const ret  = findAsset(LEGACY_ASSET_IDS.retail);
 
-  // Surface the lossy case the first time it happens in a session so the
-  // user does not silently lose configured custom assets.
-  const customAssets = s.assets.filter(a => !(Object.values(LEGACY_ASSET_IDS) as string[]).includes(a.id));
-  if (customAssets.length > 0 && !warnedAboutDroppedAssets) {
-    warnedAboutDroppedAssets = true;
+  // Build a single warn message covering every v4 feature that v2
+  // storage cannot represent: custom assets, Master Holding when
+  // enabled, multi-sub-project layouts, sub-units. Fires at most once
+  // per browser session (the latch resets only via the test-only
+  // helper at file end).
+  const customAssets        = s.assets.filter(a => !(Object.values(LEGACY_ASSET_IDS) as string[]).includes(a.id));
+  const masterHoldingActive = (s.masterHolding as { enabled?: boolean } | undefined)?.enabled === true;
+  const multiSubProject     = (s.subProjects ?? []).length > 1;
+  const hasSubUnits         = (s.subUnits ?? []).length > 0;
+
+  if (!warnedAboutDroppedV4 && (customAssets.length > 0 || masterHoldingActive || multiSubProject || hasSubUnits)) {
+    warnedAboutDroppedV4 = true;
     if (typeof console !== 'undefined') {
+      const reasons: string[] = [];
+      if (customAssets.length > 0) reasons.push(`custom asset(s) [${customAssets.map(a => a.id).join(', ')}]`);
+      if (masterHoldingActive)     reasons.push('Master Holding (enabled)');
+      if (multiSubProject)         reasons.push(`${s.subProjects.length} sub-projects`);
+      if (hasSubUnits)             reasons.push(`${s.subUnits.length} sub-unit(s)`);
       console.warn(
-        `[REFM] Custom asset(s) [${customAssets.map(a => a.id).join(', ')}] not yet supported by ` +
-        `legacy v2 storage; they are not included in this saved version. ` +
-        `Storage v3 (which preserves them) lands in a future phase.`
+        `[REFM] The following v4 hierarchy data is not preserved by legacy v2 storage and will be ` +
+        `dropped from this saved version: ${reasons.join(', ')}. ` +
+        `Storage v3+ (which preserves them) is scheduled for M1.6 alongside Supabase migration.`
       );
     }
   }
@@ -304,10 +339,13 @@ const stripVersionAndSavedAt = (s: NewV3Snapshot): HydrateSnapshot => {
 
 export function hydrationFromAnySnapshot(snapshot: unknown): HydrateSnapshot {
   if (isNewV3(snapshot)) {
-    return stripVersionAndSavedAt(snapshot);
+    // A v3 snapshot from before M1.5 may be missing masterHolding /
+    // subProjects / subUnits; enrich before returning so the store
+    // hydrate always sees a complete v4-shaped payload.
+    return enrichWithHierarchyDefaults(stripVersionAndSavedAt(snapshot));
   }
   if (isLegacyV2(snapshot)) {
-    return stripVersionAndSavedAt(migrateLegacyToNew(snapshot));
+    return enrichWithHierarchyDefaults(stripVersionAndSavedAt(migrateLegacyToNew(snapshot)));
   }
   // Unrecognized shape: fall back to defaults rather than throw, so a
   // hand-edited or corrupted localStorage entry does not brick the app.
@@ -319,5 +357,5 @@ export function hydrationFromAnySnapshot(snapshot: unknown): HydrateSnapshot {
 
 // ── Test-only: reset the warn-once latch so unit tests can re-trigger it ──
 export function _resetWarnedAboutDroppedAssetsForTests(): void {
-  warnedAboutDroppedAssets = false;
+  warnedAboutDroppedV4 = false;
 }

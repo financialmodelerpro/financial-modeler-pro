@@ -1,16 +1,16 @@
 /**
  * scripts/module1-migrate-verify.ts
  *
- * Round-trip verifier for the Phase M1.R legacy <-> new shape migrator.
- * Loads the canonical Module 1 fixture (legacy v2 cost-array shape),
- * migrates it forward to v3, then converts back to v2 and asserts that
- * the result is deeply equal to the input.
+ * Round-trip verifier for the Module 1 migrator. Originally introduced
+ * in Phase M1.R for the v2 <-> M1.R-v3 transition; extended in Phase
+ * M1.5 to cover the M1.5 hierarchy enrichment and the warn-once-on-
+ * lossy-reverse path.
  *
  * Run:
  *   npx tsx scripts/module1-migrate-verify.ts
  *
  * Exit codes:
- *   0  round-trip is lossless for the canonical 3-asset case
+ *   0  every check passes
  *   1  drift detected
  */
 
@@ -19,13 +19,17 @@ import { resolve } from 'node:path';
 import {
   migrateLegacyToNew,
   toLegacySnapshot,
+  enrichWithHierarchyDefaults,
   isLegacyV2,
   isNewV3,
   hydrationFromAnySnapshot,
+  _resetWarnedAboutDroppedAssetsForTests,
   type LegacyV2Snapshot,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-migrate';
 import {
   LEGACY_ASSET_IDS,
+  DEFAULT_SUB_PROJECT_ID,
+  DEFAULT_PHASE_ID,
 } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 const FIXTURE_PATH = resolve(process.cwd(), 'tests/fixtures/module1-reference.json');
@@ -146,6 +150,69 @@ function main() {
   const bogus = hydrationFromAnySnapshot({ junk: true });
   if (bogus.assets.length !== 3 || bogus.costs.length !== 0) fail('bogus snapshot did not fall back to defaults');
   console.log('OK bogus input falls back to defaults');
+
+  // ── M1.5 hierarchy checks ────────────────────────────────────────────────
+
+  // 7. v2 -> v4 forward migration populates M1.5 hierarchy fields.
+  if (!hydratedFromLegacy.masterHolding) fail('v2 migration missing masterHolding');
+  if (hydratedFromLegacy.masterHolding.enabled !== false) fail('v2-migrated MH should be disabled by default');
+  if (hydratedFromLegacy.subProjects.length !== 1) fail(`v2 migration should produce 1 sub-project, got ${hydratedFromLegacy.subProjects.length}`);
+  if (hydratedFromLegacy.subProjects[0].id !== DEFAULT_SUB_PROJECT_ID) fail('migrated sub-project id mismatch');
+  if (hydratedFromLegacy.subProjects[0].name !== fixtureLegacy.projectName) fail('migrated sub-project name should equal projectName');
+  if (hydratedFromLegacy.subProjects[0].currency !== fixtureLegacy.currency) fail('migrated sub-project currency should equal currency');
+  if (hydratedFromLegacy.subUnits.length !== 0) fail('v2 migration should produce empty subUnits');
+  console.log('OK v2 -> v4 migration populates MH (disabled), 1 sub-project, 0 sub-units');
+
+  // 8. Migrated assets carry subProjectId + phaseId pointing at the seeded defaults.
+  for (const a of hydratedFromLegacy.assets) {
+    if (a.subProjectId !== DEFAULT_SUB_PROJECT_ID) fail(`asset ${a.id} subProjectId mismatch: ${a.subProjectId}`);
+    if (a.phaseId !== DEFAULT_PHASE_ID) fail(`asset ${a.id} phaseId mismatch: ${a.phaseId}`);
+  }
+  console.log('OK migrated assets bound to default sub-project + phase');
+
+  // 9. Migrated phase carries subProjectId.
+  if (hydratedFromLegacy.phases[0].subProjectId !== DEFAULT_SUB_PROJECT_ID) fail('migrated phase subProjectId mismatch');
+  console.log('OK migrated phase bound to default sub-project');
+
+  // 10. enrichWithHierarchyDefaults pads a bare-v3-shape snapshot.
+  const bareV3 = { ...hydratedFromLegacy } as Partial<typeof hydratedFromLegacy> & typeof hydratedFromLegacy;
+  delete (bareV3 as { masterHolding?: unknown }).masterHolding;
+  delete (bareV3 as { subProjects?: unknown }).subProjects;
+  delete (bareV3 as { subUnits?: unknown }).subUnits;
+  const enriched = enrichWithHierarchyDefaults(bareV3);
+  if (!enriched.masterHolding || enriched.subProjects.length === 0 || !Array.isArray(enriched.subUnits)) {
+    fail('enrichWithHierarchyDefaults did not pad missing M1.5 fields');
+  }
+  console.log('OK enrichWithHierarchyDefaults pads missing M1.5 fields');
+
+  // 11. toLegacySnapshot warn-once fires when MH is enabled.
+  _resetWarnedAboutDroppedAssetsForTests();
+  let warned = 0;
+  const origWarn = console.warn;
+  console.warn = (..._args: unknown[]) => { warned += 1; };
+  try {
+    const lossyV4 = { ...hydratedFromLegacy, masterHolding: { ...hydratedFromLegacy.masterHolding, enabled: true } };
+    toLegacySnapshot(lossyV4);
+    if (warned !== 1) fail(`toLegacySnapshot should warn exactly once on MH-enabled, got ${warned}`);
+    // Second call must NOT warn again (warn-once-per-session).
+    toLegacySnapshot(lossyV4);
+    if (warned !== 1) fail(`toLegacySnapshot warn-once latch broken; got ${warned} warnings`);
+  } finally {
+    console.warn = origWarn;
+  }
+  console.log('OK toLegacySnapshot warn-once fires on MH-enabled');
+
+  // 12. The standard non-lossy round-trip stays warning-free.
+  _resetWarnedAboutDroppedAssetsForTests();
+  warned = 0;
+  console.warn = (..._args: unknown[]) => { warned += 1; };
+  try {
+    toLegacySnapshot(hydratedFromLegacy);
+    if (warned !== 0) fail(`canonical round-trip should not warn, got ${warned}`);
+  } finally {
+    console.warn = origWarn;
+  }
+  console.log('OK canonical 3-asset round-trip stays warning-free');
 
   console.log('\nAll migrator round-trip checks passed.');
   process.exit(0);
