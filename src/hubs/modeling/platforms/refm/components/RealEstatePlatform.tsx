@@ -29,6 +29,7 @@ import Module1Timeline from './modules/Module1Timeline';
 import Module1Area from './modules/Module1Area';
 import Module1Costs from './modules/Module1Costs';
 import Module1Financing from './modules/Module1Financing';
+import Module1Hierarchy from './modules/Module1Hierarchy';
 import ProjectModal from './modals/ProjectModal';
 import VersionModal from './modals/VersionModal';
 import RbacModal from './modals/RbacModal';
@@ -1230,41 +1231,7 @@ export default function RealEstatePlatform() {
 
             {/* Tab content */}
             <div className="tab-content" style={{ padding: 'var(--sp-3)' }}>
-              {/* M1.5/5 placeholder. Real tree-view + Sub-Project /
-                 Phase / Asset / Sub-Unit CRUD lands in M1.5/6 - M1.5/10.
-                 Until then the empty-state explains where the user is
-                 and what comes next. */}
-              {activeTab === 'hierarchy' && (
-                <div style={{
-                  maxWidth: 720, margin: '40px auto', padding: 'var(--sp-3)',
-                  background: 'var(--color-surface)', border: '1px solid var(--color-border)',
-                  borderRadius: 8,
-                }}>
-                  <h2 style={{ fontSize: 'var(--font-section)', fontWeight: 'var(--fw-bold)', color: 'var(--color-heading)', marginBottom: 'var(--sp-2)' }}>
-                    🗂️ Project Hierarchy
-                  </h2>
-                  <p style={{ fontSize: 'var(--font-body)', color: 'var(--color-meta)', lineHeight: 1.6, marginBottom: 'var(--sp-2)' }}>
-                    The 5-layer hierarchy lives here:&nbsp;
-                    <strong>Master Holding → Sub-Project → Phase → Asset → Sub-Unit</strong>.
-                    Single-project users will see one Sub-Project with one
-                    Phase; fund-style projects can add more Sub-Projects
-                    and roll them up under a Master Holding.
-                  </p>
-                  <p style={{ fontSize: 'var(--font-body)', color: 'var(--color-meta)', lineHeight: 1.6 }}>
-                    Phase M1.5/5 wires the routing only — the read-only
-                    tree view lands in M1.5/6, then Sub-Project / Phase /
-                    Asset / Sub-Unit CRUD across M1.5/7 - M1.5/10.
-                  </p>
-                  {assets.length === 0 && (
-                    <p style={{ fontSize: 'var(--font-body)', color: 'var(--color-warning-text)', marginTop: 'var(--sp-2)', padding: 'var(--sp-2)', background: 'var(--color-warning-bg)', borderRadius: 6 }}>
-                      This project has no assets yet. Once the Hierarchy
-                      CRUD ships you will define them here; until then,
-                      the Timeline / Land &amp; Area / Dev Costs / Financing
-                      tabs render an empty state.
-                    </p>
-                  )}
-                </div>
-              )}
+              {activeTab === 'hierarchy' && <Module1Hierarchy />}
               {activeTab === 'timeline' && (
                 <Module1Timeline
                   projectName={projectName} setProjectName={setProjectName}
