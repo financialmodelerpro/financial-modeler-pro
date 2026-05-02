@@ -629,3 +629,241 @@ export function distributeCost(
 
   return distribution;
 }
+
+// ─── M1.7 Area Program calc engines ────────────────────────────────────────
+// Pure functions used by the Area Program tab (M1.7/5) and the area-
+// program cascade rollup. NOT consumed by the Module 1 financing /
+// distribution math today, so they do NOT affect the M1.R / M1.5 /
+// M1.6 snapshot baselines (single-phase 17.5 KB, multi-phase 23.0 KB).
+//
+// All inputs are scalars / plain objects; all outputs are plain objects.
+// No store reads, no React, no side effects. The Plot / Sub-Unit
+// shapes live in module1-types.ts; @core/calculations stays free of
+// that import to keep the dependency direction one-way (REFM consumes
+// @core, never the other way around).
+
+// ── 1. Plot envelope ──────────────────────────────────────────────────────
+// Derives all areas a plot's envelope produces from its inputs. Inputs
+// are passed as a plain object so callers can mix-and-match without
+// importing the Plot interface from REFM into core.
+//
+// Validation policy: the function never throws. Negative or zero inputs
+// produce zero / clamped outputs (e.g. coverage > 100% clamps to 100%,
+// landscape + hardscape sum > 100% clamps surfaceParkingArea to 0).
+// The Area Program tab is the place to surface user-facing warnings
+// (e.g. totalBuiltGFA > maxGFA — over-FAR — gets a yellow badge).
+
+export interface PlotEnvelopeInputs {
+  plotArea:              number;
+  maxFAR:                number;
+  coveragePct:           number;
+  podiumFloors:          number;
+  typicalFloors:         number;
+  typicalCoveragePct:    number;
+  landscapePct:          number;
+  hardscapePct:          number;
+  basementCount:         number;
+  basementEfficiencyPct: number;
+}
+
+export interface PlotEnvelopeAreas {
+  // Caps and footprints
+  maxGFA:               number;   // plotArea * maxFAR
+  footprint:            number;   // plotArea * coveragePct/100  (podium plate)
+  typicalFootprint:     number;   // plotArea * typicalCoveragePct/100
+  // Vertical buildup
+  podiumGFA:            number;   // footprint * podiumFloors
+  typicalGFA:           number;   // typicalFootprint * typicalFloors
+  totalBuiltGFA:        number;   // podiumGFA + typicalGFA
+  // Public-area allocation
+  publicArea:           number;   // plotArea - footprint
+  landscapeArea:        number;   // publicArea * landscapePct/100
+  hardscapeArea:        number;   // publicArea * hardscapePct/100
+  surfaceParkingArea:   number;   // publicArea - landscape - hardscape (clamped >= 0)
+  // Basement (parking-usable)
+  basementGrossArea:    number;   // footprint * basementCount  (incl. ramps / walls)
+  basementUsableArea:   number;   // basementGrossArea * basementEfficiencyPct/100
+  // Diagnostics (informational; the UI reads these to render warnings)
+  utilizationPct:       number;   // totalBuiltGFA / maxGFA * 100  (0 when maxGFA = 0)
+  isOverFAR:            boolean;  // utilizationPct > 100
+}
+
+const clampPct = (n: number): number => Math.max(0, Math.min(100, n));
+
+export function computePlotEnvelope(input: PlotEnvelopeInputs): PlotEnvelopeAreas {
+  const plotArea          = Math.max(0, input.plotArea);
+  const maxFAR            = Math.max(0, input.maxFAR);
+  const coveragePct       = clampPct(input.coveragePct);
+  const podiumFloors      = Math.max(0, input.podiumFloors);
+  const typicalFloors     = Math.max(0, input.typicalFloors);
+  const typicalCoveragePct = clampPct(input.typicalCoveragePct);
+  const landscapePct      = clampPct(input.landscapePct);
+  const hardscapePct      = clampPct(input.hardscapePct);
+  const basementCount     = Math.max(0, input.basementCount);
+  const basementEffPct    = clampPct(input.basementEfficiencyPct);
+
+  const maxGFA             = plotArea * maxFAR;
+  const footprint          = plotArea * (coveragePct / 100);
+  const typicalFootprint   = plotArea * (typicalCoveragePct / 100);
+  const podiumGFA          = footprint * podiumFloors;
+  const typicalGFA         = typicalFootprint * typicalFloors;
+  const totalBuiltGFA      = podiumGFA + typicalGFA;
+
+  const publicArea         = Math.max(0, plotArea - footprint);
+  const landscapeArea      = publicArea * (landscapePct / 100);
+  const hardscapeArea      = publicArea * (hardscapePct / 100);
+  const surfaceParkingArea = Math.max(0, publicArea - landscapeArea - hardscapeArea);
+
+  const basementGrossArea  = footprint * basementCount;
+  const basementUsableArea = basementGrossArea * (basementEffPct / 100);
+
+  const utilizationPct     = maxGFA > 0 ? (totalBuiltGFA / maxGFA) * 100 : 0;
+  const isOverFAR          = utilizationPct > 100;
+
+  return {
+    maxGFA, footprint, typicalFootprint,
+    podiumGFA, typicalGFA, totalBuiltGFA,
+    publicArea, landscapeArea, hardscapeArea, surfaceParkingArea,
+    basementGrossArea, basementUsableArea,
+    utilizationPct, isOverFAR,
+  };
+}
+
+// ── 2. Area cascade (per asset) ───────────────────────────────────────────
+// Takes a single asset's allocated GFA and the breakdown percentages
+// (typical industry ranges: MEP 8-15%, Back-of-House 5-10%, Other
+// Technical 3-5%, Efficiency 75-90%) and produces the standard cascade:
+//
+//   GFA          (input)
+//   MEP          = GFA * mepPct/100
+//   backOfHouse  = GFA * backOfHousePct/100
+//   otherTech    = GFA * otherTechnicalPct/100
+//   netGFA       = GFA - MEP - backOfHouse - otherTech  (clamped >= 0)
+//   GSA / GLA    = netGFA * efficiencyPct/100
+//   BUAExcl      = GFA + backOfHouse + otherTech       ("BUA excluding MEP & Basement")
+//   TBA          = BUAExcl + MEP + basementShare        ("Total Built Area")
+//
+// basementShare is per-asset basement parking allocation passed in from
+// the parking allocator (M1.7/2.3) — typically the asset's pro-rata
+// share of plot.basementUsableArea based on bay demand.
+
+export interface AreaCascadeInputs {
+  gfa:                number;
+  mepPct:             number;  // % of GFA
+  backOfHousePct:     number;  // % of GFA
+  otherTechnicalPct:  number;  // % of GFA
+  efficiencyPct:      number;  // % of net GFA -> GSA/GLA
+  basementShare?:     number;  // sqm allocated to this asset's basement parking (default 0)
+}
+
+export interface AreaCascadeResult {
+  gfa:           number;
+  mep:           number;
+  backOfHouse:   number;
+  otherTechnical: number;
+  netGFA:        number;
+  gsaGla:        number;
+  buaExcl:       number;  // BUA excluding MEP & Basement
+  tba:           number;  // Total Built Area
+}
+
+export function computeAreaCascade(input: AreaCascadeInputs): AreaCascadeResult {
+  const gfa             = Math.max(0, input.gfa);
+  const mepPct          = clampPct(input.mepPct);
+  const backOfHousePct  = clampPct(input.backOfHousePct);
+  const otherTechPct    = clampPct(input.otherTechnicalPct);
+  const efficiencyPct   = clampPct(input.efficiencyPct);
+  const basementShare   = Math.max(0, input.basementShare ?? 0);
+
+  const mep             = gfa * (mepPct / 100);
+  const backOfHouse     = gfa * (backOfHousePct / 100);
+  const otherTechnical  = gfa * (otherTechPct / 100);
+  const netGFA          = Math.max(0, gfa - mep - backOfHouse - otherTechnical);
+  const gsaGla          = netGFA * (efficiencyPct / 100);
+  const buaExcl         = gfa + backOfHouse + otherTechnical;
+  const tba             = buaExcl + mep + basementShare;
+
+  return { gfa, mep, backOfHouse, otherTechnical, netGFA, gsaGla, buaExcl, tba };
+}
+
+// ── 3. Parking allocator ──────────────────────────────────────────────────
+// Waterfall allocator: required bays land in Surface first (cheapest /
+// most natural), then Vertical (podium), then Basement (most expensive).
+// Capacities are caller-provided (typically derived from plot envelope
+// in @core via computePlotEnvelope: surfaceCapacityBays =
+// surfaceParkingArea / plot.surfaceBaySqm; basementCapacityBays =
+// basementUsableArea / plot.basementBaySqm; verticalCapacityBays =
+// (footprint * verticalParkingFloors) / plot.verticalBaySqm — the
+// verticalParkingFloors input is a per-asset / per-plot decision the
+// Area Program tab (M1.7/6) collects from the user).
+//
+// Returns a deficit when demand exceeds combined capacity. The Area
+// Program tab surfaces deficit > 0 as a red warning.
+
+export interface ParkingAllocationInputs {
+  totalBaysRequired:    number;
+  surfaceCapacityBays:  number;
+  verticalCapacityBays: number;
+  basementCapacityBays: number;
+}
+
+export interface ParkingAllocationResult {
+  surfaceBays:    number;
+  verticalBays:   number;
+  basementBays:   number;
+  totalAllocated: number;
+  deficit:        number;  // > 0 when demand > capacity
+}
+
+export function allocateParking(input: ParkingAllocationInputs): ParkingAllocationResult {
+  const required    = Math.max(0, Math.floor(input.totalBaysRequired));
+  const surfaceCap  = Math.max(0, Math.floor(input.surfaceCapacityBays));
+  const verticalCap = Math.max(0, Math.floor(input.verticalCapacityBays));
+  const basementCap = Math.max(0, Math.floor(input.basementCapacityBays));
+
+  const surfaceBays  = Math.min(required, surfaceCap);
+  const remaining1   = required - surfaceBays;
+  const verticalBays = Math.min(remaining1, verticalCap);
+  const remaining2   = remaining1 - verticalBays;
+  const basementBays = Math.min(remaining2, basementCap);
+  const totalAllocated = surfaceBays + verticalBays + basementBays;
+  const deficit      = required - totalAllocated;
+
+  return { surfaceBays, verticalBays, basementBays, totalAllocated, deficit };
+}
+
+// ── 4. Plot-level capacities helper ────────────────────────────────────────
+// Convenience wrapper: given a Plot's envelope output + bay-size config
+// + the number of podium floors the Area Program tab dedicates to
+// vertical parking, returns the three integer bay capacities the
+// allocator above expects. Caller-passed verticalParkingFloors (default
+// 0) is independent of plot.podiumFloors so the user can split podium
+// between retail / amenity / parking explicitly.
+
+export interface PlotCapacityInputs {
+  envelope: PlotEnvelopeAreas;
+  surfaceBaySqm:           number;
+  verticalBaySqm:          number;
+  basementBaySqm:          number;
+  verticalParkingFloors?:  number;  // default 0
+}
+
+export interface PlotCapacityResult {
+  surfaceCapacityBays:  number;
+  verticalCapacityBays: number;
+  basementCapacityBays: number;
+}
+
+export function computePlotParkingCapacity(input: PlotCapacityInputs): PlotCapacityResult {
+  const envelope = input.envelope;
+  const surfaceBaySqm  = Math.max(1, input.surfaceBaySqm);   // guard /0
+  const verticalBaySqm = Math.max(1, input.verticalBaySqm);
+  const basementBaySqm = Math.max(1, input.basementBaySqm);
+  const vertFloors     = Math.max(0, input.verticalParkingFloors ?? 0);
+
+  const surfaceCapacityBays  = Math.floor(envelope.surfaceParkingArea  / surfaceBaySqm);
+  const verticalCapacityBays = Math.floor((envelope.footprint * vertFloors) / verticalBaySqm);
+  const basementCapacityBays = Math.floor(envelope.basementUsableArea / basementBaySqm);
+
+  return { surfaceCapacityBays, verticalCapacityBays, basementCapacityBays };
+}
