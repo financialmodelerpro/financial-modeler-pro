@@ -112,24 +112,27 @@ export function isNewV3(s: unknown): s is NewV3Snapshot {
   return o.version === 3 && Array.isArray(o.assets) && Array.isArray(o.phases) && Array.isArray(o.costs);
 }
 
-// ── M1.5 hierarchy enrichment ──────────────────────────────────────────────
+// ── M1.5 + M1.7 hierarchy enrichment ───────────────────────────────────────
 // A v3 snapshot from before M1.5 will be missing masterHolding /
-// subProjects / subUnits. enrichWithHierarchyDefaults pads those fields
+// subProjects / subUnits. A v3/v4 snapshot from before M1.7 will be
+// missing plots / zones. enrichWithHierarchyDefaults pads all of these
 // in place so the downstream HydrateSnapshot consumer sees a complete
-// v4-compatible payload. This preserves the M1.R "storage stays at v2
-// on disk" decision: we never bumped storage to v3, but if some future
-// code path produced a bare-v3 snapshot, it still loads cleanly.
+// shape. This preserves the M1.R "storage stays at v2 on disk"
+// decision: we never bumped the wrapper version, but if some future
+// code path produced a bare snapshot, it still loads cleanly.
 export function enrichWithHierarchyDefaults(snapshot: HydrateSnapshot): HydrateSnapshot {
   // The narrowed cast lets us check fields TS already considers
   // present; the runtime branch is only hit when an older payload
   // was de-serialized through `as HydrateSnapshot` without actually
-  // carrying the M1.5 fields.
+  // carrying the M1.5 / M1.7 fields.
   const s = snapshot as Partial<HydrateSnapshot> & HydrateSnapshot;
   return {
     ...s,
     masterHolding: s.masterHolding ?? makeDefaultMasterHolding(),
     subProjects:   s.subProjects   ?? [makeDefaultSubProject(s.projectName, s.currency)],
     subUnits:      s.subUnits      ?? [],
+    plots:         s.plots         ?? [],
+    zones:         s.zones         ?? [],
   };
 }
 
@@ -194,6 +197,12 @@ export function migrateLegacyToNew(legacy: LegacyV2Snapshot): NewV3Snapshot {
     masterHolding: makeDefaultMasterHolding(),
     subProjects:   [makeDefaultSubProject(legacy.projectName, legacy.currency)],
     subUnits:      [],
+
+    // M1.7 area-program fields. Legacy v2 had no concept of plots /
+    // zones either, so they start empty; users add their first plot
+    // via the new Area Program tab.
+    plots: [],
+    zones: [],
 
     phases,
 

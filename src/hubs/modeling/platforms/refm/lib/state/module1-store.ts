@@ -29,7 +29,7 @@ import type {
   RepaymentMethod,
   LandParcel,
 } from '@core/types/project.types';
-import type { AssetClass, Phase, CostLine, MasterHolding, SubProject, SubUnit } from './module1-types';
+import type { AssetClass, Phase, CostLine, MasterHolding, SubProject, SubUnit, Plot, Zone } from './module1-types';
 import {
   DEFAULT_SUB_PROJECT_ID,
   DEFAULT_PHASE_ID,
@@ -59,12 +59,24 @@ export interface Module1Store {
   // Sub-Units: per-asset inventory. Empty until user populates from
   // the Hierarchy tab.
   subUnits: SubUnit[];
+  // ── Plots & Zones (Phase M1.7; Architecture sheet section 1A) ──
+  // A Plot owns the physical envelope (area, FAR, coverage, floors,
+  // parking config) beneath a Phase. Zones are optional logical sub-
+  // divisions of a Plot. Both default to empty for brand-new and
+  // legacy projects — assets only enter the Area Program cascade once
+  // they pick up a plotId via the Area Program tab (M1.7/5).
+  plots: Plot[];
+  zones: Zone[];
   // Active selectors: which sub-project + phase the non-Hierarchy tabs
   // operate on. UI-only state (not part of HydrateSnapshot below;
   // never persisted to disk so opening a saved project resets to the
   // first available sub-project + phase).
   activeSubProjectId: string;
   activePhaseId: string;
+  // M1.7: which Plot the Area Program tab is editing. Mirrors the
+  // active-id pattern from M1.5 (UI-only, never persisted, clamped to
+  // the first available plot when the previous one is deleted).
+  activePlotId: string | null;
 
   // Phases (replaces single constructionPeriods / operationsPeriods / overlapPeriods)
   phases: Phase[];
@@ -137,9 +149,30 @@ export interface Module1Store {
   updateSubUnit: (id: string, patch: Partial<SubUnit>) => void;
   removeSubUnit: (id: string) => void;
 
+  // Plot actions (M1.7). removePlot cascades: any zone whose plotId
+  // matches the deleted plot is dropped, and any asset whose plotId or
+  // zoneId pointed into the removed plot has those fields cleared
+  // (NOT deleted — the asset itself survives, it just leaves the area-
+  // program cascade until reassigned). costs / sub-units stay attached
+  // to their assets, so cost data the user entered is preserved.
+  setPlots: (plots: Plot[]) => void;
+  addPlot: (plot: Plot) => void;
+  updatePlot: (id: string, patch: Partial<Plot>) => void;
+  removePlot: (id: string) => void;
+
+  // Zone actions (M1.7). removeZone cascades onto assets only: any
+  // asset whose zoneId matched is reset to undefined; the asset stays
+  // bound to the parent plot. Zones never own costs / sub-units
+  // directly (those live on assets), so no further cleanup is needed.
+  setZones: (zones: Zone[]) => void;
+  addZone: (zone: Zone) => void;
+  updateZone: (id: string, patch: Partial<Zone>) => void;
+  removeZone: (id: string) => void;
+
   // Active-selection actions (UI-only; not persisted)
   setActiveSubProjectId: (id: string) => void;
   setActivePhaseId: (id: string) => void;
+  setActivePlotId: (id: string | null) => void;
 
   // Cost actions
   setCosts: (costs: CostLine[]) => void;
@@ -157,12 +190,17 @@ export interface Module1Store {
 
 // ── Hydration shape ────────────────────────────────────────────────────────
 // The project-state slice of the store. Persisted to disk on save and
-// restored on load. activeSubProjectId / activePhaseId are intentionally
-// excluded — they are UI-only and reset to the first available
-// sub-project / phase whenever a snapshot loads.
+// restored on load. activeSubProjectId / activePhaseId / activePlotId
+// are intentionally excluded — they are UI-only and reset to the first
+// available sub-project / phase / plot whenever a snapshot loads.
+//
+// M1.7 added plots[] and zones[] to the persisted shape. Pre-M1.7
+// snapshots lack these keys; module1-migrate.enrichWithHierarchyDefaults
+// patches them to [] on load so the store never sees a partial payload.
 export type HydrateSnapshot = Pick<Module1Store,
   | 'projectName' | 'projectType' | 'country' | 'currency' | 'modelType' | 'projectStart'
   | 'masterHolding' | 'subProjects' | 'subUnits'
+  | 'plots' | 'zones'
   | 'phases' | 'landParcels' | 'projectRoadsPct' | 'projectFAR' | 'projectNonEnclosedPct'
   | 'assets' | 'costs' | 'costInputMode' | 'nextCostId'
   | 'costStage' | 'costScope' | 'costDevFeeMode' | 'allocBasis'
@@ -188,6 +226,12 @@ export const DEFAULT_MODULE1_STATE: HydrateSnapshot = {
   masterHolding: makeDefaultMasterHolding(),
   subProjects:   [makeDefaultSubProject('Skyline', 'SAR')],
   subUnits:      [],
+
+  // M1.7: brand-new projects start with no plots / zones. The Area
+  // Program tab is the only place to add the first plot. Until then,
+  // the rest of Module 1 behaves exactly as it did pre-M1.7.
+  plots: [],
+  zones: [],
 
   phases: [makeDefaultPhase(DEFAULT_SUB_PROJECT_ID, 4, 5, 0)],
 
@@ -227,6 +271,7 @@ export function createModule1Store() {
     // UI-only active selectors (not part of HydrateSnapshot).
     activeSubProjectId: DEFAULT_SUB_PROJECT_ID,
     activePhaseId:      DEFAULT_PHASE_ID,
+    activePlotId:       null,
 
     setProjectMeta: (patch) => set(patch),
     setLand:        (patch) => set(patch),
@@ -248,18 +293,31 @@ export function createModule1Store() {
       phases: s.phases.map(p => (p.id === id ? { ...p, ...patch } : p)),
     })),
     addPhase:     (phase) => set((s) => ({ phases: [...s.phases, phase] })),
-    removePhase:  (id) => set((s) => ({
-      phases: s.phases.filter(p => p.id !== id),
-      // Cascading cleanup: assets bound to the deleted phase are
-      // dropped (and their costs with them); costs that referenced
-      // the phase via phaseId become global to the sub-project (the
-      // phaseId is cleared rather than the line being deleted, so
-      // phase-removal preserves cost data the user has entered).
-      assets: s.assets.filter(a => a.phaseId !== id),
-      costs:  s.costs
-        .filter(c => !s.assets.some(a => a.id === c.assetId && a.phaseId === id))
-        .map(c => (c.phaseId === id ? { ...c, phaseId: undefined } : c)),
-    })),
+    removePhase:  (id) => set((s) => {
+      // Cascading cleanup. Phase removal is the deepest cascade in
+      // the store:
+      //   - Plots scoped to this phase are dropped, which transitively
+      //     drops their zones (M1.7).
+      //   - Assets bound to the deleted phase are dropped (their
+      //     costs go with them).
+      //   - Sub-units beneath dropped assets are dropped.
+      //   - Phase-specific costs that survived (because their asset
+      //     belongs to a different phase) get phaseId cleared so they
+      //     fall back to sub-project-global semantics, preserving the
+      //     cost data the user entered.
+      const droppedPlotIds  = new Set(s.plots.filter(p => p.phaseId === id).map(p => p.id));
+      const droppedAssetIds = new Set(s.assets.filter(a => a.phaseId === id).map(a => a.id));
+      return {
+        phases: s.phases.filter(p => p.id !== id),
+        plots:  s.plots.filter(p => p.phaseId !== id),
+        zones:  s.zones.filter(z => !droppedPlotIds.has(z.plotId)),
+        assets: s.assets.filter(a => a.phaseId !== id),
+        costs:  s.costs
+          .filter(c => !droppedAssetIds.has(c.assetId))
+          .map(c => (c.phaseId === id ? { ...c, phaseId: undefined } : c)),
+        subUnits: s.subUnits.filter(u => !droppedAssetIds.has(u.assetId)),
+      };
+    }),
 
     setMasterHolding:    (mh) => set({ masterHolding: mh }),
     updateMasterHolding: (patch) => set((s) => ({ masterHolding: { ...s.masterHolding, ...patch } })),
@@ -269,24 +327,33 @@ export function createModule1Store() {
     updateSubProject: (id, patch) => set((s) => ({
       subProjects: s.subProjects.map(sp => (sp.id === id ? { ...sp, ...patch } : sp)),
     })),
-    removeSubProject: (id) => set((s) => ({
-      subProjects: s.subProjects.filter(sp => sp.id !== id),
-      // Cascade: drop phases / assets / costs / sub-units owned by
-      // the removed sub-project. Active selectors that pointed into
-      // the removed sub-project get reset to the first remaining one
-      // (or the default ids if no sub-projects remain — UI must
-      // render an empty-state in that case).
-      phases:   s.phases.filter(p => p.subProjectId !== id),
-      assets:   s.assets.filter(a => a.subProjectId !== id),
-      costs:    s.costs.filter(c => c.subProjectId !== id),
-      subUnits: s.subUnits.filter(u => {
-        const owningAsset = s.assets.find(a => a.id === u.assetId);
-        return owningAsset ? owningAsset.subProjectId !== id : true;
-      }),
-      activeSubProjectId: s.activeSubProjectId === id
-        ? (s.subProjects.find(sp => sp.id !== id)?.id ?? DEFAULT_SUB_PROJECT_ID)
-        : s.activeSubProjectId,
-    })),
+    removeSubProject: (id) => set((s) => {
+      // Cascade: drop phases / plots / zones / assets / costs / sub-
+      // units owned by the removed sub-project. Active selectors that
+      // pointed into the removed sub-project get reset to the first
+      // remaining one (or the default ids if no sub-projects remain —
+      // UI must render an empty-state in that case). M1.7: plots /
+      // zones cascade through the dropped phases — every plot
+      // scoped to a phase that disappears also disappears, taking
+      // its zones with it.
+      const droppedPhaseIds = new Set(s.phases.filter(p => p.subProjectId === id).map(p => p.id));
+      const droppedPlotIds  = new Set(s.plots.filter(p => droppedPhaseIds.has(p.phaseId)).map(p => p.id));
+      return {
+        subProjects: s.subProjects.filter(sp => sp.id !== id),
+        phases:   s.phases.filter(p => p.subProjectId !== id),
+        plots:    s.plots.filter(p => !droppedPhaseIds.has(p.phaseId)),
+        zones:    s.zones.filter(z => !droppedPlotIds.has(z.plotId)),
+        assets:   s.assets.filter(a => a.subProjectId !== id),
+        costs:    s.costs.filter(c => c.subProjectId !== id),
+        subUnits: s.subUnits.filter(u => {
+          const owningAsset = s.assets.find(a => a.id === u.assetId);
+          return owningAsset ? owningAsset.subProjectId !== id : true;
+        }),
+        activeSubProjectId: s.activeSubProjectId === id
+          ? (s.subProjects.find(sp => sp.id !== id)?.id ?? DEFAULT_SUB_PROJECT_ID)
+          : s.activeSubProjectId,
+      };
+    }),
 
     setSubUnits:    (subUnits) => set({ subUnits }),
     addSubUnit:     (subUnit) => set((s) => ({ subUnits: [...s.subUnits, subUnit] })),
@@ -295,8 +362,60 @@ export function createModule1Store() {
     })),
     removeSubUnit:  (id) => set((s) => ({ subUnits: s.subUnits.filter(u => u.id !== id) })),
 
+    // ── Plot CRUD (M1.7). removePlot is the heaviest cascade in the
+    // store: drop owned zones, clear plot/zone bindings on assets that
+    // pointed into the removed plot, and clamp activePlotId. Costs and
+    // sub-units stay attached to their parent assets — the asset itself
+    // survives, it just exits the area-program cascade. ──
+    setPlots:    (plots) => set({ plots }),
+    addPlot:     (plot)  => set((s) => ({ plots: [...s.plots, plot] })),
+    updatePlot:  (id, patch) => set((s) => ({
+      plots: s.plots.map(p => (p.id === id ? { ...p, ...patch } : p)),
+    })),
+    removePlot:  (id) => set((s) => {
+      const remainingPlots = s.plots.filter(p => p.id !== id);
+      const droppedZoneIds = new Set(s.zones.filter(z => z.plotId === id).map(z => z.id));
+      return {
+        plots: remainingPlots,
+        zones: s.zones.filter(z => z.plotId !== id),
+        assets: s.assets.map(a => {
+          // Asset was on the removed plot (directly or via a dropped zone): clear both refs.
+          if (a.plotId === id || (a.zoneId !== undefined && droppedZoneIds.has(a.zoneId))) {
+            const next = { ...a };
+            delete next.plotId;
+            delete next.zoneId;
+            return next;
+          }
+          return a;
+        }),
+        activePlotId: s.activePlotId === id
+          ? (remainingPlots[0]?.id ?? null)
+          : s.activePlotId,
+      };
+    }),
+
+    // ── Zone CRUD (M1.7). removeZone clears asset.zoneId only; the
+    // asset stays bound to its parent plot. ──
+    setZones:    (zones) => set({ zones }),
+    addZone:     (zone)  => set((s) => ({ zones: [...s.zones, zone] })),
+    updateZone:  (id, patch) => set((s) => ({
+      zones: s.zones.map(z => (z.id === id ? { ...z, ...patch } : z)),
+    })),
+    removeZone:  (id) => set((s) => ({
+      zones: s.zones.filter(z => z.id !== id),
+      assets: s.assets.map(a => {
+        if (a.zoneId === id) {
+          const next = { ...a };
+          delete next.zoneId;
+          return next;
+        }
+        return a;
+      }),
+    })),
+
     setActiveSubProjectId: (id) => set({ activeSubProjectId: id }),
     setActivePhaseId:      (id) => set({ activePhaseId: id }),
+    setActivePlotId:       (id) => set({ activePlotId: id }),
 
     setCosts:           (costs) => set({ costs }),
     setCostsForAsset:   (assetId, costs) => set((s) => ({
@@ -396,3 +515,27 @@ export const selectCostsForActivePhase = (s: Module1Store): CostLine[] => {
     (c.phaseId === undefined || c.phaseId === s.activePhaseId)
   );
 };
+
+// ── Plot / Zone selectors (Phase M1.7) ─────────────────────────────────────
+// Plots are scoped to a phase. The Area Program tab subscribes to
+// selectPlotsForPhase(activePhaseId) so switching phases re-renders only
+// that phase's plot list. selectZonesForPlot mirrors the pattern for the
+// nested zone editor.
+export const selectPlotsForPhase = (phaseId: string) => (s: Module1Store): Plot[] =>
+  s.plots.filter(p => p.phaseId === phaseId);
+
+export const selectZonesForPlot = (plotId: string) => (s: Module1Store): Zone[] =>
+  s.zones.filter(z => z.plotId === plotId);
+
+// Assets bound to a plot (any zone, including assets with no zoneId).
+// Used by the Area Program cascade rollup (M1.7/2) to sum per-plot
+// area programs from each asset's contribution.
+export const selectAssetsForPlot = (plotId: string) => (s: Module1Store): AssetClass[] =>
+  s.assets.filter(a => a.plotId === plotId);
+
+// Active plot (M1.7). Returns undefined when activePlotId is null or
+// when the persisted id no longer exists (e.g. after a removePlot
+// cascade clamped activePlotId to a different plot, then that one was
+// also removed).
+export const selectActivePlot = (s: Module1Store): Plot | undefined =>
+  s.activePlotId === null ? undefined : s.plots.find(p => p.id === s.activePlotId);
