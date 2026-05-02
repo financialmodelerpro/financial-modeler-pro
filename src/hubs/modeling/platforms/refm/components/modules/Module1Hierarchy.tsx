@@ -17,13 +17,18 @@
  *     Master-Holding rollup + revenue-share, delete with a cascade-
  *     aware confirmation that lists the phases / assets / costs /
  *     sub-units the store will drop.
- *   - M1.5/8 (this commit): Phase CRUD per Sub-Project — add / inline-
- *     edit name + constructionStart + constructionPeriods +
- *     operationsPeriods + overlapPeriods (operationsStart auto-derived
- *     from the same formula makeDefaultPhase uses). Delete confirms
- *     the bound asset / cost cascade.
- *   - M1.5/9-10 (upcoming): Asset + Sub-Unit CRUD, Master Holding panel
- *     + toggle.
+ *   - M1.5/8: Phase CRUD per Sub-Project — add / inline-edit name +
+ *     constructionStart + constructionPeriods + operationsPeriods +
+ *     overlapPeriods (operationsStart auto-derived from the same
+ *     formula makeDefaultPhase uses). Delete confirms the bound asset /
+ *     cost cascade.
+ *   - M1.5/9 (this commit): Asset + Sub-Unit CRUD per Phase — add /
+ *     inline-edit / delete with PREBUILT_ASSET_TYPES bucketed by
+ *     category (4 categories × 20 types from Architecture section 2),
+ *     and Sub-Unit metric defaulting per Architecture section 7
+ *     (Lease → area, otherwise count). Asset delete confirms the
+ *     sub-unit + cost cascade; sub-unit delete is a simple confirm.
+ *   - M1.5/10 (upcoming): Master Holding panel + toggle.
  *
  * The component subscribes to useModule1Store directly; CRUD goes
  * straight through the store actions (add/update/remove SubProject /
@@ -34,7 +39,8 @@
 import React, { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
-import type { Phase, SubProject } from '../../lib/state/module1-types';
+import type { AssetCategory, AssetClass, Phase, SubProject, SubUnit } from '../../lib/state/module1-types';
+import { PREBUILT_ASSET_TYPES } from '../../lib/state/module1-types';
 
 // ── Visual tokens ──────────────────────────────────────────────────────────
 const tokens = {
@@ -336,6 +342,202 @@ function PhaseEditor({ initial, onSave, onCancel }: PhaseEditorProps) {
   );
 }
 
+// ── Asset edit row ─────────────────────────────────────────────────────────
+// Inline editor for Asset add / edit. Category drives the type
+// dropdown's options (the 20 PREBUILT_ASSET_TYPES bucketed by category)
+// — switching category resets the type to the first option in the new
+// bucket so we never carry a Sell type onto a Lease asset, etc.
+interface AssetEditorProps {
+  initial: AssetClass;
+  onSave: (next: AssetClass) => void;
+  onCancel: () => void;
+}
+
+function AssetEditor({ initial, onSave, onCancel }: AssetEditorProps) {
+  const [draft, setDraft] = useState<AssetClass>(initial);
+
+  const typeOptions = PREBUILT_ASSET_TYPES[draft.category];
+
+  return (
+    <div style={{ marginTop: 8, padding: 'var(--sp-2)', background: 'color-mix(in srgb, var(--color-positive) 4%, var(--color-surface))', border: '1px dashed var(--color-border)', borderRadius: 6 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+        <div>
+          <label style={labelStyle}>Asset name</label>
+          <input
+            type="text"
+            value={draft.name}
+            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Category</label>
+          <select
+            value={draft.category}
+            onChange={(e) => {
+              const nextCat = e.target.value as AssetCategory;
+              setDraft({ ...draft, category: nextCat, type: PREBUILT_ASSET_TYPES[nextCat][0] });
+            }}
+            style={{ ...inputStyle, width: '100%' }}
+          >
+            <option value="Sell">Sell</option>
+            <option value="Operate">Operate</option>
+            <option value="Lease">Lease</option>
+            <option value="Hybrid">Hybrid</option>
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle}>Type</label>
+          <select
+            value={draft.type}
+            onChange={(e) => setDraft({ ...draft, type: e.target.value })}
+            style={{ ...inputStyle, width: '100%' }}
+          >
+            {typeOptions.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+        <div>
+          <label style={labelStyle}>Allocation %</label>
+          <input
+            type="number" min={0} max={100} step={0.5}
+            value={draft.allocationPct}
+            onChange={(e) => setDraft({ ...draft, allocationPct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Deduct %</label>
+          <input
+            type="number" min={0} max={100} step={0.5}
+            value={draft.deductPct}
+            onChange={(e) => setDraft({ ...draft, deductPct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Efficiency %</label>
+          <input
+            type="number" min={0} max={100} step={0.5}
+            value={draft.efficiencyPct}
+            onChange={(e) => setDraft({ ...draft, efficiencyPct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+      </div>
+
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--font-meta)', color: 'var(--color-body)', marginBottom: 'var(--sp-2)' }}>
+        <input
+          type="checkbox"
+          checked={draft.visible}
+          onChange={(e) => setDraft({ ...draft, visible: e.target.checked })}
+        />
+        Visible (toggle off to hide from non-Hierarchy tabs without deleting it)
+      </label>
+
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button onClick={onCancel} style={ghostBtnStyle}>Cancel</button>
+        <button
+          onClick={() => onSave(draft)}
+          disabled={!draft.name.trim()}
+          style={{ ...primaryBtnStyle, opacity: !draft.name.trim() ? 0.5 : 1, cursor: !draft.name.trim() ? 'not-allowed' : 'pointer' }}
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Sub-Unit edit row ──────────────────────────────────────────────────────
+// Inline editor for Sub-Unit add / edit. Metric default for new units
+// follows the parent asset's category per Architecture section 7:
+// Sell/Operate → 'count' (units / keys), Lease → 'area' (sqm), Hybrid →
+// 'count' (caller can switch to area).
+interface SubUnitEditorProps {
+  initial: SubUnit;
+  parentCategory: AssetCategory;
+  currency: string;
+  onSave: (next: SubUnit) => void;
+  onCancel: () => void;
+}
+
+function SubUnitEditor({ initial, parentCategory: _parentCategory, currency, onSave, onCancel }: SubUnitEditorProps) {
+  const [draft, setDraft] = useState<SubUnit>(initial);
+  const metricLabel = draft.metric === 'count' ? 'units' : 'sqm';
+  const priceLabel  = draft.metric === 'count' ? 'unit'  : 'sqm';
+
+  return (
+    <div style={{ marginTop: 6, padding: 'var(--sp-2)', background: 'color-mix(in srgb, var(--color-meta) 4%, var(--color-surface))', border: '1px dashed var(--color-border)', borderRadius: 6 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+        <div>
+          <label style={labelStyle}>Sub-Unit name</label>
+          <input
+            type="text"
+            value={draft.name}
+            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Metric</label>
+          <select
+            value={draft.metric}
+            onChange={(e) => setDraft({ ...draft, metric: e.target.value as 'count' | 'area' })}
+            style={{ ...inputStyle, width: '100%' }}
+          >
+            <option value="count">Count (units / keys)</option>
+            <option value="area">Area (sqm)</option>
+          </select>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+        <div>
+          <label style={labelStyle}>{metricLabel}</label>
+          <input
+            type="number" min={0} step={1}
+            value={draft.metricValue}
+            onChange={(e) => setDraft({ ...draft, metricValue: Math.max(0, Number(e.target.value) || 0) })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>{currency} / {priceLabel}</label>
+          <input
+            type="number" min={0} step={1}
+            value={draft.unitPrice}
+            onChange={(e) => setDraft({ ...draft, unitPrice: Math.max(0, Number(e.target.value) || 0) })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Escalation % / yr</label>
+          <input
+            type="number" step={0.5}
+            value={draft.priceEscalationPct ?? 0}
+            onChange={(e) => setDraft({ ...draft, priceEscalationPct: Number(e.target.value) || 0 })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button onClick={onCancel} style={ghostBtnStyle}>Cancel</button>
+        <button
+          onClick={() => onSave(draft)}
+          disabled={!draft.name.trim()}
+          style={{ ...primaryBtnStyle, opacity: !draft.name.trim() ? 0.5 : 1, cursor: !draft.name.trim() ? 'not-allowed' : 'pointer' }}
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 export default function Module1Hierarchy() {
   const { masterHolding, subProjects, phases, assets, subUnits, currency } = useModule1Store(useShallow((s) => ({
@@ -355,6 +557,12 @@ export default function Module1Hierarchy() {
   const addPhase         = useModule1Store((s) => s.addPhase);
   const updatePhase      = useModule1Store((s) => s.updatePhase);
   const removePhase      = useModule1Store((s) => s.removePhase);
+  const addAsset         = useModule1Store((s) => s.addAsset);
+  const updateAsset      = useModule1Store((s) => s.updateAsset);
+  const removeAsset      = useModule1Store((s) => s.removeAsset);
+  const addSubUnit       = useModule1Store((s) => s.addSubUnit);
+  const updateSubUnit    = useModule1Store((s) => s.updateSubUnit);
+  const removeSubUnit    = useModule1Store((s) => s.removeSubUnit);
 
   // editingId === '__new__' means the add-new Sub-Project editor is open;
   // otherwise it's the id of the Sub-Project currently being edited inline.
@@ -362,6 +570,12 @@ export default function Module1Hierarchy() {
   // Phase editor: 'phase__new__:<subProjectId>' = adding a new phase to a
   // specific Sub-Project; '<phaseId>' = editing that existing phase.
   const [editingPhaseId, setEditingPhaseId] = useState<string | null>(null);
+  // Asset editor: 'asset__new__:<phaseId>' = adding to that phase;
+  // '<assetId>' = editing inline.
+  const [editingAssetId, setEditingAssetId] = useState<string | null>(null);
+  // Sub-Unit editor: 'unit__new__:<assetId>' = adding under that asset;
+  // '<subUnitId>' = editing inline.
+  const [editingSubUnitId, setEditingSubUnitId] = useState<string | null>(null);
 
   const phasesBySubProject = (subProjectId: string) =>
     phases.filter(p => p.subProjectId === subProjectId);
@@ -478,6 +692,77 @@ export default function Module1Hierarchy() {
     overlapPeriods: 0,
   });
 
+  // Asset CRUD handlers.
+  const handleAddAsset = (phase: Phase, next: AssetClass) => {
+    const id = `asset_${Date.now()}`;
+    addAsset({ ...next, id, phaseId: phase.id, subProjectId: phase.subProjectId });
+    setEditingAssetId(null);
+  };
+
+  const handleUpdateAsset = (assetId: string, next: AssetClass) => {
+    updateAsset(assetId, next);
+    setEditingAssetId(null);
+  };
+
+  const handleRemoveAsset = (asset: AssetClass) => {
+    const aSubUnits = subUnits.filter(u => u.assetId === asset.id).length;
+    const aCosts    = useModule1Store.getState().costs.filter(c => c.assetId === asset.id).length;
+    const ok = window.confirm(
+      `Delete asset "${asset.name}"?\n\n` +
+      `This will also drop ${aSubUnits} sub-unit${aSubUnits === 1 ? '' : 's'} and ${aCosts} cost line${aCosts === 1 ? '' : 's'} bound to it.\n\n` +
+      `This cannot be undone.`,
+    );
+    if (!ok) return;
+    removeAsset(asset.id);
+    if (editingAssetId === asset.id) setEditingAssetId(null);
+  };
+
+  const newAssetDraft = (phase: Phase, ordinal: number): AssetClass => ({
+    id: '__new__',
+    name: `Asset ${ordinal}`,
+    type: PREBUILT_ASSET_TYPES.Sell[0],
+    category: 'Sell',
+    allocationPct: 0,
+    deductPct: 10,
+    efficiencyPct: 85,
+    visible: true,
+    subProjectId: phase.subProjectId,
+    phaseId: phase.id,
+  });
+
+  // Sub-Unit CRUD handlers.
+  const handleAddSubUnit = (asset: AssetClass, next: SubUnit) => {
+    const id = `subunit_${Date.now()}`;
+    addSubUnit({ ...next, id, assetId: asset.id });
+    setEditingSubUnitId(null);
+  };
+
+  const handleUpdateSubUnit = (subUnitId: string, next: SubUnit) => {
+    updateSubUnit(subUnitId, next);
+    setEditingSubUnitId(null);
+  };
+
+  const handleRemoveSubUnit = (unit: SubUnit) => {
+    const ok = window.confirm(`Delete sub-unit "${unit.name}"?\n\nThis cannot be undone.`);
+    if (!ok) return;
+    removeSubUnit(unit.id);
+    if (editingSubUnitId === unit.id) setEditingSubUnitId(null);
+  };
+
+  const newSubUnitDraft = (asset: AssetClass, ordinal: number): SubUnit => {
+    // Default metric per Architecture section 7: Lease → area, otherwise count.
+    const metric: 'count' | 'area' = asset.category === 'Lease' ? 'area' : 'count';
+    return {
+      id: '__new__',
+      assetId: asset.id,
+      name: `Sub-Unit ${ordinal}`,
+      metric,
+      metricValue: 0,
+      unitPrice: 0,
+      priceEscalationPct: 0,
+    };
+  };
+
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto', padding: 'var(--sp-3) 0' }}>
       {/* Header */}
@@ -486,8 +771,8 @@ export default function Module1Hierarchy() {
           🗂️ Project Hierarchy
         </h2>
         <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-meta)', margin: 0, lineHeight: 1.6 }}>
-          5-layer structure: <strong>Master Holding → Sub-Project → Phase → Asset → Sub-Unit</strong>. Sub-Project + Phase
-          CRUD are live; Asset / Sub-Unit / Master Holding editing arrives in M1.5/9 - M1.5/10.
+          5-layer structure: <strong>Master Holding → Sub-Project → Phase → Asset → Sub-Unit</strong>. Sub-Project, Phase,
+          Asset, and Sub-Unit CRUD are live; Master Holding panel + toggle arrives in M1.5/10.
         </p>
       </div>
 
@@ -616,45 +901,143 @@ export default function Module1Hierarchy() {
 
                       {/* ── Assets under this Phase ── */}
                       <div style={indentBlockStyle(tokens.assetAccent)}>
-                        {phaseAssets.length === 0 ? (
+                        {phaseAssets.length === 0 && editingAssetId !== `asset__new__:${phase.id}` && (
                           <div style={emptyHintStyle}>No assets in this phase.</div>
-                        ) : phaseAssets.map(asset => {
+                        )}
+                        {phaseAssets.map(asset => {
                           const aSubUnits = subUnitsByAsset(asset.id);
+                          const isEditingAsset = editingAssetId === asset.id;
                           return (
                             <div key={asset.id} style={{ ...cardBase, borderLeft: `4px solid ${tokens.assetAccent}` }}>
-                              <div style={tierLabelStyle(tokens.assetAccent)}>Asset</div>
-                              <div style={nodeNameStyle}>
-                                {asset.name}
-                                {!asset.visible && <span style={{ marginLeft: 8, fontSize: 'var(--font-micro)', color: 'var(--color-meta)', fontWeight: 'var(--fw-normal)' }}>(hidden)</span>}
-                              </div>
-                              <div style={metaRowStyle}>
-                                <span style={metaPillStyle}>🏷 {asset.category} · {asset.type}</span>
-                                <span style={metaPillStyle}>📊 {asset.allocationPct}% allocation</span>
-                                <span style={metaPillStyle}>➖ {asset.deductPct}% deduct</span>
-                                <span style={metaPillStyle}>⚙ {asset.efficiencyPct}% efficiency</span>
-                                <span style={metaPillStyle}>📦 {aSubUnits.length} sub-unit{aSubUnits.length === 1 ? '' : 's'}</span>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                                <div style={{ flex: 1 }}>
+                                  <div style={tierLabelStyle(tokens.assetAccent)}>Asset</div>
+                                  <div style={nodeNameStyle}>
+                                    {asset.name}
+                                    {!asset.visible && <span style={{ marginLeft: 8, fontSize: 'var(--font-micro)', color: 'var(--color-meta)', fontWeight: 'var(--fw-normal)' }}>(hidden)</span>}
+                                  </div>
+                                  <div style={metaRowStyle}>
+                                    <span style={metaPillStyle}>🏷 {asset.category} · {asset.type}</span>
+                                    <span style={metaPillStyle}>📊 {asset.allocationPct}% allocation</span>
+                                    <span style={metaPillStyle}>➖ {asset.deductPct}% deduct</span>
+                                    <span style={metaPillStyle}>⚙ {asset.efficiencyPct}% efficiency</span>
+                                    <span style={metaPillStyle}>📦 {aSubUnits.length} sub-unit{aSubUnits.length === 1 ? '' : 's'}</span>
+                                  </div>
+                                </div>
+                                {!isEditingAsset && (
+                                  <div style={{ display: 'flex', gap: 4 }}>
+                                    <button title="Edit Asset" onClick={() => setEditingAssetId(asset.id)} style={iconBtnStyle}>✏ Edit</button>
+                                    <button title="Delete Asset" onClick={() => handleRemoveAsset(asset)} style={{ ...iconBtnStyle, color: 'var(--color-negative)' }}>🗑 Delete</button>
+                                  </div>
+                                )}
                               </div>
 
-                              {aSubUnits.length > 0 && (
-                                <div style={indentBlockStyle(tokens.subUnitAccent)}>
-                                  {aSubUnits.map(unit => (
+                              {isEditingAsset && (
+                                <AssetEditor
+                                  initial={asset}
+                                  onSave={(next) => handleUpdateAsset(asset.id, next)}
+                                  onCancel={() => setEditingAssetId(null)}
+                                />
+                              )}
+
+                              {/* ── Sub-Units under this Asset ── */}
+                              <div style={indentBlockStyle(tokens.subUnitAccent)}>
+                                {aSubUnits.map(unit => {
+                                  const isEditingSubUnit = editingSubUnitId === unit.id;
+                                  return (
                                     <div key={unit.id} style={{ ...cardBase, borderLeft: `4px solid ${tokens.subUnitAccent}`, marginBottom: 'var(--sp-1)' }}>
-                                      <div style={tierLabelStyle(tokens.subUnitAccent)}>Sub-Unit</div>
-                                      <div style={nodeNameStyle}>{unit.name}</div>
-                                      <div style={metaRowStyle}>
-                                        <span style={metaPillStyle}>{unit.metric === 'count' ? '#' : '㎡'} {unit.metricValue.toLocaleString()} {unit.metric === 'count' ? 'units' : 'sqm'}</span>
-                                        <span style={metaPillStyle}>💵 {currency} {unit.unitPrice.toLocaleString()} / {unit.metric === 'count' ? 'unit' : 'sqm'}</span>
-                                        {unit.priceEscalationPct !== undefined && unit.priceEscalationPct !== 0 && (
-                                          <span style={metaPillStyle}>📈 {unit.priceEscalationPct}% escalation/year</span>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                                        <div style={{ flex: 1 }}>
+                                          <div style={tierLabelStyle(tokens.subUnitAccent)}>Sub-Unit</div>
+                                          <div style={nodeNameStyle}>{unit.name}</div>
+                                          <div style={metaRowStyle}>
+                                            <span style={metaPillStyle}>{unit.metric === 'count' ? '#' : '㎡'} {unit.metricValue.toLocaleString()} {unit.metric === 'count' ? 'units' : 'sqm'}</span>
+                                            <span style={metaPillStyle}>💵 {currency} {unit.unitPrice.toLocaleString()} / {unit.metric === 'count' ? 'unit' : 'sqm'}</span>
+                                            {unit.priceEscalationPct !== undefined && unit.priceEscalationPct !== 0 && (
+                                              <span style={metaPillStyle}>📈 {unit.priceEscalationPct}% escalation/year</span>
+                                            )}
+                                          </div>
+                                        </div>
+                                        {!isEditingSubUnit && (
+                                          <div style={{ display: 'flex', gap: 4 }}>
+                                            <button title="Edit Sub-Unit" onClick={() => setEditingSubUnitId(unit.id)} style={iconBtnStyle}>✏</button>
+                                            <button title="Delete Sub-Unit" onClick={() => handleRemoveSubUnit(unit)} style={{ ...iconBtnStyle, color: 'var(--color-negative)' }}>🗑</button>
+                                          </div>
                                         )}
                                       </div>
+                                      {isEditingSubUnit && (
+                                        <SubUnitEditor
+                                          initial={unit}
+                                          parentCategory={asset.category}
+                                          currency={sp.currency}
+                                          onSave={(next) => handleUpdateSubUnit(unit.id, next)}
+                                          onCancel={() => setEditingSubUnitId(null)}
+                                        />
+                                      )}
                                     </div>
-                                  ))}
-                                </div>
-                              )}
+                                  );
+                                })}
+
+                                {/* ── Add Sub-Unit ── */}
+                                {editingSubUnitId === `unit__new__:${asset.id}` ? (
+                                  <div style={{ ...cardBase, borderLeft: `4px dashed ${tokens.subUnitAccent}` }}>
+                                    <div style={tierLabelStyle(tokens.subUnitAccent)}>New Sub-Unit</div>
+                                    <SubUnitEditor
+                                      initial={newSubUnitDraft(asset, aSubUnits.length + 1)}
+                                      parentCategory={asset.category}
+                                      currency={sp.currency}
+                                      onSave={(next) => handleAddSubUnit(asset, next)}
+                                      onCancel={() => setEditingSubUnitId(null)}
+                                    />
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => setEditingSubUnitId(`unit__new__:${asset.id}`)}
+                                    style={{
+                                      ...primaryBtnStyle,
+                                      width: '100%',
+                                      padding: 6,
+                                      background: 'transparent',
+                                      color: tokens.subUnitAccent,
+                                      border: `1px dashed color-mix(in srgb, ${tokens.subUnitAccent} 50%, var(--color-border))`,
+                                      marginTop: 4,
+                                      fontSize: 'var(--font-micro)',
+                                    }}
+                                  >
+                                    ＋ Add Sub-Unit
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           );
                         })}
+
+                        {/* ── Add Asset ── */}
+                        {editingAssetId === `asset__new__:${phase.id}` ? (
+                          <div style={{ ...cardBase, borderLeft: `4px dashed ${tokens.assetAccent}` }}>
+                            <div style={tierLabelStyle(tokens.assetAccent)}>New Asset</div>
+                            <AssetEditor
+                              initial={newAssetDraft(phase, phaseAssets.length + 1)}
+                              onSave={(next) => handleAddAsset(phase, next)}
+                              onCancel={() => setEditingAssetId(null)}
+                            />
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setEditingAssetId(`asset__new__:${phase.id}`)}
+                            style={{
+                              ...primaryBtnStyle,
+                              width: '100%',
+                              padding: 8,
+                              background: 'transparent',
+                              color: tokens.assetAccent,
+                              border: `1px dashed color-mix(in srgb, ${tokens.assetAccent} 50%, var(--color-border))`,
+                              marginTop: 4,
+                            }}
+                          >
+                            ＋ Add Asset to {phase.name}
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
@@ -722,7 +1105,7 @@ export default function Module1Hierarchy() {
 
       {/* Footer hint */}
       <p style={{ marginTop: 'var(--sp-3)', fontSize: 'var(--font-meta)', color: 'var(--color-meta)', fontStyle: 'italic', textAlign: 'center' }}>
-        Next: Asset + Sub-Unit CRUD (M1.5/9) → Master Holding panel + toggle (M1.5/10).
+        Next: Master Holding panel + toggle (M1.5/10).
       </p>
     </div>
   );
