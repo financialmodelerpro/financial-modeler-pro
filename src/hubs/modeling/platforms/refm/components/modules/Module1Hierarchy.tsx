@@ -3,8 +3,7 @@
 /**
  * Module1Hierarchy.tsx
  *
- * Phase M1.5/6 — read-only tree view of the 5-layer REFM project
- * hierarchy:
+ * 5-layer REFM project hierarchy:
  *
  *   Master Holding (optional, singleton)
  *     └── Sub-Project 1..N        (Architecture sheet "Fund")
@@ -12,38 +11,28 @@
  *                 └── Asset 1..N
  *                       └── Sub-Unit 1..N
  *
- * Read-only is deliberate: this commit only makes the structure visible
- * so a user opening a brand-new (assets=[]) project lands on a non-empty
- * surface and can see what they're about to build. CRUD lands across
- * M1.5/7 (Sub-Project), M1.5/8 (Phase), M1.5/9 (Asset + Sub-Unit), and
- * M1.5/10 (Master Holding toggle + fields).
+ * History:
+ *   - M1.5/6: read-only tree view scaffold.
+ *   - M1.5/7 (this commit): Sub-Project CRUD — add / inline-edit name +
+ *     currency + Master-Holding rollup + revenue-share, delete with a
+ *     cascade-aware confirmation that lists the phases / assets / costs
+ *     / sub-units the store will drop.
+ *   - M1.5/8-10 (upcoming): Phase CRUD, Asset + Sub-Unit CRUD, Master
+ *     Holding panel + toggle.
  *
- * This component subscribes to useModule1Store directly rather than
- * receiving props. Two reasons:
- *   (a) every other M1 tab pre-dates the store and was wired by Phase
- *       M1.R/4 via prop-drilling for backward compatibility with its
- *       existing prop interface; the Hierarchy tab is the first M1.5
- *       surface so it has no legacy interface to preserve.
- *   (b) the data this tab reads (subProjects + phases + assets +
- *       subUnits + masterHolding) is exactly the slice the Module1
- *       store owns, so wrapping it in props would just be churn.
- *
- * useShallow keeps the subscription stable: the component re-renders
- * only when one of the hierarchy slices actually changes identity.
+ * The component subscribes to useModule1Store directly; CRUD goes
+ * straight through the store actions (addSubProject / updateSubProject
+ * / removeSubProject) which already implement the cascade rules
+ * defined in module1-store.ts.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
+import type { SubProject } from '../../lib/state/module1-types';
 
 // ── Visual tokens ──────────────────────────────────────────────────────────
-// Reuse the FAST navy palette established by Phases 4.6 → 4.15. The
-// hierarchy tree is read-only so every value uses the calc-output style
-// (grey-pale bg / heading text) — input blue is reserved for editable
-// cells which arrive in the M1.5/7-10 CRUD commits.
 const tokens = {
-  // Per-tier accent colours so a long tree visually parses at a glance.
-  // All taken from the existing palette — no new tokens introduced.
   mhAccent:       'var(--color-primary)',
   subProjAccent:  'var(--color-navy)',
   phaseAccent:    'var(--color-info)',
@@ -100,13 +89,150 @@ const emptyHintStyle: React.CSSProperties = {
   padding: '4px 0',
 };
 
-// Indent rail: a thin vertical line on the left of each child block so
-// the parent / child relationship reads clearly even when nodes wrap.
 const indentBlockStyle = (accent: string): React.CSSProperties => ({
   marginLeft: 'var(--sp-2)',
   paddingLeft: 'var(--sp-2)',
   borderLeft: `2px solid color-mix(in srgb, ${accent} 35%, var(--color-border))`,
 });
+
+// FAST blue input (per CLAUDE.md REFM convention).
+const inputStyle: React.CSSProperties = {
+  padding: '6px 8px',
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius-sm)',
+  fontSize: 'var(--font-body)',
+  fontFamily: 'Inter, sans-serif',
+  background: 'var(--color-navy-pale)',
+  color: 'var(--color-navy)',
+  fontWeight: 'var(--fw-semibold)',
+  boxSizing: 'border-box',
+};
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 'var(--font-micro)',
+  fontWeight: 'var(--fw-semibold)',
+  color: 'var(--color-meta)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+  marginBottom: 4,
+  display: 'block',
+};
+
+const iconBtnStyle: React.CSSProperties = {
+  border: 'none',
+  background: 'transparent',
+  cursor: 'pointer',
+  padding: '4px 8px',
+  fontSize: 'var(--font-meta)',
+  color: 'var(--color-meta)',
+  borderRadius: 4,
+};
+
+const primaryBtnStyle: React.CSSProperties = {
+  background: 'var(--color-primary)',
+  color: 'var(--color-on-primary-navy)',
+  border: 'none',
+  padding: '6px 14px',
+  borderRadius: 6,
+  fontSize: 'var(--font-meta)',
+  fontWeight: 'var(--fw-semibold)',
+  cursor: 'pointer',
+};
+
+const ghostBtnStyle: React.CSSProperties = {
+  background: 'transparent',
+  color: 'var(--color-meta)',
+  border: '1px solid var(--color-border)',
+  padding: '6px 14px',
+  borderRadius: 6,
+  fontSize: 'var(--font-meta)',
+  fontWeight: 'var(--fw-semibold)',
+  cursor: 'pointer',
+};
+
+// ── Sub-Project edit row ───────────────────────────────────────────────────
+// Inline editor used for both "edit existing" and "add new" flows. Uses
+// a local draft so the user can cancel without writing back to the store.
+interface SubProjectEditorProps {
+  initial: SubProject;
+  masterHoldingEnabled: boolean;
+  onSave: (next: SubProject) => void;
+  onCancel: () => void;
+}
+
+function SubProjectEditor({ initial, masterHoldingEnabled, onSave, onCancel }: SubProjectEditorProps) {
+  const [draft, setDraft] = useState<SubProject>(initial);
+
+  return (
+    <div style={{ marginTop: 8, padding: 'var(--sp-2)', background: 'color-mix(in srgb, var(--color-navy) 4%, var(--color-surface))', border: '1px dashed var(--color-border)', borderRadius: 6 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 160px', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+        <div>
+          <label style={labelStyle}>Name</label>
+          <input
+            type="text"
+            value={draft.name}
+            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+            style={{ ...inputStyle, width: '100%' }}
+          />
+        </div>
+        <div>
+          <label style={labelStyle}>Currency</label>
+          <input
+            type="text"
+            value={draft.currency}
+            onChange={(e) => setDraft({ ...draft, currency: e.target.value.toUpperCase().slice(0, 4) })}
+            style={{ ...inputStyle, width: '100%' }}
+            placeholder="SAR"
+          />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 'var(--sp-2)' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--font-meta)', color: 'var(--color-body)', cursor: masterHoldingEnabled ? 'pointer' : 'not-allowed', opacity: masterHoldingEnabled ? 1 : 0.5 }}>
+          <input
+            type="checkbox"
+            checked={!!draft.masterHoldingId}
+            disabled={!masterHoldingEnabled}
+            onChange={(e) => setDraft({
+              ...draft,
+              masterHoldingId: e.target.checked ? 'mh_1' : null,
+              revenueShareToMaster: e.target.checked ? draft.revenueShareToMaster : 0,
+            })}
+          />
+          Roll up under Master Holding
+          {!masterHoldingEnabled && <span style={{ color: 'var(--color-meta)', fontStyle: 'italic' }}>(enable MH first in M1.5/10)</span>}
+        </label>
+
+        {draft.masterHoldingId && (
+          <div style={{ marginTop: 8, marginLeft: 24, display: 'flex', alignItems: 'center', gap: 8 }}>
+            <label style={{ ...labelStyle, marginBottom: 0 }}>Revenue share to MH</label>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={0.5}
+              value={draft.revenueShareToMaster}
+              onChange={(e) => setDraft({ ...draft, revenueShareToMaster: Number(e.target.value) || 0 })}
+              style={{ ...inputStyle, width: 80 }}
+            />
+            <span style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)' }}>%</span>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button onClick={onCancel} style={ghostBtnStyle}>Cancel</button>
+        <button
+          onClick={() => onSave(draft)}
+          disabled={!draft.name.trim() || !draft.currency.trim()}
+          style={{ ...primaryBtnStyle, opacity: (!draft.name.trim() || !draft.currency.trim()) ? 0.5 : 1, cursor: (!draft.name.trim() || !draft.currency.trim()) ? 'not-allowed' : 'pointer' }}
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
 
 // ── Component ──────────────────────────────────────────────────────────────
 export default function Module1Hierarchy() {
@@ -119,6 +245,16 @@ export default function Module1Hierarchy() {
     currency:      s.currency,
   })));
 
+  // Pull mutating actions outside of the shallow read so they don't
+  // count as state changes — getState() at call time is enough.
+  const addSubProject    = useModule1Store((s) => s.addSubProject);
+  const updateSubProject = useModule1Store((s) => s.updateSubProject);
+  const removeSubProject = useModule1Store((s) => s.removeSubProject);
+
+  // editingId === '__new__' means the add-new editor is open; otherwise
+  // it's the id of the Sub-Project currently being edited inline.
+  const [editingId, setEditingId] = useState<string | null>(null);
+
   const phasesBySubProject = (subProjectId: string) =>
     phases.filter(p => p.subProjectId === subProjectId);
 
@@ -128,6 +264,62 @@ export default function Module1Hierarchy() {
   const subUnitsByAsset = (assetId: string) =>
     subUnits.filter(u => u.assetId === assetId);
 
+  const handleAddSubProject = (next: SubProject) => {
+    // Mint a stable id; timestamp is good enough for the local-only
+    // store (collision risk is negligible at human click rates and the
+    // Supabase migration in M1.6 will replace these with server uuids).
+    const id = `subproject_${Date.now()}`;
+    addSubProject({ ...next, id });
+    setEditingId(null);
+  };
+
+  const handleUpdateSubProject = (id: string, next: SubProject) => {
+    updateSubProject(id, next);
+    setEditingId(null);
+  };
+
+  const handleRemoveSubProject = (sp: SubProject) => {
+    // Build a cascade-aware confirmation so the user knows what's about
+    // to be dropped. Mirrors the cascade rules in module1-store.ts.
+    const subPhases = phases.filter(p => p.subProjectId === sp.id);
+    const subPhaseIds = new Set(subPhases.map(p => p.id));
+    const subAssets = assets.filter(a => a.subProjectId === sp.id);
+    const subAssetIds = new Set(subAssets.map(a => a.id));
+    const subSubUnits = subUnits.filter(u => subAssetIds.has(u.assetId));
+    // Costs cascade by both subProjectId-stamp AND by ownership through
+    // assets — count both so the warning is accurate.
+    const subCosts = new Set<string | number>();
+    for (const c of useModule1Store.getState().costs) {
+      if (c.subProjectId === sp.id || subAssetIds.has(c.assetId) || (c.phaseId && subPhaseIds.has(c.phaseId))) {
+        subCosts.add(c.id);
+      }
+    }
+    const summary = [
+      `${subPhases.length} phase${subPhases.length === 1 ? '' : 's'}`,
+      `${subAssets.length} asset${subAssets.length === 1 ? '' : 's'}`,
+      `${subSubUnits.length} sub-unit${subSubUnits.length === 1 ? '' : 's'}`,
+      `${subCosts.size} cost line${subCosts.size === 1 ? '' : 's'}`,
+    ].join(', ');
+    const ok = window.confirm(
+      `Delete Sub-Project "${sp.name}"?\n\n` +
+      `This will also drop everything under it: ${summary}.\n\n` +
+      `This cannot be undone.`,
+    );
+    if (!ok) return;
+    removeSubProject(sp.id);
+    if (editingId === sp.id) setEditingId(null);
+  };
+
+  // Default for a new Sub-Project: inherit the project's currency,
+  // standalone (no MH), name = "Sub-Project N+1".
+  const newDraft: SubProject = {
+    id: '__new__',
+    name: `Sub-Project ${subProjects.length + 1}`,
+    currency,
+    masterHoldingId: null,
+    revenueShareToMaster: 0,
+  };
+
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto', padding: 'var(--sp-3) 0' }}>
       {/* Header */}
@@ -136,8 +328,8 @@ export default function Module1Hierarchy() {
           🗂️ Project Hierarchy
         </h2>
         <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-meta)', margin: 0, lineHeight: 1.6 }}>
-          5-layer structure: <strong>Master Holding → Sub-Project → Phase → Asset → Sub-Unit</strong>. Read-only view —
-          editing arrives in subsequent M1.5 commits (Sub-Project / Phase / Asset / Sub-Unit / Master Holding CRUD).
+          5-layer structure: <strong>Master Holding → Sub-Project → Phase → Asset → Sub-Unit</strong>. Sub-Project CRUD is
+          live; Phase / Asset / Sub-Unit / Master Holding editing arrives in M1.5/8 - M1.5/10.
         </p>
       </div>
 
@@ -171,17 +363,49 @@ export default function Module1Hierarchy() {
           <div style={{ ...cardBase, ...emptyHintStyle }}>No sub-projects.</div>
         ) : subProjects.map(sp => {
           const sps = phasesBySubProject(sp.id);
+          const isEditing = editingId === sp.id;
           return (
             <div key={sp.id} style={{ ...cardBase, borderLeft: `4px solid ${tokens.subProjAccent}` }}>
-              <div style={tierLabelStyle(tokens.subProjAccent)}>Sub-Project</div>
-              <div style={nodeNameStyle}>{sp.name}</div>
-              <div style={metaRowStyle}>
-                <span style={metaPillStyle}>💱 {sp.currency}</span>
-                {sp.masterHoldingId
-                  ? <span style={metaPillStyle}>↑ Rolls up to MH ({sp.revenueShareToMaster}% revenue share)</span>
-                  : <span style={metaPillStyle}>Standalone (no Master Holding)</span>}
-                <span style={metaPillStyle}>📅 {sps.length} phase{sps.length === 1 ? '' : 's'}</span>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={tierLabelStyle(tokens.subProjAccent)}>Sub-Project</div>
+                  <div style={nodeNameStyle}>{sp.name}</div>
+                  <div style={metaRowStyle}>
+                    <span style={metaPillStyle}>💱 {sp.currency}</span>
+                    {sp.masterHoldingId
+                      ? <span style={metaPillStyle}>↑ Rolls up to MH ({sp.revenueShareToMaster}% revenue share)</span>
+                      : <span style={metaPillStyle}>Standalone (no Master Holding)</span>}
+                    <span style={metaPillStyle}>📅 {sps.length} phase{sps.length === 1 ? '' : 's'}</span>
+                  </div>
+                </div>
+                {!isEditing && (
+                  <div style={{ display: 'flex', gap: 4 }}>
+                    <button
+                      title="Edit Sub-Project"
+                      onClick={() => setEditingId(sp.id)}
+                      style={iconBtnStyle}
+                    >
+                      ✏ Edit
+                    </button>
+                    <button
+                      title="Delete Sub-Project"
+                      onClick={() => handleRemoveSubProject(sp)}
+                      style={{ ...iconBtnStyle, color: 'var(--color-negative)' }}
+                    >
+                      🗑 Delete
+                    </button>
+                  </div>
+                )}
               </div>
+
+              {isEditing && (
+                <SubProjectEditor
+                  initial={sp}
+                  masterHoldingEnabled={masterHolding.enabled}
+                  onSave={(next) => handleUpdateSubProject(sp.id, next)}
+                  onCancel={() => setEditingId(null)}
+                />
+              )}
 
               {/* ── Phases under this Sub-Project ── */}
               <div style={indentBlockStyle(tokens.phaseAccent)}>
@@ -221,7 +445,6 @@ export default function Module1Hierarchy() {
                                 <span style={metaPillStyle}>📦 {aSubUnits.length} sub-unit{aSubUnits.length === 1 ? '' : 's'}</span>
                               </div>
 
-                              {/* ── Sub-Units under this Asset ── */}
                               {aSubUnits.length > 0 && (
                                 <div style={indentBlockStyle(tokens.subUnitAccent)}>
                                   {aSubUnits.map(unit => (
@@ -250,11 +473,39 @@ export default function Module1Hierarchy() {
             </div>
           );
         })}
+
+        {/* ── Add Sub-Project ── */}
+        {editingId === '__new__' ? (
+          <div style={{ ...cardBase, borderLeft: `4px dashed ${tokens.subProjAccent}` }}>
+            <div style={tierLabelStyle(tokens.subProjAccent)}>New Sub-Project</div>
+            <SubProjectEditor
+              initial={newDraft}
+              masterHoldingEnabled={masterHolding.enabled}
+              onSave={handleAddSubProject}
+              onCancel={() => setEditingId(null)}
+            />
+          </div>
+        ) : (
+          <button
+            onClick={() => setEditingId('__new__')}
+            style={{
+              ...primaryBtnStyle,
+              width: '100%',
+              padding: 10,
+              background: 'transparent',
+              color: tokens.subProjAccent,
+              border: `1px dashed color-mix(in srgb, ${tokens.subProjAccent} 50%, var(--color-border))`,
+              marginTop: 4,
+            }}
+          >
+            ＋ Add Sub-Project
+          </button>
+        )}
       </div>
 
       {/* Footer hint */}
       <p style={{ marginTop: 'var(--sp-3)', fontSize: 'var(--font-meta)', color: 'var(--color-meta)', fontStyle: 'italic', textAlign: 'center' }}>
-        CRUD coming in M1.5/7 (Sub-Project) → M1.5/8 (Phase) → M1.5/9 (Asset + Sub-Unit) → M1.5/10 (Master Holding).
+        Next: Phase CRUD (M1.5/8) → Asset + Sub-Unit CRUD (M1.5/9) → Master Holding (M1.5/10).
       </p>
     </div>
   );
