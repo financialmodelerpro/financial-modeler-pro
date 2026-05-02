@@ -5,6 +5,7 @@ import type {
   ModelType, ProjectType, CostInputMode, FinancingMode,
   RepaymentMethod, CostItem, LandParcel, AreaMetrics, FinancingResult,
 } from '@/src/core/types/project.types';
+import { buildAssetFinancing as buildAssetFinancingCore } from '@/src/core/calculations';
 import { ROLES, ROLE_META, MODULE_VISIBILITY, PERMISSIONS, useBrandingStore } from '@/src/core/state';
 import type { Role, ModuleKey, PermissionMap } from '@/src/core/types/settings.types';
 
@@ -611,150 +612,51 @@ export default function RealEstatePlatform() {
   }, [syncSameForAllToAllAssets, residentialCosts]);
 
   // ── buildAssetFinancing ──
+  // Phase M1.R/3: this is now a thin wrapper around the pure
+  // buildAssetFinancing in @core/calculations. The React component, the
+  // snapshot pipeline (scripts/module1-pipeline.ts), and any future
+  // consumer all share that single implementation, so the prior
+  // "lockstep contract" between this closure and an inlined copy in the
+  // pipeline no longer exists.
   const buildAssetFinancing = useCallback((assetType: string): FinancingResult => {
     const costs = assetType === 'residential' ? residentialCosts
       : assetType === 'hospitality' ? hospitalityCosts
       : retailCosts;
 
-    const totalPeriods = constructionPeriods + operationsPeriods;
-    const periodicRate = (interestRate / 100) / (modelType === 'monthly' ? 12 : 1);
-
-    // Fix 7: Same-for-all proportioning for locked land rows (canDelete=false).
-    // In same-for-all mode these store the full project value; apply asset-allocation factor.
-    const bafAllocMap: Record<string, number> = {
+    const assetPercents: Record<string, number> = {
       residential: residentialPercent,
       hospitality: hospitalityPercent,
       retail:      retailPercent,
     };
-    const bafVisibleAssets = [
-      ...(showResidential ? ['residential'] : []),
-      ...(showHospitality ? ['hospitality'] : []),
-      ...(showRetail      ? ['retail']      : []),
-    ];
-    const bafTotalAllocPct = bafVisibleAssets.reduce((s, a) => s + (bafAllocMap[a] || 0), 0);
-
-    const getProportionedDist = (cost: CostItem): number[] => {
-      if (costInputMode === 'same-for-all' && cost.canDelete === false) {
-        const fullDist = distributeCost(cost, assetType);
-        const factor = bafTotalAllocPct > 0 ? (bafAllocMap[assetType] || 0) / bafTotalAllocPct : 0;
-        return fullDist.map(v => v * factor);
-      }
-      return distributeCost(cost, assetType);
+    const showFlags: Record<string, boolean> = {
+      residential: showResidential,
+      hospitality: showHospitality,
+      retail:      showRetail,
     };
 
-    const getProportionedTotal = (cost: CostItem): number => {
-      if (costInputMode === 'same-for-all' && cost.canDelete === false) {
-        const fullTotal = calculateItemTotal(cost, assetType, costs);
-        const factor = bafTotalAllocPct > 0 ? (bafAllocMap[assetType] || 0) / bafTotalAllocPct : 0;
-        return fullTotal * factor;
-      }
-      return calculateItemTotal(cost, assetType, costs);
-    };
-
-    // Fix 4: Include ALL costs (land cash, locked rows) - no canDelete filter.
-    const lineItems = costs.map(c => {
-      const total     = getProportionedTotal(c);
-      const debtPct   = getLineDebtPct(c.name);
-      const debtAmt   = total * (debtPct / 100);
-      const equityAmt = total - debtAmt;
-      return { name: c.name, total, debtAmt, equityAmt, debtPct };
+    return buildAssetFinancingCore({
+      assetType,
+      areas: getAreas(assetType),
+      costs,
+      constructionPeriods,
+      operationsPeriods,
+      interestRate,
+      modelType,
+      repaymentPeriods,
+      capitalizeInterest,
+      costInputMode,
+      financingMode,
+      globalDebtPct,
+      lineRatios,
+      assetPercents,
+      showFlags,
     });
-
-    // Per-line per-period distributions (construction periods only, P0..constructionPeriods)
-    const lineDistributions = costs.map(c => ({
-      name: c.name,
-      dist: getProportionedDist(c).slice(0, constructionPeriods + 1),
-    }));
-
-    const totalDebtCalc   = lineItems.reduce((s, l) => s + l.debtAmt,   0);
-    const totalEquityCalc = lineItems.reduce((s, l) => s + l.equityAmt, 0);
-
-    // Build period arrays (length = totalPeriods + 1 for P0..totalPeriods)
-    const debtAdd   = new Array(totalPeriods + 1).fill(0);
-    const equityAdd = new Array(totalPeriods + 1).fill(0);
-
-    // Fix 4 + Fix 3: dist[i] maps directly to debtAdd[i] - period 0 at index 0.
-    // All costs included; same-for-all locked rows are proportioned above.
-    costs.forEach(cost => {
-      const d       = getProportionedDist(cost);
-      const debtPct = getLineDebtPct(cost.name);
-      d.forEach((v, i) => {
-        if (i <= constructionPeriods) {
-          debtAdd[i]   += v * (debtPct / 100);
-          equityAdd[i] += v * (1 - debtPct / 100);
-        }
-      });
-    });
-
-    // Build running debt balance - two-phase approach:
-    // Phase 1 (P0..constructionPeriods): accumulate drawdowns + capitalized interest → no repayment
-    // Phase 2 (ops): repay based on the ACTUAL closing balance at end of construction
-    //   (= initial debt + all capitalized interest, not just the initial drawn debt)
-    const debtOpen  = new Array(totalPeriods + 1).fill(0);
-    const debtRep   = new Array(totalPeriods + 1).fill(0);
-    const debtClose = new Array(totalPeriods + 1).fill(0);
-    const interest  = new Array(totalPeriods + 1).fill(0);
-
-    // Phase 1 - construction (no repayment yet)
-    let debtBal = 0;
-    for (let p = 0; p <= constructionPeriods; p++) {
-      debtOpen[p] = debtBal;
-      const draw = debtAdd[p] || 0;
-      const inConstruction = p >= 1 && p <= constructionPeriods;
-      const intCharge = debtBal * periodicRate
-        + (inConstruction && capitalizeInterest ? draw * periodicRate / 2 : 0);
-      interest[p] = intCharge;
-      debtRep[p]  = 0;
-      debtBal += draw + (capitalizeInterest && inConstruction ? intCharge : 0);
-      debtClose[p] = Math.max(0, debtBal);
-    }
-
-    // Repayment = closing balance at end of construction ÷ repayment periods
-    // This correctly includes all capitalized interest rolled into the loan
-    const repPerPeriod = repaymentPeriods > 0 ? debtClose[constructionPeriods] / repaymentPeriods : 0;
-
-    // Phase 2 - operations (repay + charge interest on declining balance)
-    for (let p = constructionPeriods + 1; p <= totalPeriods; p++) {
-      debtOpen[p] = debtBal;
-      const opIdx     = p - constructionPeriods;
-      const intCharge = debtBal * periodicRate;
-      interest[p] = intCharge;
-      const repayment = opIdx <= repaymentPeriods ? repPerPeriod : 0;
-      debtRep[p] = repayment;
-      debtBal = Math.max(0, debtBal - repayment);
-      debtClose[p] = debtBal;
-    }
-
-    // Build equity balance
-    const eqOpen  = new Array(totalPeriods + 1).fill(0);
-    const eqClose = new Array(totalPeriods + 1).fill(0);
-    let eqBal = 0;
-    for (let p = 0; p <= totalPeriods; p++) {
-      eqOpen[p] = eqBal;
-      eqBal += equityAdd[p] || 0;
-      eqClose[p] = eqBal;
-    }
-
-    const totalInterest = interest.reduce((s, v) => s + v, 0);
-
-    return {
-      lineItems,
-      lineDistributions,
-      debtAdd, debtOpen, debtRep, debtClose,
-      equityAdd, eqOpen, eqClose,
-      interest,
-      totalDebt: totalDebtCalc,
-      totalEquity: totalEquityCalc,
-      totalInterest,
-      periodicRate,
-      totalPeriods,
-    };
   }, [
     residentialCosts, hospitalityCosts, retailCosts,
     constructionPeriods, operationsPeriods,
     interestRate, modelType, repaymentPeriods, capitalizeInterest,
-    calculateItemTotal, distributeCost, getLineDebtPct,
-    costInputMode, residentialPercent, hospitalityPercent, retailPercent,
+    getAreas, costInputMode, financingMode, globalDebtPct, lineRatios,
+    residentialPercent, hospitalityPercent, retailPercent,
     showResidential, showHospitality, showRetail,
   ]);
 

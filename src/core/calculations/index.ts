@@ -11,6 +11,8 @@ import {
   CostItem,
   CostInputMode,
   ModelType,
+  FinancingMode,
+  FinancingResult,
 } from '../types/project.types';
 
 // ─── Area hierarchy context ────────────────────────────────────────────────
@@ -410,6 +412,175 @@ export function calculateItemTotal(
     default:
       return 0;
   }
+}
+
+// ─── 8a. buildAssetFinancing ──────────────────────────────────────────────
+// Phase M1.R/3: lifted verbatim from RealEstatePlatform.tsx and the
+// snapshot pipeline's previously-inlined copy, so both consumers share
+// one definition. The pipeline header at scripts/module1-pipeline.ts
+// previously documented a "lockstep contract" that this extraction
+// eliminates: the pure function below is now the single source of truth
+// for asset-level financing math.
+//
+// Math is bit-identical to the prior inlined / closure forms; the
+// snapshot baseline must match exactly after this commit.
+
+export interface BuildAssetFinancingParams {
+  assetType: string;
+  areas: AreaMetrics;
+  costs: CostItem[];
+  constructionPeriods: number;
+  operationsPeriods: number;
+  interestRate: number;
+  modelType: ModelType;
+  repaymentPeriods: number;
+  capitalizeInterest: boolean;
+  costInputMode: CostInputMode;
+  financingMode: FinancingMode;
+  globalDebtPct: number;
+  lineRatios: Record<string, number>;
+  // Per-asset land allocation (% of project GFA) and visibility flags.
+  // Used by both the same-for-all proportioning factor and the
+  // financing layer's `bafTotalAllocPct` denominator.
+  assetPercents: Record<string, number>;
+  showFlags: Record<string, boolean>;
+}
+
+export function buildAssetFinancing(p: BuildAssetFinancingParams): FinancingResult {
+  const {
+    assetType, areas, costs,
+    constructionPeriods, operationsPeriods,
+    interestRate, modelType,
+    repaymentPeriods, capitalizeInterest,
+    costInputMode, financingMode, globalDebtPct, lineRatios,
+    assetPercents, showFlags,
+  } = p;
+
+  const totalPeriods = constructionPeriods + operationsPeriods;
+  const periodicRate = (interestRate / 100) / (modelType === 'monthly' ? 12 : 1);
+
+  // Same-for-all proportioning: in same-for-all mode, locked rows
+  // (canDelete=false, e.g. Land Cash) carry the project-level total and
+  // must be split per-asset by allocation share. Enumerate visible
+  // assets so the denominator is the sum of allocations actually shown.
+  const visibleAssetIds = Object.keys(showFlags).filter(k => showFlags[k]);
+  const totalAllocPct = visibleAssetIds.reduce((s, a) => s + (assetPercents[a] || 0), 0);
+
+  const getProportionedDist = (cost: CostItem): number[] => {
+    if (costInputMode === 'same-for-all' && cost.canDelete === false) {
+      const fullDist = distributeCost(cost, assetType, constructionPeriods, areas, costs, costInputMode, assetPercents, showFlags);
+      const factor = totalAllocPct > 0 ? (assetPercents[assetType] || 0) / totalAllocPct : 0;
+      return fullDist.map(v => v * factor);
+    }
+    return distributeCost(cost, assetType, constructionPeriods, areas, costs, costInputMode, assetPercents, showFlags);
+  };
+
+  const getProportionedTotal = (cost: CostItem): number => {
+    if (costInputMode === 'same-for-all' && cost.canDelete === false) {
+      const fullTotal = calculateItemTotal(cost, assetType, areas, costs, costInputMode, assetPercents, showFlags);
+      const factor = totalAllocPct > 0 ? (assetPercents[assetType] || 0) / totalAllocPct : 0;
+      return fullTotal * factor;
+    }
+    return calculateItemTotal(cost, assetType, areas, costs, costInputMode, assetPercents, showFlags);
+  };
+
+  const getLineDebtPct = (name: string): number => {
+    if (financingMode === 'fixed') return globalDebtPct;
+    return lineRatios[name] !== undefined ? lineRatios[name] : globalDebtPct;
+  };
+
+  const lineItems = costs.map(c => {
+    const total     = getProportionedTotal(c);
+    const debtPct   = getLineDebtPct(c.name);
+    const debtAmt   = total * (debtPct / 100);
+    const equityAmt = total - debtAmt;
+    return { name: c.name, total, debtAmt, equityAmt, debtPct };
+  });
+
+  const lineDistributions = costs.map(c => ({
+    name: c.name,
+    dist: getProportionedDist(c).slice(0, constructionPeriods + 1),
+  }));
+
+  const totalDebtCalc   = lineItems.reduce((s, l) => s + l.debtAmt,   0);
+  const totalEquityCalc = lineItems.reduce((s, l) => s + l.equityAmt, 0);
+
+  const debtAdd   = new Array(totalPeriods + 1).fill(0);
+  const equityAdd = new Array(totalPeriods + 1).fill(0);
+
+  costs.forEach(cost => {
+    const d       = getProportionedDist(cost);
+    const debtPct = getLineDebtPct(cost.name);
+    d.forEach((v, i) => {
+      if (i <= constructionPeriods) {
+        debtAdd[i]   += v * (debtPct / 100);
+        equityAdd[i] += v * (1 - debtPct / 100);
+      }
+    });
+  });
+
+  // Phase 1 - construction (no repayment, optional capitalized interest).
+  const debtOpen  = new Array(totalPeriods + 1).fill(0);
+  const debtRep   = new Array(totalPeriods + 1).fill(0);
+  const debtClose = new Array(totalPeriods + 1).fill(0);
+  const interest  = new Array(totalPeriods + 1).fill(0);
+
+  let debtBal = 0;
+  for (let p = 0; p <= constructionPeriods; p++) {
+    debtOpen[p] = debtBal;
+    const draw = debtAdd[p] || 0;
+    const inConstruction = p >= 1 && p <= constructionPeriods;
+    const intCharge = debtBal * periodicRate
+      + (inConstruction && capitalizeInterest ? draw * periodicRate / 2 : 0);
+    interest[p] = intCharge;
+    debtRep[p]  = 0;
+    debtBal += draw + (capitalizeInterest && inConstruction ? intCharge : 0);
+    debtClose[p] = Math.max(0, debtBal);
+  }
+
+  const repPerPeriod = repaymentPeriods > 0 ? debtClose[constructionPeriods] / repaymentPeriods : 0;
+
+  // Phase 2 - operations (repay + charge interest on declining balance).
+  for (let p = constructionPeriods + 1; p <= totalPeriods; p++) {
+    debtOpen[p] = debtBal;
+    const opIdx     = p - constructionPeriods;
+    const intCharge = debtBal * periodicRate;
+    interest[p] = intCharge;
+    const repayment = opIdx <= repaymentPeriods ? repPerPeriod : 0;
+    debtRep[p] = repayment;
+    debtBal = Math.max(0, debtBal - repayment);
+    debtClose[p] = debtBal;
+  }
+
+  // Equity balance.
+  const eqOpen  = new Array(totalPeriods + 1).fill(0);
+  const eqClose = new Array(totalPeriods + 1).fill(0);
+  let eqBal = 0;
+  for (let p = 0; p <= totalPeriods; p++) {
+    eqOpen[p] = eqBal;
+    eqBal += equityAdd[p] || 0;
+    eqClose[p] = eqBal;
+  }
+
+  const totalInterest = interest.reduce((s, v) => s + v, 0);
+
+  // operationsPeriods is unused inside this function but is part of the
+  // input contract; explicitly void it so unused-parameter lints still
+  // catch unrelated drift.
+  void operationsPeriods;
+
+  return {
+    lineItems,
+    lineDistributions,
+    debtAdd, debtOpen, debtRep, debtClose,
+    equityAdd, eqOpen, eqClose,
+    interest,
+    totalDebt: totalDebtCalc,
+    totalEquity: totalEquityCalc,
+    totalInterest,
+    periodicRate,
+    totalPeriods,
+  };
 }
 
 // ─── 9. distributeCost ────────────────────────────────────────────────────

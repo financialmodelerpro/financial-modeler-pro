@@ -7,27 +7,21 @@
  * schedules (debt + equity drawdowns, interest, repayments, balances), and
  * project-level summary totals.
  *
- * ─── Math source mapping ───
+ * ─── Math source mapping (post Phase M1.R/3) ───
  *
  *   calculateLandAggregates   → @core/calculations  (pure export, exact)
  *   calculateAreaHierarchy    → @core/calculations  (pure export, exact)
  *   getAreas                  → @core/calculations  (pure export, exact)
  *   calculateItemTotal        → @core/calculations  (pure export, exact)
  *   distributeCost            → @core/calculations  (pure export, exact)
- *   buildAssetFinancing       → INLINED below       (verbatim copy from
- *                                RealEstatePlatform.tsx lines 547-684)
+ *   buildAssetFinancing       → @core/calculations  (pure export, exact)
  *
- * Why is `buildAssetFinancing` inlined and not imported from a pure helper?
- * The live implementation lives inside a React `useCallback` in
- * `src/hubs/modeling/platforms/refm/components/RealEstatePlatform.tsx` and
- * has not been extracted yet. This regression-guard prep step is explicitly
- * not allowed to touch Module 1, so the algorithm is mirrored here verbatim.
- *
- * ⚠️  Lockstep contract: if `buildAssetFinancing` in RealEstatePlatform.tsx
- * ever changes, the inlined copy below must change in the same commit.
- * Otherwise the snapshot baseline will silently diverge from what the live
- * UI computes. Phase 4 (component retrofit) is JSX/styling only — it must
- * not modify financing math, and therefore must not modify this file.
+ * The previous "lockstep contract" between RealEstatePlatform.tsx's
+ * useCallback closure and an inlined copy of buildAssetFinancing in this
+ * file no longer exists: Phase M1.R/3 lifted the function into
+ * @core/calculations so the React component, the snapshot pipeline, and
+ * any future consumer (Excel formula export, M11 dashboard) all import
+ * from a single source of truth.
  */
 
 import { readFileSync } from 'node:fs';
@@ -37,6 +31,7 @@ import {
   getAreas,
   calculateItemTotal,
   distributeCost,
+  buildAssetFinancing,
 } from '@core/calculations';
 import type {
   CostItem,
@@ -46,6 +41,7 @@ import type {
   FinancingMode,
   RepaymentMethod,
   LandParcel,
+  FinancingResult,
 } from '@core/types/project.types';
 
 // ── Fixture shape ────────────────────────────────────────────────────────────
@@ -99,23 +95,9 @@ export interface Module1Input {
 // ── Snapshot shape ───────────────────────────────────────────────────────────
 type AssetKey = 'residential' | 'hospitality' | 'retail';
 
-export interface FinancingSnapshot {
-  lineItems: { name: string; total: number; debtAmt: number; equityAmt: number; debtPct: number }[];
-  lineDistributions: { name: string; dist: number[] }[];
-  debtAdd: number[];
-  debtOpen: number[];
-  debtRep: number[];
-  debtClose: number[];
-  equityAdd: number[];
-  eqOpen: number[];
-  eqClose: number[];
-  interest: number[];
-  totalDebt: number;
-  totalEquity: number;
-  totalInterest: number;
-  periodicRate: number;
-  totalPeriods: number;
-}
+// Re-export the canonical FinancingResult under the historical name so
+// any downstream consumer of this module stays source-compatible.
+export type FinancingSnapshot = FinancingResult;
 
 export interface AssetSnapshot {
   areas: AreaMetrics;
@@ -142,163 +124,6 @@ export interface Module1Snapshot {
   };
 }
 
-// ── buildAssetFinancing (inlined; see file header) ───────────────────────────
-function buildAssetFinancing(
-  input: Module1Input,
-  assetType: AssetKey,
-  areas: AreaMetrics,
-  costs: CostItem[],
-): FinancingSnapshot {
-  const {
-    constructionPeriods, operationsPeriods, interestRate, modelType,
-    repaymentPeriods, capitalizeInterest, costInputMode,
-    financingMode, globalDebtPct, lineRatios,
-    residentialPercent, hospitalityPercent, retailPercent,
-    showResidential, showHospitality, showRetail,
-  } = input;
-
-  const totalPeriods = constructionPeriods + operationsPeriods;
-  const periodicRate = (interestRate / 100) / (modelType === 'monthly' ? 12 : 1);
-
-  const assetPercents: Record<string, number> = {
-    residential: residentialPercent,
-    hospitality: hospitalityPercent,
-    retail:      retailPercent,
-  };
-  const showFlags: Record<string, boolean> = {
-    residential: showResidential,
-    hospitality: showHospitality,
-    retail:      showRetail,
-  };
-
-  // Same-for-all proportioning for canDelete=false rows.
-  const bafAllocMap: Record<AssetKey, number> = {
-    residential: residentialPercent,
-    hospitality: hospitalityPercent,
-    retail:      retailPercent,
-  };
-  const bafVisibleAssets: AssetKey[] = [
-    ...((showResidential ? ['residential'] : []) as AssetKey[]),
-    ...((showHospitality ? ['hospitality'] : []) as AssetKey[]),
-    ...((showRetail      ? ['retail']      : []) as AssetKey[]),
-  ];
-  const bafTotalAllocPct = bafVisibleAssets.reduce((s, a) => s + (bafAllocMap[a] || 0), 0);
-
-  const getProportionedDist = (cost: CostItem): number[] => {
-    if (costInputMode === 'same-for-all' && cost.canDelete === false) {
-      const fullDist = distributeCost(cost, assetType, constructionPeriods, areas, costs, costInputMode, assetPercents, showFlags);
-      const factor = bafTotalAllocPct > 0 ? (bafAllocMap[assetType] || 0) / bafTotalAllocPct : 0;
-      return fullDist.map(v => v * factor);
-    }
-    return distributeCost(cost, assetType, constructionPeriods, areas, costs, costInputMode, assetPercents, showFlags);
-  };
-
-  const getProportionedTotal = (cost: CostItem): number => {
-    if (costInputMode === 'same-for-all' && cost.canDelete === false) {
-      const fullTotal = calculateItemTotal(cost, assetType, areas, costs, costInputMode, assetPercents, showFlags);
-      const factor = bafTotalAllocPct > 0 ? (bafAllocMap[assetType] || 0) / bafTotalAllocPct : 0;
-      return fullTotal * factor;
-    }
-    return calculateItemTotal(cost, assetType, areas, costs, costInputMode, assetPercents, showFlags);
-  };
-
-  const getLineDebtPct = (name: string): number => {
-    if (financingMode === 'fixed') return globalDebtPct;
-    return lineRatios[name] !== undefined ? lineRatios[name] : globalDebtPct;
-  };
-
-  const lineItems = costs.map(c => {
-    const total = getProportionedTotal(c);
-    const debtPct = getLineDebtPct(c.name);
-    const debtAmt = total * (debtPct / 100);
-    const equityAmt = total - debtAmt;
-    return { name: c.name, total, debtAmt, equityAmt, debtPct };
-  });
-
-  const lineDistributions = costs.map(c => ({
-    name: c.name,
-    dist: getProportionedDist(c).slice(0, constructionPeriods + 1),
-  }));
-
-  const totalDebtCalc   = lineItems.reduce((s, l) => s + l.debtAmt,   0);
-  const totalEquityCalc = lineItems.reduce((s, l) => s + l.equityAmt, 0);
-
-  const debtAdd   = new Array(totalPeriods + 1).fill(0);
-  const equityAdd = new Array(totalPeriods + 1).fill(0);
-
-  costs.forEach(cost => {
-    const d       = getProportionedDist(cost);
-    const debtPct = getLineDebtPct(cost.name);
-    d.forEach((v, i) => {
-      if (i <= constructionPeriods) {
-        debtAdd[i]   += v * (debtPct / 100);
-        equityAdd[i] += v * (1 - debtPct / 100);
-      }
-    });
-  });
-
-  // Phase 1 — construction (no repayment yet, optional capitalized interest)
-  const debtOpen  = new Array(totalPeriods + 1).fill(0);
-  const debtRep   = new Array(totalPeriods + 1).fill(0);
-  const debtClose = new Array(totalPeriods + 1).fill(0);
-  const interest  = new Array(totalPeriods + 1).fill(0);
-
-  let debtBal = 0;
-  for (let p = 0; p <= constructionPeriods; p++) {
-    debtOpen[p] = debtBal;
-    const draw = debtAdd[p] || 0;
-    const inConstruction = p >= 1 && p <= constructionPeriods;
-    const intCharge = debtBal * periodicRate
-      + (inConstruction && capitalizeInterest ? draw * periodicRate / 2 : 0);
-    interest[p] = intCharge;
-    debtRep[p]  = 0;
-    debtBal += draw + (capitalizeInterest && inConstruction ? intCharge : 0);
-    debtClose[p] = Math.max(0, debtBal);
-  }
-
-  const repPerPeriod = repaymentPeriods > 0 ? debtClose[constructionPeriods] / repaymentPeriods : 0;
-
-  // Phase 2 — operations (repay + charge interest on declining balance)
-  for (let p = constructionPeriods + 1; p <= totalPeriods; p++) {
-    debtOpen[p] = debtBal;
-    const opIdx     = p - constructionPeriods;
-    const intCharge = debtBal * periodicRate;
-    interest[p] = intCharge;
-    const repayment = opIdx <= repaymentPeriods ? repPerPeriod : 0;
-    debtRep[p] = repayment;
-    debtBal = Math.max(0, debtBal - repayment);
-    debtClose[p] = debtBal;
-  }
-
-  // Equity balance
-  const eqOpen  = new Array(totalPeriods + 1).fill(0);
-  const eqClose = new Array(totalPeriods + 1).fill(0);
-  let eqBal = 0;
-  for (let p = 0; p <= totalPeriods; p++) {
-    eqOpen[p] = eqBal;
-    eqBal += equityAdd[p] || 0;
-    eqClose[p] = eqBal;
-  }
-
-  const totalInterest = interest.reduce((s, v) => s + v, 0);
-
-  // operationsPeriods is unused inside this function but is part of the input;
-  // kept in the destructure for parity with the React component's closure.
-  void operationsPeriods;
-
-  return {
-    lineItems,
-    lineDistributions,
-    debtAdd, debtOpen, debtRep, debtClose,
-    equityAdd, eqOpen, eqClose,
-    interest,
-    totalDebt: totalDebtCalc,
-    totalEquity: totalEquityCalc,
-    totalInterest,
-    periodicRate,
-    totalPeriods,
-  };
-}
 
 // ── Fixture loader ───────────────────────────────────────────────────────────
 export function loadFixture(path: string): Module1Input {
@@ -364,7 +189,23 @@ export function runPipeline(input: Module1Input): Module1Snapshot {
       dist: distributeCost(c, assetType, input.constructionPeriods, areas, costs, input.costInputMode, assetPercents, showFlags),
     }));
 
-    const financing = buildAssetFinancing(input, assetType, areas, costs);
+    const financing = buildAssetFinancing({
+      assetType,
+      areas,
+      costs,
+      constructionPeriods: input.constructionPeriods,
+      operationsPeriods:   input.operationsPeriods,
+      interestRate:        input.interestRate,
+      modelType:           input.modelType,
+      repaymentPeriods:    input.repaymentPeriods,
+      capitalizeInterest:  input.capitalizeInterest,
+      costInputMode:       input.costInputMode,
+      financingMode:       input.financingMode,
+      globalDebtPct:       input.globalDebtPct,
+      lineRatios:          input.lineRatios,
+      assetPercents,
+      showFlags,
+    });
 
     return { areas, costItemTotals, costDistributions, financing };
   };
