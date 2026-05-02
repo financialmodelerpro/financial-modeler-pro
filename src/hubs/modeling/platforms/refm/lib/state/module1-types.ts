@@ -267,6 +267,11 @@ export interface Plot {
   basementBaySqm:         number; // sqm per basement parking bay
   basementCount:          number; // # of basement levels
   basementEfficiencyPct:  number; // % of footprint usable for parking per basement level
+  // M1.7/6 (optional): podium floors dedicated to vertical parking.
+  // Independent of plot.podiumFloors so the user can split podium
+  // between retail / amenity / parking explicitly. Defaults to 0
+  // (no vertical parking) — surface + basement absorb demand.
+  verticalParkingFloors?: number;
 }
 
 // ── Zone (NEW in M1.7; optional sub-grouping under Plot) ───────────────────

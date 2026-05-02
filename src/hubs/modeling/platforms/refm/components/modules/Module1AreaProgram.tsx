@@ -38,19 +38,22 @@ import React, { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import {
   computePlotEnvelope, computeAreaCascade,
-  type PlotEnvelopeAreas,
+  computePlotParkingCapacity, allocateParking,
+  type PlotEnvelopeAreas, type ParkingAllocationResult, type PlotCapacityResult,
 } from '@core/calculations';
 import {
   useModule1Store,
   selectPlotsForPhase,
   selectZonesForPlot,
   selectAssetsForPlot,
+  selectSubUnitsForAsset,
 } from '../../lib/state/module1-store';
 import {
   ASSET_STRATEGIES, DEFAULT_AREA_CASCADE_BY_CATEGORY,
-  resolveAssetStrategy, resolveAssetCascadePcts,
+  DEFAULT_PARKING_BAYS_BY_SUBUNIT_TYPE,
+  resolveAssetStrategy, resolveAssetCascadePcts, resolveSubUnitParkingBays,
   makeDefaultPlot,
-  type Plot, type Zone, type AssetClass, type AssetStrategy,
+  type Plot, type Zone, type AssetClass, type AssetStrategy, type SubUnit, type AssetCategory,
 } from '../../lib/state/module1-types';
 
 // ── Tokens (FAST blue convention; matches Module1Hierarchy / Costs / etc.) ──
@@ -221,6 +224,15 @@ function PlotEditor({ plot, allPlotsCount }: { plot: Plot; allPlotsCount: number
         {numField('hardscapePct',       'Hardscape',          '% public')}
         {numField('basementCount',      'Basements',          '#')}
         {numField('basementEfficiencyPct', 'Basement Eff.',   '%')}
+        <label style={{ display: 'block' }}>
+          <span style={labelStyle}>Vertical Parking Floors (#)</span>
+          <input
+            type="number"
+            value={plot.verticalParkingFloors ?? 0}
+            onChange={e => updatePlot(plot.id, { verticalParkingFloors: parseFloat(e.target.value) || 0 })}
+            style={inputStyle}
+          />
+        </label>
       </div>
 
       {/* Computed envelope */}
@@ -246,6 +258,9 @@ function PlotEditor({ plot, allPlotsCount }: { plot: Plot; allPlotsCount: number
           </div>
         </div>
       </div>
+
+      <ParkingSummary plot={plot} envelope={envelope} />
+
 
       {/* Zones */}
       <div style={{ marginBottom: 'var(--sp-3)' }}>
@@ -474,7 +489,7 @@ function AssetStrategyRow({ asset, envelope, plotAssetCount, totalAllocPctOnPlot
       {/* Cascade preview */}
       <div style={{
         background: 'var(--color-grey-pale)', borderRadius: 'var(--radius-sm)',
-        padding: 'var(--sp-2)',
+        padding: 'var(--sp-2)', marginBottom: 'var(--sp-2)',
         display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)',
       }}>
         <CascadeCell label="GFA"        value={cascade.gfa} />
@@ -486,6 +501,8 @@ function AssetStrategyRow({ asset, envelope, plotAssetCount, totalAllocPctOnPlot
         <CascadeCell label="Back-of-House" value={cascade.backOfHouse} />
         <CascadeCell label="Other Tech."   value={cascade.otherTechnical} />
       </div>
+
+      <SubUnitTable assetId={asset.id} category={asset.category} />
     </div>
   );
 }
@@ -527,6 +544,212 @@ function AssetAssignPicker({ plotId }: { plotId: string }) {
         style={primaryBtnStyle}
         disabled={!pick}
       >Assign</button>
+    </div>
+  );
+}
+
+// ── Sub-Unit table (per asset) ─────────────────────────────────────────────
+// Editable schedule of dwellings / keys / GLA blocks beneath an asset.
+// Each row contributes parking demand via resolveSubUnitParkingBays.
+// `name` is freeform but seeded from category-specific suggestions
+// (Studio / 1BR / 2BR / 3BR for Sell + Hybrid; Hotel Key / Serviced
+// Apartment for Operate; Office / Retail for Lease) so the parking
+// ratio default lookup hits a known row.
+function SubUnitTable({ assetId, category }: { assetId: string; category: AssetCategory }) {
+  const { subUnits, addSubUnit, updateSubUnit, removeSubUnit } = useModule1Store(useShallow(s => ({
+    subUnits:      selectSubUnitsForAsset(assetId)(s),
+    addSubUnit:    s.addSubUnit,
+    updateSubUnit: s.updateSubUnit,
+    removeSubUnit: s.removeSubUnit,
+  })));
+
+  const suggestions = SUBUNIT_SUGGESTIONS_BY_CATEGORY[category];
+  const defaultMetric: SubUnit['metric'] = category === 'Lease' ? 'area' : 'count';
+
+  const handleAdd = () => {
+    const seed = suggestions[subUnits.length % suggestions.length] ?? 'Type 1';
+    addSubUnit({
+      id: `su_${assetId}_${Date.now()}`,
+      assetId,
+      name: seed,
+      metric: defaultMetric,
+      metricValue: 0,
+      unitPrice: 0,
+    });
+  };
+
+  return (
+    <div data-testid={`subunit-table-${assetId}`}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+        <h5 style={{ margin: 0, fontSize: 'var(--font-h5, var(--font-h4))' }}>Sub-Units</h5>
+        <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>
+          ({subUnits.length}{subUnits.length > 0 ? ` · ${fmt(subUnits.reduce((s, u) => s + resolveSubUnitParkingBays(u), 0))} bays demanded` : ''})
+        </span>
+        <button onClick={handleAdd} style={{ ...ghostBtnStyle, marginLeft: 'auto' }} data-testid={`add-subunit-${assetId}`}>+ Add Sub-Unit</button>
+      </div>
+      {subUnits.length === 0 ? (
+        <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', fontStyle: 'italic', marginBottom: 'var(--sp-2)' }}>
+          No sub-units yet. Add one to drive parking demand and revenue inputs (M2 will read the schedule).
+        </div>
+      ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ textAlign: 'left', fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>
+              <th style={{ padding: '4px 8px' }}>Type</th>
+              <th style={{ padding: '4px 8px' }}>Metric</th>
+              <th style={{ padding: '4px 8px' }}>Quantity</th>
+              <th style={{ padding: '4px 8px' }}>Parking / Unit</th>
+              <th style={{ padding: '4px 8px' }}>Bays Demanded</th>
+              <th style={{ padding: '4px 8px' }}></th>
+            </tr>
+          </thead>
+          <tbody>
+            {subUnits.map(u => {
+              const defaultRatio = DEFAULT_PARKING_BAYS_BY_SUBUNIT_TYPE[u.name];
+              const baysDemanded = resolveSubUnitParkingBays(u);
+              return (
+                <tr key={u.id} data-testid={`subunit-row-${u.id}`}>
+                  <td style={{ padding: '4px 8px' }}>
+                    <input
+                      type="text"
+                      list={`subunit-types-${category}`}
+                      value={u.name}
+                      onChange={e => updateSubUnit(u.id, { name: e.target.value })}
+                      style={{ ...inputStyle, minWidth: 140 }}
+                      aria-label="Sub-unit type"
+                    />
+                  </td>
+                  <td style={{ padding: '4px 8px' }}>
+                    <select
+                      value={u.metric}
+                      onChange={e => updateSubUnit(u.id, { metric: e.target.value as SubUnit['metric'] })}
+                      style={{ ...inputStyle, width: 90 }}
+                    >
+                      <option value="count">count</option>
+                      <option value="area">area (sqm)</option>
+                    </select>
+                  </td>
+                  <td style={{ padding: '4px 8px' }}>
+                    <input
+                      type="number"
+                      value={u.metricValue}
+                      onChange={e => updateSubUnit(u.id, { metricValue: parseFloat(e.target.value) || 0 })}
+                      style={{ ...inputStyle, width: 100 }}
+                    />
+                  </td>
+                  <td style={{ padding: '4px 8px' }}>
+                    <input
+                      type="number"
+                      value={u.parkingBaysPerUnit ?? ''}
+                      onChange={e => {
+                        const v = e.target.value;
+                        updateSubUnit(u.id, { parkingBaysPerUnit: v === '' ? undefined : parseFloat(v) || 0 });
+                      }}
+                      placeholder={defaultRatio !== undefined ? `default ${defaultRatio}` : 'default 1.0'}
+                      style={{ ...inputStyle, width: 110 }}
+                      step="0.1"
+                    />
+                  </td>
+                  <td style={{ padding: '4px 8px' }}>
+                    <span style={{ ...calcOutputStyle, display: 'inline-block', minWidth: 90 }}>{fmt(baysDemanded, 1)}</span>
+                  </td>
+                  <td style={{ padding: '4px 8px' }}>
+                    <button
+                      onClick={() => removeSubUnit(u.id)}
+                      style={dangerBtnStyle}
+                      aria-label={`Delete ${u.name}`}
+                    >×</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+      {/* datalist providing type suggestions for the category */}
+      <datalist id={`subunit-types-${category}`}>
+        {suggestions.map(s => <option key={s} value={s} />)}
+      </datalist>
+    </div>
+  );
+}
+
+const SUBUNIT_SUGGESTIONS_BY_CATEGORY: Record<AssetCategory, string[]> = {
+  Sell:    ['Studio', '1BR', '2BR', '3BR', 'Apartments Type 1', 'Apartments Type 2', 'Apartments Type 3', 'Branded Residences'],
+  Operate: ['Hotel Key', 'Serviced Apartment'],
+  Lease:   ['Office', 'Retail'],
+  Hybrid:  ['Studio', '1BR', '2BR', 'Office', 'Retail'],
+};
+
+// ── Parking summary card (per plot) ────────────────────────────────────────
+// Live-aggregates parking demand from every sub-unit on every asset
+// bound to the plot, runs the same waterfall allocator the M1.7/4
+// pipeline uses, and renders capacity vs. allocated vs. deficit.
+function ParkingSummary({ plot, envelope }: { plot: Plot; envelope: PlotEnvelopeAreas }) {
+  const { plotAssets, subUnitsByAsset } = useModule1Store(useShallow(s => {
+    const plotAssets = selectAssetsForPlot(plot.id)(s);
+    const subUnitsByAsset: Record<string, SubUnit[]> = {};
+    for (const a of plotAssets) subUnitsByAsset[a.id] = s.subUnits.filter(u => u.assetId === a.id);
+    return { plotAssets, subUnitsByAsset };
+  }));
+
+  const totalBaysRequired = plotAssets.reduce(
+    (s, a) => s + (subUnitsByAsset[a.id]?.reduce((b, u) => b + resolveSubUnitParkingBays(u), 0) ?? 0),
+    0,
+  );
+  const capacity: PlotCapacityResult = computePlotParkingCapacity({
+    envelope,
+    surfaceBaySqm:         plot.surfaceBaySqm,
+    verticalBaySqm:        plot.verticalBaySqm,
+    basementBaySqm:        plot.basementBaySqm,
+    verticalParkingFloors: plot.verticalParkingFloors ?? 0,
+  });
+  const alloc: ParkingAllocationResult = allocateParking({
+    totalBaysRequired,
+    surfaceCapacityBays:  capacity.surfaceCapacityBays,
+    verticalCapacityBays: capacity.verticalCapacityBays,
+    basementCapacityBays: capacity.basementCapacityBays,
+  });
+
+  return (
+    <div
+      style={{
+        background: alloc.deficit > 0 ? 'var(--color-negative-bg, var(--color-grey-pale))' : 'var(--color-grey-pale)',
+        borderRadius: 'var(--radius-sm)',
+        padding: 'var(--sp-2) var(--sp-3)', marginBottom: 'var(--sp-3)',
+        border: alloc.deficit > 0 ? '1px solid var(--color-negative)' : '1px solid var(--color-border)',
+      }}
+      data-testid={`parking-summary-${plot.id}`}
+    >
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+        <span style={labelStyle}>Parking</span>
+        {alloc.deficit > 0 && (
+          <span style={{
+            background: 'var(--color-negative)', color: 'var(--color-on-negative, white)',
+            padding: '2px 8px', borderRadius: 4, fontSize: 'var(--font-micro)', fontWeight: 'var(--fw-semibold)',
+          }} data-testid={`parking-deficit-${plot.id}`}>
+            ⚠ Deficit: {fmt(alloc.deficit)} bays
+          </span>
+        )}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--sp-2)', alignItems: 'end' }}>
+        <ParkingCell label="Required (sub-units)" value={totalBaysRequired} />
+        <ParkingCell label="Surface" value={alloc.surfaceBays} cap={capacity.surfaceCapacityBays} />
+        <ParkingCell label="Vertical" value={alloc.verticalBays} cap={capacity.verticalCapacityBays} />
+        <ParkingCell label="Basement" value={alloc.basementBays} cap={capacity.basementCapacityBays} />
+        <ParkingCell label="Total Allocated" value={alloc.totalAllocated} />
+      </div>
+    </div>
+  );
+}
+
+function ParkingCell({ label, value, cap }: { label: string; value: number; cap?: number }) {
+  return (
+    <div>
+      <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>{label}</span>
+      <div style={{ ...calcOutputStyle, textAlign: 'left' }}>
+        {fmt(value)}{cap !== undefined ? <span style={{ color: 'var(--color-meta)', fontWeight: 'var(--fw-normal)', marginLeft: 4 }}>/ {fmt(cap)}</span> : null}
+      </div>
     </div>
   );
 }

@@ -661,9 +661,8 @@ export interface AreaProgramSnapshot {
 }
 
 export function runAreaProgramPipeline(v4: HydrateSnapshot): AreaProgramSnapshot {
-  const verticalParkingFloors = 0;  // M1.7/4 fixture default; future per-plot field
-
   const perPlot: AreaProgramPlotSnapshot[] = v4.plots.map(plot => {
+    const verticalParkingFloors = plot.verticalParkingFloors ?? 0;
     const envelope = computePlotEnvelope({
       plotArea:              plot.plotArea,
       maxFAR:                plot.maxFAR,
