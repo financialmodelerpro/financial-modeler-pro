@@ -132,6 +132,45 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
   return { loaded, error };
 }
 
+/**
+ * Attach the auto-save subscriber to a project WITHOUT re-loading its
+ * snapshot from the server.
+ *
+ * Used by the wizard create path (M1.8) and any other flow where the
+ * store was just hydrated locally with a known-good snapshot AND that
+ * exact snapshot was just persisted server-side. In those cases the
+ * round-trip `loadProject` in `attachToProject` is wasteful AND
+ * dangerous: `hydrationFromAnySnapshot` requires `version === 3` to
+ * recognize a snapshot as "new shape" — wizard / legacy createProject
+ * snapshots are bare `HydrateSnapshot` (no version discriminator), so
+ * the recogniser falls through to `DEFAULT_MODULE1_STATE`, silently
+ * wiping the just-hydrated wizard data (3 assets / 1 plot / sub-units
+ * → empty) and dropping the user into an empty Area Program tab.
+ *
+ * Caller's responsibility: the store must already hold the snapshot
+ * the server has saved (call `useModule1Store.getState().hydrate(snap)`
+ * before this). The cache mirror is written here so offline-resume on
+ * next reload uses the same snapshot.
+ */
+export function attachToProjectFromLocalSnapshot(
+  projectId: string,
+  snapshot:  HydrateSnapshot,
+): void {
+  detach();
+
+  isLoading       = true;
+  activeProjectId = projectId;
+  writeActiveProjectId(projectId);
+  writeCachedSnapshot(projectId, snapshot);
+  lastSavedJson = JSON.stringify(snapshot);
+
+  // Subscribe AFTER setting lastSavedJson so the very first store
+  // event is a no-op (json === lastSavedJson) — the snapshot is
+  // already on the server, no need to immediately re-save.
+  unsubscribe = useModule1Store.subscribe(scheduleAutoSave);
+  isLoading = false;
+}
+
 export function detach(): void {
   if (saveTimer)   { clearTimeout(saveTimer); saveTimer = null; }
   if (unsubscribe) { unsubscribe(); unsubscribe = null; }

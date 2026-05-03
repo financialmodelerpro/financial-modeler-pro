@@ -17,7 +17,7 @@ import { useModule1Store, DEFAULT_MODULE1_STATE, type HydrateSnapshot } from '..
 // migration use; nothing in this component needs it post-M1.6.
 import { LEGACY_ASSET_IDS, DEFAULT_SUB_PROJECT_ID, makeDefaultPhase, type CostLine } from '../lib/state/module1-types';
 import * as pclient from '../lib/persistence/client';
-import { attachToProject as attachSyncToProject, detach as detachSync, loadVersionInto } from '../lib/persistence/module1-sync';
+import { attachToProject as attachSyncToProject, attachToProjectFromLocalSnapshot, detach as detachSync, loadVersionInto } from '../lib/persistence/module1-sync';
 import { runOneShotMigration } from '../lib/persistence/migrator';
 import { readActiveProjectId, writeActiveProjectId, clearCachedSnapshot } from '../lib/persistence/cache';
 
@@ -1208,8 +1208,23 @@ export default function RealEstatePlatform() {
       }));
       setActiveProjectId(pid);
       setActiveVersionId(res.data.version.id);
-      writeActiveProjectId(pid);
-      await attachSyncToProject(pid);
+      // Skip the round-trip re-hydrate (M1.8 fix 3/3): the store
+      // already holds `built.snapshot` from the local hydrate above
+      // AND the server just persisted that exact snapshot in
+      // `pclient.createProject`. Calling `attachSyncToProject(pid)`
+      // here would re-fetch and pass the result through
+      // `hydrationFromAnySnapshot`, whose `isNewV3` recogniser
+      // requires `version === 3` — wizard snapshots are bare
+      // HydrateSnapshot without that discriminator, so the
+      // recogniser falls through to DEFAULT_MODULE1_STATE and
+      // silently wipes the wizard structure (3 assets / 1 plot /
+      // sub-units → empty), then a downstream render of
+      // Module1AreaProgram on the empty store throws because state
+      // setters in the legacy default-cost seeder useEffect race
+      // with the wipe. `attachToProjectFromLocalSnapshot` writes
+      // the same cache + active-id markers and starts the auto-save
+      // subscriber without the dangerous re-fetch.
+      attachToProjectFromLocalSnapshot(pid, built.snapshot);
       setProjectName(draft.name.trim());
       setWizardOpen(false);
       // M1.8 lands wizard-created projects on the Area Program tab
