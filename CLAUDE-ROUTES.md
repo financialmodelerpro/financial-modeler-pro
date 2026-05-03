@@ -502,7 +502,7 @@ src/hubs/modeling/
     │   ├── components/
     │   │   ├── Dashboard.tsx  OverviewScreen.tsx  PlanBadge.tsx
     │   │   ├── ProjectsScreen.tsx  RealEstatePlatform.tsx  Sidebar.tsx  Topbar.tsx
-    │   │   ├── modals/ (Export, Project, Rbac, Version)
+    │   │   ├── modals/ (Export, Project, ProjectWizard [M1.8 2026-05-03 — replaces ProjectModal new-flow, 3-step wizard with FAST blue inputs, dirty-confirm Esc, asset matrix per project type], Rbac, Version)
     │   │   └── modules/ (Module1Area, Module1AreaProgram, Module1Costs, Module1Financing, Module1Hierarchy, Module1Timeline)
     │   │   # Module1AreaProgram.tsx (NEW M1.7, 2026-05-02) — store-direct tab between Land & Area and Dev Costs. Plot CRUD + Zone CRUD + per-Asset Strategy / area-cascade overrides + Sub-Unit schedule with parking ratios + live computed envelope panel + per-asset cascade preview + per-plot parking summary card with deficit warning. FAST blue inputs, calc-output gray outputs. data-testid hooks (plot-card, zone-row, asset-strategy, subunit-table, parking-summary, parking-deficit) for Playwright. Subscribes to useModule1Store via useShallow + selectPlotsForPhase / selectZonesForPlot / selectAssetsForPlot / selectSubUnitsForAsset.
     │   │   # Topbar.tsx hosts ☀️/🌙 dark-mode toggle (2026-04-30) — own localStorage['refmDarkMode'] key (separate from hub-level modelingDarkMode); default → prefers-color-scheme; theme scoped via body[data-refm-theme="dark"] .app-shell so it never bleeds into /admin or /training.
@@ -511,7 +511,8 @@ src/hubs/modeling/
     │   └── lib/
     │       ├── export/ (excel-formula, excel-static, pdf)
     │       ├── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))
-    │       └── modules-config.ts     # NEW 2026-04-30 — single source of truth for all 11 REFM modules. Exports `MODULES: readonly ModuleConfig[]`, types `ModuleStatus = 'done' | 'soon' | 'pro' | 'enterprise'` and `ModulePlan = 'free' | 'professional' | 'enterprise'`. Per-module fields: num, key, icon, shortLabel (sidebar), longLabel (dashboard), featureKey, requiredPlan, status, disabled, disabledReason. Consumed by both Sidebar.tsx and Dashboard.tsx so adding/renaming/reordering a module requires editing one list.
+    │       ├── modules-config.ts     # NEW 2026-04-30 — single source of truth for all 11 REFM modules. Exports `MODULES: readonly ModuleConfig[]`, types `ModuleStatus = 'done' | 'soon' | 'pro' | 'enterprise'` and `ModulePlan = 'free' | 'professional' | 'enterprise'`. Per-module fields: num, key, icon, shortLabel (sidebar), longLabel (dashboard), featureKey, requiredPlan, status, disabled, disabledReason. Consumed by both Sidebar.tsx and Dashboard.tsx so adding/renaming/reordering a module requires editing one list.
+    │       └── wizard/buildWizardSnapshot.ts     # NEW 2026-05-03 (Phase M1.8/5) — pure helper: WizardDraft → HydrateSnapshot. mapWizardToProjectType collapses 6 wizard display values to 3 store ProjectType values; mints 1 SubProject + N Phases + N Plots + 1 Asset per row + 1 placeholder SubUnit per asset bound to Phase 1+Plot 1; sub-unit metric per category (Sell/Operate→count, Lease→area); deduct/efficiency seeds per category (Sell 10/85, Operate 15/80, Lease 5/90, Hybrid 10/85). Stamps `hierarchyDisclosure: 'progressive'` so the Hierarchy tab hides MH when disabled.
     └── bcm/  bvm/  cfm/  erm/  eum/  fpa/  lbo/  pfm/  svm/   # Coming-soon stubs (config-driven)
 ```
 

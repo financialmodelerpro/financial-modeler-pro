@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-05-02**
+**Last updated: 2026-05-03**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md) — Database tables, storage buckets, migrations log
@@ -212,7 +212,8 @@ npx tsx scripts/module1-multiphase-diff.ts      # multi-phase v4, 23.0 KB baseli
 npx tsx scripts/module1-areaprogram-diff.ts     # M1.7 Area Program, 2.8 KB baseline
 
 # Per-phase verifier (5 sections: DB / routes / calc / state / Playwright UI)
-npx tsx --env-file=.env.local scripts/verify-m17.ts   # M1.7; pattern repeats per future phase
+npx tsx --env-file=.env.local scripts/verify-m17.ts   # M1.7 Area Program (25 pass / 0 fail / 2 skip without dev server)
+npx tsx --env-file=.env.local scripts/verify-m18.ts   # M1.8 Smart Project Wizard (13 pass / 0 fail / 2 skip without dev server)
 ```
 
 ### Per-phase verification workflow (M1.7+)
