@@ -323,11 +323,7 @@ export default function ProjectWizard({ onCreate, onClose }: ProjectWizardProps)
             <Step1Basics draft={draft} setDraft={setDraft} />
           )}
           {step === 2 && (
-            <PlaceholderStep
-              testId="wizard-step-2"
-              heading="Step 2 — Project Structure"
-              body="Master Holding toggle, phases, plots."
-            />
+            <Step2Structure draft={draft} setDraft={setDraft} />
           )}
           {step === 3 && (
             <PlaceholderStep
@@ -521,8 +517,215 @@ function Step1Basics({ draft, setDraft }: Step1Props) {
   );
 }
 
-// ── Placeholder step body (M1.8/2) ────────────────────────────────────────
-// Steps 2 & 3 still placeholder until M1.8/3-4 land.
+// ── Step 2: Project Structure (M1.8/3) ────────────────────────────────────
+// Three questions with smart defaults:
+//   1. Is this part of a fund/portfolio? → Master Holding toggle
+//   2. How many phases? → Single (1) or Multiple (2-10)
+//   3. How many plots?  → Single (1) or Multiple (2-20)
+//
+// "Single" is the default for both phase + plot — the brief calls out
+// that 90% of users (single phase, single plot, 2-3 assets) shouldn't
+// see multi-phase / multi-plot complexity unless they opt in. The
+// conditional 2-10 / 2-20 numeric input only appears when the user
+// flips to Multiple.
+//
+// Ratification: progressive disclosure pattern from M1.5/M1.7. Selecting
+// Multiple expands an inline numeric input; selecting Single collapses
+// the count back to 1 so the wizard doesn't carry a dangling 5-phase
+// intent if the user changed their mind.
+interface Step2Props {
+  draft:    WizardDraft;
+  setDraft: React.Dispatch<React.SetStateAction<WizardDraft>>;
+}
+
+function Step2Structure({ draft, setDraft }: Step2Props) {
+  return (
+    <div data-testid="wizard-step-2">
+      <h3 style={{
+        fontSize: 'var(--font-body)',
+        fontWeight: 'var(--fw-semibold)',
+        color: 'var(--color-heading)',
+        margin: '0 0 6px 0',
+      }}>
+        Step 2 — Project Structure
+      </h3>
+      <p style={{
+        fontSize: 'var(--font-meta)',
+        color: 'var(--color-meta)',
+        margin: '0 0 var(--sp-3) 0',
+      }}>
+        These choices control which layers show up in the Hierarchy tab.
+        Defaults work for most projects — you can always enable more
+        layers later from the Hierarchy tab.
+      </p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+        {/* Q1: Master Holding toggle */}
+        <div>
+          <span style={labelTextStyle}>Is this part of a fund or portfolio?</span>
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            marginTop: 6,
+            padding: '10px 12px',
+            background: 'color-mix(in srgb, var(--color-primary) 4%, var(--color-surface))',
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-sm)',
+          }}>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={draft.enableMasterHolding}
+              data-testid="wizard-mh-toggle"
+              onClick={() => setDraft(prev => ({ ...prev, enableMasterHolding: !prev.enableMasterHolding }))}
+              style={{
+                position: 'relative',
+                width: 40,
+                height: 22,
+                borderRadius: 11,
+                border: 'none',
+                cursor: 'pointer',
+                background: draft.enableMasterHolding ? 'var(--color-primary)' : 'var(--color-input-border)',
+                transition: 'background 0.15s ease',
+                padding: 0,
+              }}
+            >
+              <span style={{
+                position: 'absolute',
+                top: 2,
+                left: draft.enableMasterHolding ? 20 : 2,
+                width: 18,
+                height: 18,
+                borderRadius: '50%',
+                background: 'var(--color-surface)',
+                transition: 'left 0.15s ease',
+              }} />
+            </button>
+            <div style={{ flex: 1 }}>
+              <div style={{
+                fontSize: 'var(--font-body)',
+                fontWeight: 'var(--fw-semibold)',
+                color: 'var(--color-heading)',
+              }}>
+                {draft.enableMasterHolding ? 'Yes — show Master Holding layer' : 'No — single project'}
+              </div>
+              <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 2 }}>
+                Enables the Master Holding layer in the Hierarchy tab. Skip
+                if this is a standalone project — you can convert later.
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Q2: Phases */}
+        <div>
+          <span style={labelTextStyle}>How many phases?</span>
+          <div style={{ ...radioGroupStyle, marginTop: 6 }} role="radiogroup" aria-label="Phase count">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={draft.phaseCount === 1}
+              data-testid="wizard-phases-single"
+              onClick={() => setDraft(prev => ({ ...prev, phaseCount: 1 }))}
+              style={radioPillStyle(draft.phaseCount === 1)}
+            >
+              Single Phase (most projects)
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={draft.phaseCount > 1}
+              data-testid="wizard-phases-multiple"
+              onClick={() => setDraft(prev => ({ ...prev, phaseCount: prev.phaseCount > 1 ? prev.phaseCount : 2 }))}
+              style={radioPillStyle(draft.phaseCount > 1)}
+            >
+              Multiple Phases (staged development)
+            </button>
+          </div>
+          {draft.phaseCount > 1 && (
+            <label
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, marginTop: 8,
+                fontSize: 'var(--font-meta)', color: 'var(--color-meta)',
+              }}
+            >
+              <span>How many?</span>
+              <input
+                type="number"
+                min={2}
+                max={10}
+                value={draft.phaseCount}
+                onChange={e => {
+                  const v = parseInt(e.target.value, 10);
+                  if (Number.isNaN(v)) return;
+                  setDraft(prev => ({ ...prev, phaseCount: Math.min(10, Math.max(2, v)) }));
+                }}
+                data-testid="wizard-phase-count"
+                style={{ ...wizardInputStyle, width: 80 }}
+              />
+              <span>(2–10)</span>
+            </label>
+          )}
+        </div>
+
+        {/* Q3: Plots */}
+        <div>
+          <span style={labelTextStyle}>How many plots?</span>
+          <div style={{ ...radioGroupStyle, marginTop: 6 }} role="radiogroup" aria-label="Plot count">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={draft.plotCount === 1}
+              data-testid="wizard-plots-single"
+              onClick={() => setDraft(prev => ({ ...prev, plotCount: 1 }))}
+              style={radioPillStyle(draft.plotCount === 1)}
+            >
+              Single Plot
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={draft.plotCount > 1}
+              data-testid="wizard-plots-multiple"
+              onClick={() => setDraft(prev => ({ ...prev, plotCount: prev.plotCount > 1 ? prev.plotCount : 2 }))}
+              style={radioPillStyle(draft.plotCount > 1)}
+            >
+              Multiple Plots (large land bank)
+            </button>
+          </div>
+          {draft.plotCount > 1 && (
+            <label
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10, marginTop: 8,
+                fontSize: 'var(--font-meta)', color: 'var(--color-meta)',
+              }}
+            >
+              <span>How many?</span>
+              <input
+                type="number"
+                min={2}
+                max={20}
+                value={draft.plotCount}
+                onChange={e => {
+                  const v = parseInt(e.target.value, 10);
+                  if (Number.isNaN(v)) return;
+                  setDraft(prev => ({ ...prev, plotCount: Math.min(20, Math.max(2, v)) }));
+                }}
+                data-testid="wizard-plot-count"
+                style={{ ...wizardInputStyle, width: 80 }}
+              />
+              <span>(2–20)</span>
+            </label>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Placeholder step body (M1.8/3) ────────────────────────────────────────
+// Step 3 still placeholder until M1.8/4 lands.
 interface PlaceholderStepProps {
   testId:  string;
   heading: string;
