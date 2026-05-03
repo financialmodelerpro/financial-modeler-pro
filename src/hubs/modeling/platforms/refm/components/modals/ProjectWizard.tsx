@@ -532,43 +532,45 @@ function Step1Basics({ draft, setDraft }: Step1Props) {
           </label>
         </div>
 
-        {/* Model Type radio */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={labelTextStyle}>Model Type</span>
-          <div style={radioGroupStyle} role="radiogroup" aria-label="Model Type">
-            {(['annual', 'monthly'] as const).map(m => (
-              <button
-                key={m}
-                type="button"
-                role="radio"
-                aria-checked={draft.modelType === m}
-                onClick={() => setDraft(prev => ({ ...prev, modelType: m }))}
-                data-testid={`wizard-model-type-${m}`}
-                style={radioPillStyle(draft.modelType === m)}
-              >
-                {m === 'annual' ? 'Annual' : 'Monthly'}
-              </button>
-            ))}
+        {/* Model Type + Status row (paired so Step 1 fits one screen on
+            standard 1080p displays — no scroll required). */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-2)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={labelTextStyle}>Model Type</span>
+            <div style={radioGroupStyle} role="radiogroup" aria-label="Model Type">
+              {(['annual', 'monthly'] as const).map(m => (
+                <button
+                  key={m}
+                  type="button"
+                  role="radio"
+                  aria-checked={draft.modelType === m}
+                  onClick={() => setDraft(prev => ({ ...prev, modelType: m }))}
+                  data-testid={`wizard-model-type-${m}`}
+                  style={radioPillStyle(draft.modelType === m)}
+                >
+                  {m === 'annual' ? 'Annual' : 'Monthly'}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
 
-        {/* Status radio */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={labelTextStyle}>Status</span>
-          <div style={radioGroupStyle} role="radiogroup" aria-label="Status">
-            {(['Draft', 'Active'] as const).map(s => (
-              <button
-                key={s}
-                type="button"
-                role="radio"
-                aria-checked={draft.status === s}
-                onClick={() => setDraft(prev => ({ ...prev, status: s }))}
-                data-testid={`wizard-status-${s.toLowerCase()}`}
-                style={radioPillStyle(draft.status === s)}
-              >
-                {s}
-              </button>
-            ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={labelTextStyle}>Status</span>
+            <div style={radioGroupStyle} role="radiogroup" aria-label="Status">
+              {(['Draft', 'Active'] as const).map(s => (
+                <button
+                  key={s}
+                  type="button"
+                  role="radio"
+                  aria-checked={draft.status === s}
+                  onClick={() => setDraft(prev => ({ ...prev, status: s }))}
+                  data-testid={`wizard-status-${s.toLowerCase()}`}
+                  style={radioPillStyle(draft.status === s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
