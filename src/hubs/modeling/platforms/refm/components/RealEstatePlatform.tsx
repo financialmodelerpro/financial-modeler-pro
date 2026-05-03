@@ -40,8 +40,9 @@ import Module1Financing from './modules/Module1Financing';
 import Module1Hierarchy from './modules/Module1Hierarchy';
 import Module1AreaProgram from './modules/Module1AreaProgram';
 import ProjectModal from './modals/ProjectModal';
-import ProjectWizard from './modals/ProjectWizard';
+import ProjectWizard, { type WizardDraft } from './modals/ProjectWizard';
 import VersionModal from './modals/VersionModal';
+import { buildWizardSnapshot } from '../lib/wizard/buildWizardSnapshot';
 import RbacModal from './modals/RbacModal';
 import ExportModal from './modals/ExportModal';
 import UpgradePrompt from '@/src/shared/components/UpgradePrompt';
@@ -1150,6 +1151,80 @@ export default function RealEstatePlatform() {
     })();
   }, [projectType, setProjectName]);
 
+  // ── Create project from wizard (M1.8/5) ──
+  // Transactional path the ProjectWizard hands off to. Builds a fully-
+  // populated HydrateSnapshot from the wizard draft (Sub-Project,
+  // Phases, Plots, Assets, Sub-Units, Master-Holding flag), hydrates
+  // the store with it, then posts to /api/refm/projects with the same
+  // snapshot so the server-side row is created in lockstep with the
+  // local state.
+  //
+  // After success we land the user on the Area Program tab (not the
+  // Hierarchy tab) since the structure is already set up — the brief's
+  // primary UX win for this phase.
+  const handleCreateProjectFromWizard = useCallback((draft: WizardDraft) => {
+    (async () => {
+      detachSync();
+      const built = buildWizardSnapshot(draft);
+      // Hydrate the store with the full snapshot so per-asset cost
+      // seeds + per-tab readers see the wizard structure on first
+      // render. attachSyncToProject below will re-hydrate from the
+      // server's authoritative row, but pre-hydrating means the brief
+      // gap between createProject and attach doesn't show stale data.
+      useModule1Store.getState().hydrate(built.snapshot);
+
+      const res = await pclient.createProject({
+        name:     draft.name.trim(),
+        snapshot: built.snapshot,
+        location: draft.location.trim(),
+        status:   draft.status,
+        assetMix: built.assetMix,
+      });
+      if (res.error || !res.data) {
+        setPmToast({ msg: `Create failed: ${res.error ?? 'unknown error'}`, color: 'var(--color-negative)' });
+        return;
+      }
+      const pid = res.data.project.id;
+      setStorageData(prev => ({
+        ...prev,
+        activeProjectId: pid,
+        projects: {
+          ...prev.projects,
+          [pid]: {
+            name:         res.data!.project.name,
+            location:     res.data!.project.location ?? '',
+            createdAt:    res.data!.project.created_at,
+            lastModified: res.data!.project.updated_at,
+            status:       res.data!.project.status,
+            assetMix:     res.data!.project.asset_mix,
+            versions:     { [res.data!.version.id]: {
+              name:      res.data!.version.label ?? `Version ${res.data!.version.version_number}`,
+              createdAt: res.data!.version.created_at,
+              data:      null,
+            }},
+            versionCount: 1,
+          },
+        },
+      }));
+      setActiveProjectId(pid);
+      setActiveVersionId(res.data.version.id);
+      writeActiveProjectId(pid);
+      await attachSyncToProject(pid);
+      setProjectName(draft.name.trim());
+      setWizardOpen(false);
+      // M1.8 lands wizard-created projects on the Area Program tab
+      // since the structure is pre-built; users see their plot +
+      // assets immediately rather than an empty Hierarchy view.
+      setActiveModule('module1');
+      setActiveTab('area-program');
+      setPmToast({
+        msg: `✓ Project "${draft.name.trim()}" created with ${built.snapshot.assets.length} asset${built.snapshot.assets.length === 1 ? '' : 's'}`,
+        color: 'var(--color-green-dark)',
+      });
+      setHasUnsaved(false);
+    })();
+  }, [setProjectName]);
+
   // ── Edit project (rename + relocate, post-M1.6) ──
   // PATCHes /api/refm/projects/[id]. Local state is mirrored after the
   // server confirms; on failure the toast surfaces the error and
@@ -1860,10 +1935,7 @@ export default function RealEstatePlatform() {
       )}
       {wizardOpen && (
         <ProjectWizard
-          onCreate={(name, location) => {
-            setWizardOpen(false);
-            handleCreateProject(name, location);
-          }}
+          onCreate={handleCreateProjectFromWizard}
           onClose={() => setWizardOpen(false)}
         />
       )}

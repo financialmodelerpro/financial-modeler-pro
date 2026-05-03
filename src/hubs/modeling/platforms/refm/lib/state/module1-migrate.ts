@@ -124,7 +124,7 @@ export function enrichWithHierarchyDefaults(snapshot: HydrateSnapshot): HydrateS
   // The narrowed cast lets us check fields TS already considers
   // present; the runtime branch is only hit when an older payload
   // was de-serialized through `as HydrateSnapshot` without actually
-  // carrying the M1.5 / M1.7 fields.
+  // carrying the M1.5 / M1.7 / M1.8 fields.
   const s = snapshot as Partial<HydrateSnapshot> & HydrateSnapshot;
   return {
     ...s,
@@ -133,6 +133,12 @@ export function enrichWithHierarchyDefaults(snapshot: HydrateSnapshot): HydrateS
     subUnits:      s.subUnits      ?? [],
     plots:         s.plots         ?? [],
     zones:         s.zones         ?? [],
+    // M1.8: pre-M1.8 snapshots lack `hierarchyDisclosure`. Default them
+    // to 'manual' so the Hierarchy tab keeps the legacy show-all-layers
+    // behavior. Wizard-created projects ship 'progressive' explicitly.
+    // Always emit a value (rather than leaving undefined) so subsequent
+    // store hydrations don't carry over a previous project's value.
+    hierarchyDisclosure: s.hierarchyDisclosure ?? 'manual',
   };
 }
 

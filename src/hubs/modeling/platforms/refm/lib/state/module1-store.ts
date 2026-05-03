@@ -112,6 +112,18 @@ export interface Module1Store {
   repaymentMethod: RepaymentMethod;
   lineRatios: Record<string, number>;
 
+  // ── Hierarchy disclosure (Phase M1.8) ────────────────────────────
+  // Drives Module1Hierarchy's "hide unused layers" behavior. Wizard-
+  // created projects ship 'progressive'; pre-wizard projects load with
+  // this field absent (=> undefined => Hierarchy tab falls back to the
+  // existing show-all-layers behavior). User-driven actions on the
+  // Hierarchy tab (Enable Master Holding / + Add Phase / + Add Plot)
+  // do NOT flip this — they reveal layers without abandoning the
+  // progressive-disclosure intent for layers the user hasn't explicitly
+  // touched yet. Reset to 'manual' is a separate explicit user action
+  // (no UI for it in M1.8; reserved for future).
+  hierarchyDisclosure?: 'progressive' | 'manual';
+
   // Bulk setters
   setProjectMeta: (patch: Partial<Pick<Module1Store,
     'projectName' | 'projectType' | 'country' | 'currency' | 'modelType' | 'projectStart'>>) => void;
@@ -206,6 +218,7 @@ export type HydrateSnapshot = Pick<Module1Store,
   | 'costStage' | 'costScope' | 'costDevFeeMode' | 'allocBasis'
   | 'interestRate' | 'financingMode' | 'globalDebtPct' | 'capitalizeInterest'
   | 'repaymentPeriods' | 'repaymentMethod' | 'lineRatios'
+  | 'hierarchyDisclosure'
 >;
 
 // ── Defaults ────────────────────────────────────────────────────────────────
@@ -259,6 +272,13 @@ export const DEFAULT_MODULE1_STATE: HydrateSnapshot = {
   repaymentPeriods: 5,
   repaymentMethod: 'fixed',
   lineRatios: {},
+
+  // M1.8: default to 'manual' (current behavior). Wizard-created
+  // projects override to 'progressive'. Including this in
+  // DEFAULT_MODULE1_STATE keeps it in SNAPSHOT_KEYS so save/load
+  // round-trips the field reliably (rather than relying on the
+  // discriminator surviving every transformation).
+  hierarchyDisclosure: 'manual',
 };
 
 // ── Store factory ──────────────────────────────────────────────────────────

@@ -235,13 +235,12 @@ const stepLabelStyle = (active: boolean): React.CSSProperties => ({
 // ── Component props ───────────────────────────────────────────────────────
 export interface ProjectWizardProps {
   /**
-   * Legacy fallback used by Commit 1 until the transactional create
-   * handler (M1.8/5) replaces it. Receives the final name + location
-   * pair the wizard collected; matches the existing handleCreateProject
-   * signature so RealEstatePlatform can wire the wizard in without
-   * other plumbing changes.
+   * M1.8/5: receives the full wizard draft. RealEstatePlatform's
+   * handleCreateProjectFromWizard turns this into a populated
+   * HydrateSnapshot via buildWizardSnapshot(draft) and posts it to
+   * the persistence layer, then routes to the Area Program tab.
    */
-  onCreate: (name: string, location: string) => void;
+  onCreate: (draft: WizardDraft) => void;
   /**
    * Close handler. The wizard itself decides whether to prompt the
    * user before calling this (dirty-confirm rule).
@@ -302,11 +301,15 @@ export default function ProjectWizard({ onCreate, onClose }: ProjectWizardProps)
     if (step < 3) {
       setStep(((step + 1) as 1 | 2 | 3));
     } else {
-      // Step 3: commit. M1.8/5 replaces this with the transactional
-      // wizard-snapshot create. Until then we hand off the basics to
-      // the legacy onCreate handler so the wizard is end-to-end
-      // functional throughout the staged build.
-      onCreate(draft.name.trim(), draft.location.trim());
+      // Step 3 commit: hand the full draft to the parent's
+      // transactional create handler (M1.8/5). The parent normalizes
+      // the draft into a HydrateSnapshot via buildWizardSnapshot, then
+      // posts to /api/refm/projects with the populated structure.
+      onCreate({
+        ...draft,
+        name: draft.name.trim(),
+        location: draft.location.trim(),
+      });
     }
   }
 
