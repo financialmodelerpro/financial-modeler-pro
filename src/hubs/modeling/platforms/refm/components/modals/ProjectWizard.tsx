@@ -325,7 +325,7 @@ export default function ProjectWizard({ onCreate, onClose }: ProjectWizardProps)
         role="dialog"
         aria-modal="true"
         aria-labelledby="project-wizard-title"
-        style={{ maxWidth: 640, width: '100%' }}
+        style={{ maxWidth: 1080, width: '100%' }}
       >
         {/* Header */}
         <div className="pm-modal-header" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 'var(--sp-2)' }}>
