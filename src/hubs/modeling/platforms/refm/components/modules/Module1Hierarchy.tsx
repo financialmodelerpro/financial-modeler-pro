@@ -86,7 +86,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import type { AssetCategory, AssetClass, MasterHolding, Phase, SubProject, SubUnit } from '../../lib/state/module1-types';
-import { PREBUILT_ASSET_TYPES } from '../../lib/state/module1-types';
+import { PREBUILT_ASSET_TYPES, makeDefaultPlot } from '../../lib/state/module1-types';
 
 // ── Visual tokens ──────────────────────────────────────────────────────────
 const tokens = {
@@ -1330,6 +1330,10 @@ export default function Module1Hierarchy() {
   const updateSubProject = useModule1Store((s) => s.updateSubProject);
   const removeSubProject = useModule1Store((s) => s.removeSubProject);
   const addPhase         = useModule1Store((s) => s.addPhase);
+  // M1.8/7: action-bar handlers reach addPlot directly so the "+ Add
+  // Plot" button can mint a plot under the active phase without going
+  // through the Area Program tab.
+  const addPlot          = useModule1Store((s) => s.addPlot);
   const updatePhase      = useModule1Store((s) => s.updatePhase);
   const removePhase      = useModule1Store((s) => s.removePhase);
   const addAsset         = useModule1Store((s) => s.addAsset);
@@ -1712,6 +1716,65 @@ export default function Module1Hierarchy() {
     setManualMode(false);
   };
 
+  // ── M1.8/7: top-of-tab action buttons ─────────────────────────────────
+  // Always-visible quick paths for the three most-common "I want more
+  // structure than the wizard gave me" actions:
+  //   - + Add Phase: appends Phase N+1 under the breadcrumb sub-project
+  //     (or the first sub-project if no breadcrumb context yet).
+  //   - + Add Plot:  appends Plot N+1 under the breadcrumb / first phase.
+  //   - Enable Master Holding: flips MH.enabled = true (only shown when
+  //     MH is currently disabled — once enabled, the MH card itself
+  //     owns the toggle).
+  // None of these flip hierarchyDisclosure: progressively disclosed
+  // projects stay progressive; the user is just opting into more layers
+  // without abandoning the wizard's overall posture.
+  const handleQuickAddPhase = () => {
+    const sp = breadcrumbSubProject ?? subProjects[0];
+    if (!sp) {
+      window.alert('Add a Sub-Project first.');
+      return;
+    }
+    const existingForSp = phases.filter(p => p.subProjectId === sp.id);
+    const seedPhase = existingForSp[0];
+    const id = `phase_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    addPhase({
+      id,
+      name: `Phase ${existingForSp.length + 1}`,
+      subProjectId: sp.id,
+      // Inherit timing from the prior phase if there is one; otherwise
+      // fall back to the legacy single-phase defaults (4/5/0). This
+      // keeps the new phase compatible with whatever project window
+      // the user already chose.
+      constructionStart:   seedPhase?.constructionStart   ?? 1,
+      constructionPeriods: seedPhase?.constructionPeriods ?? 4,
+      operationsStart:     seedPhase?.operationsStart     ?? Math.max(1, (seedPhase?.constructionPeriods ?? 4) - (seedPhase?.overlapPeriods ?? 0) + 1),
+      operationsPeriods:   seedPhase?.operationsPeriods   ?? 5,
+      overlapPeriods:      seedPhase?.overlapPeriods      ?? 0,
+    });
+  };
+
+  const handleQuickAddPlot = () => {
+    const targetPhase = breadcrumbPhase
+      ?? (breadcrumbSubProject ? phases.find(p => p.subProjectId === breadcrumbSubProject.id) : phases[0]);
+    if (!targetPhase) {
+      window.alert('Add a Phase first.');
+      return;
+    }
+    // Pull the seed plot area from the first existing plot on the
+    // phase, then fall back to a default 100k sqm. Users always
+    // override per-plot from the Area Program tab.
+    const existingForPhase = useModule1Store.getState().plots.filter(p => p.phaseId === targetPhase.id);
+    const seedArea = existingForPhase[0]?.plotArea ?? 100_000;
+    const id = `plot_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const name = `Plot ${existingForPhase.length + 1}`;
+    addPlot(makeDefaultPlot(id, name, targetPhase.id, seedArea));
+  };
+
+  const handleQuickEnableMasterHolding = () => {
+    if (masterHolding.enabled) return;
+    updateMasterHolding({ enabled: true });
+  };
+
   return (
     <div style={{ maxWidth: 1100, margin: '0 auto', padding: 'var(--sp-3) 0', position: 'relative' }}>
       {/* M1.5b/2: sticky breadcrumb. Renders only after the header
@@ -1762,6 +1825,56 @@ export default function Module1Hierarchy() {
           live (toggle Master Holding on/off in the panel below; the others have add / edit / delete inline). Hover the
           ⓘ on any tier label below for a one-line explainer.
         </p>
+
+        {/* ── M1.8/7: top-of-tab action bar ──
+           Always-visible quick paths for the three most-common
+           "expand my project" actions. Visible in both progressive
+           and manual disclosure modes — they let manual-mode users
+           skip hunting for the right inline + button too. */}
+        <div
+          data-testid="hierarchy-action-bar"
+          style={{
+            marginTop: 'var(--sp-2)',
+            display: 'flex',
+            gap: 8,
+            flexWrap: 'wrap',
+          }}
+        >
+          <button
+            type="button"
+            onClick={handleQuickAddPhase}
+            data-testid="hierarchy-add-phase"
+            className="btn-secondary"
+            style={{ fontSize: 'var(--font-meta)', padding: '6px 12px' }}
+          >
+            + Add Phase
+          </button>
+          <button
+            type="button"
+            onClick={handleQuickAddPlot}
+            data-testid="hierarchy-add-plot"
+            className="btn-secondary"
+            style={{ fontSize: 'var(--font-meta)', padding: '6px 12px' }}
+          >
+            + Add Plot
+          </button>
+          {!masterHolding.enabled && (
+            <button
+              type="button"
+              onClick={handleQuickEnableMasterHolding}
+              data-testid="hierarchy-enable-mh"
+              className="btn-secondary"
+              style={{
+                fontSize: 'var(--font-meta)',
+                padding: '6px 12px',
+                color: tokens.mhAccent,
+                borderColor: `color-mix(in srgb, ${tokens.mhAccent} 50%, var(--color-border))`,
+              }}
+            >
+              ⊕ Enable Master Holding
+            </button>
+          )}
+        </div>
 
         {/* ── M1.5b/1: quick stats + Quick Setup launcher ── */}
         <div
