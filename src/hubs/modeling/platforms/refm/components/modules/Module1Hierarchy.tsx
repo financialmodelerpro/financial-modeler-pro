@@ -1297,7 +1297,7 @@ function QuickSetupWizard({ initial, onCreate, onSwitchToManual, onClose }: Quic
 
 // ── Component ──────────────────────────────────────────────────────────────
 export default function Module1Hierarchy() {
-  const { masterHolding, subProjects, phases, assets, subUnits, currency, projectName } = useModule1Store(useShallow((s) => ({
+  const { masterHolding, subProjects, phases, assets, subUnits, currency, projectName, hierarchyDisclosure } = useModule1Store(useShallow((s) => ({
     masterHolding: s.masterHolding,
     subProjects:   s.subProjects,
     phases:        s.phases,
@@ -1305,7 +1305,22 @@ export default function Module1Hierarchy() {
     subUnits:      s.subUnits,
     currency:      s.currency,
     projectName:   s.projectName,
+    // M1.8/6: 'progressive' (wizard-created projects) hides the Master
+    // Holding panel when MH is disabled, since the wizard never enables
+    // it implicitly and the user can opt in via the dedicated "Enable
+    // Master Holding" action button (M1.8/7). 'manual' (default for
+    // pre-wizard projects, undefined falls through this branch via the
+    // `?? 'manual'` clamp below) preserves the legacy show-all-layers
+    // behavior.
+    hierarchyDisclosure: s.hierarchyDisclosure,
   })));
+  // Clamp undefined → 'manual' so older snapshots that didn't ship the
+  // field through enrichWithHierarchyDefaults still get the legacy
+  // behavior. Defensive: enrichWithHierarchyDefaults already pads this
+  // on load, but keeping the clamp here means a future code path that
+  // bypasses enrichment doesn't regress disclosure.
+  const disclosure: 'progressive' | 'manual' = hierarchyDisclosure ?? 'manual';
+  const hideMHWhenDisabled = disclosure === 'progressive' && !masterHolding.enabled;
 
   // Pull mutating actions outside of the shallow read so they don't
   // count as state changes — getState() at call time is enough.
@@ -1879,7 +1894,15 @@ export default function Module1Hierarchy() {
       ) : (
       <>
 
-      {/* ── Master Holding (optional, toggleable) ── */}
+      {/* ── Master Holding (optional, toggleable) ──
+         M1.8/6: in 'progressive' disclosure mode (wizard-created
+         projects), hide this card when MH is disabled. The dedicated
+         "Enable Master Holding" action button at the top of the
+         Hierarchy tab (M1.8/7) is the explicit opt-in for users who
+         later want to convert to a fund structure. 'manual' mode
+         (legacy projects) keeps showing the card unconditionally so
+         existing UX is preserved exactly. */}
+      {!hideMHWhenDisabled && (
       <div style={{
         ...cardBase,
         borderLeft: `4px solid ${masterHolding.enabled ? tokens.mhAccent : `color-mix(in srgb, ${tokens.mhAccent} 30%, var(--color-border))`}`,
@@ -1932,6 +1955,7 @@ export default function Module1Hierarchy() {
           />
         )}
       </div>
+      )}
 
       {/* ── Sub-Projects ── */}
       <div style={indentBlockStyle(tokens.subProjAccent)}>
