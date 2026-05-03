@@ -42,6 +42,7 @@
 import React, { useEffect, useState } from 'react';
 import type { ModelType } from '@core/types/project.types';
 import type { AssetCategory, AssetStrategy } from '../../lib/state/module1-types';
+import { COUNTRY_DATA } from '../RealEstatePlatform';
 
 // ── Wizard project type (display-level enum) ───────────────────────────────
 // Independent of the store's ProjectType ('residential' | 'hospitality' |
@@ -319,13 +320,7 @@ export default function ProjectWizard({ onCreate, onClose }: ProjectWizardProps)
         {/* Body — placeholder content per step until M1.8/2-4 fill them in */}
         <div className="pm-modal-body" style={{ minHeight: 280 }}>
           {step === 1 && (
-            <PlaceholderStep
-              testId="wizard-step-1"
-              heading="Step 1 — Project Basics"
-              body="Project name, location, currency, model type, start date, and status."
-              draft={draft}
-              setDraft={setDraft}
-            />
+            <Step1Basics draft={draft} setDraft={setDraft} />
           )}
           {step === 2 && (
             <PlaceholderStep
@@ -366,21 +361,175 @@ export default function ProjectWizard({ onCreate, onClose }: ProjectWizardProps)
   );
 }
 
-// ── Placeholder step body (M1.8/1) ────────────────────────────────────────
-// Bridges the gap between Commit 1 (scaffold) and Commits 2-4 (real step
-// fields). Step 1 wires the two required inputs — name + location — so
-// the Continue button's gating logic and the legacy onCreate handoff
-// have something real to consume. Steps 2 & 3 stay as descriptive
-// placeholders until their commits land.
+// ── Step body shared label cell ───────────────────────────────────────────
+const labelTextStyle: React.CSSProperties = {
+  fontSize: 'var(--font-meta)',
+  fontWeight: 'var(--fw-semibold)',
+  color: 'var(--color-body)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+};
+
+const radioGroupStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 6,
+  flexWrap: 'wrap',
+};
+
+function radioPillStyle(active: boolean): React.CSSProperties {
+  return {
+    padding: '6px 12px',
+    border: `1px solid ${active ? 'var(--color-navy)' : 'var(--color-border)'}`,
+    borderRadius: 'var(--radius-sm)',
+    fontSize: 'var(--font-meta)',
+    fontFamily: 'Inter, sans-serif',
+    fontWeight: 'var(--fw-semibold)',
+    background: active ? 'var(--color-navy-pale)' : 'var(--color-surface)',
+    color: active ? 'var(--color-navy)' : 'var(--color-body)',
+    cursor: 'pointer',
+  };
+}
+
+// ── Step 1: Project Basics (M1.8/2) ───────────────────────────────────────
+// Six fields. Name + Location required (Continue gating in the parent).
+// Currency dropdown lifts COUNTRY_DATA so the wizard offers the same set
+// the rest of REFM uses; the option label combines the country flag +
+// currency code so users can scan visually.
+interface Step1Props {
+  draft:    WizardDraft;
+  setDraft: React.Dispatch<React.SetStateAction<WizardDraft>>;
+}
+
+function Step1Basics({ draft, setDraft }: Step1Props) {
+  return (
+    <div data-testid="wizard-step-1">
+      <h3 style={{
+        fontSize: 'var(--font-body)',
+        fontWeight: 'var(--fw-semibold)',
+        color: 'var(--color-heading)',
+        margin: '0 0 6px 0',
+      }}>
+        Step 1 — Project Basics
+      </h3>
+      <p style={{
+        fontSize: 'var(--font-meta)',
+        color: 'var(--color-meta)',
+        margin: '0 0 var(--sp-3) 0',
+      }}>
+        Tell us about the project so we can set up your workspace.
+      </p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
+        {/* Name */}
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={labelTextStyle}>Project Name *</span>
+          <input
+            autoFocus
+            type="text"
+            value={draft.name}
+            onChange={e => setDraft(prev => ({ ...prev, name: e.target.value }))}
+            placeholder="e.g. Skyline Towers, Marina Residences..."
+            data-testid="wizard-name"
+            style={wizardInputStyle}
+          />
+        </label>
+
+        {/* Location */}
+        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={labelTextStyle}>Location *</span>
+          <input
+            type="text"
+            value={draft.location}
+            onChange={e => setDraft(prev => ({ ...prev, location: e.target.value }))}
+            placeholder="e.g. Riyadh, Saudi Arabia"
+            data-testid="wizard-location"
+            style={wizardInputStyle}
+          />
+        </label>
+
+        {/* Currency + Start Date row */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-2)' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={labelTextStyle}>Currency</span>
+            <select
+              value={draft.currency}
+              onChange={e => setDraft(prev => ({ ...prev, currency: e.target.value }))}
+              data-testid="wizard-currency"
+              style={wizardInputStyle}
+            >
+              {COUNTRY_DATA.map(c => (
+                <option key={c.currency} value={c.currency}>
+                  {c.flag} {c.currency} — {c.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <span style={labelTextStyle}>Project Start Date</span>
+            <input
+              type="date"
+              value={draft.startDate}
+              onChange={e => setDraft(prev => ({ ...prev, startDate: e.target.value }))}
+              data-testid="wizard-start-date"
+              style={wizardInputStyle}
+            />
+          </label>
+        </div>
+
+        {/* Model Type radio */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={labelTextStyle}>Model Type</span>
+          <div style={radioGroupStyle} role="radiogroup" aria-label="Model Type">
+            {(['annual', 'monthly'] as const).map(m => (
+              <button
+                key={m}
+                type="button"
+                role="radio"
+                aria-checked={draft.modelType === m}
+                onClick={() => setDraft(prev => ({ ...prev, modelType: m }))}
+                data-testid={`wizard-model-type-${m}`}
+                style={radioPillStyle(draft.modelType === m)}
+              >
+                {m === 'annual' ? 'Annual' : 'Monthly'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Status radio */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <span style={labelTextStyle}>Status</span>
+          <div style={radioGroupStyle} role="radiogroup" aria-label="Status">
+            {(['Draft', 'Active'] as const).map(s => (
+              <button
+                key={s}
+                type="button"
+                role="radio"
+                aria-checked={draft.status === s}
+                onClick={() => setDraft(prev => ({ ...prev, status: s }))}
+                data-testid={`wizard-status-${s.toLowerCase()}`}
+                style={radioPillStyle(draft.status === s)}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Placeholder step body (M1.8/2) ────────────────────────────────────────
+// Steps 2 & 3 still placeholder until M1.8/3-4 land.
 interface PlaceholderStepProps {
   testId:  string;
   heading: string;
   body:    string;
-  draft?:  WizardDraft;
-  setDraft?: React.Dispatch<React.SetStateAction<WizardDraft>>;
 }
 
-function PlaceholderStep({ testId, heading, body, draft, setDraft }: PlaceholderStepProps) {
+function PlaceholderStep({ testId, heading, body }: PlaceholderStepProps) {
   return (
     <div data-testid={testId}>
       <h3 style={{
@@ -398,51 +547,6 @@ function PlaceholderStep({ testId, heading, body, draft, setDraft }: Placeholder
       }}>
         {body}
       </p>
-
-      {draft && setDraft && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{
-              fontSize: 'var(--font-meta)',
-              fontWeight: 'var(--fw-semibold)',
-              color: 'var(--color-body)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-            }}>
-              Project Name *
-            </span>
-            <input
-              autoFocus
-              type="text"
-              value={draft.name}
-              onChange={e => setDraft(prev => ({ ...prev, name: e.target.value }))}
-              placeholder="e.g. Skyline Towers, Marina Residences..."
-              data-testid="wizard-name"
-              style={wizardInputStyle}
-            />
-          </label>
-
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={{
-              fontSize: 'var(--font-meta)',
-              fontWeight: 'var(--fw-semibold)',
-              color: 'var(--color-body)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.05em',
-            }}>
-              Location *
-            </span>
-            <input
-              type="text"
-              value={draft.location}
-              onChange={e => setDraft(prev => ({ ...prev, location: e.target.value }))}
-              placeholder="e.g. Riyadh, Saudi Arabia"
-              data-testid="wizard-location"
-              style={wizardInputStyle}
-            />
-          </label>
-        </div>
-      )}
     </div>
   );
 }
