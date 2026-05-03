@@ -40,6 +40,7 @@ import Module1Financing from './modules/Module1Financing';
 import Module1Hierarchy from './modules/Module1Hierarchy';
 import Module1AreaProgram from './modules/Module1AreaProgram';
 import ProjectModal from './modals/ProjectModal';
+import ProjectWizard from './modals/ProjectWizard';
 import VersionModal from './modals/VersionModal';
 import RbacModal from './modals/RbacModal';
 import ExportModal from './modals/ExportModal';
@@ -439,7 +440,13 @@ export default function RealEstatePlatform() {
   }, []);
 
   // ── Project Manager ──
+  // M1.8/1: pmModal still drives the legacy edit modal. New-project
+  // creation is owned by the wizard (wizardOpen below).
   const [pmModal, setPmModal] = useState<string | null>(null);
+  // M1.8/1: Smart Project Creation Wizard. Replaces the legacy
+  // ProjectModal new-project flow. Owned independently so the existing
+  // edit-modal lifecycle (pmModal === 'edit') stays untouched.
+  const [wizardOpen, setWizardOpen] = useState(false);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
   const [pmToast, setPmToast] = useState<{ msg: string; color: string } | null>(null);
@@ -1429,7 +1436,7 @@ export default function RealEstatePlatform() {
             storageData={storageData}
             activeProjectId={activeProjectId}
             onSelectProject={handleSelectProject}
-            onCreateProject={() => setPmModal('new')}
+            onCreateProject={() => setWizardOpen(true)}
             onEditProject={handleEditProjectClick}
             onDeleteProject={handleDeleteProject}
             setActiveModule={setActiveModule}
@@ -1836,17 +1843,28 @@ export default function RealEstatePlatform() {
       </div>
 
       {/* Modals */}
-      {(pmModal === 'new' || pmModal === 'edit') && (
+      {/* M1.8/1: New-project creation moved to ProjectWizard. The
+         legacy ProjectModal remains for the edit-project flow only. */}
+      {pmModal === 'edit' && (
         <ProjectModal
-          mode={pmModal}
-          initialName={pmModal === 'edit' ? (activeProjectData?.name ?? '') : ''}
-          initialLocation={pmModal === 'edit' ? (activeProjectData?.location ?? '') : ''}
+          mode="edit"
+          initialName={activeProjectData?.name ?? ''}
+          initialLocation={activeProjectData?.location ?? ''}
           pmInputVal={pmInputVal}
           setPmInputVal={setPmInputVal}
           pmLocationVal={pmLocationVal}
           setPmLocationVal={setPmLocationVal}
-          onConfirm={pmModal === 'edit' ? handleEditProject : handleCreateProject}
+          onConfirm={handleEditProject}
           onClose={() => setPmModal(null)}
+        />
+      )}
+      {wizardOpen && (
+        <ProjectWizard
+          onCreate={(name, location) => {
+            setWizardOpen(false);
+            handleCreateProject(name, location);
+          }}
+          onClose={() => setWizardOpen(false)}
         />
       )}
       {pmModal === 'version' && (
