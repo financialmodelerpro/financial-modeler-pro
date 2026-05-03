@@ -39,9 +39,10 @@
  * end-to-end during the staged build.
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import type { ModelType } from '@core/types/project.types';
 import type { AssetCategory, AssetStrategy } from '../../lib/state/module1-types';
+import { PREBUILT_ASSET_TYPES, DEFAULT_STRATEGY_BY_CATEGORY } from '../../lib/state/module1-types';
 import { COUNTRY_DATA } from '../RealEstatePlatform';
 
 // ── Wizard project type (display-level enum) ───────────────────────────────
@@ -90,6 +91,52 @@ export interface WizardDraft {
   assets:            WizardDraftAsset[];
 }
 
+// ── Default asset matrix per project type (M1.8/4) ─────────────────────────
+// Suggested seed assets per wizard project type. Each row mirrors a
+// WizardDraftAsset minus the local id (assigned at seed time). Allocation
+// % per row sums to 100 within each type. Custom returns []; the user
+// adds rows manually.
+//
+// Source: brief table — Residential 100% high-end apartments, Hospitality
+// 100% Hotel 5-star, Retail 100% Retail, Office 100% Office, Mixed-Use
+// split 50/30/20 across residential/hotel/retail. Asset names + types
+// match PREBUILT_ASSET_TYPES so the type dropdown lands on the right
+// option without the user picking again.
+type WizardDefaultAssetSeed = Omit<WizardDraftAsset, 'id'>;
+
+export const WIZARD_DEFAULT_ASSETS_BY_TYPE: Record<WizardProjectType, WizardDefaultAssetSeed[]> = {
+  Residential: [
+    { name: 'Residential Tower', type: 'High-end Apartments', category: 'Sell', allocationPct: 100, strategy: 'Develop & Sell' },
+  ],
+  Hospitality: [
+    { name: 'Hotel', type: 'Hotel 5-star', category: 'Operate', allocationPct: 100, strategy: 'Develop & Operate' },
+  ],
+  Retail: [
+    { name: 'Retail Center', type: 'Retail', category: 'Lease', allocationPct: 100, strategy: 'Develop & Lease' },
+  ],
+  Office: [
+    { name: 'Office Tower', type: 'Office', category: 'Lease', allocationPct: 100, strategy: 'Develop & Lease' },
+  ],
+  'Mixed-Use': [
+    { name: 'Residential Tower', type: 'High-end Apartments', category: 'Sell',    allocationPct: 50, strategy: 'Develop & Sell' },
+    { name: 'Hotel',             type: 'Hotel 5-star',        category: 'Operate', allocationPct: 30, strategy: 'Develop & Operate' },
+    { name: 'Retail Podium',     type: 'Retail',              category: 'Lease',   allocationPct: 20, strategy: 'Develop & Lease' },
+  ],
+  Custom: [],
+};
+
+// Local id helper. The wizard never persists these — the build helper
+// (M1.8/5) mints stable AssetClass ids when writing the snapshot.
+let _wizardAssetIdCounter = 0;
+function makeWizardAssetId(): string {
+  _wizardAssetIdCounter += 1;
+  return `wizard_asset_${Date.now()}_${_wizardAssetIdCounter}`;
+}
+
+export function seedAssetsForType(type: WizardProjectType): WizardDraftAsset[] {
+  return WIZARD_DEFAULT_ASSETS_BY_TYPE[type].map(a => ({ ...a, id: makeWizardAssetId() }));
+}
+
 // ── Defaults ───────────────────────────────────────────────────────────────
 // Step 1 default startDate = today + 6 months (clamped to YYYY-MM-DD).
 // Currency default SAR matches DEFAULT_MODULE1_STATE so wizard projects
@@ -112,17 +159,25 @@ export function makeWizardDefaultDraft(): WizardDraft {
     phaseCount:          1,
     plotCount:           1,
     wizardProjectType:   'Mixed-Use',
-    assets:              [],   // populated by Step 3 from the project-type matrix
+    // Pre-seed with the Mixed-Use defaults so Step 3 opens with a
+    // populated list. The user can change the project type at any time
+    // and the assets table re-seeds (see Step3Assets handleTypeChange).
+    assets:              seedAssetsForType('Mixed-Use'),
   };
 }
 
 // ── Dirty detection (Esc / backdrop confirm) ───────────────────────────────
 // "Has the user entered any data" reduces to "does the current draft
 // differ from the seed default in any field that we'd be sad to lose?"
-// Asset list is excluded from this check because Step 3 seeds it from
-// the project-type matrix automatically — a freshly-opened wizard with
-// the default Mixed-Use type has 3 assets but the user hasn't edited
-// them.
+// Asset list is compared by signature (name/type/category/allocationPct)
+// rather than by reference equality because the seed populates ids via
+// makeWizardAssetId() at draft-creation time, and those ids will never
+// match a re-seeded list even when the user hasn't actually changed
+// anything.
+function assetSignature(assets: WizardDraftAsset[]): string {
+  return assets.map(a => `${a.name}:${a.type}:${a.category}:${a.allocationPct}:${a.strategy}`).join('|');
+}
+
 function isDraftDirty(d: WizardDraft, seed: WizardDraft): boolean {
   return (
     d.name !== seed.name ||
@@ -134,7 +189,8 @@ function isDraftDirty(d: WizardDraft, seed: WizardDraft): boolean {
     d.enableMasterHolding !== seed.enableMasterHolding ||
     d.phaseCount !== seed.phaseCount ||
     d.plotCount !== seed.plotCount ||
-    d.wizardProjectType !== seed.wizardProjectType
+    d.wizardProjectType !== seed.wizardProjectType ||
+    assetSignature(d.assets) !== assetSignature(seed.assets)
   );
 }
 
@@ -229,7 +285,11 @@ export default function ProjectWizard({ onCreate, onClose }: ProjectWizardProps)
   const step1Valid = draft.name.trim().length > 0 && draft.location.trim().length > 0;
   const step2Valid = draft.phaseCount >= 1 && draft.phaseCount <= 10
     && draft.plotCount >= 1 && draft.plotCount <= 20;
-  const step3Valid = true;   // M1.8/4 will gate on assets sum=100
+  // Step 3 valid: at least 1 asset AND total allocation sums to exactly
+  // 100%. Allow a tiny float tolerance (0.01) so the auto-balance helper
+  // doesn't trap users with 33.33 + 33.33 + 33.34 = 100.00 rounding.
+  const step3AllocSum = draft.assets.reduce((s, a) => s + (Number.isFinite(a.allocationPct) ? a.allocationPct : 0), 0);
+  const step3Valid = draft.assets.length > 0 && Math.abs(step3AllocSum - 100) < 0.01;
 
   const continueEnabled =
     step === 1 ? step1Valid :
@@ -326,11 +386,7 @@ export default function ProjectWizard({ onCreate, onClose }: ProjectWizardProps)
             <Step2Structure draft={draft} setDraft={setDraft} />
           )}
           {step === 3 && (
-            <PlaceholderStep
-              testId="wizard-step-3"
-              heading="Step 3 — Assets"
-              body="Project type and editable asset list with allocation %."
-            />
+            <Step3Assets draft={draft} setDraft={setDraft} allocSum={step3AllocSum} />
           )}
         </div>
 
@@ -724,32 +780,322 @@ function Step2Structure({ draft, setDraft }: Step2Props) {
   );
 }
 
-// ── Placeholder step body (M1.8/3) ────────────────────────────────────────
-// Step 3 still placeholder until M1.8/4 lands.
-interface PlaceholderStepProps {
-  testId:  string;
-  heading: string;
-  body:    string;
+// ── Step 3: Assets (M1.8/4) ───────────────────────────────────────────────
+// Project Type radio (Residential / Hospitality / Retail / Office /
+// Mixed-Use / Custom) + an editable asset list. Changing the type re-
+// seeds the asset list from WIZARD_DEFAULT_ASSETS_BY_TYPE — but only
+// when the user hasn't manually customized it (otherwise we'd discard
+// their work on an accidental click). We track this via the asset
+// signature (length + name list).
+//
+// Each row exposes Name / Type / Category / Allocation % / Remove. The
+// Type dropdown is built from PREBUILT_ASSET_TYPES bucketed by category,
+// plus a "Custom" option that lets the user type a free-form name.
+// Category is editable independently so users can override the default
+// per-type bucket (e.g. set a Hotel asset to Operate or Hybrid).
+//
+// Allocation % is a free-form number input. The "Auto-balance" button
+// distributes 100% evenly across all rows (rounded down with the
+// remainder added to the first row so the total lands exactly on 100).
+// Step3Valid in the parent gates on sum===100 so the user can't proceed
+// with an invalid mix.
+interface Step3Props {
+  draft:    WizardDraft;
+  setDraft: React.Dispatch<React.SetStateAction<WizardDraft>>;
+  allocSum: number;
 }
 
-function PlaceholderStep({ testId, heading, body }: PlaceholderStepProps) {
+const PREBUILT_TYPE_FLAT: Array<{ category: AssetCategory; type: string }> = (() => {
+  const out: Array<{ category: AssetCategory; type: string }> = [];
+  for (const cat of ['Sell', 'Operate', 'Lease', 'Hybrid'] as const) {
+    for (const t of PREBUILT_ASSET_TYPES[cat]) out.push({ category: cat, type: t });
+  }
+  return out;
+})();
+
+function Step3Assets({ draft, setDraft, allocSum }: Step3Props) {
+  // Has the user customized the auto-seeded asset list? Compare the
+  // current row signature to the seed for the active type. If it
+  // matches, switching project type re-seeds the list automatically.
+  // If the user has edited rows, switching type pops a confirm so we
+  // don't silently throw away their work.
+  const seedSignature = useMemo(() => {
+    return WIZARD_DEFAULT_ASSETS_BY_TYPE[draft.wizardProjectType]
+      .map(a => `${a.name}:${a.type}:${a.category}:${a.allocationPct}`).join('|');
+  }, [draft.wizardProjectType]);
+  const currentSignature = draft.assets
+    .map(a => `${a.name}:${a.type}:${a.category}:${a.allocationPct}`).join('|');
+  const isSeeded = seedSignature === currentSignature;
+
+  function handleTypeChange(next: WizardProjectType) {
+    if (next === draft.wizardProjectType) return;
+    let assets = draft.assets;
+    if (isSeeded || draft.assets.length === 0) {
+      assets = seedAssetsForType(next);
+    } else {
+      const ok = window.confirm(
+        `Replace the current asset list with the default mix for "${next}"?\n\nYour edits to the existing assets will be lost.`,
+      );
+      if (ok) assets = seedAssetsForType(next);
+    }
+    setDraft(prev => ({ ...prev, wizardProjectType: next, assets }));
+  }
+
+  function updateAsset(id: string, patch: Partial<WizardDraftAsset>) {
+    setDraft(prev => ({
+      ...prev,
+      assets: prev.assets.map(a => (a.id === id ? { ...a, ...patch } : a)),
+    }));
+  }
+
+  function removeAsset(id: string) {
+    setDraft(prev => ({
+      ...prev,
+      assets: prev.assets.filter(a => a.id !== id),
+    }));
+  }
+
+  function addAsset() {
+    const newRow: WizardDraftAsset = {
+      id: makeWizardAssetId(),
+      name: 'New Asset',
+      type: 'High-end Apartments',
+      category: 'Sell',
+      allocationPct: 0,
+      strategy: DEFAULT_STRATEGY_BY_CATEGORY['Sell'],
+    };
+    setDraft(prev => ({ ...prev, assets: [...prev.assets, newRow] }));
+  }
+
+  function autoBalance() {
+    setDraft(prev => {
+      const n = prev.assets.length;
+      if (n === 0) return prev;
+      const base = Math.floor(10000 / n) / 100;     // % with 2dp, rounded down
+      const remainder = 100 - base * n;
+      return {
+        ...prev,
+        assets: prev.assets.map((a, i) => ({
+          ...a,
+          allocationPct: i === 0 ? Math.round((base + remainder) * 100) / 100 : base,
+        })),
+      };
+    });
+  }
+
+  // Type dropdown change: also flips category to the matching bucket
+  // so the row stays internally consistent. If user picks Custom, leave
+  // category alone (they may want Sell/Operate/Lease/Hybrid manually).
+  function handleAssetTypeChange(id: string, type: string) {
+    const found = PREBUILT_TYPE_FLAT.find(p => p.type === type);
+    if (found) {
+      updateAsset(id, {
+        type,
+        category: found.category,
+        strategy: DEFAULT_STRATEGY_BY_CATEGORY[found.category],
+      });
+    } else {
+      updateAsset(id, { type });
+    }
+  }
+
+  function handleAssetCategoryChange(id: string, category: AssetCategory) {
+    updateAsset(id, {
+      category,
+      strategy: DEFAULT_STRATEGY_BY_CATEGORY[category],
+    });
+  }
+
+  const allocOk = Math.abs(allocSum - 100) < 0.01;
+  const allocColor = allocOk ? 'var(--color-positive)' : 'var(--color-negative)';
+
   return (
-    <div data-testid={testId}>
+    <div data-testid="wizard-step-3">
       <h3 style={{
         fontSize: 'var(--font-body)',
         fontWeight: 'var(--fw-semibold)',
         color: 'var(--color-heading)',
         margin: '0 0 6px 0',
       }}>
-        {heading}
+        Step 3 — Assets
       </h3>
       <p style={{
         fontSize: 'var(--font-meta)',
         color: 'var(--color-meta)',
         margin: '0 0 var(--sp-3) 0',
       }}>
-        {body}
+        Pick a project type — we&apos;ll suggest a starting set. Edit / add /
+        remove assets as needed; allocation % across all rows must sum
+        to 100.
       </p>
+
+      {/* Project Type radio (3 across) */}
+      <div style={{ marginBottom: 'var(--sp-3)' }}>
+        <span style={labelTextStyle}>Project Type</span>
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: 6,
+          marginTop: 6,
+        }} role="radiogroup" aria-label="Project Type">
+          {WIZARD_PROJECT_TYPES.map(t => (
+            <button
+              key={t}
+              type="button"
+              role="radio"
+              aria-checked={draft.wizardProjectType === t}
+              data-testid={`wizard-project-type-${t.toLowerCase().replace(/[^a-z]/g, '')}`}
+              onClick={() => handleTypeChange(t)}
+              style={{
+                ...radioPillStyle(draft.wizardProjectType === t),
+                textAlign: 'center',
+              }}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Asset rows */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }} data-testid="wizard-assets-list">
+        {draft.assets.length === 0 && (
+          <div style={{
+            padding: 'var(--sp-3)',
+            textAlign: 'center',
+            border: '1px dashed var(--color-border)',
+            borderRadius: 'var(--radius-sm)',
+            color: 'var(--color-meta)',
+            fontSize: 'var(--font-meta)',
+          }}>
+            No assets yet. Click <strong>+ Add Asset</strong> below to build your mix manually.
+          </div>
+        )}
+        {draft.assets.map(a => (
+          <div
+            key={a.id}
+            data-testid={`wizard-asset-row-${a.id}`}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1.5fr) minmax(0, 1fr) 80px 28px',
+              gap: 6,
+              alignItems: 'center',
+              padding: '8px',
+              background: 'color-mix(in srgb, var(--color-positive) 4%, var(--color-surface))',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-sm)',
+            }}
+          >
+            <input
+              type="text"
+              value={a.name}
+              onChange={e => updateAsset(a.id, { name: e.target.value })}
+              placeholder="Asset name"
+              data-testid="wizard-asset-name"
+              style={wizardInputStyle}
+            />
+            <select
+              value={a.type}
+              onChange={e => handleAssetTypeChange(a.id, e.target.value)}
+              data-testid="wizard-asset-type"
+              style={wizardInputStyle}
+            >
+              {(['Sell', 'Operate', 'Lease', 'Hybrid'] as const).map(cat => (
+                <optgroup key={cat} label={cat}>
+                  {PREBUILT_ASSET_TYPES[cat].map(t => <option key={`${cat}/${t}`} value={t}>{t}</option>)}
+                </optgroup>
+              ))}
+              {!PREBUILT_TYPE_FLAT.some(p => p.type === a.type) && (
+                <option value={a.type}>{a.type} (custom)</option>
+              )}
+            </select>
+            <select
+              value={a.category}
+              onChange={e => handleAssetCategoryChange(a.id, e.target.value as AssetCategory)}
+              data-testid="wizard-asset-category"
+              style={wizardInputStyle}
+            >
+              <option value="Sell">Sell</option>
+              <option value="Operate">Operate</option>
+              <option value="Lease">Lease</option>
+              <option value="Hybrid">Hybrid</option>
+            </select>
+            <input
+              type="number"
+              min={0}
+              max={100}
+              step={0.01}
+              value={a.allocationPct}
+              onChange={e => {
+                const v = parseFloat(e.target.value);
+                updateAsset(a.id, { allocationPct: Number.isFinite(v) ? v : 0 });
+              }}
+              data-testid="wizard-asset-allocation"
+              style={{ ...wizardInputStyle, textAlign: 'right' }}
+            />
+            <button
+              type="button"
+              onClick={() => removeAsset(a.id)}
+              disabled={draft.assets.length <= 1}
+              aria-label={`Remove ${a.name}`}
+              title={draft.assets.length <= 1 ? 'Need at least one asset' : `Remove ${a.name}`}
+              data-testid="wizard-asset-remove"
+              style={{
+                background: 'transparent',
+                border: 'none',
+                cursor: draft.assets.length <= 1 ? 'not-allowed' : 'pointer',
+                opacity: draft.assets.length <= 1 ? 0.3 : 1,
+                color: 'var(--color-negative)',
+                fontSize: 14,
+                padding: 0,
+              }}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {/* Add + Auto-balance + Total */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 'var(--sp-2)',
+        marginTop: 'var(--sp-2)',
+      }}>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <button
+            type="button"
+            onClick={addAsset}
+            data-testid="wizard-asset-add"
+            className="btn-secondary"
+            style={{ fontSize: 'var(--font-meta)', padding: '6px 12px' }}
+          >
+            + Add Asset
+          </button>
+          <button
+            type="button"
+            onClick={autoBalance}
+            disabled={draft.assets.length === 0}
+            data-testid="wizard-asset-autobalance"
+            className="btn-secondary"
+            style={{ fontSize: 'var(--font-meta)', padding: '6px 12px' }}
+          >
+            ⚖ Auto-balance
+          </button>
+        </div>
+        <div
+          data-testid="wizard-asset-total"
+          style={{
+            fontSize: 'var(--font-meta)',
+            fontWeight: 'var(--fw-semibold)',
+            color: allocColor,
+          }}
+        >
+          Total: {allocSum.toFixed(2)}% {allocOk ? '✓' : '(must = 100)'}
+        </div>
+      </div>
     </div>
   );
 }
