@@ -14,14 +14,16 @@ Six tabs: **Hierarchy · Area Program · Timeline · Land & Area · Dev Costs ·
 
 **Purpose:** replace the legacy "+ New Project" → ProjectModal flow with a guided 3-step wizard that pre-creates the full project skeleton (Master Holding optional / Sub-Project / Phases / Plots / Assets / placeholder Sub-Units) so a brand-new project lands ready to model on the Area Program tab instead of the empty Hierarchy tab.
 
+**Modal layout:** 1080px max-width (post-launch hotfix `e217978`, up from 640px so Step 3's asset-row grid doesn't crunch). `width: '100%'` retained for narrow-viewport graceful shrink.
+
 **Wizard flow:**
 
 **Step 1 — Project Basics:**
 - **Name** (required, free text)
 - **Location** (required, free text)
-- **Currency** (dropdown sourced from COUNTRY_DATA; default = SAR)
-- **Model Type** (`annual` | `monthly`; default `annual`)
+- **Currency** (dropdown sourced from COUNTRY_DATA; default = SAR) — paired with Project Start Date in a 2-column grid row
 - **Project Start Date** (default = today + 6 months)
+- **Model Type** (`annual` | `monthly`; default `annual`) — paired with Status in a 2-column grid row (post-launch hotfix `a15fcbc` so the entire Step 1 form fits on standard 1080p without scrolling)
 - **Status** (`Draft` | `Active` | `IC Review` | `Approved` | `Archived`; default `Draft`)
 
 **Step 2 — Project Structure:**
@@ -51,7 +53,7 @@ Six tabs: **Hierarchy · Area Program · Timeline · Land & Area · Dev Costs ·
   - `costs: []` (legacy default-cost seed `useEffect` in `RealEstatePlatform` stamps the standard 12-cost mix the first time the user opens Dev Costs)
   - `hierarchyDisclosure: 'progressive'` (wizard is the only producer of this value; legacy projects stay `'manual'`)
 - **WizardProjectType collapse:** the 6 display values map down to the 3 store ProjectType values via `mapWizardToProjectType()` — Residential → `'residential'`, Hospitality → `'hospitality'`, everything else (Retail / Office / Mixed-Use / Custom) → `'mixed-use'` (the only enum that admits arbitrary asset allocations).
-- **Post-create handler** `handleCreateProjectFromWizard` in `RealEstatePlatform.tsx`: hydrate store → POST `/api/refm/projects` with the snapshot → activate → attach auto-save → `setActiveTab('area-program')` so the user lands on Area Program (not Hierarchy).
+- **Post-create handler** `handleCreateProjectFromWizard` in `RealEstatePlatform.tsx`: hydrate store → POST `/api/refm/projects` with the snapshot → `attachToProjectFromLocalSnapshot(pid, snapshot)` (post-launch hotfix `5085958` — uses the new sync helper that writes the active-id marker + cache + starts auto-save WITHOUT a round-trip `loadProject`, sidestepping a `hydrationFromAnySnapshot` recogniser bug that wiped wizard data on a bare `HydrateSnapshot`) → `setActiveTab('area-program')` so the user lands on Area Program (not Hierarchy).
 
 **Key validations:**
 - ⚠ Step 3 Continue is disabled while allocations don't sum to 100 % (live red total).
