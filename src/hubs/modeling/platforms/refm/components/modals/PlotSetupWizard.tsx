@@ -29,6 +29,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useModule1Store } from '../../lib/state/module1-store';
 import type { Plot } from '../../lib/state/module1-types';
+import InputLabel from '../ui/InputLabel';
+import { PLOT_FIELD_HELP } from '../../lib/copy/plotFieldHelp';
 
 // ── Plot draft type ──
 // Same shape as Plot's writable numeric fields — nothing exotic. id /
@@ -266,15 +268,15 @@ export default function PlotSetupWizard({ plotId, onClose }: Props): React.React
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--sp-2)' }}>
                 <div>
-                  <label style={labelStyle}>Plot Buildable Area (sqm)</label>
+                  <InputLabel label="Plot Buildable Area (sqm)" help={PLOT_FIELD_HELP.plotArea} />
                   <input data-testid="plot-wizard-plotArea" style={inputStyle} type="number" min={0} value={draft.plotArea} onChange={setNum('plotArea')} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Max FAR (ratio)</label>
+                  <InputLabel label="Max FAR (ratio)" help={PLOT_FIELD_HELP.maxFAR} />
                   <input data-testid="plot-wizard-maxFAR" style={inputStyle} type="number" min={0} step={0.1} value={draft.maxFAR} onChange={setNum('maxFAR')} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Podium Coverage (%)</label>
+                  <InputLabel label="Podium Coverage (%)" help={PLOT_FIELD_HELP.coveragePct} />
                   <input data-testid="plot-wizard-coveragePct" style={inputStyle} type="number" min={0} max={100} value={draft.coveragePct} onChange={setNum('coveragePct')} />
                 </div>
               </div>
@@ -291,29 +293,29 @@ export default function PlotSetupWizard({ plotId, onClose }: Props): React.React
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
                 <div>
-                  <label style={labelStyle}>Total Floors (#)</label>
+                  <InputLabel label="Total Floors (#)" help={PLOT_FIELD_HELP.numberOfFloors} />
                   <input data-testid="plot-wizard-numberOfFloors" style={inputStyle} type="number" min={0} value={draft.numberOfFloors} onChange={setNum('numberOfFloors')} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Podium Floors (#)</label>
+                  <InputLabel label="Podium Floors (#)" help={PLOT_FIELD_HELP.podiumFloors} />
                   <input data-testid="plot-wizard-podiumFloors" style={inputStyle} type="number" min={0} value={draft.podiumFloors} onChange={setNum('podiumFloors')} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Typical Floors (#)</label>
+                  <InputLabel label="Typical Floors (#)" help={PLOT_FIELD_HELP.typicalFloors} />
                   <input data-testid="plot-wizard-typicalFloors" style={inputStyle} type="number" min={0} value={draft.typicalFloors} onChange={setNum('typicalFloors')} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Typical Coverage (%)</label>
+                  <InputLabel label="Typical Coverage (%)" help={PLOT_FIELD_HELP.typicalCoveragePct} />
                   <input data-testid="plot-wizard-typicalCoveragePct" style={inputStyle} type="number" min={0} max={100} value={draft.typicalCoveragePct} onChange={setNum('typicalCoveragePct')} />
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-2)' }}>
                 <div>
-                  <label style={labelStyle}>Landscape (% public)</label>
+                  <InputLabel label="Landscape (% public)" help={PLOT_FIELD_HELP.landscapePct} />
                   <input data-testid="plot-wizard-landscapePct" style={inputStyle} type="number" min={0} max={100} value={draft.landscapePct} onChange={setNum('landscapePct')} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Hardscape (% public)</label>
+                  <InputLabel label="Hardscape (% public)" help={PLOT_FIELD_HELP.hardscapePct} />
                   <input data-testid="plot-wizard-hardscapePct" style={inputStyle} type="number" min={0} max={100} value={draft.hardscapePct} onChange={setNum('hardscapePct')} />
                 </div>
               </div>
@@ -352,29 +354,29 @@ export default function PlotSetupWizard({ plotId, onClose }: Props): React.React
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>
                 <div>
-                  <label style={labelStyle}>Surface Bay (sqm)</label>
+                  <InputLabel label="Surface Bay (sqm)" help={PLOT_FIELD_HELP.surfaceBaySqm} />
                   <input data-testid="plot-wizard-surfaceBaySqm" style={inputStyle} type="number" min={0} value={draft.surfaceBaySqm} onChange={setNum('surfaceBaySqm')} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Vertical Bay (sqm)</label>
+                  <InputLabel label="Vertical Bay (sqm)" help={PLOT_FIELD_HELP.verticalBaySqm} />
                   <input data-testid="plot-wizard-verticalBaySqm" style={inputStyle} type="number" min={0} value={draft.verticalBaySqm} onChange={setNum('verticalBaySqm')} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Basement Bay (sqm)</label>
+                  <InputLabel label="Basement Bay (sqm)" help={PLOT_FIELD_HELP.basementBaySqm} />
                   <input data-testid="plot-wizard-basementBaySqm" style={inputStyle} type="number" min={0} value={draft.basementBaySqm} onChange={setNum('basementBaySqm')} />
                 </div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--sp-2)' }}>
                 <div>
-                  <label style={labelStyle}>Basement Count (#)</label>
+                  <InputLabel label="Basement Count (#)" help={PLOT_FIELD_HELP.basementCount} />
                   <input data-testid="plot-wizard-basementCount" style={inputStyle} type="number" min={0} value={draft.basementCount} onChange={setNum('basementCount')} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Basement Efficiency (%)</label>
+                  <InputLabel label="Basement Efficiency (%)" help={PLOT_FIELD_HELP.basementEfficiencyPct} />
                   <input data-testid="plot-wizard-basementEfficiencyPct" style={inputStyle} type="number" min={0} max={100} value={draft.basementEfficiencyPct} onChange={setNum('basementEfficiencyPct')} />
                 </div>
                 <div>
-                  <label style={labelStyle}>Vertical Parking Floors (#)</label>
+                  <InputLabel label="Vertical Parking Floors (#)" help={PLOT_FIELD_HELP.verticalParkingFloors} />
                   <input data-testid="plot-wizard-verticalParkingFloors" style={inputStyle} type="number" min={0} value={draft.verticalParkingFloors} onChange={setNum('verticalParkingFloors')} />
                 </div>
               </div>

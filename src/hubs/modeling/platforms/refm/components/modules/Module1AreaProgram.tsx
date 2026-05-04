@@ -43,6 +43,8 @@ import {
 } from '@core/calculations';
 import { useModule1Store } from '../../lib/state/module1-store';
 import PlotSetupWizard from '../modals/PlotSetupWizard';
+import InputLabel from '../ui/InputLabel';
+import { PLOT_FIELD_HELP } from '../../lib/copy/plotFieldHelp';
 import {
   ASSET_STRATEGIES, DEFAULT_AREA_CASCADE_BY_CATEGORY,
   DEFAULT_PARKING_BAYS_BY_SUBUNIT_TYPE,
@@ -163,16 +165,24 @@ function PlotEditor({ plot, allPlotsCount, onOpenWizard }: { plot: Plot; allPlot
     basementCount: plot.basementCount, basementEfficiencyPct: plot.basementEfficiencyPct,
   }), [plot]);
 
+  // M1.10b/5 — InputLabel with shared tooltip copy. Wrapper is no longer
+  // a <label> (InputLabel renders its own structured label markup), so
+  // the input is paired by visual proximity rather than label-htmlFor.
   const numField = (key: keyof Plot, label: string, suffix?: string) => (
-    <label style={{ display: 'block' }}>
-      <span style={labelStyle}>{label}{suffix ? ` (${suffix})` : ''}</span>
+    <div style={{ display: 'block' }}>
+      <InputLabel
+        label={`${label}${suffix ? ` (${suffix})` : ''}`}
+        help={PLOT_FIELD_HELP[key as string]}
+        inputId={`plot-${plot.id}-${key as string}`}
+      />
       <input
         type="number"
+        id={`plot-${plot.id}-${key as string}`}
         value={(plot[key] as number) ?? 0}
         onChange={e => updatePlot(plot.id, { [key]: parseFloat(e.target.value) || 0 } as Partial<Plot>)}
         style={inputStyle}
       />
-    </label>
+    </div>
   );
 
   const calcRow = (label: string, value: number, suffix = 'sqm') => (
@@ -253,15 +263,20 @@ function PlotEditor({ plot, allPlotsCount, onOpenWizard }: { plot: Plot; allPlot
         {numField('basementBaySqm',        'Basement Bay',        'sqm')}
         {numField('basementCount',         'Basement Count',      '#')}
         {numField('basementEfficiencyPct', 'Basement Efficiency', '%')}
-        <label style={{ display: 'block' }}>
-          <span style={labelStyle}>Vertical Parking Floors (#)</span>
+        <div style={{ display: 'block' }}>
+          <InputLabel
+            label="Vertical Parking Floors (#)"
+            help={PLOT_FIELD_HELP.verticalParkingFloors}
+            inputId={`plot-${plot.id}-verticalParkingFloors`}
+          />
           <input
             type="number"
+            id={`plot-${plot.id}-verticalParkingFloors`}
             value={plot.verticalParkingFloors ?? 0}
             onChange={e => updatePlot(plot.id, { verticalParkingFloors: parseFloat(e.target.value) || 0 })}
             style={inputStyle}
           />
-        </label>
+        </div>
       </div>
 
       {/* Computed envelope */}
