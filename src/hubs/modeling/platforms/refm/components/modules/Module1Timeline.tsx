@@ -26,6 +26,7 @@ import React from 'react';
 import type { ModelType, ProjectType } from '@/src/core/types/project.types';
 import Module1Hierarchy from './Module1Hierarchy';
 import InputLabel from '../ui/InputLabel';
+import ProjectTimelineVisual from '../ui/ProjectTimelineVisual';
 
 interface Module1TimelineProps {
   // Identity props kept on the interface for backward compat with the
@@ -264,43 +265,19 @@ export default function Module1Timeline({
         </div>
       </div>
 
-      {/* Timeline visual */}
+      {/* Timeline visual (M1.11/C3): semantic dates at every transition,
+         multi-phase aware (renders one bar per phase when phases.length > 1). */}
       <div className="module-card" style={{ padding: 'var(--sp-3)', marginTop: 'var(--sp-2)' }}>
         <h3 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--sp-2)', marginTop: 0 }}>
           Project Timeline Visual
         </h3>
-        <div style={{ display: 'flex', gap: '4px', height: '40px', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
-          <div style={{
-            flex: constructionPeriods,
-            background: 'color-mix(in srgb, var(--color-primary) 75%, transparent)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'var(--color-on-primary-navy)', fontSize: '11px', fontWeight: 700,
-          }}>
-            Construction · {constructionPeriods} {periodLabel}
-          </div>
-          {overlapPeriods > 0 && (
-            <div style={{
-              flex: overlapPeriods,
-              background: 'linear-gradient(90deg, color-mix(in srgb, var(--color-primary) 75%, transparent), color-mix(in srgb, var(--color-success) 75%, transparent))',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: 'var(--color-on-primary-navy)', fontSize: '10px', fontWeight: 700,
-            }}>
-              Overlap
-            </div>
-          )}
-          <div style={{
-            flex: operationsPeriods,
-            background: 'color-mix(in srgb, var(--color-success) 75%, transparent)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'var(--color-on-primary-navy)', fontSize: '11px', fontWeight: 700,
-          }}>
-            Operations · {operationsPeriods} {periodLabel}
-          </div>
-        </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
-          <span style={{ fontSize: '11px', color: 'var(--color-muted)' }}>{projectStart}</span>
-          <span style={{ fontSize: '11px', color: 'var(--color-muted)' }}>{endDate}</span>
-        </div>
+        <ProjectTimelineVisual
+          projectStart={projectStart}
+          modelType={modelType}
+          fallbackConstruction={constructionPeriods}
+          fallbackOperations={operationsPeriods}
+          fallbackOverlap={overlapPeriods}
+        />
       </div>
 
       {/* M1.9b/2 — project structure editors mounted from the dissolved
