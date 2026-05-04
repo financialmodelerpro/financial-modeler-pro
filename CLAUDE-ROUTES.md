@@ -1,22 +1,22 @@
 # Routes & Folder Structure
 
-> Referenced from CLAUDE.md — all page routes, API routes, components, and lib structure.
+> Referenced from CLAUDE.md, all page routes, API routes, components, and lib structure.
 
 ---
 
-## `app/` — Routes by subdomain
+## `app/`, Routes by subdomain
 
 ### Main Site (`financialmodelerpro.com`)
 ```
 app/
 ├── (cms)/[slug]/page.tsx        # Dynamic CMS catch-all
-├── (portal)/page.tsx            # Home page — CMS Option B (each section from page_sections fed into custom JSX)
+├── (portal)/page.tsx            # Home page, CMS Option B (each section from page_sections fed into custom JSX)
 ├── (portal)/HeroScrollBtn.tsx   # Client scroll button
 ├── (portal)/FounderExpand.tsx   # Client expand/collapse for founder profile (long bio, experience, philosophy)
 ├── layout.tsx                   # Root layout, SessionProvider, Inter font
 ├── globals.css                  # SINGLE SOURCE OF TRUTH for all CSS tokens
-├── about/ahmad-din/page.tsx     # Founder profile page — reads from page_sections team content; "Get in Touch" section with email/WhatsApp/LinkedIn/booking
-# NOTE: app/about/page.tsx DELETED 2026-04-18 — /about redirects to /about/ahmad-din (next.config.ts)
+├── about/ahmad-din/page.tsx     # Founder profile page, reads from page_sections team content; "Get in Touch" section with email/WhatsApp/LinkedIn/booking
+# NOTE: app/about/page.tsx DELETED 2026-04-18, /about redirects to /about/ahmad-din (next.config.ts)
 ├── articles/page.tsx
 ├── articles/[slug]/page.tsx
 ├── book-a-meeting/page.tsx      # Calendly inline embed (no redirect) via CalendlyEmbed component; reads booking_url from CMS team section
@@ -32,7 +32,7 @@ app/
 ├── verify/layout.tsx            # Pins metadataBase + canonical + og:url to LEARN_URL so share previews always show learn.* in the card footer (no main-domain inheritance from root layout)
 ├── verify/page.tsx              # Verify ID lookup form
 ├── verify/VerifySearchForm.tsx  # Client lookup form
-├── verify/[uuid]/page.tsx       # Certificate public verification — dark gradient hero, NavbarServer, inline Certificate/Badge/Transcript preview grid (4:3 PDF iframe + 1:1 badge img + 3:4 transcript iframe with pre-cache fallback), QR, downloads + Share Certificate
+├── verify/[uuid]/page.tsx       # Certificate public verification, dark gradient hero, NavbarServer, inline Certificate/Badge/Transcript preview grid (4:3 PDF iframe + 1:1 badge img + 3:4 transcript iframe with pre-cache fallback), QR, downloads + Share Certificate
 └── verify/[uuid]/VerifyActions.tsx # Client share flow: downloads + ShareModal using certificate_earned template
 ```
 
@@ -48,7 +48,7 @@ app/admin/
 ├── articles/page.tsx + [id]/ + new/
 ├── audit/page.tsx
 ├── badge-editor/page.tsx           # 5-line redirect -> /admin/certificate-designer?tab=badge (consolidated 2026-04-24)
-├── branding/page.tsx              # 5-line redirect -> /admin/header-settings (2026-04-28, commit ab5db30) — Brand Colors merged into Header Settings. Sidebar entry removed; Header Settings has matchPaths: ['/admin/branding'] so the rail stays highlighted on stale links.
+├── branding/page.tsx              # 5-line redirect -> /admin/header-settings (2026-04-28, commit ab5db30), Brand Colors merged into Header Settings. Sidebar entry removed; Header Settings has matchPaths: ['/admin/branding'] so the rail stays highlighted on stale links.
 ├── certificate-designer/           # Consolidated cert design hub (2026-04-24, commit 5d81e06)
 │   ├── page.tsx                    # Tab dispatcher: ?tab=templates|certificate|badge|transcript (default templates)
 │   ├── TemplatesTab.tsx            # 3SFM/BVM cert PDF + badge PNG uploads (was /admin/certificates)
@@ -61,13 +61,13 @@ app/admin/
 ├── contact/page.tsx
 ├── content/page.tsx
 ├── health/page.tsx
-# NOTE: app/admin/founder/page.tsx DELETED 2026-04-18 — founder editing moved to Page Builder → Founder section (team)
-# NOTE: app/admin/login/page.tsx + LoginForm.tsx DELETED 2026-04-24 — the welcome/intermediate/form chain collapsed into /admin itself. Legacy /admin/login URL is now a 307 in middleware (src/middleware.ts), not a page.
-# NOTE: app/login/page.tsx DELETED 2026-04-24 — same: handled by middleware 307 with no-cache headers.
+# NOTE: app/admin/founder/page.tsx DELETED 2026-04-18, founder editing moved to Page Builder → Founder section (team)
+# NOTE: app/admin/login/page.tsx + LoginForm.tsx DELETED 2026-04-24, the welcome/intermediate/form chain collapsed into /admin itself. Legacy /admin/login URL is now a 307 in middleware (src/middleware.ts), not a page.
+# NOTE: app/login/page.tsx DELETED 2026-04-24, same: handled by middleware 307 with no-cache headers.
 ├── media/page.tsx
 ├── modeling-access/page.tsx       # Modeling Hub access whitelist admin (migration 136): add-email form + per-row Revoke + toggle-state summary. Sidebar nav entry 🔑 Access Whitelist under Modeling Hub.
 ├── modules/page.tsx                # Modeling Hub modules; two LaunchStatusCards (Sign In + Register, migration 136) + banner linking to /admin/modeling-access at the top.
-# NOTE: app/admin/overrides + app/admin/permissions + app/admin/plans DELETED 2026-04-27 (commit d8405e5) — Permissions system removed in Phase 5 of admin cleanup. REFM canAccess() stubs to false until paid tiers go live. Migration 144 drops the underlying tables.
+# NOTE: app/admin/overrides + app/admin/permissions + app/admin/plans DELETED 2026-04-27 (commit d8405e5), Permissions system removed in Phase 5 of admin cleanup. REFM canAccess() stubs to false until paid tiers go live. Migration 144 drops the underlying tables.
 ├── page-builder/page.tsx         # CMS page list
 ├── page-builder/[slug]/page.tsx  # Section editor with drag-and-drop
 ├── pages/page.tsx
@@ -76,7 +76,7 @@ app/admin/
 ├── settings/page.tsx
 ├── testimonials/page.tsx + modeling/ + training/
 ├── training/page.tsx + [courseId]/
-├── communications-hub/         # NEW 2026-04-27: unified hub merging the four old comms surfaces. page.tsx (tab dispatcher: campaigns | email-settings | share-templates | newsletter; auth gate; CmsAdminNav with active='/admin/communications-hub') + CampaignsTab.tsx (targeted student emails + history + share-modal copy editor) + EmailSettingsTab.tsx (email_branding + live-session email_templates) + ShareTemplatesTab.tsx (centralized share-text admin: Global Mention Settings card + per-template editor with variable-picker chips, hashtag chip editor, active toggle, live preview) + NewsletterTab.tsx (rebuilt 2026-04-27 — 5 internal sub-tabs: Subscribers / Compose / **Templates (new)** / Campaigns / Auto Notifications. Compose adds template picker + segment dropdown + schedule datetime + Send-test-to-my-inbox button + Schedule-Send vs Send-Now CTA. Templates is the DB-backed editor for newsletter_templates rows. Campaigns row click opens an analytics modal with 6 stat cards, open/click rates, per-recipient table, Retry-N-Failed, Cancel-scheduled, CSV export, Delete.)
+├── communications-hub/         # NEW 2026-04-27: unified hub merging the four old comms surfaces. page.tsx (tab dispatcher: campaigns | email-settings | share-templates | newsletter; auth gate; CmsAdminNav with active='/admin/communications-hub') + CampaignsTab.tsx (targeted student emails + history + share-modal copy editor) + EmailSettingsTab.tsx (email_branding + live-session email_templates) + ShareTemplatesTab.tsx (centralized share-text admin: Global Mention Settings card + per-template editor with variable-picker chips, hashtag chip editor, active toggle, live preview) + NewsletterTab.tsx (rebuilt 2026-04-27, 5 internal sub-tabs: Subscribers / Compose / **Templates (new)** / Campaigns / Auto Notifications. Compose adds template picker + segment dropdown + schedule datetime + Send-test-to-my-inbox button + Schedule-Send vs Send-Now CTA. Templates is the DB-backed editor for newsletter_templates rows. Campaigns row click opens an analytics modal with 6 stat cards, open/click rates, per-recipient table, Retry-N-Failed, Cancel-scheduled, CSV export, Delete.)
 ├── training-hub/page.tsx + analytics/ (redirects to /admin/analytics 2026-04-24) + assessments/ + certificates/ + live-sessions/ + live-sessions/email-settings/page.tsx (5-line redirect -> /admin/communications-hub?tab=email-settings)
 │   + cohorts/ + communications/page.tsx (5-line redirect -> /admin/communications-hub?tab=campaigns) + course-details/ + students/ + instructors/
 │   + share-templates/page.tsx (5-line redirect -> /admin/communications-hub?tab=share-templates)
@@ -86,9 +86,9 @@ app/admin/
 ├── training-settings/page.tsx
 ├── transcript-editor/page.tsx     # 5-line redirect -> /admin/certificate-designer?tab=transcript (consolidated 2026-04-24)
 ├── newsletter/page.tsx           # 5-line redirect -> /admin/communications-hub?tab=newsletter (consolidated 2026-04-27)
-# NOTE: app/admin/marketing-studio/* DELETED 2026-04-24 — Phase 1.5 canvas editor (page.tsx + brand-kit/page.tsx) replaced by template-driven Training Hub edition at /admin/training-hub/marketing-studio. Old URL is now a 404 (Modeling Hub will get its own at a different path later).
+# NOTE: app/admin/marketing-studio/* DELETED 2026-04-24, Phase 1.5 canvas editor (page.tsx + brand-kit/page.tsx) replaced by template-driven Training Hub edition at /admin/training-hub/marketing-studio. Old URL is now a 404 (Modeling Hub will get its own at a different path later).
 └── users/page.tsx
-# NOTE: app/admin/whitelabel/page.tsx DELETED 2026-04-27 (commit a000fbd) — White-Label feature removed. REFM Topbar reads platform name + logo directly from the branding store (default values).
+# NOTE: app/admin/whitelabel/page.tsx DELETED 2026-04-27 (commit a000fbd), White-Label feature removed. REFM Topbar reads platform name + logo directly from the branding store (default values).
 ```
 
 ### Public Training Sessions
@@ -163,7 +163,7 @@ app/portal/page.tsx              # Authenticated hub
 
 ---
 
-## `app/api/` — API Routes
+## `app/api/`, API Routes
 
 ### Auth (Modeling Hub)
 ```
@@ -216,10 +216,10 @@ app/api/training/
 ├── live-sessions/registration-status-batch/ # POST: batch status
 ├── watch-history/                 # GET: student watch history (session_watch_history rows)
 ├── certification-watch/           # GET (returns rows with watch_intervals JSONB so the player can hydrate the tracker on mount) + POST. POST body: { student_email, tab_key, course_id, status, watch_seconds?, total_seconds?, last_position?, watch_intervals? }. Server unions incoming + existing JSONB watch_intervals (mig 146) and recomputes watch_seconds from the merged set with a wall-clock rate limit on the new portion. Legacy callers without intervals fall back to MAX(existing, incoming) on the scalar. Stamps video_load_at on first POST. On flip to completed: completed_via='threshold' (legacy column kept). Video swap auto-detection resets intervals + clears completed_via. (Threshold + manual_override gates removed 2026-04-29 with watch enforcement.)
-# DELETED 2026-04-29: watch-enforcement/ — global watch-threshold gate retired
+# DELETED 2026-04-29: watch-enforcement/, global watch-threshold gate retired
 ├── youtube-comments/              # GET: cached YouTube comments (24h DB cache via youtube_comments_cache)
 ├── achievement-image/route.tsx    # GET: dynamic OG achievement card image (satori ImageResponse, sharp SVG→PNG logo)
-├── tour-status/route.ts           # POST: toggle training_registrations_meta.tour_completed — one-shot dashboard walkthrough (migration 120)
+├── tour-status/route.ts           # POST: toggle training_registrations_meta.tour_completed, one-shot dashboard walkthrough (migration 120)
 └── model-submission/              # GET ?courseCode=3SFM|BVM → ModelSubmissionStatusResult for the dashboard card. POST FormData (file, courseCode, studentNotes?) uploads a model to the private model-submissions bucket and inserts a model_submissions row with status='pending_review'. Validates: auth via training_session cookie, courseCode normalization, gate-on check, one-pending guard (409), attempts cap (403), file extension allow-list, MIME detection, file size cap (clamped 1-50 MB via training_settings). On success: fires fire-and-forget admin alert email via next/server `after()` (Phase F.1, gated by model_submission_admin_notify_enabled + model_submission_admin_notify_email). Migration 148.
 ```
 
@@ -232,28 +232,28 @@ app/api/admin/
 ├── badge-layout/                # GET/POST badge field positions
 ├── badge-preview/               # POST: generate badge PNG preview
 ├── certificate-layout/ certificates/sync/ certificates/upload-template/
-# certificates/settings and certificates/generate — REMOVED. They backed the legacy "Certificate Generation" tile on /admin/certificates which paired with the retired daily cron. Replaced by the inline trigger plus the safety-net panel on /admin/training-hub/certificates.
+# certificates/settings and certificates/generate, REMOVED. They backed the legacy "Certificate Generation" tile on /admin/certificates which paired with the retired daily cron. Replaced by the inline trigger plus the safety-net panel on /admin/training-hub/certificates.
 ├── certificates/by-date/        # GET ?date=YYYY-MM-DD → every cert_status='Issued' row for the UTC calendar day (powers Daily Roundup admin page)
 ├── certificates/pending/        # GET: eligible-but-not-issued list (powers safety-net panel on /admin/training-hub/certificates)
-├── certificates/issue-pending/  # POST { email, courseCode } | { all: true } — single-student or bulk issue via issueCertificateForStudent; idempotent via pre-check + unique index
+├── certificates/issue-pending/  # POST { email, courseCode } | { all: true }, single-student or bulk issue via issueCertificateForStudent; idempotent via pre-check + unique index
 ├── certificates/check-eligibility/ # POST { email, courseCode } → full EligibilityResult (passedSessions, missingSessions, reason). watchThresholdMet/watchDetails dropped 2026-04-29 with watch enforcement.
-├── certificates/force-issue/    # POST { email, courseCode, nameOverride?, regIdOverride? } — bypasses watch threshold; records issued_via='forced' + issued_by_admin
-├── certificates/resend-email/   # POST { certificateId } — rebuilds + resends certificateIssuedTemplate and stamps student_certificates.email_sent_at
+├── certificates/force-issue/    # POST { email, courseCode, nameOverride?, regIdOverride? }, bypasses watch threshold; records issued_via='forced' + issued_by_admin
+├── certificates/resend-email/   # POST { certificateId }, rebuilds + resends certificateIssuedTemplate and stamps student_certificates.email_sent_at
 ├── model-submissions/                # GET: list + filter (status / course / search) + paginated; admin queue at /admin/training-hub/model-submissions (migration 148)
 ├── model-submissions/[id]/review/    # POST { decision: 'approve' | 'reject', reviewNote }: writes review + audit log + fires modelSubmissionApproved/Rejected email
 ├── model-submissions/[id]/file/      # GET: admin-only proxy that streams the upload from the private model-submissions bucket so the bucket can stay private
 ├── training-settings/model-submission-gate/ # POST { key, value }: audit-logged write for the 3 gate flags. Admin-only. Writes admin_audit_log action='model_submission_gate_change' with before/after values. Other gate-related K/V pairs (notify settings, guidance, sample URL) go through the generic /api/admin/training-settings endpoint.
 ├── share-templates/             # GET: list all templates + merged ShareSettings (admin editor)
 ├── share-templates/[key]/       # PATCH: update single template (title/template_text/hashtags/mention_brand/mention_founder/active)
-├── share-templates/settings/    # PATCH: brand_mention / founder_mention / brand_prefix_at / founder_prefix_at — strips leading @ on mention inputs, re-reads full settings after write
+├── share-templates/settings/    # PATCH: brand_mention / founder_mention / brand_prefix_at / founder_prefix_at, strips leading @ on mention inputs, re-reads full settings after write
 ├── contact-submissions/ content/ env-check/ media/ modules/ modules/cms-status/ pages/ permissions/
-# NOTE: app/api/admin/founder/route.ts DELETED 2026-04-18 — founder data written via /api/admin/page-sections
+# NOTE: app/api/admin/founder/route.ts DELETED 2026-04-18, founder data written via /api/admin/page-sections
 ├── modeling-coming-soon/        # GET/PATCH: legacy single-toggle endpoint (kept for backward compat)
 ├── modeling-signin-coming-soon/ # GET/PATCH: Modeling Hub signin-side Coming Soon toggle (migration 136)
 ├── modeling-register-coming-soon/ # GET/PATCH: Modeling Hub register-side Coming Soon toggle (migration 136)
 ├── modeling-access/             # GET (list entries), POST { email, note } add - modeling_access_whitelist CRUD, admin-gated
 ├── modeling-access/[id]/        # DELETE: revoke whitelist entry by id
-├── pricing/features/                # /api/admin/pricing/plans/ DELETED 2026-04-28 (commit 777e1bf) — Plans tab removed + migration 145 drops pricing_plans table. /api/admin/pricing/modules/ DELETED 2026-04-27 (commit 4a5abe3). Only /api/admin/pricing/features + /coupons + /platform remain.
+├── pricing/features/                # /api/admin/pricing/plans/ DELETED 2026-04-28 (commit 777e1bf), Plans tab removed + migration 145 drops pricing_plans table. /api/admin/pricing/modules/ DELETED 2026-04-27 (commit 4a5abe3). Only /api/admin/pricing/features + /coupons + /platform remain.
 ├── projects/ testimonials/ training/ + [courseId]/lessons/
 ├── training-actions/ + [id]/
 ├── training-hub/ + analytics/ + assessments/ + certificates/
@@ -273,23 +273,23 @@ app/api/admin/
 ├── newsletter/test-send/        # NEW 2026-04-27. POST: renders subject+body or template, sends one [TEST]-prefixed email to the admin's session email (or supplied toEmail) via newsletter shell. No log row, no batch, no segment query. Powers the "Send to my inbox" Compose button.
 ├── newsletter/templates/        # NEW 2026-04-27 (migration 143). GET: list every newsletter_templates row + per-event-type variable schema. POST: create new template (template_key, name, subject_template, body_html, event_type?, active?).
 ├── newsletter/templates/[key]/  # NEW 2026-04-27. PATCH: update name/subject/body/event_type/active. DELETE: drop template by template_key.
-├── newsletter/segments/         # NEW 2026-04-27. GET ?segment=X&targetHub=Y returns { count, segments[] } — count is the live recipient count for the Compose UI; segments[] is the metadata for the dropdown (key/label/description per segment).
+├── newsletter/segments/         # NEW 2026-04-27. GET ?segment=X&targetHub=Y returns { count, segments[] }, count is the live recipient count for the Compose UI; segments[] is the metadata for the dropdown (key/label/description per segment).
 ├── newsletter/campaigns/        # GET: campaign history
 ├── newsletter/campaigns/[id]/   # NEW 2026-04-27. GET: campaign + recipients[] from newsletter_recipient_log + computed totals (sent/failed/bounced/complained/opened/clicked/pending) + openRate + clickRate. PATCH { action: 'cancel' }: scheduled → cancelled. DELETE: drop campaign (recipient log rows cascade via FK).
 ├── newsletter/campaigns/[id]/retry/ # NEW 2026-04-27. POST: re-send to every failed/bounced row of the recipient log. Resolves emails back to active subscribers (skips ones who unsubscribed since), passes them to sendCampaign({ recipients: [...] }), then recomputes sent_count/failed_count from the FULL log so totals reflect cumulative successes (sender.ts only counts the retry batch by itself).
 ├── newsletter/content-items/    # GET: items from live_sessions/articles for compose auto-populate
 ├── newsletter/enhance/          # POST: AI rewrite via Anthropic API
 ├── newsletter/auto-settings/    # GET/PATCH: auto-notification toggles
-# app/api/admin/marketing-studio/* DELETED 2026-04-24 — Phase 1.5 canvas API routes (render, generate-caption(s), data-sources, designs/[id], brand-kit) all removed. Replaced by:
+# app/api/admin/marketing-studio/* DELETED 2026-04-24, Phase 1.5 canvas API routes (render, generate-caption(s), data-sources, designs/[id], brand-kit) all removed. Replaced by:
 ├── training-hub/marketing-studio/render/         # POST { type, content }: dispatcher returns next/og ImageResponse PNG at the template's fixed dimensions. Loads brand pack + selected instructors (loadInstructorsByIds preserves admin pick order) + their photos in parallel; passes instructors[] + Record<id, base64> to every template. Admin-only.
 ├── training-hub/marketing-studio/brand/          # GET: resolved BrandPack (logo, primaryColor, default trainer) for client-side preview rendering
 ├── training-hub/marketing-studio/live-sessions/  # GET: 60 most recent live_sessions for the session picker (Live Session Banner + YouTube Thumbnail editors). Returns instructor_id so the editor can auto-fill the picker with the session's instructor.
 ├── training-hub/marketing-studio/articles/       # GET: 80 most recent published articles for the Article Banner editor's picker
 ├── training-hub/marketing-studio/instructors/    # GET: every active instructor row (active=true ordered by display_order). Powers the multi-select InstructorPicker (added 2026-04-24, commit b0823b9).
-├── training-hub/marketing-studio/uploads/        # GET (list) + POST (upload PNG/JPEG/WebP, max 10 MB) — writes to marketing-assets bucket + marketing_uploaded_assets table
+├── training-hub/marketing-studio/uploads/        # GET (list) + POST (upload PNG/JPEG/WebP, max 10 MB), writes to marketing-assets bucket + marketing_uploaded_assets table
 ├── training-hub/marketing-studio/uploads/[id]/   # PATCH (rename) + DELETE (storage + DB cleanup in lockstep)
-# DELETED 2026-04-29: watch-enforcement-stats/ — admin Watch Enforcement card retired
-├── sessions/[tabKey]/reset-watch-progress/ # POST: admin-only nuclear reset — deletes every watch-history row for the session. Routes by prefix: LIVE_<uuid> → session_watch_history; else → certification_watch_history (tab_key match). Paired with red buttons in both session editors. (2026-04-21)
+# DELETED 2026-04-29: watch-enforcement-stats/, admin Watch Enforcement card retired
+├── sessions/[tabKey]/reset-watch-progress/ # POST: admin-only nuclear reset, deletes every watch-history row for the session. Routes by prefix: LIVE_<uuid> → session_watch_history; else → certification_watch_history (tab_key match). Paired with red buttons in both session editors. (2026-04-21)
 ├── sessions/[tabKey]/force-complete-for-student/ # POST { email, reason }: admin-only per-student force-unlock. Mirrors reset-watch-progress's prefix routing (LIVE_ vs cert). Flips status='completed' + completed_via='admin_override' + completed_at=now (cert) / watched_at=now (live), clamps watch_percentage to the row's actual coverage, awards +50 points on live-session rows that hadn't received them. Idempotent: returns alreadyCompleted=true on already-done rows without overwriting honest 'threshold'/'manual' provenance. Writes to admin_audit_log with action='watch_force_complete' + previous state + reason. Phase 4 / migration 147. Surfaced via Force Unlock buttons in the Progress modal on /admin/training-hub/students.
 ├── generate-images/             # POST: satori+sharp generate mission/vision PNGs → Supabase
 ├── page-sections/               # CRUD for page_sections + cms_pages
@@ -309,11 +309,11 @@ app/api/
 ├── agents/market-rates/ + research/
 ├── branding/                      # GET: public, PATCH: admin only
 ├── cms/ contact/ cron/session-reminders/ cron/auto-launch-check/ cron/newsletter-scheduled/ email/send/
-# cron/certificates — REMOVED. Certificate issuance is now inline (fire-and-forget from /api/training/submit-assessment when a final-exam submission passes). Admin safety-net at /admin/training-hub/certificates covers any gaps.
-# cron/session-reminders — per-registration reminder flag model (migration 122): reads session_registrations.reminder_{24h,1h}_sent; CRON_SECRET bearer auth.
-# cron/auto-launch-check — (disabled UI) flips {hub}_coming_soon='false' + one-shot auto_launch='false' when launch_date <= now(). Gated by AUTO_LAUNCH_UI_ENABLED=false in LaunchStatusCard; Vercel Hobby only supports daily crons so vercel.json entry was rolled back.
-# cron/newsletter-scheduled — NEW 2026-04-27. CRON_SECRET bearer auth. Polls newsletter_campaigns WHERE status='scheduled' AND scheduled_at <= now() (limit 20/tick); for each, calls sendCampaign() with the stored subject/body/target_hub/segment. Per-campaign try/catch flips a single failure to status='failed' without aborting the rest of the batch. vercel.json schedule: daily at 07:00 UTC (Hobby tier limit; finer cadence requires Pro). Reuses CRON_SECRET — no new env var.
-# cron/model-submission-stale — NEW 2026-04-29 (Phase F.3). CRON_SECRET bearer auth. Polls model_submissions WHERE status='pending_review' AND submitted_at <= now() - INTERVAL <model_submission_stale_threshold_days> (default 2 days, capped 1-30) and emails a digest to model_submission_admin_notify_email. Reuses the F.1 enable + recipient settings (no separate kill-switch). Skips silently when the toggle is off, recipient empty, or the queue is clean. No per-row "reminder_sent" flag — daily until handled is the posture. vercel.json schedule: daily at 08:00 UTC.
+# cron/certificates, REMOVED. Certificate issuance is now inline (fire-and-forget from /api/training/submit-assessment when a final-exam submission passes). Admin safety-net at /admin/training-hub/certificates covers any gaps.
+# cron/session-reminders, per-registration reminder flag model (migration 122): reads session_registrations.reminder_{24h,1h}_sent; CRON_SECRET bearer auth.
+# cron/auto-launch-check, (disabled UI) flips {hub}_coming_soon='false' + one-shot auto_launch='false' when launch_date <= now(). Gated by AUTO_LAUNCH_UI_ENABLED=false in LaunchStatusCard; Vercel Hobby only supports daily crons so vercel.json entry was rolled back.
+# cron/newsletter-scheduled, NEW 2026-04-27. CRON_SECRET bearer auth. Polls newsletter_campaigns WHERE status='scheduled' AND scheduled_at <= now() (limit 20/tick); for each, calls sendCampaign() with the stored subject/body/target_hub/segment. Per-campaign try/catch flips a single failure to status='failed' without aborting the rest of the batch. vercel.json schedule: daily at 07:00 UTC (Hobby tier limit; finer cadence requires Pro). Reuses CRON_SECRET, no new env var.
+# cron/model-submission-stale, NEW 2026-04-29 (Phase F.3). CRON_SECRET bearer auth. Polls model_submissions WHERE status='pending_review' AND submitted_at <= now() - INTERVAL <model_submission_stale_threshold_days> (default 2 days, capped 1-30) and emails a digest to model_submission_admin_notify_email. Reuses the F.1 enable + recipient settings (no separate kill-switch). Skips silently when the toggle is off, recipient empty, or the queue is clean. No per-row "reminder_sent" flag, daily until handled is the posture. vercel.json schedule: daily at 08:00 UTC.
 ├── export/excel/ + pdf/
 ├── health/ modeling/submit-testimonial/
 ├── permissions/ projects/ qr/
@@ -325,13 +325,13 @@ app/api/
 ├── training/community-links/      # GET: public returns { whatsappGroupUrl, platformWalkthroughUrl } with server-side URL-shape re-validation (migrations 123 + 2026-04-22 training_settings.platform_walkthrough_url key). Empty strings hide their corresponding UI (Join WhatsApp Group sidebar button, Watch Platform Walkthrough hero button).
 ├── newsletter/subscribe/          # POST: hub-segmented subscribe (public, rate-limited). Now also fired fire-and-forget by /training/register + /modeling/register on successful signup when the GDPR opt-in checkbox is checked (default ON).
 ├── newsletter/unsubscribe/        # GET: per-hub unsubscribe via token (HTML response)
-├── newsletter/click/              # NEW 2026-04-27. GET ?msg=<resend_id>&campaign=<id>&url=<encoded>. Public click-tracking redirector. Best-effort UPDATE on newsletter_recipient_log (matched by resend_message_id), then 302 to the decoded url. Always 302s — tracking blip never blocks the user. Rejects non-http(s) URLs. Resend webhook is the canonical click-tracking path; this endpoint is the user-facing redirect.
+├── newsletter/click/              # NEW 2026-04-27. GET ?msg=<resend_id>&campaign=<id>&url=<encoded>. Public click-tracking redirector. Best-effort UPDATE on newsletter_recipient_log (matched by resend_message_id), then 302 to the decoded url. Always 302s, tracking blip never blocks the user. Rejects non-http(s) URLs. Resend webhook is the canonical click-tracking path; this endpoint is the user-facing redirect.
 ├── webhooks/resend/               # NEW 2026-04-27. POST. Resend webhook receiver. Verifies Svix-style signature manually using Node crypto.createHmac('sha256', ...) (no svix dep). Headers svix-id / svix-timestamp / svix-signature checked against RESEND_WEBHOOK_SECRET (whsec_<base64>); 5-minute replay window; multi-signature header support. Routes events: email.delivered → stamp sent_at if null; email.opened → opened_at + status='opened'; email.clicked → clicked_at + status='clicked'; email.bounced → status='bounced' + (on hard bounce) flips subscriber status='bounced'; email.complained → status='complained' + flips subscriber status='unsubscribed'. Unknown types are no-ops.
 ├── og/route.tsx                   # GET: Training Hub OG banner (1200x630, CMS hero, logo)
 ├── og/modeling/route.tsx          # GET: Modeling Hub OG banner (1200x630, CMS hero, logo)
 ├── og/main/route.tsx              # GET: Main site OG banner (1200x630, CMS hero, logo)
-├── og/certificate/[id]/route.tsx  # GET: Dynamic cert OG image (satori ImageResponse) — student name + course + grade + date + ID + gold seal; used by /verify/[uuid] share previews
-├── share-templates/[key]/route.ts # GET: Public template fetch — merges training_settings mention strings + prefix_at toggles into response so client hook renders immediately
+├── og/certificate/[id]/route.tsx  # GET: Dynamic cert OG image (satori ImageResponse), student name + course + grade + date + ID + gold seal; used by /verify/[uuid] share previews
+├── share-templates/[key]/route.ts # GET: Public template fetch, merges training_settings mention strings + prefix_at toggles into response so client hook renders immediately
 └── user/account/ + password/ + profile/
 ```
 
@@ -343,7 +343,7 @@ app/api/
 
 ## `src/components/` (admin shell only)
 
-Cross-hub admin editor primitives — used by every `app/admin/*` page. Hub-owned components live under `src/hubs/<hub>/components/` (see below); generic primitives live under `src/shared/components/`.
+Cross-hub admin editor primitives, used by every `app/admin/*` page. Hub-owned components live under `src/hubs/<hub>/components/` (see below); generic primitives live under `src/shared/components/`.
 
 ```
 src/components/admin/
@@ -359,7 +359,7 @@ src/components/admin/
 └── SystemHealth.tsx
 ```
 
-## `src/shared/` — cross-hub primitives
+## `src/shared/`, cross-hub primitives
 
 ```
 src/shared/
@@ -399,7 +399,7 @@ src/shared/
 │       deviceVerification, lockedOut, otpVerification, passwordReset,
 │       liveSessionNotification, quizResult, registrationConfirmation, resendRegistrationId,
 │       newsletter (custom baseLayoutNewsletter())
-│       # All template functions are async (use baseLayoutBranded) — callers must await
+│       # All template functions are async (use baseLayoutBranded), callers must await
 ├── hooks/
 │   ├── useInactivityLogout.ts
 │   ├── useProject.ts
@@ -407,7 +407,7 @@ src/shared/
 │   └── useRequireAuth.ts
 ├── htmlUtils/                        # isHtml() detection
 ├── newsletter/
-│   ├── autoNotify.ts                 # sendAutoNewsletter — fire-and-forget per-event toggle (mig 143 rebuild)
+│   ├── autoNotify.ts                 # sendAutoNewsletter, fire-and-forget per-event toggle (mig 143 rebuild)
 │   ├── linkWrap.ts                   # /api/newsletter/click rewrite + UTM injection
 │   ├── segments.ts                   # SEGMENTS metadata + resolveSegment / countSegment
 │   ├── sender.ts                     # sendCampaign central pipeline (manual / scheduled / auto / retry)
@@ -446,10 +446,10 @@ src/hubs/main/
 │   │   ├── InlineEdit.tsx  SharedFooter.tsx  VideoPlayer.tsx
 │   ├── newsletter/NewsletterSubscribeForm.tsx   # Hub checkboxes + email input, shown in SharedFooter
 │   └── pricing/PricingAccordion.tsx
-└── lib/                              # (currently empty — main-hub server helpers go here)
+└── lib/                              # (currently empty, main-hub server helpers go here)
 ```
 
-### `src/hubs/training/` (Training Hub — learn.financialmodelerpro.com)
+### `src/hubs/training/` (Training Hub, learn.financialmodelerpro.com)
 ```
 src/hubs/training/
 ├── components/
@@ -458,7 +458,7 @@ src/hubs/training/
 │   ├── StudentNotes.tsx              # Per-session student notes with bold/bullet toolbar + auto-save
 │   ├── SubscribeModal.tsx            # YouTube subscribe modal
 │   ├── TrainingShell.tsx             # Shared layout (header + sidebar + footer + mobile nav + CMS logo)
-# DELETED 2026-04-29: WatchProgressBar.tsx — student-facing watch UI retired
+# DELETED 2026-04-29: WatchProgressBar.tsx, student-facing watch UI retired
 │   ├── WelcomeModal.tsx              # First-visit modal (configurable localStorage key)
 │   ├── YouTubeComments.tsx           # Cached YouTube comments (24h DB cache)
 │   ├── YouTubePlayer.tsx             # YT IFrame API player. Interval-merging tracker in useRef (mig 146 Phase 2). startSeconds resume + initialIntervals JSONB hydration. Emits onProgress(WatchProgressPayload) with force=true on real close events.
@@ -488,37 +488,37 @@ src/hubs/training/
     └── ensureNotComingSoon.ts        # Training-Hub Coming-Soon page guard (composes shouldGateComingSoon primitive with bypass list)
 ```
 
-### `src/hubs/modeling/` (Modeling Hub — app.financialmodelerpro.com)
+### `src/hubs/modeling/` (Modeling Hub, app.financialmodelerpro.com)
 ```
 src/hubs/modeling/
-├── components/                       # (currently empty — Modeling Hub-wide components go here; all current hub UI lives in app/modeling/* and platforms/*)
+├── components/                       # (currently empty, Modeling Hub-wide components go here; all current hub UI lives in app/modeling/* and platforms/*)
 ├── config/platforms.ts               # 10 platform definitions (1 live: REFM, 9 coming soon)
 ├── lib/
 │   ├── access.ts                     # modeling_access_whitelist gate (mig 136)
 │   ├── comingSoon.ts                 # Modeling-Hub state readers (signin + register toggles)
 │   └── ensureNotComingSoon.ts        # Modeling-Hub page guard (composes shouldGateComingSoon primitive)
 └── platforms/
-    ├── refm/                         # Real Estate Financial Modeling — only live platform
+    ├── refm/                         # Real Estate Financial Modeling, only live platform
     │   ├── components/
     │   │   ├── Dashboard.tsx  OverviewScreen.tsx  PlanBadge.tsx
     │   │   ├── ProjectsScreen.tsx  RealEstatePlatform.tsx  Sidebar.tsx  Topbar.tsx
-    │   │   ├── modals/ (Export, Project, ProjectWizard [M1.8 2026-05-03 — replaces ProjectModal new-flow, 3-step wizard with FAST blue inputs, dirty-confirm Esc, asset matrix per project type], Rbac, Version)
+    │   │   ├── modals/ (Export, Project, ProjectWizard [M1.8 2026-05-03, replaces ProjectModal new-flow, 3-step wizard with FAST blue inputs, dirty-confirm Esc, asset matrix per project type], Rbac, Version)
     │   │   └── modules/ (Module1Area, Module1AreaProgram, Module1Costs, Module1Financing, Module1Hierarchy, Module1Timeline)
-    │   │   # Module1AreaProgram.tsx (NEW M1.7, 2026-05-02; M1.8 fix 4 4721e80 2026-05-04) — store-direct tab between Land & Area and Dev Costs. Plot CRUD + Zone CRUD + per-Asset Strategy / area-cascade overrides + Sub-Unit schedule with parking ratios + live computed envelope panel + per-asset cascade preview + per-plot parking summary card with deficit warning. FAST blue inputs, calc-output gray outputs. data-testid hooks (plot-card, zone-row, asset-strategy, subunit-table, parking-summary, parking-deficit) for Playwright. **Pattern (M1.8 fix 4 4721e80):** subscribes to useModule1Store via base-array selectors (`useModule1Store(s => s.X)`) + useMemo derivations rather than wrapping `s.X.filter(...)` inside `useShallow` — the older pattern returned a fresh array reference per render which tripped React's "getSnapshot should be cached" warning into a Maximum update depth loop once the store had data. Applies to all 6 derive-and-render call sites in this file (Module1AreaProgram top-level + PlotEditor + AssetStrategyRow + AssetAssignPicker + SubUnitTable + ParkingSummary).
-    │   │   # Topbar.tsx hosts ☀️/🌙 dark-mode toggle (2026-04-30) — own localStorage['refmDarkMode'] key (separate from hub-level modelingDarkMode); default → prefers-color-scheme; theme scoped via body[data-refm-theme="dark"] .app-shell so it never bleeds into /admin or /training.
+    │   │   # Module1AreaProgram.tsx (NEW M1.7, 2026-05-02; M1.8 fix 4 4721e80 2026-05-04), store-direct tab between Land & Area and Dev Costs. Plot CRUD + Zone CRUD + per-Asset Strategy / area-cascade overrides + Sub-Unit schedule with parking ratios + live computed envelope panel + per-asset cascade preview + per-plot parking summary card with deficit warning. FAST blue inputs, calc-output gray outputs. data-testid hooks (plot-card, zone-row, asset-strategy, subunit-table, parking-summary, parking-deficit) for Playwright. **Pattern (M1.8 fix 4 4721e80):** subscribes to useModule1Store via base-array selectors (`useModule1Store(s => s.X)`) + useMemo derivations rather than wrapping `s.X.filter(...)` inside `useShallow`, the older pattern returned a fresh array reference per render which tripped React's "getSnapshot should be cached" warning into a Maximum update depth loop once the store had data. Applies to all 6 derive-and-render call sites in this file (Module1AreaProgram top-level + PlotEditor + AssetStrategyRow + AssetAssignPicker + SubUnitTable + ParkingSummary).
+    │   │   # Topbar.tsx hosts ☀️/🌙 dark-mode toggle (2026-04-30), own localStorage['refmDarkMode'] key (separate from hub-level modelingDarkMode); default → prefers-color-scheme; theme scoped via body[data-refm-theme="dark"] .app-shell so it never bleeds into /admin or /training.
     │   │   # Sidebar.tsx + Dashboard.tsx (2026-04-30): both surfaces consume MODULES from ../lib/modules-config to eliminate the 1-6 vs 1-11 drift bug. Sidebar derives sidebarModules = [...STATIC_NAV, ...MODULES.map(toSidebarItem)]; Dashboard's Module Roadmap maps MODULES with longLabel + STATUS_BADGE map (4 variants done/soon/pro/enterprise routed through design tokens + color-mix).
     │   │   # OverviewScreen.tsx + ProjectsScreen.tsx + RealEstatePlatform.tsx (2026-04-30): pencil ✏️ Edit Project entry points (Overview header pencil + ProjectsScreen row pencil) gated on can('canEditProject'), wired through new handleEditProject(name, location) callback that mutates active project, syncs state, persists to localStorage refm_v2. Defensive hydration cleanup drops a stale activeProjectId if it doesn't resolve to a real project so Overview no longer silently blanks.
     │   └── lib/
     │       ├── export/ (excel-formula, excel-static, pdf)
     │       ├── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))
-    │       ├── modules-config.ts     # NEW 2026-04-30 — single source of truth for all 11 REFM modules. Exports `MODULES: readonly ModuleConfig[]`, types `ModuleStatus = 'done' | 'soon' | 'pro' | 'enterprise'` and `ModulePlan = 'free' | 'professional' | 'enterprise'`. Per-module fields: num, key, icon, shortLabel (sidebar), longLabel (dashboard), featureKey, requiredPlan, status, disabled, disabledReason. Consumed by both Sidebar.tsx and Dashboard.tsx so adding/renaming/reordering a module requires editing one list.
-    │       └── wizard/buildWizardSnapshot.ts     # NEW 2026-05-03 (Phase M1.8/5) — pure helper: WizardDraft → HydrateSnapshot. mapWizardToProjectType collapses 6 wizard display values to 3 store ProjectType values; mints 1 SubProject + N Phases + N Plots + 1 Asset per row + 1 placeholder SubUnit per asset bound to Phase 1+Plot 1; sub-unit metric per category (Sell/Operate→count, Lease→area); deduct/efficiency seeds per category (Sell 10/85, Operate 15/80, Lease 5/90, Hybrid 10/85). Stamps `hierarchyDisclosure: 'progressive'` so the Hierarchy tab hides MH when disabled.
+    │       ├── modules-config.ts     # NEW 2026-04-30, single source of truth for all 11 REFM modules. Exports `MODULES: readonly ModuleConfig[]`, types `ModuleStatus = 'done' | 'soon' | 'pro' | 'enterprise'` and `ModulePlan = 'free' | 'professional' | 'enterprise'`. Per-module fields: num, key, icon, shortLabel (sidebar), longLabel (dashboard), featureKey, requiredPlan, status, disabled, disabledReason. Consumed by both Sidebar.tsx and Dashboard.tsx so adding/renaming/reordering a module requires editing one list.
+    │       └── wizard/buildWizardSnapshot.ts     # NEW 2026-05-03 (Phase M1.8/5), pure helper: WizardDraft → HydrateSnapshot. mapWizardToProjectType collapses 6 wizard display values to 3 store ProjectType values; mints 1 SubProject + N Phases + N Plots + 1 Asset per row + 1 placeholder SubUnit per asset bound to Phase 1+Plot 1; sub-unit metric per category (Sell/Operate→count, Lease→area); deduct/efficiency seeds per category (Sell 10/85, Operate 15/80, Lease 5/90, Hybrid 10/85). Stamps `hierarchyDisclosure: 'progressive'` so the Hierarchy tab hides MH when disabled.
     # lib/persistence/module1-sync.ts (2026-05-03 hotfix M1.8 fix 3/3 5085958): NEW exported helper `attachToProjectFromLocalSnapshot(projectId, snapshot)` alongside the existing `attachToProject`. Writes active-id marker + cache + starts the auto-save subscriber WITHOUT calling `loadProject`. Used by the wizard create path where the store already holds the just-POSTed snapshot. Belt-and-braces after M1.8 fix 5 (66a20f5): the underlying recogniser has been relaxed so the round-trip `attachToProject` no longer wipes wizard data, but the local-snapshot path still avoids the redundant network round-trip + hydrate.
-    # lib/state/module1-migrate.ts (M1.8 fix 5 66a20f5 2026-05-04): `isNewV3` is now SHAPE-BASED — accepts any payload with assets[] + phases[] + costs[] arrays regardless of `version` discriminator. Why: every snapshot the system POSTs (wizard create, legacy create, auto-save) is bare HydrateSnapshot with no `version: 3` field, and the strict check used to fall through to DEFAULT_MODULE1_STATE on every reload, silently wiping wizard data. v2 snapshots are still routed through migrateLegacyToNew (they have residentialCosts/hospitalityCosts/retailCosts but no flat assets[] / phases[] / costs[], so the relaxed check correctly distinguishes them).
+    # lib/state/module1-migrate.ts (M1.8 fix 5 66a20f5 2026-05-04): `isNewV3` is now SHAPE-BASED, accepts any payload with assets[] + phases[] + costs[] arrays regardless of `version` discriminator. Why: every snapshot the system POSTs (wizard create, legacy create, auto-save) is bare HydrateSnapshot with no `version: 3` field, and the strict check used to fall through to DEFAULT_MODULE1_STATE on every reload, silently wiping wizard data. v2 snapshots are still routed through migrateLegacyToNew (they have residentialCosts/hospitalityCosts/retailCosts but no flat assets[] / phases[] / costs[], so the relaxed check correctly distinguishes them).
     └── bcm/  bvm/  cfm/  erm/  eum/  fpa/  lbo/  pfm/  svm/   # Coming-soon stubs (config-driven)
 ```
 
-## `src/features/` — domain-flat features (single-hub or planned cross-hub)
+## `src/features/`, domain-flat features (single-hub or planned cross-hub)
 
 ```
 src/features/
@@ -535,63 +535,63 @@ src/features/
         └── youtube-thumbnail.tsx     # YouTubeThumbnailTemplate (1280x720)
 ```
 
-## `src/integrations/` — external API clients
+## `src/integrations/`, external API clients
 
 ```
 src/integrations/
-├── anthropic/                        # (currently empty — direct SDK use today; centralize here when reused across features)
-├── resend/                           # (currently empty — direct SDK use today, see @shared/email)
+├── anthropic/                        # (currently empty, direct SDK use today; centralize here when reused across features)
+├── resend/                           # (currently empty, direct SDK use today, see @shared/email)
 ├── teams/teamsMeetings.ts            # Microsoft Graph client. createCalendarEventWithMeeting / updateCalendarEvent / deleteCalendarEvent + legacy onlineMeetings fallback. Requires AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, TEAMS_HOST_USER_EMAIL.
-└── youtube/                          # (currently empty — direct fetch today; centralize when reused)
+└── youtube/                          # (currently empty, direct fetch today; centralize when reused)
 ```
 
-## `src/core/` — pure business primitives (no I/O, no framework)
+## `src/core/`, pure business primitives (no I/O, no framework)
 
 ```
 src/core/
 ├── branding/index.ts                 # Branding type + defaults
 ├── calculations/index.ts             # Pure financial calculations
 ├── db/supabase.ts                    # Supabase client factories (serverClient + browser anon)
-├── env/                              # (currently empty — env-var loaders go here)
+├── env/                              # (currently empty, env-var loaders go here)
 ├── formatters/index.ts               # Pure number/date/string formatters
 ├── state/index.ts                    # Pure state shapes (Zustand store types)
 └── types/                            # branding.types.ts  deck.types.ts  next-auth.d.ts  project.types.ts  revenue.types.ts  scenario.types.ts  settings.types.ts
 ```
 
-## `tests/` — Playwright e2e specs + screenshots
+## `tests/`, Playwright e2e specs + screenshots
 
 ```
 tests/
 ├── e2e/
 │   ├── m17-area-program.spec.ts             # M1.7 verifier UI section (sign-in screenshots + /refm gate)
 │   ├── m18-wizard.spec.ts                   # M1.8 verifier UI section + 3 documented test.skip authed-session specs
-│   ├── m18-wizard-repro.spec.ts             # NEW 2026-05-04 (M1.8 fix 4 4721e80) — wizard create regression-guard. Asserts no console.error / no React boundary fallback / Area Program tab mounts after wizard create.
-│   └── m18-wizard-flow.spec.ts              # NEW 2026-05-04 (M1.8 fix 5 66a20f5) — every Module 1 tab shows wizard data (no re-prompts) + cross-tab edits propagate via shared store + reload-persists wizard data via direct window.__module1Store inspection. Catches systemic hydration wipes that the `isNewV3` recogniser used to cause.
-└── screenshots/                             # gitignored — regenerated per Playwright run
+│   ├── m18-wizard-repro.spec.ts             # NEW 2026-05-04 (M1.8 fix 4 4721e80), wizard create regression-guard. Asserts no console.error / no React boundary fallback / Area Program tab mounts after wizard create.
+│   └── m18-wizard-flow.spec.ts              # NEW 2026-05-04 (M1.8 fix 5 66a20f5), every Module 1 tab shows wizard data (no re-prompts) + cross-tab edits propagate via shared store + reload-persists wizard data via direct window.__module1Store inspection. Catches systemic hydration wipes that the `isNewV3` recogniser used to cause.
+└── screenshots/                             # gitignored, regenerated per Playwright run
 ```
 
 `tests/screenshots/`, `test-results/`, and `playwright-report/` are gitignored. Snapshot baselines (`tests/snapshots/module1-*-baseline.json`) and fixtures (`tests/fixtures/module1-*.json`) ARE committed.
 
-## `app/test-fixtures/` — dev-only Playwright mount points
+## `app/test-fixtures/`, dev-only Playwright mount points
 
 ```
 app/test-fixtures/
-└── m18-wizard/page.tsx                      # NEW 2026-05-04 — mounts RealEstatePlatform inside a stubbed NextAuth SessionProvider so Playwright skips the production /refm auth gate + Coming-Soon layout guard. Returns notFound() in production builds. Exposes useModule1Store on `window.__module1Store` so specs can read store state directly (more reliable than driving the topbar/sidebar to surface a tab).
+└── m18-wizard/page.tsx                      # NEW 2026-05-04, mounts RealEstatePlatform inside a stubbed NextAuth SessionProvider so Playwright skips the production /refm auth gate + Coming-Soon layout guard. Returns notFound() in production builds. Exposes useModule1Store on `window.__module1Store` so specs can read store state directly (more reliable than driving the topbar/sidebar to surface a tab).
 ```
 
 ## Deleted artifacts (kept for searchability)
 
-- `app/admin/announcements/page.tsx` + `AnnouncementsManager.tsx` + `/api/admin/announcements/` — DELETED 2026-04-27 (commit fd0aabf), orphan stub
-- `src/components/admin/PermissionsManager.tsx` + `app/admin/{permissions,overrides,plans}/` + `useSubscription.ts` + `subscription.types.ts` — DELETED 2026-04-27 (commit d8405e5), Permissions removal (Phase 5)
-- `src/components/admin/BrandingSettingsPanel.tsx` — DELETED 2026-04-27 (commit ee959ad), orphan
-- `app/admin/whitelabel/` + `useWhiteLabel.ts` — DELETED 2026-04-27 (commit a000fbd), White-Label removal
-- `src/components/marketing/*` + `src/lib/marketing/*` — DELETED 2026-04-24, Marketing Studio rebuild
-- `app/admin/marketing-studio/*` — DELETED 2026-04-24, replaced by `/admin/training-hub/marketing-studio/`
-- `src/components/cms/renderCmsText.tsx` — DELETED 2026-04-18, superseded by CmsField
-- `src/components/training/SubscribeButton.tsx`, `EngagementBar.tsx`, `PlaylistSidebar.tsx` — legacy components removed during the player rebuild
-- `app/admin/login/page.tsx`, `app/admin/login/LoginForm.tsx`, `app/login/page.tsx`, `proxy.ts` — DELETED 2026-04-24, admin auth unification
-- `app/api/admin/founder/route.ts` — DELETED 2026-04-18, founder editing now via Page Builder
+- `app/admin/announcements/page.tsx` + `AnnouncementsManager.tsx` + `/api/admin/announcements/`, DELETED 2026-04-27 (commit fd0aabf), orphan stub
+- `src/components/admin/PermissionsManager.tsx` + `app/admin/{permissions,overrides,plans}/` + `useSubscription.ts` + `subscription.types.ts`, DELETED 2026-04-27 (commit d8405e5), Permissions removal (Phase 5)
+- `src/components/admin/BrandingSettingsPanel.tsx`, DELETED 2026-04-27 (commit ee959ad), orphan
+- `app/admin/whitelabel/` + `useWhiteLabel.ts`, DELETED 2026-04-27 (commit a000fbd), White-Label removal
+- `src/components/marketing/*` + `src/lib/marketing/*`, DELETED 2026-04-24, Marketing Studio rebuild
+- `app/admin/marketing-studio/*`, DELETED 2026-04-24, replaced by `/admin/training-hub/marketing-studio/`
+- `src/components/cms/renderCmsText.tsx`, DELETED 2026-04-18, superseded by CmsField
+- `src/components/training/SubscribeButton.tsx`, `EngagementBar.tsx`, `PlaylistSidebar.tsx`, legacy components removed during the player rebuild
+- `app/admin/login/page.tsx`, `app/admin/login/LoginForm.tsx`, `app/login/page.tsx`, `proxy.ts`, DELETED 2026-04-24, admin auth unification
+- `app/api/admin/founder/route.ts`, DELETED 2026-04-18, founder editing now via Page Builder
 
 ## Boundary lint rules (Phase 2.7)
 
-`eslint-plugin-boundaries` (`boundaries/dependencies` rule) enforces import direction in `eslint.config.mjs`. Allow-graph: core → core; shared → core/shared/integ; main/training/modeling → core/shared/integ/<self-hub>; platform → core/shared/integ/modeling/platform; feature → core/shared/integ/feature; integ → core/shared; app → any. New cross-hub regressions are caught at lint time. One deferred suppression remains: `src/shared/auth/nextauth.ts` (NextAuth `authorize()` references modeling-hub gates — slated for dependency-inversion refactor).
+`eslint-plugin-boundaries` (`boundaries/dependencies` rule) enforces import direction in `eslint.config.mjs`. Allow-graph: core → core; shared → core/shared/integ; main/training/modeling → core/shared/integ/<self-hub>; platform → core/shared/integ/modeling/platform; feature → core/shared/integ/feature; integ → core/shared; app → any. New cross-hub regressions are caught at lint time. One deferred suppression remains: `src/shared/auth/nextauth.ts` (NextAuth `authorize()` references modeling-hub gates, slated for dependency-inversion refactor).

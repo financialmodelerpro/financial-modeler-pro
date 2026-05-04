@@ -1,11 +1,11 @@
-# Financial Modeler Pro — Claude Code Project Brief
+# Financial Modeler Pro, Claude Code Project Brief
 **Last updated: 2026-05-06**
 
 > **See also:**
-> - [CLAUDE-DB.md](CLAUDE-DB.md) — Database tables, storage buckets, migrations log
-> - [CLAUDE-FEATURES.md](CLAUDE-FEATURES.md) — Feature status, detailed feature specs & flows
-> - [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md) — All page routes, API routes, components, lib structure
-> - [CLAUDE-TODO.md](CLAUDE-TODO.md) — Pending work, backlog, legacy reference
+> - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
+> - [CLAUDE-FEATURES.md](CLAUDE-FEATURES.md), Feature status, detailed feature specs & flows
+> - [CLAUDE-ROUTES.md](CLAUDE-ROUTES.md), All page routes, API routes, components, lib structure
+> - [CLAUDE-TODO.md](CLAUDE-TODO.md), Pending work, backlog, legacy reference
 
 ---
 
@@ -41,7 +41,7 @@ The codebase has 2,221 existing em-dashes (M1.11 audit). They are being swept ou
 | Landing pages / CMS | `app/(portal)/` `app/about/` `app/articles/` `app/pricing/` `src/components/landing/` `app/api/cms/` |
 
 **Never** read files outside the task domain.
-**When a task spans two domains**, read only those two folders — nothing else.
+**When a task spans two domains**, read only those two folders, nothing else.
 
 ### End-of-session rule
 **ALWAYS update CLAUDE.md files at the end of every session** to reflect:
@@ -51,11 +51,11 @@ The codebase has 2,221 existing em-dashes (M1.11 audit). They are being swept ou
 - Any new database tables or migrations (add to CLAUDE-DB.md)
 
 ### Do NOT touch list
-- `next.config.ts` — subdomain routing is live and correct; clean auth URL rewrites + redirects added; app. `/register` rewrite goes to `/modeling/register` (dedicated page, NOT `/modeling/signin?tab=register`)
-- `src/middleware.ts` — `/admin/:path*` protection is live; `/admin/login` AND `/admin` root excluded
-- `app/globals.css` — design system tokens, do not restructure
-- `vercel.json` — deployment config is live
-- `supabase/migrations/` — never edit existing migrations; create new ones only
+- `next.config.ts`, subdomain routing is live and correct; clean auth URL rewrites + redirects added; app. `/register` rewrite goes to `/modeling/register` (dedicated page, NOT `/modeling/signin?tab=register`)
+- `src/middleware.ts`, `/admin/:path*` protection is live; `/admin/login` AND `/admin` root excluded
+- `app/globals.css`, design system tokens, do not restructure
+- `vercel.json`, deployment config is live
+- `supabase/migrations/`, never edit existing migrations; create new ones only
 - Any feature marked Complete unless explicitly asked by the user
 - Cross-feature shared files (`src/lib/shared/`, `src/lib/email/`) without explicit instruction
 
@@ -63,7 +63,7 @@ The codebase has 2,221 existing em-dashes (M1.11 audit). They are being swept ou
 
 ## Project Overview
 
-**Financial Modeler Pro** — Multi-hub SaaS platform with three web properties:
+**Financial Modeler Pro**, Multi-hub SaaS platform with three web properties:
 
 | Property | Domain | Purpose |
 |----------|--------|---------|
@@ -85,11 +85,11 @@ The codebase has 2,221 existing em-dashes (M1.11 audit). They are being swept ou
 | State | Zustand | ^5.0.11 |
 | Charts | Recharts | ^3.8.0 |
 | Database | Supabase (`@supabase/supabase-js`) | ^2.99.1 |
-| Auth — Modeling Hub | NextAuth.js (JWT, 1hr session) | ^4.24.13 |
-| Auth — Training Hub | Custom (httpOnly cookie + localStorage) | — |
+| Auth, Modeling Hub | NextAuth.js (JWT, 1hr session) | ^4.24.13 |
+| Auth, Training Hub | Custom (httpOnly cookie + localStorage) |, |
 | Forms | react-hook-form + zod + @hookform/resolvers | ^7 / ^4 / ^5 |
 | Icons | lucide-react | ^0.577.0 |
-| Utilities | clsx, tailwind-merge | — |
+| Utilities | clsx, tailwind-merge |, |
 | AI | @anthropic-ai/sdk | ^0.78.0 |
 | Email | Resend | ^6.10.0 |
 | Export | exceljs + @react-pdf/renderer | ^4.4.0 / ^4.3.2 |
@@ -173,7 +173,7 @@ Use `/signin`, `/register`, `/forgot` for all training/modeling auth links.
 
 **Critical**: Navbar uses plain `<a>` tags with absolute URLs. NavbarServer `absolutizeHref()` converts DB hrefs.
 
-**Navbar auth links**: Use file-level constants `APP_URL` and `LEARN_URL` with `??` fallbacks — never raw `process.env` without fallback.
+**Navbar auth links**: Use file-level constants `APP_URL` and `LEARN_URL` with `??` fallbacks, never raw `process.env` without fallback.
 
 ---
 
@@ -181,16 +181,16 @@ Use `/signin`, `/register`, `/forgot` for all training/modeling auth links.
 
 - **Single source of truth**: `app/globals.css`
 - Colors: `--color-primary`, `--color-primary-dark`, etc.
-- Spacing: 8px grid — `--sp-1` (8px) through `--sp-5` (48px)
+- Spacing: 8px grid, `--sp-1` (8px) through `--sp-5` (48px)
 - Typography: `--font-h1` through `--font-micro`
 - Component classes: `.card`, `.kpi-card`, `.btn-primary`, `.table-standard`
 - Financial inputs (Training Hub + admin): `.input-assumption` class (yellow bg `--color-warning-bg`)
-- **REFM (Module 1 tabs + shell + modals + new Area Program tab) uses FAST input blue** instead of `.input-assumption` — `var(--color-navy-pale)` bg + `var(--color-navy)` text via the local `inputStyle` constant in each component. Established Phases 4.6 → 4.15 (2026-04-30) and extended into the M1.7 Area Program tab (2026-05-02). Calculated outputs use the same pattern's `calcOutputStyle` (`var(--color-grey-pale)` bg + `var(--color-heading)` text). The `.input-assumption` class is reserved for actual financial-model assumption cells (rates, ratios, escalators) and continues to apply outside REFM.
+- **REFM (Module 1 tabs + shell + modals + new Area Program tab) uses FAST input blue** instead of `.input-assumption`, `var(--color-navy-pale)` bg + `var(--color-navy)` text via the local `inputStyle` constant in each component. Established Phases 4.6 → 4.15 (2026-04-30) and extended into the M1.7 Area Program tab (2026-05-02). Calculated outputs use the same pattern's `calcOutputStyle` (`var(--color-grey-pale)` bg + `var(--color-heading)` text). The `.input-assumption` class is reserved for actual financial-model assumption cells (rates, ratios, escalators) and continues to apply outside REFM.
 - **Do NOT use Tailwind utility classes for layout tokens**
 
 ---
 
-## Deployment — Vercel
+## Deployment, Vercel
 
 ### Environment Variables
 | Variable | Description |
@@ -215,7 +215,7 @@ Use `/signin`, `/register`, `/forgot` for all training/modeling auth links.
 
 ### Scripts
 ```bash
-npm run type-check   # tsc --noEmit — must be zero errors
+npm run type-check   # tsc --noEmit, must be zero errors
 npm run build        # next build --webpack (avoids MAX_PATH on Windows/OneDrive)
 npm run verify       # type-check + lint + build
 
@@ -233,17 +233,17 @@ npx tsx --env-file=.env.local scripts/verify-m110.ts  # M1.10 setup-completeness
 npx tsx --env-file=.env.local scripts/verify-m110b.ts # M1.10b Plot Setup polish (18 pass / 0 fail / 0 skip with dev server)
 
 # Playwright e2e specs (M1.8 + M1.9 + M1.9b + M1.10 + M1.10b regression-guards)
-npx playwright test tests/e2e/m18-wizard-repro.spec.ts     # 1 spec — wizard create does not crash
-npx playwright test tests/e2e/m18-wizard-flow.spec.ts      # 2 specs — every tab shows wizard data + reload persists
-npx playwright test tests/e2e/m19-redesign-flow.spec.ts    # 2 specs — wizard lands on Schedule tab + numbered tab row + light/dark screenshots
-npx playwright test tests/e2e/m19b-redesign-flow.spec.ts   # 2 specs — Hierarchy dissolved (1→5 tabs) + nested mounts + D7/D8 labels + What-goes-here callouts + light/dark screenshots
-npx playwright test tests/e2e/m110-flow.spec.ts            # 3 specs — Mixed-Use wizard lands clean (no 0% / no Over FAR / reconciliation row) + Plot wizard + Parcel wizard walkthroughs + screenshots
-npx playwright test tests/e2e/m110b-flow.spec.ts           # 2 specs — Plot Setup Wizard portal-centers in viewport + tooltip a11y (focus reveal, Esc dismiss) + 15-field inline form + light/dark tooltip screenshots
+npx playwright test tests/e2e/m18-wizard-repro.spec.ts     # 1 spec, wizard create does not crash
+npx playwright test tests/e2e/m18-wizard-flow.spec.ts      # 2 specs, every tab shows wizard data + reload persists
+npx playwright test tests/e2e/m19-redesign-flow.spec.ts    # 2 specs, wizard lands on Schedule tab + numbered tab row + light/dark screenshots
+npx playwright test tests/e2e/m19b-redesign-flow.spec.ts   # 2 specs, Hierarchy dissolved (1→5 tabs) + nested mounts + D7/D8 labels + What-goes-here callouts + light/dark screenshots
+npx playwright test tests/e2e/m110-flow.spec.ts            # 3 specs, Mixed-Use wizard lands clean (no 0% / no Over FAR / reconciliation row) + Plot wizard + Parcel wizard walkthroughs + screenshots
+npx playwright test tests/e2e/m110b-flow.spec.ts           # 2 specs, Plot Setup Wizard portal-centers in viewport + tooltip a11y (focus reveal, Esc dismiss) + 15-field inline form + light/dark tooltip screenshots
 ```
 
 ### Per-phase verification workflow (M1.7+)
 Standing preference (2026-05-02): every REFM phase ships a `scripts/verify-[phaseId].ts`
-covering 5 sections — (1) Database / persistence (Supabase JSONB roundtrip via service-role),
+covering 5 sections, (1) Database / persistence (Supabase JSONB roundtrip via service-role),
 (2) Route smoke tests (401-without-auth gates; skips when `localhost:3000` is down),
 (3) Calculation correctness (snapshot diffs + targeted assertions on fixture inputs),
 (4) State integrity (load fixture into store, mutate via store actions, assert cascade),
@@ -277,9 +277,9 @@ plain-English help wired into every input across all 5 Module 1 tabs).
 - `d295dc8` 2/8: tune plot defaults so fresh plots stay inside FAR ceiling.
   podiumFloors 2→1, typicalFloors 10→6, typicalCoveragePct 40→30. Math:
   (60·1 + 30·6) / (3·100) = 80% utilisation (was 173.3%). No calc engine
-  change — only `DEFAULT_PLOT_*` constants. Snapshot fixtures all pin
+  change, only `DEFAULT_PLOT_*` constants. Snapshot fixtures all pin
   these values explicitly so baselines unaffected. (M1.10/1 pin commit
-  unnecessary — every fixture with plot data already pins.)
+  unnecessary, every fixture with plot data already pins.)
 - `e9305d4` 3/8: platform-layer category-sum allocation derivation.
   RealEstatePlatform's `resAsset / hospAsset / retAsset` no longer use
   `assetById.get(LEGACY_ASSET_IDS.X)` (which missed wizard-minted ids
@@ -296,15 +296,15 @@ plain-English help wired into every input across all 5 Module 1 tabs).
   liner; Phases (Q2) + Plots (Q3) collapsed into a 2-column grid row.
   Estimated content-height reduction ~120-140px.
 - `d47c268` 5/8: Land vs Plot reconciliation row + relabels.
-  `landParcels[]` (financial — what you own) and `Plot[]` (physical —
+  `landParcels[]` (financial, what you own) and `Plot[]` (physical ,
   what you build on) stay independent arrays but Build Program now
   surfaces a reconciliation row showing Parcel total · Plot total ·
   ✓ matches / ⚠ diverges. Tolerance 1 sqm. Land tab heading renamed
-  "Land Parcels (financial — what you own)"; Build Program "Plot Area"
+  "Land Parcels (financial, what you own)"; Build Program "Plot Area"
   input renamed "Plot Buildable Area" so the financial-vs-physical
   distinction is visible in both surfaces.
 - `9f48b76` 6/8: Build Program per-plot setup wizard
-  (`PlotSetupWizard.tsx`). 4-step modal walk — Envelope (FAR + coverage)
+  (`PlotSetupWizard.tsx`). 4-step modal walk, Envelope (FAR + coverage)
   → Floors (podium + typical + typicalCoverage with live envelope
   preview showing utilisation %) → Parking (3 bay sizes + basement
   count + efficiency) → Assets (checkbox list of existing assets to
@@ -313,7 +313,7 @@ plain-English help wired into every input across all 5 Module 1 tabs).
   Cancel discards. Mounted from each PlotEditor card via "🪄 Setup
   wizard" button. Form view stays primary.
 - `89667ab` 7/8: Land tab parcel setup wizard
-  (`ParcelSetupWizard.tsx`). 2-step modal walk — build parcel list
+  (`ParcelSetupWizard.tsx`). 2-step modal walk, build parcel list
   with "+ Add another parcel" pattern → review with totals → Save &
   Close commits via `setLand({ landParcels: next })`. Seeded from
   existing parcels so it reads as edit-not-restart. Mounted from the
@@ -354,7 +354,7 @@ plain-English help wired into every input across all 5 Module 1 tabs).
   click-outside dismiss. ARIA: `aria-describedby` (wired conditionally
   while open), `aria-expanded`, `role="tooltip"` on the bubble.
   `pointerEvents: 'none'` on the bubble so it never steals clicks
-  back. No external tooltip library — Radix would have been heavier
+  back. No external tooltip library, Radix would have been heavier
   than this 154-line primitive justifies.
 - `0bf9e7b` 4/8: wire InputLabel into Schedule + Land tabs. Schedule:
   Model Granularity, Project Start Date, Project Construction, Project
@@ -362,7 +362,7 @@ plain-English help wired into every input across all 5 Module 1 tabs).
   Name / Area / Rate / Cash % / In-Kind %) via a data-driven map, plus
   Site Parameters (Project Roads, Project FAR, Non-Enclosed Area %).
   Help copy is plain-English and explains the modeling consequence
-  (e.g. "Years vs Months — controls how every cashflow is bucketed").
+  (e.g. "Years vs Months, controls how every cashflow is bucketed").
 - `6b32ee8` 5/8: wire InputLabel into Build Program + Plot/Parcel
   wizards. Plot help copy lives at `src/hubs/modeling/platforms/refm/
   lib/copy/plotFieldHelp.ts` as a `Record<string, string>` keyed by
@@ -384,7 +384,7 @@ plain-English help wired into every input across all 5 Module 1 tabs).
   than the quoted-key numField path. Result: 18 pass / 0 fail / 0 skip
   with dev server up.
 - `476b109` 8/8 (Playwright + screenshots): tests/e2e/m110b-flow.spec.ts.
-  2 specs: (1) Plot Setup Wizard portal regression guard — scroll to
+  2 specs: (1) Plot Setup Wizard portal regression guard, scroll to
   the bottom of Build Program (where a non-portal modal would inherit
   the parent containing-block and render below the fold), open the
   wizard, assert bounding box centered in 1440×900 viewport, focus a
@@ -399,7 +399,7 @@ plain-English help wired into every input across all 5 Module 1 tabs).
   plot maxFARs first).
 - Section-pill labels (Inputs / Calculated), calc-vs-input pencil/fx
   icons next to every field, hover tooltips for the financial
-  vocabulary (Sub-Unit, Strategy, FAR, Cascade) — carried over from
+  vocabulary (Sub-Unit, Strategy, FAR, Cascade), carried over from
   M1.9b deferred list.
 - Remove unused setters from Module1Area + Module1Timeline prop
   interfaces (still tagged with eslint-disable so RealEstatePlatform
@@ -430,12 +430,12 @@ plain-English help wired into every input across all 5 Module 1 tabs).
   wizard's capture before drilling further. Manual project creation still lands
   on Hierarchy (no asset structure yet, so the data tree is the right starting
   point).
-- `b8b54cc` 5/15: scripts/verify-m19.ts — 5-section per-phase verifier. 16 pass /
+- `b8b54cc` 5/15: scripts/verify-m19.ts, 5-section per-phase verifier. 16 pass /
   0 fail / 2 skip without dev server. Section 4 includes a static source-file
   inspection that asserts JSX-context patterns (`>Project Identity<`, `>Asset Mix<`)
-  are gone — false-positive free, so docstrings referencing the removed surfaces
+  are gone, false-positive free, so docstrings referencing the removed surfaces
   don't trip.
-- `a8b9f34` 6/15: tests/e2e/m19-redesign-flow.spec.ts — 2 Playwright specs.
+- `a8b9f34` 6/15: tests/e2e/m19-redesign-flow.spec.ts, 2 Playwright specs.
   Spec 1 walks wizard with country='United Arab Emirates' (auto-AED) +
   construction=7/operations=11/overlap=1, asserts Schedule landing tab, numbered
   tab row, M1.9 strip both tabs, stored snapshot has the wizard timing. Spec 2
@@ -468,11 +468,11 @@ plain-English help wired into every input across all 5 Module 1 tabs).
   here") + delegated scope ("Not here").
 - `40b6912` 6/8: extend What-goes-here callouts to Build Program + Dev Costs + Financing.
   Build Program h2 renamed "Area Program" → "Build Program" to match the M1.9 tab label.
-- `813f448` 7/8: scripts/verify-m19b.ts — 5-section per-phase verifier covering Hierarchy
+- `813f448` 7/8: scripts/verify-m19b.ts, 5-section per-phase verifier covering Hierarchy
   dissolution + sections prop + nested mounts + What-goes-here callouts on all 5 tabs +
   D7/D8 labels. 19 pass / 0 fail / 2 skip without dev server; 29 pass / 0 fail / 1 skip
   with dev server up.
-- `<m19b/8>` 8/8: tests/e2e/m19b-redesign-flow.spec.ts — 2 Playwright specs. Spec 1 walks
+- `<m19b/8>` 8/8: tests/e2e/m19b-redesign-flow.spec.ts, 2 Playwright specs. Spec 1 walks
   wizard, asserts Schedule landing tab + 1→5 tab row (no "6. Hierarchy") + Project
   Structure card mount + D7 labels visible + What-goes-here callout + D8 label on Land +
   Build Program h2 + Asset & Sub-Unit Detail Editor mount. Spec 2 captures Schedule + Land
@@ -496,9 +496,9 @@ plain-English help wired into every input across all 5 Module 1 tabs).
 (direct subscription for Hierarchy + Area Program; prop-drilled setter wrappers from
 RealEstatePlatform for Timeline / Land & Area / Dev Costs / Financing). No tab keeps a
 private copy of project-level data. Cross-tab edits propagate via the store. The wizard
-writes a complete `HydrateSnapshot` on create — every field a tab reads is covered, with
+writes a complete `HydrateSnapshot` on create, every field a tab reads is covered, with
 `DEFAULT_MODULE1_STATE` standing in for fields the wizard does not capture (country,
-landParcels, projectFAR, costs, financing — those belong to dedicated tabs).
+landParcels, projectFAR, costs, financing, those belong to dedicated tabs).
 
 **M1.8 wizard hotfix series (5 commits, 2026-05-03 → 2026-05-04):**
 - `a15fcbc` fix 1/3: pair Model Type + Status on same row in Step 1
@@ -506,21 +506,21 @@ landParcels, projectFAR, costs, financing — those belong to dedicated tabs).
 - `5085958` fix 3/3: skip round-trip re-hydrate after wizard create (added
   `attachToProjectFromLocalSnapshot` workaround; the underlying recogniser bug was flagged
   as M2.0/A follow-up at the time)
-- `4721e80` fix 4: stabilise `Module1AreaProgram` `useShallow` selectors — every
+- `4721e80` fix 4: stabilise `Module1AreaProgram` `useShallow` selectors, every
   `useShallow(s => ({ ..., filtered: s.X.filter(...) }))` was producing a fresh array
   reference per render, tripping React's "getSnapshot should be cached" warning into a
   Maximum update depth loop once the store had data. Pulled filters out into separate
   `useModule1Store(s => s.X)` subscriptions + `useMemo` derivations.
-- `66a20f5` fix 5: relax `isNewV3` recogniser in `module1-migrate.ts` — every snapshot
+- `66a20f5` fix 5: relax `isNewV3` recogniser in `module1-migrate.ts`, every snapshot
   the system POSTs (wizard create, legacy create, auto-save) is bare `HydrateSnapshot`
   with no `version: 3` discriminator. The strict recogniser silently fell through to
   `DEFAULT_MODULE1_STATE` on every reload, wiping the wizard data. Now shape-based:
   any payload with `assets[]` + `phases[]` + `costs[]` arrays is treated as v3.
 
 **Snapshot baselines (3, all maintained at every commit):**
-- `module1-snapshot-diff.ts` — legacy single-phase, **17.5 KB**
-- `module1-multiphase-diff.ts` — multi-phase v4, **23.0 KB**
-- `module1-areaprogram-diff.ts` — M1.7 Area Program, **2.8 KB**
+- `module1-snapshot-diff.ts`, legacy single-phase, **17.5 KB**
+- `module1-multiphase-diff.ts`, multi-phase v4, **23.0 KB**
+- `module1-areaprogram-diff.ts`, M1.7 Area Program, **2.8 KB**
 
 ### Health Check
 `GET /api/health` -> `{ status: 'ok', platform: 'financial-modeler-pro', version: '3.0', timestamp }`
@@ -557,4 +557,4 @@ landParcels, projectFAR, costs, financing — those belong to dedicated tabs).
 ### sheets.ts
 - `normalizeProgressObject()` handles both bestScore/score field names and passed/status detection with score >= 70 fallback
 ### `/api/branding`
-- GET is public (no auth) — PATCH requires admin
+- GET is public (no auth), PATCH requires admin

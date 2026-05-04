@@ -155,7 +155,9 @@
       "Bash(findstr -i \"error\\\\|not-found\")",
       "Bash(kill %1)",
       "Bash(pkill -f \"next dev\")",
-      "Bash(taskkill //F //IM node.exe //T)"
+      "Bash(taskkill //F //IM node.exe //T)",
+      "Bash(sort -t: -k2 -n -r)",
+      "Bash(awk -F: '{s+=$2} END {print s+0}')"
     ]
   }
 }

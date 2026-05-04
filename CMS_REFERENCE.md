@@ -1,6 +1,6 @@
-# Financial Modeler Pro — Admin CMS Reference
+# Financial Modeler Pro, Admin CMS Reference
 
-> Snapshot of how FMP's admin CMS is wired, intended as a portable spec for mirroring the same patterns on a separate project. **Reference only — no behavioral contract.** Read this together with `CLAUDE-DB.md` (table schemas), `CLAUDE-ROUTES.md` (file map), and `CLAUDE.md` (auth + design rules).
+> Snapshot of how FMP's admin CMS is wired, intended as a portable spec for mirroring the same patterns on a separate project. **Reference only, no behavioral contract.** Read this together with `CLAUDE-DB.md` (table schemas), `CLAUDE-ROUTES.md` (file map), and `CLAUDE.md` (auth + design rules).
 
 **Snapshot date:** 2026-05-02
 **Stack:** Next.js 16 App Router · TypeScript strict · Supabase (Postgres + Storage) · NextAuth (admin) · Tailwind 4 + CSS custom properties · `@hello-pangea/dnd` (drag-and-drop) · `@tiptap/react` (rich text)
@@ -19,7 +19,7 @@ The sidebar lives in `src/components/admin/CmsAdminNav.tsx` and is rendered as t
 | Collapse persistence | `localStorage['adminSidebarCollapsed']` | `CmsAdminNav.tsx:69-72,89-93` |
 | Scroll persistence | `sessionStorage['admin_sidebar_scroll']` saved continuously, restored on `pathname` change | `CmsAdminNav.tsx:74-87` |
 | Mobile (<768px) | Off-canvas drawer with hamburger button at top-left, backdrop click closes | `CmsAdminNav.tsx:99-139` |
-| Active state | `pathname === href` OR `pathname` starts with any `matchPaths` entry — `#1B4F8A` bg + `3px solid #2EAA4A` left border |
+| Active state | `pathname === href` OR `pathname` starts with any `matchPaths` entry, `#1B4F8A` bg + `3px solid #2EAA4A` left border |
 | Backgrounds | Sidebar `#0D2E5A` · text `#fff @ 0.75 opacity` · active `#fff` · dividers `rgba(255,255,255,0.08)` |
 | External links | Three buttons at the bottom (View Live Site / Training Site / Modeling Hub) open in a new tab |
 
@@ -27,37 +27,37 @@ The sidebar lives in `src/components/admin/CmsAdminNav.tsx` and is rendered as t
 
 | Group | Label | Route | Icon | Match-path aliases | Manages |
 |---|---|---|---|---|---|
-| — | Dashboard | `/admin/cms` | 🏠 | — | KPI tiles + quick actions + recent sign-ups |
-| **Content** | Page Builder | `/admin/page-builder` | 🧱 | — | Block-based pages (`cms_pages` + `page_sections`) |
+|, | Dashboard | `/admin/cms` | 🏠 |, | KPI tiles + quick actions + recent sign-ups |
+| **Content** | Page Builder | `/admin/page-builder` | 🧱 |, | Block-based pages (`cms_pages` + `page_sections`) |
 | | Header Settings | `/admin/header-settings` | 🔲 | `/admin/branding` | Brand colors + logo + tagline + favicon + header sizing |
-| | Page Content | `/admin/content` | 📝 | — | Key-value content (`cms_content` rows): footer, section styles, articles-page copy, legal pages |
-| | Pages & Nav | `/admin/pages` | 🗂️ | — | `site_pages` rows that drive the navbar |
-| | Articles | `/admin/articles` | 📰 | — | `articles` table (rich-text blog posts) |
-| | Testimonials | `/admin/testimonials` | ⭐ | — | `testimonials` table (hub-tagged) |
-| | Media Library | `/admin/media` | 🖼️ | — | Supabase Storage bucket `cms-assets` |
-| **Modeling Hub** | Modules | `/admin/modules` | 🧩 | — | Modeling platform catalog (`src/config/platforms.ts` mirror) |
-| | Access Whitelist | `/admin/modeling-access` | 🔑 | — | Per-user platform access |
-| | Users | `/admin/users` | 👥 | — | `users` table — role/email/created |
-| | Pricing | `/admin/pricing` | 💰 | — | `pricing_plans` |
-| | Projects | `/admin/projects` | 📁 | — | `refm_projects` (REFM saved projects) |
-| **Training Hub** | Overview | `/admin/training-hub` | 📊 | — | Hub dashboard |
-| | Platform Analytics | `/admin/analytics` | 📈 | — | Aggregate analytics |
-| | Live Sessions | `/admin/training-hub/live-sessions` | 🔴 | — | `live_sessions` table |
-| | Instructors | `/admin/training-hub/instructors` | 🎤 | — | `instructors` table |
-| | Course Manager | `/admin/training` | 🎓 | — | `courses`, `lessons`, `quiz_questions` |
-| | Students | `/admin/training-hub/students` | 👨‍🎓 | — | Roster from `training_registrations_meta` |
-| | Certificates | `/admin/training-hub/certificates` | 🏆 | — | Issued certificates |
+| | Page Content | `/admin/content` | 📝 |, | Key-value content (`cms_content` rows): footer, section styles, articles-page copy, legal pages |
+| | Pages & Nav | `/admin/pages` | 🗂️ |, | `site_pages` rows that drive the navbar |
+| | Articles | `/admin/articles` | 📰 |, | `articles` table (rich-text blog posts) |
+| | Testimonials | `/admin/testimonials` | ⭐ |, | `testimonials` table (hub-tagged) |
+| | Media Library | `/admin/media` | 🖼️ |, | Supabase Storage bucket `cms-assets` |
+| **Modeling Hub** | Modules | `/admin/modules` | 🧩 |, | Modeling platform catalog (`src/config/platforms.ts` mirror) |
+| | Access Whitelist | `/admin/modeling-access` | 🔑 |, | Per-user platform access |
+| | Users | `/admin/users` | 👥 |, | `users` table, role/email/created |
+| | Pricing | `/admin/pricing` | 💰 |, | `pricing_plans` |
+| | Projects | `/admin/projects` | 📁 |, | `refm_projects` (REFM saved projects) |
+| **Training Hub** | Overview | `/admin/training-hub` | 📊 |, | Hub dashboard |
+| | Platform Analytics | `/admin/analytics` | 📈 |, | Aggregate analytics |
+| | Live Sessions | `/admin/training-hub/live-sessions` | 🔴 |, | `live_sessions` table |
+| | Instructors | `/admin/training-hub/instructors` | 🎤 |, | `instructors` table |
+| | Course Manager | `/admin/training` | 🎓 |, | `courses`, `lessons`, `quiz_questions` |
+| | Students | `/admin/training-hub/students` | 👨‍🎓 |, | Roster from `training_registrations_meta` |
+| | Certificates | `/admin/training-hub/certificates` | 🏆 |, | Issued certificates |
 | | Certificate Designer | `/admin/certificate-designer` | 🎨 | `/admin/certificates`, `/admin/certificate-editor`, `/admin/badge-editor`, `/admin/transcript-editor` | Visual editors that write `cms_content` (`section='cert_layout'` etc.) |
-| | Assessments | `/admin/training-hub/assessments` | 📋 | — | Per-course assessment config |
-| | Model Submissions | `/admin/training-hub/model-submissions` | 📥 | — | Student model uploads |
+| | Assessments | `/admin/training-hub/assessments` | 📋 |, | Per-course assessment config |
+| | Model Submissions | `/admin/training-hub/model-submissions` | 📥 |, | Student model uploads |
 | | Communications Hub | `/admin/communications-hub` | 📬 | `/admin/training-hub/communications`, `/admin/training-hub/live-sessions/email-settings`, `/admin/training-hub/share-templates`, `/admin/newsletter` | Email templates, share copy, newsletter |
-| | Marketing Studio | `/admin/training-hub/marketing-studio` | 🎨 | — | Marketing assets |
-| | Daily Roundup | `/admin/training-hub/daily-roundup` | 🎓 | — | Daily roundup composer |
-| | Cohorts | `/admin/training-hub/cohorts` | 👥 | — | Cohort management |
-| | Training Settings | `/admin/training-settings` | ⚙️ | — | `training_settings` table (Apps Script URL, timer bypass) |
-| **System** | Audit Log | `/admin/audit` | 📋 | — | `admin_audit_log` |
-| | System Health | `/admin/health` | ❤️ | — | DB / Storage / external service pings |
-| | Settings | `/admin/settings` | ⚙️ | — | App-wide settings |
+| | Marketing Studio | `/admin/training-hub/marketing-studio` | 🎨 |, | Marketing assets |
+| | Daily Roundup | `/admin/training-hub/daily-roundup` | 🎓 |, | Daily roundup composer |
+| | Cohorts | `/admin/training-hub/cohorts` | 👥 |, | Cohort management |
+| | Training Settings | `/admin/training-settings` | ⚙️ |, | `training_settings` table (Apps Script URL, timer bypass) |
+| **System** | Audit Log | `/admin/audit` | 📋 |, | `admin_audit_log` |
+| | System Health | `/admin/health` | ❤️ |, | DB / Storage / external service pings |
+| | Settings | `/admin/settings` | ⚙️ |, | App-wide settings |
 
 ---
 
@@ -70,7 +70,7 @@ The sidebar lives in `src/components/admin/CmsAdminNav.tsx` and is rendered as t
 | `app/admin/layout.tsx` | Wraps all `/admin/*` children. `/admin` (login) bypasses the auth hook to avoid render-loop. All other paths render through `<AdminProtected>` which calls `useRequireAdmin()` (redirects non-admins to `/`). |
 | `src/components/admin/CmsAdminNav.tsx` | Sidebar (every page renders it manually as `<CmsAdminNav active="/admin/foo" />`). |
 | `src/lib/shared/auth.ts` | NextAuth `authorize()`. Admin role bypasses `EmailNotConfirmed` and `DEVICE_VERIFICATION_REQUIRED`. |
-| `src/middleware.ts` | `/admin/:path*` requires session — `/admin/login` and `/admin` root explicitly excluded. |
+| `src/middleware.ts` | `/admin/:path*` requires session, `/admin/login` and `/admin` root explicitly excluded. |
 
 Most admin pages follow this shape:
 
@@ -86,7 +86,7 @@ Most admin pages follow this shape:
 </div>
 ```
 
-### 2.1 `/admin/cms` — Dashboard
+### 2.1 `/admin/cms`, Dashboard
 
 | Aspect | Detail |
 |---|---|
@@ -94,9 +94,9 @@ Most admin pages follow this shape:
 | Reads | `users`, `articles` (where `status='published'`), `courses` (where `status='published'`), `projects` |
 | UI | 4 KPI cards (auto-fit grid 200px+) → Quick Actions row → Recent Sign-ups table |
 | Save behavior | Read-only |
-| Note | Stats failures degrade to `0` — never throws |
+| Note | Stats failures degrade to `0`, never throws |
 
-### 2.2 `/admin/page-builder` — Page List
+### 2.2 `/admin/page-builder`, Page List
 
 | Aspect | Detail |
 |---|---|
@@ -106,7 +106,7 @@ Most admin pages follow this shape:
 | Save behavior | Per-action POST (template insert is one transaction-equivalent batch) |
 | Validation | Slug must match `/^[a-z0-9-]+$/`; system pages cannot be deleted |
 
-### 2.3 `/admin/page-builder/[slug]` — Section Editor
+### 2.3 `/admin/page-builder/[slug]`, Section Editor
 
 | Aspect | Detail |
 |---|---|
@@ -114,14 +114,14 @@ Most admin pages follow this shape:
 | Reads / writes | `cms_pages` (page metadata) + `page_sections` (block list) via `/api/admin/page-sections?slug=...` |
 | UI | **Three-pane layout**: header bar (back · title · SEO toggle · "Preview ↗" link) → left rail (320px draggable section list) → right pane (active section editor + style editor). |
 | Save behavior | **Per-section explicit Save button.** Reorder is **auto-saved** as soon as the user releases a drag. SEO has its own Save button. Visibility toggle on a list row is local-only until the user opens that section and clicks Save. |
-| Validation | None at the form layer — all values are strings/JSON; the public renderer is responsible for falling back when fields are blank/visible-false. |
+| Validation | None at the form layer, all values are strings/JSON; the public renderer is responsible for falling back when fields are blank/visible-false. |
 | Unique UX | DnD reorder via `@hello-pangea/dnd`, per-field visibility checkbox + alignment + width selectors (`VF` / `ItemVF` / `ItemBar` wrappers), per-array-item delete buttons, type picker as inline list (no modal), "SEO" yellow-banner panel toggled inline, "Preview ↗" opens the public route in a new tab. |
 
 #### 2.3a `StyleEditor` (always rendered under each section)
 
 Edits the `styles` JSONB on the active section: background color, background image (with overlay), text color, padding (T/R/B/L), max-width, border radius, animation (`none` / `fade-in` / `slide-up`), custom CSS class.
 
-### 2.4 `/admin/header-settings` — Branding & Header
+### 2.4 `/admin/header-settings`, Branding & Header
 
 | Aspect | Detail |
 |---|---|
@@ -132,7 +132,7 @@ Edits the `styles` JSONB on the active section: background color, background ima
 | Validation | Hex color regex `/^#[0-9A-Fa-f]{0,6}$/` while typing; the `<input type="color">` swatch falls back to `#000000` if invalid |
 | Unique UX | `<MediaPickerButton>` next to URL inputs, live logo preview on dark background, RichTextEditor for the tagline, color-picker swatch + hex text input pair, instant primary/secondary swatch preview bars |
 
-### 2.5 `/admin/content` — Page Content (key-value)
+### 2.5 `/admin/content`, Page Content (key-value)
 
 | Aspect | Detail |
 |---|---|
@@ -143,16 +143,16 @@ Edits the `styles` JSONB on the active section: background color, background ima
 | Validation | Free-text; ISR cache picks up edits within 60s |
 | Unique UX | Stats use `_style_` synthetic section names internally to map flat form fields → JSON; toast at bottom-right; logo upload uses `/api/admin/media` with 2 MB cap and writes the URL back into `cms_content.branding/logo_url` |
 
-### 2.6 `/admin/pages` — Site Pages & Nav
+### 2.6 `/admin/pages`, Site Pages & Nav
 
 | Aspect | Detail |
 |---|---|
 | File | `app/admin/pages/page.tsx` |
 | Reads / writes | `site_pages` table (rows that show in the navbar) |
 | UI | Table list with inline edit |
-| Note | Distinct from `cms_pages` — `site_pages` is the **navigation menu**, `cms_pages` is the **content store** |
+| Note | Distinct from `cms_pages`, `site_pages` is the **navigation menu**, `cms_pages` is the **content store** |
 
-### 2.7 `/admin/articles` — Articles
+### 2.7 `/admin/articles`, Articles
 
 | Aspect | Detail |
 |---|---|
@@ -161,24 +161,24 @@ Edits the `styles` JSONB on the active section: background color, background ima
 | UI | List with status badge → form (title, slug, excerpt, body via `RichTextEditor`, cover image via `MediaPickerButton`, tags, status, featured flag) |
 | Save behavior | Explicit Save per article |
 
-### 2.8 `/admin/testimonials` — Testimonials
+### 2.8 `/admin/testimonials`, Testimonials
 
 | Reads / writes | `testimonials` (with `linkedin_url`, `profile_photo_url`, `hub`, `video_url` columns) |
 | UI | Table + per-row edit form |
 
-### 2.9 `/admin/media` — Media Library
+### 2.9 `/admin/media`, Media Library
 
 | Reads / writes | Supabase Storage bucket `cms-assets` |
 | UI | Tile grid of uploaded files; upload via `/api/admin/media` (multipart) |
 | Used by | `MediaPicker` modal across many editors |
 
-### 2.10 `/admin/audit` — Audit Log
+### 2.10 `/admin/audit`, Audit Log
 
 | File | `app/admin/audit/page.tsx` (uses shared `AuditLogViewer`) |
 | Reads | `admin_audit_log` via `/api/admin/audit-log` (paginated, 100/req, max 500) |
 | UI | Time-sorted list with action · admin · target · reason · before/after JSON diff |
 
-### 2.11 `/admin/health` — System Health
+### 2.11 `/admin/health`, System Health
 
 | Reads | DB ping, Storage ping, Resend ping, Anthropic ping |
 | UI | Single card per service (green / red dot) |
@@ -197,7 +197,7 @@ Edits the `styles` JSONB on the active section: background color, background ima
 | `/admin/projects` | View/inspect/delete `refm_projects` |
 | `/admin/modules` | Toggles platform `live`/`coming_soon` |
 | `/admin/modeling-access` | Whitelist users for specific modeling platforms |
-| `/admin/training` | Course manager — courses, lessons, quizzes, drag-reorder lessons |
+| `/admin/training` | Course manager, courses, lessons, quizzes, drag-reorder lessons |
 | `/admin/training-hub/live-sessions` | CRUD for `live_sessions` |
 | `/admin/training-hub/instructors` | Instructor profiles + photo upload |
 | `/admin/training-hub/students` | Roster from `training_registrations_meta` joined to progress |
@@ -270,7 +270,7 @@ This means the **admin UI** can swap shape based on data without changing `secti
 
 ### 3.4 Visibility / draft
 
-- Per **section**: `page_sections.visible` boolean — toggle on the row in the left rail (saved on next Save Section).
+- Per **section**: `page_sections.visible` boolean, toggle on the row in the left rail (saved on next Save Section).
 - Per **page**: `cms_pages.status` enum (`draft` | `published`).
 - Per **field**: `<fieldKey>_visible` boolean inside the section's `content` JSONB (see VF wrapper).
 - Per **array item**: `visible` boolean inside the item object.
@@ -287,17 +287,17 @@ This means the **admin UI** can swap shape based on data without changing `secti
 
 | Layer | Purpose | Edited from | When to use |
 |---|---|---|---|
-| **`cms_content`** (key-value) | Flat `(section, key, value)` rows. Value is always TEXT (JSON-stringified when needed). | `/admin/content`, `/admin/header-settings`, `/admin/certificate-designer`, etc. | **Singletons & global config**: footer text, header logo, legal copy, certificate layouts, articles-page header — anything that is *one* of, not a list of blocks. |
+| **`cms_content`** (key-value) | Flat `(section, key, value)` rows. Value is always TEXT (JSON-stringified when needed). | `/admin/content`, `/admin/header-settings`, `/admin/certificate-designer`, etc. | **Singletons & global config**: footer text, header logo, legal copy, certificate layouts, articles-page header, anything that is *one* of, not a list of blocks. |
 | **`page_sections`** (block-based) | Ordered list of typed blocks with JSONB `content` + JSONB `styles`. | `/admin/page-builder/[slug]` | **Long, heterogeneous page bodies**: home, /about/*, /pricing, /modeling, /training, /articles, legal pages. |
 
 ### 4.2 Tables
 
 | Table | Purpose | Key columns |
 |---|---|---|
-| `cms_content` | Singleton key-value content | `id`, `section` TEXT, `key` TEXT, `value` TEXT, `updated_at` — UNIQUE`(section, key)` |
+| `cms_content` | Singleton key-value content | `id`, `section` TEXT, `key` TEXT, `value` TEXT, `updated_at`, UNIQUE`(section, key)` |
 | `cms_pages` | Page metadata | `id`, `slug` UNIQUE, `title`, `seo_title`, `seo_description`, `status` (`draft`/`published`), `is_system` BOOL, `created_at` |
 | `page_sections` | Page blocks | `id`, `page_slug` (FK by slug), `section_type` TEXT, `content` JSONB, `display_order` INT, `visible` BOOL, `styles` JSONB |
-| `branding_config` | Brand colors only (slimmed in commit `ee959ad`) | `id`, `scope` (`global`|...), `config` JSONB — `{primaryColor, secondaryColor}` |
+| `branding_config` | Brand colors only (slimmed in commit `ee959ad`) | `id`, `scope` (`global`|...), `config` JSONB, `{primaryColor, secondaryColor}` |
 | `site_pages` | Navbar-driven page list | `slug`, `label`, `href`, `display_order`, `visible` |
 | `site_settings` | Misc global settings | `key`, `value` JSONB |
 | `articles` | Blog posts | `slug`, `title`, `excerpt`, `body_html`, `cover_image_url`, `tags[]`, `status`, `featured`, `published_at` |
@@ -309,8 +309,8 @@ This means the **admin UI** can swap shape based on data without changing `secti
 
 ### 4.3 Why split
 
-- `cms_content` is **append-cheap** — every new singleton is one row. No migration, no schema change. `branding/logo_url`, `header_settings/header_height_px`, `articles_page/title`, `privacy_policy/content` all live here.
-- `page_sections` carries **structure** — order, visibility, per-block style overrides, polymorphic content shape. A migration in 2026-04 (`098_drop_founder_profile.sql`) consolidated the ad-hoc `founder_profile` table into a single `team`-typed `page_sections` row, proving the pattern: **prefer page_sections for anything you'd want to drag-reorder or duplicate.**
+- `cms_content` is **append-cheap**, every new singleton is one row. No migration, no schema change. `branding/logo_url`, `header_settings/header_height_px`, `articles_page/title`, `privacy_policy/content` all live here.
+- `page_sections` carries **structure**, order, visibility, per-block style overrides, polymorphic content shape. A migration in 2026-04 (`098_drop_founder_profile.sql`) consolidated the ad-hoc `founder_profile` table into a single `team`-typed `page_sections` row, proving the pattern: **prefer page_sections for anything you'd want to drag-reorder or duplicate.**
 
 ### 4.4 Storage
 
@@ -326,9 +326,9 @@ This means the **admin UI** can swap shape based on data without changing `secti
 
 ### 5.1 URL pattern
 
-- `/api/admin/*` — admin-only (NextAuth session + role check)
-- `/api/cms/*` — public read access for site rendering
-- `/api/branding` — `GET` public, `PATCH` admin-only
+- `/api/admin/*`, admin-only (NextAuth session + role check)
+- `/api/cms/*`, public read access for site rendering
+- `/api/branding`, `GET` public, `PATCH` admin-only
 
 ### 5.2 Auth gate (every admin route)
 
@@ -346,7 +346,7 @@ if (session.user.role !== 'admin')        return NextResponse.json({ error: 'For
 |---|---|
 | `GET` | List or fetch single. Optional `?slug=` / `?section=` filters. |
 | `POST` | Create. For complex routes, the body uses an `action` discriminator (e.g. `action:'create_page'`) instead of carving up sub-routes. |
-| `PATCH` | Update. Same `action`-discriminator pattern (e.g. `action:'reorder' | 'update_page'`). For `cms_content`, PATCH is **upsert** — it tries UPDATE then INSERT if no row matched. |
+| `PATCH` | Update. Same `action`-discriminator pattern (e.g. `action:'reorder' | 'update_page'`). For `cms_content`, PATCH is **upsert**, it tries UPDATE then INSERT if no row matched. |
 | `DELETE` | Body-based id. For pages, deletes child rows first to honor FK cascade order. |
 
 ### 5.4 Response shapes
@@ -360,11 +360,11 @@ if (session.user.role !== 'admin')        return NextResponse.json({ error: 'For
 | `{ entries, total }` | Paginated lists | `GET /api/admin/audit-log?limit=100&offset=0` |
 | `{ url }` | Media upload | `POST /api/admin/media` |
 | `{ config }` | Branding read | `GET /api/branding?scope=global` |
-| `{ error: string }` + non-2xx | All failure paths | — |
+| `{ error: string }` + non-2xx | All failure paths |, |
 
 ### 5.5 Audit logging
 
-Mutations to user records (role change, password reset, suspension) write a row to `admin_audit_log` capturing `before_value` + `after_value` + `reason` + `admin_id` + `target_user_id`. Content edits (`cms_content`, `page_sections`) **do not currently audit-log** — they're treated as low-stakes / overwritten frequently.
+Mutations to user records (role change, password reset, suspension) write a row to `admin_audit_log` capturing `before_value` + `after_value` + `reason` + `admin_id` + `target_user_id`. Content edits (`cms_content`, `page_sections`) **do not currently audit-log**, they're treated as low-stakes / overwritten frequently.
 
 `GET /api/admin/audit-log` supports `?limit=` (capped 500) + `?offset=` and joins `admin:admin_id(email,name)` + `target:target_user_id(email,name)`.
 
@@ -372,14 +372,14 @@ Mutations to user records (role change, password reset, suspension) write a row 
 
 ## 6. Shared Admin UI Components
 
-Located under `src/components/admin/`. None are generic "design-system" components — they are domain components used across multiple admin pages.
+Located under `src/components/admin/`. None are generic "design-system" components, they are domain components used across multiple admin pages.
 
 | Component | Purpose | File |
 |---|---|---|
 | `CmsAdminNav` | The sidebar described in §1. Accepts `active` (route string) and `badges` (`{href: count}`). | `src/components/admin/CmsAdminNav.tsx` |
 | `MediaPicker` / `MediaPickerButton` | Modal that browses the `cms-assets` Storage bucket and lets the user upload + pick. `MediaPickerButton` is the inline "→" button next to URL inputs. | `src/components/admin/MediaPicker.tsx` |
 | `RichTextEditor` | Full Tiptap editor (heading levels, bold/italic, color, font size, image, link, alignment). Used for long-form HTML (article body, tagline, founder bio). | `src/components/admin/RichTextEditor.tsx` |
-| `RichTextarea` | Compact rich-text input (no toolbar — bold/italic/link only). Used for short fields (subtitle, quote, item description) inside Page Builder. | `src/components/admin/RichTextarea.tsx` |
+| `RichTextarea` | Compact rich-text input (no toolbar, bold/italic/link only). Used for short fields (subtitle, quote, item description) inside Page Builder. | `src/components/admin/RichTextarea.tsx` |
 | `AuditLogViewer` | Renders the `/admin/audit` table with pagination and JSON-diff popovers. | `src/components/admin/AuditLogViewer.tsx` |
 | `ProjectsBrowser` | Lists `refm_projects` with delete/inspect actions. | `src/components/admin/ProjectsBrowser.tsx` |
 | `InstructorPicker` | Combobox that fetches `instructors` and returns the selected id (used in Live Sessions form). | `src/components/admin/InstructorPicker.tsx` |
@@ -441,7 +441,7 @@ Admin pages **do not use** the public site's design tokens (`app/globals.css` `-
 ### 7.4 Mobile responsiveness
 
 - Sidebar collapses to off-canvas drawer at `<768px` (CSS in `<style>` block inside `CmsAdminNav.tsx`).
-- Forms are mostly built with `display: grid; grid-template-columns: 1fr 1fr` (or 3-col) and **do not** auto-stack on narrow viewports — admin is desktop-first by design.
+- Forms are mostly built with `display: grid; grid-template-columns: 1fr 1fr` (or 3-col) and **do not** auto-stack on narrow viewports, admin is desktop-first by design.
 - The Page Builder three-pane layout is **not** responsive below ~1024px; the left rail's fixed 320px width can squash content.
 
 ### 7.5 Stylistic conventions worth carrying over
@@ -449,7 +449,7 @@ Admin pages **do not use** the public site's design tokens (`app/globals.css` `-
 - **Inline styles** rather than Tailwind utility classes throughout admin. The reasoning is portability and isolation from the public design system; a mass refactor to Tailwind would break the dashboard's visual independence.
 - **Per-section explicit Save** rather than auto-save. Reorder is auto-saved (low risk); content edits need a click. This avoids "I clicked away and lost my edit" feedback loops.
 - **`cms_content` for everything that isn't a block list.** The temptation to spin up new tables for each new feature is strong; this codebase pushes back firmly.
-- **Slash-namespacing in `cms_content` keys** (`section='header_settings'`, `section='articles_page'`, `section='privacy_policy'`) — gives free organization without table sprawl.
+- **Slash-namespacing in `cms_content` keys** (`section='header_settings'`, `section='articles_page'`, `section='privacy_policy'`), gives free organization without table sprawl.
 - **Match-paths on sidebar items** so renamed/redirected pages still highlight the right nav entry.
 
 ---

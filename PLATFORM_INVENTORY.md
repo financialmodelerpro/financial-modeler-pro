@@ -606,7 +606,7 @@ D:\FMP\financial-modeler-pro\
 |   |   +-- email\               Sender + 13 templates
 |   |   +-- integrations\        teamsMeetings.ts (Microsoft Graph)
 |   |   +-- marketing-studio\    types, brand, image-utils, style-utils, layout, 4 templates
-|   |   +-- modeling\            real-estate (modules + export — modules 2-11 + all 3 export files are 2-line stubs)
+|   |   +-- modeling\            real-estate (modules + export, modules 2-11 + all 3 export files are 2-line stubs)
 |   |   +-- newsletter\          autoNotify, sender, segments, templates, linkWrap (mig 143)
 |   |   +-- seo\                 canonical helper
 |   |   +-- shared\              19 cross-hub libs
@@ -833,7 +833,7 @@ Migrations 069, 073, 127 are absent on disk. CLAUDE-DB.md does not mention the g
 - **Blockers to separation**:
   - REFM project persistence in `projects` table (Supabase). Easy to migrate.
   - `src/agents/*` stubs. Either move or fill out.
-  - `app/portal/page.tsx` straddles Main Site and Modeling Hub — it's an authed hub showing all platforms but lives under main-domain routing rules and is rewritten on `app.*` only via the absence of explicit redirects. Pin its ownership before splitting.
+  - `app/portal/page.tsx` straddles Main Site and Modeling Hub, it's an authed hub showing all platforms but lives under main-domain routing rules and is rewritten on `app.*` only via the absence of explicit redirects. Pin its ownership before splitting.
   - Admin pages `/admin/modules`, `/admin/modeling-access` will follow Modeling Hub if admin splits; otherwise stay with admin.
 - **Effort to separate cleanly**: low. Could be lifted in days, not weeks. The fact that 9 of 10 platforms are still empty makes this even easier.
 
