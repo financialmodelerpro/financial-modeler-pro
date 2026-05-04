@@ -357,20 +357,27 @@ export const DEFAULT_PHASE_ID       = 'phase_1';
 export const DEFAULT_MASTER_HOLDING_ID = 'mh_1';
 export const DEFAULT_PLOT_ID        = 'plot_1';
 
-// ── Industry-typical Plot defaults (M1.7) ──────────────────────────────────
+// ── Industry-typical Plot defaults (M1.7, retuned M1.10) ───────────────────
 // Seeds for a brand-new plot. NOT lifted from any specific project; users
 // always override these per-plot in the Area Program tab. Source: common
 // developer-side rules of thumb (FAR 3.0, coverage 60%) and surveyed
 // regional bay-size standards (Surface 25 sqm incl. drive, Vertical 40
 // sqm incl. ramps, Basement 44 sqm incl. ramps + walls).
+//
+// M1.10: floor + typical-coverage defaults retuned so a fresh plot is
+// inside its FAR ceiling on first paint regardless of plot size. Math
+// is plot-area-invariant: utilisation = (coverage * podium + typicalCoverage
+// * typical) / (FAR * 100). Old defaults gave (60*2 + 40*10)/(3*100) =
+// 173.3% (Over FAR badge fired immediately). New defaults give
+// (60*1 + 30*6)/(3*100) = 80% — clean headroom for the user to upsize.
 export const DEFAULT_PLOT_FAR                    = 3.0;
 export const DEFAULT_PLOT_COVERAGE_PCT           = 60;
-export const DEFAULT_PLOT_TYPICAL_COVERAGE_PCT   = 40;
+export const DEFAULT_PLOT_TYPICAL_COVERAGE_PCT   = 30;
 export const DEFAULT_PLOT_LANDSCAPE_PCT          = 40;
 export const DEFAULT_PLOT_HARDSCAPE_PCT          = 40;
-export const DEFAULT_PLOT_NUMBER_OF_FLOORS       = 12;
-export const DEFAULT_PLOT_PODIUM_FLOORS          = 2;
-export const DEFAULT_PLOT_TYPICAL_FLOORS         = 10;
+export const DEFAULT_PLOT_NUMBER_OF_FLOORS       = 7;
+export const DEFAULT_PLOT_PODIUM_FLOORS          = 1;
+export const DEFAULT_PLOT_TYPICAL_FLOORS         = 6;
 export const DEFAULT_PLOT_BASEMENT_COUNT         = 1;
 export const DEFAULT_PLOT_BASEMENT_EFFICIENCY_PCT = 95;
 export const PARKING_BAY_SQM_SURFACE  = 25;
