@@ -5,21 +5,34 @@ import type { LandParcel, ProjectType } from '@/src/core/types/project.types';
 import { formatNumber, formatCurrency } from '@/src/core/formatters';
 import ParcelSetupWizard from '../modals/ParcelSetupWizard';
 import InputLabel from '../ui/InputLabel';
+import { useModule1Store } from '../../lib/state/module1-store';
+import { PARCEL_FIELD_HELP } from '../../lib/copy/parcelFieldHelp';
 
+// M1.11/M1: dead setters removed from props interface.
+//   - setResidentialPercent, setHospitalityPercent, setRetailPercent,
+//     and the matching deduct + efficiency setters were stripped because
+//     M1.9 moved asset-mix editing to the Hierarchy nested editor (the
+//     "Where did Asset Mix go?" note on this tab redirects users there).
+//     The READ values stay (residentialPercent, residentialGFA, etc. are
+//     still displayed in the Area Hierarchy table).
+// M1.11/M4: setLandParcels prop dropped. Module1Area now writes to the
+// Zustand store directly via useModule1Store + setLand. Reads (the
+// landParcels list itself) still come in as a prop because the parent
+// also needs them for the GFA derivation chain.
 interface Module1AreaProps {
-  landParcels: LandParcel[]; setLandParcels: (v: LandParcel[]) => void;
+  landParcels: LandParcel[];
   projectRoadsPct: number; setProjectRoadsPct: (v: number) => void;
   projectFAR: number; setProjectFAR: (v: number) => void;
   projectNonEnclosedPct: number; setProjectNonEnclosedPct: (v: number) => void;
-  residentialPercent: number; setResidentialPercent: (v: number) => void;
-  hospitalityPercent: number; setHospitalityPercent: (v: number) => void;
-  retailPercent: number; setRetailPercent: (v: number) => void;
-  residentialDeductPct: number; setResidentialDeductPct: (v: number) => void;
-  residentialEfficiency: number; setResidentialEfficiency: (v: number) => void;
-  hospitalityDeductPct: number; setHospitalityDeductPct: (v: number) => void;
-  hospitalityEfficiency: number; setHospitalityEfficiency: (v: number) => void;
-  retailDeductPct: number; setRetailDeductPct: (v: number) => void;
-  retailEfficiency: number; setRetailEfficiency: (v: number) => void;
+  residentialPercent: number;
+  hospitalityPercent: number;
+  retailPercent: number;
+  residentialDeductPct: number;
+  residentialEfficiency: number;
+  hospitalityDeductPct: number;
+  hospitalityEfficiency: number;
+  retailDeductPct: number;
+  retailEfficiency: number;
   projectType: ProjectType;
   currency: string;
   totalLandArea: number;
@@ -67,19 +80,19 @@ const calcOutputStyle: React.CSSProperties = {
 };
 
 export default function Module1Area({
-  landParcels, setLandParcels,
+  landParcels,
   projectRoadsPct, setProjectRoadsPct,
   projectFAR, setProjectFAR,
   projectNonEnclosedPct, setProjectNonEnclosedPct,
-  residentialPercent, setResidentialPercent,
-  hospitalityPercent, setHospitalityPercent,
-  retailPercent, setRetailPercent,
-  residentialDeductPct, setResidentialDeductPct,
-  residentialEfficiency, setResidentialEfficiency,
-  hospitalityDeductPct, setHospitalityDeductPct,
-  hospitalityEfficiency, setHospitalityEfficiency,
-  retailDeductPct, setRetailDeductPct,
-  retailEfficiency, setRetailEfficiency,
+  residentialPercent,
+  hospitalityPercent,
+  retailPercent,
+  residentialDeductPct,
+  residentialEfficiency,
+  hospitalityDeductPct,
+  hospitalityEfficiency,
+  retailDeductPct,
+  retailEfficiency,
   projectType, currency,
   totalLandArea, totalLandValue, landValuePerSqm,
   cashValue, inKindValue, cashPercent, inKindPercent,
@@ -92,27 +105,31 @@ export default function Module1Area({
   readOnly,
 }: Module1AreaProps) {
 
-  // M1.10/7 — opt-in parcel setup wizard. Form view stays primary.
+  // M1.10/7: opt-in parcel setup wizard. Form view stays primary.
   const [parcelWizardOpen, setParcelWizardOpen] = useState(false);
+
+  // M1.11/M4: writes flow through Zustand setLand directly so the inline
+  // form and ParcelSetupWizard share one update path.
+  const setLand = useModule1Store(s => s.setLand);
 
   const addParcel = () => {
     const newId = Math.max(0, ...landParcels.map(p => p.id)) + 1;
-    setLandParcels([...landParcels, { id: newId, name: `Land ${newId}`, area: 0, rate: 0, cashPct: 60, inKindPct: 40 }]);
+    setLand({ landParcels: [...landParcels, { id: newId, name: `Land ${newId}`, area: 0, rate: 0, cashPct: 60, inKindPct: 40 }] });
   };
 
   const updateParcel = (id: number, field: keyof LandParcel, value: string | number) => {
-    setLandParcels(landParcels.map(p => {
+    setLand({ landParcels: landParcels.map(p => {
       if (p.id !== id) return p;
       const updated = { ...p, [field]: value };
       if (field === 'cashPct')   updated.inKindPct = 100 - Number(value);
       if (field === 'inKindPct') updated.cashPct   = 100 - Number(value);
       return updated;
-    }));
+    }) });
   };
 
   const removeParcel = (id: number) => {
     if (landParcels.length <= 1) return;
-    setLandParcels(landParcels.filter(p => p.id !== id));
+    setLand({ landParcels: landParcels.filter(p => p.id !== id) });
   };
 
   const assetMixTotal = (showResidential ? residentialPercent : 0)
@@ -188,20 +205,20 @@ export default function Module1Area({
             <thead>
               <tr>
                 <th style={{ textAlign: 'left' }}>
-                  <InputLabel label="Parcel Name" help="A short identifier you give this parcel — useful when you have several parcels and want to track them by name in costs, financing, or version diffs." />
+                  <InputLabel label="Parcel Name" help={PARCEL_FIELD_HELP.name} />
                 </th>
                 <th>
-                  <InputLabel label="Area (sqm)" help="Square metres of land owned (or contributed in-kind). The financial footprint — distinct from Plot Buildable Area on Build Program, which is the physical envelope you build on." />
+                  <InputLabel label="Area (sqm)" help={PARCEL_FIELD_HELP.area} />
                 </th>
                 <th>
-                  <InputLabel label={`Rate (/${currency} per sqm)`} help="Acquisition price per square metre. Multiplied by Area to give the parcel's total acquisition value, then split between cash + in-kind portions." />
+                  <InputLabel label={`Rate (per sqm, ${currency})`} help={PARCEL_FIELD_HELP.rate} />
                 </th>
                 <th>Total Value</th>
                 <th>
-                  <InputLabel label="Cash %" help="Share of the parcel's value paid in cash. Rolls into Module 1 cost (Land Cash Portion) and Module 2 cash flow timing." />
+                  <InputLabel label="Cash %" help={PARCEL_FIELD_HELP.cashPct} />
                 </th>
                 <th>
-                  <InputLabel label="In-Kind %" help="Share contributed in-kind (e.g. landowner equity in lieu of cash). Auto-balances with Cash % to 100. Affects equity stack and capitalisation but not direct CapEx outflow." />
+                  <InputLabel label="In-Kind %" help={PARCEL_FIELD_HELP.inKindPct} />
                 </th>
                 <th>Cash Value</th>
                 <th>In-Kind Value</th>

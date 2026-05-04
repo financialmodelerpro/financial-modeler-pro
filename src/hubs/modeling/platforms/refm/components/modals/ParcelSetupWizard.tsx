@@ -23,14 +23,11 @@ import { createPortal } from 'react-dom';
 import { useModule1Store } from '../../lib/state/module1-store';
 import type { LandParcel } from '@core/types/project.types';
 import InputLabel from '../ui/InputLabel';
+import { PARCEL_FIELD_HELP } from '../../lib/copy/parcelFieldHelp';
 
-const PARCEL_HELP = {
-  name:      "A short identifier you give this parcel — useful when you have several and want to track them by name in costs / financing / version diffs.",
-  area:      "Square metres of land owned (or contributed in-kind). The financial footprint — distinct from Plot Buildable Area on Build Program.",
-  rate:      "Acquisition price per square metre. Multiplied by Area to give the parcel's total acquisition value, then split between cash + in-kind portions.",
-  cashPct:   "Share of the parcel's value paid in cash. Rolls into Module 1 cost (Land Cash Portion) and Module 2 cash flow timing.",
-  inKindPct: "Share contributed in-kind (e.g. landowner equity in lieu of cash). Auto-balances with Cash % to 100. Affects equity stack and capitalisation but not direct CapEx outflow.",
-} as const;
+// M1.11/m1: PARCEL_HELP local map removed in favour of the shared
+// PARCEL_FIELD_HELP module so the inline form on Module1Area and this
+// wizard share one source of truth for tooltip copy.
 
 interface DraftParcel {
   name:       string;
@@ -231,23 +228,23 @@ export default function ParcelSetupWizard({ onClose }: Props): React.ReactElemen
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr 1fr', gap: 'var(--sp-2)' }}>
                       <div>
-                        <InputLabel label="Name" help={PARCEL_HELP.name} />
+                        <InputLabel label="Parcel Name" help={PARCEL_FIELD_HELP.name} />
                         <input data-testid={`parcel-wizard-name-${idx}`} style={inputStyle} type="text" value={d.name} onChange={e => updateDraft(idx, { name: e.target.value })} />
                       </div>
                       <div>
-                        <InputLabel label="Area (sqm)" help={PARCEL_HELP.area} />
+                        <InputLabel label="Area (sqm)" help={PARCEL_FIELD_HELP.area} />
                         <input data-testid={`parcel-wizard-area-${idx}`} style={inputStyle} type="number" min={0} value={d.area} onChange={e => updateDraft(idx, { area: Number(e.target.value) })} />
                       </div>
                       <div>
-                        <InputLabel label="Rate (/sqm)" help={PARCEL_HELP.rate} />
+                        <InputLabel label="Rate (per sqm)" help={PARCEL_FIELD_HELP.rate} />
                         <input data-testid={`parcel-wizard-rate-${idx}`} style={inputStyle} type="number" min={0} value={d.rate} onChange={e => updateDraft(idx, { rate: Number(e.target.value) })} />
                       </div>
                       <div>
-                        <InputLabel label="Cash %" help={PARCEL_HELP.cashPct} />
+                        <InputLabel label="Cash %" help={PARCEL_FIELD_HELP.cashPct} />
                         <input data-testid={`parcel-wizard-cashPct-${idx}`} style={inputStyle} type="number" min={0} max={100} value={d.cashPct} onChange={e => updateDraft(idx, { cashPct: Number(e.target.value) })} />
                       </div>
                       <div>
-                        <InputLabel label="In-Kind %" help={PARCEL_HELP.inKindPct} />
+                        <InputLabel label="In-Kind %" help={PARCEL_FIELD_HELP.inKindPct} />
                         <input data-testid={`parcel-wizard-inKindPct-${idx}`} style={inputStyle} type="number" min={0} max={100} value={d.inKindPct} onChange={e => updateDraft(idx, { inKindPct: Number(e.target.value) })} />
                       </div>
                     </div>

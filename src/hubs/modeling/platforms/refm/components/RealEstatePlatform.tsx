@@ -428,11 +428,8 @@ export default function RealEstatePlatform() {
   const setOperationsPeriods   = useCallback((v: number) => writePhase0({ operationsPeriods: v }),   [writePhase0]);
   const setOverlapPeriods      = useCallback((v: number) => writePhase0({ overlapPeriods: v }),      [writePhase0]);
 
-  // Land parcel updater (supports React's prev-callback form).
-  const setLandParcels = useCallback((updater: Updater<LandParcel[]>) => {
-    const s = useModule1Store.getState();
-    s.setLand({ landParcels: resolveStoreUpdater(updater, s.landParcels) });
-  }, []);
+  // M1.11/M4: setLandParcels wrapper removed. Module1Area now writes
+  // landParcels directly via useModule1Store + setLand.
   const setProjectRoadsPct       = useCallback((v: number) => useModule1Store.getState().setLand({ projectRoadsPct: v }), []);
   const setProjectFAR            = useCallback((v: number) => useModule1Store.getState().setLand({ projectFAR: v }), []);
   const setProjectNonEnclosedPct = useCallback((v: number) => useModule1Store.getState().setLand({ projectNonEnclosedPct: v }), []);
@@ -1728,10 +1725,6 @@ export default function RealEstatePlatform() {
               {activeTab === 'area-program' && <Module1AreaProgram />}
               {activeTab === 'timeline' && (
                 <Module1Timeline
-                  projectName={projectName} setProjectName={setProjectName}
-                  projectType={projectType} setProjectType={setProjectType}
-                  country={country} setCountry={setCountry}
-                  currency={currency} setCurrency={setCurrency}
                   modelType={modelType} setModelType={setModelType}
                   projectStart={projectStart} setProjectStart={setProjectStart}
                   constructionPeriods={constructionPeriods} setConstructionPeriods={setConstructionPeriods}
@@ -1739,24 +1732,23 @@ export default function RealEstatePlatform() {
                   overlapPeriods={overlapPeriods} setOverlapPeriods={setOverlapPeriods}
                   getProjectEndDate={getProjectEndDate}
                   readOnly={readOnly}
-                  showAiButtons={canAccess('ai_contextual')}
                 />
               )}
               {activeTab === 'area' && (
                 <Module1Area
-                  landParcels={landParcels} setLandParcels={setLandParcels}
+                  landParcels={landParcels}
                   projectRoadsPct={projectRoadsPct} setProjectRoadsPct={setProjectRoadsPct}
                   projectFAR={projectFAR} setProjectFAR={setProjectFAR}
                   projectNonEnclosedPct={projectNonEnclosedPct} setProjectNonEnclosedPct={setProjectNonEnclosedPct}
-                  residentialPercent={residentialPercent} setResidentialPercent={setResidentialPercent}
-                  hospitalityPercent={hospitalityPercent} setHospitalityPercent={setHospitalityPercent}
-                  retailPercent={retailPercent} setRetailPercent={setRetailPercent}
-                  residentialDeductPct={residentialDeductPct} setResidentialDeductPct={setResidentialDeductPct}
-                  residentialEfficiency={residentialEfficiency} setResidentialEfficiency={setResidentialEfficiency}
-                  hospitalityDeductPct={hospitalityDeductPct} setHospitalityDeductPct={setHospitalityDeductPct}
-                  hospitalityEfficiency={hospitalityEfficiency} setHospitalityEfficiency={setHospitalityEfficiency}
-                  retailDeductPct={retailDeductPct} setRetailDeductPct={setRetailDeductPct}
-                  retailEfficiency={retailEfficiency} setRetailEfficiency={setRetailEfficiency}
+                  residentialPercent={residentialPercent}
+                  hospitalityPercent={hospitalityPercent}
+                  retailPercent={retailPercent}
+                  residentialDeductPct={residentialDeductPct}
+                  residentialEfficiency={residentialEfficiency}
+                  hospitalityDeductPct={hospitalityDeductPct}
+                  hospitalityEfficiency={hospitalityEfficiency}
+                  retailDeductPct={retailDeductPct}
+                  retailEfficiency={retailEfficiency}
                   projectType={projectType}
                   currency={currency}
                   totalLandArea={totalLandArea}

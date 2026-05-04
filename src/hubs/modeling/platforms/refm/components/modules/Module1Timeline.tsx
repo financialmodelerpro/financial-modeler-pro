@@ -23,22 +23,19 @@
  */
 
 import React from 'react';
-import type { ModelType, ProjectType } from '@/src/core/types/project.types';
+import type { ModelType } from '@/src/core/types/project.types';
 import Module1Hierarchy from './Module1Hierarchy';
 import InputLabel from '../ui/InputLabel';
 import ProjectTimelineVisual from '../ui/ProjectTimelineVisual';
 
+// M1.11/M1: dead identity setters removed from props interface.
+//   - projectName, projectType, country, currency moved to ProjectWizard
+//     (create) and Hierarchy nested editor (edit) in M1.9. They no longer
+//     have UI consumers on this tab. Setters dropped entirely; reads kept
+//     where downstream code still needs the values (none on this tab today
+//     since the Project Identity card was stripped in M1.9).
+//   - showAiButtons was unused.
 interface Module1TimelineProps {
-  // Identity props kept on the interface for backward compat with the
-  // RealEstatePlatform binding; their setters are no longer wired to UI.
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  projectName: string; setProjectName: (v: string) => void;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  projectType: ProjectType; setProjectType: (v: ProjectType) => void;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  country: string; setCountry: (v: string) => void;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  currency: string; setCurrency: (v: string) => void;
   modelType: ModelType; setModelType: (v: ModelType) => void;
   projectStart: string; setProjectStart: (v: string) => void;
   constructionPeriods: number; setConstructionPeriods: (v: number) => void;
@@ -46,8 +43,6 @@ interface Module1TimelineProps {
   overlapPeriods: number; setOverlapPeriods: (v: number) => void;
   getProjectEndDate: () => string;
   readOnly: boolean;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  showAiButtons?: boolean;
 }
 
 const inputStyle: React.CSSProperties = {
