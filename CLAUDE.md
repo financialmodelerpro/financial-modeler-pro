@@ -214,10 +214,12 @@ npx tsx scripts/module1-areaprogram-diff.ts     # M1.7 Area Program, 2.8 KB base
 # Per-phase verifier (5 sections: DB / routes / calc / state / Playwright UI)
 npx tsx --env-file=.env.local scripts/verify-m17.ts   # M1.7 Area Program (25 pass / 0 fail / 2 skip without dev server)
 npx tsx --env-file=.env.local scripts/verify-m18.ts   # M1.8 Smart Project Wizard (19 pass / 0 fail / 1 skip without dev server)
+npx tsx --env-file=.env.local scripts/verify-m19.ts   # M1.9 UX redesign (16 pass / 0 fail / 2 skip without dev server)
 
-# Playwright e2e specs (M1.8 wizard regression-guard)
-npx playwright test tests/e2e/m18-wizard-repro.spec.ts  # 1 spec — wizard create does not crash
-npx playwright test tests/e2e/m18-wizard-flow.spec.ts   # 2 specs — every tab shows wizard data + reload persists
+# Playwright e2e specs (M1.8 + M1.9 regression-guards)
+npx playwright test tests/e2e/m18-wizard-repro.spec.ts     # 1 spec — wizard create does not crash
+npx playwright test tests/e2e/m18-wizard-flow.spec.ts      # 2 specs — every tab shows wizard data + reload persists
+npx playwright test tests/e2e/m19-redesign-flow.spec.ts    # 2 specs — wizard lands on Schedule tab + numbered tab row + light/dark screenshots
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -240,7 +242,62 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 + multi-phase + storage v3 bump) → M1.5b (UX polish + Quick Setup wizard inside Hierarchy)
 → M1.6 (Supabase persistence + version history) → M1.7 (Area Program tab + plots / zones
 / sub-units / parking allocator) → M1.8 (Smart Project Creation Wizard with progressive
-disclosure + Master Holding hidden by default).
+disclosure + Master Holding hidden by default) → M1.9 (UX redesign: wizard captures
+country + project timeline upfront; Schedule and Land tabs strip duplicate inputs;
+numbered 1→6 tab sequence with Schedule first; wizard-created projects land on Schedule
+for validation).
+
+**M1.9 redesign series (6 commits, 2026-05-04, all snapshot diffs bit-identical):**
+- `591315b` 1/15: ProjectWizard step 1 currency dropdown becomes country dropdown
+  (auto-derives currency); Step 2 grows a Project Timeline section (construction +
+  operations + overlap periods, unit hint follows modelType). buildWizardSnapshot
+  wires the wizard's timing into every minted phase (clamped: overlap ≤ construction;
+  opsStart = construction − overlap + 1). Snapshot.country populated from wizard.
+- `7626120` 2/15: strip Asset Mix + Deduction & Efficiency panels from Module1Area.
+  Both edited the same backing data the Hierarchy tab edits per-asset
+  (residentialPercent = resAsset.allocationPct in RealEstatePlatform.tsx:334), so the
+  duplication confused users about which tab is canonical. Site Parameters card
+  stays (FAR, Roads %, Non-Enclosed % all still calc-input). Added a
+  "Where did Asset Mix go?" explainer pointing to Hierarchy.
+- `93b6f1e` 3/15: strip Project Identity card (project name, type, country / market
+  dropdown, currency input) from Module1Timeline. Tab renamed to "Project Schedule";
+  layout collapses 2-column → 1-column. Subtitle directs users to wizard / Hierarchy
+  for identity fields. Props interface keeps now-unused identity setters with
+  eslint-disable so RealEstatePlatform binding doesn't change in this commit.
+- `382a0c3` 4/15: m1Tabs gains a numeric `step` field; visible labels become
+  "1. Schedule / 2. Land / 3. Build Program / 4. Dev Costs / 5. Financing /
+  6. Hierarchy". Reorder: Schedule moves to position 1, Hierarchy to position 6.
+  handleCreateProjectFromWizard switches `setActiveTab('area-program')` →
+  `setActiveTab('timeline')` so the user lands on Schedule and validates the
+  wizard's capture before drilling further. Manual project creation still lands
+  on Hierarchy (no asset structure yet, so the data tree is the right starting
+  point).
+- `b8b54cc` 5/15: scripts/verify-m19.ts — 5-section per-phase verifier. 16 pass /
+  0 fail / 2 skip without dev server. Section 4 includes a static source-file
+  inspection that asserts JSX-context patterns (`>Project Identity<`, `>Asset Mix<`)
+  are gone — false-positive free, so docstrings referencing the removed surfaces
+  don't trip.
+- `a8b9f34` 6/15: tests/e2e/m19-redesign-flow.spec.ts — 2 Playwright specs.
+  Spec 1 walks wizard with country='United Arab Emirates' (auto-AED) +
+  construction=7/operations=11/overlap=1, asserts Schedule landing tab, numbered
+  tab row, M1.9 strip both tabs, stored snapshot has the wizard timing. Spec 2
+  captures Schedule + Land tab screenshots (light + dark) into
+  tests/screenshots/M1.9/. Both pass locally (2 passed, 22.9s).
+
+**M1.9 deferred to M1.9b (architecturally invasive, separate session):**
+- Dissolve Hierarchy tab into Project & Schedule (Master Holding + Sub-Project +
+  Phase) and Build Program (Assets + Sub-Units full editor). Requires building
+  the merged Project & Schedule tab + porting Hierarchy's per-asset editor into
+  Build Program. Larger refactor — keeping Hierarchy as step 6 in M1.9 ship.
+- Inline guidance: "What goes here" callouts at the top of each tab,
+  section-pill labels (Inputs / Calculated), calc-vs-input pencil/fx icons,
+  hover tooltips for vocabulary (Sub-Unit, Strategy, FAR, Cascade).
+- Remove unused setters from Module1Area + Module1Timeline prop interfaces
+  (currently kept with eslint-disable so RealEstatePlatform binding doesn't
+  shift).
+- ProjectFAR move from Land to Build Program → Plot (per audit; deferred
+  because calc still consumes it as a project-level scalar — needs auto-derive
+  from per-plot maxFARs to migrate cleanly).
 
 **Audit (2026-05-04, fix 5):** all 6 Module 1 tabs share a single `useModule1Store`
 (direct subscription for Hierarchy + Area Program; prop-drilled setter wrappers from
