@@ -26,6 +26,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useModule1Store } from '../../lib/state/module1-store';
 import type { Plot } from '../../lib/state/module1-types';
 
@@ -188,13 +189,21 @@ export default function PlotSetupWizard({ plotId, onClose }: Props): React.React
     </div>
   );
 
-  return (
+  // M1.10b/1 — render via React portal to document.body. Without the
+  // portal, an ancestor of Module1AreaProgram (where this modal is
+  // mounted) creates a containing block for position:fixed (likely
+  // transform/filter/will-change on the platform shell), so the modal
+  // renders inside the scrolled tab content instead of fixed to the
+  // viewport. Portaling out lifts the modal above all platform chrome
+  // and z-index also bumps to 9999 to match .pm-modal-overlay.
+  if (typeof document === 'undefined') return null;
+  return createPortal(
     <div
       data-testid="plot-setup-wizard"
       role="dialog"
       aria-modal="true"
       style={{
-        position: 'fixed', inset: 0, zIndex: 1000,
+        position: 'fixed', inset: 0, zIndex: 9999,
         background: 'rgba(0,0,0,0.5)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: 'var(--sp-3)',
@@ -464,6 +473,7 @@ export default function PlotSetupWizard({ plotId, onClose }: Props): React.React
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

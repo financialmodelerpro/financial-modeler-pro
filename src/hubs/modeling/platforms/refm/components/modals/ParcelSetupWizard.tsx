@@ -19,6 +19,7 @@
  */
 
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useModule1Store } from '../../lib/state/module1-store';
 import type { LandParcel } from '@core/types/project.types';
 
@@ -125,13 +126,16 @@ export default function ParcelSetupWizard({ onClose }: Props): React.ReactElemen
     </div>
   );
 
-  return (
+  // M1.10b/1 — portal to document.body so position:fixed escapes any
+  // ancestor containing-block. Same fix as PlotSetupWizard.
+  if (typeof document === 'undefined') return <></>;
+  return createPortal(
     <div
       data-testid="parcel-setup-wizard"
       role="dialog"
       aria-modal="true"
       style={{
-        position: 'fixed', inset: 0, zIndex: 1000,
+        position: 'fixed', inset: 0, zIndex: 9999,
         background: 'rgba(0,0,0,0.5)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: 'var(--sp-3)',
@@ -377,6 +381,7 @@ export default function ParcelSetupWizard({ onClose }: Props): React.ReactElemen
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
