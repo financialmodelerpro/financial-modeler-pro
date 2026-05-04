@@ -45,6 +45,7 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import PlotSetupWizard from '../modals/PlotSetupWizard';
 import InputLabel from '../ui/InputLabel';
 import { PLOT_FIELD_HELP } from '../../lib/copy/plotFieldHelp';
+import { ASSET_STRATEGY_HELP } from '../../lib/copy/assetStrategyHelp';
 import {
   ASSET_STRATEGIES, DEFAULT_AREA_CASCADE_BY_CATEGORY,
   DEFAULT_PARKING_BAYS_BY_SUBUNIT_TYPE,
@@ -424,30 +425,47 @@ function AssetStrategyRow({ asset, envelope, plotAssetCount, totalAllocPctOnPlot
         }}>{asset.category} · {asset.type}</span>
       </div>
 
-      {/* Strategy + zone + GFA */}
+      {/* Strategy + zone + GFA. M1.11/M2 wraps every label in InputLabel
+         with plain-English help so first-time users understand the
+         revenue consequence of each choice. */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
-        <label>
-          <span style={labelStyle}>Primary strategy</span>
+        <div>
+          <InputLabel
+            label="Primary strategy"
+            help={ASSET_STRATEGY_HELP.primaryStrategy}
+            inputId={`asset-${asset.id}-primaryStrategy`}
+          />
           <select
+            id={`asset-${asset.id}-primaryStrategy`}
             value={effectivePrimary}
             onChange={e => updateAsset(asset.id, { primaryStrategy: e.target.value as AssetStrategy })}
             style={inputStyle}
           >
             {ASSET_STRATEGIES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-        </label>
-        <label>
-          <span style={labelStyle}>Primary %</span>
+        </div>
+        <div>
+          <InputLabel
+            label="Primary %"
+            help={ASSET_STRATEGY_HELP.primaryStrategyPct}
+            inputId={`asset-${asset.id}-primaryStrategyPct`}
+          />
           <input
+            id={`asset-${asset.id}-primaryStrategyPct`}
             type="number"
             value={asset.primaryStrategyPct ?? 100}
             onChange={e => updateAsset(asset.id, { primaryStrategyPct: parseFloat(e.target.value) || 0 })}
             style={inputStyle}
           />
-        </label>
-        <label>
-          <span style={labelStyle}>Secondary strategy</span>
+        </div>
+        <div>
+          <InputLabel
+            label="Secondary strategy"
+            help={ASSET_STRATEGY_HELP.secondaryStrategy}
+            inputId={`asset-${asset.id}-secondaryStrategy`}
+          />
           <select
+            id={`asset-${asset.id}-secondaryStrategy`}
             value={asset.secondaryStrategy ?? ''}
             onChange={e => {
               const v = e.target.value;
@@ -455,31 +473,41 @@ function AssetStrategyRow({ asset, envelope, plotAssetCount, totalAllocPctOnPlot
             }}
             style={inputStyle}
           >
-            <option value="">—</option>
+            <option value="">(none)</option>
             {ASSET_STRATEGIES.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
-        </label>
-        <label>
-          <span style={labelStyle}>Secondary %</span>
+        </div>
+        <div>
+          <InputLabel
+            label="Secondary %"
+            help={ASSET_STRATEGY_HELP.secondaryStrategyPct}
+            inputId={`asset-${asset.id}-secondaryStrategyPct`}
+          />
           <input
+            id={`asset-${asset.id}-secondaryStrategyPct`}
             type="number"
             value={asset.secondaryStrategyPct ?? ''}
             onChange={e => {
               const v = e.target.value;
               updateAsset(asset.id, { secondaryStrategyPct: v === '' ? undefined : parseFloat(v) || 0 });
             }}
-            placeholder="—"
+            placeholder="(blank if 100)"
             style={inputStyle}
             disabled={asset.secondaryStrategy === undefined}
           />
-        </label>
+        </div>
       </div>
 
       {/* Zone + GFA override + cascade pcts */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
-        <label>
-          <span style={labelStyle}>Zone</span>
+        <div>
+          <InputLabel
+            label="Zone"
+            help={ASSET_STRATEGY_HELP.zone}
+            inputId={`asset-${asset.id}-zoneId`}
+          />
           <select
+            id={`asset-${asset.id}-zoneId`}
             value={asset.zoneId ?? ''}
             onChange={e => {
               const v = e.target.value;
@@ -487,13 +515,18 @@ function AssetStrategyRow({ asset, envelope, plotAssetCount, totalAllocPctOnPlot
             }}
             style={inputStyle}
           >
-            <option value="">— (no zone)</option>
+            <option value="">(no zone)</option>
             {zonesForPlot.map(z => <option key={z.id} value={z.id}>{z.name}</option>)}
           </select>
-        </label>
-        <label>
-          <span style={labelStyle}>GFA override (sqm)</span>
+        </div>
+        <div>
+          <InputLabel
+            label="GFA override (sqm)"
+            help={ASSET_STRATEGY_HELP.gfaOverride}
+            inputId={`asset-${asset.id}-gfaOverride`}
+          />
           <input
+            id={`asset-${asset.id}-gfaOverride`}
             type="number"
             value={asset.gfaOverrideSqm ?? ''}
             onChange={e => {
@@ -503,7 +536,7 @@ function AssetStrategyRow({ asset, envelope, plotAssetCount, totalAllocPctOnPlot
             placeholder={`pro-rata ${fmt(gfaShare)}`}
             style={inputStyle}
           />
-        </label>
+        </div>
         <label>
           <span style={labelStyle}>MEP % (default {def.mepPct}%)</span>
           <input
