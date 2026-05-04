@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-05-04**
+**Last updated: 2026-05-05**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md) — Database tables, storage buckets, migrations log
@@ -215,11 +215,13 @@ npx tsx scripts/module1-areaprogram-diff.ts     # M1.7 Area Program, 2.8 KB base
 npx tsx --env-file=.env.local scripts/verify-m17.ts   # M1.7 Area Program (25 pass / 0 fail / 2 skip without dev server)
 npx tsx --env-file=.env.local scripts/verify-m18.ts   # M1.8 Smart Project Wizard (19 pass / 0 fail / 1 skip without dev server)
 npx tsx --env-file=.env.local scripts/verify-m19.ts   # M1.9 UX redesign (16 pass / 0 fail / 2 skip without dev server)
+npx tsx --env-file=.env.local scripts/verify-m19b.ts  # M1.9b polish (19 pass / 0 fail / 2 skip without dev server; 29 pass / 0 fail / 1 skip with dev server)
 
-# Playwright e2e specs (M1.8 + M1.9 regression-guards)
+# Playwright e2e specs (M1.8 + M1.9 + M1.9b regression-guards)
 npx playwright test tests/e2e/m18-wizard-repro.spec.ts     # 1 spec — wizard create does not crash
 npx playwright test tests/e2e/m18-wizard-flow.spec.ts      # 2 specs — every tab shows wizard data + reload persists
 npx playwright test tests/e2e/m19-redesign-flow.spec.ts    # 2 specs — wizard lands on Schedule tab + numbered tab row + light/dark screenshots
+npx playwright test tests/e2e/m19b-redesign-flow.spec.ts   # 2 specs — Hierarchy dissolved (1→5 tabs) + nested mounts + D7/D8 labels + What-goes-here callouts + light/dark screenshots
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -237,7 +239,7 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 **Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
 (`npx playwright install chromium`).
 
-### Module 1 status (2026-05-04)
+### Module 1 status (2026-05-05)
 **All sub-phases shipped:** M1.R (cost engine + Zustand restoration) → M1.5 (multi-asset
 + multi-phase + storage v3 bump) → M1.5b (UX polish + Quick Setup wizard inside Hierarchy)
 → M1.6 (Supabase persistence + version history) → M1.7 (Area Program tab + plots / zones
@@ -245,7 +247,8 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 disclosure + Master Holding hidden by default) → M1.9 (UX redesign: wizard captures
 country + project timeline upfront; Schedule and Land tabs strip duplicate inputs;
 numbered 1→6 tab sequence with Schedule first; wizard-created projects land on Schedule
-for validation).
+for validation) → M1.9b (Hierarchy tab dissolved + nested under Schedule + Build Program;
+D7/D8 disambiguation labels; What-goes-here callouts on all 5 tabs).
 
 **M1.9 redesign series (6 commits, 2026-05-04, all snapshot diffs bit-identical):**
 - `591315b` 1/15: ProjectWizard step 1 currency dropdown becomes country dropdown
@@ -284,20 +287,55 @@ for validation).
   captures Schedule + Land tab screenshots (light + dark) into
   tests/screenshots/M1.9/. Both pass locally (2 passed, 22.9s).
 
-**M1.9 deferred to M1.9b (architecturally invasive, separate session):**
-- Dissolve Hierarchy tab into Project & Schedule (Master Holding + Sub-Project +
-  Phase) and Build Program (Assets + Sub-Units full editor). Requires building
-  the merged Project & Schedule tab + porting Hierarchy's per-asset editor into
-  Build Program. Larger refactor — keeping Hierarchy as step 6 in M1.9 ship.
-- Inline guidance: "What goes here" callouts at the top of each tab,
-  section-pill labels (Inputs / Calculated), calc-vs-input pencil/fx icons,
-  hover tooltips for vocabulary (Sub-Unit, Strategy, FAR, Cascade).
-- Remove unused setters from Module1Area + Module1Timeline prop interfaces
-  (currently kept with eslint-disable so RealEstatePlatform binding doesn't
-  shift).
-- ProjectFAR move from Land to Build Program → Plot (per audit; deferred
-  because calc still consumes it as a project-level scalar — needs auto-derive
-  from per-plot maxFARs to migrate cleanly).
+**M1.9b polish series (8 commits, 2026-05-04 → 2026-05-05, all snapshot diffs bit-identical):**
+- `abe9917` 1/8: Module1Hierarchy gains optional `sections?: 'all' | 'structure' | 'assets'`
+  prop. `sectionsMode === 'all'` is the legacy default (full render). 'structure' renders
+  Master Holding + Sub-Project + Phase rows and replaces each Phase's Asset/SubUnit subtree
+  with a slim "🧱 N assets · Edit assets in Build Program" stub. 'assets' suppresses MH +
+  the header + the Add-Sub-Project block + first-time empty gate, leaving just the per-Asset
+  + per-Sub-Unit cards. Slice via visibility gates rather than extraction (the component
+  is 2,500 lines; full extraction would have doubled the diff).
+- `6d3b720` 2-3/8: Module1Timeline mounts `<Module1Hierarchy sections="structure" />` in a
+  "🗂️ Project Structure (Master Holding · Sub-Projects · Phases)" section card below the
+  schedule body. Module1AreaProgram mounts `<Module1Hierarchy sections="assets" />` in a
+  "🧱 Asset & Sub-Unit Detail Editor" section card below the plots list.
+- `75908f9` 4/8: dissolve standalone Hierarchy tab. m1Tabs drops to 5 entries (no
+  'hierarchy' key). RealEstatePlatform default `useState('hierarchy')` →
+  `useState('timeline')`; manual `handleCreateProject` `setActiveTab('hierarchy')` →
+  `setActiveTab('timeline')`; `{activeTab === 'hierarchy' && <Module1Hierarchy />}` render
+  branch removed. Wizard- and manual-created projects both land on Schedule (step 1).
+- `0a71c0a` 5/8: D7 + D8 disambiguation labels + What-goes-here callouts on Schedule + Land.
+  Schedule's "Construction / Operations / Overlap" relabelled "Project Construction /
+  Operations / Overlap"; per-Phase overrides now live in the structure tree on the same
+  tab. Land's "Floor Area Ratio (FAR)" → "Project FAR (whole-site ceiling)"; Roads % gets
+  "(of total land)" suffix; Non-Enclosed % gets "(balconies / terraces)" suffix.
+  Primary-tinted callouts at the top of Schedule + Land state canonical scope ("What goes
+  here") + delegated scope ("Not here").
+- `40b6912` 6/8: extend What-goes-here callouts to Build Program + Dev Costs + Financing.
+  Build Program h2 renamed "Area Program" → "Build Program" to match the M1.9 tab label.
+- `813f448` 7/8: scripts/verify-m19b.ts — 5-section per-phase verifier covering Hierarchy
+  dissolution + sections prop + nested mounts + What-goes-here callouts on all 5 tabs +
+  D7/D8 labels. 19 pass / 0 fail / 2 skip without dev server; 29 pass / 0 fail / 1 skip
+  with dev server up.
+- `<m19b/8>` 8/8: tests/e2e/m19b-redesign-flow.spec.ts — 2 Playwright specs. Spec 1 walks
+  wizard, asserts Schedule landing tab + 1→5 tab row (no "6. Hierarchy") + Project
+  Structure card mount + D7 labels visible + What-goes-here callout + D8 label on Land +
+  Build Program h2 + Asset & Sub-Unit Detail Editor mount. Spec 2 captures Schedule + Land
+  + Build Program screenshots (light + dark) into tests/screenshots/M1.9b/. Both pass
+  locally (2 passed, 28.3s).
+
+**M1.9b deferred (true architectural follow-on, separate session):**
+- Merge Project & Schedule even further: dissolve the Schedule tab + the structure tree
+  card into a unified "1. Project & Schedule" surface where the Master Holding /
+  Sub-Project / Phase tree drives the timing inputs (per-Phase section instead of
+  project-level seed). Today the M1.9b mount keeps both surfaces side-by-side which is
+  workable but still leaves project-level + per-phase timing visible at the same time.
+- Section-pill labels (Inputs / Calculated), calc-vs-input pencil/fx icons next to every
+  field, hover tooltips for the financial vocabulary (Sub-Unit, Strategy, FAR, Cascade).
+- Remove unused setters from Module1Area + Module1Timeline prop interfaces (still tagged
+  with eslint-disable so RealEstatePlatform binding doesn't shift).
+- ProjectFAR migration from Land to Build Program → Plot (calc still consumes it as a
+  project-level scalar; needs auto-derive from per-plot maxFARs first).
 
 **Audit (2026-05-04, fix 5):** all 6 Module 1 tabs share a single `useModule1Store`
 (direct subscription for Hierarchy + Area Program; prop-drilled setter wrappers from
