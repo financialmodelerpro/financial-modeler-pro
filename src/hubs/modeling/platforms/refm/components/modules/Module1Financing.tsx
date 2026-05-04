@@ -395,7 +395,13 @@ export default function Module1Financing({
                 <tr style={{ background: PD_DEEP, color: 'var(--color-on-primary-navy)' }}>
                   <th style={{ padding: '10px 12px', textAlign: 'left', minWidth: '220px', position: 'sticky', left: 0, background: PD_DEEP, zIndex: 2 }}>Cost Item / Asset</th>
                   <th style={{ padding: '10px 10px', textAlign: 'right', minWidth: '120px' }}>Total</th>
-                  <th style={{ padding: '10px 10px', textAlign: 'center', minWidth: '90px' }}>Debt %</th>
+                  <th style={{ padding: '10px 10px', textAlign: 'center', minWidth: '110px' }}>
+                    <InputLabel
+                      label="Debt %"
+                      help="Per-line override of the project Debt % (LTV). Edit a single row to fund certain costs differently (e.g. land at 70% LTV but soft costs at 0%). Active only when Financing Mode is set to per-line."
+                      textStyle={{ color: 'var(--color-on-primary-navy)' }}
+                    />
+                  </th>
                   <th style={{ padding: '10px 10px', textAlign: 'center', minWidth: '90px' }}>Equity %</th>
                   <th style={{ padding: '10px 10px', textAlign: 'right', minWidth: '120px' }}>Total Debt</th>
                   <th style={{ padding: '10px 10px', textAlign: 'right', minWidth: '120px' }}>Total Equity</th>
