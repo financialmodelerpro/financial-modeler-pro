@@ -33,39 +33,45 @@ import type { Plot } from '../../lib/state/module1-types';
 // ── Plot draft type ──
 // Same shape as Plot's writable numeric fields — nothing exotic. id /
 // name / phaseId stay pinned (the wizard edits one specific plot).
+// M1.10b/2 — covers all 15 Plot writable fields so the wizard matches
+// the inline form exactly (same fields / labels / order / defaults /
+// validation). verticalParkingFloors is optional on Plot but the
+// wizard treats it as a regular number with 0 default.
 interface PlotDraft {
-  plotArea:              number;
-  maxFAR:                number;
-  coveragePct:           number;
-  typicalCoveragePct:    number;
-  numberOfFloors:        number;
-  podiumFloors:          number;
-  typicalFloors:         number;
-  landscapePct:          number;
-  hardscapePct:          number;
-  surfaceBaySqm:         number;
-  verticalBaySqm:        number;
-  basementBaySqm:        number;
-  basementCount:         number;
-  basementEfficiencyPct: number;
+  plotArea:               number;
+  maxFAR:                 number;
+  coveragePct:            number;
+  typicalCoveragePct:     number;
+  numberOfFloors:         number;
+  podiumFloors:           number;
+  typicalFloors:          number;
+  landscapePct:           number;
+  hardscapePct:           number;
+  surfaceBaySqm:          number;
+  verticalBaySqm:         number;
+  basementBaySqm:         number;
+  basementCount:          number;
+  basementEfficiencyPct:  number;
+  verticalParkingFloors:  number;
 }
 
 function fromPlot(p: Plot): PlotDraft {
   return {
-    plotArea:              p.plotArea,
-    maxFAR:                p.maxFAR,
-    coveragePct:           p.coveragePct,
-    typicalCoveragePct:    p.typicalCoveragePct,
-    numberOfFloors:        p.numberOfFloors,
-    podiumFloors:          p.podiumFloors,
-    typicalFloors:         p.typicalFloors,
-    landscapePct:          p.landscapePct,
-    hardscapePct:          p.hardscapePct,
-    surfaceBaySqm:         p.surfaceBaySqm,
-    verticalBaySqm:        p.verticalBaySqm,
-    basementBaySqm:        p.basementBaySqm,
-    basementCount:         p.basementCount,
-    basementEfficiencyPct: p.basementEfficiencyPct,
+    plotArea:               p.plotArea,
+    maxFAR:                 p.maxFAR,
+    coveragePct:            p.coveragePct,
+    typicalCoveragePct:     p.typicalCoveragePct,
+    numberOfFloors:         p.numberOfFloors,
+    podiumFloors:           p.podiumFloors,
+    typicalFloors:          p.typicalFloors,
+    landscapePct:           p.landscapePct,
+    hardscapePct:           p.hardscapePct,
+    surfaceBaySqm:          p.surfaceBaySqm,
+    verticalBaySqm:         p.verticalBaySqm,
+    basementBaySqm:         p.basementBaySqm,
+    basementCount:          p.basementCount,
+    basementEfficiencyPct:  p.basementEfficiencyPct,
+    verticalParkingFloors:  p.verticalParkingFloors ?? 0,
   };
 }
 
@@ -114,6 +120,7 @@ export default function PlotSetupWizard({ plotId, onClose }: Props): React.React
       landscapePct: 0, hardscapePct: 0,
       surfaceBaySqm: 0, verticalBaySqm: 0, basementBaySqm: 0,
       basementCount: 0, basementEfficiencyPct: 0,
+      verticalParkingFloors: 0,
     },
     [plot],
   );
@@ -277,12 +284,16 @@ export default function PlotSetupWizard({ plotId, onClose }: Props): React.React
           {step === 2 && (
             <div data-testid="plot-wizard-step-2">
               <h3 style={{ margin: 0, marginBottom: 6, fontSize: 'var(--font-body)', fontWeight: 'var(--fw-semibold)' }}>
-                Floors — how high it goes
+                Floors &amp; public area — how high it goes, and what surrounds it
               </h3>
               <p style={{ margin: 0, marginBottom: 'var(--sp-3)', color: 'var(--color-meta)', fontSize: 'var(--font-meta)' }}>
-                Podium floors share the podium coverage; typical floors share the typical (tower) coverage. Live utilisation below tells you whether the current choice stays inside the FAR ceiling.
+                Total Floors is informational (podium + typical). Landscape + Hardscape split the public area outside the podium footprint. Live utilisation below tells you whether the current choice stays inside the FAR ceiling.
               </p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--sp-2)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+                <div>
+                  <label style={labelStyle}>Total Floors (#)</label>
+                  <input data-testid="plot-wizard-numberOfFloors" style={inputStyle} type="number" min={0} value={draft.numberOfFloors} onChange={setNum('numberOfFloors')} />
+                </div>
                 <div>
                   <label style={labelStyle}>Podium Floors (#)</label>
                   <input data-testid="plot-wizard-podiumFloors" style={inputStyle} type="number" min={0} value={draft.podiumFloors} onChange={setNum('podiumFloors')} />
@@ -294,6 +305,16 @@ export default function PlotSetupWizard({ plotId, onClose }: Props): React.React
                 <div>
                   <label style={labelStyle}>Typical Coverage (%)</label>
                   <input data-testid="plot-wizard-typicalCoveragePct" style={inputStyle} type="number" min={0} max={100} value={draft.typicalCoveragePct} onChange={setNum('typicalCoveragePct')} />
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-2)' }}>
+                <div>
+                  <label style={labelStyle}>Landscape (% public)</label>
+                  <input data-testid="plot-wizard-landscapePct" style={inputStyle} type="number" min={0} max={100} value={draft.landscapePct} onChange={setNum('landscapePct')} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Hardscape (% public)</label>
+                  <input data-testid="plot-wizard-hardscapePct" style={inputStyle} type="number" min={0} max={100} value={draft.hardscapePct} onChange={setNum('hardscapePct')} />
                 </div>
               </div>
 
@@ -343,7 +364,7 @@ export default function PlotSetupWizard({ plotId, onClose }: Props): React.React
                   <input data-testid="plot-wizard-basementBaySqm" style={inputStyle} type="number" min={0} value={draft.basementBaySqm} onChange={setNum('basementBaySqm')} />
                 </div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-2)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 'var(--sp-2)' }}>
                 <div>
                   <label style={labelStyle}>Basement Count (#)</label>
                   <input data-testid="plot-wizard-basementCount" style={inputStyle} type="number" min={0} value={draft.basementCount} onChange={setNum('basementCount')} />
@@ -351,6 +372,10 @@ export default function PlotSetupWizard({ plotId, onClose }: Props): React.React
                 <div>
                   <label style={labelStyle}>Basement Efficiency (%)</label>
                   <input data-testid="plot-wizard-basementEfficiencyPct" style={inputStyle} type="number" min={0} max={100} value={draft.basementEfficiencyPct} onChange={setNum('basementEfficiencyPct')} />
+                </div>
+                <div>
+                  <label style={labelStyle}>Vertical Parking Floors (#)</label>
+                  <input data-testid="plot-wizard-verticalParkingFloors" style={inputStyle} type="number" min={0} value={draft.verticalParkingFloors} onChange={setNum('verticalParkingFloors')} />
                 </div>
               </div>
             </div>

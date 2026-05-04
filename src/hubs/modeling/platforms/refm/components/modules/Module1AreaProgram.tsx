@@ -231,19 +231,28 @@ function PlotEditor({ plot, allPlotsCount, onOpenWizard }: { plot: Plot; allPlot
         <button onClick={handleDeletePlot} style={dangerBtnStyle} disabled={allPlotsCount <= 0} aria-label={`Delete ${plot.name}`}>Delete</button>
       </div>
 
-      {/* Inputs grid */}
+      {/* Inputs grid — M1.10b/2 reconciled: all 15 Plot writable fields,
+         same labels + order as PlotSetupWizard's 4 steps:
+         Envelope (3) -> Floors+PublicArea (6) -> Parking (6). */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>
-        {numField('plotArea',           'Plot Buildable Area', 'sqm')}
-        {numField('maxFAR',             'Max FAR',            'ratio')}
-        {numField('coveragePct',        'Coverage',           '%')}
-        {numField('typicalCoveragePct', 'Typical Coverage',   '%')}
-        {numField('numberOfFloors',     'Total Floors',       '#')}
-        {numField('podiumFloors',       'Podium Floors',      '#')}
-        {numField('typicalFloors',      'Typical Floors',     '#')}
-        {numField('landscapePct',       'Landscape',          '% public')}
-        {numField('hardscapePct',       'Hardscape',          '% public')}
-        {numField('basementCount',      'Basements',          '#')}
-        {numField('basementEfficiencyPct', 'Basement Eff.',   '%')}
+        {/* Envelope */}
+        {numField('plotArea',              'Plot Buildable Area', 'sqm')}
+        {numField('maxFAR',                'Max FAR',             'ratio')}
+        {numField('coveragePct',           'Podium Coverage',     '%')}
+        {/* Floors */}
+        {numField('numberOfFloors',        'Total Floors',        '#')}
+        {numField('podiumFloors',          'Podium Floors',       '#')}
+        {numField('typicalFloors',         'Typical Floors',      '#')}
+        {numField('typicalCoveragePct',    'Typical Coverage',    '%')}
+        {/* Public area allocation */}
+        {numField('landscapePct',          'Landscape',           '% public')}
+        {numField('hardscapePct',          'Hardscape',           '% public')}
+        {/* Parking */}
+        {numField('surfaceBaySqm',         'Surface Bay',         'sqm')}
+        {numField('verticalBaySqm',        'Vertical Bay',        'sqm')}
+        {numField('basementBaySqm',        'Basement Bay',        'sqm')}
+        {numField('basementCount',         'Basement Count',      '#')}
+        {numField('basementEfficiencyPct', 'Basement Efficiency', '%')}
         <label style={{ display: 'block' }}>
           <span style={labelStyle}>Vertical Parking Floors (#)</span>
           <input
