@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import type { CostItem, CostInputMode, ProjectType, AreaMetrics } from '@/src/core/types/project.types';
 import { formatNumber, formatCurrency } from '@/src/core/formatters';
 import { STAGE_COLOR, STAGE_BG_RGBA, PHASE_COLOR, ASSET_COLOR, KPI_ACCENT } from '@/src/styles/tokens';
+import InputLabel from '../ui/InputLabel';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -862,7 +863,11 @@ export default function Module1Costs({
         </div>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', color: 'var(--color-muted)', fontWeight: 600 }}>Alloc Basis:</span>
+            <InputLabel
+              label="Alloc Basis:"
+              help="How shared / derived costs split across assets. Direct Cost weighs by each asset's direct construction cost. GFA weighs by each asset's gross floor area. Pick GFA when costs are inherently area-driven (e.g. concrete, finishes) and Direct Cost when costs scale with the underlying line item."
+              textStyle={{ fontSize: '11px', color: 'var(--color-muted)', textTransform: 'none', letterSpacing: 'normal' }}
+            />
             {(['direct_cost', 'gfa'] as const).map(basis => (
               <button
                 key={basis}
@@ -882,7 +887,11 @@ export default function Module1Costs({
               </button>
             ))}
           </div>
-          <span style={{ fontSize: '11px', color: 'var(--color-muted)', fontWeight: 600 }}>Input Mode:</span>
+          <InputLabel
+            label="Input Mode:"
+            help="Same for All applies one set of cost line values to every asset (residential, hospitality, retail). Separate lets you give each asset its own values. Pick Same for All for quick what-if comparisons; Separate when assets have genuinely different cost structures."
+            textStyle={{ fontSize: '11px', color: 'var(--color-muted)', textTransform: 'none', letterSpacing: 'normal' }}
+          />
           {(['same-for-all', 'separate'] as CostInputMode[]).map(mode => (
             <button
               key={mode}

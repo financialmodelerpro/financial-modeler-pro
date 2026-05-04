@@ -5,6 +5,7 @@ import type {
   FinancingMode, ModelType, RepaymentMethod, CostItem, CostInputMode,
 } from '@/src/core/types/project.types';
 import type { FinancingResult } from '@/src/core/types/project.types';
+import InputLabel from '../ui/InputLabel';
 import { formatCurrency, formatNumber, formatPercent } from '@/src/core/formatters';
 import { ASSET_COLOR, ASSET_BG, ASSET_LABEL, PHASE_COLOR, SCHEDULE_TITLE_BG, KPI_ACCENT } from '@/src/styles/tokens';
 
@@ -812,7 +813,10 @@ export default function Module1Financing({
           </h3>
 
           <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={labelStyle}>Financing Mode</label>
+            <InputLabel
+              label="Financing Mode"
+              help="Fixed Debt: drawdown happens upfront in a single tranche, repaid over a fixed schedule. Line of Credit: revolving facility — debt is drawn as needed each period and repaid as cash arrives. Pick Fixed for term loans; Line for construction-loan-style flexibility."
+            />
             <div style={{ display: 'flex', gap: '8px' }}>
               {(['fixed', 'line'] as FinancingMode[]).map(mode => (
                 <button
@@ -836,7 +840,10 @@ export default function Module1Financing({
           </div>
 
           <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={labelStyle}>Debt % of CapEx (LTV)</label>
+            <InputLabel
+              label="Debt % of CapEx (LTV)"
+              help="Loan-to-Value ratio. The share of total CapEx funded by debt; the rest is equity. E.g. LTV 60% = 60% debt + 40% equity. Higher LTV amplifies equity returns but raises interest cost and refinancing risk."
+            />
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               <input
                   style={{ ...inputStyle, flex: 1 }}
@@ -867,7 +874,10 @@ export default function Module1Financing({
           </div>
 
           <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={labelStyle}>Interest Rate (% p.a.)</label>
+            <InputLabel
+              label="Interest Rate (% p.a.)"
+              help="Annual nominal interest rate on the debt. Internally converted to per-period rate based on Model Granularity (annual/monthly). Match to whatever your debt terms quote — most lenders quote nominal annual."
+            />
             <input
               style={inputStyle}
               type="number"
@@ -878,17 +888,18 @@ export default function Module1Financing({
             />
           </div>
 
-          <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: readOnly ? 'not-allowed' : 'pointer' }}>
-              <input
-                type="checkbox"
-                checked={capitalizeInterest}
-                onChange={e => !readOnly && setCapitalizeInterest(e.target.checked)}
-                disabled={readOnly}
-                style={{ width: '16px', height: '16px', cursor: readOnly ? 'not-allowed' : 'pointer' }}
-              />
-              <span style={{ ...labelStyle, margin: 0, cursor: 'inherit' }}>Capitalize Interest During Construction</span>
-            </label>
+          <div style={{ marginBottom: 'var(--sp-2)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <input
+              type="checkbox"
+              checked={capitalizeInterest}
+              onChange={e => !readOnly && setCapitalizeInterest(e.target.checked)}
+              disabled={readOnly}
+              style={{ width: '16px', height: '16px', cursor: readOnly ? 'not-allowed' : 'pointer' }}
+            />
+            <InputLabel
+              label="Capitalize Interest During Construction"
+              help="When checked, interest accrued during the construction window is rolled into the loan principal rather than paid out of pocket. Standard practice for development financing — only flip off if your lender requires current-pay interest."
+            />
           </div>
         </div>
 
@@ -899,7 +910,10 @@ export default function Module1Financing({
           </h3>
 
           <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={labelStyle}>Repayment Method</label>
+            <InputLabel
+              label="Repayment Method"
+              help="Fixed Equal Installments: same principal payment each period until paid off. Cash Sweep: repays as fast as cash flow allows (Module 5 hookup pending). Pick Fixed for predictable amortising loans; Cash Sweep when the lender takes excess cash flow."
+            />
             <select
               style={inputStyle}
               value={repaymentMethod}
@@ -923,7 +937,10 @@ export default function Module1Financing({
           </div>
 
           <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={labelStyle}>Repayment Period ({periodLabel})</label>
+            <InputLabel
+              label={`Repayment Period (${periodLabel})`}
+              help="Number of periods over which debt principal is repaid (after construction). Capped at the operations window. Shorter = higher periodic payments + faster equity returns; longer = smoother payments + lower DSCR strain."
+            />
             <input
               style={inputStyle}
               type="number"
