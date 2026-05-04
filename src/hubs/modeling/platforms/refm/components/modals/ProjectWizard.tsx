@@ -40,6 +40,7 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ModelType } from '@core/types/project.types';
 import type { AssetCategory, AssetStrategy } from '../../lib/state/module1-types';
 import { PREBUILT_ASSET_TYPES, DEFAULT_STRATEGY_BY_CATEGORY } from '../../lib/state/module1-types';
@@ -313,11 +314,13 @@ export default function ProjectWizard({ onCreate, onClose }: ProjectWizardProps)
     && draft.plotCount >= 1 && draft.plotCount <= 20
     && draft.constructionPeriods >= 1 && draft.operationsPeriods >= 1
     && draft.overlapPeriods >= 0 && draft.overlapPeriods <= draft.constructionPeriods;
-  // Step 3 valid: at least 1 asset AND total allocation sums to exactly
-  // 100%. Allow a tiny float tolerance (0.01) so the auto-balance helper
-  // doesn't trap users with 33.33 + 33.33 + 33.34 = 100.00 rounding.
+  // Step 3 valid: at least 1 asset AND total allocation sums to 100%
+  // within a 0.1 tolerance. M1.11/M8 bumped this from 0.01 because manual
+  // entry of equal thirds (33.333 x 3) rounds to 99.999 in float math, and
+  // 33.33 + 33.33 + 33.34 = 100.00 only by luck. 0.1 still rejects truly
+  // wrong sums (95% or 105%) while accepting reasonable manual entry.
   const step3AllocSum = draft.assets.reduce((s, a) => s + (Number.isFinite(a.allocationPct) ? a.allocationPct : 0), 0);
-  const step3Valid = draft.assets.length > 0 && Math.abs(step3AllocSum - 100) < 0.01;
+  const step3Valid = draft.assets.length > 0 && Math.abs(step3AllocSum - 100) < 0.1;
 
   const continueEnabled =
     step === 1 ? step1Valid :
@@ -346,7 +349,12 @@ export default function ProjectWizard({ onCreate, onClose }: ProjectWizardProps)
     if (step > 1) setStep(((step - 1) as 1 | 2 | 3));
   }
 
-  return (
+  // M1.11/C2 — portal to document.body so the modal escapes any ancestor
+  // containing block (transform, will-change, filter on the platform
+  // shell) that would otherwise resolve `position: fixed` relative to the
+  // ancestor. Mirrors the M1.10b/1 fix on PlotSetupWizard + ParcelSetupWizard.
+  if (typeof document === 'undefined') return null;
+  return createPortal(
     <div className="pm-modal-overlay" onClick={attemptClose} role="presentation">
       <div
         className="pm-modal"
@@ -441,7 +449,8 @@ export default function ProjectWizard({ onCreate, onClose }: ProjectWizardProps)
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
