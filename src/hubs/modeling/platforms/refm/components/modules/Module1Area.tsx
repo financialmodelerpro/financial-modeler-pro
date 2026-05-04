@@ -123,8 +123,29 @@ export default function Module1Area({
           Land &amp; Area
         </h2>
         <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-meta)', margin: 0 }}>
-          Define land parcels, site parameters, and GFA hierarchy
+          Define land parcels (acquisition cost), site parameters
+          (project-wide FAR / roads / non-enclosed %), and the rolled-up
+          GFA hierarchy. Per-plot area + FAR overrides live on Build
+          Program.
         </p>
+      </div>
+
+      {/* M1.9b/5 — "What goes here" callout. */}
+      <div className="module-card" style={{
+        padding: 'var(--sp-2) var(--sp-3)',
+        marginBottom: 'var(--sp-3)',
+        background: 'color-mix(in srgb, var(--color-primary) 6%, transparent)',
+        borderLeft: '3px solid var(--color-primary)',
+      }}>
+        <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-body)', lineHeight: 1.6 }}>
+          <strong style={{ color: 'var(--color-heading)' }}>📋 What goes here:</strong>{' '}
+          land parcel acquisition (area + rate + cash / in-kind split)
+          and project-level site parameters. Use parcels for land
+          you're buying or contributing in-kind.{' '}
+          <strong style={{ color: 'var(--color-heading)' }}>Not here:</strong>{' '}
+          per-plot area / FAR overrides (Build Program → Plot card),
+          per-asset allocation (Build Program → Asset card).
+        </div>
       </div>
 
       {/* Land Parcels Table */}
@@ -263,9 +284,9 @@ export default function Module1Area({
         </h3>
 
         {[
-          { label: 'Project Roads / Infrastructure %', value: projectRoadsPct, setter: setProjectRoadsPct, suffix: '%', min: 0, max: 50, step: 0.5 },
-          { label: 'Floor Area Ratio (FAR)',            value: projectFAR,      setter: setProjectFAR,      suffix: '',  min: 0, max: 10, step: 0.1 },
-          { label: 'Non-Enclosed Area %',               value: projectNonEnclosedPct, setter: setProjectNonEnclosedPct, suffix: '%', min: 0, max: 100, step: 1 },
+          { label: 'Project Roads / Infrastructure % (of total land)', value: projectRoadsPct, setter: setProjectRoadsPct, suffix: '%', min: 0, max: 50, step: 0.5 },
+          { label: 'Project FAR (whole-site ceiling)',                  value: projectFAR,      setter: setProjectFAR,      suffix: '',  min: 0, max: 10, step: 0.1 },
+          { label: 'Non-Enclosed Area % (balconies / terraces)',        value: projectNonEnclosedPct, setter: setProjectNonEnclosedPct, suffix: '%', min: 0, max: 100, step: 1 },
         ].map(row => (
           <div key={row.label} style={{ marginBottom: 'var(--sp-2)' }}>
             <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-body)', marginBottom: '5px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>

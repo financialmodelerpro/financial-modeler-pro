@@ -104,10 +104,32 @@ export default function Module1Timeline({
           Project Schedule
         </h2>
         <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-meta)', margin: 0 }}>
-          Set the model granularity, start date, and per-phase construction
-          / operations window. Project name, type, country, and currency
-          live in the create wizard and the Hierarchy tab.
+          Set the model granularity, start date, and the project-level
+          construction / operations window. Project name, type, country,
+          and currency live in the create wizard. Per-phase timing
+          overrides live inside each Phase row in Project Structure
+          below.
         </p>
+      </div>
+
+      {/* M1.9b/5 — "What goes here" callout. Clarifies that this tab is
+         the canonical home for schedule + structure, and points users
+         to the wizard / Build Program for what doesn't belong here. */}
+      <div className="module-card" style={{
+        padding: 'var(--sp-2) var(--sp-3)',
+        marginBottom: 'var(--sp-3)',
+        background: 'color-mix(in srgb, var(--color-primary) 6%, transparent)',
+        borderLeft: '3px solid var(--color-primary)',
+      }}>
+        <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-body)', lineHeight: 1.6 }}>
+          <strong style={{ color: 'var(--color-heading)' }}>📋 What goes here:</strong>{' '}
+          model granularity (annual/monthly), project start date,
+          project-level construction + operations window, and the
+          Master Holding → Sub-Project → Phase tree.{' '}
+          <strong style={{ color: 'var(--color-heading)' }}>Not here:</strong>{' '}
+          per-asset strategy / sub-unit detail (Build Program), land
+          parcels (Land), costs (Dev Costs), financing (Financing).
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 'var(--sp-3)' }}>
@@ -155,7 +177,7 @@ export default function Module1Timeline({
 
           <div style={rowStyle}>
             <div>
-              <label style={labelStyle}>Construction ({periodLabel})</label>
+              <label style={labelStyle}>Project Construction ({periodLabel})</label>
               <input
                 style={inputStyle}
                 type="number"
@@ -167,7 +189,7 @@ export default function Module1Timeline({
               />
             </div>
             <div>
-              <label style={labelStyle}>Operations ({periodLabel})</label>
+              <label style={labelStyle}>Project Operations ({periodLabel})</label>
               <input
                 style={inputStyle}
                 type="number"
@@ -181,7 +203,7 @@ export default function Module1Timeline({
           </div>
 
           <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={labelStyle}>Overlap ({periodLabel})</label>
+            <label style={labelStyle}>Project Overlap ({periodLabel})</label>
             <input
               style={inputStyle}
               type="number"
@@ -192,7 +214,9 @@ export default function Module1Timeline({
               disabled={readOnly}
             />
             <div style={{ fontSize: '11px', color: 'var(--color-muted)', marginTop: '4px' }}>
-              Overlap of construction & operations phases
+              Construction periods that overlap with operations (sales /
+              early-handover units). Per-phase overlap can override
+              this in the Project Structure tree below.
             </div>
           </div>
 
