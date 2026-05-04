@@ -441,8 +441,8 @@ deferred calc-engine refinements).**
   `lib/copy/assetStrategyHelp.ts` module exports ASSET_STRATEGY_HELP with
   6 keys (primaryStrategy, primaryStrategyPct, secondaryStrategy,
   secondaryStrategyPct, zone, gfaOverride). Em-dash placeholders in
-  selects replaced ("(none)" instead of "—" for blank Secondary strategy,
-  "(no zone)" instead of "— (no zone)").
+  selects replaced (literal `(none)` instead of bare em-dash for blank
+  Secondary strategy, `(no zone)` instead of em-dash plus parenthetical).
 - `347bae3` 5/12 (Dev Costs, M3 + M7a): What-goes-here callout grew a
   Phase Scope sub-paragraph explaining how the active sub-project context
   interacts with cost rows; per-row phase override deferred to M2.0
