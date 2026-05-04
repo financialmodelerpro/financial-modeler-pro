@@ -152,7 +152,7 @@ export default function Module1Area({
       <div className="module-card" style={{ padding: 'var(--sp-3)', marginBottom: 'var(--sp-2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--sp-2)' }}>
           <h3 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>
-            Land Parcels
+            Land Parcels (financial — what you own)
           </h3>
           {!readOnly && (
             <button className="btn-primary rbac-action-btn" style={{ fontSize: '12px', padding: '5px 12px' }} onClick={addParcel}>

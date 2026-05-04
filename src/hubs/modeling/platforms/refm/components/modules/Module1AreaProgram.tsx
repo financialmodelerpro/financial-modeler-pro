@@ -219,7 +219,7 @@ function PlotEditor({ plot, allPlotsCount }: { plot: Plot; allPlotsCount: number
 
       {/* Inputs grid */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>
-        {numField('plotArea',           'Plot Area',          'sqm')}
+        {numField('plotArea',           'Plot Buildable Area', 'sqm')}
         {numField('maxFAR',             'Max FAR',            'ratio')}
         {numField('coveragePct',        'Coverage',           '%')}
         {numField('typicalCoveragePct', 'Typical Coverage',   '%')}
@@ -793,6 +793,22 @@ export default function Module1AreaProgram() {
     [allPlots, activePhaseId],
   );
 
+  // M1.10/5 — Land Parcels (financial) vs Plots (physical) reconciliation.
+  // The two arrays are independently editable (a parcel is what you own;
+  // a plot is what you build on). When they line up — single parcel with
+  // area = total plot area — show ✓ matches. When they diverge, show a
+  // warning so the user knows their financial footprint and physical
+  // footprint disagree.
+  const landParcels = useModule1Store(s => s.landParcels);
+  const totalParcelArea = useMemo(
+    () => landParcels.reduce((s, p) => s + (Number(p.area) || 0), 0),
+    [landParcels],
+  );
+  const totalPlotAreaAllPhases = useMemo(
+    () => allPlots.reduce((s, p) => s + (Number(p.plotArea) || 0), 0),
+    [allPlots],
+  );
+
   const activePhase = phases.find(p => p.id === activePhaseId);
 
   if (!activePhase) {
@@ -847,6 +863,54 @@ export default function Module1AreaProgram() {
           (Schedule), revenue ramps (Module 2 — coming next).
         </div>
       </div>
+
+      {/* M1.10/5 — Land vs Plot reconciliation row. Surfaces the relationship
+         between Land Parcels (financial — what you own) and Plots
+         (physical — what you build on) so users see at a glance whether
+         the two arrays agree. Tolerance: 1 sqm to absorb rounding from
+         the wizard's 100,000 / plotCount division. */}
+      {(() => {
+        const diff = totalPlotAreaAllPhases - totalParcelArea;
+        const matches = Math.abs(diff) < 1;
+        const tone = matches
+          ? { bg: 'color-mix(in srgb, var(--color-success) 8%, transparent)',  border: 'var(--color-success)',  icon: '✓', label: 'matches' }
+          : { bg: 'color-mix(in srgb, var(--color-warning) 10%, transparent)', border: 'var(--color-warning)',  icon: '⚠', label: diff > 0 ? `plot total exceeds parcel by ${Math.round(diff).toLocaleString()} sqm` : `parcel total exceeds plot by ${Math.round(-diff).toLocaleString()} sqm` };
+        return (
+          <div
+            data-testid="land-plot-reconciliation"
+            style={{
+              padding: 'var(--sp-2) var(--sp-3)',
+              marginBottom: 'var(--sp-3)',
+              background: tone.bg,
+              borderLeft: `3px solid ${tone.border}`,
+              borderRadius: 'var(--radius-sm)',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--sp-2)',
+              flexWrap: 'wrap',
+              fontSize: 'var(--font-meta)',
+              color: 'var(--color-body)',
+            }}
+          >
+            <span style={{ fontWeight: 'var(--fw-bold)', color: 'var(--color-heading)' }}>
+              {tone.icon} Land vs Plot:
+            </span>
+            <span>
+              <strong>Land Parcel total:</strong>{' '}
+              {totalParcelArea.toLocaleString()} sqm
+            </span>
+            <span style={{ color: 'var(--color-meta)' }}>·</span>
+            <span>
+              <strong>Plot total (all phases):</strong>{' '}
+              {totalPlotAreaAllPhases.toLocaleString()} sqm
+            </span>
+            <span style={{ color: 'var(--color-meta)' }}>·</span>
+            <span style={{ fontStyle: matches ? 'normal' : 'italic', fontWeight: matches ? 'var(--fw-semibold)' : 'var(--fw-normal)' }}>
+              {tone.label}
+            </span>
+          </div>
+        );
+      })()}
 
       {/* Empty state OR plots list */}
       {plots.length === 0 ? (
