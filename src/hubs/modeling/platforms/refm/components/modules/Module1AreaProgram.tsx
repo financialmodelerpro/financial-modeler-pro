@@ -41,13 +41,7 @@ import {
   computePlotParkingCapacity, allocateParking,
   type PlotEnvelopeAreas, type ParkingAllocationResult, type PlotCapacityResult,
 } from '@core/calculations';
-import {
-  useModule1Store,
-  selectPlotsForPhase,
-  selectZonesForPlot,
-  selectAssetsForPlot,
-  selectSubUnitsForAsset,
-} from '../../lib/state/module1-store';
+import { useModule1Store } from '../../lib/state/module1-store';
 import {
   ASSET_STRATEGIES, DEFAULT_AREA_CASCADE_BY_CATEGORY,
   DEFAULT_PARKING_BAYS_BY_SUBUNIT_TYPE,
@@ -139,14 +133,25 @@ function fmt(n: number, decimals = 0): string {
 }
 
 // ── Plot row ───────────────────────────────────────────────────────────────
+// Subscribe to base arrays + actions separately and derive filtered slices
+// via useMemo. Wrapping a `.filter(...)` inside the `useShallow` selector
+// would return a fresh array reference on every render — Zustand v5's
+// shallow uses Object.is on the OUTER object's top-level values, so a new
+// filtered array ref makes the snapshot differ every render, which fires
+// React's "getSnapshot should be cached to avoid an infinite loop"
+// warning and ultimately throws "Maximum update depth exceeded" once the
+// store actually has data (see Module1AreaProgram top-level for the same
+// pattern + why it only manifests once plots/zones/assets are non-empty).
 function PlotEditor({ plot, allPlotsCount }: { plot: Plot; allPlotsCount: number }) {
-  const { updatePlot, removePlot, addZone, zones, assetsOnPlot } = useModule1Store(useShallow(s => ({
-    updatePlot:   s.updatePlot,
-    removePlot:   s.removePlot,
-    addZone:      s.addZone,
-    zones:        selectZonesForPlot(plot.id)(s),
-    assetsOnPlot: selectAssetsForPlot(plot.id)(s),
+  const { updatePlot, removePlot, addZone } = useModule1Store(useShallow(s => ({
+    updatePlot: s.updatePlot,
+    removePlot: s.removePlot,
+    addZone:    s.addZone,
   })));
+  const allZones      = useModule1Store(s => s.zones);
+  const allAssets     = useModule1Store(s => s.assets);
+  const zones         = useMemo(() => allZones.filter(z => z.plotId === plot.id), [allZones, plot.id]);
+  const assetsOnPlot  = useMemo(() => allAssets.filter(a => a.plotId === plot.id), [allAssets, plot.id]);
 
   const envelope: PlotEnvelopeAreas = useMemo(() => computePlotEnvelope({
     plotArea: plot.plotArea, maxFAR: plot.maxFAR, coveragePct: plot.coveragePct,
@@ -350,10 +355,12 @@ function ZoneRow({ zone }: { zone: Zone }) {
 function AssetStrategyRow({ asset, envelope, plotAssetCount, totalAllocPctOnPlot }: {
   asset: AssetClass; envelope: PlotEnvelopeAreas; plotAssetCount: number; totalAllocPctOnPlot: number;
 }) {
-  const { updateAsset, zonesForPlot } = useModule1Store(useShallow(s => ({
-    updateAsset:   s.updateAsset,
-    zonesForPlot:  selectZonesForPlot(asset.plotId ?? '')(s),
-  })));
+  const updateAsset = useModule1Store(s => s.updateAsset);
+  const allZones    = useModule1Store(s => s.zones);
+  const zonesForPlot = useMemo(
+    () => allZones.filter(z => z.plotId === (asset.plotId ?? '')),
+    [allZones, asset.plotId],
+  );
 
   const effectivePrimary = resolveAssetStrategy(asset);
   const cascadePcts = resolveAssetCascadePcts(asset);
@@ -518,14 +525,14 @@ function CascadeCell({ label, value }: { label: string; value: number }) {
 
 // ── Asset assignment picker (assets in this phase that are NOT yet on a plot) ──
 function AssetAssignPicker({ plotId }: { plotId: string }) {
-  const { unassignedAssets, updateAsset } = useModule1Store(useShallow(s => ({
-    unassignedAssets: s.assets.filter(a => {
-      if (a.plotId !== undefined) return false;
-      const plot = s.plots.find(p => p.id === plotId);
-      return plot ? a.phaseId === plot.phaseId : false;
-    }),
-    updateAsset: s.updateAsset,
-  })));
+  const updateAsset = useModule1Store(s => s.updateAsset);
+  const allAssets   = useModule1Store(s => s.assets);
+  const allPlots    = useModule1Store(s => s.plots);
+  const unassignedAssets = useMemo(() => {
+    const plot = allPlots.find(p => p.id === plotId);
+    if (!plot) return [];
+    return allAssets.filter(a => a.plotId === undefined && a.phaseId === plot.phaseId);
+  }, [allAssets, allPlots, plotId]);
 
   const [pick, setPick] = useState<string>('');
 
@@ -556,12 +563,13 @@ function AssetAssignPicker({ plotId }: { plotId: string }) {
 // Apartment for Operate; Office / Retail for Lease) so the parking
 // ratio default lookup hits a known row.
 function SubUnitTable({ assetId, category }: { assetId: string; category: AssetCategory }) {
-  const { subUnits, addSubUnit, updateSubUnit, removeSubUnit } = useModule1Store(useShallow(s => ({
-    subUnits:      selectSubUnitsForAsset(assetId)(s),
+  const { addSubUnit, updateSubUnit, removeSubUnit } = useModule1Store(useShallow(s => ({
     addSubUnit:    s.addSubUnit,
     updateSubUnit: s.updateSubUnit,
     removeSubUnit: s.removeSubUnit,
   })));
+  const allSubUnits = useModule1Store(s => s.subUnits);
+  const subUnits = useMemo(() => allSubUnits.filter(u => u.assetId === assetId), [allSubUnits, assetId]);
 
   const suggestions = SUBUNIT_SUGGESTIONS_BY_CATEGORY[category];
   const defaultMetric: SubUnit['metric'] = category === 'Lease' ? 'area' : 'count';
@@ -686,12 +694,17 @@ const SUBUNIT_SUGGESTIONS_BY_CATEGORY: Record<AssetCategory, string[]> = {
 // bound to the plot, runs the same waterfall allocator the M1.7/4
 // pipeline uses, and renders capacity vs. allocated vs. deficit.
 function ParkingSummary({ plot, envelope }: { plot: Plot; envelope: PlotEnvelopeAreas }) {
-  const { plotAssets, subUnitsByAsset } = useModule1Store(useShallow(s => {
-    const plotAssets = selectAssetsForPlot(plot.id)(s);
-    const subUnitsByAsset: Record<string, SubUnit[]> = {};
-    for (const a of plotAssets) subUnitsByAsset[a.id] = s.subUnits.filter(u => u.assetId === a.id);
-    return { plotAssets, subUnitsByAsset };
-  }));
+  const allAssets   = useModule1Store(s => s.assets);
+  const allSubUnits = useModule1Store(s => s.subUnits);
+  const plotAssets = useMemo(
+    () => allAssets.filter(a => a.plotId === plot.id),
+    [allAssets, plot.id],
+  );
+  const subUnitsByAsset = useMemo(() => {
+    const byAsset: Record<string, SubUnit[]> = {};
+    for (const a of plotAssets) byAsset[a.id] = allSubUnits.filter(u => u.assetId === a.id);
+    return byAsset;
+  }, [plotAssets, allSubUnits]);
 
   const totalBaysRequired = plotAssets.reduce(
     (s, a) => s + (subUnitsByAsset[a.id]?.reduce((b, u) => b + resolveSubUnitParkingBays(u), 0) ?? 0),
@@ -755,13 +768,29 @@ function ParkingCell({ label, value, cap }: { label: string; value: number; cap?
 }
 
 // ── Top-level component ───────────────────────────────────────────────────
+// Subscribe to base arrays + scalars + actions separately and derive
+// `plots` for the active phase via useMemo. Putting `s.plots.filter(...)`
+// inside the `useShallow` selector returns a new array reference on every
+// render — Zustand v5's shallow comparator runs Object.is on the OUTER
+// object's top-level values, so a new filter result makes the snapshot
+// differ every render. React's useSyncExternalStore then logs
+// "The result of getSnapshot should be cached to avoid an infinite loop"
+// and the render loop trips "Maximum update depth exceeded", which the
+// error boundary surfaces as "This page couldn't load" once the store
+// has at least one plot. (Empty arrays happen to compare equal under
+// shallow because Map(0) === Map(0), so the bug stays latent until the
+// wizard creates the first plot.)
 export default function Module1AreaProgram() {
-  const { activePhaseId, phases, plots, addPlot } = useModule1Store(useShallow(s => ({
+  const { activePhaseId, phases, addPlot } = useModule1Store(useShallow(s => ({
     activePhaseId: s.activePhaseId,
     phases:        s.phases,
-    plots:         selectPlotsForPhase(s.activePhaseId)(s),
     addPlot:       s.addPlot,
   })));
+  const allPlots = useModule1Store(s => s.plots);
+  const plots    = useMemo(
+    () => allPlots.filter(p => p.phaseId === activePhaseId),
+    [allPlots, activePhaseId],
+  );
 
   const activePhase = phases.find(p => p.id === activePhaseId);
 

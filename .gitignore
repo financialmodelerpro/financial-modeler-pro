@@ -36,3 +36,8 @@ scripts/pdf-export-fixture.out.pdf
 *.xlsx-tmp.zip
 .pwest-extract/
 .xlsx-extract/
+
+# Playwright test artifacts (regenerated on every run)
+test-results/
+playwright-report/
+tests/screenshots/
