@@ -25,6 +25,7 @@
 import React from 'react';
 import type { ModelType, ProjectType } from '@/src/core/types/project.types';
 import Module1Hierarchy from './Module1Hierarchy';
+import InputLabel from '../ui/InputLabel';
 
 interface Module1TimelineProps {
   // Identity props kept on the interface for backward compat with the
@@ -140,7 +141,10 @@ export default function Module1Timeline({
           </h3>
 
           <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={labelStyle}>Model Granularity</label>
+            <InputLabel
+              label="Model Granularity"
+              help="How the model rolls cash flows: monthly = 12 periods per year (more granular, slower), annual = 1 period per year (faster, less precise). Choose monthly for short construction windows; annual is fine for stabilised operations."
+            />
             <div style={{ display: 'flex', gap: '8px' }}>
               {(['annual', 'monthly'] as ModelType[]).map(mt => (
                 <button
@@ -165,7 +169,10 @@ export default function Module1Timeline({
           </div>
 
           <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={labelStyle}>Project Start Date</label>
+            <InputLabel
+              label="Project Start Date"
+              help="The calendar date when period 1 begins. Drives every subsequent period's date label and any date-anchored escalations."
+            />
             <input
               style={inputStyle}
               type="date"
@@ -177,7 +184,10 @@ export default function Module1Timeline({
 
           <div style={rowStyle}>
             <div>
-              <label style={labelStyle}>Project Construction ({periodLabel})</label>
+              <InputLabel
+                label={`Project Construction (${periodLabel})`}
+                help="Number of periods spent building. Drives the CapEx outflow window: every cost line phases its spend across these periods. Per-phase overrides live in the Project Structure tree below."
+              />
               <input
                 style={inputStyle}
                 type="number"
@@ -189,7 +199,10 @@ export default function Module1Timeline({
               />
             </div>
             <div>
-              <label style={labelStyle}>Project Operations ({periodLabel})</label>
+              <InputLabel
+                label={`Project Operations (${periodLabel})`}
+                help="Number of periods modelled after construction. Drives the revenue ramp + opex window. Set this long enough to capture stabilised cash flows + the exit terminal value."
+              />
               <input
                 style={inputStyle}
                 type="number"
@@ -203,7 +216,10 @@ export default function Module1Timeline({
           </div>
 
           <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={labelStyle}>Project Overlap ({periodLabel})</label>
+            <InputLabel
+              label={`Project Overlap (${periodLabel})`}
+              help="Construction periods that overlap with operations — for sales / early-handover units that start generating revenue while the rest of the project is still being built. 0 = sequential construction then operations."
+            />
             <input
               style={inputStyle}
               type="number"

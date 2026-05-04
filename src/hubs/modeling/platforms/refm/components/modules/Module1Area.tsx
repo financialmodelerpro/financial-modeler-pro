@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import type { LandParcel, ProjectType } from '@/src/core/types/project.types';
 import { formatNumber, formatCurrency } from '@/src/core/formatters';
 import ParcelSetupWizard from '../modals/ParcelSetupWizard';
+import InputLabel from '../ui/InputLabel';
 
 interface Module1AreaProps {
   landParcels: LandParcel[]; setLandParcels: (v: LandParcel[]) => void;
@@ -186,12 +187,22 @@ export default function Module1Area({
           <table className="table-standard">
             <thead>
               <tr>
-                <th style={{ textAlign: 'left' }}>Parcel Name</th>
-                <th>Area (sqm)</th>
-                <th>Rate (/{currency} per sqm)</th>
+                <th style={{ textAlign: 'left' }}>
+                  <InputLabel label="Parcel Name" help="A short identifier you give this parcel — useful when you have several parcels and want to track them by name in costs, financing, or version diffs." />
+                </th>
+                <th>
+                  <InputLabel label="Area (sqm)" help="Square metres of land owned (or contributed in-kind). The financial footprint — distinct from Plot Buildable Area on Build Program, which is the physical envelope you build on." />
+                </th>
+                <th>
+                  <InputLabel label={`Rate (/${currency} per sqm)`} help="Acquisition price per square metre. Multiplied by Area to give the parcel's total acquisition value, then split between cash + in-kind portions." />
+                </th>
                 <th>Total Value</th>
-                <th>Cash %</th>
-                <th>In-Kind %</th>
+                <th>
+                  <InputLabel label="Cash %" help="Share of the parcel's value paid in cash. Rolls into Module 1 cost (Land Cash Portion) and Module 2 cash flow timing." />
+                </th>
+                <th>
+                  <InputLabel label="In-Kind %" help="Share contributed in-kind (e.g. landowner equity in lieu of cash). Auto-balances with Cash % to 100. Affects equity stack and capitalisation but not direct CapEx outflow." />
+                </th>
                 <th>Cash Value</th>
                 <th>In-Kind Value</th>
                 {!readOnly && <th>Del</th>}
@@ -305,14 +316,24 @@ export default function Module1Area({
         </h3>
 
         {[
-          { label: 'Project Roads / Infrastructure % (of total land)', value: projectRoadsPct, setter: setProjectRoadsPct, suffix: '%', min: 0, max: 50, step: 0.5 },
-          { label: 'Project FAR (whole-site ceiling)',                  value: projectFAR,      setter: setProjectFAR,      suffix: '',  min: 0, max: 10, step: 0.1 },
-          { label: 'Non-Enclosed Area % (balconies / terraces)',        value: projectNonEnclosedPct, setter: setProjectNonEnclosedPct, suffix: '%', min: 0, max: 100, step: 1 },
+          {
+            label: 'Project Roads / Infrastructure % (of total land)',
+            help:  'Share of total land area dedicated to roads, infrastructure, and right-of-way — i.e., land that does not get built on. The remainder is Net Developable Area (NDA), the land available for plots.',
+            value: projectRoadsPct, setter: setProjectRoadsPct, suffix: '%', min: 0, max: 50, step: 0.5,
+          },
+          {
+            label: 'Project FAR (whole-site ceiling)',
+            help:  'Floor Area Ratio. The regulatory ceiling on built GFA across the whole site, expressed as a multiple of NDA. E.g., FAR 1.5 means total built GFA cannot exceed 1.5× NDA. Per-plot FAR overrides live on Build Program.',
+            value: projectFAR,      setter: setProjectFAR,      suffix: '',  min: 0, max: 10, step: 0.1,
+          },
+          {
+            label: 'Non-Enclosed Area % (balconies / terraces)',
+            help:  'Share of GFA that is non-enclosed (balconies, terraces, exterior corridors). Subtracted from GFA to derive Built-Up Area (BUA) — the enclosed area used for revenue.',
+            value: projectNonEnclosedPct, setter: setProjectNonEnclosedPct, suffix: '%', min: 0, max: 100, step: 1,
+          },
         ].map(row => (
           <div key={row.label} style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-body)', marginBottom: '5px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              {row.label}
-            </label>
+            <InputLabel label={row.label} help={row.help} />
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <input
                 style={{ ...inputStyle, flex: 1 }}
