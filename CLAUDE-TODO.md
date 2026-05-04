@@ -4,6 +4,128 @@
 
 ---
 
+## Recently Completed, REFM Module 1 Phase M1.11 Holistic Re-Audit + 22 Fixes (2026-05-05, 13 commits)
+
+Closes M1.11 and ships **Module 1 as production-ready**. Comprehensive holistic re-audit of all 5 Module 1 tabs covering 7 areas: data flow integrity (every input writes to the canonical Zustand store, no orphaned setters), UX coherence (every label resolves to a single canonical surface), ProjectTimelineVisual (4 semantic dates instead of just Start/End), Land vs Build Program redundancy (independent arrays with reconciliation row, no double-edit risk), calc correctness (snapshot-baseline regression on all 3 fixtures stays bit-identical), first-time user flow (wizard projects land setup-complete on Schedule, no 0% / Over FAR / phantom badges), regression check on M1.5b through M1.10b. Audit produced via 4 parallel Explore agents over `src/hubs/modeling/platforms/refm/`.
+
+**Audit doc:** `docs/MODULE_1_AUDIT_M1.11.md` (22 issues — 4 Critical / 8 Major / 6 Minor / 4 out-of-scope; 12-area fix grouping).
+
+**Per-commit shape:** 13 commits, all snapshot diffs (legacy 17.5 KB, multiphase 23.0 KB, areaprogram 2.8 KB) bit-identical at every step. Em-dash sweep also runs across 175 files with `sed 's/ — /, /g; s/—/,/g'`, removing 1,386 em-dashes; excluded `js/refm-platform.js` (legacy bundle, untouchable) and `verify-m*.ts` docstrings (literal example text).
+
+| # | What changed |
+|---|--------------|
+| M1.11/1 | ProjectWizard portals to `document.body` via React `createPortal` with SSR guard `if (typeof document === 'undefined') return null;` so the wizard stays viewport-centered when ancestor containing-blocks (transform/will-change on the platform shell) would otherwise swallow `position: fixed`. `step3Valid` tolerance widened from `< 0.01` to `< 0.1` so floating-point drift on Auto-balance doesn't gate Continue. |
+| M1.11/2 | NEW `src/hubs/modeling/platforms/refm/components/ui/ProjectTimelineVisual.tsx` (~200 lines) replaces the M1.9 inline single-bar block in Module1Timeline. Renders horizontal phase bar + 4 semantic dates per phase: Project start, Operations start, Construction end, Project end. `Intl.DateTimeFormat('en-GB', { month: 'short', year: 'numeric' })`. One row per phase when `phases.length > 1`; gradient overlap strip when `overlap > 0`. testIds `timeline-bar-${id}` / `timeline-axis-${id}` / `timeline-overlap-${id}` / `timeline-overlap-callout-${id}` for Playwright. Subscribes to `phases` via `useShallow`. |
+| M1.11/3 | Land tab dead-setter cleanup. Removed unused identity setters from Module1Timeline (setProjectName / setProjectType / setCountry / setCurrency / showAiButtons) and Module1Area (setResidentialPercent / setHospitalityPercent / setRetailPercent + matching deduct + efficiency setters). RealEstatePlatform JSX no longer threads them. Module1Area now subscribes directly via `const setLand = useModule1Store(s => s.setLand)` and writes via `setLand({ landParcels: next })` instead of prop-drilled `setLandParcels`. NEW shared `src/hubs/modeling/platforms/refm/lib/copy/parcelFieldHelp.ts` with 5 keys (name, area, rate, cashPct, inKindPct). ParcelSetupWizard now imports `PARCEL_FIELD_HELP` (replacing the local PARCEL_HELP map) and label drift is fixed ("Name" → "Parcel Name", "Rate (/sqm)" → "Rate (per sqm)"). |
+| M1.11/4 | Module1AreaProgram InputLabel coverage. NEW shared `src/hubs/modeling/platforms/refm/lib/copy/assetStrategyHelp.ts` with 6 keys (primaryStrategy, primaryStrategyPct, secondaryStrategy, secondaryStrategyPct, zone, gfaOverride) wired into the strategy + zone + GFA override fields via `<InputLabel>`. Em-dash sweep collateral fixed: `if (!Number.isFinite(n)) return ',';` → `'n/a'`; Zone placeholder `","` → `"auto"`; literal "(none)" / "(no zone)" / "(blank if 100)" placeholders restored. |
+| M1.11/5 | Module1Costs polish. What-goes-here callout expanded with a "Phase scope:" sub-paragraph naming what the tab does and doesn't own. 7 cost row column headers wrapped in InputLabel with help copy. |
+| M1.11/6 | Module1Financing polish. Per-line Debt % header wrapped in InputLabel with `textStyle: { color: 'var(--color-on-primary-navy)' }` so the on-navy chrome stays readable. |
+| M1.11/7-9 | Em-dash sweep across 175 files (`sed 's/ — /, /g; s/—/,/g'`), removing 1,386 em-dashes. Excludes `js/refm-platform.js` (legacy bundle) + `verify-m*.ts` docstrings (literal example text). New writing rule added at top of CLAUDE.md STRICT SESSION RULES: "NEVER use em-dashes". |
+| M1.11/10 | NEW `scripts/verify-m111.ts` (5-section verifier per the standing per-phase template). 23 pass / 0 fail / 1 skip with dev server up. Includes `stripCommentLines` helper to filter `//` / `*` / `/*` lines so docstring mentions of removed setters (still in M1.7 / M1.8 docstrings inside the source files) don't false-fail. |
+| M1.11/11 | NEW `tests/e2e/m111-full-flow.spec.ts` (2 specs, 49.9s). Spec 1: ProjectWizard portal regression guard, asserts createPortal + viewport-centered bounding box. Spec 2: wizard create + 5-tab walkthrough using `axis = page.locator('[data-testid^="timeline-axis-"]').first()` to scope timeline date labels (avoids strict-mode violation when "Project start" matches multiple elements). 10 light + dark screenshots into `tests/screenshots/M1.11/`. |
+| M1.11/12-13 | Docs sweep + em-dash self-introduction fix in CLAUDE.md (2 em-dashes used as literal examples in description, caught and stripped in /13). |
+
+**False positive from the audit agent** (skipped, noted in audit doc + final report): C1 (Status field never reaches store). Verification revealed `RealEstatePlatform.tsx:1248` already passes `status: draft.status` to `pclient.createProject`, so this was already wired correctly in M1.8.
+
+**Verification at phase close (all green):**
+- `npm run type-check`: clean
+- `module1-snapshot-diff`: 17.5 KB matches baseline (untouched)
+- `module1-multiphase-diff`: 23.0 KB matches baseline (untouched)
+- `module1-areaprogram-diff`: 2.8 KB matches baseline (untouched)
+- `npm run build`: clean
+- `verify-m111.ts`: 23 pass / 0 fail / 1 skip with dev server up
+- Playwright `m111-full-flow.spec.ts`: 2 passed (49.9s)
+
+**No new tables, no new API routes, no new packages, no schema changes.** Pure UI + structural refactor + docs sweep. Module 1 ships production-ready.
+
+**M2.0 deferred (carried forward):**
+- ProjectFAR migration from Land to Build Program → Plot (calc still consumes it as a project-level scalar; needs auto-derive from per-plot maxFARs first).
+- Section-pill labels ("Inputs" / "Calculated") on every section header.
+- Calc-vs-input pencil ✏ / fx 𝑓𝑥 icons next to every field.
+- Financial-vocabulary hover tooltips beyond what M1.10b already wired (Sub-Unit, Strategy, FAR, Cascade, etc.).
+- Remove unused setters from Module1Area + Module1Timeline prop interfaces (still tagged with eslint-disable so RealEstatePlatform binding doesn't shift).
+- Merge Project & Schedule even further: dissolve the Schedule tab + the structure tree card into a unified "1. Project & Schedule" surface where the Master Holding / Sub-Project / Phase tree drives the timing inputs (per-Phase section instead of project-level seed). Today the M1.9b mount keeps both surfaces side-by-side which is workable but still leaves project-level + per-phase timing visible at the same time.
+- M2.0/A `hydrationFromAnySnapshot` recogniser was relaxed in M1.8 fix 5 (66a20f5) so this is no longer a blocker, but the legacy v2 fall-through path could still be tightened.
+
+---
+
+## Recently Completed, REFM Module 1 Phase M1.10b Plot Setup Polish + InputLabel Tooltips (2026-05-05, 8 commits)
+
+Closes M1.10b. Three connected fixes follow on M1.10's Plot + Parcel setup wizards: (1) wizards portal to `document.body` so they stay viewport-centered, (2) inline Plot form vs Plot Setup Wizard reconciled to a 15-field shared spec with shared label-help copy, (3) reusable accessible `<InputLabel>` primitive with ⓘ tooltip wired into every input across all 5 Module 1 tabs.
+
+| # | Commit | What changed |
+|---|--------|--------------|
+| 1 | `57a8fc0` | Plot + Parcel wizards render via React `createPortal(jsx, document.body)` (z-index 9999) instead of inline JSX nested in the Build Program / Land tab content. Pre-fix the modal inherited an ancestor's containing-block (transform/will-change on the platform shell), so `position: fixed` resolved relative to that ancestor and the wizard rendered below the viewport when scrolled. Portal mounts break out of the layout tree. SSR guard: `if (typeof document === 'undefined') return null;`. |
+| 2 | `719542c` | Reconcile inline Plot form vs Plot Setup Wizard fields. Both surfaces now expose all 15 writable Plot fields with identical labels: Plot Buildable Area, Max FAR, Podium Coverage, Total Floors, Podium Floors, Typical Floors, Typical Coverage, Landscape, Hardscape, Surface Bay, Vertical Bay, Basement Bay, Basement Count, Basement Efficiency, Vertical Parking Floors. Label drift fixed ("Coverage" → "Podium Coverage", "Basements" → "Basement Count", "Basement Eff." → "Basement Efficiency"). PlotDraft type extended with verticalParkingFloors so the wizard captures every field the inline form does. |
+| 3 | `b8918c8` | NEW reusable `<InputLabel label help inputId textStyle />` primitive at `src/hubs/modeling/platforms/refm/components/ui/InputLabel.tsx`. Renders uppercase label + ⓘ help button. Hover or keyboard focus reveals an absolutely-positioned tooltip; Escape + click-outside dismiss. ARIA: `aria-describedby` (wired conditionally while open), `aria-expanded`, `role="tooltip"` on the bubble. `pointerEvents: 'none'` on the bubble so it never steals clicks back. No external tooltip library, Radix would have been heavier than this 154-line primitive justifies. |
+| 4 | `0bf9e7b` | Wire InputLabel into Schedule + Land tabs. Schedule: Model Granularity, Project Start Date, Project Construction, Project Operations, Project Overlap. Land: Land Parcels table headers (Parcel Name / Area / Rate / Cash % / In-Kind %) via a data-driven map, plus Site Parameters (Project Roads, Project FAR, Non-Enclosed Area %). Help copy is plain-English and explains the modeling consequence (e.g. "Years vs Months, controls how every cashflow is bucketed"). |
+| 5 | `6b32ee8` | Wire InputLabel into Build Program + Plot/Parcel wizards. Plot help copy lives at `src/hubs/modeling/platforms/refm/lib/copy/plotFieldHelp.ts` as a `Record<string, string>` keyed by the 15 writable field names, so the inline form, the wizard, and any future surface share one source of truth. Parcel wizard uses an in-file `PARCEL_HELP` map (5 keys; later extracted to shared `parcelFieldHelp.ts` in M1.11/3). All `<label>` elements in both surfaces now render via `<InputLabel>`. |
+| 6 | `b80b617` | Wire InputLabel into Dev Costs + Financing. Dev Costs: Alloc Basis + Input Mode (with `textStyle` override for the smaller inline labels). Financing: Financing Mode, Debt % of CapEx (LTV), Interest Rate, Capitalize Interest During Construction (restructured from `<label>` wrapper to inline checkbox + InputLabel sibling so the ⓘ icon doesn't break the label/checkbox click target), Repayment Method, Repayment Period. |
+| 7 | `ddfb638` | NEW `scripts/verify-m110b.ts` (5-section verifier). Section 4b detects the 15th field (verticalParkingFloors) via `.field` accessor in Module1AreaProgram since it lives in a standalone JSX block rather than the quoted-key numField path. 18 pass / 0 fail / 0 skip with dev server up. |
+| 8 | `476b109` | NEW `tests/e2e/m110b-flow.spec.ts` (2 specs, 44.6s). Spec 1: Plot Setup Wizard portal regression guard, scroll to bottom of Build Program (where a non-portal modal would inherit the parent containing-block and render below the fold), open the wizard, assert bounding box centered in 1440×900 viewport, focus a help icon, assert tooltip becomes visible, press Escape, assert dismissal. Spec 2: inline Plot form references all 15 writable-field labels + light/dark hover-driven tooltip screenshots into `tests/screenshots/M1.10b/`. |
+
+**No new tables, no new API routes, no new packages, no schema changes.** All snapshot diffs bit-identical at every step.
+
+---
+
+## Recently Completed, REFM Module 1 Phase M1.10 Setup-Completeness (2026-05-05, 8 commits)
+
+Closes M1.10. Five fixes turning fresh wizard projects into already-validated state on first paint, plus modal-step setup wizards for per-plot + per-parcel editing.
+
+| # | Commit | What changed |
+|---|--------|--------------|
+| 1 | `d295dc8` (1/8) | Plot defaults inside FAR ceiling on first paint. `DEFAULT_PLOT_*` constants tuned: podiumFloors 2→1, typicalFloors 10→6, typicalCoveragePct 40→30. Math: (60·1 + 30·6) / (3·100) = 80% utilisation (was 173.3%). No calc engine change. Snapshot fixtures all pin these values explicitly so baselines unaffected. |
+| 2 | `e9305d4` (2/8) | Platform-layer category-sum allocation derivation. RealEstatePlatform's `resAsset / hospAsset / retAsset` no longer use `assetById.get(LEGACY_ASSET_IDS.X)` (which missed wizard-minted ids like `wizardasset_1/2/3`). Replaced with `firstByCategory` resolver walking `assets[]` in array order matching on category (Sell ↔ residential, Operate ↔ hospitality, Lease ↔ retail). `residentialPercent / hospitalityPercent / retailPercent` now sum allocationPct across every asset in the bucket. Cost setters + filters route through the resolved id so the cost-seeder effect picks up wizard-minted assets. Snapshot fixtures have one asset per category with id matching the legacy literal so resolution is unambiguous either way. |
+| 3 | `6419b3a` (3/8) | Wizard Step 2 fits 1080p without scroll. Section gap shrunk sp-3 → sp-2; MH descriptive paragraph compressed to a one-liner; Phases (Q2) + Plots (Q3) collapsed into a 2-column grid row. Estimated content-height reduction ~120-140px. |
+| 4 | `d47c268` (4/8) | Land vs Plot reconciliation row + relabels. `landParcels[]` (financial, what you own) and `Plot[]` (physical, what you build on) stay independent arrays but Build Program now surfaces a reconciliation row showing Parcel total · Plot total · ✓ matches / ⚠ diverges. Tolerance 1 sqm. Land tab heading renamed "Land Parcels (financial, what you own)"; Build Program "Plot Area" input renamed "Plot Buildable Area" so the financial-vs-physical distinction is visible in both surfaces. |
+| 5 | `9f48b76` (5/8) | NEW `PlotSetupWizard.tsx`. 4-step modal walk: Envelope (FAR + coverage) → Floors (podium + typical + typicalCoverage with live envelope preview showing utilisation %) → Parking (3 bay sizes + basement count + efficiency) → Assets (checkbox list of existing assets to re-bind to this plot via plotId updates). Local draft + Set of assigned asset ids; nothing leaks to the store until Save & Close. Cancel discards. Mounted from each PlotEditor card via "🪄 Setup wizard" button. Form view stays primary. |
+| 6 | `89667ab` (6/8) | NEW `ParcelSetupWizard.tsx`. 2-step modal walk: build parcel list with "+ Add another parcel" pattern → review with totals → Save & Close commits via `setLand({ landParcels: next })`. Seeded from existing parcels so it reads as edit-not-restart. Mounted from the Land Parcels card via "🪄 Setup wizard" button. Form view stays primary. |
+| 7 | `8f383c8` (7/8) | NEW `scripts/verify-m110.ts` (5-section verifier with section 4 covering all 5 fixes). 25 pass / 0 fail / 1 skip with dev server up. |
+| 8 | `cfbb4f2` (8/8) | NEW `tests/e2e/m110-flow.spec.ts` (3 specs). Spec 1: wizard Mixed-Use lands clean (no 0% allocation badge, no Over FAR badge, reconciliation row visible). Spec 2: PlotSetupWizard 4-step walkthrough. Spec 3: ParcelSetupWizard 2-step walkthrough + screenshots into `tests/screenshots/M1.10/`. |
+
+**M1.10 deferred (handled in M1.10b/M1.11 or carried into M2.0):**
+- ✅ Plot+Parcel wizard portal-to-document.body (M1.10b/1).
+- ✅ Inline Plot form vs wizard label reconciliation (M1.10b/2).
+- ✅ InputLabel tooltip primitive across all 5 tabs (M1.10b/3-6).
+- ⏳ ProjectFAR migration from Land to Build Program → Plot (M2.0 backlog).
+- ⏳ Section-pill labels (Inputs / Calculated), calc-vs-input pencil/fx icons, hover tooltips for Sub-Unit/Strategy/FAR/Cascade vocabulary (M2.0 backlog).
+- ⏳ Remove unused setters from Module1Area + Module1Timeline prop interfaces (still tagged with eslint-disable; M2.0 backlog).
+
+**No new tables, no new API routes, no new packages, no schema changes.** All snapshot diffs bit-identical at every step.
+
+---
+
+## Recently Completed, REFM Module 1 Phase M1.9 + M1.9b UX Redesign + Hierarchy Dissolution (2026-05-04 → 2026-05-05, 6 + 8 commits)
+
+**M1.9 redesign series (6 commits, 2026-05-04, all snapshot diffs bit-identical):**
+
+| # | Commit | What changed |
+|---|--------|--------------|
+| 1 | `591315b` | ProjectWizard step 1 currency dropdown becomes country dropdown (auto-derives currency); Step 2 grows a Project Timeline section (construction + operations + overlap periods, unit hint follows modelType). `buildWizardSnapshot` wires the wizard's timing into every minted phase (clamped: overlap ≤ construction; opsStart = construction − overlap + 1). `Snapshot.country` populated from wizard. |
+| 2 | `7626120` | Strip Asset Mix + Deduction & Efficiency panels from Module1Area. Both edited the same backing data the Hierarchy tab edits per-asset (`residentialPercent` = `resAsset.allocationPct` in `RealEstatePlatform.tsx:334`), so the duplication confused users about which tab is canonical. Site Parameters card stays (FAR, Roads %, Non-Enclosed % all still calc-input). Added a "Where did Asset Mix go?" explainer pointing to Hierarchy. |
+| 3 | `93b6f1e` | Strip Project Identity card (project name, type, country / market dropdown, currency input) from Module1Timeline. Tab renamed "Project Schedule"; layout collapses 2-column → 1-column. Subtitle directs users to wizard / Hierarchy for identity fields. Props interface keeps now-unused identity setters with eslint-disable so RealEstatePlatform binding doesn't change in this commit. |
+| 4 | `382a0c3` | `m1Tabs` gains a numeric `step` field; visible labels become "1. Schedule / 2. Land / 3. Build Program / 4. Dev Costs / 5. Financing / 6. Hierarchy". Reorder: Schedule moves to position 1, Hierarchy to position 6. `handleCreateProjectFromWizard` switches `setActiveTab('area-program')` → `setActiveTab('timeline')` so the user lands on Schedule and validates the wizard's capture before drilling further. Manual project creation still lands on Hierarchy (no asset structure yet, so the data tree is the right starting point). |
+| 5 | `b8b54cc` | NEW `scripts/verify-m19.ts` (5-section per-phase verifier). 16 pass / 0 fail / 2 skip without dev server. Section 4 includes a static source-file inspection that asserts JSX-context patterns (`>Project Identity<`, `>Asset Mix<`) are gone. |
+| 6 | `a8b9f34` | NEW `tests/e2e/m19-redesign-flow.spec.ts` (2 Playwright specs). Spec 1 walks wizard with country='United Arab Emirates' (auto-AED) + construction=7/operations=11/overlap=1, asserts Schedule landing tab, numbered tab row, M1.9 strip both tabs, stored snapshot has the wizard timing. Spec 2 captures Schedule + Land tab screenshots (light + dark) into `tests/screenshots/M1.9/`. Both pass locally (2 passed, 22.9s). |
+
+**M1.9b polish series (8 commits, 2026-05-04 → 2026-05-05, all snapshot diffs bit-identical):**
+
+| # | Commit | What changed |
+|---|--------|--------------|
+| 1 | `abe9917` | Module1Hierarchy gains optional `sections?: 'all' | 'structure' | 'assets'` prop. `sectionsMode === 'all'` is the legacy default (full render). 'structure' renders Master Holding + Sub-Project + Phase rows and replaces each Phase's Asset/SubUnit subtree with a slim "🧱 N assets · Edit assets in Build Program" stub. 'assets' suppresses MH + the header + the Add-Sub-Project block + first-time empty gate, leaving just the per-Asset + per-Sub-Unit cards. Slice via visibility gates rather than extraction (the component is 2,500 lines; full extraction would have doubled the diff). |
+| 2-3 | `6d3b720` | Module1Timeline mounts `<Module1Hierarchy sections="structure" />` in a "🗂️ Project Structure (Master Holding · Sub-Projects · Phases)" section card below the schedule body. Module1AreaProgram mounts `<Module1Hierarchy sections="assets" />` in a "🧱 Asset & Sub-Unit Detail Editor" section card below the plots list. |
+| 4 | `75908f9` | Dissolve standalone Hierarchy tab. `m1Tabs` drops to 5 entries (no 'hierarchy' key). RealEstatePlatform default `useState('hierarchy')` → `useState('timeline')`; manual `handleCreateProject` `setActiveTab('hierarchy')` → `setActiveTab('timeline')`; `{activeTab === 'hierarchy' && <Module1Hierarchy />}` render branch removed. Wizard- and manual-created projects both land on Schedule (step 1). |
+| 5 | `0a71c0a` | D7 + D8 disambiguation labels + What-goes-here callouts on Schedule + Land. Schedule's "Construction / Operations / Overlap" relabelled "Project Construction / Operations / Overlap"; per-Phase overrides now live in the structure tree on the same tab. Land's "Floor Area Ratio (FAR)" → "Project FAR (whole-site ceiling)"; Roads % gets "(of total land)" suffix; Non-Enclosed % gets "(balconies / terraces)" suffix. Primary-tinted callouts at the top of Schedule + Land state canonical scope ("What goes here") + delegated scope ("Not here"). |
+| 6 | `40b6912` | Extend What-goes-here callouts to Build Program + Dev Costs + Financing. Build Program h2 renamed "Area Program" → "Build Program" to match the M1.9 tab label. |
+| 7 | `813f448` | NEW `scripts/verify-m19b.ts` (5-section per-phase verifier covering Hierarchy dissolution + sections prop + nested mounts + What-goes-here callouts on all 5 tabs + D7/D8 labels). 19 pass / 0 fail / 2 skip without dev server; 29 pass / 0 fail / 1 skip with dev server up. |
+| 8 | `<m19b/8>` | NEW `tests/e2e/m19b-redesign-flow.spec.ts` (2 Playwright specs). Spec 1 walks wizard, asserts Schedule landing tab + 1→5 tab row (no "6. Hierarchy") + Project Structure card mount + D7 labels visible + What-goes-here callout + D8 label on Land + Build Program h2 + Asset & Sub-Unit Detail Editor mount. Spec 2 captures Schedule + Land + Build Program screenshots (light + dark) into `tests/screenshots/M1.9b/`. Both pass locally (2 passed, 28.3s). |
+
+**Audit at M1.9b close (2026-05-04, fix 5):** all 6 Module 1 tabs share a single `useModule1Store` (direct subscription for Hierarchy + Area Program; prop-drilled setter wrappers from RealEstatePlatform for Timeline / Land & Area / Dev Costs / Financing). No tab keeps a private copy of project-level data. Cross-tab edits propagate via the store. The wizard writes a complete `HydrateSnapshot` on create, every field a tab reads is covered, with `DEFAULT_MODULE1_STATE` standing in for fields the wizard does not capture (country, landParcels, projectFAR, costs, financing, those belong to dedicated tabs).
+
+**No new tables, no new API routes, no new packages, no schema changes.** Pure UI restructure + redesign across both phases.
+
+---
+
 ## Recently Completed, REFM Module 1 Phase M1.8 Smart Project Wizard (2026-05-03, 8 commits)
 
 Closes M1.8. Replaces the legacy "+ New Project" → ProjectModal flow with a guided 3-step **Smart Project Creation Wizard** that pre-creates the full project skeleton (1 SubProject + N Phases + N Plots + 1 Asset per row + 1 placeholder Sub-Unit per asset; Master Holding optional). On Create the user lands on **Area Program** (not Hierarchy) with everything wired and ready to model. Hierarchy tab gains a **top-of-tab action bar** (+ Add Phase, + Add Plot, Enable MH) and **progressive disclosure** for wizard projects (the empty MH card hides while MH disabled).

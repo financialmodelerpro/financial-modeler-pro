@@ -502,13 +502,15 @@ src/hubs/modeling/
     │   ├── components/
     │   │   ├── Dashboard.tsx  OverviewScreen.tsx  PlanBadge.tsx
     │   │   ├── ProjectsScreen.tsx  RealEstatePlatform.tsx  Sidebar.tsx  Topbar.tsx
-    │   │   ├── modals/ (Export, Project, ProjectWizard [M1.8 2026-05-03, replaces ProjectModal new-flow, 3-step wizard with FAST blue inputs, dirty-confirm Esc, asset matrix per project type], Rbac, Version)
-    │   │   └── modules/ (Module1Area, Module1AreaProgram, Module1Costs, Module1Financing, Module1Hierarchy, Module1Timeline)
+    │   │   ├── modals/ (Export, Project, ProjectWizard [M1.8 2026-05-03, replaces ProjectModal new-flow, 3-step wizard with FAST blue inputs, dirty-confirm Esc, asset matrix per project type; M1.11/1 2026-05-05 wraps return JSX in createPortal(jsx, document.body) with SSR guard so the modal renders centered in the viewport even when ancestor containing-blocks would otherwise swallow position:fixed], PlotSetupWizard [NEW M1.10/6 9f48b76 2026-05-05, 4-step modal wizard for per-plot Envelope -> Floors -> Parking -> Assets, mounted from each PlotEditor card via "Setup wizard" button, M1.10b/1 57a8fc0 portals to document.body], ParcelSetupWizard [NEW M1.10/7 89667ab 2026-05-05, 2-step modal wizard for Land Parcels build + review, mounted from the Land Parcels card via "Setup wizard" button, M1.10b/1 57a8fc0 portals to document.body], Rbac, Version)
+    │   │   ├── modules/ (Module1Area, Module1AreaProgram, Module1Costs, Module1Financing, Module1Hierarchy, Module1Timeline)
+    │   │   └── ui/ (InputLabel [NEW M1.10b/3 b8918c8 2026-05-05, reusable label primitive with uppercase label + ⓘ help button + tooltip on hover/focus, aria-describedby + Esc + click-outside dismiss, no external tooltip dep; consumed by all 5 Module 1 tabs + Plot/Parcel wizards], ProjectTimelineVisual [NEW M1.11/2 2026-05-05, horizontal phase timeline bar with 4 semantic dates (Project start / Operations start / Construction end / Project end) + per-phase rows when phases.length > 1; replaces M1.9 single-bar block; subscribes to phases via useShallow])
     │   │   # Module1AreaProgram.tsx (NEW M1.7, 2026-05-02; M1.8 fix 4 4721e80 2026-05-04), store-direct tab between Land & Area and Dev Costs. Plot CRUD + Zone CRUD + per-Asset Strategy / area-cascade overrides + Sub-Unit schedule with parking ratios + live computed envelope panel + per-asset cascade preview + per-plot parking summary card with deficit warning. FAST blue inputs, calc-output gray outputs. data-testid hooks (plot-card, zone-row, asset-strategy, subunit-table, parking-summary, parking-deficit) for Playwright. **Pattern (M1.8 fix 4 4721e80):** subscribes to useModule1Store via base-array selectors (`useModule1Store(s => s.X)`) + useMemo derivations rather than wrapping `s.X.filter(...)` inside `useShallow`, the older pattern returned a fresh array reference per render which tripped React's "getSnapshot should be cached" warning into a Maximum update depth loop once the store had data. Applies to all 6 derive-and-render call sites in this file (Module1AreaProgram top-level + PlotEditor + AssetStrategyRow + AssetAssignPicker + SubUnitTable + ParkingSummary).
     │   │   # Topbar.tsx hosts ☀️/🌙 dark-mode toggle (2026-04-30), own localStorage['refmDarkMode'] key (separate from hub-level modelingDarkMode); default → prefers-color-scheme; theme scoped via body[data-refm-theme="dark"] .app-shell so it never bleeds into /admin or /training.
     │   │   # Sidebar.tsx + Dashboard.tsx (2026-04-30): both surfaces consume MODULES from ../lib/modules-config to eliminate the 1-6 vs 1-11 drift bug. Sidebar derives sidebarModules = [...STATIC_NAV, ...MODULES.map(toSidebarItem)]; Dashboard's Module Roadmap maps MODULES with longLabel + STATUS_BADGE map (4 variants done/soon/pro/enterprise routed through design tokens + color-mix).
     │   │   # OverviewScreen.tsx + ProjectsScreen.tsx + RealEstatePlatform.tsx (2026-04-30): pencil ✏️ Edit Project entry points (Overview header pencil + ProjectsScreen row pencil) gated on can('canEditProject'), wired through new handleEditProject(name, location) callback that mutates active project, syncs state, persists to localStorage refm_v2. Defensive hydration cleanup drops a stale activeProjectId if it doesn't resolve to a real project so Overview no longer silently blanks.
     │   └── lib/
+    │       ├── copy/ (plotFieldHelp.ts [NEW M1.10b/5 6b32ee8 2026-05-05, Record<string,string> with 15 keys covering every writable Plot field; shared between inline Plot form + PlotSetupWizard so label drift can't happen], parcelFieldHelp.ts [NEW M1.11/3 2026-05-05, 5 keys (name, area, rate, cashPct, inKindPct); shared between Land tab inline parcel table + ParcelSetupWizard], assetStrategyHelp.ts [NEW M1.11/4 2026-05-05, 6 keys (primaryStrategy, primaryStrategyPct, secondaryStrategy, secondaryStrategyPct, zone, gfaOverride) for Module1AreaProgram strategy + zone + GFA override fields])
     │       ├── export/ (excel-formula, excel-static, pdf)
     │       ├── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))
     │       ├── modules-config.ts     # NEW 2026-04-30, single source of truth for all 11 REFM modules. Exports `MODULES: readonly ModuleConfig[]`, types `ModuleStatus = 'done' | 'soon' | 'pro' | 'enterprise'` and `ModulePlan = 'free' | 'professional' | 'enterprise'`. Per-module fields: num, key, icon, shortLabel (sidebar), longLabel (dashboard), featureKey, requiredPlan, status, disabled, disabledReason. Consumed by both Sidebar.tsx and Dashboard.tsx so adding/renaming/reordering a module requires editing one list.
@@ -566,7 +568,12 @@ tests/
 │   ├── m17-area-program.spec.ts             # M1.7 verifier UI section (sign-in screenshots + /refm gate)
 │   ├── m18-wizard.spec.ts                   # M1.8 verifier UI section + 3 documented test.skip authed-session specs
 │   ├── m18-wizard-repro.spec.ts             # NEW 2026-05-04 (M1.8 fix 4 4721e80), wizard create regression-guard. Asserts no console.error / no React boundary fallback / Area Program tab mounts after wizard create.
-│   └── m18-wizard-flow.spec.ts              # NEW 2026-05-04 (M1.8 fix 5 66a20f5), every Module 1 tab shows wizard data (no re-prompts) + cross-tab edits propagate via shared store + reload-persists wizard data via direct window.__module1Store inspection. Catches systemic hydration wipes that the `isNewV3` recogniser used to cause.
+│   ├── m18-wizard-flow.spec.ts              # NEW 2026-05-04 (M1.8 fix 5 66a20f5), every Module 1 tab shows wizard data (no re-prompts) + cross-tab edits propagate via shared store + reload-persists wizard data via direct window.__module1Store inspection. Catches systemic hydration wipes that the `isNewV3` recogniser used to cause.
+│   ├── m19-redesign-flow.spec.ts            # NEW 2026-05-04 (M1.9 redesign), 2 specs: wizard with country=UAE (auto-AED) + construction/operations/overlap timing lands on Schedule tab + asserts numbered 1-6 tab row + duplicate inputs stripped from Schedule and Land tabs; light + dark screenshots into tests/screenshots/M1.9/
+│   ├── m19b-redesign-flow.spec.ts           # NEW 2026-05-05 (M1.9b polish), 2 specs: Hierarchy dissolved (1->5 tabs) + Project Structure tree nested under Schedule + Asset & Sub-Unit Editor nested under Build Program + D7/D8 disambiguation labels + What-goes-here callouts on all 5 tabs; light + dark screenshots into tests/screenshots/M1.9b/
+│   ├── m110-flow.spec.ts                    # NEW 2026-05-05 (M1.10 setup-completeness), 3 specs: Mixed-Use wizard lands clean (no 0% allocation badge, no Over FAR badge, reconciliation row visible) + PlotSetupWizard 4-step walkthrough + ParcelSetupWizard 2-step walkthrough; screenshots into tests/screenshots/M1.10/
+│   ├── m110b-flow.spec.ts                   # NEW 2026-05-05 (M1.10b Plot Setup polish), 2 specs: Plot Setup Wizard portal regression guard (scroll to bottom of Build Program, open wizard, assert bounding box centered in 1440x900 viewport, focus help icon, assert tooltip visible, press Esc, assert dismissal) + inline Plot form references all 15 writable-field labels + light/dark hover-driven tooltip screenshots into tests/screenshots/M1.10b/
+│   └── m111-full-flow.spec.ts               # NEW 2026-05-05 (M1.11 holistic re-audit), 2 specs: ProjectWizard portal regression guard (asserts createPortal + viewport-centered bounding box) + wizard create + 5-tab walkthrough using axis = page.locator('[data-testid^="timeline-axis-"]').first() to scope timeline date labels; 10 light + dark screenshots into tests/screenshots/M1.11/
 └── screenshots/                             # gitignored, regenerated per Playwright run
 ```
 
@@ -577,6 +584,30 @@ tests/
 ```
 app/test-fixtures/
 └── m18-wizard/page.tsx                      # NEW 2026-05-04, mounts RealEstatePlatform inside a stubbed NextAuth SessionProvider so Playwright skips the production /refm auth gate + Coming-Soon layout guard. Returns notFound() in production builds. Exposes useModule1Store on `window.__module1Store` so specs can read store state directly (more reliable than driving the topbar/sidebar to surface a tab).
+```
+
+## `docs/`, internal design + audit notes (not user-facing)
+
+```
+docs/
+├── MODULE_1_AUDIT_M1.11.md                  # NEW 2026-05-05, comprehensive holistic Module 1 re-audit covering 7 areas (data flow integrity, UX coherence, ProjectTimelineVisual, Land vs Build Program redundancy, calc correctness, first-time user flow, regression check on M1.5b through M1.10b). Catalogues 22 issues (4 Critical / 8 Major / 6 Minor / 4 out-of-scope) and the 12-area fix grouping. Source for the M1.11 fix series.
+└── MODULE_1_CAPABILITIES.md                 # First-time-user walkthrough reference; per-tab capabilities summary.
+```
+
+## `scripts/`, regression-guard verifiers (one per phase)
+
+```
+scripts/
+├── module1-snapshot-diff.ts                 # Legacy single-phase, 17.5 KB baseline
+├── module1-multiphase-diff.ts               # Multi-phase v4, 23.0 KB baseline
+├── module1-areaprogram-diff.ts              # M1.7 Area Program, 2.8 KB baseline
+├── verify-m17.ts                            # M1.7 Area Program (25 pass / 0 fail / 2 skip without dev server)
+├── verify-m18.ts                            # M1.8 Smart Project Wizard (19 pass / 0 fail / 1 skip without dev server)
+├── verify-m19.ts                            # M1.9 UX redesign (16 pass / 0 fail / 2 skip without dev server)
+├── verify-m19b.ts                           # M1.9b Hierarchy dissolution + nested mounts (19 pass without dev server / 29 pass with dev server)
+├── verify-m110.ts                           # NEW 2026-05-05, M1.10 setup-completeness, 5-section verifier covering plot defaults inside FAR ceiling, platform-layer category-sum allocation derivation, wizard Step 2 1080p fit, Land vs Plot reconciliation row, modal-step Plot + Parcel setup wizards. 25 pass / 0 fail / 1 skip with dev server up.
+├── verify-m110b.ts                          # NEW 2026-05-05, M1.10b Plot Setup polish, 5-section verifier covering portal-to-document.body, 15-field reconciliation between inline Plot form and Plot Setup Wizard (section 4b uses .field accessor for verticalParkingFloors so the standalone-block field is recognised alongside the quoted-key numField fields), and InputLabel + tooltip primitive wired into every input across all 5 Module 1 tabs. 18 pass / 0 fail / 0 skip with dev server up.
+└── verify-m111.ts                           # NEW 2026-05-05, M1.11 holistic re-audit fix verifier, 5-section verifier covering ProjectWizard portal + step3Valid tolerance, ProjectTimelineVisual mount, Module1Area + RealEstatePlatform dead-setter cleanup + parcelFieldHelp wiring, assetStrategyHelp wiring, Module1Costs + Module1Financing InputLabel coverage. Includes stripCommentLines helper to filter // /* * lines so docstring mentions of removed setters don't false-fail. 23 pass / 0 fail / 1 skip with dev server up.
 ```
 
 ## Deleted artifacts (kept for searchability)
