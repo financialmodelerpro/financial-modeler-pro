@@ -655,7 +655,10 @@ function Step2Structure({ draft, setDraft }: Step2Props) {
         layers later from the Hierarchy tab.
       </p>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+      {/* M1.10/4 — gap shrunk sp-3 -> sp-2 + Phases & Plots collapsed
+         into a single 2-column row + MH descriptive paragraph compressed
+         to a one-liner so Step 2 fits a 1080p viewport without scroll. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
         {/* Q1: Master Holding toggle */}
         <div>
           <span style={labelTextStyle}>Is this part of a fund or portfolio?</span>
@@ -664,7 +667,7 @@ function Step2Structure({ draft, setDraft }: Step2Props) {
             alignItems: 'center',
             gap: 12,
             marginTop: 6,
-            padding: '10px 12px',
+            padding: '8px 12px',
             background: 'color-mix(in srgb, var(--color-primary) 4%, var(--color-surface))',
             border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius-sm)',
@@ -704,17 +707,16 @@ function Step2Structure({ draft, setDraft }: Step2Props) {
                 fontWeight: 'var(--fw-semibold)',
                 color: 'var(--color-heading)',
               }}>
-                {draft.enableMasterHolding ? 'Yes — show Master Holding layer' : 'No — single project'}
-              </div>
-              <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 2 }}>
-                Enables the Master Holding layer in the Hierarchy tab. Skip
-                if this is a standalone project — you can convert later.
+                {draft.enableMasterHolding
+                  ? 'Yes — show Master Holding layer'
+                  : 'No — single project (you can convert later)'}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Q2: Phases */}
+        {/* Q2 + Q3: Phases + Plots — paired side-by-side (M1.10/4) */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-2)' }}>
         <div>
           <span style={labelTextStyle}>How many phases?</span>
           <div style={{ ...radioGroupStyle, marginTop: 6 }} role="radiogroup" aria-label="Phase count">
@@ -815,6 +817,7 @@ function Step2Structure({ draft, setDraft }: Step2Props) {
             </label>
           )}
         </div>
+        </div>{/* /Q2+Q3 grid (M1.10/4) */}
 
         {/* Q4: Timeline (M1.9). Capture construction + operations + overlap
             upfront so the user is never asked again on the Schedule tab.
