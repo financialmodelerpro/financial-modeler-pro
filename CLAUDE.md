@@ -217,13 +217,15 @@ npx tsx --env-file=.env.local scripts/verify-m18.ts   # M1.8 Smart Project Wizar
 npx tsx --env-file=.env.local scripts/verify-m19.ts   # M1.9 UX redesign (16 pass / 0 fail / 2 skip without dev server)
 npx tsx --env-file=.env.local scripts/verify-m19b.ts  # M1.9b polish (19 pass / 0 fail / 2 skip without dev server; 29 pass / 0 fail / 1 skip with dev server)
 npx tsx --env-file=.env.local scripts/verify-m110.ts  # M1.10 setup-completeness (25 pass / 0 fail / 1 skip with dev server)
+npx tsx --env-file=.env.local scripts/verify-m110b.ts # M1.10b Plot Setup polish (18 pass / 0 fail / 0 skip with dev server)
 
-# Playwright e2e specs (M1.8 + M1.9 + M1.9b + M1.10 regression-guards)
+# Playwright e2e specs (M1.8 + M1.9 + M1.9b + M1.10 + M1.10b regression-guards)
 npx playwright test tests/e2e/m18-wizard-repro.spec.ts     # 1 spec — wizard create does not crash
 npx playwright test tests/e2e/m18-wizard-flow.spec.ts      # 2 specs — every tab shows wizard data + reload persists
 npx playwright test tests/e2e/m19-redesign-flow.spec.ts    # 2 specs — wizard lands on Schedule tab + numbered tab row + light/dark screenshots
 npx playwright test tests/e2e/m19b-redesign-flow.spec.ts   # 2 specs — Hierarchy dissolved (1→5 tabs) + nested mounts + D7/D8 labels + What-goes-here callouts + light/dark screenshots
 npx playwright test tests/e2e/m110-flow.spec.ts            # 3 specs — Mixed-Use wizard lands clean (no 0% / no Over FAR / reconciliation row) + Plot wizard + Parcel wizard walkthroughs + screenshots
+npx playwright test tests/e2e/m110b-flow.spec.ts           # 2 specs — Plot Setup Wizard portal-centers in viewport + tooltip a11y (focus reveal, Esc dismiss) + 15-field inline form + light/dark tooltip screenshots
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -253,7 +255,10 @@ for validation) → M1.9b (Hierarchy tab dissolved + nested under Schedule + Bui
 D7/D8 disambiguation labels; What-goes-here callouts on all 5 tabs) → M1.10 (setup-
 completeness fixes: plot defaults inside FAR ceiling on first paint, platform-layer
 category-sum allocation derivation, wizard Step 2 fits 1080p, Land vs Plot reconciliation
-row, modal-step Plot + Parcel setup wizards).
+row, modal-step Plot + Parcel setup wizards) → M1.10b (Plot Setup polish: Plot+Parcel
+wizards portal to document.body + center in viewport, inline Plot form reconciled with
+the wizard at 15 writable fields, accessible InputLabel + ⓘ tooltip primitive with
+plain-English help wired into every input across all 5 Module 1 tabs).
 
 **M1.10 setup-completeness series (8 commits, 2026-05-05 → 2026-05-06, all snapshot diffs bit-identical):**
 - `d295dc8` 2/8: tune plot defaults so fresh plots stay inside FAR ceiling.
@@ -309,6 +314,71 @@ row, modal-step Plot + Parcel setup wizards).
   no Over FAR badge, reconciliation row visible), (2) PlotSetupWizard
   4-step walkthrough, (3) ParcelSetupWizard 2-step walkthrough +
   screenshots into tests/screenshots/M1.10/.
+
+**M1.10b Plot Setup polish series (8 commits, all snapshot diffs bit-identical):**
+- `57a8fc0` 1/8: Plot+Parcel wizards render via React `createPortal` to
+  `document.body` (z-index 9999) instead of inline JSX nested in the
+  Build Program / Land tab content. Pre-fix the modal inherited an
+  ancestor's containing-block (transform/will-change on the platform
+  shell), so `position: fixed` resolved relative to that ancestor and
+  the wizard rendered below the viewport when scrolled. Portal mounts
+  break out of the layout tree. SSR guard: `if (typeof document ===
+  'undefined') return null;` so server render stays safe.
+- `719542c` 2/8: reconcile inline Plot form vs Plot Setup Wizard
+  fields. Both surfaces now expose all 15 writable Plot fields with
+  identical labels: Plot Buildable Area, Max FAR, Podium Coverage,
+  Total Floors, Podium Floors, Typical Floors, Typical Coverage,
+  Landscape, Hardscape, Surface Bay, Vertical Bay, Basement Bay,
+  Basement Count, Basement Efficiency, Vertical Parking Floors. Label
+  drift fixed ("Coverage" → "Podium Coverage", "Basements" → "Basement
+  Count", "Basement Eff." → "Basement Efficiency"). PlotDraft type
+  extended with verticalParkingFloors so the wizard captures every
+  field the inline form does.
+- `b8918c8` 3/8: reusable `<InputLabel label help inputId textStyle />`
+  primitive at `src/hubs/modeling/platforms/refm/components/ui/
+  InputLabel.tsx`. Renders uppercase label + ⓘ help button. Hover or
+  keyboard focus reveals an absolutely-positioned tooltip; Escape +
+  click-outside dismiss. ARIA: `aria-describedby` (wired conditionally
+  while open), `aria-expanded`, `role="tooltip"` on the bubble.
+  `pointerEvents: 'none'` on the bubble so it never steals clicks
+  back. No external tooltip library — Radix would have been heavier
+  than this 154-line primitive justifies.
+- `0bf9e7b` 4/8: wire InputLabel into Schedule + Land tabs. Schedule:
+  Model Granularity, Project Start Date, Project Construction, Project
+  Operations, Project Overlap. Land: Land Parcels table headers (Parcel
+  Name / Area / Rate / Cash % / In-Kind %) via a data-driven map, plus
+  Site Parameters (Project Roads, Project FAR, Non-Enclosed Area %).
+  Help copy is plain-English and explains the modeling consequence
+  (e.g. "Years vs Months — controls how every cashflow is bucketed").
+- `6b32ee8` 5/8: wire InputLabel into Build Program + Plot/Parcel
+  wizards. Plot help copy lives at `src/hubs/modeling/platforms/refm/
+  lib/copy/plotFieldHelp.ts` as a `Record<string, string>` keyed by
+  the 15 writable field names, so the inline form, the wizard, and any
+  future surface share one source of truth. Parcel wizard uses an
+  in-file `PARCEL_HELP` map (5 keys). All `<label>` elements in both
+  surfaces now render via `<InputLabel>`.
+- `b80b617` 6/8: wire InputLabel into Dev Costs + Financing. Dev Costs:
+  Alloc Basis + Input Mode (with `textStyle` override for the smaller
+  inline labels). Financing: Financing Mode, Debt % of CapEx (LTV),
+  Interest Rate, Capitalize Interest During Construction (restructured
+  from `<label>` wrapper to inline checkbox + InputLabel sibling so the
+  ⓘ icon doesn't break the label/checkbox click target), Repayment
+  Method, Repayment Period.
+- `ddfb638` 7/8 (verifier): scripts/verify-m110b.ts. 5-section verifier
+  with section 4 covering all three M1.10b fixes. Section 4b detects
+  the 15th field (verticalParkingFloors) via `.field` accessor in
+  Module1AreaProgram since it lives in a standalone JSX block rather
+  than the quoted-key numField path. Result: 18 pass / 0 fail / 0 skip
+  with dev server up.
+- `476b109` 8/8 (Playwright + screenshots): tests/e2e/m110b-flow.spec.ts.
+  2 specs: (1) Plot Setup Wizard portal regression guard — scroll to
+  the bottom of Build Program (where a non-portal modal would inherit
+  the parent containing-block and render below the fold), open the
+  wizard, assert bounding box centered in 1440×900 viewport, focus a
+  help icon, assert tooltip becomes visible, press Escape, assert
+  dismissal; (2) inline Plot form references all 15 writable-field
+  labels + light/dark hover-driven tooltip screenshots into
+  tests/screenshots/M1.10b/. Both pass (44.6s).
 
 **M1.10 deferred (not yet scoped):**
 - ProjectFAR migration from Land to Build Program → Plot (calc still
