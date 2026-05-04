@@ -819,13 +819,33 @@ export default function Module1AreaProgram() {
     <div data-testid="area-program-tab">
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>
-        <h2 style={{ margin: 0, fontSize: 'var(--font-h2)' }}>Area Program</h2>
+        <h2 style={{ margin: 0, fontSize: 'var(--font-h2)' }}>Build Program</h2>
         <span style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)' }}>
           Phase: <strong>{activePhase.name}</strong> · {plots.length} plot(s)
         </span>
         <button onClick={handleAddFirstPlot} style={{ ...primaryBtnStyle, marginLeft: 'auto' }} data-testid="add-plot-btn">
           + Add Plot
         </button>
+      </div>
+
+      {/* M1.9b/6 — "What goes here" callout. */}
+      <div style={{
+        padding: 'var(--sp-2) var(--sp-3)',
+        marginBottom: 'var(--sp-3)',
+        background: 'color-mix(in srgb, var(--color-primary) 6%, transparent)',
+        borderLeft: '3px solid var(--color-primary)',
+        borderRadius: 'var(--radius-sm)',
+      }}>
+        <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-body)', lineHeight: 1.6 }}>
+          <strong style={{ color: 'var(--color-heading)' }}>📋 What goes here:</strong>{' '}
+          per-plot envelope (FAR, coverage, podium + typical floors,
+          parking allocator), per-zone GFA splits, and the Asset +
+          Sub-Unit detail editor (mix %, deduct %, efficiency %, sub-
+          unit count + sale / lease metrics).{' '}
+          <strong style={{ color: 'var(--color-heading)' }}>Not here:</strong>{' '}
+          project-wide FAR / land parcels (Land), schedule + structure
+          (Schedule), revenue ramps (Module 2 — coming next).
+        </div>
       </div>
 
       {/* Empty state OR plots list */}

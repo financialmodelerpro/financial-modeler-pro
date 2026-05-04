@@ -856,7 +856,8 @@ export default function Module1Costs({
             Development Costs
           </h2>
           <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-meta)', margin: 0 }}>
-            Define construction and soft cost items, phasing, and total CapEx
+            Define hard + soft cost items per asset, allocation basis,
+            phasing curves, and total CapEx by phase.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
@@ -900,6 +901,24 @@ export default function Module1Costs({
               {mode === 'same-for-all' ? '⊟ Same for All' : '⊞ Separate'}
             </button>
           ))}
+        </div>
+      </div>
+
+      {/* M1.9b/6 — "What goes here" callout. */}
+      <div style={{
+        padding: 'var(--sp-2) var(--sp-3)',
+        marginBottom: 'var(--sp-3)',
+        background: 'color-mix(in srgb, var(--color-primary) 6%, transparent)',
+        borderLeft: '3px solid var(--color-primary)',
+        borderRadius: 'var(--radius-sm)',
+      }}>
+        <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-body)', lineHeight: 1.6 }}>
+          <strong style={{ color: 'var(--color-heading)' }}>📋 What goes here:</strong>{' '}
+          per-asset hard + soft costs, allocation basis (direct cost
+          or GFA), and phasing curves that drive CapEx outflow.{' '}
+          <strong style={{ color: 'var(--color-heading)' }}>Not here:</strong>{' '}
+          land acquisition cost (Land), debt + equity sources
+          (Financing), revenue / opex (Module 2 — coming next).
         </div>
       </div>
 
