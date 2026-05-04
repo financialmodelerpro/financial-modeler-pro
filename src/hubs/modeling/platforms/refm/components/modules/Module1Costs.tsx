@@ -517,14 +517,49 @@ function CostTable({
         <table className="table-standard cost-input-table" style={{ minWidth: '900px' }}>
           <thead>
             <tr>
-              <th style={{ textAlign: 'left', minWidth: 150 }}>Cost Name</th>
-              <th style={{ minWidth: 90 }}>Stage / Scope</th>
-              <th style={{ minWidth: 200 }}>Method / Base Selection</th>
-              <th style={{ minWidth: 80 }}>Input Value</th>
+              <th style={{ textAlign: 'left', minWidth: 150 }}>
+                <InputLabel
+                  label="Cost Name"
+                  help="A short identifier for this cost row. Pick something you would recognise on a P and L (e.g., Site Preparation, Architect Fees, Permit Fees)."
+                />
+              </th>
+              <th style={{ minWidth: 90 }}>
+                <InputLabel
+                  label="Stage / Scope"
+                  help="Stage groups costs into 1 (Direct, hard construction), 2 (Shared, soft costs and overheads), or 3 (Derived, percentage-based on other costs). Scope flags the cost as Land, Hard, Soft, or Other for the V14 schema."
+                />
+              </th>
+              <th style={{ minWidth: 200 }}>
+                <InputLabel
+                  label="Method / Base"
+                  help="How this cost is computed. Fixed Amount: enter a number. Rate times Area: rate per sqm of GFA, BUA, NDA, Roads, or Total Land. Percent of Selected: a percentage of another cost row you pick. Percent of Land Value: percentage of total, cash, or in-kind land value."
+                />
+              </th>
+              <th style={{ minWidth: 80 }}>
+                <InputLabel
+                  label="Input Value"
+                  help="The number you enter. For Fixed methods this is currency. For Rate methods this is per sqm. For Percent methods this is 0 to 100."
+                />
+              </th>
               <th style={{ minWidth: 100 }}>Total ({currency})</th>
-              <th style={{ minWidth: 60 }}>Start</th>
-              <th style={{ minWidth: 60 }}>End</th>
-              <th style={{ minWidth: 90 }}>Phasing</th>
+              <th style={{ minWidth: 60 }}>
+                <InputLabel
+                  label="Start"
+                  help="First period this cost draws (1-indexed). Period 1 is the first month or year of construction depending on model granularity."
+                />
+              </th>
+              <th style={{ minWidth: 60 }}>
+                <InputLabel
+                  label="End"
+                  help="Last period this cost draws. Together with Start, defines the cost's draw window inside the construction period."
+                />
+              </th>
+              <th style={{ minWidth: 90 }}>
+                <InputLabel
+                  label="Phasing"
+                  help="How the total spreads across the Start to End window. Even spreads equally across periods. S-curve front-loads slowly, peaks mid, tails off. Manual lets you enter per-period percentages."
+                />
+              </th>
               {!readOnly && <th style={{ width: 40 }}>Del</th>}
             </tr>
           </thead>
@@ -913,7 +948,8 @@ export default function Module1Costs({
         </div>
       </div>
 
-      {/* M1.9b/6 — "What goes here" callout. */}
+      {/* M1.9b/6 "What goes here" callout. M1.11/M3 expanded with the
+         phase-scope semantic explainer. */}
       <div style={{
         padding: 'var(--sp-2) var(--sp-3)',
         marginBottom: 'var(--sp-3)',
@@ -923,11 +959,21 @@ export default function Module1Costs({
       }}>
         <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-body)', lineHeight: 1.6 }}>
           <strong style={{ color: 'var(--color-heading)' }}>📋 What goes here:</strong>{' '}
-          per-asset hard + soft costs, allocation basis (direct cost
+          per-asset hard and soft costs, allocation basis (direct cost
           or GFA), and phasing curves that drive CapEx outflow.{' '}
           <strong style={{ color: 'var(--color-heading)' }}>Not here:</strong>{' '}
-          land acquisition cost (Land), debt + equity sources
-          (Financing), revenue / opex (Module 2 — coming next).
+          land acquisition cost (Land), debt and equity sources
+          (Financing), revenue and opex (Module 2, coming next).
+        </div>
+        <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', lineHeight: 1.6, marginTop: 6 }}>
+          <strong style={{ color: 'var(--color-heading)' }}>Phase scope:</strong>{' '}
+          costs entered here apply to the active sub-project across all
+          its phases by default. Multi-phase projects that need staged
+          CapEx (e.g. Phase 2 buildings start construction later) keep
+          using the same cost rows; the phasing curve column controls
+          when each cost line draws relative to the active phase
+          window. Per-phase cost overrides are a Module 1 backlog item
+          (deferred to M2.0).
         </div>
       </div>
 
