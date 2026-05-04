@@ -198,17 +198,28 @@ export const sidebarModules: readonly SidebarNavItem[] = [
   })),
 ];
 
-// `hierarchy` is the new M1.5 default-landing tab for brand-new
-// projects (assets.length === 0). The full tree-view + CRUD lands in
-// M1.5/6 - M1.5/10; for now M1.5/5 ships an onboarding empty-state so
-// the routing has somewhere to send the user.
+// M1.9 — tabs gain a numeric `step` so the row reads as a sequence:
+// users follow 1 → 6 to fill out a project end-to-end. The order
+// follows Ahmad's audit sequence (Schedule first, then Land, then
+// Build Program, then Costs, then Financing). Hierarchy stays as
+// step 6 (canonical home for the full data tree, including assets +
+// sub-units + sub-project / phase / master-holding CRUD) until the
+// dissolve-Hierarchy work in M1.9b lands. Wizard-created projects
+// land on step 1 (Schedule) so users validate the wizard's capture
+// before adjusting per-phase / per-asset state. Manually-created
+// projects still land on Hierarchy (step 6) so users can build the
+// asset tree from scratch.
+//
+// `label` is what appears in the tab row UI (numeric prefix included
+// so the reading order is unmistakable). `key` is unchanged so the
+// rendering switch in this file does not need to learn new names.
 export const m1Tabs = [
-  { key: 'hierarchy',    icon: '🗂️', label: 'Hierarchy' },
-  { key: 'timeline',     icon: '📅', label: 'Timeline' },
-  { key: 'area',         icon: '🗺️', label: 'Land & Area' },
-  { key: 'area-program', icon: '📐', label: 'Area Program' },
-  { key: 'costs',        icon: '💸', label: 'Dev Costs' },
-  { key: 'financing',    icon: '🏦', label: 'Financing' },
+  { key: 'timeline',     icon: '📅', label: '1. Schedule',     step: 1 },
+  { key: 'area',         icon: '🗺️', label: '2. Land',          step: 2 },
+  { key: 'area-program', icon: '📐', label: '3. Build Program', step: 3 },
+  { key: 'costs',        icon: '💸', label: '4. Dev Costs',     step: 4 },
+  { key: 'financing',    icon: '🏦', label: '5. Financing',     step: 5 },
+  { key: 'hierarchy',    icon: '🗂️', label: '6. Hierarchy',     step: 6 },
 ];
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -1227,11 +1238,15 @@ export default function RealEstatePlatform() {
       attachToProjectFromLocalSnapshot(pid, built.snapshot);
       setProjectName(draft.name.trim());
       setWizardOpen(false);
-      // M1.8 lands wizard-created projects on the Area Program tab
-      // since the structure is pre-built; users see their plot +
-      // assets immediately rather than an empty Hierarchy view.
+      // M1.9 lands wizard-created projects on Schedule (step 1). The
+      // user just answered the wizard; landing on Schedule lets them
+      // validate the wizard captured the timeline correctly before
+      // adjusting per-phase windows. Pre-M1.9 (M1.8) used to land on
+      // Area Program; that proved confusing because users hadn't yet
+      // confirmed the schedule basics. Per Ahmad 2026-05-04: "User
+      // validates wizard captured correctly, clear 'Next: Land' CTA."
       setActiveModule('module1');
-      setActiveTab('area-program');
+      setActiveTab('timeline');
       setPmToast({
         msg: `✓ Project "${draft.name.trim()}" created with ${built.snapshot.assets.length} asset${built.snapshot.assets.length === 1 ? '' : 's'}`,
         color: 'var(--color-green-dark)',
