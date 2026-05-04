@@ -13,16 +13,16 @@
  *
  * History:
  *   - M1.5/6: read-only tree view scaffold.
- *   - M1.5/7: Sub-Project CRUD — add / inline-edit name + currency +
+ *   - M1.5/7: Sub-Project CRUD, add / inline-edit name + currency +
  *     Master-Holding rollup + revenue-share, delete with a cascade-
  *     aware confirmation that lists the phases / assets / costs /
  *     sub-units the store will drop.
- *   - M1.5/8: Phase CRUD per Sub-Project — add / inline-edit name +
+ *   - M1.5/8: Phase CRUD per Sub-Project, add / inline-edit name +
  *     constructionStart + constructionPeriods + operationsPeriods +
  *     overlapPeriods (operationsStart auto-derived from the same
  *     formula makeDefaultPhase uses). Delete confirms the bound asset /
  *     cost cascade.
- *   - M1.5/9: Asset + Sub-Unit CRUD per Phase — add / inline-edit /
+ *   - M1.5/9: Asset + Sub-Unit CRUD per Phase, add / inline-edit /
  *     delete with PREBUILT_ASSET_TYPES bucketed by category (4
  *     categories × 20 types from Architecture section 2), and Sub-Unit
  *     metric defaulting per Architecture section 7 (Lease → area,
@@ -34,7 +34,7 @@
  *     masterHoldingId/revenueShareToMaster fields so we never leave a
  *     dangling reference. When enabled, an Edit button opens the
  *     inline editor for name + landCostMethod + landCostValue +
- *     master-debt principal/rate/term. P&L math stays out of scope —
+ *     master-debt principal/rate/term. P&L math stays out of scope ,
  *     that lives in M8.1 per the M1.5 ratification.
  *   - M1.5b/1: UX polish - inline tooltips on each tier label
  *     (hover / focus / click reveals a positioned bubble with the
@@ -265,7 +265,7 @@ const ghostBtnStyle: React.CSSProperties = {
 
 // ── Tier copy (Architecture sheet section 1) ────────────────────────────────
 // Short, opinionated explainers per layer. Surfaced via TierLabel's
-// tooltip — first-time users hover/click the ⓘ to learn what each
+// tooltip, first-time users hover/click the ⓘ to learn what each
 // layer is for without leaving the page. Intentionally short (one
 // paragraph) so the bubble doesn't dominate the screen.
 type TierKey = 'masterHolding' | 'subProject' | 'phase' | 'asset' | 'subUnit';
@@ -547,7 +547,7 @@ function PhaseEditor({ initial, onSave, onCancel }: PhaseEditorProps) {
 // ── Asset edit row ─────────────────────────────────────────────────────────
 // Inline editor for Asset add / edit. Category drives the type
 // dropdown's options (the 20 PREBUILT_ASSET_TYPES bucketed by category)
-// — switching category resets the type to the first option in the new
+//, switching category resets the type to the first option in the new
 // bucket so we never carry a Sell type onto a Lease asset, etc.
 interface AssetEditorProps {
   initial: AssetClass;
@@ -826,7 +826,7 @@ function MasterHoldingEditor({ initial, currency, onSave, onCancel }: MasterHold
       </div>
 
       <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', fontStyle: 'italic', marginBottom: 'var(--sp-2)' }}>
-        Master Holding P&amp;L / consolidation math is out of scope here — it lands in M8.1 (Portfolio rollup). M1.5 captures the structure only.
+        Master Holding P&amp;L / consolidation math is out of scope here, it lands in M8.1 (Portfolio rollup). M1.5 captures the structure only.
       </div>
 
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
@@ -846,7 +846,7 @@ function MasterHoldingEditor({ initial, currency, onSave, onCancel }: MasterHold
 // ── Quick Setup wizard (M1.5b/5) ───────────────────────────────────────────
 // 4-step modal that lets a first-time user mint a complete starter
 // hierarchy in one click. The wizard never writes incrementally to the
-// store — the user assembles a local draft and we dispatch all the
+// store, the user assembles a local draft and we dispatch all the
 // add* actions transactionally on Create. Switching to Manual Setup
 // preserves the draft (it just isn't applied), so the user doesn't
 // lose typed values when they bail out.
@@ -964,7 +964,7 @@ function QuickSetupWizard({ initial, onCreate, onSwitchToManual, onClose }: Quic
               ⚡ Quick Setup
             </h3>
             <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 4 }}>
-              Step {step} of 4 — {stepLabels[step - 1]}
+              Step {step} of 4, {stepLabels[step - 1]}
             </div>
           </div>
           <button
@@ -1085,7 +1085,7 @@ function QuickSetupWizard({ initial, onCreate, onSwitchToManual, onClose }: Quic
           {step === 3 && (
             <div>
               <p style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 0 }}>
-                Add the first asset. The 20 prebuilt types cover the common cases — switch category to filter the list.
+                Add the first asset. The 20 prebuilt types cover the common cases, switch category to filter the list.
               </p>
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
                 <div>
@@ -1159,7 +1159,7 @@ function QuickSetupWizard({ initial, onCreate, onSwitchToManual, onClose }: Quic
           {step === 4 && (
             <div>
               <p style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 0 }}>
-                Optional — add inventory now or skip and come back later from the Hierarchy tab.
+                Optional, add inventory now or skip and come back later from the Hierarchy tab.
               </p>
               {draft.subUnits.length === 0 && (
                 <div style={{ ...emptyHintStyle, marginBottom: 'var(--sp-2)', textAlign: 'center', padding: 'var(--sp-2)' }}>
@@ -1297,20 +1297,20 @@ function QuickSetupWizard({ initial, onCreate, onSwitchToManual, onClose }: Quic
 
 // ── Component ──────────────────────────────────────────────────────────────
 // ── M1.9b: section-slicing prop ─────────────────────────────────────────────
-// 'all'       — full tree-view (legacy behavior; this is what the
+// 'all'      , full tree-view (legacy behavior; this is what the
 //               standalone Hierarchy tab used to render before M1.9b/4).
-// 'structure' — mounted from the Schedule tab. Hides the page header /
+// 'structure', mounted from the Schedule tab. Hides the page header /
 //               first-time gate / footer hint and replaces the Asset +
 //               Sub-Unit subtrees inside each Phase with a compact
 //               "Edit assets in Build Program" stub. Master Holding +
 //               Sub-Project + Phase editors stay fully editable.
-// 'assets'    — mounted from the Build Program tab. Hides the page
+// 'assets'   , mounted from the Build Program tab. Hides the page
 //               header / first-time gate / footer hint / Master Holding
 //               card / Sub-Project metadata. Sub-Project + Phase
 //               headings collapse to slim context labels; Asset +
 //               Sub-Unit subtrees stay fully editable.
 //
-// The render tree itself is unchanged — only top-level visibility gates
+// The render tree itself is unchanged, only top-level visibility gates
 // are added. Hierarchy's existing CRUD orchestration (editingId,
 // editingPhaseId, editingAssetId, editingSubUnitId, cascade-aware
 // removes) still drives every editor regardless of mode.
@@ -1346,7 +1346,7 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
   const hideMHWhenDisabled = disclosure === 'progressive' && !masterHolding.enabled;
 
   // Pull mutating actions outside of the shallow read so they don't
-  // count as state changes — getState() at call time is enough.
+  // count as state changes, getState() at call time is enough.
   const updateMasterHolding = useModule1Store((s) => s.updateMasterHolding);
   const setSubProjects      = useModule1Store((s) => s.setSubProjects);
   const addSubProject    = useModule1Store((s) => s.addSubProject);
@@ -1378,11 +1378,11 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
   // Sub-Unit editor: 'unit__new__:<assetId>' = adding under that asset;
   // '<subUnitId>' = editing inline.
   const [editingSubUnitId, setEditingSubUnitId] = useState<string | null>(null);
-  // Master Holding editor open / closed (singleton — id-less toggle).
+  // Master Holding editor open / closed (singleton, id-less toggle).
   const [editingMH, setEditingMH] = useState(false);
 
   // M1.5b/2: collapsed-state Sets per tier. Stored in local component
-  // state (not the Zustand store) — collapsed-ness is a UI concern, not
+  // state (not the Zustand store), collapsed-ness is a UI concern, not
   // project data, and shouldn't persist across page loads or sync to
   // Supabase in M1.6. Default = expanded (id NOT in the set).
   const [collapsedSubProjects, setCollapsedSubProjects] = useState<Set<string>>(new Set());
@@ -1392,7 +1392,7 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
   // M1.5b/4: manual-mode flag. When subProjects.length === 0, the page
   // shows the first-time CTA card (Quick Setup vs Manual Setup) by
   // default. Clicking Manual Setup flips this flag, which reveals the
-  // regular tree so the user can build by hand. Local-only state — no
+  // regular tree so the user can build by hand. Local-only state, no
   // need to persist; first-time UX should always be available when the
   // user empties the project.
   const [manualMode, setManualMode] = useState(false);
@@ -1415,7 +1415,7 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
   // M1.5b/2: sticky breadcrumb visibility. Show only after the user has
   // scrolled past the page header (so it doesn't double up the title).
   // IntersectionObserver on a sentinel element below the header is more
-  // robust than a scroll handler — fires once per visibility change and
+  // robust than a scroll handler, fires once per visibility change and
   // doesn't run on every wheel event.
   const headerSentinelRef = useRef<HTMLDivElement | null>(null);
   const [showBreadcrumb, setShowBreadcrumb] = useState(false);
@@ -1473,7 +1473,7 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
     const subAssetIds = new Set(subAssets.map(a => a.id));
     const subSubUnits = subUnits.filter(u => subAssetIds.has(u.assetId));
     // Costs cascade by both subProjectId-stamp AND by ownership through
-    // assets — count both so the warning is accurate.
+    // assets, count both so the warning is accurate.
     const subCosts = new Set<string | number>();
     for (const c of useModule1Store.getState().costs) {
       if (c.subProjectId === sp.id || subAssetIds.has(c.assetId) || (c.phaseId && subPhaseIds.has(c.phaseId))) {
@@ -1746,7 +1746,7 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
   //     (or the first sub-project if no breadcrumb context yet).
   //   - + Add Plot:  appends Plot N+1 under the breadcrumb / first phase.
   //   - Enable Master Holding: flips MH.enabled = true (only shown when
-  //     MH is currently disabled — once enabled, the MH card itself
+  //     MH is currently disabled, once enabled, the MH card itself
   //     owns the toggle).
   // None of these flip hierarchyDisclosure: progressively disclosed
   // projects stay progressive; the user is just opting into more layers
@@ -1838,7 +1838,7 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
         </div>
       )}
 
-      {/* Header — full-render only. Schedule + Build Program host their
+      {/* Header, full-render only. Schedule + Build Program host their
          own page-level h2 and don't want a second one nested inside. */}
       {sectionsMode === 'all' && (
       <div style={{ marginBottom: 'var(--sp-3)' }}>
@@ -1854,7 +1854,7 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
         {/* ── M1.8/7: top-of-tab action bar ──
            Always-visible quick paths for the three most-common
            "expand my project" actions. Visible in both progressive
-           and manual disclosure modes — they let manual-mode users
+           and manual disclosure modes, they let manual-mode users
            skip hunting for the right inline + button too. */}
         <div
           data-testid="hierarchy-action-bar"
@@ -1956,7 +1956,7 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
 
       {/* M1.5b/2: scroll sentinel for the sticky breadcrumb. The
          IntersectionObserver in the component body fires when this
-         element leaves the viewport — that's the moment the breadcrumb
+         element leaves the viewport, that's the moment the breadcrumb
          appears. Empty + zero-height so it's invisible. */}
       <div ref={headerSentinelRef} aria-hidden style={{ height: 1, width: '100%' }} />
 
@@ -1965,7 +1965,7 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
          manual mode → show a single centered CTA card instead of the
          full tree. This skips both the MH card AND the empty Sub-
          Projects block so the user sees one clear next step.
-         M1.9b: gate to 'all' mode only — Schedule + Build Program show
+         M1.9b: gate to 'all' mode only, Schedule + Build Program show
          their own initial-state copy when the project is empty, so this
          centered CTA would be a duplicate. */}
       {(sectionsMode === 'all' && subProjects.length === 0 && !manualMode) ? (
@@ -1987,7 +1987,7 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
             Set up your project structure
           </h3>
           <p style={{ fontSize: 'var(--font-body)', color: 'var(--color-meta)', maxWidth: 520, margin: '0 auto var(--sp-3)', lineHeight: 1.6 }}>
-            Pick the path that fits how you want to start. You can switch between modes later — both write to the same hierarchy.
+            Pick the path that fits how you want to start. You can switch between modes later, both write to the same hierarchy.
           </p>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 'var(--sp-2)', justifyContent: 'center', maxWidth: 540, margin: '0 auto' }}>
@@ -2044,7 +2044,7 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
          later want to convert to a fund structure. 'manual' mode
          (legacy projects) keeps showing the card unconditionally so
          existing UX is preserved exactly.
-         M1.9b: 'assets' mode (mounted in Build Program) hides MH —
+         M1.9b: 'assets' mode (mounted in Build Program) hides MH ,
          that's a structural concern that lives on Schedule, not on
          the per-asset/per-sub-unit editor surface. */}
       {sectionsMode !== 'assets' && !hideMHWhenDisabled && (
@@ -2179,7 +2179,7 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
                     </div>
                     <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', maxWidth: 480, margin: '0 auto var(--sp-2)' }}>
                       A Phase is a sequenced timeline chunk (construction + operations periods).
-                      Most projects need just one — add more for staged developments where Phase 2 starts after Phase 1.
+                      Most projects need just one, add more for staged developments where Phase 2 starts after Phase 1.
                     </div>
                     <button
                       type="button"
@@ -2248,7 +2248,7 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
 
                       {/* ── Assets under this Phase ──
                          M1.9b: hide the Asset + Sub-Unit subtree when
-                         mounted in Schedule (sections="structure") —
+                         mounted in Schedule (sections="structure") ,
                          users edit assets on Build Program in that
                          mode. Replaced with a slim "Edit assets in
                          Build Program" stub below so the Phase row
@@ -2413,7 +2413,7 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
                                     {asset.category === 'Sell'    && 'Add inventory units (1BR, 2BR, Branded Suite, Villa V1/V2 …) to break the asset into sellable line items.'}
                                     {asset.category === 'Operate' && 'Add operating keys (Twin Key, King Key, Suite, Studio …) so revenue can scale by ADR / occupancy.'}
                                     {asset.category === 'Lease'   && 'Optional: split by floor or zone (Ground Floor Retail, Office L2, Anchor Pad …) when leases differ within the asset.'}
-                                    {asset.category === 'Hybrid'  && 'Add sub-units for whichever revenue streams apply — typically a mix of count-based and area-based units.'}
+                                    {asset.category === 'Hybrid'  && 'Add sub-units for whichever revenue streams apply, typically a mix of count-based and area-based units.'}
                                   </div>
                                 )}
                                 {editingSubUnitId === `unit__new__:${asset.id}` ? (
@@ -2515,7 +2515,7 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
         })}
 
         {/* ── Add Sub-Project ──
-           M1.9b: hide in 'assets' mode — adding a new sub-project is
+           M1.9b: hide in 'assets' mode, adding a new sub-project is
            a structural action that belongs on Schedule. */}
         {sectionsMode !== 'assets' && (editingId === '__new__' ? (
           <div style={{ ...cardBase, borderLeft: `4px dashed ${tokens.subProjAccent}` }}>
@@ -2565,7 +2565,7 @@ export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {
         ))}
       </div>
 
-      {/* Footer hint — full-render only. Schedule + Build Program have
+      {/* Footer hint, full-render only. Schedule + Build Program have
          their own bottom-of-tab cues. */}
       {sectionsMode === 'all' && (
       <p style={{ marginTop: 'var(--sp-3)', fontSize: 'var(--font-meta)', color: 'var(--color-meta)', fontStyle: 'italic', textAlign: 'center' }}>

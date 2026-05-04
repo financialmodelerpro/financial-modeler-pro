@@ -140,7 +140,7 @@ export default function Module1Area({
 
   return (
     <div>
-      {/* M1.10/7 — Parcel Setup Wizard mount. Shows only when opened. */}
+      {/* M1.10/7, Parcel Setup Wizard mount. Shows only when opened. */}
       {parcelWizardOpen && <ParcelSetupWizard onClose={() => setParcelWizardOpen(false)} />}
 
       <div style={{ marginBottom: 'var(--sp-3)' }}>
@@ -155,7 +155,7 @@ export default function Module1Area({
         </p>
       </div>
 
-      {/* M1.9b/5 — "What goes here" callout. */}
+      {/* M1.9b/5, "What goes here" callout. */}
       <div className="module-card" style={{
         padding: 'var(--sp-2) var(--sp-3)',
         marginBottom: 'var(--sp-3)',
@@ -177,7 +177,7 @@ export default function Module1Area({
       <div className="module-card" style={{ padding: 'var(--sp-3)', marginBottom: 'var(--sp-2)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--sp-2)' }}>
           <h3 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>
-            Land Parcels (financial — what you own)
+            Land Parcels (financial, what you own)
           </h3>
           {!readOnly && (
             <div style={{ display: 'flex', gap: 8 }}>
@@ -323,7 +323,7 @@ export default function Module1Area({
           The per-category mix (residential/hospitality/retail %) and
           per-category deduct/efficiency are now derived transparently
           from per-asset state at the platform layer (see
-          RealEstatePlatform.tsx — residentialPercent = resAsset.allocationPct).
+          RealEstatePlatform.tsx, residentialPercent = resAsset.allocationPct).
           Edits live on the Asset card under the Hierarchy tab; the Area
           Hierarchy table below renders the resulting cascade so users
           can verify the math. */}
@@ -335,7 +335,7 @@ export default function Module1Area({
         {[
           {
             label: 'Project Roads / Infrastructure % (of total land)',
-            help:  'Share of total land area dedicated to roads, infrastructure, and right-of-way — i.e., land that does not get built on. The remainder is Net Developable Area (NDA), the land available for plots.',
+            help:  'Share of total land area dedicated to roads, infrastructure, and right-of-way, i.e., land that does not get built on. The remainder is Net Developable Area (NDA), the land available for plots.',
             value: projectRoadsPct, setter: setProjectRoadsPct, suffix: '%', min: 0, max: 50, step: 0.5,
           },
           {
@@ -345,7 +345,7 @@ export default function Module1Area({
           },
           {
             label: 'Non-Enclosed Area % (balconies / terraces)',
-            help:  'Share of GFA that is non-enclosed (balconies, terraces, exterior corridors). Subtracted from GFA to derive Built-Up Area (BUA) — the enclosed area used for revenue.',
+            help:  'Share of GFA that is non-enclosed (balconies, terraces, exterior corridors). Subtracted from GFA to derive Built-Up Area (BUA), the enclosed area used for revenue.',
             value: projectNonEnclosedPct, setter: setProjectNonEnclosedPct, suffix: '%', min: 0, max: 100, step: 1,
           },
         ].map(row => (
@@ -379,7 +379,7 @@ export default function Module1Area({
           (Residential / Hospitality / Retail %) and per-category deduct
           / efficiency now live on each asset card under the
           <strong> Hierarchy</strong> tab. The Area Hierarchy table below
-          rolls those edits up automatically — no duplicate input here.
+          rolls those edits up automatically, no duplicate input here.
         </div>
         {!assetMixValid && (
           <div className="alert-error" style={{ marginTop: 'var(--sp-2)' }}>
@@ -388,7 +388,7 @@ export default function Module1Area({
         )}
       </div>
 
-      {/* Area Hierarchy Output — calculated panel (FAST formula grey-pale + heading) */}
+      {/* Area Hierarchy Output, calculated panel (FAST formula grey-pale + heading) */}
       <div className="module-card" style={{ padding: 'var(--sp-3)', marginTop: 'var(--sp-2)', background: calcOutputStyle.background }}>
         <h3 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--sp-2)', marginTop: 0 }}>
           Area Hierarchy (sqm)

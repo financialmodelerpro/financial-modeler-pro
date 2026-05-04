@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * PlotSetupWizard — M1.10/6 modal-step UX for an existing Plot.
+ * PlotSetupWizard, M1.10/6 modal-step UX for an existing Plot.
  *
  * Each REFM Plot carries 12+ inputs spanning four conceptual clusters:
  * Envelope (FAR + coverage), Floors (podium + typical + typicalCoverage),
@@ -12,14 +12,14 @@
  *
  * This wizard walks the user through the four clusters one screen at a
  * time, mirroring the ProjectWizard pattern. The form view stays primary
- * — the wizard is opt-in via a "🪄 Setup wizard" button on each plot card.
+ *, the wizard is opt-in via a "🪄 Setup wizard" button on each plot card.
  *
  * Architecture:
  *   - Owns a local `PlotDraft` (snapshot of the Plot's writable fields)
  *     plus a local `assignedAssetIds` Set. Both initialise from the store
  *     on mount; nothing leaks back to the store until the user clicks
  *     "Save & Close" on the final step. Cancel discards everything.
- *   - Reads the live `assets[]` from the store (read-only — the wizard
+ *   - Reads the live `assets[]` from the store (read-only, the wizard
  *     can re-bind existing assets to this plot but never creates/deletes).
  *   - Layout matches ProjectWizard: 1080px max-width, sticky Back / Next
  *     footer, `wizard-step-N` testIds.
@@ -33,9 +33,9 @@ import InputLabel from '../ui/InputLabel';
 import { PLOT_FIELD_HELP } from '../../lib/copy/plotFieldHelp';
 
 // ── Plot draft type ──
-// Same shape as Plot's writable numeric fields — nothing exotic. id /
+// Same shape as Plot's writable numeric fields, nothing exotic. id /
 // name / phaseId stay pinned (the wizard edits one specific plot).
-// M1.10b/2 — covers all 15 Plot writable fields so the wizard matches
+// M1.10b/2, covers all 15 Plot writable fields so the wizard matches
 // the inline form exactly (same fields / labels / order / defaults /
 // validation). verticalParkingFloors is optional on Plot but the
 // wizard treats it as a regular number with 0 default.
@@ -132,7 +132,7 @@ export default function PlotSetupWizard({ plotId, onClose }: Props): React.React
   );
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
 
-  // Re-seed if the underlying plot id changes mid-mount (defensive — the
+  // Re-seed if the underlying plot id changes mid-mount (defensive, the
   // parent typically unmounts the modal between plots).
   useEffect(() => { setDraft(seed); }, [seed]);
 
@@ -198,7 +198,7 @@ export default function PlotSetupWizard({ plotId, onClose }: Props): React.React
     </div>
   );
 
-  // M1.10b/1 — render via React portal to document.body. Without the
+  // M1.10b/1, render via React portal to document.body. Without the
   // portal, an ancestor of Module1AreaProgram (where this modal is
   // mounted) creates a containing block for position:fixed (likely
   // transform/filter/will-change on the platform shell), so the modal
@@ -234,7 +234,7 @@ export default function PlotSetupWizard({ plotId, onClose }: Props): React.React
         }}>
           <div>
             <div style={{ fontSize: 'var(--font-h3)', fontWeight: 'var(--fw-bold)', color: 'var(--color-heading)' }}>
-              🪄 Plot Setup Wizard — {plot.name}
+              🪄 Plot Setup Wizard, {plot.name}
             </div>
             <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 2 }}>
               Step {step} of 4 · Walks through Envelope, Floors, Parking, Assets
@@ -261,7 +261,7 @@ export default function PlotSetupWizard({ plotId, onClose }: Props): React.React
           {step === 1 && (
             <div data-testid="plot-wizard-step-1">
               <h3 style={{ margin: 0, marginBottom: 6, fontSize: 'var(--font-body)', fontWeight: 'var(--fw-semibold)' }}>
-                Envelope — what fits on the plot
+                Envelope, what fits on the plot
               </h3>
               <p style={{ margin: 0, marginBottom: 'var(--sp-3)', color: 'var(--color-meta)', fontSize: 'var(--font-meta)' }}>
                 Plot Buildable Area is the physical footprint you build on. FAR is the regulatory ceiling on built GFA. Coverage is the share of the plot the podium can occupy.
@@ -286,7 +286,7 @@ export default function PlotSetupWizard({ plotId, onClose }: Props): React.React
           {step === 2 && (
             <div data-testid="plot-wizard-step-2">
               <h3 style={{ margin: 0, marginBottom: 6, fontSize: 'var(--font-body)', fontWeight: 'var(--fw-semibold)' }}>
-                Floors &amp; public area — how high it goes, and what surrounds it
+                Floors &amp; public area, how high it goes, and what surrounds it
               </h3>
               <p style={{ margin: 0, marginBottom: 'var(--sp-3)', color: 'var(--color-meta)', fontSize: 'var(--font-meta)' }}>
                 Total Floors is informational (podium + typical). Landscape + Hardscape split the public area outside the podium footprint. Live utilisation below tells you whether the current choice stays inside the FAR ceiling.
@@ -347,7 +347,7 @@ export default function PlotSetupWizard({ plotId, onClose }: Props): React.React
           {step === 3 && (
             <div data-testid="plot-wizard-step-3">
               <h3 style={{ margin: 0, marginBottom: 6, fontSize: 'var(--font-body)', fontWeight: 'var(--fw-semibold)' }}>
-                Parking — bays and basements
+                Parking, bays and basements
               </h3>
               <p style={{ margin: 0, marginBottom: 'var(--sp-3)', color: 'var(--color-meta)', fontSize: 'var(--font-meta)' }}>
                 Bay area in sqm includes drive aisles + ramps. Basement count drives basement gross area; efficiency converts gross to usable.

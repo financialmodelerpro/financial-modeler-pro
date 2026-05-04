@@ -1,7 +1,7 @@
 /**
  * buildWizardSnapshot.ts
  *
- * Phase M1.8/5 — pure function that turns a wizard draft into a full
+ * Phase M1.8/5, pure function that turns a wizard draft into a full
  * HydrateSnapshot ready for `pclient.createProject`.
  *
  * Responsibilities:
@@ -14,7 +14,7 @@
  *      arbitrary asset mixes).
  *   2. Mint stable hierarchy ids per row: 1 SubProject + N Phases + N
  *      Plots + 1 Asset per wizard row + 1 Sub-Unit per asset.
- *   3. Bind every asset to Phase 1 + Plot 1 (the brief's default — users
+ *   3. Bind every asset to Phase 1 + Plot 1 (the brief's default, users
  *      reassign via the Hierarchy / Area Program tabs later).
  *   4. Mint a single placeholder Sub-Unit per asset whose metric +
  *      metricValue match the asset's strategy (Sell/Operate → count=1,
@@ -23,7 +23,7 @@
  *   5. Stamp `hierarchyDisclosure: 'progressive'` so the Hierarchy tab
  *      knows to hide unused layers (M1.8/6 reads this).
  *
- * Pure function — does NOT touch the Zustand store or persistence client.
+ * Pure function, does NOT touch the Zustand store or persistence client.
  * The caller owns those side effects.
  */
 
@@ -80,7 +80,7 @@ function makePlaceholderSubUnit(asset: AssetClass): SubUnit {
       unitPrice:    0,
     };
   }
-  // Lease + Hybrid both default to area metric — Hybrid users can edit.
+  // Lease + Hybrid both default to area metric, Hybrid users can edit.
   return {
     id:           `subunit_${asset.id}`,
     assetId:      asset.id,
@@ -132,7 +132,7 @@ export function buildWizardSnapshot(draft: WizardDraft): BuildWizardSnapshotResu
   // ── Phases (phaseCount of them; first is Phase 1 with canonical id) ──
   // M1.9: each phase inherits the user-picked timeline (construction +
   // operations + overlap) from Step 2. Pre-M1.9 wizards borrowed the
-  // legacy single-phase default (4 / 5 / 0) — those fields now live on
+  // legacy single-phase default (4 / 5 / 0), those fields now live on
   // the draft itself, defaulting to the same 4 / 5 / 0 window so prior
   // behavior is preserved when the user accepts defaults.
   const phases: Phase[] = [];
@@ -212,7 +212,7 @@ export function buildWizardSnapshot(draft: WizardDraft): BuildWizardSnapshotResu
     ...DEFAULT_MODULE1_STATE,
     projectName:  draft.name.trim() || 'New Project',
     projectType,
-    // M1.9 — country joins the snapshot. Falls back to the existing
+    // M1.9, country joins the snapshot. Falls back to the existing
     // DEFAULT_MODULE1_STATE.country when the wizard didn't set it (older
     // drafts in flight when this lands won't carry the field).
     country:      draft.country || DEFAULT_MODULE1_STATE.country,

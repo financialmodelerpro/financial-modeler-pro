@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * InputLabel — M1.10b/3 reusable label-with-tooltip primitive.
+ * InputLabel, M1.10b/3 reusable label-with-tooltip primitive.
  *
  * Renders a uppercase-style field label (matches the existing labelStyle
  * tokens used across Module1Area / Module1Timeline / Module1AreaProgram /
@@ -18,7 +18,7 @@
  *     opening it never reflows the surrounding form.
  *
  * Light + dark mode work via the same CSS custom properties already in
- * globals.css. No external tooltip library — Radix would be a heavier
+ * globals.css. No external tooltip library, Radix would be a heavier
  * add than this primitive justifies.
  */
 

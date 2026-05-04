@@ -168,7 +168,7 @@ export interface AssetClass {
   secondaryStrategy?:  AssetStrategy;
   secondaryStrategyPct?: number;
   // M1.7/3: per-asset area-cascade assumption inputs feeding
-  // computeAreaCascade. All optional — Area Program tab seeds
+  // computeAreaCascade. All optional, Area Program tab seeds
   // industry-typical defaults (mep 12, BoH 8, otherTech 4) when
   // undefined and the user can override per-asset.
   mepPct?:            number;
@@ -198,9 +198,9 @@ export const DEFAULT_AREA_CASCADE_BY_CATEGORY: Record<AssetCategory, {
 // ── Strategy enum (Architecture section 1A; Project West vocabulary) ──────
 // A Plot's assets each pick a Primary Strategy + an optional Secondary
 // Strategy with allocation %. Strategy expresses the operating model:
-//   'Develop & Sell'    — sell on completion (residential / villas / etc.)
-//   'Develop & Lease'   — lease to tenants on completion (retail / office)
-//   'Develop & Operate' — operate as a going concern (hotel / serviced)
+//   'Develop & Sell'   , sell on completion (residential / villas / etc.)
+//   'Develop & Lease'  , lease to tenants on completion (retail / office)
+//   'Develop & Operate', operate as a going concern (hotel / serviced)
 // Strategy is RELATED TO but distinct from AssetCategory: an Operate-
 // category hotel typically uses 'Develop & Operate' Primary, but a
 // Lease-category retail asset can carry 'Develop & Sell' as a Secondary
@@ -230,7 +230,7 @@ export const DEFAULT_STRATEGY_BY_CATEGORY: Record<AssetCategory, AssetStrategy> 
 // envelope inputs (plot area, FAR, coverage, floors) plus parking
 // config, and parents zero-or-more Zones and one-or-more Assets.
 //
-// Computed fields (NOT stored on Plot — derived in @core/calculations
+// Computed fields (NOT stored on Plot, derived in @core/calculations
 // in M1.7/2):
 //   maxGFA      = plotArea * maxFAR
 //   footprint   = plotArea * coveragePct/100
@@ -270,12 +270,12 @@ export interface Plot {
   // M1.7/6 (optional): podium floors dedicated to vertical parking.
   // Independent of plot.podiumFloors so the user can split podium
   // between retail / amenity / parking explicitly. Defaults to 0
-  // (no vertical parking) — surface + basement absorb demand.
+  // (no vertical parking), surface + basement absorb demand.
   verticalParkingFloors?: number;
 }
 
 // ── Zone (NEW in M1.7; optional sub-grouping under Plot) ───────────────────
-// A Zone is an optional logical sub-division of a Plot — e.g. a single
+// A Zone is an optional logical sub-division of a Plot, e.g. a single
 // 100,000 sqm plot might carry "Zone 1A" (residential tower cluster) and
 // "Zone 1B" (mixed-use podium). Zones do NOT affect the area cascade by
 // themselves; they are grouping labels that the Area Program tab uses to
@@ -286,7 +286,7 @@ export interface Zone {
   name: string;
   plotId: string;
   // Optional share of the parent plot's area. When undefined the zone
-  // inherits no area on its own — it is a pure label. When set, the
+  // inherits no area on its own, it is a pure label. When set, the
   // Area Program tab can warn if zones[].areaSharePct sum > 100% on the
   // same plot.
   areaSharePct?: number;
@@ -319,7 +319,7 @@ export interface SubUnit {
   //     metricValue by 25 before multiplying.
   parkingBaysPerUnit?: number;
   // Per-sub-unit GFA / GLA allocation share (for assets where one
-  // SubUnit type covers part of an asset's GLA — e.g. retail asset
+  // SubUnit type covers part of an asset's GLA, e.g. retail asset
   // with Anchor (40%), In-line (50%), F&B (10%)). When omitted the
   // sub-unit is treated as having metricValue * unitArea sqm via
   // metric semantics.
@@ -369,7 +369,7 @@ export const DEFAULT_PLOT_ID        = 'plot_1';
 // is plot-area-invariant: utilisation = (coverage * podium + typicalCoverage
 // * typical) / (FAR * 100). Old defaults gave (60*2 + 40*10)/(3*100) =
 // 173.3% (Over FAR badge fired immediately). New defaults give
-// (60*1 + 30*6)/(3*100) = 80% — clean headroom for the user to upsize.
+// (60*1 + 30*6)/(3*100) = 80%, clean headroom for the user to upsize.
 export const DEFAULT_PLOT_FAR                    = 3.0;
 export const DEFAULT_PLOT_COVERAGE_PCT           = 60;
 export const DEFAULT_PLOT_TYPICAL_COVERAGE_PCT   = 30;
@@ -391,7 +391,7 @@ export const PARKING_BAY_SQM_BASEMENT = 44;
 // SubUnit.parkingBaysPerUnit from this table when the user picks a
 // known type; custom types default to 1.0 with a hint to adjust.
 export const DEFAULT_PARKING_BAYS_BY_SUBUNIT_TYPE: Record<string, number> = {
-  // Residential — bays per dwelling
+  // Residential, bays per dwelling
   'Studio': 1.0,
   '1BR':    1.0,
   '2BR':    1.6,
@@ -400,10 +400,10 @@ export const DEFAULT_PARKING_BAYS_BY_SUBUNIT_TYPE: Record<string, number> = {
   'Apartments Type 2':   1.6,
   'Apartments Type 3':   2.0,
   'Branded Residences':  2.0,
-  // Hospitality — bays per key
+  // Hospitality, bays per key
   'Hotel Key':          1.0,
   'Serviced Apartment': 1.0,
-  // Lease — bays per 25 sqm GFA (M1.7/2 calc engine handles the
+  // Lease, bays per 25 sqm GFA (M1.7/2 calc engine handles the
   // /25 conversion when sub-unit metric === 'area'; the value here is
   // the per-25-sqm bay count, so 1.0 means 1 bay / 25 sqm).
   'Office':  1.0,
@@ -472,7 +472,7 @@ export function resolveSubUnitParkingBays(subUnit: Pick<SubUnit, 'name' | 'metri
 
 // Plot factory (M1.7). Industry-typical defaults; users override per-plot
 // in the Area Program tab. plotArea is required from the caller because
-// there is no sensible default — callers either pull it from a land
+// there is no sensible default, callers either pull it from a land
 // parcel (most common) or accept the user's input from the Area Program
 // tab's "Add Plot" form.
 export function makeDefaultPlot(id: string, name: string, phaseId: string, plotArea: number): Plot {

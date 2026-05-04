@@ -3,7 +3,7 @@
 /**
  * Module1AreaProgram.tsx
  *
- * REFM Module 1 — Area Program tab (Phase M1.7).
+ * REFM Module 1, Area Program tab (Phase M1.7).
  *
  * Sits between the Hierarchy tab (which manages MH / SubProject / Phase
  * / Asset / SubUnit) and the Land & Area / Costs / Financing tabs. The
@@ -133,14 +133,14 @@ const dangerBtnStyle: React.CSSProperties = {
 
 // ── Number formatting helper (sqm with thousands grouping) ────────────────
 function fmt(n: number, decimals = 0): string {
-  if (!Number.isFinite(n)) return '—';
+  if (!Number.isFinite(n)) return 'n/a';
   return n.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
 // ── Plot row ───────────────────────────────────────────────────────────────
 // Subscribe to base arrays + actions separately and derive filtered slices
 // via useMemo. Wrapping a `.filter(...)` inside the `useShallow` selector
-// would return a fresh array reference on every render — Zustand v5's
+// would return a fresh array reference on every render, Zustand v5's
 // shallow uses Object.is on the OUTER object's top-level values, so a new
 // filtered array ref makes the snapshot differ every render, which fires
 // React's "getSnapshot should be cached to avoid an infinite loop"
@@ -166,7 +166,7 @@ function PlotEditor({ plot, allPlotsCount, onOpenWizard }: { plot: Plot; allPlot
     basementCount: plot.basementCount, basementEfficiencyPct: plot.basementEfficiencyPct,
   }), [plot]);
 
-  // M1.10b/5 — InputLabel with shared tooltip copy. Wrapper is no longer
+  // M1.10b/5, InputLabel with shared tooltip copy. Wrapper is no longer
   // a <label> (InputLabel renders its own structured label markup), so
   // the input is paired by visual proximity rather than label-htmlFor.
   const numField = (key: keyof Plot, label: string, suffix?: string) => (
@@ -201,7 +201,7 @@ function PlotEditor({ plot, allPlotsCount, onOpenWizard }: { plot: Plot; allPlot
   const handleDeletePlot = () => {
     const msg = `Delete "${plot.name}"?\n\n` +
       (zones.length > 0      ? `· ${zones.length} zone(s) under it will be dropped.\n` : '') +
-      (assetsOnPlot.length > 0 ? `· ${assetsOnPlot.length} asset(s) bound to this plot will lose their plot/zone link (the asset itself stays — you can reassign).\n` : '') +
+      (assetsOnPlot.length > 0 ? `· ${assetsOnPlot.length} asset(s) bound to this plot will lose their plot/zone link (the asset itself stays, you can reassign).\n` : '') +
       `\nThis cannot be undone.`;
     if (window.confirm(msg)) removePlot(plot.id);
   };
@@ -242,7 +242,7 @@ function PlotEditor({ plot, allPlotsCount, onOpenWizard }: { plot: Plot; allPlot
         <button onClick={handleDeletePlot} style={dangerBtnStyle} disabled={allPlotsCount <= 0} aria-label={`Delete ${plot.name}`}>Delete</button>
       </div>
 
-      {/* Inputs grid — M1.10b/2 reconciled: all 15 Plot writable fields,
+      {/* Inputs grid, M1.10b/2 reconciled: all 15 Plot writable fields,
          same labels + order as PlotSetupWizard's 4 steps:
          Envelope (3) -> Floors+PublicArea (6) -> Parking (6). */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>
@@ -373,14 +373,14 @@ function ZoneRow({ zone }: { zone: Zone }) {
             const v = e.target.value;
             updateZone(zone.id, { areaSharePct: v === '' ? undefined : parseFloat(v) || 0 });
           }}
-          placeholder="—"
+          placeholder="auto"
           style={{ ...inputStyle, width: 80 }}
         />
       </label>
       <button
         onClick={() => {
           const msg = assetCount > 0
-            ? `Delete "${zone.name}"?\n\n${assetCount} asset(s) point at this zone — they will keep their plot binding but lose the zone label.`
+            ? `Delete "${zone.name}"?\n\n${assetCount} asset(s) point at this zone, they will keep their plot binding but lose the zone label.`
             : `Delete "${zone.name}"?`;
           if (window.confirm(msg)) removeZone(zone.id);
         }}
@@ -843,7 +843,7 @@ function ParkingCell({ label, value, cap }: { label: string; value: number; cap?
 // Subscribe to base arrays + scalars + actions separately and derive
 // `plots` for the active phase via useMemo. Putting `s.plots.filter(...)`
 // inside the `useShallow` selector returns a new array reference on every
-// render — Zustand v5's shallow comparator runs Object.is on the OUTER
+// render, Zustand v5's shallow comparator runs Object.is on the OUTER
 // object's top-level values, so a new filter result makes the snapshot
 // differ every render. React's useSyncExternalStore then logs
 // "The result of getSnapshot should be cached to avoid an infinite loop"
@@ -864,10 +864,10 @@ export default function Module1AreaProgram() {
     [allPlots, activePhaseId],
   );
 
-  // M1.10/5 — Land Parcels (financial) vs Plots (physical) reconciliation.
+  // M1.10/5, Land Parcels (financial) vs Plots (physical) reconciliation.
   // The two arrays are independently editable (a parcel is what you own;
-  // a plot is what you build on). When they line up — single parcel with
-  // area = total plot area — show ✓ matches. When they diverge, show a
+  // a plot is what you build on). When they line up, single parcel with
+  // area = total plot area, show ✓ matches. When they diverge, show a
   // warning so the user knows their financial footprint and physical
   // footprint disagree.
   const landParcels = useModule1Store(s => s.landParcels);
@@ -880,7 +880,7 @@ export default function Module1AreaProgram() {
     [allPlots],
   );
 
-  // M1.10/6 — wizard mount state. Holds the plotId of the plot whose
+  // M1.10/6, wizard mount state. Holds the plotId of the plot whose
   // setup wizard is currently open, or null when no wizard is mounted.
   const [wizardPlotId, setWizardPlotId] = useState<string | null>(null);
 
@@ -900,7 +900,7 @@ export default function Module1AreaProgram() {
   const handleAddFirstPlot = () => {
     const id = `plot_${Date.now()}`;
     const nextN = plots.length + 1;
-    // Default the new plot to 50,000 sqm — a typical mid-size urban
+    // Default the new plot to 50,000 sqm, a typical mid-size urban
     // parcel. Users tweak immediately in the form. plotArea must be
     // positive to avoid divide-by-zero in the envelope calc.
     addPlot(makeDefaultPlot(id, `Plot ${nextN}`, activePhase.id, 50000));
@@ -919,7 +919,7 @@ export default function Module1AreaProgram() {
         </button>
       </div>
 
-      {/* M1.9b/6 — "What goes here" callout. */}
+      {/* M1.9b/6, "What goes here" callout. */}
       <div style={{
         padding: 'var(--sp-2) var(--sp-3)',
         marginBottom: 'var(--sp-3)',
@@ -935,13 +935,13 @@ export default function Module1AreaProgram() {
           unit count + sale / lease metrics).{' '}
           <strong style={{ color: 'var(--color-heading)' }}>Not here:</strong>{' '}
           project-wide FAR / land parcels (Land), schedule + structure
-          (Schedule), revenue ramps (Module 2 — coming next).
+          (Schedule), revenue ramps (Module 2, coming next).
         </div>
       </div>
 
-      {/* M1.10/5 — Land vs Plot reconciliation row. Surfaces the relationship
-         between Land Parcels (financial — what you own) and Plots
-         (physical — what you build on) so users see at a glance whether
+      {/* M1.10/5, Land vs Plot reconciliation row. Surfaces the relationship
+         between Land Parcels (financial, what you own) and Plots
+         (physical, what you build on) so users see at a glance whether
          the two arrays agree. Tolerance: 1 sqm to absorb rounding from
          the wizard's 100,000 / plotCount division. */}
       {(() => {
@@ -1001,14 +1001,14 @@ export default function Module1AreaProgram() {
         plots.map(p => <PlotEditor key={p.id} plot={p} allPlotsCount={plots.length} onOpenWizard={setWizardPlotId} />)
       )}
 
-      {/* M1.10/6 — Plot Setup Wizard mount. Renders only when a plotId
+      {/* M1.10/6, Plot Setup Wizard mount. Renders only when a plotId
          is selected; PlotSetupWizard returns null itself when its plot
          has been removed mid-flight (defensive). */}
       {wizardPlotId && (
         <PlotSetupWizard plotId={wizardPlotId} onClose={() => setWizardPlotId(null)} />
       )}
 
-      {/* M1.9b/3 — asset + sub-unit detail editors mounted from the
+      {/* M1.9b/3, asset + sub-unit detail editors mounted from the
          dissolved Hierarchy tab. Renders Sub-Project + Phase headers
          (slim) + every Asset card with full CRUD (name, type, category,
          allocation %, deduct %, efficiency %, visible toggle) + every

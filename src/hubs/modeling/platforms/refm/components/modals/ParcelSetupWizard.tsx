@@ -1,9 +1,9 @@
 'use client';
 
 /**
- * ParcelSetupWizard — M1.10/7 modal-step UX for Land Parcels.
+ * ParcelSetupWizard, M1.10/7 modal-step UX for Land Parcels.
  *
- * Land Parcels are the financial side of the Land tab — what the project
+ * Land Parcels are the financial side of the Land tab, what the project
  * owns + how it paid for it (cash + in-kind split). The form view is fine
  * for power users; first-time setup benefits from a guided walk that
  * collects the parcels one at a time and lets users add another or
@@ -132,7 +132,7 @@ export default function ParcelSetupWizard({ onClose }: Props): React.ReactElemen
     </div>
   );
 
-  // M1.10b/1 — portal to document.body so position:fixed escapes any
+  // M1.10b/1, portal to document.body so position:fixed escapes any
   // ancestor containing-block. Same fix as PlotSetupWizard.
   if (typeof document === 'undefined') return <></>;
   return createPortal(
@@ -193,7 +193,7 @@ export default function ParcelSetupWizard({ onClose }: Props): React.ReactElemen
                 Add the parcels you own (or contributing in-kind)
               </h3>
               <p style={{ margin: 0, marginBottom: 'var(--sp-3)', color: 'var(--color-meta)', fontSize: 'var(--font-meta)' }}>
-                Each parcel: a name, area, rate per sqm, and cash / in-kind split. Use this for parcels you&apos;re acquiring or contributing — physical plot envelopes (FAR, coverage, floors) live on Build Program.
+                Each parcel: a name, area, rate per sqm, and cash / in-kind split. Use this for parcels you&apos;re acquiring or contributing, physical plot envelopes (FAR, coverage, floors) live on Build Program.
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
                 {drafts.map((d, idx) => (

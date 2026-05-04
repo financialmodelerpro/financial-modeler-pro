@@ -120,7 +120,7 @@ export function isNewV3(s: unknown): s is NewV3Snapshot {
   // (wizard create, legacy create, auto-save) is bare HydrateSnapshot
   // without a `version: 3` discriminator. When `loadProject` returns
   // that payload to `hydrationFromAnySnapshot`, the strict version
-  // check used to fall through to DEFAULT_MODULE1_STATE — silently
+  // check used to fall through to DEFAULT_MODULE1_STATE, silently
   // wiping the user's wizard-created Sub-Project / Plots / Assets /
   // Sub-Units on every page reload.
   //
@@ -383,7 +383,7 @@ export function hydrationFromAnySnapshot(snapshot: unknown): HydrateSnapshot {
 // warnings to the user instead of leaving them only in DevTools.
 //
 // `recognized: false` means the snapshot was neither v2 nor v3 shape
-// AND `.snapshot` is DEFAULT_MODULE1_STATE — any fields the user had
+// AND `.snapshot` is DEFAULT_MODULE1_STATE, any fields the user had
 // in the unrecognized blob are LOST. The migrator pushes a message to
 // `result.errors[]` in that case so the post-migration toast tells
 // the user which version of which project lost data.
@@ -408,7 +408,7 @@ export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydra
     };
   }
   // Unrecognized shape: console.warn is preserved for parity with
-  // pre-M1.6/7 callers, but the boolean is the real signal — wrap
+  // pre-M1.6/7 callers, but the boolean is the real signal, wrap
   // callers should branch on it.
   if (typeof console !== 'undefined') {
     console.warn('[REFM] Unrecognized snapshot shape; falling back to defaults.');

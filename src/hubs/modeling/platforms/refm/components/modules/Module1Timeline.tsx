@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Module1Timeline — REFM "Schedule" tab (renamed in M1.9).
+ * Module1Timeline, REFM "Schedule" tab (renamed in M1.9).
  *
  * Pre-M1.9 this tab also hosted Project Identity (project name, type,
  * country, currency, model granularity, start date). All four duplicated
@@ -11,7 +11,7 @@
  *
  * M1.9 strips Project Identity out: project name + type live in
  * Hierarchy (Sub-Project editor); country + currency live in the wizard
- * (now driving each other). What's left here is the schedule itself —
+ * (now driving each other). What's left here is the schedule itself ,
  * model granularity, start date, construction / operations / overlap
  * periods, plus the visual bar.
  *
@@ -109,7 +109,7 @@ export default function Module1Timeline({
         </p>
       </div>
 
-      {/* M1.9b/5 — "What goes here" callout. Clarifies that this tab is
+      {/* M1.9b/5, "What goes here" callout. Clarifies that this tab is
          the canonical home for schedule + structure, and points users
          to the wizard / Build Program for what doesn't belong here. */}
       <div className="module-card" style={{
@@ -214,7 +214,7 @@ export default function Module1Timeline({
           <div style={{ marginBottom: 'var(--sp-2)' }}>
             <InputLabel
               label={`Project Overlap (${periodLabel})`}
-              help="Construction periods that overlap with operations — for sales / early-handover units that start generating revenue while the rest of the project is still being built. 0 = sequential construction then operations."
+              help="Construction periods that overlap with operations, for sales / early-handover units that start generating revenue while the rest of the project is still being built. 0 = sequential construction then operations."
             />
             <input
               style={inputStyle}
@@ -232,7 +232,7 @@ export default function Module1Timeline({
             </div>
           </div>
 
-          {/* Timeline summary — calculated outputs (FAST formula black-on-grey) */}
+          {/* Timeline summary, calculated outputs (FAST formula black-on-grey) */}
           <div style={{
             background: calcOutputStyle.background,
             border: '1px solid var(--color-border)',
@@ -275,7 +275,7 @@ export default function Module1Timeline({
         />
       </div>
 
-      {/* M1.9b/2 — project structure editors mounted from the dissolved
+      {/* M1.9b/2, project structure editors mounted from the dissolved
          Hierarchy tab. Renders Master Holding + Sub-Project list +
          Phase-per-Sub-Project editors with their full CRUD. Asset +
          Sub-Unit editing happens on the Build Program tab; this mode

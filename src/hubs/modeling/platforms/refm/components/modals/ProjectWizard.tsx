@@ -3,7 +3,7 @@
 /**
  * ProjectWizard.tsx
  *
- * Phase M1.8 — Smart Project Creation Wizard.
+ * Phase M1.8, Smart Project Creation Wizard.
  *
  * Replaces the legacy "+ New Project" → ProjectModal flow (which dropped
  * the user into an empty Hierarchy tab) with a guided 3-step wizard that
@@ -12,11 +12,11 @@
  * 5-layer empty tree.
  *
  * Step machine:
- *   1. Project Basics         — name, location, currency, model type,
+ *   1. Project Basics        , name, location, currency, model type,
  *                                start date, status
- *   2. Project Structure      — Master Holding toggle, phase count,
+ *   2. Project Structure     , Master Holding toggle, phase count,
  *                                plot count
- *   3. Assets                 — project type radio + editable asset list
+ *   3. Assets                , project type radio + editable asset list
  *                                with auto-balanced allocation %
  *
  * Lifecycle:
@@ -86,7 +86,7 @@ export interface WizardDraft {
   // Step 1
   name:        string;
   location:    string;
-  country:     string;       // M1.9 — country name from COUNTRY_DATA; drives currency auto-fill
+  country:     string;       // M1.9, country name from COUNTRY_DATA; drives currency auto-fill
   currency:    string;
   modelType:   ModelType;
   startDate:   string;       // YYYY-MM-DD
@@ -96,7 +96,7 @@ export interface WizardDraft {
   enableMasterHolding: boolean;
   phaseCount:          number;   // 1..10
   plotCount:           number;   // 1..20
-  // M1.9 — project timeline captured upfront. Default to the legacy
+  // M1.9, project timeline captured upfront. Default to the legacy
   // single-phase window (4 / 5 / 0). Stored in periods (months for
   // monthly model, years for annual). Wizard renders the unit hint
   // beside each input so users don't have to guess.
@@ -115,7 +115,7 @@ export interface WizardDraft {
 // % per row sums to 100 within each type. Custom returns []; the user
 // adds rows manually.
 //
-// Source: brief table — Residential 100% high-end apartments, Hospitality
+// Source: brief table, Residential 100% high-end apartments, Hospitality
 // 100% Hotel 5-star, Retail 100% Retail, Office 100% Office, Mixed-Use
 // split 50/30/20 across residential/hotel/retail. Asset names + types
 // match PREBUILT_ASSET_TYPES so the type dropdown lands on the right
@@ -143,7 +143,7 @@ export const WIZARD_DEFAULT_ASSETS_BY_TYPE: Record<WizardProjectType, WizardDefa
   Custom: [],
 };
 
-// Local id helper. The wizard never persists these — the build helper
+// Local id helper. The wizard never persists these, the build helper
 // (M1.8/5) mints stable AssetClass ids when writing the snapshot.
 let _wizardAssetIdCounter = 0;
 function makeWizardAssetId(): string {
@@ -169,7 +169,7 @@ export function makeWizardDefaultDraft(): WizardDraft {
   return {
     name:                '',
     location:            '',
-    country:             'Saudi Arabia',  // M1.9 — drives currency auto-fill
+    country:             'Saudi Arabia',  // M1.9, drives currency auto-fill
     currency:            'SAR',
     modelType:           'annual',
     startDate:           todayPlus6MonthsIso(),
@@ -177,7 +177,7 @@ export function makeWizardDefaultDraft(): WizardDraft {
     enableMasterHolding: false,
     phaseCount:          1,
     plotCount:           1,
-    // M1.9 — legacy single-phase window: 4 + 5 + 0. Wizard label shows
+    // M1.9, legacy single-phase window: 4 + 5 + 0. Wizard label shows
     // unit hint (years/months) so users adjust without guessing the model.
     constructionPeriods: 4,
     operationsPeriods:   5,
@@ -349,7 +349,7 @@ export default function ProjectWizard({ onCreate, onClose }: ProjectWizardProps)
     if (step > 1) setStep(((step - 1) as 1 | 2 | 3));
   }
 
-  // M1.11/C2 — portal to document.body so the modal escapes any ancestor
+  // M1.11/C2, portal to document.body so the modal escapes any ancestor
   // containing block (transform, will-change, filter on the platform
   // shell) that would otherwise resolve `position: fixed` relative to the
   // ancestor. Mirrors the M1.10b/1 fix on PlotSetupWizard + ParcelSetupWizard.
@@ -417,7 +417,7 @@ export default function ProjectWizard({ onCreate, onClose }: ProjectWizardProps)
           </div>
         </div>
 
-        {/* Body — placeholder content per step until M1.8/2-4 fill them in */}
+        {/* Body, placeholder content per step until M1.8/2-4 fill them in */}
         <div className="pm-modal-body" style={{ minHeight: 280 }}>
           {step === 1 && (
             <Step1Basics draft={draft} setDraft={setDraft} />
@@ -502,7 +502,7 @@ function Step1Basics({ draft, setDraft }: Step1Props) {
         color: 'var(--color-heading)',
         margin: '0 0 6px 0',
       }}>
-        Step 1 — Project Basics
+        Step 1, Project Basics
       </h3>
       <p style={{
         fontSize: 'var(--font-meta)',
@@ -540,7 +540,7 @@ function Step1Basics({ draft, setDraft }: Step1Props) {
           />
         </label>
 
-        {/* Country + Start Date row (M1.9 — country drives currency
+        {/* Country + Start Date row (M1.9, country drives currency
             auto-fill so the wizard captures both fields with one
             choice; the Schedule tab no longer re-asks). */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-2)' }}>
@@ -558,7 +558,7 @@ function Step1Basics({ draft, setDraft }: Step1Props) {
             >
               {COUNTRY_DATA.map(c => (
                 <option key={c.name} value={c.name}>
-                  {c.flag} {c.name} — {c.currency}
+                  {c.flag} {c.name}, {c.currency}
                 </option>
               ))}
             </select>
@@ -577,7 +577,7 @@ function Step1Basics({ draft, setDraft }: Step1Props) {
         </div>
 
         {/* Model Type + Status row (paired so Step 1 fits one screen on
-            standard 1080p displays — no scroll required). */}
+            standard 1080p displays, no scroll required). */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-2)' }}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             <span style={labelTextStyle}>Model Type</span>
@@ -628,7 +628,7 @@ function Step1Basics({ draft, setDraft }: Step1Props) {
 //   2. How many phases? → Single (1) or Multiple (2-10)
 //   3. How many plots?  → Single (1) or Multiple (2-20)
 //
-// "Single" is the default for both phase + plot — the brief calls out
+// "Single" is the default for both phase + plot, the brief calls out
 // that 90% of users (single phase, single plot, 2-3 assets) shouldn't
 // see multi-phase / multi-plot complexity unless they opt in. The
 // conditional 2-10 / 2-20 numeric input only appears when the user
@@ -652,7 +652,7 @@ function Step2Structure({ draft, setDraft }: Step2Props) {
         color: 'var(--color-heading)',
         margin: '0 0 6px 0',
       }}>
-        Step 2 — Project Structure
+        Step 2, Project Structure
       </h3>
       <p style={{
         fontSize: 'var(--font-meta)',
@@ -660,11 +660,11 @@ function Step2Structure({ draft, setDraft }: Step2Props) {
         margin: '0 0 var(--sp-3) 0',
       }}>
         These choices control which layers show up in the Hierarchy tab.
-        Defaults work for most projects — you can always enable more
+        Defaults work for most projects, you can always enable more
         layers later from the Hierarchy tab.
       </p>
 
-      {/* M1.10/4 — gap shrunk sp-3 -> sp-2 + Phases & Plots collapsed
+      {/* M1.10/4, gap shrunk sp-3 -> sp-2 + Phases & Plots collapsed
          into a single 2-column row + MH descriptive paragraph compressed
          to a one-liner so Step 2 fits a 1080p viewport without scroll. */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
@@ -717,14 +717,14 @@ function Step2Structure({ draft, setDraft }: Step2Props) {
                 color: 'var(--color-heading)',
               }}>
                 {draft.enableMasterHolding
-                  ? 'Yes — show Master Holding layer'
-                  : 'No — single project (you can convert later)'}
+                  ? 'Yes, show Master Holding layer'
+                  : 'No, single project (you can convert later)'}
               </div>
             </div>
           </div>
         </div>
 
-        {/* Q2 + Q3: Phases + Plots — paired side-by-side (M1.10/4) */}
+        {/* Q2 + Q3: Phases + Plots, paired side-by-side (M1.10/4) */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-2)' }}>
         <div>
           <span style={labelTextStyle}>How many phases?</span>
@@ -909,7 +909,7 @@ function Step2Structure({ draft, setDraft }: Step2Props) {
 // ── Step 3: Assets (M1.8/4) ───────────────────────────────────────────────
 // Project Type radio (Residential / Hospitality / Retail / Office /
 // Mixed-Use / Custom) + an editable asset list. Changing the type re-
-// seeds the asset list from WIZARD_DEFAULT_ASSETS_BY_TYPE — but only
+// seeds the asset list from WIZARD_DEFAULT_ASSETS_BY_TYPE, but only
 // when the user hasn't manually customized it (otherwise we'd discard
 // their work on an accidental click). We track this via the asset
 // signature (length + name list).
@@ -1043,14 +1043,14 @@ function Step3Assets({ draft, setDraft, allocSum }: Step3Props) {
         color: 'var(--color-heading)',
         margin: '0 0 6px 0',
       }}>
-        Step 3 — Assets
+        Step 3, Assets
       </h3>
       <p style={{
         fontSize: 'var(--font-meta)',
         color: 'var(--color-meta)',
         margin: '0 0 var(--sp-3) 0',
       }}>
-        Pick a project type — we&apos;ll suggest a starting set. Edit / add /
+        Pick a project type, we&apos;ll suggest a starting set. Edit / add /
         remove assets as needed; allocation % across all rows must sum
         to 100.
       </p>

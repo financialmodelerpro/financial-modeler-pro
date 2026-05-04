@@ -770,7 +770,7 @@ export default function Module1Financing({
         </p>
       </div>
 
-      {/* M1.9b/6 — "What goes here" callout. */}
+      {/* M1.9b/6, "What goes here" callout. */}
       <div style={{
         padding: 'var(--sp-2) var(--sp-3)',
         marginBottom: 'var(--sp-3)',
@@ -784,7 +784,7 @@ export default function Module1Financing({
           capitalization, repayment method (bullet / amortising), and
           the resulting drawdown / repayment schedules.{' '}
           <strong style={{ color: 'var(--color-heading)' }}>Not here:</strong>{' '}
-          development cost line items (Dev Costs), revenue (Module 2 —
+          development cost line items (Dev Costs), revenue (Module 2 ,
           coming next).
         </div>
       </div>
@@ -821,7 +821,7 @@ export default function Module1Financing({
           <div style={{ marginBottom: 'var(--sp-2)' }}>
             <InputLabel
               label="Financing Mode"
-              help="Fixed Debt: drawdown happens upfront in a single tranche, repaid over a fixed schedule. Line of Credit: revolving facility — debt is drawn as needed each period and repaid as cash arrives. Pick Fixed for term loans; Line for construction-loan-style flexibility."
+              help="Fixed Debt: drawdown happens upfront in a single tranche, repaid over a fixed schedule. Line of Credit: revolving facility, debt is drawn as needed each period and repaid as cash arrives. Pick Fixed for term loans; Line for construction-loan-style flexibility."
             />
             <div style={{ display: 'flex', gap: '8px' }}>
               {(['fixed', 'line'] as FinancingMode[]).map(mode => (
@@ -882,7 +882,7 @@ export default function Module1Financing({
           <div style={{ marginBottom: 'var(--sp-2)' }}>
             <InputLabel
               label="Interest Rate (% p.a.)"
-              help="Annual nominal interest rate on the debt. Internally converted to per-period rate based on Model Granularity (annual/monthly). Match to whatever your debt terms quote — most lenders quote nominal annual."
+              help="Annual nominal interest rate on the debt. Internally converted to per-period rate based on Model Granularity (annual/monthly). Match to whatever your debt terms quote, most lenders quote nominal annual."
             />
             <input
               style={inputStyle}
@@ -904,7 +904,7 @@ export default function Module1Financing({
             />
             <InputLabel
               label="Capitalize Interest During Construction"
-              help="When checked, interest accrued during the construction window is rolled into the loan principal rather than paid out of pocket. Standard practice for development financing — only flip off if your lender requires current-pay interest."
+              help="When checked, interest accrued during the construction window is rolled into the loan principal rather than paid out of pocket. Standard practice for development financing, only flip off if your lender requires current-pay interest."
             />
           </div>
         </div>

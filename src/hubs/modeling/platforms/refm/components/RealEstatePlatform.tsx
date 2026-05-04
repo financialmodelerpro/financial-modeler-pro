@@ -11,7 +11,7 @@ import type { Role, ModuleKey, PermissionMap } from '@/src/core/types/settings.t
 import { useShallow } from 'zustand/react/shallow';
 import { useSession } from 'next-auth/react';
 import { useModule1Store, DEFAULT_MODULE1_STATE, type HydrateSnapshot } from '../lib/state/module1-store';
-// Phase M1.6: hydrationFromAnySnapshot import dropped — the sync
+// Phase M1.6: hydrationFromAnySnapshot import dropped, the sync
 // module owns hydration via attachToProject / loadVersionInto. The
 // legacy toLegacySnapshot path is retained only inside the store for
 // migration use; nothing in this component needs it post-M1.6.
@@ -58,7 +58,7 @@ import { MODULES } from '../lib/modules-config';
 // one-shot migrator (lib/persistence/migrator.ts) and otherwise left
 // untouched for user-side verification.
 //
-// Per-project `versions` map is populated lazily — only the
+// Per-project `versions` map is populated lazily, only the
 // currently-active project's version metadata is fetched. Other
 // project cards in the picker show their `version_count` (from the
 // list endpoint) but their `versions` dict stays empty.
@@ -198,12 +198,12 @@ export const sidebarModules: readonly SidebarNavItem[] = [
   })),
 ];
 
-// M1.9 — tabs gain a numeric `step` so the row reads as a sequence:
+// M1.9, tabs gain a numeric `step` so the row reads as a sequence:
 // users follow 1 → 5 to fill out a project end-to-end. The order
 // follows Ahmad's audit sequence (Schedule first, then Land, then
 // Build Program, then Costs, then Financing).
 //
-// M1.9b — Hierarchy tab dissolved. The tree-view editor now lives
+// M1.9b, Hierarchy tab dissolved. The tree-view editor now lives
 // nested inside Schedule (Master Holding + Sub-Project + Phase
 // CRUD via Module1Hierarchy with sections="structure") and Build
 // Program (Asset + Sub-Unit CRUD via Module1Hierarchy with
@@ -337,14 +337,14 @@ export default function RealEstatePlatform() {
 
   // Per-asset scalars derived from the assets[] array.
   //
-  // M1.10/3 — category-sum derivation. Pre-M1.10 we looked up assets by
-  // hard-coded legacy ids ('residential' / 'hospitality' / 'retail') —
+  // M1.10/3, category-sum derivation. Pre-M1.10 we looked up assets by
+  // hard-coded legacy ids ('residential' / 'hospitality' / 'retail') ,
   // wizard-created projects mint ids like 'wizardasset_1/2/3' and fell
   // through, so allocations always read 0% on the Land tab and the
   // cost seeder never ran. Now we group by `category` (Sell -> residential
   // bucket, Operate -> hospitality, Lease -> retail). When a fixture
   // happens to use the legacy ids and the category, both resolve to the
-  // same asset — snapshot-diff fixtures fall in this case (Sell+id
+  // same asset, snapshot-diff fixtures fall in this case (Sell+id
   // 'residential' etc.) so baselines stay bit-identical.
   const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a] as const)), [assets]);
   const firstByCategory = useMemo(() => {
@@ -391,7 +391,7 @@ export default function RealEstatePlatform() {
   // Per-asset cost arrays derived from the flat costs[] list. Filter by
   // the resolved category-first asset id (M1.10/3) so wizard-created
   // assets show their seeded costs. resAsset?.id falls back to the
-  // legacy literal when the asset is missing (defensive — no-ops since
+  // legacy literal when the asset is missing (defensive, no-ops since
   // the filter just returns []).
   const resAssetId  = resAsset?.id  ?? LEGACY_ASSET_IDS.residential;
   const hospAssetId = hospAsset?.id ?? LEGACY_ASSET_IDS.hospitality;
@@ -438,7 +438,7 @@ export default function RealEstatePlatform() {
   const updateAssetField = useCallback((assetId: string, patch: Partial<{ allocationPct: number; deductPct: number; efficiencyPct: number; visible: boolean }>) => {
     useModule1Store.getState().updateAsset(assetId, patch);
   }, []);
-  // M1.10/3 — setters target the resolved category-first asset (was hard-
+  // M1.10/3, setters target the resolved category-first asset (was hard-
   // coded LEGACY_ASSET_IDS.X). Setters are mostly dead code post-M1.9
   // (the global Land-tab mix UI was stripped) but Module1Costs still
   // wires per-category scalars through, and downstream code may resurface
@@ -462,11 +462,11 @@ export default function RealEstatePlatform() {
     const stamped: CostLine[] = next.map((c) => ({ ...(c as CostItem), assetId }));
     s.setCostsForAsset(assetId, stamped);
   }, []);
-  // M1.10/3 — cost setters target the resolved category-first asset id
+  // M1.10/3, cost setters target the resolved category-first asset id
   // (was hard-coded LEGACY_ASSET_IDS.X). Cost rows seeded by the
   // residentialCosts.length === 0 effect (line ~605) now stamp the
   // wizard-minted asset id, so subsequent residentialCosts filters
-  // pick them up. Legacy fixtures are unaffected — their resAsset.id
+  // pick them up. Legacy fixtures are unaffected, their resAsset.id
   // already equals LEGACY_ASSET_IDS.residential.
   const setResidentialCosts = useCallback((updater: Updater<CostItem[]>) => setCostsForAssetWrapper(resAssetId,  updater), [setCostsForAssetWrapper, resAssetId]);
   const setHospitalityCosts = useCallback((updater: Updater<CostItem[]>) => setCostsForAssetWrapper(hospAssetId, updater), [setCostsForAssetWrapper, hospAssetId]);
@@ -571,7 +571,7 @@ export default function RealEstatePlatform() {
       // Step 1: migrator (best-effort; surfaces errors via toast).
       // Toast color reflects outcome: green = clean, amber = uploaded
       // some data but hit warnings (M1.6/7: includes "snapshot shape
-      // unrecognized; uploaded as defaults" cases — silent default-
+      // unrecognized; uploaded as defaults" cases, silent default-
       // substitution would otherwise hide data loss). Console always
       // gets the full per-error breakdown.
       if (userId) {
@@ -724,7 +724,7 @@ export default function RealEstatePlatform() {
 
   // Sync the data attribute on <body>. Theme overrides in globals.css are
   // scoped to `body[data-refm-theme="dark"]` so admin and Training Hub get
-  // zero leakage — the attribute exists only while RealEstatePlatform is
+  // zero leakage, the attribute exists only while RealEstatePlatform is
   // mounted and is removed on unmount.
   useEffect(() => {
     if (typeof document === 'undefined') return;
@@ -1225,7 +1225,7 @@ export default function RealEstatePlatform() {
   // local state.
   //
   // After success we land the user on the Area Program tab (not the
-  // Hierarchy tab) since the structure is already set up — the brief's
+  // Hierarchy tab) since the structure is already set up, the brief's
   // primary UX win for this phase.
   const handleCreateProjectFromWizard = useCallback((draft: WizardDraft) => {
     (async () => {
@@ -1279,7 +1279,7 @@ export default function RealEstatePlatform() {
       // `pclient.createProject`. Calling `attachSyncToProject(pid)`
       // here would re-fetch and pass the result through
       // `hydrationFromAnySnapshot`, whose `isNewV3` recogniser
-      // requires `version === 3` — wizard snapshots are bare
+      // requires `version === 3`, wizard snapshots are bare
       // HydrateSnapshot without that discriminator, so the
       // recogniser falls through to DEFAULT_MODULE1_STATE and
       // silently wipes the wizard structure (3 assets / 1 plot /
@@ -1348,8 +1348,8 @@ export default function RealEstatePlatform() {
 
   // Open the edit modal, optionally for a specific project from the
   // list. When `pid` is provided, also makes that project the active
-  // one so the modal — which reads `activeProjectData` for its
-  // prefilled values — shows the right content.
+  // one so the modal, which reads `activeProjectData` for its
+  // prefilled values, shows the right content.
   const handleEditProjectClick = useCallback((pid?: string) => {
     if (pid && pid !== activeProjectId) {
       setActiveProjectId(pid);
@@ -1654,7 +1654,7 @@ export default function RealEstatePlatform() {
             </div>
 
             {/* M1.5/11: Sub-Project + Phase context selectors. Shown
-               only on the legacy non-Hierarchy tabs — the Hierarchy
+               only on the legacy non-Hierarchy tabs, the Hierarchy
                tab is the canonical CRUD surface for both lists, so
                putting the selectors there too would be redundant.
                Hidden when the project has 0 sub-projects or 0 phases

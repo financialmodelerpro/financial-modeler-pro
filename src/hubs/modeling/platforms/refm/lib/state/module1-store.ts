@@ -63,7 +63,7 @@ export interface Module1Store {
   // A Plot owns the physical envelope (area, FAR, coverage, floors,
   // parking config) beneath a Phase. Zones are optional logical sub-
   // divisions of a Plot. Both default to empty for brand-new and
-  // legacy projects — assets only enter the Area Program cascade once
+  // legacy projects, assets only enter the Area Program cascade once
   // they pick up a plotId via the Area Program tab (M1.7/5).
   plots: Plot[];
   zones: Zone[];
@@ -96,7 +96,7 @@ export interface Module1Store {
   nextCostId: number;
 
   // V14 stage / scope / dev-fee maps (keyed by cost.id, kept global per
-  // legacy semantics — see RealEstatePlatform.tsx commentary on cost id
+  // legacy semantics, see RealEstatePlatform.tsx commentary on cost id
   // collisions across assets being intentional in V14).
   costStage: Record<number, number>;
   costScope: Record<number, string>;
@@ -118,7 +118,7 @@ export interface Module1Store {
   // this field absent (=> undefined => Hierarchy tab falls back to the
   // existing show-all-layers behavior). User-driven actions on the
   // Hierarchy tab (Enable Master Holding / + Add Phase / + Add Plot)
-  // do NOT flip this — they reveal layers without abandoning the
+  // do NOT flip this, they reveal layers without abandoning the
   // progressive-disclosure intent for layers the user hasn't explicitly
   // touched yet. Reset to 'manual' is a separate explicit user action
   // (no UI for it in M1.8; reserved for future).
@@ -145,7 +145,7 @@ export interface Module1Store {
   addPhase: (phase: Phase) => void;
   removePhase: (id: string) => void;
 
-  // Master Holding actions (singleton — toggle enabled to show / hide)
+  // Master Holding actions (singleton, toggle enabled to show / hide)
   setMasterHolding: (mh: MasterHolding) => void;
   updateMasterHolding: (patch: Partial<MasterHolding>) => void;
 
@@ -164,7 +164,7 @@ export interface Module1Store {
   // Plot actions (M1.7). removePlot cascades: any zone whose plotId
   // matches the deleted plot is dropped, and any asset whose plotId or
   // zoneId pointed into the removed plot has those fields cleared
-  // (NOT deleted — the asset itself survives, it just leaves the area-
+  // (NOT deleted, the asset itself survives, it just leaves the area-
   // program cascade until reassigned). costs / sub-units stay attached
   // to their assets, so cost data the user entered is preserved.
   setPlots: (plots: Plot[]) => void;
@@ -203,7 +203,7 @@ export interface Module1Store {
 // ── Hydration shape ────────────────────────────────────────────────────────
 // The project-state slice of the store. Persisted to disk on save and
 // restored on load. activeSubProjectId / activePhaseId / activePlotId
-// are intentionally excluded — they are UI-only and reset to the first
+// are intentionally excluded, they are UI-only and reset to the first
 // available sub-project / phase / plot whenever a snapshot loads.
 //
 // M1.7 added plots[] and zones[] to the persisted shape. Pre-M1.7
@@ -223,7 +223,7 @@ export type HydrateSnapshot = Pick<Module1Store,
 
 // ── Defaults ────────────────────────────────────────────────────────────────
 // Brand-new project defaults (post Phase M1.5/5): 1 SubProject + 1
-// Phase + ZERO assets. The legacy 3-asset seed is gone — the Hierarchy
+// Phase + ZERO assets. The legacy 3-asset seed is gone, the Hierarchy
 // tab is now the canonical place to add the project's first assets, and
 // RealEstatePlatform routes new projects (assets.length === 0) onto it
 // as the default landing tab. Existing v2 / v3 snapshots still
@@ -351,9 +351,9 @@ export function createModule1Store() {
       // Cascade: drop phases / plots / zones / assets / costs / sub-
       // units owned by the removed sub-project. Active selectors that
       // pointed into the removed sub-project get reset to the first
-      // remaining one (or the default ids if no sub-projects remain —
+      // remaining one (or the default ids if no sub-projects remain ,
       // UI must render an empty-state in that case). M1.7: plots /
-      // zones cascade through the dropped phases — every plot
+      // zones cascade through the dropped phases, every plot
       // scoped to a phase that disappears also disappears, taking
       // its zones with it.
       const droppedPhaseIds = new Set(s.phases.filter(p => p.subProjectId === id).map(p => p.id));
@@ -385,7 +385,7 @@ export function createModule1Store() {
     // ── Plot CRUD (M1.7). removePlot is the heaviest cascade in the
     // store: drop owned zones, clear plot/zone bindings on assets that
     // pointed into the removed plot, and clamp activePlotId. Costs and
-    // sub-units stay attached to their parent assets — the asset itself
+    // sub-units stay attached to their parent assets, the asset itself
     // survives, it just exits the area-program cascade. ──
     setPlots:    (plots) => set({ plots }),
     addPlot:     (plot)  => set((s) => ({ plots: [...s.plots, plot] })),
