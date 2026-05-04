@@ -1296,7 +1296,30 @@ function QuickSetupWizard({ initial, onCreate, onSwitchToManual, onClose }: Quic
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
-export default function Module1Hierarchy() {
+// ── M1.9b: section-slicing prop ─────────────────────────────────────────────
+// 'all'       — full tree-view (legacy behavior; this is what the
+//               standalone Hierarchy tab used to render before M1.9b/4).
+// 'structure' — mounted from the Schedule tab. Hides the page header /
+//               first-time gate / footer hint and replaces the Asset +
+//               Sub-Unit subtrees inside each Phase with a compact
+//               "Edit assets in Build Program" stub. Master Holding +
+//               Sub-Project + Phase editors stay fully editable.
+// 'assets'    — mounted from the Build Program tab. Hides the page
+//               header / first-time gate / footer hint / Master Holding
+//               card / Sub-Project metadata. Sub-Project + Phase
+//               headings collapse to slim context labels; Asset +
+//               Sub-Unit subtrees stay fully editable.
+//
+// The render tree itself is unchanged — only top-level visibility gates
+// are added. Hierarchy's existing CRUD orchestration (editingId,
+// editingPhaseId, editingAssetId, editingSubUnitId, cascade-aware
+// removes) still drives every editor regardless of mode.
+export interface Module1HierarchyProps {
+  sections?: 'all' | 'structure' | 'assets';
+}
+
+export default function Module1Hierarchy({ sections }: Module1HierarchyProps = {}) {
+  const sectionsMode: 'all' | 'structure' | 'assets' = sections ?? 'all';
   const { masterHolding, subProjects, phases, assets, subUnits, currency, projectName, hierarchyDisclosure } = useModule1Store(useShallow((s) => ({
     masterHolding: s.masterHolding,
     subProjects:   s.subProjects,
@@ -1815,7 +1838,9 @@ export default function Module1Hierarchy() {
         </div>
       )}
 
-      {/* Header */}
+      {/* Header — full-render only. Schedule + Build Program host their
+         own page-level h2 and don't want a second one nested inside. */}
+      {sectionsMode === 'all' && (
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h2 style={{ fontSize: 'var(--font-section)', fontWeight: 'var(--fw-bold)', color: 'var(--color-heading)', margin: '0 0 4px' }}>
           🗂️ Project Hierarchy
@@ -1927,6 +1952,7 @@ export default function Module1Hierarchy() {
           </button>
         </div>
       </div>
+      )}
 
       {/* M1.5b/2: scroll sentinel for the sticky breadcrumb. The
          IntersectionObserver in the component body fires when this
@@ -1938,8 +1964,11 @@ export default function Module1Hierarchy() {
          Brand-new project (zero sub-projects) AND user hasn't opted into
          manual mode → show a single centered CTA card instead of the
          full tree. This skips both the MH card AND the empty Sub-
-         Projects block so the user sees one clear next step. */}
-      {(subProjects.length === 0 && !manualMode) ? (
+         Projects block so the user sees one clear next step.
+         M1.9b: gate to 'all' mode only — Schedule + Build Program show
+         their own initial-state copy when the project is empty, so this
+         centered CTA would be a duplicate. */}
+      {(sectionsMode === 'all' && subProjects.length === 0 && !manualMode) ? (
         <div
           role="region"
           aria-label="Set up your project structure"
@@ -2014,8 +2043,11 @@ export default function Module1Hierarchy() {
          Hierarchy tab (M1.8/7) is the explicit opt-in for users who
          later want to convert to a fund structure. 'manual' mode
          (legacy projects) keeps showing the card unconditionally so
-         existing UX is preserved exactly. */}
-      {!hideMHWhenDisabled && (
+         existing UX is preserved exactly.
+         M1.9b: 'assets' mode (mounted in Build Program) hides MH —
+         that's a structural concern that lives on Schedule, not on
+         the per-asset/per-sub-unit editor surface. */}
+      {sectionsMode !== 'assets' && !hideMHWhenDisabled && (
       <div style={{
         ...cardBase,
         borderLeft: `4px solid ${masterHolding.enabled ? tokens.mhAccent : `color-mix(in srgb, ${tokens.mhAccent} 30%, var(--color-border))`}`,
@@ -2214,8 +2246,31 @@ export default function Module1Hierarchy() {
                         />
                       )}
 
-                      {/* ── Assets under this Phase ── */}
-                      {!phCollapsed && (
+                      {/* ── Assets under this Phase ──
+                         M1.9b: hide the Asset + Sub-Unit subtree when
+                         mounted in Schedule (sections="structure") —
+                         users edit assets on Build Program in that
+                         mode. Replaced with a slim "Edit assets in
+                         Build Program" stub below so the Phase row
+                         still telegraphs the count. */}
+                      {sectionsMode === 'structure' && !phCollapsed && (
+                        <div style={{
+                          marginTop: 6, marginLeft: 'var(--sp-3)',
+                          padding: '8px 12px',
+                          background: 'color-mix(in srgb, var(--color-meta) 4%, var(--color-surface))',
+                          border: '1px dashed var(--color-border)',
+                          borderRadius: 6,
+                          fontSize: 'var(--font-meta)',
+                          color: 'var(--color-meta)',
+                        }}>
+                          🧱 {phaseAssets.length} asset{phaseAssets.length === 1 ? '' : 's'}
+                          {' · '}
+                          <span style={{ color: 'var(--color-heading)', fontWeight: 'var(--fw-semibold)' }}>
+                            Edit assets in Build Program
+                          </span>
+                        </div>
+                      )}
+                      {sectionsMode !== 'structure' && !phCollapsed && (
                       <div style={indentBlockStyle(tokens.assetAccent)}>
                         {phaseAssets.length === 0 && editingAssetId !== `asset__new__:${phase.id}` && (
                           <div
@@ -2459,8 +2514,10 @@ export default function Module1Hierarchy() {
           );
         })}
 
-        {/* ── Add Sub-Project ── */}
-        {editingId === '__new__' ? (
+        {/* ── Add Sub-Project ──
+           M1.9b: hide in 'assets' mode — adding a new sub-project is
+           a structural action that belongs on Schedule. */}
+        {sectionsMode !== 'assets' && (editingId === '__new__' ? (
           <div style={{ ...cardBase, borderLeft: `4px dashed ${tokens.subProjAccent}` }}>
             <div style={tierLabelStyle(tokens.subProjAccent)}>New Sub-Project</div>
             <SubProjectEditor
@@ -2505,13 +2562,16 @@ export default function Module1Hierarchy() {
               ⚡ via Wizard
             </button>
           </div>
-        )}
+        ))}
       </div>
 
-      {/* Footer hint */}
+      {/* Footer hint — full-render only. Schedule + Build Program have
+         their own bottom-of-tab cues. */}
+      {sectionsMode === 'all' && (
       <p style={{ marginTop: 'var(--sp-3)', fontSize: 'var(--font-meta)', color: 'var(--color-meta)', fontStyle: 'italic', textAlign: 'center' }}>
         Tip: hover any tier label's ⓘ for an explainer. Use the chevrons to collapse a busy tree. The breadcrumb at the top tracks your active Sub-Project + Phase.
       </p>
+      )}
       </>
       )}
 
