@@ -249,143 +249,63 @@ export default function Module1Area({
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-2)' }}>
-
-        {/* Site Parameters */}
-        <div className="module-card" style={{ padding: 'var(--sp-3)' }}>
-          <h3 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--sp-2)', marginTop: 0 }}>
-            Site Parameters
-          </h3>
-
-          {[
-            { label: 'Project Roads / Infrastructure %', value: projectRoadsPct, setter: setProjectRoadsPct, suffix: '%', min: 0, max: 50, step: 0.5 },
-            { label: 'Floor Area Ratio (FAR)',            value: projectFAR,      setter: setProjectFAR,      suffix: '',  min: 0, max: 10, step: 0.1 },
-            { label: 'Non-Enclosed Area %',               value: projectNonEnclosedPct, setter: setProjectNonEnclosedPct, suffix: '%', min: 0, max: 100, step: 1 },
-          ].map(row => (
-            <div key={row.label} style={{ marginBottom: 'var(--sp-2)' }}>
-              <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-body)', marginBottom: '5px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                {row.label}
-              </label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input
-                  style={{ ...inputStyle, flex: 1 }}
-                  type="number"
-                  min={row.min}
-                  max={row.max}
-                  step={row.step}
-                  value={row.value}
-                  onChange={e => row.setter(Number(e.target.value))}
-                  disabled={readOnly}
-                />
-                {row.suffix && <span style={{ color: 'var(--color-meta)', fontSize: 'var(--font-meta)' }}>{row.suffix}</span>}
-              </div>
-            </div>
-          ))}
-        </div>
-
-        {/* Asset Mix */}
-        <div className="module-card" style={{ padding: 'var(--sp-3)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--sp-2)' }}>
-            <h3 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0 }}>
-              Asset Mix
-            </h3>
-            <span style={{
-              fontSize: '10px', fontWeight: 700, padding: '2px 8px',
-              borderRadius: '20px',
-              background: assetMixValid
-                ? 'color-mix(in srgb, var(--color-success) 12%, transparent)'
-                : 'color-mix(in srgb, var(--color-negative) 12%, transparent)',
-              color: assetMixValid ? 'var(--color-success)' : 'var(--color-negative)',
-            }}>
-              {assetMixTotal.toFixed(0)}% {assetMixValid ? '✓' : '⚠'}
-            </span>
-          </div>
-
-          {showResidential && (
-            <div style={{ marginBottom: 'var(--sp-2)' }}>
-              <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-navy)', marginBottom: '5px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                🏠 Residential %
-              </label>
-              <input style={inputStyle} type="number" min={0} max={100} value={residentialPercent}
-                onChange={e => setResidentialPercent(Number(e.target.value))} disabled={readOnly} />
-            </div>
-          )}
-
-          {showHospitality && (
-            <div style={{ marginBottom: 'var(--sp-2)' }}>
-              <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-navy-mid)', marginBottom: '5px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                🏨 Hospitality %
-              </label>
-              <input style={inputStyle} type="number" min={0} max={100} value={hospitalityPercent}
-                onChange={e => setHospitalityPercent(Number(e.target.value))} disabled={readOnly} />
-            </div>
-          )}
-
-          <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-retail)', marginBottom: '5px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-              🏪 Retail %
-            </label>
-            <input style={inputStyle} type="number" min={0} max={100} value={retailPercent}
-              onChange={e => setRetailPercent(Number(e.target.value))} disabled={readOnly} />
-          </div>
-
-          {!assetMixValid && (
-            <div className="alert-error" style={{ marginTop: 'var(--sp-1)' }}>
-              ⚠ Asset mix must total 100%. Currently {assetMixTotal.toFixed(1)}%.
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Deduction & Efficiency */}
-      <div className="module-card" style={{ padding: 'var(--sp-3)', marginTop: 'var(--sp-2)' }}>
+      {/* M1.9: Asset Mix + Deduction & Efficiency panels removed.
+          The per-category mix (residential/hospitality/retail %) and
+          per-category deduct/efficiency are now derived transparently
+          from per-asset state at the platform layer (see
+          RealEstatePlatform.tsx — residentialPercent = resAsset.allocationPct).
+          Edits live on the Asset card under the Hierarchy tab; the Area
+          Hierarchy table below renders the resulting cascade so users
+          can verify the math. */}
+      <div className="module-card" style={{ padding: 'var(--sp-3)' }}>
         <h3 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--sp-2)', marginTop: 0 }}>
-          Deduction &amp; Efficiency Factors
+          Site Parameters
         </h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 'var(--sp-2)' }}>
-          {showResidential && (
-            <>
-              <div>
-                <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-navy)', marginBottom: '5px', display: 'block' }}>Residential Deduct %</label>
-                <input style={inputStyle} type="number" min={0} max={50} value={residentialDeductPct}
-                  onChange={e => setResidentialDeductPct(Number(e.target.value))} disabled={readOnly} />
-              </div>
-              <div>
-                <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-navy)', marginBottom: '5px', display: 'block' }}>Residential Efficiency %</label>
-                <input style={inputStyle} type="number" min={50} max={100} value={residentialEfficiency}
-                  onChange={e => setResidentialEfficiency(Number(e.target.value))} disabled={readOnly} />
-              </div>
-            </>
-          )}
-          {showHospitality && (
-            <>
-              <div>
-                <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-navy-mid)', marginBottom: '5px', display: 'block' }}>Hospitality Deduct %</label>
-                <input style={inputStyle} type="number" min={0} max={50} value={hospitalityDeductPct}
-                  onChange={e => setHospitalityDeductPct(Number(e.target.value))} disabled={readOnly} />
-              </div>
-              <div>
-                <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-navy-mid)', marginBottom: '5px', display: 'block' }}>Hospitality Efficiency %</label>
-                <input style={inputStyle} type="number" min={50} max={100} value={hospitalityEfficiency}
-                  onChange={e => setHospitalityEfficiency(Number(e.target.value))} disabled={readOnly} />
-              </div>
-            </>
-          )}
-          {showRetail && (
-            <>
-              <div>
-                <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-retail)', marginBottom: '5px', display: 'block' }}>Retail Deduct %</label>
-                <input style={inputStyle} type="number" min={0} max={50} value={retailDeductPct}
-                  onChange={e => setRetailDeductPct(Number(e.target.value))} disabled={readOnly} />
-              </div>
-              <div>
-                <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-retail)', marginBottom: '5px', display: 'block' }}>Retail Efficiency %</label>
-                <input style={inputStyle} type="number" min={50} max={100} value={retailEfficiency}
-                  onChange={e => setRetailEfficiency(Number(e.target.value))} disabled={readOnly} />
-              </div>
-            </>
-          )}
+
+        {[
+          { label: 'Project Roads / Infrastructure %', value: projectRoadsPct, setter: setProjectRoadsPct, suffix: '%', min: 0, max: 50, step: 0.5 },
+          { label: 'Floor Area Ratio (FAR)',            value: projectFAR,      setter: setProjectFAR,      suffix: '',  min: 0, max: 10, step: 0.1 },
+          { label: 'Non-Enclosed Area %',               value: projectNonEnclosedPct, setter: setProjectNonEnclosedPct, suffix: '%', min: 0, max: 100, step: 1 },
+        ].map(row => (
+          <div key={row.label} style={{ marginBottom: 'var(--sp-2)' }}>
+            <label style={{ fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-body)', marginBottom: '5px', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              {row.label}
+            </label>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                style={{ ...inputStyle, flex: 1 }}
+                type="number"
+                min={row.min}
+                max={row.max}
+                step={row.step}
+                value={row.value}
+                onChange={e => row.setter(Number(e.target.value))}
+                disabled={readOnly}
+              />
+              {row.suffix && <span style={{ color: 'var(--color-meta)', fontSize: 'var(--font-meta)' }}>{row.suffix}</span>}
+            </div>
+          </div>
+        ))}
+
+        <div style={{
+          fontSize: 'var(--font-meta)',
+          color: 'var(--color-meta)',
+          marginTop: 'var(--sp-2)',
+          paddingTop: 'var(--sp-2)',
+          borderTop: '1px solid var(--color-border)',
+          lineHeight: 1.5,
+        }}>
+          <strong style={{ color: 'var(--color-heading)' }}>Where did Asset Mix go?</strong> Per-category allocation
+          (Residential / Hospitality / Retail %) and per-category deduct
+          / efficiency now live on each asset card under the
+          <strong> Hierarchy</strong> tab. The Area Hierarchy table below
+          rolls those edits up automatically — no duplicate input here.
         </div>
+        {!assetMixValid && (
+          <div className="alert-error" style={{ marginTop: 'var(--sp-2)' }}>
+            ⚠ Asset allocations sum to {assetMixTotal.toFixed(1)}% (must = 100). Adjust per-asset allocation on the Hierarchy tab.
+          </div>
+        )}
       </div>
 
       {/* Area Hierarchy Output — calculated panel (FAST formula grey-pale + heading) */}
