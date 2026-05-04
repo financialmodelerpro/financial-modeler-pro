@@ -9,7 +9,20 @@
 
 ---
 
-## STRICT SESSION RULES — READ FIRST
+## STRICT SESSION RULES, READ FIRST
+
+### Writing rule: NEVER use em-dashes
+
+**NEVER use em-dashes (the long dash, U+2014) anywhere.** This applies to ALL output: code, code comments, UI strings, JSX text, tooltips, error messages, commit messages, documentation markdown, prompts, agent briefs, anything.
+
+Use one of these instead, depending on intent:
+- A comma, when separating clauses (most common substitute).
+- A colon, when introducing a list or definition.
+- Parentheses, for asides.
+- "and" or "or" or "and/or", when joining alternatives.
+- A period plus new sentence, when the second clause stands alone.
+
+The codebase has 2,221 existing em-dashes (M1.11 audit). They are being swept out under M1.11. Do not introduce new ones.
 
 ### Scoping: Read ONLY the files for your task domain
 
