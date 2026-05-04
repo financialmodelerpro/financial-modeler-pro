@@ -72,10 +72,20 @@ export interface WizardDraftAsset {
 // Single source of truth for everything the user has entered so far.
 // Held in this component's local useState; never leaks to the store
 // until commit on Step 3.
+//
+// M1.9 expansion (2026-05-04):
+//   - `country` joins `currency` in Step 1 so the wizard captures the
+//     country that auto-derives the currency. The Schedule tab no longer
+//     re-asks for it (single source of truth).
+//   - `constructionPeriods` / `operationsPeriods` / `overlapPeriods` join
+//     Step 2 so the wizard captures the project timeline upfront. Phase
+//     timing flows into every wizard-built phase via buildWizardSnapshot
+//     (each phase inherits the project-level window the user picked).
 export interface WizardDraft {
   // Step 1
   name:        string;
   location:    string;
+  country:     string;       // M1.9 — country name from COUNTRY_DATA; drives currency auto-fill
   currency:    string;
   modelType:   ModelType;
   startDate:   string;       // YYYY-MM-DD
@@ -85,6 +95,13 @@ export interface WizardDraft {
   enableMasterHolding: boolean;
   phaseCount:          number;   // 1..10
   plotCount:           number;   // 1..20
+  // M1.9 — project timeline captured upfront. Default to the legacy
+  // single-phase window (4 / 5 / 0). Stored in periods (months for
+  // monthly model, years for annual). Wizard renders the unit hint
+  // beside each input so users don't have to guess.
+  constructionPeriods: number;
+  operationsPeriods:   number;
+  overlapPeriods:      number;
 
   // Step 3
   wizardProjectType: WizardProjectType;
@@ -151,6 +168,7 @@ export function makeWizardDefaultDraft(): WizardDraft {
   return {
     name:                '',
     location:            '',
+    country:             'Saudi Arabia',  // M1.9 — drives currency auto-fill
     currency:            'SAR',
     modelType:           'annual',
     startDate:           todayPlus6MonthsIso(),
@@ -158,6 +176,11 @@ export function makeWizardDefaultDraft(): WizardDraft {
     enableMasterHolding: false,
     phaseCount:          1,
     plotCount:           1,
+    // M1.9 — legacy single-phase window: 4 + 5 + 0. Wizard label shows
+    // unit hint (years/months) so users adjust without guessing the model.
+    constructionPeriods: 4,
+    operationsPeriods:   5,
+    overlapPeriods:      0,
     wizardProjectType:   'Mixed-Use',
     // Pre-seed with the Mixed-Use defaults so Step 3 opens with a
     // populated list. The user can change the project type at any time
@@ -182,6 +205,7 @@ function isDraftDirty(d: WizardDraft, seed: WizardDraft): boolean {
   return (
     d.name !== seed.name ||
     d.location !== seed.location ||
+    d.country !== seed.country ||
     d.currency !== seed.currency ||
     d.modelType !== seed.modelType ||
     d.startDate !== seed.startDate ||
@@ -189,6 +213,9 @@ function isDraftDirty(d: WizardDraft, seed: WizardDraft): boolean {
     d.enableMasterHolding !== seed.enableMasterHolding ||
     d.phaseCount !== seed.phaseCount ||
     d.plotCount !== seed.plotCount ||
+    d.constructionPeriods !== seed.constructionPeriods ||
+    d.operationsPeriods !== seed.operationsPeriods ||
+    d.overlapPeriods !== seed.overlapPeriods ||
     d.wizardProjectType !== seed.wizardProjectType ||
     assetSignature(d.assets) !== assetSignature(seed.assets)
   );
@@ -283,7 +310,9 @@ export default function ProjectWizard({ onCreate, onClose }: ProjectWizardProps)
   // Steps 2/3 will tighten validation in their respective commits.
   const step1Valid = draft.name.trim().length > 0 && draft.location.trim().length > 0;
   const step2Valid = draft.phaseCount >= 1 && draft.phaseCount <= 10
-    && draft.plotCount >= 1 && draft.plotCount <= 20;
+    && draft.plotCount >= 1 && draft.plotCount <= 20
+    && draft.constructionPeriods >= 1 && draft.operationsPeriods >= 1
+    && draft.overlapPeriods >= 0 && draft.overlapPeriods <= draft.constructionPeriods;
   // Step 3 valid: at least 1 asset AND total allocation sums to exactly
   // 100%. Allow a tiny float tolerance (0.01) so the auto-balance helper
   // doesn't trap users with 33.33 + 33.33 + 33.34 = 100.00 rounding.
@@ -502,19 +531,25 @@ function Step1Basics({ draft, setDraft }: Step1Props) {
           />
         </label>
 
-        {/* Currency + Start Date row */}
+        {/* Country + Start Date row (M1.9 — country drives currency
+            auto-fill so the wizard captures both fields with one
+            choice; the Schedule tab no longer re-asks). */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-2)' }}>
           <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={labelTextStyle}>Currency</span>
+            <span style={labelTextStyle}>Country</span>
             <select
-              value={draft.currency}
-              onChange={e => setDraft(prev => ({ ...prev, currency: e.target.value }))}
-              data-testid="wizard-currency"
+              value={draft.country}
+              onChange={e => {
+                const next = COUNTRY_DATA.find(c => c.name === e.target.value);
+                if (!next) return;
+                setDraft(prev => ({ ...prev, country: next.name, currency: next.currency }));
+              }}
+              data-testid="wizard-country"
               style={wizardInputStyle}
             >
               {COUNTRY_DATA.map(c => (
-                <option key={c.currency} value={c.currency}>
-                  {c.flag} {c.currency} — {c.name}
+                <option key={c.name} value={c.name}>
+                  {c.flag} {c.name} — {c.currency}
                 </option>
               ))}
             </select>
@@ -779,6 +814,80 @@ function Step2Structure({ draft, setDraft }: Step2Props) {
               <span>(2–20)</span>
             </label>
           )}
+        </div>
+
+        {/* Q4: Timeline (M1.9). Capture construction + operations + overlap
+            upfront so the user is never asked again on the Schedule tab.
+            Unit suffix follows the model granularity from Step 1 (months
+            or years). Each phase the wizard mints inherits this window
+            via buildWizardSnapshot. */}
+        <div>
+          <span style={labelTextStyle}>Project Timeline</span>
+          <div style={{
+            fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 2,
+          }}>
+            How long does construction run, and how long do you model
+            operations afterwards? You can adjust per phase later.
+          </div>
+          <div style={{
+            display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
+            gap: 'var(--sp-2)', marginTop: 8,
+          }}>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ ...labelTextStyle, fontSize: 11 }}>
+                Construction ({draft.modelType === 'monthly' ? 'months' : 'years'})
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={draft.modelType === 'monthly' ? 240 : 20}
+                value={draft.constructionPeriods}
+                onChange={e => {
+                  const v = parseInt(e.target.value, 10);
+                  if (Number.isNaN(v) || v < 1) return;
+                  setDraft(prev => ({ ...prev, constructionPeriods: v }));
+                }}
+                data-testid="wizard-construction-periods"
+                style={wizardInputStyle}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ ...labelTextStyle, fontSize: 11 }}>
+                Operations ({draft.modelType === 'monthly' ? 'months' : 'years'})
+              </span>
+              <input
+                type="number"
+                min={1}
+                max={draft.modelType === 'monthly' ? 600 : 50}
+                value={draft.operationsPeriods}
+                onChange={e => {
+                  const v = parseInt(e.target.value, 10);
+                  if (Number.isNaN(v) || v < 1) return;
+                  setDraft(prev => ({ ...prev, operationsPeriods: v }));
+                }}
+                data-testid="wizard-operations-periods"
+                style={wizardInputStyle}
+              />
+            </label>
+            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+              <span style={{ ...labelTextStyle, fontSize: 11 }}>
+                Overlap ({draft.modelType === 'monthly' ? 'months' : 'years'})
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={draft.constructionPeriods}
+                value={draft.overlapPeriods}
+                onChange={e => {
+                  const v = parseInt(e.target.value, 10);
+                  if (Number.isNaN(v) || v < 0) return;
+                  setDraft(prev => ({ ...prev, overlapPeriods: v }));
+                }}
+                data-testid="wizard-overlap-periods"
+                style={wizardInputStyle}
+              />
+            </label>
+          </div>
         </div>
       </div>
     </div>

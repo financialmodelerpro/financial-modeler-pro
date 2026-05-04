@@ -130,21 +130,27 @@ export function buildWizardSnapshot(draft: WizardDraft): BuildWizardSnapshotResu
   };
 
   // ── Phases (phaseCount of them; first is Phase 1 with canonical id) ──
+  // M1.9: each phase inherits the user-picked timeline (construction +
+  // operations + overlap) from Step 2. Pre-M1.9 wizards borrowed the
+  // legacy single-phase default (4 / 5 / 0) — those fields now live on
+  // the draft itself, defaulting to the same 4 / 5 / 0 window so prior
+  // behavior is preserved when the user accepts defaults.
   const phases: Phase[] = [];
-  // Borrow timing scalars from DEFAULT_MODULE1_STATE.phases[0] so
-  // wizard-created phases inherit the same construction/operations
-  // window the legacy single-phase default uses (4 + 5 + 0).
   const seedPhase = DEFAULT_MODULE1_STATE.phases[0];
+  const wizardConstruction = draft.constructionPeriods > 0 ? draft.constructionPeriods : seedPhase.constructionPeriods;
+  const wizardOperations   = draft.operationsPeriods   > 0 ? draft.operationsPeriods   : seedPhase.operationsPeriods;
+  const wizardOverlap      = Math.max(0, Math.min(draft.overlapPeriods, wizardConstruction));
+  const wizardOpsStart     = Math.max(1, wizardConstruction - wizardOverlap + 1);
   for (let i = 0; i < draft.phaseCount; i++) {
     phases.push({
       id:                  phaseIdFor(i),
       name:                draft.phaseCount === 1 ? 'Phase 1' : `Phase ${i + 1}`,
       subProjectId:        subProject.id,
       constructionStart:   seedPhase.constructionStart,
-      constructionPeriods: seedPhase.constructionPeriods,
-      operationsStart:     seedPhase.operationsStart,
-      operationsPeriods:   seedPhase.operationsPeriods,
-      overlapPeriods:      seedPhase.overlapPeriods,
+      constructionPeriods: wizardConstruction,
+      operationsStart:     wizardOpsStart,
+      operationsPeriods:   wizardOperations,
+      overlapPeriods:      wizardOverlap,
     });
   }
 
@@ -206,6 +212,10 @@ export function buildWizardSnapshot(draft: WizardDraft): BuildWizardSnapshotResu
     ...DEFAULT_MODULE1_STATE,
     projectName:  draft.name.trim() || 'New Project',
     projectType,
+    // M1.9 — country joins the snapshot. Falls back to the existing
+    // DEFAULT_MODULE1_STATE.country when the wizard didn't set it (older
+    // drafts in flight when this lands won't carry the field).
+    country:      draft.country || DEFAULT_MODULE1_STATE.country,
     currency:     draft.currency,
     modelType:    draft.modelType as ModelType,
     projectStart: draft.startDate,
