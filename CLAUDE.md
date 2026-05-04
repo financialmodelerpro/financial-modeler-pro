@@ -231,14 +231,16 @@ npx tsx --env-file=.env.local scripts/verify-m19.ts   # M1.9 UX redesign (16 pas
 npx tsx --env-file=.env.local scripts/verify-m19b.ts  # M1.9b polish (19 pass / 0 fail / 2 skip without dev server; 29 pass / 0 fail / 1 skip with dev server)
 npx tsx --env-file=.env.local scripts/verify-m110.ts  # M1.10 setup-completeness (25 pass / 0 fail / 1 skip with dev server)
 npx tsx --env-file=.env.local scripts/verify-m110b.ts # M1.10b Plot Setup polish (18 pass / 0 fail / 0 skip with dev server)
+npx tsx --env-file=.env.local scripts/verify-m111.ts  # M1.11 holistic audit + fix pass (23 pass / 0 fail / 1 skip without dev server)
 
-# Playwright e2e specs (M1.8 + M1.9 + M1.9b + M1.10 + M1.10b regression-guards)
+# Playwright e2e specs (M1.8 + M1.9 + M1.9b + M1.10 + M1.10b + M1.11 regression-guards)
 npx playwright test tests/e2e/m18-wizard-repro.spec.ts     # 1 spec, wizard create does not crash
 npx playwright test tests/e2e/m18-wizard-flow.spec.ts      # 2 specs, every tab shows wizard data + reload persists
 npx playwright test tests/e2e/m19-redesign-flow.spec.ts    # 2 specs, wizard lands on Schedule tab + numbered tab row + light/dark screenshots
 npx playwright test tests/e2e/m19b-redesign-flow.spec.ts   # 2 specs, Hierarchy dissolved (1→5 tabs) + nested mounts + D7/D8 labels + What-goes-here callouts + light/dark screenshots
 npx playwright test tests/e2e/m110-flow.spec.ts            # 3 specs, Mixed-Use wizard lands clean (no 0% / no Over FAR / reconciliation row) + Plot wizard + Parcel wizard walkthroughs + screenshots
 npx playwright test tests/e2e/m110b-flow.spec.ts           # 2 specs, Plot Setup Wizard portal-centers in viewport + tooltip a11y (focus reveal, Esc dismiss) + 15-field inline form + light/dark tooltip screenshots
+npx playwright test tests/e2e/m111-full-flow.spec.ts       # 2 specs, ProjectWizard portal regression guard + full first-time flow walking 5 tabs with M1.11 fix markers + 10 light/dark tab screenshots
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -271,7 +273,15 @@ category-sum allocation derivation, wizard Step 2 fits 1080p, Land vs Plot recon
 row, modal-step Plot + Parcel setup wizards) → M1.10b (Plot Setup polish: Plot+Parcel
 wizards portal to document.body + center in viewport, inline Plot form reconciled with
 the wizard at 15 writable fields, accessible InputLabel + ⓘ tooltip primitive with
-plain-English help wired into every input across all 5 Module 1 tabs).
+plain-English help wired into every input across all 5 Module 1 tabs) → **M1.11**
+(holistic re-audit + 22 coordinated fixes: ProjectWizard portal mount, semantic Project
+Timeline Visual with multi-phase awareness, dead setters removed from Module1Area +
+Module1Timeline, asset Strategy + Zone tooltips on Build Program, parcel state-path
+unified to Zustand setLand, shared parcelFieldHelp + assetStrategyHelp modules, Dev
+Costs phase-scope explainer + cost row tooltips, Financing per-line Debt % tooltip,
+em-dash sweep across the whole repo with new writing rule prohibiting reintroduction).
+**Module 1 ships production-ready after M1.11; next phase is M2.0 (revenue, opex,
+deferred calc-engine refinements).**
 
 **M1.10 setup-completeness series (8 commits, 2026-05-05 → 2026-05-06, all snapshot diffs bit-identical):**
 - `d295dc8` 2/8: tune plot defaults so fresh plots stay inside FAR ceiling.
@@ -392,6 +402,106 @@ plain-English help wired into every input across all 5 Module 1 tabs).
   dismissal; (2) inline Plot form references all 15 writable-field
   labels + light/dark hover-driven tooltip screenshots into
   tests/screenshots/M1.10b/. Both pass (44.6s).
+
+**M1.11 holistic audit + fix pass (12 commits, 2026-05-06, all snapshot diffs bit-identical):**
+- `92dcc57` 0/12 (audit): docs/MODULE_1_AUDIT_M1.11.md, single comprehensive
+  audit document covering 7 areas (data flow, per-tab UX, visual schedule,
+  Land vs Build Program redundancy, calc reconciliation, first-time flow,
+  M1.5b through M1.10b regression check). 22 issues found (4 critical, 8
+  major, 6 minor, 4 out of scope). One audit finding (C1: Status field
+  silently dropped) was a false positive on verification: `RealEstatePlatform.tsx:1248`
+  already passes `status: draft.status` to `pclient.createProject` so it
+  reaches the project record correctly. Audit commit also added the writing
+  rule "NEVER use em-dashes" to CLAUDE.md.
+- `04699cb` 1/12 (Wizard polish, C2 + M8): ProjectWizard renders via
+  createPortal to document.body with the SSR guard pattern, mirroring the
+  M1.10b/1 fix on Plot/Parcel wizards. step3Valid allocation tolerance
+  bumped from 0.01 to 0.1 so manual entry of equal thirds (33.333 x 3 =
+  99.999 in float math) passes the gate while truly wrong sums are still
+  rejected.
+- `53e13bf` 2/12 (Schedule, C3): Project Timeline Visual rebuild as a
+  dedicated `components/ui/ProjectTimelineVisual.tsx` component. Renders
+  4 boundary date labels (Project start, Operations start, Construction
+  end, Project end) inline on the axis, plus an Overlap window callout
+  when overlap > 0. Multi-phase aware: subscribes to phases via useShallow
+  and renders one bar per phase with phase name + period range header.
+  Date math uses Intl.DateTimeFormat('en-GB') for locale-stable display.
+- `747514a` 3/12 (Land cleanup, M1 + M4 + m1): dead setters removed from
+  Module1Area + Module1Timeline props interfaces. Module1Area writes
+  landParcels via Zustand setLand directly (the prop-drilled
+  setLandParcels wrapper in RealEstatePlatform is gone). New shared
+  `lib/copy/parcelFieldHelp.ts` module exports PARCEL_FIELD_HELP keyed by
+  the 5 Parcel field names; both the inline parcel table on Module1Area
+  and ParcelSetupWizard now import from this single source of truth.
+  Wizard label "Name" canonicalised to "Parcel Name", "Rate (/sqm)" to
+  "Rate (per sqm)", inline "Rate (/{currency} per sqm)" to "Rate (per
+  sqm, {currency})".
+- `ff22059` 4/12 (Build Program, M2): Asset strategy block on the asset
+  card wrapped in InputLabel with plain-English help. New
+  `lib/copy/assetStrategyHelp.ts` module exports ASSET_STRATEGY_HELP with
+  6 keys (primaryStrategy, primaryStrategyPct, secondaryStrategy,
+  secondaryStrategyPct, zone, gfaOverride). Em-dash placeholders in
+  selects replaced ("(none)" instead of "—" for blank Secondary strategy,
+  "(no zone)" instead of "— (no zone)").
+- `347bae3` 5/12 (Dev Costs, M3 + M7a): What-goes-here callout grew a
+  Phase Scope sub-paragraph explaining how the active sub-project context
+  interacts with cost rows; per-row phase override deferred to M2.0
+  (legacy CostItem schema would need migrating to the multi-phase
+  CostLine schema, which touches the calc engine and is out of M1.11
+  scope). Cost row column headers (Cost Name, Stage/Scope, Method/Base,
+  Input Value, Start, End, Phasing) wrapped in InputLabel with plain-
+  English help.
+- `db23508` 6/12 (Financing, M7b): per-line Debt % column header on the
+  Development Costs by Line Item summary table wrapped in InputLabel
+  with help explaining when the override applies (only when Financing
+  Mode is set to per-line). Top-level Financing inputs already covered
+  by M1.10b/6.
+- `208cade` 7/12 (em-dash sweep, pass 1): 200 em-dashes removed from the
+  10 hot-path Module 1 surface files plus the supporting state, lib, and
+  ui modules. Two sed passes per file: ` em-dash ` → `, ` and bare
+  `em-dash` → `,`. Two literal-value contexts where the sweep produced a
+  meaningless comma were caught and fixed (Module1AreaProgram fmt() for
+  non-finite returns "n/a"; Zone areaSharePct placeholder is "auto").
+- `a26d992` 8/12 (em-dash sweep, pass 2): 474 em-dashes removed across
+  148 src + app + scripts + tests files. Same sed rules. Skips js/refm-platform.js
+  (legacy, 242 occurrences) and verify-m*.ts docstrings per audit policy.
+- `9453f99` 9/12 (em-dash sweep, pass 3): 712 em-dashes removed across 13
+  tracked markdown files (CLAUDE.md, CLAUDE-FEATURES.md, CLAUDE-TODO.md,
+  CLAUDE-ROUTES.md, CLAUDE-DB.md, PROJECT_HANDOFF.md, CMS_REFERENCE.md,
+  ARCHITECTURE.md, docs/MODULE_1_CAPABILITIES.md, and others). After this
+  commit the repository carries zero tracked em-dashes outside the
+  exclusion list.
+- `f757fb6` 10/12 (verifier): scripts/verify-m111.ts. 5-section verifier
+  with section 4 covering all 22 audit items via state markers (portal
+  imports, tooltip-help imports, dead-setter absence with stripCommentLines
+  to ignore docstring mentions, em-dash absence sweep). 23 pass / 0 fail
+  / 1 skip without dev server.
+- `0d89e9a` 11/12 (Playwright + screenshots): tests/e2e/m111-full-flow.spec.ts.
+  2 specs: (1) ProjectWizard portal regression guard, scrolls page to
+  bottom and asserts modal bounding box centers in 1440x900 viewport;
+  (2) full first-time flow walks the wizard then 5 tabs, asserts the C3
+  timeline-axis testId surfaces the 4 boundary labels, m1 Parcel field
+  labels are visible, M2 strategy labels are present, M3 Phase scope
+  callout is visible, then captures 10 light + dark tab screenshots into
+  tests/screenshots/M1.11/. Both pass (49.9s).
+- (this commit) 12/12 (docs sweep): CLAUDE.md M1.11 closure note, scripts
+  table entry, Playwright spec entry, Module 1 status header extended
+  with the M1.11 completion line.
+
+**M1.11 deferred to M2.0 (calc engine territory, out of scope per audit):**
+- `getSameForAllFactor` division-by-zero guard when all assets are hidden
+  (`src/core/calculations/index.ts:377-385`).
+- `projectNDA` clamp to non-negative when projectRoadsPct > 100
+  (`src/core/calculations/index.ts:156`).
+- Repayment math style: straight-line vs amortization (PMT formula).
+  Document the assumption or switch to amortization in M2.0.
+- Snapshot diff numeric tolerance: byte-for-byte JSON equality is fine
+  today (deterministic pure functions) but introduce tolerance if M2.0
+  changes any arithmetic order.
+- Per-row phaseId scope toggle on Dev Costs: requires migrating from
+  legacy CostItem to multi-phase CostLine schema; calc engine impact.
+- ProjectFAR migration from Land tab to Build Program → Plot (auto-
+  derive from per-plot maxFARs).
 
 **M1.10 deferred (not yet scoped):**
 - ProjectFAR migration from Land to Build Program → Plot (calc still
