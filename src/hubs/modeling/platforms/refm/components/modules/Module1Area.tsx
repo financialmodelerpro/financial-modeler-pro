@@ -1,8 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 import type { LandParcel, ProjectType } from '@/src/core/types/project.types';
 import { formatNumber, formatCurrency } from '@/src/core/formatters';
+import ParcelSetupWizard from '../modals/ParcelSetupWizard';
 
 interface Module1AreaProps {
   landParcels: LandParcel[]; setLandParcels: (v: LandParcel[]) => void;
@@ -90,6 +91,9 @@ export default function Module1Area({
   readOnly,
 }: Module1AreaProps) {
 
+  // M1.10/7 — opt-in parcel setup wizard. Form view stays primary.
+  const [parcelWizardOpen, setParcelWizardOpen] = useState(false);
+
   const addParcel = () => {
     const newId = Math.max(0, ...landParcels.map(p => p.id)) + 1;
     setLandParcels([...landParcels, { id: newId, name: `Land ${newId}`, area: 0, rate: 0, cashPct: 60, inKindPct: 40 }]);
@@ -118,6 +122,9 @@ export default function Module1Area({
 
   return (
     <div>
+      {/* M1.10/7 — Parcel Setup Wizard mount. Shows only when opened. */}
+      {parcelWizardOpen && <ParcelSetupWizard onClose={() => setParcelWizardOpen(false)} />}
+
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h2 style={{ fontSize: 'var(--font-section)', fontWeight: 'var(--fw-bold)', color: 'var(--color-heading)', margin: '0 0 4px' }}>
           Land &amp; Area
@@ -155,9 +162,23 @@ export default function Module1Area({
             Land Parcels (financial — what you own)
           </h3>
           {!readOnly && (
-            <button className="btn-primary rbac-action-btn" style={{ fontSize: '12px', padding: '5px 12px' }} onClick={addParcel}>
-              + Add Parcel
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => setParcelWizardOpen(true)}
+                data-testid="open-parcel-wizard"
+                style={{
+                  fontSize: '12px', padding: '5px 12px',
+                  border: '1px solid var(--color-primary)', borderRadius: 'var(--radius-sm)',
+                  background: 'var(--color-surface)', color: 'var(--color-primary)',
+                  cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: 'var(--fw-semibold)',
+                }}
+              >
+                🪄 Setup wizard
+              </button>
+              <button className="btn-primary rbac-action-btn" style={{ fontSize: '12px', padding: '5px 12px' }} onClick={addParcel}>
+                + Add Parcel
+              </button>
+            </div>
           )}
         </div>
 
