@@ -49,6 +49,7 @@ import {
   makeDefaultPlot,
   type Plot, type Zone, type AssetClass, type AssetStrategy, type SubUnit, type AssetCategory,
 } from '../../lib/state/module1-types';
+import Module1Hierarchy from './Module1Hierarchy';
 
 // ── Tokens (FAST blue convention; matches Module1Hierarchy / Costs / etc.) ──
 const inputStyle: React.CSSProperties = {
@@ -840,6 +841,32 @@ export default function Module1AreaProgram() {
       ) : (
         plots.map(p => <PlotEditor key={p.id} plot={p} allPlotsCount={plots.length} />)
       )}
+
+      {/* M1.9b/3 — asset + sub-unit detail editors mounted from the
+         dissolved Hierarchy tab. Renders Sub-Project + Phase headers
+         (slim) + every Asset card with full CRUD (name, type, category,
+         allocation %, deduct %, efficiency %, visible toggle) + every
+         Sub-Unit card with full CRUD (name, metric, metricValue,
+         unitPrice, priceEscalationPct, parkingBaysPerUnit). Master
+         Holding + structural Sub-Project/Phase add/delete live on the
+         Schedule tab; this mode hides those controls. */}
+      <div style={{ marginTop: 'var(--sp-4)' }}>
+        <h3 style={{
+          fontSize: 'var(--font-h3)', fontWeight: 'var(--fw-bold)',
+          color: 'var(--color-heading)', margin: '0 0 4px 0',
+        }}>
+          🧱 Asset &amp; Sub-Unit Detail Editor
+        </h3>
+        <p style={{
+          fontSize: 'var(--font-meta)', color: 'var(--color-meta)',
+          margin: '0 0 var(--sp-2) 0', lineHeight: 1.5,
+        }}>
+          Edit each asset&apos;s inventory schedule + pricing. Add or remove
+          assets here. Structure (Sub-Project / Phase / Master Holding)
+          lives on the Schedule tab.
+        </p>
+        <Module1Hierarchy sections="assets" />
+      </div>
     </div>
   );
 }

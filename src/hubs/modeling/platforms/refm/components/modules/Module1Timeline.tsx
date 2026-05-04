@@ -24,6 +24,7 @@
 
 import React from 'react';
 import type { ModelType, ProjectType } from '@/src/core/types/project.types';
+import Module1Hierarchy from './Module1Hierarchy';
 
 interface Module1TimelineProps {
   // Identity props kept on the interface for backward compat with the
@@ -260,6 +261,31 @@ export default function Module1Timeline({
           <span style={{ fontSize: '11px', color: 'var(--color-muted)' }}>{projectStart}</span>
           <span style={{ fontSize: '11px', color: 'var(--color-muted)' }}>{endDate}</span>
         </div>
+      </div>
+
+      {/* M1.9b/2 — project structure editors mounted from the dissolved
+         Hierarchy tab. Renders Master Holding + Sub-Project list +
+         Phase-per-Sub-Project editors with their full CRUD. Asset +
+         Sub-Unit editing happens on the Build Program tab; this mode
+         shows a slim "Edit assets in Build Program" stub inside each
+         Phase row so users know where to go. */}
+      <div className="module-card" style={{ padding: 'var(--sp-3)', marginTop: 'var(--sp-3)' }}>
+        <h3 style={{
+          fontSize: '11px', fontWeight: 700, color: 'var(--color-heading)',
+          textTransform: 'uppercase', letterSpacing: '0.06em',
+          marginBottom: 'var(--sp-2)', marginTop: 0,
+        }}>
+          🗂️ Project Structure (Master Holding · Sub-Projects · Phases)
+        </h3>
+        <p style={{
+          fontSize: 'var(--font-meta)', color: 'var(--color-meta)',
+          margin: '0 0 var(--sp-2) 0', lineHeight: 1.5,
+        }}>
+          Add, rename, and delete the structural layers of your project.
+          Each Sub-Project is an independent financing unit; each Phase
+          inside it has its own construction + operations window.
+        </p>
+        <Module1Hierarchy sections="structure" />
       </div>
     </div>
   );
