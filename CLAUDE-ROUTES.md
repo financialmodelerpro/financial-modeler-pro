@@ -504,7 +504,7 @@ src/hubs/modeling/
     │   │   ├── ProjectsScreen.tsx  RealEstatePlatform.tsx  Sidebar.tsx  Topbar.tsx
     │   │   ├── modals/ (Export, Project, ProjectWizard [M1.8 2026-05-03 — replaces ProjectModal new-flow, 3-step wizard with FAST blue inputs, dirty-confirm Esc, asset matrix per project type], Rbac, Version)
     │   │   └── modules/ (Module1Area, Module1AreaProgram, Module1Costs, Module1Financing, Module1Hierarchy, Module1Timeline)
-    │   │   # Module1AreaProgram.tsx (NEW M1.7, 2026-05-02) — store-direct tab between Land & Area and Dev Costs. Plot CRUD + Zone CRUD + per-Asset Strategy / area-cascade overrides + Sub-Unit schedule with parking ratios + live computed envelope panel + per-asset cascade preview + per-plot parking summary card with deficit warning. FAST blue inputs, calc-output gray outputs. data-testid hooks (plot-card, zone-row, asset-strategy, subunit-table, parking-summary, parking-deficit) for Playwright. Subscribes to useModule1Store via useShallow + selectPlotsForPhase / selectZonesForPlot / selectAssetsForPlot / selectSubUnitsForAsset.
+    │   │   # Module1AreaProgram.tsx (NEW M1.7, 2026-05-02; M1.8 fix 4 4721e80 2026-05-04) — store-direct tab between Land & Area and Dev Costs. Plot CRUD + Zone CRUD + per-Asset Strategy / area-cascade overrides + Sub-Unit schedule with parking ratios + live computed envelope panel + per-asset cascade preview + per-plot parking summary card with deficit warning. FAST blue inputs, calc-output gray outputs. data-testid hooks (plot-card, zone-row, asset-strategy, subunit-table, parking-summary, parking-deficit) for Playwright. **Pattern (M1.8 fix 4 4721e80):** subscribes to useModule1Store via base-array selectors (`useModule1Store(s => s.X)`) + useMemo derivations rather than wrapping `s.X.filter(...)` inside `useShallow` — the older pattern returned a fresh array reference per render which tripped React's "getSnapshot should be cached" warning into a Maximum update depth loop once the store had data. Applies to all 6 derive-and-render call sites in this file (Module1AreaProgram top-level + PlotEditor + AssetStrategyRow + AssetAssignPicker + SubUnitTable + ParkingSummary).
     │   │   # Topbar.tsx hosts ☀️/🌙 dark-mode toggle (2026-04-30) — own localStorage['refmDarkMode'] key (separate from hub-level modelingDarkMode); default → prefers-color-scheme; theme scoped via body[data-refm-theme="dark"] .app-shell so it never bleeds into /admin or /training.
     │   │   # Sidebar.tsx + Dashboard.tsx (2026-04-30): both surfaces consume MODULES from ../lib/modules-config to eliminate the 1-6 vs 1-11 drift bug. Sidebar derives sidebarModules = [...STATIC_NAV, ...MODULES.map(toSidebarItem)]; Dashboard's Module Roadmap maps MODULES with longLabel + STATUS_BADGE map (4 variants done/soon/pro/enterprise routed through design tokens + color-mix).
     │   │   # OverviewScreen.tsx + ProjectsScreen.tsx + RealEstatePlatform.tsx (2026-04-30): pencil ✏️ Edit Project entry points (Overview header pencil + ProjectsScreen row pencil) gated on can('canEditProject'), wired through new handleEditProject(name, location) callback that mutates active project, syncs state, persists to localStorage refm_v2. Defensive hydration cleanup drops a stale activeProjectId if it doesn't resolve to a real project so Overview no longer silently blanks.
@@ -513,7 +513,8 @@ src/hubs/modeling/
     │       ├── modules/ (module1-setup(done), module2-6(stubs), module7-11(placeholders))
     │       ├── modules-config.ts     # NEW 2026-04-30 — single source of truth for all 11 REFM modules. Exports `MODULES: readonly ModuleConfig[]`, types `ModuleStatus = 'done' | 'soon' | 'pro' | 'enterprise'` and `ModulePlan = 'free' | 'professional' | 'enterprise'`. Per-module fields: num, key, icon, shortLabel (sidebar), longLabel (dashboard), featureKey, requiredPlan, status, disabled, disabledReason. Consumed by both Sidebar.tsx and Dashboard.tsx so adding/renaming/reordering a module requires editing one list.
     │       └── wizard/buildWizardSnapshot.ts     # NEW 2026-05-03 (Phase M1.8/5) — pure helper: WizardDraft → HydrateSnapshot. mapWizardToProjectType collapses 6 wizard display values to 3 store ProjectType values; mints 1 SubProject + N Phases + N Plots + 1 Asset per row + 1 placeholder SubUnit per asset bound to Phase 1+Plot 1; sub-unit metric per category (Sell/Operate→count, Lease→area); deduct/efficiency seeds per category (Sell 10/85, Operate 15/80, Lease 5/90, Hybrid 10/85). Stamps `hierarchyDisclosure: 'progressive'` so the Hierarchy tab hides MH when disabled.
-    # lib/persistence/module1-sync.ts (2026-05-03 hotfix M1.8 fix 3/3 5085958): NEW exported helper `attachToProjectFromLocalSnapshot(projectId, snapshot)` alongside the existing `attachToProject`. Writes active-id marker + cache + starts the auto-save subscriber WITHOUT calling `loadProject`. Used by the wizard create path where the store already holds the just-POSTed snapshot — calling the round-trip `attachToProject` would re-hydrate via `hydrationFromAnySnapshot`, whose `isNewV3` check requires `version === 3` and wipes wizard data to DEFAULT_MODULE1_STATE on a bare HydrateSnapshot. `lastSavedJson` is seeded so the first store event is a no-op (no spurious immediate re-save).
+    # lib/persistence/module1-sync.ts (2026-05-03 hotfix M1.8 fix 3/3 5085958): NEW exported helper `attachToProjectFromLocalSnapshot(projectId, snapshot)` alongside the existing `attachToProject`. Writes active-id marker + cache + starts the auto-save subscriber WITHOUT calling `loadProject`. Used by the wizard create path where the store already holds the just-POSTed snapshot. Belt-and-braces after M1.8 fix 5 (66a20f5): the underlying recogniser has been relaxed so the round-trip `attachToProject` no longer wipes wizard data, but the local-snapshot path still avoids the redundant network round-trip + hydrate.
+    # lib/state/module1-migrate.ts (M1.8 fix 5 66a20f5 2026-05-04): `isNewV3` is now SHAPE-BASED — accepts any payload with assets[] + phases[] + costs[] arrays regardless of `version` discriminator. Why: every snapshot the system POSTs (wizard create, legacy create, auto-save) is bare HydrateSnapshot with no `version: 3` field, and the strict check used to fall through to DEFAULT_MODULE1_STATE on every reload, silently wiping wizard data. v2 snapshots are still routed through migrateLegacyToNew (they have residentialCosts/hospitalityCosts/retailCosts but no flat assets[] / phases[] / costs[], so the relaxed check correctly distinguishes them).
     └── bcm/  bvm/  cfm/  erm/  eum/  fpa/  lbo/  pfm/  svm/   # Coming-soon stubs (config-driven)
 ```
 
@@ -555,6 +556,27 @@ src/core/
 ├── formatters/index.ts               # Pure number/date/string formatters
 ├── state/index.ts                    # Pure state shapes (Zustand store types)
 └── types/                            # branding.types.ts  deck.types.ts  next-auth.d.ts  project.types.ts  revenue.types.ts  scenario.types.ts  settings.types.ts
+```
+
+## `tests/` — Playwright e2e specs + screenshots
+
+```
+tests/
+├── e2e/
+│   ├── m17-area-program.spec.ts             # M1.7 verifier UI section (sign-in screenshots + /refm gate)
+│   ├── m18-wizard.spec.ts                   # M1.8 verifier UI section + 3 documented test.skip authed-session specs
+│   ├── m18-wizard-repro.spec.ts             # NEW 2026-05-04 (M1.8 fix 4 4721e80) — wizard create regression-guard. Asserts no console.error / no React boundary fallback / Area Program tab mounts after wizard create.
+│   └── m18-wizard-flow.spec.ts              # NEW 2026-05-04 (M1.8 fix 5 66a20f5) — every Module 1 tab shows wizard data (no re-prompts) + cross-tab edits propagate via shared store + reload-persists wizard data via direct window.__module1Store inspection. Catches systemic hydration wipes that the `isNewV3` recogniser used to cause.
+└── screenshots/                             # gitignored — regenerated per Playwright run
+```
+
+`tests/screenshots/`, `test-results/`, and `playwright-report/` are gitignored. Snapshot baselines (`tests/snapshots/module1-*-baseline.json`) and fixtures (`tests/fixtures/module1-*.json`) ARE committed.
+
+## `app/test-fixtures/` — dev-only Playwright mount points
+
+```
+app/test-fixtures/
+└── m18-wizard/page.tsx                      # NEW 2026-05-04 — mounts RealEstatePlatform inside a stubbed NextAuth SessionProvider so Playwright skips the production /refm auth gate + Coming-Soon layout guard. Returns notFound() in production builds. Exposes useModule1Store on `window.__module1Store` so specs can read store state directly (more reliable than driving the topbar/sidebar to surface a tab).
 ```
 
 ## Deleted artifacts (kept for searchability)

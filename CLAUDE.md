@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-05-03**
+**Last updated: 2026-05-04**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md) — Database tables, storage buckets, migrations log
@@ -213,7 +213,11 @@ npx tsx scripts/module1-areaprogram-diff.ts     # M1.7 Area Program, 2.8 KB base
 
 # Per-phase verifier (5 sections: DB / routes / calc / state / Playwright UI)
 npx tsx --env-file=.env.local scripts/verify-m17.ts   # M1.7 Area Program (25 pass / 0 fail / 2 skip without dev server)
-npx tsx --env-file=.env.local scripts/verify-m18.ts   # M1.8 Smart Project Wizard (13 pass / 0 fail / 2 skip without dev server)
+npx tsx --env-file=.env.local scripts/verify-m18.ts   # M1.8 Smart Project Wizard (19 pass / 0 fail / 1 skip without dev server)
+
+# Playwright e2e specs (M1.8 wizard regression-guard)
+npx playwright test tests/e2e/m18-wizard-repro.spec.ts  # 1 spec — wizard create does not crash
+npx playwright test tests/e2e/m18-wizard-flow.spec.ts   # 2 specs — every tab shows wizard data + reload persists
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -230,6 +234,43 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 
 **Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
 (`npx playwright install chromium`).
+
+### Module 1 status (2026-05-04)
+**All sub-phases shipped:** M1.R (cost engine + Zustand restoration) → M1.5 (multi-asset
++ multi-phase + storage v3 bump) → M1.5b (UX polish + Quick Setup wizard inside Hierarchy)
+→ M1.6 (Supabase persistence + version history) → M1.7 (Area Program tab + plots / zones
+/ sub-units / parking allocator) → M1.8 (Smart Project Creation Wizard with progressive
+disclosure + Master Holding hidden by default).
+
+**Audit (2026-05-04, fix 5):** all 6 Module 1 tabs share a single `useModule1Store`
+(direct subscription for Hierarchy + Area Program; prop-drilled setter wrappers from
+RealEstatePlatform for Timeline / Land & Area / Dev Costs / Financing). No tab keeps a
+private copy of project-level data. Cross-tab edits propagate via the store. The wizard
+writes a complete `HydrateSnapshot` on create — every field a tab reads is covered, with
+`DEFAULT_MODULE1_STATE` standing in for fields the wizard does not capture (country,
+landParcels, projectFAR, costs, financing — those belong to dedicated tabs).
+
+**M1.8 wizard hotfix series (5 commits, 2026-05-03 → 2026-05-04):**
+- `a15fcbc` fix 1/3: pair Model Type + Status on same row in Step 1
+- `e217978` fix 2/3: widen modal from 640px → 1080px
+- `5085958` fix 3/3: skip round-trip re-hydrate after wizard create (added
+  `attachToProjectFromLocalSnapshot` workaround; the underlying recogniser bug was flagged
+  as M2.0/A follow-up at the time)
+- `4721e80` fix 4: stabilise `Module1AreaProgram` `useShallow` selectors — every
+  `useShallow(s => ({ ..., filtered: s.X.filter(...) }))` was producing a fresh array
+  reference per render, tripping React's "getSnapshot should be cached" warning into a
+  Maximum update depth loop once the store had data. Pulled filters out into separate
+  `useModule1Store(s => s.X)` subscriptions + `useMemo` derivations.
+- `66a20f5` fix 5: relax `isNewV3` recogniser in `module1-migrate.ts` — every snapshot
+  the system POSTs (wizard create, legacy create, auto-save) is bare `HydrateSnapshot`
+  with no `version: 3` discriminator. The strict recogniser silently fell through to
+  `DEFAULT_MODULE1_STATE` on every reload, wiping the wizard data. Now shape-based:
+  any payload with `assets[]` + `phases[]` + `costs[]` arrays is treated as v3.
+
+**Snapshot baselines (3, all maintained at every commit):**
+- `module1-snapshot-diff.ts` — legacy single-phase, **17.5 KB**
+- `module1-multiphase-diff.ts` — multi-phase v4, **23.0 KB**
+- `module1-areaprogram-diff.ts` — M1.7 Area Program, **2.8 KB**
 
 ### Health Check
 `GET /api/health` -> `{ status: 'ok', platform: 'financial-modeler-pro', version: '3.0', timestamp }`
