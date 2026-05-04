@@ -143,7 +143,19 @@
       "Bash(awk 'BEGIN{RS=\"<row \"} /M1\\\\.6|Module 1 Supabase|refm_projects/' .xlsx-extract/xl/worksheets/sheet3.xml)",
       "PowerShell(Copy-Item *)",
       "Bash(npm i *)",
-      "Bash(npx playwright *)"
+      "Bash(npx playwright *)",
+      "Bash(tail *)",
+      "Bash(tee /tmp/dev-server.log)",
+      "Bash(taskkill /PID 27568 /F)",
+      "Bash(taskkill /PID 3216 /F)",
+      "Bash(tee /tmp/dev2.log)",
+      "Bash(findstr -i \"wizard\")",
+      "Bash(findstr -i \"error.tsx error.jsx page.tsx\")",
+      "Bash(findstr -i \"refm\\\\|modeling\")",
+      "Bash(findstr -i \"error\\\\|not-found\")",
+      "Bash(kill %1)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(taskkill //F //IM node.exe //T)"
     ]
   }
 }

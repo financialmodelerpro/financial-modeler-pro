@@ -199,41 +199,42 @@ export const sidebarModules: readonly SidebarNavItem[] = [
 ];
 
 // M1.9 — tabs gain a numeric `step` so the row reads as a sequence:
-// users follow 1 → 6 to fill out a project end-to-end. The order
+// users follow 1 → 5 to fill out a project end-to-end. The order
 // follows Ahmad's audit sequence (Schedule first, then Land, then
-// Build Program, then Costs, then Financing). Hierarchy stays as
-// step 6 (canonical home for the full data tree, including assets +
-// sub-units + sub-project / phase / master-holding CRUD) until the
-// dissolve-Hierarchy work in M1.9b lands. Wizard-created projects
-// land on step 1 (Schedule) so users validate the wizard's capture
-// before adjusting per-phase / per-asset state. Manually-created
-// projects still land on Hierarchy (step 6) so users can build the
-// asset tree from scratch.
+// Build Program, then Costs, then Financing).
+//
+// M1.9b — Hierarchy tab dissolved. The tree-view editor now lives
+// nested inside Schedule (Master Holding + Sub-Project + Phase
+// CRUD via Module1Hierarchy with sections="structure") and Build
+// Program (Asset + Sub-Unit CRUD via Module1Hierarchy with
+// sections="assets"). Wizard-created and manually-created projects
+// both land on step 1 (Schedule) so users validate / build
+// structure first.
 //
 // `label` is what appears in the tab row UI (numeric prefix included
-// so the reading order is unmistakable). `key` is unchanged so the
-// rendering switch in this file does not need to learn new names.
+// so the reading order is unmistakable). `key` is unchanged from
+// M1.9 so the rendering switch in this file does not need to learn
+// new names.
 export const m1Tabs = [
   { key: 'timeline',     icon: '📅', label: '1. Schedule',     step: 1 },
   { key: 'area',         icon: '🗺️', label: '2. Land',          step: 2 },
   { key: 'area-program', icon: '📐', label: '3. Build Program', step: 3 },
   { key: 'costs',        icon: '💸', label: '4. Dev Costs',     step: 4 },
   { key: 'financing',    icon: '🏦', label: '5. Financing',     step: 5 },
-  { key: 'hierarchy',    icon: '🗂️', label: '6. Hierarchy',     step: 6 },
 ];
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function RealEstatePlatform() {
   // ── Navigation ──
-  // activeTab default is 'hierarchy' (M1.5/5): brand-new sessions land
-  // on the Hierarchy tab so the user sees the asset-creation flow first
-  // rather than a half-empty Timeline. handleLoadVersion (existing
-  // project) and handleCreateProject (new project) both re-route this
-  // explicitly after store hydration so the choice always reflects
-  // assets.length AT THE TIME the project becomes active, not at first
-  // mount.
+  // activeTab default is 'timeline' (M1.9b/4): the standalone Hierarchy
+  // tab was dissolved; users land on Schedule (step 1) so they see the
+  // wizard-captured project identity + structure (Master Holding +
+  // Sub-Project + Phase tree mounted via Module1Hierarchy with
+  // sections='structure') first. handleLoadVersion (existing project)
+  // and handleCreateProject (new project) both re-route to 'timeline'
+  // after store hydration.
   const [activeModule, setActiveModule] = useState('dashboard');
-  const [activeTab, setActiveTab] = useState('hierarchy');
+  const [activeTab, setActiveTab] = useState('timeline');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarSubOpen, setSidebarSubOpen] = useState(true);
 
@@ -1152,11 +1153,14 @@ export default function RealEstatePlatform() {
       await attachSyncToProject(pid);
       setProjectName(name);
       setPmModal(null);
-      // M1.5/5 default-landing: brand-new projects always open on the
-      // Hierarchy tab (the legacy 3-asset seed is gone, so Timeline /
-      // Costs / Financing have nothing to render until the user
-      // defines their first asset).
-      setActiveTab('hierarchy');
+      // M1.9b/4 default-landing: brand-new projects open on Schedule
+      // (step 1). The standalone Hierarchy tab was dissolved; the
+      // Master Holding + Sub-Project + Phase tree-view editor now
+      // lives nested inside Schedule (sections='structure'), so the
+      // user can fill in identity + timing + structure on one screen
+      // before walking forward through 2.Land → 3.Build Program →
+      // 4.Dev Costs → 5.Financing.
+      setActiveTab('timeline');
       setPmToast({ msg: `✓ Project "${name}" created`, color: 'var(--color-green-dark)' });
       setHasUnsaved(false);
     })();
@@ -1664,8 +1668,10 @@ export default function RealEstatePlatform() {
             )}
 
             {/* Tab content */}
+            {/* M1.9b/4: 'hierarchy' render branch removed. The tree-view */}
+            {/* editor (Module1Hierarchy) is now nested inside Schedule    */}
+            {/* (sections='structure') and Build Program (sections='assets'). */}
             <div className="tab-content" style={{ padding: 'var(--sp-3)' }}>
-              {activeTab === 'hierarchy' && <Module1Hierarchy />}
               {activeTab === 'area-program' && <Module1AreaProgram />}
               {activeTab === 'timeline' && (
                 <Module1Timeline
