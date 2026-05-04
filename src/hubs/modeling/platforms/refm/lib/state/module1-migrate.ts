@@ -109,7 +109,27 @@ export function isLegacyV2(s: unknown): s is LegacyV2Snapshot {
 export function isNewV3(s: unknown): s is NewV3Snapshot {
   if (!s || typeof s !== 'object') return false;
   const o = s as { version?: unknown; assets?: unknown; phases?: unknown; costs?: unknown };
-  return o.version === 3 && Array.isArray(o.assets) && Array.isArray(o.phases) && Array.isArray(o.costs);
+  // Recognition is shape-based, not discriminator-based: any payload
+  // carrying assets[] + phases[] + costs[] is treated as v3-shaped.
+  // v2 snapshots have neither a flat assets[] nor a phases[] (the
+  // legacy schema is residentialCosts/hospitalityCosts/retailCosts +
+  // construction/operations/overlap scalars), so this never accidentally
+  // mis-routes a v2 row.
+  //
+  // Why looser: every snapshot the system POSTs to /api/refm/projects
+  // (wizard create, legacy create, auto-save) is bare HydrateSnapshot
+  // without a `version: 3` discriminator. When `loadProject` returns
+  // that payload to `hydrationFromAnySnapshot`, the strict version
+  // check used to fall through to DEFAULT_MODULE1_STATE — silently
+  // wiping the user's wizard-created Sub-Project / Plots / Assets /
+  // Sub-Units on every page reload.
+  //
+  // The `version === 3` constant is preserved for the case where a
+  // future writer DOES stamp the discriminator; it just isn't required.
+  return (o.version === 3 || o.version === undefined)
+      && Array.isArray(o.assets)
+      && Array.isArray(o.phases)
+      && Array.isArray(o.costs);
 }
 
 // ── M1.5 + M1.7 hierarchy enrichment ───────────────────────────────────────
