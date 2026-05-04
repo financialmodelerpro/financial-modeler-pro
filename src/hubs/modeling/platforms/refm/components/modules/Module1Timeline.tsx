@@ -1,13 +1,40 @@
 'use client';
 
-import React, { useState } from 'react';
+/**
+ * Module1Timeline — REFM "Schedule" tab (renamed in M1.9).
+ *
+ * Pre-M1.9 this tab also hosted Project Identity (project name, type,
+ * country, currency, model granularity, start date). All four duplicated
+ * data the wizard captures upfront and the Hierarchy tab edits per
+ * sub-project, which led to "which tab is canonical?" confusion (the
+ * thing Ahmad flagged on 2026-05-04).
+ *
+ * M1.9 strips Project Identity out: project name + type live in
+ * Hierarchy (Sub-Project editor); country + currency live in the wizard
+ * (now driving each other). What's left here is the schedule itself —
+ * model granularity, start date, construction / operations / overlap
+ * periods, plus the visual bar.
+ *
+ * The props interface keeps the (now-unused) identity setters so the
+ * RealEstatePlatform binding doesn't have to change in this commit;
+ * future cleanup can prune them once a downstream commit absorbs
+ * Hierarchy's per-asset editor + the merged Project & Schedule surface
+ * lands. Snapshot diffs untouched (no calc input changes).
+ */
+
+import React from 'react';
 import type { ModelType, ProjectType } from '@/src/core/types/project.types';
-import { COUNTRY_DATA } from '../RealEstatePlatform';
 
 interface Module1TimelineProps {
+  // Identity props kept on the interface for backward compat with the
+  // RealEstatePlatform binding; their setters are no longer wired to UI.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   projectName: string; setProjectName: (v: string) => void;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   projectType: ProjectType; setProjectType: (v: ProjectType) => void;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   country: string; setCountry: (v: string) => void;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   currency: string; setCurrency: (v: string) => void;
   modelType: ModelType; setModelType: (v: ModelType) => void;
   projectStart: string; setProjectStart: (v: string) => void;
@@ -16,6 +43,7 @@ interface Module1TimelineProps {
   overlapPeriods: number; setOverlapPeriods: (v: number) => void;
   getProjectEndDate: () => string;
   readOnly: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   showAiButtons?: boolean;
 }
 
@@ -49,10 +77,6 @@ const labelStyle: React.CSSProperties = {
 };
 
 export default function Module1Timeline({
-  projectName, setProjectName,
-  projectType, setProjectType,
-  country, setCountry,
-  currency, setCurrency,
   modelType, setModelType,
   projectStart, setProjectStart,
   constructionPeriods, setConstructionPeriods,
@@ -60,16 +84,7 @@ export default function Module1Timeline({
   overlapPeriods, setOverlapPeriods,
   getProjectEndDate,
   readOnly,
-  showAiButtons = false,
 }: Module1TimelineProps) {
-  const [countrySearch, setCountrySearch] = useState('');
-  const [countryOpen, setCountryOpen] = useState(false);
-
-  const filteredCountries = COUNTRY_DATA.filter(c =>
-    !countrySearch || c.name.toLowerCase().includes(countrySearch.toLowerCase())
-  );
-
-  const selectedCountry = COUNTRY_DATA.find(c => c.name === country);
   const periodLabel = modelType === 'monthly' ? 'months' : 'years';
   const effectivePeriods = constructionPeriods + operationsPeriods - overlapPeriods;
   const endDate = getProjectEndDate();
@@ -85,146 +100,17 @@ export default function Module1Timeline({
     <div>
       <div style={{ marginBottom: 'var(--sp-3)' }}>
         <h2 style={{ fontSize: 'var(--font-section)', fontWeight: 'var(--fw-bold)', color: 'var(--color-heading)', margin: '0 0 4px' }}>
-          Project Timeline
+          Project Schedule
         </h2>
         <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-meta)', margin: 0 }}>
-          Define project identity, model structure, and timeline parameters
+          Set the model granularity, start date, and per-phase construction
+          / operations window. Project name, type, country, and currency
+          live in the create wizard and the Hierarchy tab.
         </p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-3)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 'var(--sp-3)' }}>
 
-        {/* Left column - Identity */}
-        <div className="module-card" style={{ padding: 'var(--sp-3)' }}>
-          <h3 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--sp-2)', marginTop: 0 }}>
-            Project Identity
-          </h3>
-
-          <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-              <label style={{ ...labelStyle, marginBottom: 0 }}>Project Name</label>
-              {showAiButtons && (
-                <button
-                  onClick={() => {/* AI assist - coming soon */}}
-                  style={{
-                    display: 'inline-flex', alignItems: 'center', gap: 4,
-                    fontSize: 10, fontWeight: 700, padding: '3px 8px',
-                    background: 'linear-gradient(135deg, var(--color-primary) 0%, var(--color-primary-dark) 100%)',
-                    color: 'var(--color-on-primary-navy)', border: 'none', borderRadius: 4,
-                    cursor: 'pointer', letterSpacing: '0.04em', flexShrink: 0,
-                  }}
-                  title="AI Assist (Pro)"
-                >
-                  ✨ AI Assist
-                </button>
-              )}
-            </div>
-            <input
-              style={inputStyle}
-              type="text"
-              value={projectName}
-              onChange={e => setProjectName(e.target.value)}
-              disabled={readOnly}
-              placeholder="Enter project name..."
-            />
-          </div>
-
-          <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={labelStyle}>Project Type</label>
-            <select
-              style={inputStyle}
-              value={projectType}
-              onChange={e => setProjectType(e.target.value as ProjectType)}
-              disabled={readOnly}
-            >
-              <option value="mixed-use">Mixed-Use</option>
-              <option value="residential">Residential</option>
-              <option value="hospitality">Hospitality</option>
-            </select>
-          </div>
-
-          <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={labelStyle}>Country / Market</label>
-            <div style={{ position: 'relative' }}>
-              <button
-                onClick={() => !readOnly && setCountryOpen(!countryOpen)}
-                disabled={readOnly}
-                style={{
-                  ...inputStyle,
-                  textAlign: 'left',
-                  cursor: readOnly ? 'not-allowed' : 'pointer',
-                  display: 'flex', alignItems: 'center', gap: '8px',
-                  border: '1px solid var(--color-border)',
-                }}
-              >
-                <span>{selectedCountry?.flag}</span>
-                <span>{country}</span>
-                <span style={{ marginLeft: 'auto', fontSize: '10px', color: 'var(--color-muted)' }}>▼</span>
-              </button>
-
-              {countryOpen && (
-                <div style={{
-                  position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 1000,
-                  background: 'var(--color-surface)',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  boxShadow: 'var(--shadow-modal)',
-                  maxHeight: '280px', overflow: 'hidden',
-                  display: 'flex', flexDirection: 'column',
-                }}>
-                  <div style={{ padding: '8px' }}>
-                    <input
-                      type="text"
-                      placeholder="Search country..."
-                      value={countrySearch}
-                      onChange={e => setCountrySearch(e.target.value)}
-                      style={{ ...inputStyle, marginBottom: 0, background: 'var(--color-surface)' }}
-                      autoFocus
-                    />
-                  </div>
-                  <div style={{ overflowY: 'auto', flex: 1 }}>
-                    {filteredCountries.map(c => (
-                      <button
-                        key={c.name}
-                        onClick={() => {
-                          setCountry(c.name);
-                          setCurrency(c.currency);
-                          setCountryOpen(false);
-                          setCountrySearch('');
-                        }}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: '10px',
-                          width: '100%', padding: '8px 12px', border: 'none',
-                          background: c.name === country ? 'color-mix(in srgb, var(--color-primary) 8%, transparent)' : 'transparent',
-                          cursor: 'pointer', fontSize: 'var(--font-body)',
-                          textAlign: 'left', fontFamily: 'Inter, sans-serif',
-                        }}
-                      >
-                        <span style={{ fontSize: '16px' }}>{c.flag}</span>
-                        <span style={{ flex: 1, color: 'var(--color-body)' }}>{c.name}</span>
-                        <span style={{ fontSize: '11px', color: 'var(--color-muted)', fontWeight: 600 }}>{c.currency}</span>
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={labelStyle}>Currency</label>
-            <input
-              style={inputStyle}
-              type="text"
-              value={currency}
-              onChange={e => setCurrency(e.target.value)}
-              disabled={readOnly}
-              placeholder="e.g. SAR"
-            />
-          </div>
-        </div>
-
-        {/* Right column - Model & Timeline */}
         <div className="module-card" style={{ padding: 'var(--sp-3)' }}>
           <h3 style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-heading)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 'var(--sp-2)', marginTop: 0 }}>
             Model Structure
