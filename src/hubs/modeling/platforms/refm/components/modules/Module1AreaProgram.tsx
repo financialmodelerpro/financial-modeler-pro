@@ -42,6 +42,7 @@ import {
   type PlotEnvelopeAreas, type ParkingAllocationResult, type PlotCapacityResult,
 } from '@core/calculations';
 import { useModule1Store } from '../../lib/state/module1-store';
+import PlotSetupWizard from '../modals/PlotSetupWizard';
 import {
   ASSET_STRATEGIES, DEFAULT_AREA_CASCADE_BY_CATEGORY,
   DEFAULT_PARKING_BAYS_BY_SUBUNIT_TYPE,
@@ -143,7 +144,7 @@ function fmt(n: number, decimals = 0): string {
 // warning and ultimately throws "Maximum update depth exceeded" once the
 // store actually has data (see Module1AreaProgram top-level for the same
 // pattern + why it only manifests once plots/zones/assets are non-empty).
-function PlotEditor({ plot, allPlotsCount }: { plot: Plot; allPlotsCount: number }) {
+function PlotEditor({ plot, allPlotsCount, onOpenWizard }: { plot: Plot; allPlotsCount: number; onOpenWizard: (plotId: string) => void }) {
   const { updatePlot, removePlot, addZone } = useModule1Store(useShallow(s => ({
     updatePlot: s.updatePlot,
     removePlot: s.removePlot,
@@ -214,6 +215,19 @@ function PlotEditor({ plot, allPlotsCount }: { plot: Plot; allPlotsCount: number
             ⚠ Over FAR ({fmt(envelope.utilizationPct, 1)}%)
           </span>
         )}
+        <button
+          onClick={() => onOpenWizard(plot.id)}
+          data-testid={`plot-open-wizard-${plot.id}`}
+          style={{
+            ...primaryBtnStyle,
+            background: 'var(--color-surface)',
+            color: 'var(--color-primary)',
+            border: '1px solid var(--color-primary)',
+          }}
+          aria-label={`Open setup wizard for ${plot.name}`}
+        >
+          🪄 Setup wizard
+        </button>
         <button onClick={handleDeletePlot} style={dangerBtnStyle} disabled={allPlotsCount <= 0} aria-label={`Delete ${plot.name}`}>Delete</button>
       </div>
 
@@ -809,6 +823,10 @@ export default function Module1AreaProgram() {
     [allPlots],
   );
 
+  // M1.10/6 — wizard mount state. Holds the plotId of the plot whose
+  // setup wizard is currently open, or null when no wizard is mounted.
+  const [wizardPlotId, setWizardPlotId] = useState<string | null>(null);
+
   const activePhase = phases.find(p => p.id === activePhaseId);
 
   if (!activePhase) {
@@ -923,7 +941,14 @@ export default function Module1AreaProgram() {
           <button onClick={handleAddFirstPlot} style={primaryBtnStyle} data-testid="add-first-plot-btn">+ Add first Plot</button>
         </div>
       ) : (
-        plots.map(p => <PlotEditor key={p.id} plot={p} allPlotsCount={plots.length} />)
+        plots.map(p => <PlotEditor key={p.id} plot={p} allPlotsCount={plots.length} onOpenWizard={setWizardPlotId} />)
+      )}
+
+      {/* M1.10/6 — Plot Setup Wizard mount. Renders only when a plotId
+         is selected; PlotSetupWizard returns null itself when its plot
+         has been removed mid-flight (defensive). */}
+      {wizardPlotId && (
+        <PlotSetupWizard plotId={wizardPlotId} onClose={() => setWizardPlotId(null)} />
       )}
 
       {/* M1.9b/3 — asset + sub-unit detail editors mounted from the
