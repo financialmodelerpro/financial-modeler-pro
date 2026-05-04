@@ -1,5 +1,5 @@
 # Financial Modeler Pro — Claude Code Project Brief
-**Last updated: 2026-05-05**
+**Last updated: 2026-05-06**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md) — Database tables, storage buckets, migrations log
@@ -216,12 +216,14 @@ npx tsx --env-file=.env.local scripts/verify-m17.ts   # M1.7 Area Program (25 pa
 npx tsx --env-file=.env.local scripts/verify-m18.ts   # M1.8 Smart Project Wizard (19 pass / 0 fail / 1 skip without dev server)
 npx tsx --env-file=.env.local scripts/verify-m19.ts   # M1.9 UX redesign (16 pass / 0 fail / 2 skip without dev server)
 npx tsx --env-file=.env.local scripts/verify-m19b.ts  # M1.9b polish (19 pass / 0 fail / 2 skip without dev server; 29 pass / 0 fail / 1 skip with dev server)
+npx tsx --env-file=.env.local scripts/verify-m110.ts  # M1.10 setup-completeness (25 pass / 0 fail / 1 skip with dev server)
 
-# Playwright e2e specs (M1.8 + M1.9 + M1.9b regression-guards)
+# Playwright e2e specs (M1.8 + M1.9 + M1.9b + M1.10 regression-guards)
 npx playwright test tests/e2e/m18-wizard-repro.spec.ts     # 1 spec — wizard create does not crash
 npx playwright test tests/e2e/m18-wizard-flow.spec.ts      # 2 specs — every tab shows wizard data + reload persists
 npx playwright test tests/e2e/m19-redesign-flow.spec.ts    # 2 specs — wizard lands on Schedule tab + numbered tab row + light/dark screenshots
 npx playwright test tests/e2e/m19b-redesign-flow.spec.ts   # 2 specs — Hierarchy dissolved (1→5 tabs) + nested mounts + D7/D8 labels + What-goes-here callouts + light/dark screenshots
+npx playwright test tests/e2e/m110-flow.spec.ts            # 3 specs — Mixed-Use wizard lands clean (no 0% / no Over FAR / reconciliation row) + Plot wizard + Parcel wizard walkthroughs + screenshots
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -239,7 +241,7 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 **Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
 (`npx playwright install chromium`).
 
-### Module 1 status (2026-05-05)
+### Module 1 status (2026-05-06)
 **All sub-phases shipped:** M1.R (cost engine + Zustand restoration) → M1.5 (multi-asset
 + multi-phase + storage v3 bump) → M1.5b (UX polish + Quick Setup wizard inside Hierarchy)
 → M1.6 (Supabase persistence + version history) → M1.7 (Area Program tab + plots / zones
@@ -248,7 +250,77 @@ disclosure + Master Holding hidden by default) → M1.9 (UX redesign: wizard cap
 country + project timeline upfront; Schedule and Land tabs strip duplicate inputs;
 numbered 1→6 tab sequence with Schedule first; wizard-created projects land on Schedule
 for validation) → M1.9b (Hierarchy tab dissolved + nested under Schedule + Build Program;
-D7/D8 disambiguation labels; What-goes-here callouts on all 5 tabs).
+D7/D8 disambiguation labels; What-goes-here callouts on all 5 tabs) → M1.10 (setup-
+completeness fixes: plot defaults inside FAR ceiling on first paint, platform-layer
+category-sum allocation derivation, wizard Step 2 fits 1080p, Land vs Plot reconciliation
+row, modal-step Plot + Parcel setup wizards).
+
+**M1.10 setup-completeness series (8 commits, 2026-05-05 → 2026-05-06, all snapshot diffs bit-identical):**
+- `d295dc8` 2/8: tune plot defaults so fresh plots stay inside FAR ceiling.
+  podiumFloors 2→1, typicalFloors 10→6, typicalCoveragePct 40→30. Math:
+  (60·1 + 30·6) / (3·100) = 80% utilisation (was 173.3%). No calc engine
+  change — only `DEFAULT_PLOT_*` constants. Snapshot fixtures all pin
+  these values explicitly so baselines unaffected. (M1.10/1 pin commit
+  unnecessary — every fixture with plot data already pins.)
+- `e9305d4` 3/8: platform-layer category-sum allocation derivation.
+  RealEstatePlatform's `resAsset / hospAsset / retAsset` no longer use
+  `assetById.get(LEGACY_ASSET_IDS.X)` (which missed wizard-minted ids
+  like `wizardasset_1/2/3`). Replaced with `firstByCategory` resolver
+  walking `assets[]` in array order matching on category (Sell ↔
+  residential, Operate ↔ hospitality, Lease ↔ retail). `residentialPercent`
+  / `hospitalityPercent` / `retailPercent` now sum allocationPct across
+  every asset in the bucket. Cost setters + filters route through the
+  resolved id so the cost-seeder effect picks up wizard-minted assets.
+  Snapshot fixtures have one asset per category with id matching the
+  legacy literal so resolution is unambiguous either way.
+- `6419b3a` 4/8: wizard Step 2 fits 1080p without scroll. Section gap
+  shrunk sp-3 → sp-2; MH descriptive paragraph compressed to a one-
+  liner; Phases (Q2) + Plots (Q3) collapsed into a 2-column grid row.
+  Estimated content-height reduction ~120-140px.
+- `d47c268` 5/8: Land vs Plot reconciliation row + relabels.
+  `landParcels[]` (financial — what you own) and `Plot[]` (physical —
+  what you build on) stay independent arrays but Build Program now
+  surfaces a reconciliation row showing Parcel total · Plot total ·
+  ✓ matches / ⚠ diverges. Tolerance 1 sqm. Land tab heading renamed
+  "Land Parcels (financial — what you own)"; Build Program "Plot Area"
+  input renamed "Plot Buildable Area" so the financial-vs-physical
+  distinction is visible in both surfaces.
+- `9f48b76` 6/8: Build Program per-plot setup wizard
+  (`PlotSetupWizard.tsx`). 4-step modal walk — Envelope (FAR + coverage)
+  → Floors (podium + typical + typicalCoverage with live envelope
+  preview showing utilisation %) → Parking (3 bay sizes + basement
+  count + efficiency) → Assets (checkbox list of existing assets to
+  re-bind to this plot via plotId updates). Local draft + Set of
+  assigned asset ids; nothing leaks to the store until Save & Close.
+  Cancel discards. Mounted from each PlotEditor card via "🪄 Setup
+  wizard" button. Form view stays primary.
+- `89667ab` 7/8: Land tab parcel setup wizard
+  (`ParcelSetupWizard.tsx`). 2-step modal walk — build parcel list
+  with "+ Add another parcel" pattern → review with totals → Save &
+  Close commits via `setLand({ landParcels: next })`. Seeded from
+  existing parcels so it reads as edit-not-restart. Mounted from the
+  Land Parcels card via "🪄 Setup wizard" button. Form view stays
+  primary.
+- `8f383c8` 8/8 (verifier): scripts/verify-m110.ts. 5-section verifier
+  with section 4 covering all 5 fixes. Result: 25 pass / 0 fail / 1
+  skip with dev server up.
+- `cfbb4f2` 9/8 (Playwright + screenshots): tests/e2e/m110-flow.spec.ts.
+  3 specs: (1) wizard Mixed-Use lands clean (no 0% allocation badge,
+  no Over FAR badge, reconciliation row visible), (2) PlotSetupWizard
+  4-step walkthrough, (3) ParcelSetupWizard 2-step walkthrough +
+  screenshots into tests/screenshots/M1.10/.
+
+**M1.10 deferred (not yet scoped):**
+- ProjectFAR migration from Land to Build Program → Plot (calc still
+  consumes it as a project-level scalar; needs auto-derive from per-
+  plot maxFARs first).
+- Section-pill labels (Inputs / Calculated), calc-vs-input pencil/fx
+  icons next to every field, hover tooltips for the financial
+  vocabulary (Sub-Unit, Strategy, FAR, Cascade) — carried over from
+  M1.9b deferred list.
+- Remove unused setters from Module1Area + Module1Timeline prop
+  interfaces (still tagged with eslint-disable so RealEstatePlatform
+  binding doesn't shift).
 
 **M1.9 redesign series (6 commits, 2026-05-04, all snapshot diffs bit-identical):**
 - `591315b` 1/15: ProjectWizard step 1 currency dropdown becomes country dropdown
