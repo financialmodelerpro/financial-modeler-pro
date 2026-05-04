@@ -335,17 +335,52 @@ export default function RealEstatePlatform() {
   const operationsPeriods   = phases[0]?.operationsPeriods   ?? 5;
   const overlapPeriods      = phases[0]?.overlapPeriods      ?? 0;
 
-  // Per-asset scalars derived from the assets[] array. The 3 canonical
-  // legacy ids survive as named lookups so downstream code that still
-  // talks in residential / hospitality / retail keeps working.
+  // Per-asset scalars derived from the assets[] array.
+  //
+  // M1.10/3 — category-sum derivation. Pre-M1.10 we looked up assets by
+  // hard-coded legacy ids ('residential' / 'hospitality' / 'retail') —
+  // wizard-created projects mint ids like 'wizardasset_1/2/3' and fell
+  // through, so allocations always read 0% on the Land tab and the
+  // cost seeder never ran. Now we group by `category` (Sell -> residential
+  // bucket, Operate -> hospitality, Lease -> retail). When a fixture
+  // happens to use the legacy ids and the category, both resolve to the
+  // same asset — snapshot-diff fixtures fall in this case (Sell+id
+  // 'residential' etc.) so baselines stay bit-identical.
   const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a] as const)), [assets]);
-  const resAsset  = assetById.get(LEGACY_ASSET_IDS.residential);
-  const hospAsset = assetById.get(LEGACY_ASSET_IDS.hospitality);
-  const retAsset  = assetById.get(LEGACY_ASSET_IDS.retail);
+  const firstByCategory = useMemo(() => {
+    // Iterate in array order so "first" is deterministic and matches the
+    // wizard's add order. Legacy fixtures have exactly one asset per
+    // category so the choice is unambiguous either way.
+    let res: typeof assets[number] | undefined;
+    let hosp: typeof assets[number] | undefined;
+    let ret: typeof assets[number] | undefined;
+    for (const a of assets) {
+      if (!res  && a.category === 'Sell')    res  = a;
+      if (!hosp && a.category === 'Operate') hosp = a;
+      if (!ret  && a.category === 'Lease')   ret  = a;
+    }
+    return { res, hosp, ret };
+  }, [assets]);
+  const resAsset  = firstByCategory.res;
+  const hospAsset = firstByCategory.hosp;
+  const retAsset  = firstByCategory.ret;
 
-  const residentialPercent     = resAsset?.allocationPct ?? 0;
-  const hospitalityPercent     = hospAsset?.allocationPct ?? 0;
-  const retailPercent          = retAsset?.allocationPct ?? 0;
+  // Bucket scalars: sum allocationPct across every asset in the bucket so
+  // a Mixed-Use project with multiple Sell assets reads the combined
+  // residential share, not just the first asset's. The legacy single-
+  // asset-per-bucket case (snapshot-diff fixtures) keeps the same value.
+  const residentialPercent = useMemo(
+    () => assets.reduce((s, a) => s + (a.category === 'Sell'    ? (a.allocationPct || 0) : 0), 0),
+    [assets],
+  );
+  const hospitalityPercent = useMemo(
+    () => assets.reduce((s, a) => s + (a.category === 'Operate' ? (a.allocationPct || 0) : 0), 0),
+    [assets],
+  );
+  const retailPercent = useMemo(
+    () => assets.reduce((s, a) => s + (a.category === 'Lease'   ? (a.allocationPct || 0) : 0), 0),
+    [assets],
+  );
   const residentialDeductPct   = resAsset?.deductPct     ?? 10;
   const residentialEfficiency  = resAsset?.efficiencyPct ?? 85;
   const hospitalityDeductPct   = hospAsset?.deductPct    ?? 15;
@@ -353,10 +388,17 @@ export default function RealEstatePlatform() {
   const retailDeductPct        = retAsset?.deductPct     ?? 5;
   const retailEfficiency       = retAsset?.efficiencyPct ?? 90;
 
-  // Per-asset cost arrays derived from the flat costs[] list.
-  const residentialCosts = useMemo(() => allCosts.filter((c) => c.assetId === LEGACY_ASSET_IDS.residential), [allCosts]);
-  const hospitalityCosts = useMemo(() => allCosts.filter((c) => c.assetId === LEGACY_ASSET_IDS.hospitality), [allCosts]);
-  const retailCosts      = useMemo(() => allCosts.filter((c) => c.assetId === LEGACY_ASSET_IDS.retail),      [allCosts]);
+  // Per-asset cost arrays derived from the flat costs[] list. Filter by
+  // the resolved category-first asset id (M1.10/3) so wizard-created
+  // assets show their seeded costs. resAsset?.id falls back to the
+  // legacy literal when the asset is missing (defensive — no-ops since
+  // the filter just returns []).
+  const resAssetId  = resAsset?.id  ?? LEGACY_ASSET_IDS.residential;
+  const hospAssetId = hospAsset?.id ?? LEGACY_ASSET_IDS.hospitality;
+  const retAssetId  = retAsset?.id  ?? LEGACY_ASSET_IDS.retail;
+  const residentialCosts = useMemo(() => allCosts.filter((c) => c.assetId === resAssetId),  [allCosts, resAssetId]);
+  const hospitalityCosts = useMemo(() => allCosts.filter((c) => c.assetId === hospAssetId), [allCosts, hospAssetId]);
+  const retailCosts      = useMemo(() => allCosts.filter((c) => c.assetId === retAssetId),  [allCosts, retAssetId]);
 
   // ── Setter wrappers ──
   // The component still passes setX(value) / setX(prev => next) callbacks
@@ -399,15 +441,20 @@ export default function RealEstatePlatform() {
   const updateAssetField = useCallback((assetId: string, patch: Partial<{ allocationPct: number; deductPct: number; efficiencyPct: number; visible: boolean }>) => {
     useModule1Store.getState().updateAsset(assetId, patch);
   }, []);
-  const setResidentialPercent     = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.residential, { allocationPct: v }), [updateAssetField]);
-  const setHospitalityPercent     = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.hospitality, { allocationPct: v }), [updateAssetField]);
-  const setRetailPercent          = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.retail,      { allocationPct: v }), [updateAssetField]);
-  const setResidentialDeductPct   = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.residential, { deductPct:     v }), [updateAssetField]);
-  const setResidentialEfficiency  = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.residential, { efficiencyPct: v }), [updateAssetField]);
-  const setHospitalityDeductPct   = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.hospitality, { deductPct:     v }), [updateAssetField]);
-  const setHospitalityEfficiency  = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.hospitality, { efficiencyPct: v }), [updateAssetField]);
-  const setRetailDeductPct        = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.retail,      { deductPct:     v }), [updateAssetField]);
-  const setRetailEfficiency       = useCallback((v: number) => updateAssetField(LEGACY_ASSET_IDS.retail,      { efficiencyPct: v }), [updateAssetField]);
+  // M1.10/3 — setters target the resolved category-first asset (was hard-
+  // coded LEGACY_ASSET_IDS.X). Setters are mostly dead code post-M1.9
+  // (the global Land-tab mix UI was stripped) but Module1Costs still
+  // wires per-category scalars through, and downstream code may resurface
+  // them. No-op when no asset in the bucket exists yet.
+  const setResidentialPercent     = useCallback((v: number) => { if (resAssetId)  updateAssetField(resAssetId,  { allocationPct: v }); }, [updateAssetField, resAssetId]);
+  const setHospitalityPercent     = useCallback((v: number) => { if (hospAssetId) updateAssetField(hospAssetId, { allocationPct: v }); }, [updateAssetField, hospAssetId]);
+  const setRetailPercent          = useCallback((v: number) => { if (retAssetId)  updateAssetField(retAssetId,  { allocationPct: v }); }, [updateAssetField, retAssetId]);
+  const setResidentialDeductPct   = useCallback((v: number) => { if (resAssetId)  updateAssetField(resAssetId,  { deductPct:     v }); }, [updateAssetField, resAssetId]);
+  const setResidentialEfficiency  = useCallback((v: number) => { if (resAssetId)  updateAssetField(resAssetId,  { efficiencyPct: v }); }, [updateAssetField, resAssetId]);
+  const setHospitalityDeductPct   = useCallback((v: number) => { if (hospAssetId) updateAssetField(hospAssetId, { deductPct:     v }); }, [updateAssetField, hospAssetId]);
+  const setHospitalityEfficiency  = useCallback((v: number) => { if (hospAssetId) updateAssetField(hospAssetId, { efficiencyPct: v }); }, [updateAssetField, hospAssetId]);
+  const setRetailDeductPct        = useCallback((v: number) => { if (retAssetId)  updateAssetField(retAssetId,  { deductPct:     v }); }, [updateAssetField, retAssetId]);
+  const setRetailEfficiency       = useCallback((v: number) => { if (retAssetId)  updateAssetField(retAssetId,  { efficiencyPct: v }); }, [updateAssetField, retAssetId]);
 
   // Per-asset cost setters: stamp the assetId on every line so the flat
   // costs[] list stays consistent with its assetId discriminator.
@@ -418,9 +465,15 @@ export default function RealEstatePlatform() {
     const stamped: CostLine[] = next.map((c) => ({ ...(c as CostItem), assetId }));
     s.setCostsForAsset(assetId, stamped);
   }, []);
-  const setResidentialCosts = useCallback((updater: Updater<CostItem[]>) => setCostsForAssetWrapper(LEGACY_ASSET_IDS.residential, updater), [setCostsForAssetWrapper]);
-  const setHospitalityCosts = useCallback((updater: Updater<CostItem[]>) => setCostsForAssetWrapper(LEGACY_ASSET_IDS.hospitality, updater), [setCostsForAssetWrapper]);
-  const setRetailCosts      = useCallback((updater: Updater<CostItem[]>) => setCostsForAssetWrapper(LEGACY_ASSET_IDS.retail,      updater), [setCostsForAssetWrapper]);
+  // M1.10/3 — cost setters target the resolved category-first asset id
+  // (was hard-coded LEGACY_ASSET_IDS.X). Cost rows seeded by the
+  // residentialCosts.length === 0 effect (line ~605) now stamp the
+  // wizard-minted asset id, so subsequent residentialCosts filters
+  // pick them up. Legacy fixtures are unaffected — their resAsset.id
+  // already equals LEGACY_ASSET_IDS.residential.
+  const setResidentialCosts = useCallback((updater: Updater<CostItem[]>) => setCostsForAssetWrapper(resAssetId,  updater), [setCostsForAssetWrapper, resAssetId]);
+  const setHospitalityCosts = useCallback((updater: Updater<CostItem[]>) => setCostsForAssetWrapper(hospAssetId, updater), [setCostsForAssetWrapper, hospAssetId]);
+  const setRetailCosts      = useCallback((updater: Updater<CostItem[]>) => setCostsForAssetWrapper(retAssetId,  updater), [setCostsForAssetWrapper, retAssetId]);
 
   const setCostInputMode = useCallback((v: CostInputMode) => useModule1Store.getState().setCostInputMode(v), []);
   const setNextCostId    = useCallback((updater: Updater<number>) => {
