@@ -12,7 +12,7 @@
  *   else (e.g. 3SFM_S1) → DELETE FROM certification_watch_history WHERE tab_key=<tabKey>
  *
  * Works for 3SFM, BVM, live sessions, and any future course or session
- * type that uses those two tables — no per-type code.
+ * type that uses those two tables, no per-type code.
  */
 
 import { NextRequest, NextResponse } from 'next/server';

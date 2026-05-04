@@ -85,7 +85,7 @@ export default async function PricingPage() {
   // Live platforms
   const livePlatforms = dbModules.filter(m => m.status === 'live' && plansByPlatform.has(m.slug));
 
-  // CMS — hero + FAQ sourced from page_sections (Page Builder is canonical).
+  // CMS, hero + FAQ sourced from page_sections (Page Builder is canonical).
   const heroSection = pricingSections.find(s => s.section_type === 'hero' && s.visible !== false);
   const heroContent = (heroSection?.content ?? {}) as Record<string, unknown>;
   const heroBadge    = (heroContent.badge    as string | undefined) ?? 'Pricing';
@@ -229,7 +229,7 @@ export default async function PricingPage() {
                     <div style={{ marginTop: 64 }}>
                       <h2 style={{ fontSize: 24, fontWeight: 800, color: '#1B3A6B', textAlign: 'center', marginBottom: 40 }}>Feature Comparison</h2>
                       {/* I1: the table has minWidth:600 and overflowX:auto,
-                          so narrow screens already scroll horizontally — but
+                          so narrow screens already scroll horizontally, but
                           there's no visual hint that scrolling is possible.
                           The inset right-edge gradient shadow makes the
                           scrollable area discoverable. */}

@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   const sb = getServerClient();
   const isDefault = body.is_default === true;
 
-  // Only one default at a time — unset the current one first.
+  // Only one default at a time, unset the current one first.
   if (isDefault) {
     await sb.from('instructors').update({ is_default: false }).eq('is_default', true);
   }

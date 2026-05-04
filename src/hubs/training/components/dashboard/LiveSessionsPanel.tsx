@@ -103,7 +103,7 @@ export function LiveSessionsPanel({ studentEmail, studentName = '', registration
         const watch: Record<string, WatchHistoryEntry> = {};
         for (const w of watchRes.history ?? []) watch[w.session_id] = w;
 
-        // Assessment summary — only for recorded sessions that have one.
+        // Assessment summary, only for recorded sessions that have one.
         const assessmentSessions = recList.filter(s => (s as LiveSession & { has_assessment?: boolean }).has_assessment);
         const summary: AttemptSummaryMap = {};
         await Promise.all(assessmentSessions.map(async s => {
@@ -186,7 +186,7 @@ export function LiveSessionsPanel({ studentEmail, studentName = '', registration
           </h2>
           {/* Fixed 3-slot grid (2 tablet, 1 mobile). Cards stretch to
               their 1/3 column slot. Previous 280px width cap reverted
-              per user request — height reduction happens at the card
+              per user request, height reduction happens at the card
               level (bannerStyle + bodyStyle). Shared
               `fmp-upcoming-grid` class keeps dashboard preview and
               Live Sessions tab visually consistent. */}

@@ -10,7 +10,7 @@ interface Props {
   fullName: string;
   course: string;
   grade: string;
-  /** Raw ISO date — VerifyActions runs it through formatShareDate() so the
+  /** Raw ISO date, VerifyActions runs it through formatShareDate() so the
    *  share text uses the same canonical "20 March 2026" format as the
    *  admin template preview, not whatever string the server page built. */
   issuedAt?: string | null;
@@ -52,7 +52,7 @@ export function VerifyActions({ certId, fullName, course, grade, issuedAt, verif
           🎖 Download Badge
         </a>
       )}
-      {/* Transcript — cached endpoint redirects to stored URL or generates on first click. */}
+      {/* Transcript, cached endpoint redirects to stored URL or generates on first click. */}
       <a href={`/api/training/transcript-cached/${certId}`} target="_blank" rel="noopener noreferrer"
          style={btn('#1B4F8A', '#fff')}>
         📄 Download Transcript

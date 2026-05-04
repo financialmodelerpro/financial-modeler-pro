@@ -1,14 +1,14 @@
 /**
  * GET /api/cron/auto-launch-check
  *
- * Called by Vercel cron (see vercel.json — `*​/5 * * * *`). Secured by the
+ * Called by Vercel cron (see vercel.json, `*​/5 * * * *`). Secured by the
  * CRON_SECRET Authorization header, same pattern as /api/cron/certificates.
  *
  * For each hub (training + modeling) it reads the four settings keys:
- *   {hub}_coming_soon                — current toggle
- *   {hub}_launch_date                — scheduled launch ISO timestamp
- *   {hub}_auto_launch                — admin opt-in for auto-flip
- *   {hub}_last_auto_launched_at      — audit timestamp of the last firing
+ *   {hub}_coming_soon               , current toggle
+ *   {hub}_launch_date               , scheduled launch ISO timestamp
+ *   {hub}_auto_launch               , admin opt-in for auto-flip
+ *   {hub}_last_auto_launched_at     , audit timestamp of the last firing
  *
  * Fires when coming_soon==='true' AND auto_launch==='true' AND launch_date
  * is set AND launch_date <= now. On firing:
@@ -17,7 +17,7 @@
  *   - last_auto_launched_at → now ISO (audit + UI readout)
  *
  * Safety invariants:
- *   - Never turns coming_soon ON — launches are one-way.
+ *   - Never turns coming_soon ON, launches are one-way.
  *   - Never touches a hub that isn't opted into auto_launch.
  *   - Manual toggle via /admin remains authoritative and works any time,
  *     even if the cron is broken.
@@ -104,7 +104,7 @@ export async function GET(req: NextRequest) {
         continue;
       }
 
-      // All guards pass — flip the hub LIVE and record the audit timestamp.
+      // All guards pass, flip the hub LIVE and record the audit timestamp.
       const upsertRows = [
         { key: hub.comingSoonKey,   value: 'false' },
         { key: hub.autoLaunchKey,   value: 'false' },

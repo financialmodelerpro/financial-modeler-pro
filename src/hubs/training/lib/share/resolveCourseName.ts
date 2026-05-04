@@ -5,7 +5,7 @@ import { COURSES } from '@/src/hubs/training/config/courses';
  *   - the course id (`'3sfm'`, `'bvm'`)
  *   - the short title (`'3SFM'`, `'BVM'`)
  *   - the full title (passthrough)
- * Returns the input unchanged when no match — lets live-session names and
+ * Returns the input unchanged when no match, lets live-session names and
  * other non-COURSES values pass through untouched.
  *
  * Pass to `renderShareTemplate(template, vars, { courseResolver: resolveCourseName })`

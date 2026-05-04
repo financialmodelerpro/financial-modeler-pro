@@ -4,7 +4,7 @@
  * Client button for the public /training/certificate page.
  *
  * Replaces the old hardcoded `<a href="linkedin.com/sharing/share-offsite">`
- * link with a template-driven ShareModal — every share entry point across
+ * link with a template-driven ShareModal, every share entry point across
  * the platform resolves its copy through the `share_templates` table, this
  * one included. Admins edit text / hashtags / @-mentions once and changes
  * flow through here automatically.

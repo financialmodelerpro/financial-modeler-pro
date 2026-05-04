@@ -415,7 +415,7 @@ function ModelingSignInInner() {
                     </div>
                   </div>
 
-                  {/* hCaptcha — C7: widget is ~300px and overflows a
+                  {/* hCaptcha, C7: widget is ~300px and overflows a
                       narrow form box on 320px phones. overflow-x:auto
                       gives a horizontal scroll fallback so the challenge
                       is still reachable even when it exceeds the form. */}

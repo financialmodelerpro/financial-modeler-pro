@@ -3,7 +3,7 @@ import { getServerClient } from '@/src/core/db/supabase';
 /**
  * Training Hub Coming-Soon bypass list.
  *
- * Reads the `training_hub_bypass_list` row from `training_settings` —
+ * Reads the `training_hub_bypass_list` row from `training_settings` ,
  * a comma-separated list of identifiers (emails or registration IDs)
  * that can sign in while the hub is in Coming Soon mode. Match is
  * case-insensitive so regIDs can be stored in any case.

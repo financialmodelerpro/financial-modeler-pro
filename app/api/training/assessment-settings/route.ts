@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 /**
  * GET /api/training/assessment-settings
  *
- * Returns the global shuffle settings that apply to every assessment —
+ * Returns the global shuffle settings that apply to every assessment ,
  * 3SFM, BVM, and live sessions. The per-course keys are superseded by
  * `shuffle_questions_enabled` / `shuffle_options_enabled` in
  * `training_settings` (migration 108).

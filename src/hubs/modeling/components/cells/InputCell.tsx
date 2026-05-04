@@ -14,7 +14,7 @@ export interface InputCellProps extends Omit<React.InputHTMLAttributes<HTMLInput
 }
 
 /**
- * InputCell — FAST input cell.
+ * InputCell, FAST input cell.
  * Hardcoded user input. Blue text on white background. Editable.
  *
  * Use <AssumptionCell> instead when the cell is a key driver assumption that

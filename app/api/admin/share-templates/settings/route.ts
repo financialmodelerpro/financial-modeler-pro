@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 /**
  * PATCH /api/admin/share-templates/settings
  *
- * Admin-only — updates the global mention settings used by the share-
+ * Admin-only, updates the global mention settings used by the share-
  * template render engine. All four fields are independently updatable.
  * Settings are stored in `training_settings` under:
  *   - share_brand_mention        (text)
@@ -27,7 +27,7 @@ export async function PATCH(req: NextRequest) {
 
   const upserts: { key: string; value: string }[] = [];
   if (typeof body.brand_mention === 'string') {
-    // Strip any leading @ — the render engine adds it when
+    // Strip any leading @, the render engine adds it when
     // share_brand_prefix_at is on. Storing with `@` would produce "@@Foo".
     upserts.push({ key: 'share_brand_mention', value: body.brand_mention.trim().replace(/^@+/, '') });
   }

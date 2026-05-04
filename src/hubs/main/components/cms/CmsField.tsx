@@ -17,9 +17,9 @@
  *     heavily-styled chips/badges/headings where the wrapper markup matters
  *
  * This component handles:
- *   - Visibility ({field}_visible) — hide/show
- *   - Alignment ({field}_align) — left/center/right/justify
- *   - Width ({field}_width) — maxWidth percentage
+ *   - Visibility ({field}_visible), hide/show
+ *   - Alignment ({field}_align), left/center/right/justify
+ *   - Width ({field}_width), maxWidth percentage
  *   - HTML detection + safe rendering via .fmp-rich-text class
  *   - Plain text paragraph splitting on blank lines
  *   - Single-line `<br />` preservation

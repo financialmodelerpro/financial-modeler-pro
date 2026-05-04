@@ -27,11 +27,11 @@ const MAIN_URL_BAM = process.env.NEXT_PUBLIC_MAIN_URL ?? 'https://financialmodel
 
 export const metadata: Metadata = {
   title: 'Book a Consultation | Financial Modeling Advisory',
-  description: 'Schedule a consultation with Ahmad Din — Corporate Finance & Transaction Advisory Specialist. Financial modeling advisory, deal structuring, and strategic consultations. 60-minute sessions available.',
+  description: 'Schedule a consultation with Ahmad Din, Corporate Finance & Transaction Advisory Specialist. Financial modeling advisory, deal structuring, and strategic consultations. 60-minute sessions available.',
   alternates: { canonical: `${MAIN_URL_BAM}/book-a-meeting` },
   openGraph: {
     title: 'Book a Consultation | FMP',
-    description: 'Consultations with Ahmad Din — Corporate Finance & Transaction Advisory Specialist.',
+    description: 'Consultations with Ahmad Din, Corporate Finance & Transaction Advisory Specialist.',
     url: `${MAIN_URL_BAM}/book-a-meeting`,
   },
 };
@@ -65,7 +65,7 @@ export default async function BookAMeetingPage() {
       <section style={{ flex: 1, padding: '40px 24px 64px' }}>
         <div style={{ maxWidth: 900, margin: '0 auto' }}>
 
-          {/* Header card — founder identity + expectations (centered, narrow) */}
+          {/* Header card, founder identity + expectations (centered, narrow) */}
           <div style={{ maxWidth: 560, margin: '0 auto 36px', textAlign: 'center' }}>
             {photoUrl && (
               <div style={{ marginBottom: 20, display: 'flex', justifyContent: 'center' }}>
@@ -108,7 +108,7 @@ export default async function BookAMeetingPage() {
             )}
           </div>
 
-          {/* Calendly inline embed — primary booking flow */}
+          {/* Calendly inline embed, primary booking flow */}
           {bookingUrl ? (
             <div style={{ marginBottom: 32 }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 10, textAlign: 'center' }}>
@@ -126,7 +126,7 @@ export default async function BookAMeetingPage() {
             </div>
           )}
 
-          {/* Direct contact options — each gated on admin visibility + value. */}
+          {/* Direct contact options, each gated on admin visibility + value. */}
           {((cmsVisible(fc ?? {}, 'email') && email) || (cmsVisible(fc ?? {}, 'whatsapp_number') && whatsappDigits)) && (
             <div style={{ maxWidth: 560, margin: '0 auto' }}>
               <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>

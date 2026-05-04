@@ -5,7 +5,7 @@
  *
  * Thin forwarder around the universal ShareModal. Prop shape kept stable so
  * existing callers (CourseTopBar) don't need to change. Share text resolves
- * through the centralized `session_shared` template — admins edit it at
+ * through the centralized `session_shared` template, admins edit it at
  * /admin/training-hub/share-templates.
  */
 

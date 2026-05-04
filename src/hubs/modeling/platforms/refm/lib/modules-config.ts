@@ -24,8 +24,8 @@ export interface ModuleConfig {
   num: number;                  // 1..11
   key: string;                  // 'module1'..'module11'
   icon: string;
-  shortLabel: string;           // Sidebar — narrow rail
-  longLabel: string;            // Dashboard roadmap — wide row
+  shortLabel: string;           // Sidebar, narrow rail
+  longLabel: string;            // Dashboard roadmap, wide row
   featureKey: string;           // 'module_1'..'module_11', for feature gating
   requiredPlan: ModulePlan;
   status: ModuleStatus;

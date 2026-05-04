@@ -1,5 +1,5 @@
 /**
- * Modeling Hub — Spacing Tokens (8px grid)
+ * Modeling Hub, Spacing Tokens (8px grid)
  *
  * Numeric values in pixels so the same scale can be consumed by web (CSS-in-JS
  * inline styles, Tailwind utility classes), Excel column widths, and PDF
@@ -35,7 +35,7 @@ export const radius = {
 } as const;
 
 /**
- * Semantic spacing — components reference these so the meaning lives in the
+ * Semantic spacing, components reference these so the meaning lives in the
  * name rather than a magic number. Adding a new use case? Define a semantic
  * token here rather than reaching for a raw spacing index in component code.
  */

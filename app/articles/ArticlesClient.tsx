@@ -34,7 +34,7 @@ export function ArticlesGrid({ articles, categories }: Props) {
       {/* Grid */}
       {filtered.length > 0 ? (
         // I4: minmax(300, 1fr) forced 1 column at 320px with 20px
-        // overhead — cards clipped. min(100%, 280px) drops to full-width
+        // overhead, cards clipped. min(100%, 280px) drops to full-width
         // on narrow viewports and 280+ otherwise.
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: 24 }}>
           {filtered.map(article => (

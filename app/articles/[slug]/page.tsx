@@ -23,7 +23,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const url = canonicalUrl(`/articles/${article.slug}`, 'main');
   return {
     title:       article.seo_title       ?? article.title,
-    description: article.seo_description ?? `${article.title} — practitioner insights on financial modeling, valuation, and corporate finance from Financial Modeler Pro.`,
+    description: article.seo_description ?? `${article.title}, practitioner insights on financial modeling, valuation, and corporate finance from Financial Modeler Pro.`,
     alternates: { canonical: url },
     openGraph: {
       title:       article.seo_title ?? article.title,

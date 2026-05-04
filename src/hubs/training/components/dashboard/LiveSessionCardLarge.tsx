@@ -58,7 +58,7 @@ function formatDateTime(iso?: string | null): string {
 }
 
 /**
- * Human readout of how far away a session is. Static — refreshed on next
+ * Human readout of how far away a session is. Static, refreshed on next
  * render. Good enough for card-level UX; precise time lives on the detail
  * page. Negative values ("started 3 min ago") surface as "Live now".
  */
@@ -156,7 +156,7 @@ const titleStyle: React.CSSProperties = {
 };
 
 const metaRow: React.CSSProperties = {
-  // marginBottom 6 → 4, lineHeight 1.4 → 1.3 — saves ~10-14px across
+  // marginBottom 6 → 4, lineHeight 1.4 → 1.3, saves ~10-14px across
   // the date / duration / instructor rows combined.
   display: 'flex', alignItems: 'center', gap: 6,
   fontSize: 12, color: '#4B5563',
@@ -359,7 +359,7 @@ export function LiveSessionCardLarge(props: Props) {
           {session.instructor_name && (
             <div style={{ ...metaRow, marginBottom: 12 }}>
               <User size={13} strokeWidth={2} />
-              <span>{session.instructor_name}{session.instructor_title ? ` — ${session.instructor_title}` : ''}</span>
+              <span>{session.instructor_name}{session.instructor_title ? `, ${session.instructor_title}` : ''}</span>
             </div>
           )}
 
@@ -370,7 +370,7 @@ export function LiveSessionCardLarge(props: Props) {
           )}
 
           {/* Registered pill + countdown. Only shown once the student is
-              actually registered — before that, the Register button below
+              actually registered, before that, the Register button below
               is the whole CTA row. */}
           {registered && !canJoin && !startingSoon && countdown && (
             <div style={{
@@ -536,7 +536,7 @@ export function LiveSessionCardLarge(props: Props) {
             )}
           </div>
 
-          {/* Watch-progress bar intentionally not rendered for students — the
+          {/* Watch-progress bar intentionally not rendered for students, the
               threshold + watched % gate assessment unlock server-side but are
               hidden from the UI so the rule can't be gamed. Status chips
               above ("Has Assessment" / "Assessment Passed" / "Max Attempts

@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * RichTextarea — universal rich text input used across the Page Builder.
+ * RichTextarea, universal rich text input used across the Page Builder.
  *
  * Phase 2A rewrite: backed by Tiptap. Preserves the original visual style
  * (padding/border/background/minHeight) and the selection-based floating
@@ -270,7 +270,7 @@ export function RichTextarea({ value, onChange, minHeight = 60, placeholder }: P
         </div>
       )}
 
-      {/* Editor area — visually matches the old RichTextarea */}
+      {/* Editor area, visually matches the old RichTextarea */}
       <div
         className="fmp-rta"
         data-empty={editor.isEmpty ? 'true' : 'false'}
@@ -314,7 +314,7 @@ export function RichTextarea({ value, onChange, minHeight = 60, placeholder }: P
 /** Tiptap wants at least `<p></p>` when content is empty. */
 function normalizeContent(raw: string): string {
   if (!raw || !raw.trim()) return '<p></p>';
-  // Content without any HTML tag — wrap in <p> so Tiptap parses it cleanly
+  // Content without any HTML tag, wrap in <p> so Tiptap parses it cleanly
   if (!/<[a-z][\s\S]*?>/i.test(raw)) {
     // preserve blank-line paragraph splits
     const paras = raw.split(/\n\n+/).map(s => s.trim()).filter(Boolean);

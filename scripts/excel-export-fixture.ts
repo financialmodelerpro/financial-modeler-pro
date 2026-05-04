@@ -14,7 +14,7 @@
  * after a deterministic-clock branch) or extract sheets and diff them with
  * `unzip -p out.xlsx xl/worksheets/sheet1.xml | xmllint --format -`.
  *
- * Generic sample data — no real client / project names. Numbers chosen so
+ * Generic sample data, no real client / project names. Numbers chosen so
  * every cell type fires (mixed-use 50/30/20 split, 4 construction + 5
  * operations periods, capitalized interest on, fixed-amortization debt).
  */
@@ -29,7 +29,7 @@ function buildPayload(): ExportPayload {
   const operationsPeriods   = 5;
   const totalPeriods        = constructionPeriods + operationsPeriods;
 
-  // Cost items — 4 lines per asset class, mix of methods + phasings.
+  // Cost items, 4 lines per asset class, mix of methods + phasings.
   const makeCosts = (assetSeed: number): CostItem[] => [
     { id: assetSeed + 1, name: 'Land (Cash Portion)', method: 'fixed',         value: 50_000_000, startPeriod: 0, endPeriod: 0, phasing: '100',                  canDelete: false },
     { id: assetSeed + 2, name: 'Construction Cost',   method: 'rate_bua',      value: 4_500,      startPeriod: 1, endPeriod: 4, phasing: 'even',                 canDelete: true },

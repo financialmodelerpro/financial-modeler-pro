@@ -635,7 +635,7 @@ export default function AdminCourseLessonsPage() {
           </div>
         </div>
 
-        {/* Global shuffle + timer toggles moved to Training Settings — see note
+        {/* Global shuffle + timer toggles moved to Training Settings, see note
             on the Course Manager overview. This page focuses on course structure. */}
 
         {/* Tab bar */}
@@ -1208,7 +1208,7 @@ export default function AdminCourseLessonsPage() {
 
             {/* Form URL removed from UI - stored silently in Apps Script Form Registry */}
 
-            {/* Reset watch progress — wipes all students' watch-history
+            {/* Reset watch progress, wipes all students' watch-history
                 rows for this session. Use after swapping the YouTube
                 URL so stale progress doesn't stick against the new
                 video. (Per-student auto-detect on the watch endpoint
@@ -1235,7 +1235,7 @@ export default function AdminCourseLessonsPage() {
                 🔁 Reset watch progress for all students
               </button>
               <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 6 }}>
-                Safe to use after swapping the YouTube URL. Existing rows get deleted — next tick rebuilds fresh from zero.
+                Safe to use after swapping the YouTube URL. Existing rows get deleted, next tick rebuilds fresh from zero.
               </div>
             </div>
 

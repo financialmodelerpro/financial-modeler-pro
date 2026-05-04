@@ -18,7 +18,7 @@
  *
  * The test fails if any console.error fires OR any uncaught page error
  * is observed during the create flow. That's how we catch the
- * "page couldn't load" regression — the React boundary that produces
+ * "page couldn't load" regression, the React boundary that produces
  * that message also writes the underlying exception to the console.
  */
 
@@ -44,7 +44,7 @@ async function setupMocks(page: Page): Promise<Captured[]> {
     captured.push({ type: 'pageerror', text: `${err.name}: ${err.message}\n${err.stack ?? ''}` });
   });
 
-  // Mock NextAuth session endpoint as well — even though the fixture
+  // Mock NextAuth session endpoint as well, even though the fixture
   // passes a session prop to SessionProvider, NextAuth may still hit
   // /api/auth/session on focus / window events.
   await page.route('**/api/auth/session', async (route) => {
@@ -127,7 +127,7 @@ async function setupMocks(page: Page): Promise<Captured[]> {
     await route.continue();
   });
 
-  // GET single project (used by attach) — should NOT be hit on wizard
+  // GET single project (used by attach), should NOT be hit on wizard
   // create after fix 3/3, but mock anyway to avoid 404 logs.
   await page.route(/\/api\/refm\/projects\/[^/]+$/, async (route) => {
     await route.fulfill({
@@ -175,7 +175,7 @@ async function setupMocks(page: Page): Promise<Captured[]> {
   return captured;
 }
 
-test.describe('M1.8 wizard create — repro', () => {
+test.describe('M1.8 wizard create, repro', () => {
   test.beforeAll(async () => {
     let healthy = false;
     try {

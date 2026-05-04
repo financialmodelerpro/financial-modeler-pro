@@ -12,9 +12,9 @@
  *
  * Tip: run twice across a refactor and compare with a PDF diff tool. PDFs
  * embed a creation-date timestamp so byte-identical compares will not work
- * even on identical input — diff visually or extract text via `pdftotext`.
+ * even on identical input, diff visually or extract text via `pdftotext`.
  *
- * Generic sample data — no real client / project names. Mirrors the Excel
+ * Generic sample data, no real client / project names. Mirrors the Excel
  * fixture's payload shape (slimmed to the PDF's narrower type surface).
  */
 
@@ -27,7 +27,7 @@ function buildPayload(): ExportPayload {
   const constructionPeriods = 4;
   const operationsPeriods   = 5;
 
-  // Cost items — 4 lines per asset, mix of methods. Type is narrower than
+  // Cost items, 4 lines per asset, mix of methods. Type is narrower than
   // the Excel fixture (no id / startPeriod / endPeriod / phasing / canDelete).
   const makeCosts = () => [
     { name: 'Land (Cash Portion)', method: 'fixed',                 value: 50_000_000 },
@@ -36,7 +36,7 @@ function buildPayload(): ExportPayload {
     { name: 'Professional Fee',    method: 'percent_base',          value: 8 },
   ];
 
-  // Financing result — round-number debt/equity totals so the PDF totals
+  // Financing result, round-number debt/equity totals so the PDF totals
   // line up at a glance.
   const buildFin = (totalCapex: number, debtRatio: number): FinancingResult => {
     const totalDebt   = totalCapex * debtRatio;

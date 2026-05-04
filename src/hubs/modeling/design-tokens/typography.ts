@@ -1,5 +1,5 @@
 /**
- * Modeling Hub — Typography Tokens
+ * Modeling Hub, Typography Tokens
  *
  * Inter is the canonical font for the entire FMP platform; this file just
  * defines the modeling-hub-specific scale, weights, and line heights. Sizes

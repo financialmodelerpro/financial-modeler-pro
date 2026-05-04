@@ -14,7 +14,7 @@ interface EnvCheck {
 }
 
 /**
- * `SUPABASE_URL` satisfied by either key — mirror `src/lib/shared/
+ * `SUPABASE_URL` satisfied by either key, mirror `src/lib/shared/
  * supabase.ts:getServerClient`, which falls back to the public URL when
  * the server-only var isn't set. If the fallback is in play, `SUPABASE_URL`
  * gets a note instead of a scary "MISSING" label.
@@ -53,7 +53,7 @@ export async function GET() {
     if (primarySet) {
       return { key: v.key, label: v.label, required: v.required, present: true };
     }
-    // Primary missing — check fallbacks. If any fallback is set, the
+    // Primary missing, check fallbacks. If any fallback is set, the
     // runtime requirement is satisfied; surface a note so the admin
     // knows the server client is reading the fallback.
     const matchedFallback = v.fallbacks?.find((f) => !!process.env[f]);

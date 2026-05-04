@@ -79,7 +79,7 @@ export function YouTubeThumbnailStudio() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Field label="Pick session (optional)">
               <select value={selectedId} onChange={e => applySession(e.target.value)} style={selectStyle}>
-                <option value="">— Custom title —</option>
+                <option value="">, Custom title ,</option>
                 {sessions.map(s => <option key={s.id} value={s.id}>{s.title}</option>)}
               </select>
             </Field>

@@ -1,5 +1,5 @@
 {
-  "_comment": "Module 1 Area Program regression fixture (Phase M1.7/4). v4 HydrateSnapshot — single phase + 1 sub-project + 1 plot with 2 zones + 3 assets bound to the plot via plotId. Exercises the M1.7 calc path end-to-end: plot envelope (50,000 sqm, FAR 3.0, coverage 60%, 2 podium + 10 typical floors @ 40% coverage, 2 basements @ 95% efficiency), per-asset GFA share (pro-rata via allocationPct 50/30/20), per-asset cascade (residential gets defaults, hospitality / retail use category defaults), and parking allocation across 3 sub-units (Studio 100 + 2BR 80 + Hotel Key 200 -> 480 bays demanded, fits inside basement capacity).",
+  "_comment": "Module 1 Area Program regression fixture (Phase M1.7/4). v4 HydrateSnapshot, single phase + 1 sub-project + 1 plot with 2 zones + 3 assets bound to the plot via plotId. Exercises the M1.7 calc path end-to-end: plot envelope (50,000 sqm, FAR 3.0, coverage 60%, 2 podium + 10 typical floors @ 40% coverage, 2 basements @ 95% efficiency), per-asset GFA share (pro-rata via allocationPct 50/30/20), per-asset cascade (residential gets defaults, hospitality / retail use category defaults), and parking allocation across 3 sub-units (Studio 100 + 2BR 80 + Hotel Key 200 -> 480 bays demanded, fits inside basement capacity).",
 
   "projectName": "AreaProgram Reference",
   "projectType": "mixed-use",

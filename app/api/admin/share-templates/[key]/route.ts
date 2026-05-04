@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 /**
  * PATCH /api/admin/share-templates/[key]
  *
- * Admin-only — partial update of a share template. template_key itself is
+ * Admin-only, partial update of a share template. template_key itself is
  * immutable (it's the join key used across the codebase).
  */
 export async function PATCH(

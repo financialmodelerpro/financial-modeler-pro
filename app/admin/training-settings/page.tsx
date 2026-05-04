@@ -33,12 +33,12 @@ export default function TrainingSettingsPage() {
   const [testResult, setTestResult] = useState<'ok' | 'fail' | null>(null);
   const [toast, setToast]       = useState('');
 
-  // Assessment settings (global shuffle) — migration 108
+  // Assessment settings (global shuffle), migration 108
   const [shuffleQuestions, setShuffleQuestions] = useState(true);
   const [shuffleOptions, setShuffleOptions]     = useState(false);
   const [shuffleSaving, setShuffleSaving]       = useState(false);
 
-  // Model-submission gate (migration 148) — three soft-launch flags. Audit-
+  // Model-submission gate (migration 148), three soft-launch flags. Audit-
   // logged via /api/admin/training-settings/model-submission-gate so every
   // cutover decision lands in admin_audit_log.
   const [msAnnouncementOnly, setMsAnnouncementOnly] = useState(true);
@@ -77,7 +77,7 @@ export default function TrainingSettingsPage() {
   const [savedWhatsappUrl, setSavedWhatsappUrl] = useState('');
   const [whatsappSaving, setWhatsappSaving]   = useState(false);
 
-  // Platform Walkthrough URL — shown as a "Watch Platform Walkthrough"
+  // Platform Walkthrough URL, shown as a "Watch Platform Walkthrough"
   // button on the student dashboard. Empty = button hidden.
   const [walkthroughUrl, setWalkthroughUrl]           = useState('');
   const [savedWalkthroughUrl, setSavedWalkthroughUrl] = useState('');
@@ -461,7 +461,7 @@ export default function TrainingSettingsPage() {
               </a>
             </div>
 
-            {/* Community Links Card — WhatsApp Group */}
+            {/* Community Links Card, WhatsApp Group */}
             {(() => {
               const trimmed = whatsappUrl.trim();
               const dirty = trimmed !== savedWhatsappUrl;
@@ -537,7 +537,7 @@ export default function TrainingSettingsPage() {
                     🎥 Platform Walkthrough Video
                   </div>
                   <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
-                    Paste a YouTube (or Vimeo) URL to show a <strong>Watch Platform Walkthrough</strong> button on the student dashboard hero. The video opens in an embedded modal — students never leave the platform. Leave empty to hide the button.
+                    Paste a YouTube (or Vimeo) URL to show a <strong>Watch Platform Walkthrough</strong> button on the student dashboard hero. The video opens in an embedded modal, students never leave the platform. Leave empty to hide the button.
                   </div>
 
                   <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
@@ -593,7 +593,7 @@ export default function TrainingSettingsPage() {
             <div style={{ background: '#fff', border: '1px solid #E8F0FB', borderRadius: 12, padding: '24px 28px', marginBottom: 24, maxWidth: 780 }}>
               <div style={{ fontSize: 15, fontWeight: 700, color: '#1B3A6B', marginBottom: 4 }}>📝 Assessment Settings</div>
               <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 16 }}>
-                Global shuffle controls for every assessment — 3SFM, BVM, and live sessions. Applied client-side after questions load so the same setting works uniformly regardless of where the questions come from.
+                Global shuffle controls for every assessment, 3SFM, BVM, and live sessions. Applied client-side after questions load so the same setting works uniformly regardless of where the questions come from.
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -657,7 +657,7 @@ export default function TrainingSettingsPage() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                {/* announcement_only — flipping has no enforcement risk so no
+                {/* announcement_only, flipping has no enforcement risk so no
                     confirm dialog. ON shows banner, OFF hides it. */}
                 <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: '#F9FAFB', border: '1px solid #E5E7EB', borderRadius: 8, cursor: msSavingKey ? 'not-allowed' : 'pointer' }}>
                   <div style={{ paddingRight: 12 }}>
@@ -679,7 +679,7 @@ export default function TrainingSettingsPage() {
                   </div>
                 </label>
 
-                {/* required_3sfm — confirm before flip. ON = enforce; OFF = remove gate. */}
+                {/* required_3sfm, confirm before flip. ON = enforce; OFF = remove gate. */}
                 <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: msRequired3sfm ? '#FEF2F2' : '#F9FAFB', border: `1px solid ${msRequired3sfm ? '#FECACA' : '#E5E7EB'}`, borderRadius: 8, cursor: msSavingKey ? 'not-allowed' : 'pointer' }}>
                   <div style={{ paddingRight: 12 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B' }}>🔒 Require Model for 3SFM Final Exam</div>
@@ -712,7 +712,7 @@ export default function TrainingSettingsPage() {
                   </div>
                 </label>
 
-                {/* required_bvm — same pattern as 3SFM. */}
+                {/* required_bvm, same pattern as 3SFM. */}
                 <label style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: msRequiredBvm ? '#FEF2F2' : '#F9FAFB', border: `1px solid ${msRequiredBvm ? '#FECACA' : '#E5E7EB'}`, borderRadius: 8, cursor: msSavingKey ? 'not-allowed' : 'pointer' }}>
                   <div style={{ paddingRight: 12 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: '#1B3A6B' }}>🔒 Require Model for BVM Final Exam</div>

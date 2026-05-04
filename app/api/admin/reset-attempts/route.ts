@@ -8,7 +8,7 @@ import { getServerClient } from '@/src/core/db/supabase';
  * POST /api/admin/reset-attempts
  *
  * Resets a student's assessment state. Historical bug: Apps Script was the only
- * store being cleared — `training_assessment_results` in Supabase kept the
+ * store being cleared, `training_assessment_results` in Supabase kept the
  * passed row, so the dashboard still blocked the retake. This route now clears
  * both stores in every branch.
  *

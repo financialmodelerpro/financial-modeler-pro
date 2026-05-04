@@ -175,7 +175,7 @@ export default function Dashboard({
         </div>
       </div>
 
-      {/* Module status grid — driven by MODULES from lib/modules-config.ts */}
+      {/* Module status grid, driven by MODULES from lib/modules-config.ts */}
       <div className="module-card" style={{ padding: 'var(--sp-3)' }}>
         <h3 style={{
           fontSize: '11px', fontWeight: 'var(--fw-semibold)',

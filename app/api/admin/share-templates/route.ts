@@ -16,7 +16,7 @@ const SETTINGS_KEYS = [
 /**
  * GET /api/admin/share-templates
  *
- * Admin-only — returns every share template (active + inactive) plus the
+ * Admin-only, returns every share template (active + inactive) plus the
  * global mention settings (brand + founder @-handle text + @-prefix
  * toggles). Settings are edited via
  * PATCH /api/admin/share-templates/settings.
@@ -46,7 +46,7 @@ export async function GET() {
   };
 
   // Inline settings into each template row so the shape matches the public
-  // endpoint — admin editors can render a preview without a second fetch.
+  // endpoint, admin editors can render a preview without a second fetch.
   const templates = (templatesRes.data ?? []).map(t => ({
     ...t,
     brand_mention:     settings.brand_mention,

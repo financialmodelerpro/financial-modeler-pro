@@ -51,7 +51,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   const title = `${name} earned ${course} Certification | Financial Modeler Pro`;
   const description = `${name} completed ${course} from Financial Modeler Pro${grade}.${issued} Scan or click to verify.`;
 
-  // Dynamic, branded OG image — rich LinkedIn / Twitter / WhatsApp preview
+  // Dynamic, branded OG image, rich LinkedIn / Twitter / WhatsApp preview
   // with student name + course + grade + date. Absolute URLs (not relative)
   // guarantee the social card footer always shows learn.* regardless of
   // which subdomain the user originally shared from.
@@ -65,7 +65,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     description,
     alternates: { canonical },
     openGraph: {
-      title:       `${name} — Verified ${course} Certificate`,
+      title:       `${name}, Verified ${course} Certificate`,
       description,
       type:        'profile',
       url:         canonical,
@@ -74,7 +74,7 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
     },
     twitter: {
       card:  'summary_large_image',
-      title: `${name} — Verified ${course} Certificate`,
+      title: `${name}, Verified ${course} Certificate`,
       description,
       images: [ogImage],
     },
@@ -112,7 +112,7 @@ function formatDate(raw: string | null | undefined): string {
 }
 
 /**
- * Inline PDF preview card — renders the first page of a PDF via iframe
+ * Inline PDF preview card, renders the first page of a PDF via iframe
  * (browser-native viewer) with a branded header and "Open Full ↗" link.
  * `#toolbar=0&navpanes=0&scrollbar=0&view=FitH` hides the browser's chrome
  * so the document feels embedded rather than "in a frame".
@@ -153,7 +153,7 @@ function DocumentPreview({
           title={`${label} preview`}
           loading="lazy"
         />
-        {/* Mobile-friendly tap overlay — opens the PDF full-screen on
+        {/* Mobile-friendly tap overlay, opens the PDF full-screen on
             devices where the iframe viewer renders a download prompt or
             blank placeholder instead of the embedded PDF. */}
         <a
@@ -178,7 +178,7 @@ function DocumentPreview({
 }
 
 /**
- * Inline image preview card — mirrors DocumentPreview's visual language
+ * Inline image preview card, mirrors DocumentPreview's visual language
  * but renders a raster image (e.g. the achievement badge PNG) instead of
  * a PDF iframe. Uses a subtle gradient backdrop so transparent-background
  * badges don't look hollow on white.
@@ -192,7 +192,7 @@ function ImagePreview({
       overflow: 'hidden', display: 'flex', flexDirection: 'column',
       boxShadow: '0 2px 6px rgba(13,46,90,0.06)',
     }}>
-      {/* Header strip — matches DocumentPreview. */}
+      {/* Header strip, matches DocumentPreview. */}
       <div style={{
         background: '#0D2E5A', padding: '10px 14px',
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -289,7 +289,7 @@ export default async function VerifyPage({ params }: PageProps) {
   }
 
   const certId      = cert.certificate_id ?? uuid;
-  // Canonical verification URL is on learn.* — matches the QR encoded in
+  // Canonical verification URL is on learn.*, matches the QR encoded in
   // the certificate + transcript PDFs, and makes the share preview
   // consistent regardless of which subdomain the student arrived on.
   const verifyUrl   = `${learnUrl}/verify/${certId}`;
@@ -320,11 +320,11 @@ export default async function VerifyPage({ params }: PageProps) {
         </div>
       </div>
 
-      {/* Main Card — C2: responsive maxWidth so the 760px cap never
+      {/* Main Card, C2: responsive maxWidth so the 760px cap never
           exceeds viewport on narrow phones (was overflowing at 320px). */}
       <div style={{ maxWidth: 'min(760px, calc(100vw - 24px))', margin: '16px auto 32px', borderRadius: 14, boxShadow: '0 20px 60px rgba(0,0,0,0.25)', overflow: 'hidden', background: '#fff' }}>
 
-        {/* Top - navy header — I14: wrap + center-aligned when the
+        {/* Top - navy header, I14: wrap + center-aligned when the
             name+seal+QR would collide on narrow screens. */}
         <div style={{ background: '#0D2E5A', padding: 'clamp(18px, 5vw, 28px) clamp(18px, 5vw, 36px)', display: 'flex', alignItems: 'flex-start', gap: 'clamp(14px, 3vw, 28px)', flexWrap: 'wrap' }}>
           <div style={{ flex: 1 }}>
@@ -353,7 +353,7 @@ export default async function VerifyPage({ params }: PageProps) {
           </div>
         </div>
 
-        {/* Details — I13: grid collapses to single column ≤480px via the
+        {/* Details, I13: grid collapses to single column ≤480px via the
             `minmax(min(100%, Npx), 1fr)` CSS-only trick. At 320px the
             lower bound becomes 100%, forcing one column; on wider
             viewports the 200px minimum admits the usual 2-col. */}
@@ -378,7 +378,7 @@ export default async function VerifyPage({ params }: PageProps) {
           </div>
         </div>
 
-        {/* Document Previews — inline previews for Certificate + Badge + Transcript.
+        {/* Document Previews, inline previews for Certificate + Badge + Transcript.
             Left column stacks the two landscape/square credential artifacts;
             right column holds the taller portrait transcript. */}
         <div style={{ padding: '4px clamp(18px, 5vw, 36px) 24px', background: '#fff', borderTop: '1px solid #F3F4F6' }}>
@@ -418,7 +418,7 @@ export default async function VerifyPage({ params }: PageProps) {
             <DocumentPreview
               label="TRANSCRIPT"
               accent="#8FBCEC"
-              /* Prefer direct storage URL when already cached — iframe
+              /* Prefer direct storage URL when already cached, iframe
                  hash params (toolbar=0) survive without the 302 hop. */
               embedUrl={cert.transcript_url ?? `/api/training/transcript-cached/${certId}`}
               openUrl={`/api/training/transcript-cached/${certId}`}
@@ -427,7 +427,7 @@ export default async function VerifyPage({ params }: PageProps) {
           </div>
         </div>
 
-        {/* QR + Actions — center the QR when wrap kicks in on narrow
+        {/* QR + Actions, center the QR when wrap kicks in on narrow
             screens so it doesn't hug the left edge alone. */}
         <div style={{ background: '#F9FAFB', padding: 'clamp(18px, 4vw, 24px) clamp(18px, 5vw, 36px)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', gap: 'clamp(16px, 4vw, 32px)', flexWrap: 'wrap' }}>
           {/* QR */}
@@ -439,7 +439,7 @@ export default async function VerifyPage({ params }: PageProps) {
             </div>
           </div>
 
-          {/* Buttons — client component owns the share copy-to-clipboard flow. */}
+          {/* Buttons, client component owns the share copy-to-clipboard flow. */}
           <VerifyActions
             certId={certId}
             fullName={cert.full_name ?? 'Student'}

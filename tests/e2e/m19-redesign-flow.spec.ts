@@ -4,7 +4,7 @@
  * End-to-end coverage for the M1.9 Module 1 UX redesign.
  *
  * Reuses the M1.8 wizard fixture mount at /test-fixtures/m18-wizard
- * (RealEstatePlatform inside a stubbed NextAuth SessionProvider) — the
+ * (RealEstatePlatform inside a stubbed NextAuth SessionProvider), the
  * fixture surface is unchanged in M1.9; only the wizard's fields and
  * the tab metadata + content shifted.
  *
@@ -22,7 +22,7 @@
  *      type, country, currency). The wizard captured them; re-asking
  *      was the duplicate-input bug Ahmad called out.
  *   4. Land tab no longer hosts the Asset Mix or Deduction/Efficiency
- *      panels — those have moved to the Hierarchy tab's per-asset
+ *      panels, those have moved to the Hierarchy tab's per-asset
  *      cards.
  *   5. No console.error / pageerror across the full walk.
  *
@@ -182,12 +182,12 @@ async function openWizard(page: Page): Promise<void> {
 async function walkWizardWithM19Fields(page: Page, name: string): Promise<void> {
   await page.getByTestId('wizard-name').fill(name);
   await page.getByTestId('wizard-location').fill('Dubai, UAE');
-  // M1.9 — country dropdown drives currency. Pick UAE so currency
+  // M1.9, country dropdown drives currency. Pick UAE so currency
   // auto-flips to AED, then Continue.
   await page.getByTestId('wizard-country').selectOption('United Arab Emirates');
   await page.getByTestId('wizard-continue').click();
   await expect(page.getByTestId('wizard-step-2')).toBeVisible();
-  // M1.9 — Step 2 carries the new timeline trio. Set non-default values
+  // M1.9, Step 2 carries the new timeline trio. Set non-default values
   // so the assertion later proves they survived the wizard → snapshot
   // → store hydration path.
   await page.getByTestId('wizard-construction-periods').fill('7');
@@ -252,7 +252,7 @@ test.describe('M1.9 Module 1 UX redesign', () => {
 
     // 4) Wizard timing values made it through. Module1Timeline labels
     // are bare <label> elements (no htmlFor) so getByLabel can't anchor
-    // — locate the inputs by walking up to the wrapping div and back
+    //, locate the inputs by walking up to the wrapping div and back
     // down to the only number input inside it. Light DOM check; the
     // mock-state snapshot assertion below is the canonical proof.
     const constructionInput = page.locator('div:has(> label:text-is("Construction (years)")) input[type="number"]').first();
@@ -262,7 +262,7 @@ test.describe('M1.9 Module 1 UX redesign', () => {
     const overlapInput = page.locator('div:has(> label:text-is("Overlap (years)")) input[type="number"]').first();
     await expect(overlapInput).toHaveValue('1');
 
-    // 5) Land tab — Asset Mix / Deduction & Efficiency panels are gone.
+    // 5) Land tab, Asset Mix / Deduction & Efficiency panels are gone.
     await page.getByRole('button', { name: '2. Land' }).first().click();
     await expect(page.getByRole('heading', { name: 'Land & Area', level: 2 })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'Asset Mix', level: 3 })).toHaveCount(0);

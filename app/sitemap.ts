@@ -26,7 +26,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     s(`${MAIN_URL}/pricing`,                0.8, 'monthly'),
     s(`${MAIN_URL}/articles`,               0.9, 'weekly'),
     // training-sessions is canonically served on learn (main-domain hits 307
-    // to learn via next.config.ts redirects) — point sitemap at the actual
+    // to learn via next.config.ts redirects), point sitemap at the actual
     // destination so Google doesn't report "Page with redirect" against it.
     s(`${LEARN_URL}/training-sessions`,     0.9, 'weekly'),
     s(`${LEARN_URL}/verify`,                0.5, 'yearly'),
@@ -34,7 +34,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   );
 
   // ── Legal pages (explicit fallback) ──────────────────────────────────────
-  // The cms_pages branch below picks these up too — but only when the row is
+  // The cms_pages branch below picks these up too, but only when the row is
   // present and status='published'. Listing them explicitly here guarantees
   // crawl coverage even if the migration hasn't been re-applied to a fresh
   // staging DB. Dedup against the cms_pages branch happens in the final pass.

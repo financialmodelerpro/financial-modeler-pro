@@ -1,19 +1,19 @@
 /**
- * Modeling Hub — Color Tokens (Phase 1)
+ * Modeling Hub, Color Tokens (Phase 1)
  *
  * Single source of truth for every color used across the Modeling Hub:
  * web UI (REFM today; BVM/FP&A/ERM/PFM/LBO/CFM/EUM/SVM/BCM tomorrow), the
  * Excel exporter, and the PDF exporter. All consumers import from here.
  *
  * Two palettes:
- *   chromeColors — corporate chrome (top bar, sidebar, table chrome, section
+ *   chromeColors, corporate chrome (top bar, sidebar, table chrome, section
  *   bands, borders, surfaces). Anchored on the CMS-driven brand navy
  *   (`DEFAULT_BRANDING.primaryColor` in `src/core/branding/index.ts`). For
  *   Phase 1 the brand anchor is baked in as a TypeScript hex literal mirroring
  *   the CMS default; the live web UI also has a CSS-var override channel via
  *   `globals.css --color-primary` for runtime brand-color changes from CMS.
  *
- *   fastColors — FAST cell convention (Input blue / Formula black / Linked
+ *   fastColors, FAST cell convention (Input blue / Formula black / Linked
  *   green / External red / Assumption yellow). Same hex values across web,
  *   Excel, and PDF so a model that opens with blue inputs and black formulas
  *   in the browser also opens that way in Excel and prints that way in PDF.
@@ -27,7 +27,7 @@
 // ── Brand anchor ─────────────────────────────────────────────────────────────
 // Mirrors `DEFAULT_BRANDING.primaryColor` from `src/core/branding/index.ts:13`.
 // Updating that file should also update this constant. The CMS admin can
-// override `--color-primary` at runtime (see globals.css line 65) — that
+// override `--color-primary` at runtime (see globals.css line 65), that
 // override flows through to the live web UI but does not affect Excel/PDF
 // exports, which always use this baked-in literal.
 export const BRAND_NAVY = '#1E3A8A' as const;
@@ -104,7 +104,7 @@ export interface ChromePalette {
   assetAccent:       string;
   assetAccentText:   string;
 
-  // Timeline period tints — for tables whose columns map to periods on the
+  // Timeline period tints, for tables whose columns map to periods on the
   // construction → operations axis. Used by Module 1 Costs / Financing in
   // both the web UI (Phase 4) and the Excel exporter (Phase 2).
   timelineConstrBg:    string;  // construction period column tint (zebra base)
@@ -219,24 +219,24 @@ export interface FastPalette {
 
 export const fastColors: { light: FastPalette; dark: FastPalette } = {
   light: {
-    // Input — hardcoded user inputs. Excel-canonical FAST blue.
+    // Input, hardcoded user inputs. Excel-canonical FAST blue.
     inputText:      '#0070C0',
     inputBg:        '#FFFFFF',
-    // Formula — calculated values. Black on light grey.
+    // Formula, calculated values. Black on light grey.
     formulaText:    '#000000',
     formulaBg:      greyScale[100],
-    // Linked — cross-module pulled values. Excel-canonical FAST green.
+    // Linked, cross-module pulled values. Excel-canonical FAST green.
     linkedText:     '#00B050',
     linkedBg:       '#FFFFFF',
-    // External — references that point outside the model (e.g. to another
+    // External, references that point outside the model (e.g. to another
     // workbook, to a hardcoded value pasted from a research source).
     externalText:   '#FF0000',
     externalBg:     '#FFFFFF',
-    // Assumption — the small set of inputs that drive the model. Yellow
+    // Assumption, the small set of inputs that drive the model. Yellow
     // background plus blue text (it is still an input).
     assumptionText: '#0070C0',
     assumptionBg:   '#FFFF99',
-    // Header — section header band.
+    // Header, section header band.
     headerText:     '#FFFFFF',
     headerBg:       navyScale[800],
   },
@@ -272,7 +272,7 @@ export function toArgb(hex: string): string {
 /**
  * Convert a 6-char hex to a `{ r, g, b }` triple in 0..1 normalized floats.
  * @react-pdf/renderer accepts CSS-style hex directly, but a few of its lower
- * level helpers prefer normalized floats — this converter handles both.
+ * level helpers prefer normalized floats, this converter handles both.
  */
 export function toRgbTriple(hex: string): { r: number; g: number; b: number } {
   if (typeof hex !== 'string' || hex.length !== 7 || hex[0] !== '#') return { r: 0, g: 0, b: 0 };

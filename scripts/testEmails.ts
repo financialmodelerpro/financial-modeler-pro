@@ -59,20 +59,20 @@ async function run() {
       },
     },
     {
-      label: '[training@] Quiz Result — Passed',
+      label: '[training@] Quiz Result, Passed',
       fn: async () => {
         const t = await quizResultTemplate({
-          name: 'Test User', sessionName: 'Session 3 — Income Statement',
+          name: 'Test User', sessionName: 'Session 3, Income Statement',
           score: 85, passMark: 70, passed: true, attemptsUsed: 1, maxAttempts: 3,
         });
         return sendEmail({ to: TEST_TO, ...t, from: FROM.training });
       },
     },
     {
-      label: '[training@] Quiz Result — Failed',
+      label: '[training@] Quiz Result, Failed',
       fn: async () => {
         const t = await quizResultTemplate({
-          name: 'Test User', sessionName: 'Session 3 — Income Statement',
+          name: 'Test User', sessionName: 'Session 3, Income Statement',
           score: 55, passMark: 70, passed: false, attemptsUsed: 2, maxAttempts: 3,
         });
         return sendEmail({ to: TEST_TO, ...t, from: FROM.training });

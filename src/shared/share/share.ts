@@ -22,7 +22,7 @@
  *   2. Build the share text string.
  *   3. Pass it along with optional url/hashtags/onCopied.
  *
- * DO NOT implement custom share logic — use this utility.
+ * DO NOT implement custom share logic, use this utility.
  *
  * Why the auto-copy pattern: LinkedIn's sharing endpoint ignores any
  * pre-filled text when the user isn't already logged in OR when the URL
@@ -59,7 +59,7 @@ function buildFullText(text: string, hashtags: readonly string[]): string {
 
 /**
  * Share to a platform. Always copies the full text (with hashtags) to
- * the clipboard first — LinkedIn's compose window can only reliably
+ * the clipboard first, LinkedIn's compose window can only reliably
  * receive content via paste, so the copy-first pattern is the stable
  * cross-platform workaround.
  */
@@ -67,7 +67,7 @@ export async function shareTo(platform: SharePlatform, options: ShareOptions): P
   const { text, url = FMP_TRAINING_URL, hashtags = [], onCopied } = options;
   const fullText = buildFullText(text, hashtags);
 
-  // Copy to clipboard first — makes every platform's compose dialog usable
+  // Copy to clipboard first, makes every platform's compose dialog usable
   // even when the platform itself drops the pre-filled text.
   if (typeof navigator !== 'undefined' && navigator.clipboard) {
     try {
@@ -82,7 +82,7 @@ export async function shareTo(platform: SharePlatform, options: ShareOptions): P
 
   switch (platform) {
     case 'linkedin': {
-      // Always open the plain feed composer — never `share-offsite`. The
+      // Always open the plain feed composer, never `share-offsite`. The
       // share-offsite endpoint auto-attaches a link preview card, which
       // collapses any @-mentions the user's about to type back into plain
       // text. The composer approach keeps paste-to-post clean: the full
@@ -104,7 +104,7 @@ export async function shareTo(platform: SharePlatform, options: ShareOptions): P
       break;
     }
     case 'copy':
-      // Nothing to open — the clipboard write above is the action.
+      // Nothing to open, the clipboard write above is the action.
       break;
   }
 }

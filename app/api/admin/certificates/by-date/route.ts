@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 /**
  * GET /api/admin/certificates/by-date?date=YYYY-MM-DD
  *
- * Admin-only — returns every cert with cert_status='Issued' whose issued_at
+ * Admin-only, returns every cert with cert_status='Issued' whose issued_at
  * falls within the given calendar day (UTC day boundaries). Used by the
  * Daily Certifications Roundup admin page to assemble a one-post cohort
  * celebration.
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'date query param required (YYYY-MM-DD)' }, { status: 400 });
   }
 
-  // UTC day window — inclusive start, exclusive end. issued_at is stored as
+  // UTC day window, inclusive start, exclusive end. issued_at is stored as
   // timestamptz so this matches any timezone the admin happens to be in,
   // as long as they pick the UTC calendar date they want.
   const dayStart = `${date}T00:00:00Z`;

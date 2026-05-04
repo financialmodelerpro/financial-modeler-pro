@@ -54,7 +54,7 @@ export async function PATCH(req: NextRequest) {
     if (typeof body.launchDate === 'string') {
       const trimmed = body.launchDate.trim();
       rows.push({ key: 'modeling_hub_launch_date', value: trimmed });
-      // An empty launch_date can't support an auto-launch — clear the flag so
+      // An empty launch_date can't support an auto-launch, clear the flag so
       // the cron doesn't look at a dangling enabled=true without a target time.
       if (!trimmed) rows.push({ key: 'modeling_hub_auto_launch', value: 'false' });
     }

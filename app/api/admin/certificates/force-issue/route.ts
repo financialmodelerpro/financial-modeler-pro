@@ -74,7 +74,7 @@ async function resolveStudent(
  *
  * Admin-only override that generates a certificate for a specific student +
  * course, bypassing the watch-threshold check. Works even when the student
- * isn't in Supabase yet — falls back to Apps Script's `listStudents`, then
+ * isn't in Supabase yet, falls back to Apps Script's `listStudents`, then
  * to admin-supplied overrides.
  *
  * Body: { email, courseCode, nameOverride?, regIdOverride? }
@@ -128,7 +128,7 @@ export async function POST(req: NextRequest) {
     const avg = regularScores.length ? Math.round(regularScores.reduce((a, b) => a + b, 0) / regularScores.length) : 0;
 
     // Supabase `student_certificates.registration_id` is the unique conflict
-    // key — if we've somehow landed with no regId, synthesize a deterministic
+    // key, if we've somehow landed with no regId, synthesize a deterministic
     // one so two admin-override certs for different emails never collide.
     const effectiveRegId = student.registrationId
       || `FORCED_${code}_${Buffer.from(student.email).toString('hex').slice(0, 12)}`;

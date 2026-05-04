@@ -78,7 +78,7 @@ export function ArticleBannerStudio() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Field label="Pick article" hint={`${articles.length} published`}>
               <select value={selectedSlug} onChange={e => applyArticle(e.target.value)} style={selectStyle}>
-                <option value="">— Custom (no auto-fill) —</option>
+                <option value="">, Custom (no auto-fill) ,</option>
                 {articles.map(a => (
                   <option key={a.slug} value={a.slug}>
                     [{(a.category || '?').slice(0, 12)}] {a.title}

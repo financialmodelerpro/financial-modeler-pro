@@ -4,7 +4,7 @@
  * Inline Calendly booking widget.
  *
  * Loads https://assets.calendly.com/assets/external/widget.js on mount (once per
- * page load — guarded against duplicate injection). Renders the standard
+ * page load, guarded against duplicate injection). Renders the standard
  * `.calendly-inline-widget` div that Calendly's script hydrates in place.
  *
  * The `url` prop is the full Calendly event URL (e.g.

@@ -7,9 +7,9 @@
  * mention strings stored in `training_settings`.
  *
  * Placeholder syntax:
- *   {variable}   — substituted from the `vars` object
- *   {@brand}     — "@{settings.brand_mention}"   or "{settings.brand_mention}"
- *   {@founder}   — "@{settings.founder_mention}" or "{settings.founder_mention}"
+ *   {variable}  , substituted from the `vars` object
+ *   {@brand}    , "@{settings.brand_mention}"   or "{settings.brand_mention}"
+ *   {@founder}  , "@{settings.founder_mention}" or "{settings.founder_mention}"
  *
  * The @-prefix is added when the template's `mention_brand` / `mention_founder`
  * flag is on. The mention text itself (e.g. `FinancialModelerPro` or
@@ -19,7 +19,7 @@
  * fields), so call-site code stays the same.
  */
 
-/** Default mention text — fallback when training_settings hasn't been seeded yet. */
+/** Default mention text, fallback when training_settings hasn't been seeded yet. */
 export const DEFAULT_BRAND_MENTION   = 'FinancialModelerPro';
 export const DEFAULT_FOUNDER_MENTION = 'Ahmad Din, ACCA, FMVA®';
 
@@ -33,7 +33,7 @@ export const DEFAULT_HUB_URL = (
 ).replace(/\/+$/, '');
 
 /**
- * Trim/normalize a course identifier. Pure passthrough at the shared layer —
+ * Trim/normalize a course identifier. Pure passthrough at the shared layer ,
  * each hub injects its own course-name resolver via the optional `courseResolver`
  * arg on `renderShareTemplate`. Training Hub's COURSES-aware resolver lives at
  * `@/src/hubs/training/lib/share/resolveCourseName.ts` and is the canonical
@@ -46,7 +46,7 @@ function defaultCourseResolver(value: string | null | undefined): string {
 }
 
 /**
- * Canonical share-date format — matches the admin preview sample
+ * Canonical share-date format, matches the admin preview sample
  * ("20 March 2026"). All share call sites go through this so the output
  * is identical regardless of platform locale or call-site formatting quirks.
  */
@@ -82,7 +82,7 @@ export interface ShareTemplate {
   title:           string;
   template_text:   string;
   hashtags:        string[];
-  /** Legacy per-template flag. Deprecated in migration 116 — the `@` prefix
+  /** Legacy per-template flag. Deprecated in migration 116, the `@` prefix
    *  is now controlled by the global `share_brand_prefix_at` setting. Field
    *  retained for schema compatibility; render engine no longer consults it. */
   mention_brand:   boolean;
@@ -108,7 +108,7 @@ export interface RenderedShare {
 }
 
 /**
- * Render a template against a variables object. Pure function — safe to call
+ * Render a template against a variables object. Pure function, safe to call
  * on server or client, never throws. Unknown placeholders remain literal so
  * they're obvious during development. `\n` in the stored template is already
  * a real newline (Postgres E-strings).
@@ -124,7 +124,7 @@ export function renderShareTemplate(template: ShareTemplate, vars: ShareVars, op
   // Global `share_brand_prefix_at` / `share_founder_prefix_at` settings
   // (seeded false in migration 116) decide whether to prefix `@`. The
   // legacy per-template `mention_brand` / `mention_founder` booleans are
-  // ignored — admin controls everything from the Global Mention Settings
+  // ignored, admin controls everything from the Global Mention Settings
   // card.
   const brand   = template.brand_prefix_at   ? `@${brandText}`   : brandText;
   const founder = template.founder_prefix_at ? `@${founderText}` : founderText;
@@ -132,7 +132,7 @@ export function renderShareTemplate(template: ShareTemplate, vars: ShareVars, op
   // Normalize well-known variables so the output always matches the admin
   // template preview: `course` ⇒ full title (resolves short codes like "3SFM"),
   // `hubUrl` ⇒ Training Hub landing page (NEXT_PUBLIC_LEARN_URL). Callers
-  // never need to pass `hubUrl` — the engine fills it in so admins can
+  // never need to pass `hubUrl`, the engine fills it in so admins can
   // reference `{hubUrl}` from any template without coordinating with every
   // call site. Explicitly-passed values still win.
   const courseResolver = opts.courseResolver ?? defaultCourseResolver;
@@ -166,19 +166,19 @@ export const SAMPLE_VARS: ShareVars = {
   date:               '20 March 2026',
   certId:             'FMP-3SFM-2026-0001',
   verifyUrl:          'https://learn.financialmodelerpro.com/verify/FMP-3SFM-2026-0001',
-  sessionName:        'Session 1 — Financial Statement Structure',
+  sessionName:        'Session 1, Financial Statement Structure',
   score:              95,
   regId:              'REG-2026-00042',
   sessionDescription: 'Mastering the mechanics of integrated 3-statement financial models.',
   sessionUrl:         'https://learn.financialmodelerpro.com/training-sessions/sample-id',
-  // Daily roundup sample — multi-line strings so the admin preview reads
+  // Daily roundup sample, multi-line strings so the admin preview reads
   // identically to what the /admin/training-hub/daily-roundup page will
   // produce for a real cohort.
   count:              3,
   studentList:
-    '✅ Ahmad Din, ACCA, FMVA® — 3-Statement Financial Modeling\n' +
-    '✅ Jane Doe — Business Valuation Modeling\n' +
-    '✅ John Smith — 3-Statement Financial Modeling',
+    '✅ Ahmad Din, ACCA, FMVA®, 3-Statement Financial Modeling\n' +
+    '✅ Jane Doe, Business Valuation Modeling\n' +
+    '✅ John Smith, 3-Statement Financial Modeling',
   verifyLinks:
     '• https://learn.financialmodelerpro.com/verify/FMP-3SFM-2026-0001\n' +
     '• https://learn.financialmodelerpro.com/verify/FMP-BVM-2026-0002\n' +
@@ -187,13 +187,13 @@ export const SAMPLE_VARS: ShareVars = {
 };
 
 /**
- * Known variables per template key — drives the admin variable-picker chips.
+ * Known variables per template key, drives the admin variable-picker chips.
  * Extra variables in a template_text won't break anything, but they won't be
  * suggested in the UI.
  *
  * `hubUrl` is offered on every template. The render engine auto-fills it
  * with `NEXT_PUBLIC_LEARN_URL` (falling back to `https://learn.financialmodelerpro.com`)
- * so admins never need to paste the URL as plain text — inserting `{hubUrl}`
+ * so admins never need to paste the URL as plain text, inserting `{hubUrl}`
  * from the chip picker is enough.
  */
 export const TEMPLATE_VARIABLES: Record<string, string[]> = {
@@ -257,7 +257,7 @@ const TEMPLATE_SEEDS: Record<string, TemplateSeed> = {
     template_key:    'live_session_watched',
     title:           'Live Session Watched',
     template_text:
-      'Just finished watching "{sessionName}" — part of FMP Real-World Financial Modeling from {@brand}.\n\n' +
+      'Just finished watching "{sessionName}", part of FMP Real-World Financial Modeling from {@brand}.\n\n' +
       'Practitioner-led, built on real deal work with {@founder}.\n\n' +
       'Learn more at {hubUrl}',
     hashtags:        ['FinancialModeling', 'FinancialModelerPro', 'CorporateFinance'],
@@ -297,7 +297,7 @@ const TEMPLATE_SEEDS: Record<string, TemplateSeed> = {
 };
 
 /**
- * Offline fallback — mirrors the migration seed. Used when the
+ * Offline fallback, mirrors the migration seed. Used when the
  * `/api/share-templates/[key]` fetch fails or the admin has disabled a
  * template. Keeps share buttons functional no matter what.
  *

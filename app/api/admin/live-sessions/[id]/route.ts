@@ -100,7 +100,7 @@ export async function PATCH(
     }
   }
 
-  // ── Trigger: recording available email (kept — fires once when a past
+  // ── Trigger: recording available email (kept, fires once when a past
   // session gets marked recorded, targets only those who didn't attend) ───
   if (
     before &&

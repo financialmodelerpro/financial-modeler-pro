@@ -1,7 +1,7 @@
 /**
  * /api/refm/projects/[id]/versions (Phase M1.6/3)
  *
- *   GET  → list versions for a project (metadata only — no snapshot
+ *   GET  → list versions for a project (metadata only, no snapshot
  *          payload). Sorted by version_number DESC for the version
  *          history UI.
  *   POST → save a new version of the project's snapshot. Auto-bumps
@@ -51,7 +51,7 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 // ── POST /api/refm/projects/[id]/versions ───────────────────────────────────
 // Body: { snapshot: HydrateSnapshot, label?: string, assetMix?: string[] }
 // `assetMix` updates the picker-tile cache on refm_projects in the
-// same write — the snapshot is the source of truth, but the cached
+// same write, the snapshot is the source of truth, but the cached
 // asset_mix avoids the picker having to read every snapshot to render
 // the project list.
 export async function POST(req: NextRequest, ctx: { params: Promise<{ id: string }> }) {

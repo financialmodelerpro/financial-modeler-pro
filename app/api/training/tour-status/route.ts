@@ -1,12 +1,12 @@
 /**
  * Training Hub dashboard tour state endpoint.
  *
- * GET   — returns `{ completed: boolean }` for the current student.
- * POST  — body `{ completed?: boolean }`. `completed=true` marks the
+ * GET  , returns `{ completed: boolean }` for the current student.
+ * POST , body `{ completed?: boolean }`. `completed=true` marks the
  *         tour done (so it won't re-auto-start). `completed=false`
  *         resets it (used by "Restart Tour" from the profile menu).
  *
- * Auth: reads the `training_session` httpOnly cookie. No admin path —
+ * Auth: reads the `training_session` httpOnly cookie. No admin path ,
  * tour state is per-student.
  */
 

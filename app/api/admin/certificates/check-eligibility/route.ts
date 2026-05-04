@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
  * POST /api/admin/certificates/check-eligibility
  *
  * Returns a detailed Supabase-native eligibility report for an (email,
- * courseCode) pair — admin UI surfaces missing sessions + watch-threshold
+ * courseCode) pair, admin UI surfaces missing sessions + watch-threshold
  * failures before letting the admin click Force Issue.
  *
  * Body: { email: string; courseCode: string }

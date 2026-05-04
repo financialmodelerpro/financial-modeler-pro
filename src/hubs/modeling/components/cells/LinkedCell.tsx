@@ -15,7 +15,7 @@ export interface LinkedCellProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 /**
- * LinkedCell — FAST linked cell.
+ * LinkedCell, FAST linked cell.
  * Read-only display of a value pulled from a different module. Green text.
  *
  * Use this when Module 4 reads a result computed in Module 1 (e.g. total
@@ -43,7 +43,7 @@ export function LinkedCell({
       }}
       {...rest}
     >
-      {value ?? '—'}
+      {value ?? ','}
     </div>
   );
 }

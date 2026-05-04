@@ -6,7 +6,7 @@
  * Teams-enabled license and must have granted the registered app the
  * `OnlineMeetings.ReadWrite.All` application permission via admin consent.
  *
- * Env vars (all optional — route code calls `isTeamsConfigured()` first
+ * Env vars (all optional, route code calls `isTeamsConfigured()` first
  * and degrades to manual URL input when credentials are absent):
  *   AZURE_TENANT_ID          Azure AD tenant (GUID)
  *   AZURE_CLIENT_ID          App registration client id (GUID)

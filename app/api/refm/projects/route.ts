@@ -1,7 +1,7 @@
 /**
  * /api/refm/projects (Phase M1.6/2)
  *
- *   GET  → list the calling user's projects (metadata only — no
+ *   GET  → list the calling user's projects (metadata only, no
  *          snapshot payload). Sorted by updated_at DESC for the picker.
  *   POST → create a new project (mints the project row + the first
  *          version row carrying the supplied snapshot, then stamps
@@ -9,7 +9,7 @@
  *
  * Auth: NextAuth session required. Every query is filtered by
  * `user_id = session.user.id` even though the SERVICE_ROLE client
- * bypasses RLS — the application layer is the access boundary.
+ * bypasses RLS, the application layer is the access boundary.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -39,7 +39,7 @@ export async function GET() {
 
   const { rows, error } = await listProjects(userId);
   if (error) return serverError(error);
-  // Strip user_id before sending back — the caller is the owner; no
+  // Strip user_id before sending back, the caller is the owner; no
   // need to mirror it on every list item. version_count was already
   // decorated by the helper.
   const projects = rows.map(({ user_id: _u, ...rest }) => rest);

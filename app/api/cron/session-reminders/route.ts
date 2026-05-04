@@ -9,7 +9,7 @@
  *
  * Session-level gate: `live_sessions.announcement_sent` must be true.
  * That ensures we only remind for sessions the platform has already
- * announced — no leaking unpublished sessions through reminder mail.
+ * announced, no leaking unpublished sessions through reminder mail.
  *
  * Secured by CRON_SECRET Authorization header (same pattern as
  * /api/cron/certificates + /api/cron/auto-launch-check).
@@ -137,7 +137,7 @@ async function dispatchReminder(
     placeholders,
   });
 
-  // Flip the flag on every targeted row — even those Resend dropped.
+  // Flip the flag on every targeted row, even those Resend dropped.
   // Retrying a whole batch on partial failure would re-email the
   // recipients who succeeded. Admins can re-invite individual
   // students via the manual Notify route if needed.

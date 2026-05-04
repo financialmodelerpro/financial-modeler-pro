@@ -48,7 +48,7 @@ function hasRecording(s: LiveSession): boolean {
 /**
  * Client-side fetcher that bundles the three calls needed to render live session
  * cards on the student dashboard. Matches by playlist name if `courseId` is
- * provided (best-effort string contains match — the live_sessions schema has no
+ * provided (best-effort string contains match, the live_sessions schema has no
  * course_id column, only category / playlist / tags).
  */
 export async function getLiveSessionsForStudent(

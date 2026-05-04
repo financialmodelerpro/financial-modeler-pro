@@ -91,7 +91,7 @@ export async function modelSubmissionAdminAlertTemplate({
     ${p(`Submission ID: <code style="font-family:monospace;color:#64748B;">${submissionId}</code>`, 'font-size:11px;color:#94A3B8;')}
   `);
 
-  const text = `Financial Modeler Pro — New Model Submission\n\n`
+  const text = `Financial Modeler Pro, New Model Submission\n\n`
     + `Student: ${studentName || '(no name)'} <${studentEmail}>\n`
     + `${registrationId ? `Registration: ${registrationId}\n` : ''}`
     + `Course: ${courseLabel} (${courseCode})\n`

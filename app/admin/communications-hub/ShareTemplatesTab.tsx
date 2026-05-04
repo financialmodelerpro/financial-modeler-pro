@@ -123,7 +123,7 @@ export function ShareTemplatesTab() {
       <div style={{ marginBottom: 20 }}>
         <p style={{ fontSize: 13, color: MUTED, margin: 0, maxWidth: 720, lineHeight: 1.55 }}>
           Central source for every share button across the Training Hub. Edit the copy, toggle brand /
-          founder @-mentions, manage hashtags — changes apply instantly everywhere (certificate verify
+          founder @-mentions, manage hashtags, changes apply instantly everywhere (certificate verify
           page, dashboard cert card, achievement cards, assessment passes, live session shares).
         </p>
         <div style={{
@@ -136,7 +136,7 @@ export function ShareTemplatesTab() {
             {settings.brand_prefix_at ? '@' : ''}{settings.brand_mention}
           </code> and <code>{'{@founder}'}</code> as <code>
             {settings.founder_prefix_at ? '@' : ''}{settings.founder_mention}
-          </code> — both controlled from the Global Mention Settings card below.
+          </code>, both controlled from the Global Mention Settings card below.
         </div>
       </div>
 
@@ -152,7 +152,7 @@ export function ShareTemplatesTab() {
           </div>
           <p style={{ fontSize: 12, color: MUTED, margin: '0 0 14px', lineHeight: 1.55 }}>
             These values drive <code>{'{@brand}'}</code> and <code>{'{@founder}'}</code> in every template
-            above. Store the bare handle — no leading <code>@</code>. Each toggle below decides whether the
+            above. Store the bare handle, no leading <code>@</code>. Each toggle below decides whether the
             render engine prefixes <code>@</code> (for LinkedIn tagging) or leaves the handle as plain text.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16, marginBottom: 12 }}>

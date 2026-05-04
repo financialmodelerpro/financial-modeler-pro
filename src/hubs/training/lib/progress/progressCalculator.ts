@@ -4,13 +4,13 @@ import type { SessionProgress } from '@/src/hubs/training/components/dashboard/t
 /**
  * Weighted course progress. Each session is weighted by its `questionCount`
  * (regular sessions default to 10, final exams carry ~50) so a course's
- * percentage reflects how much of the knowledge the student has demonstrated —
+ * percentage reflects how much of the knowledge the student has demonstrated ,
  * not just the share of boxes ticked. A 16 / 18 student is 89% by count but
  * only ~73% weighted because the 50-question final still hasn't been passed.
  *
  * Only applies to 3SFM / BVM (every `CourseConfig.sessions` entry has a
  * `questionCount`). Live sessions are deliberately not rolled into any
- * course's progress — they stand alone.
+ * course's progress, they stand alone.
  */
 export interface CourseProgress {
   earned: number;          // question-weighted points the student has banked

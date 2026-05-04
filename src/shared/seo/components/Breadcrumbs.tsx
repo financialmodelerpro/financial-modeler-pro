@@ -6,7 +6,7 @@ export interface BreadcrumbItem { name: string; url: string }
 /**
  * Visual breadcrumb trail + matching BreadcrumbList JSON-LD in one component.
  * The last item renders as plain text (the current page) and isn't a link.
- * Keep labels short — Google shows them at smaller font in rich results.
+ * Keep labels short, Google shows them at smaller font in rich results.
  */
 export function Breadcrumbs({ items }: { items: BreadcrumbItem[] }) {
   if (!items || items.length < 2) return null;

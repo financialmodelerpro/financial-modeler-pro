@@ -15,7 +15,7 @@ export interface SectionHeaderProps extends React.HTMLAttributes<HTMLDivElement>
 }
 
 /**
- * SectionHeader — navy band used for table section headers and module
+ * SectionHeader, navy band used for table section headers and module
  * sub-headings. White uppercase text on a chrome navy background.
  */
 export function SectionHeader({

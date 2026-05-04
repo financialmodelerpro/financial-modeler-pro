@@ -1,5 +1,5 @@
 /**
- * plotFieldHelp.ts — M1.10b/5 shared plain-English tooltip copy for
+ * plotFieldHelp.ts, M1.10b/5 shared plain-English tooltip copy for
  * Plot fields. Used by:
  *   - Module1AreaProgram (inline Plot card)
  *   - PlotSetupWizard (modal-step variant)
@@ -21,7 +21,7 @@ export const PLOT_FIELD_HELP: Record<string, string> = {
   typicalCoveragePct:
     "How much of the plot the tower floors cover. Typically lower than podium for slimmer tower.",
   numberOfFloors:
-    "Total above-ground floors (podium + typical). Informational — only podium and typical floor counts drive built GFA in the calc.",
+    "Total above-ground floors (podium + typical). Informational, only podium and typical floor counts drive built GFA in the calc.",
   podiumFloors:
     "Number of podium floors. Usually houses retail, parking, or amenities.",
   typicalFloors:

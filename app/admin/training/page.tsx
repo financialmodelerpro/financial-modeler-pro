@@ -124,7 +124,7 @@ export default function AdminTrainingPage() {
         </div>
 
         {/* Training Hub launch status + global shuffle + watch enforcement now live
-            in Training Settings — this page is just course structure + content. */}
+            in Training Settings, this page is just course structure + content. */}
         <div style={{ background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 10, padding: '12px 16px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 12, fontSize: 12.5, color: '#1E40AF' }}>
           <span style={{ fontSize: 18 }}>⚙️</span>
           <div style={{ flex: 1 }}>

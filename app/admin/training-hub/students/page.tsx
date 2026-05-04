@@ -644,7 +644,7 @@ export default function StudentsPage() {
                                         {isUnlocking ? 'Unlocking…' : 'Force Unlock'}
                                       </button>
                                     ) : (
-                                      <span style={{ fontSize: 11, color: '#9CA3AF' }}>—</span>
+                                      <span style={{ fontSize: 11, color: '#9CA3AF' }}>,</span>
                                     )}
                                   </div>
                                 </div>

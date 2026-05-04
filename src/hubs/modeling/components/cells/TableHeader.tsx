@@ -13,7 +13,7 @@ export interface TableHeaderProps extends React.ThHTMLAttributes<HTMLTableCellEl
 }
 
 /**
- * TableHeader — `<th>` cell for data tables. Navy chrome, white uppercase
+ * TableHeader, `<th>` cell for data tables. Navy chrome, white uppercase
  * text. Designed to be used inside a <thead><tr>.
  */
 export function TableHeader({

@@ -1,5 +1,5 @@
 /**
- * Modeling Hub — Cell primitives (barrel)
+ * Modeling Hub, Cell primitives (barrel)
  *
  * FAST-compliant building blocks. Import from here:
  *

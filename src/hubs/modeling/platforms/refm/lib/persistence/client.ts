@@ -9,7 +9,7 @@
  * { data: null, error }. Errors are surfaced to the caller; the layer
  * above decides whether to toast / retry / fall back to cache.
  *
- * No hard dependency on a specific UI — the store subscriber consumes
+ * No hard dependency on a specific UI, the store subscriber consumes
  * these directly and bubbles failures through its own state.
  */
 

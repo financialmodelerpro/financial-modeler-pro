@@ -56,7 +56,7 @@ export async function generateMetadata({
       url,
       title: `${platform.name} | FMP Modeling Hub`,
       description: platform.description,
-      images: [{ url: `${APP_URL}/api/og/modeling`, width: 1200, height: 630, alt: `${platform.name} — Financial Modeler Pro` }],
+      images: [{ url: `${APP_URL}/api/og/modeling`, width: 1200, height: 630, alt: `${platform.name}, Financial Modeler Pro` }],
     },
     twitter: {
       card: 'summary_large_image',

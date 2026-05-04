@@ -397,7 +397,7 @@ export default function CertificatesPage() {
           {fiCheck && (
             <div style={{ marginTop: 12, padding: '10px 14px', background: fiCheck.eligible ? '#F0FFF4' : '#FFFBEB', border: `1px solid ${fiCheck.eligible ? '#BBF7D0' : '#FDE68A'}`, borderRadius: 8, fontSize: 12 }}>
               <div style={{ fontWeight: 700, color: fiCheck.eligible ? '#166534' : '#92400E', marginBottom: 4 }}>
-                {fiCheck.eligible ? '✓ Eligible — safe to auto-issue' : `⚠️ Not eligible — ${fiCheck.reason}`}
+                {fiCheck.eligible ? '✓ Eligible, safe to auto-issue' : `⚠️ Not eligible, ${fiCheck.reason}`}
               </div>
               <div style={{ color: '#374151' }}>
                 Passed: <strong>{fiCheck.passedSessions.length}</strong> session{fiCheck.passedSessions.length === 1 ? '' : 's'}

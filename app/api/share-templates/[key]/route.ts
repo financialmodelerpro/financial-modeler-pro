@@ -14,7 +14,7 @@ const PREFIX_KEYS = [
 /**
  * GET /api/share-templates/[key]
  *
- * Public endpoint — returns the admin-configured share template for the
+ * Public endpoint, returns the admin-configured share template for the
  * given key, with brand/founder @-mention text and prefix_at toggles merged
  * in from `training_settings`. Returns `null` when the template doesn't
  * exist or is disabled; the client hook falls back to DEFAULT_TEMPLATES in

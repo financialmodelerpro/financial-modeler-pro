@@ -7,7 +7,7 @@
  * otherwise.
  *
  * The id is the FK target for `refm_projects.user_id`. Server routes
- * MUST pass it into every `.eq('user_id', ...)` filter — RLS is
+ * MUST pass it into every `.eq('user_id', ...)` filter, RLS is
  * defense-in-depth (the SERVICE_ROLE client bypasses it), so the
  * application layer is the actual access boundary.
  */

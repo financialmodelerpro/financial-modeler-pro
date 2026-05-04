@@ -8,12 +8,12 @@
  *
  * Reuses the M1.8 fixture mount at /test-fixtures/m18-wizard.
  *
- * Spec 1 — Plot Setup Wizard opens, modal bounding box is centered in
+ * Spec 1, Plot Setup Wizard opens, modal bounding box is centered in
  *          viewport (regression guard for the M1.10b/1 ancestor
  *          containing-block bug). Tooltip on an InputLabel inside the
  *          wizard opens on click, dismisses on Esc.
  *
- * Spec 2 — Build Program inline form exposes all 15 Plot writable fields
+ * Spec 2, Build Program inline form exposes all 15 Plot writable fields
  *          (regression guard for M1.10b/2 reconciliation). Captures
  *          light + dark screenshots with a tooltip open.
  */
@@ -193,7 +193,7 @@ test.describe('M1.10b Plot Setup polish', () => {
     mkdirSync(SCREENSHOT_DIR, { recursive: true });
   });
 
-  test('Plot Setup Wizard portal — modal centers in viewport, tooltip opens & Esc dismisses', async ({ page }) => {
+  test('Plot Setup Wizard portal, modal centers in viewport, tooltip opens & Esc dismisses', async ({ page }) => {
     const state = await setupMocks(page);
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.goto(`${DEV_SERVER_URL}/test-fixtures/m18-wizard`, { waitUntil: 'domcontentloaded' });
@@ -207,7 +207,7 @@ test.describe('M1.10b Plot Setup polish', () => {
     await page.getByRole('button', { name: '3. Build Program' }).first().click();
     await expect(page.getByRole('heading', { name: 'Build Program', level: 2 })).toBeVisible();
 
-    // Scroll the page so the plot row sits below the fold — pre-M1.10b the
+    // Scroll the page so the plot row sits below the fold, pre-M1.10b the
     // wizard would inherit the parent transform/containing-block context
     // and render below the viewport. With createPortal it always centers.
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
@@ -265,7 +265,7 @@ test.describe('M1.10b Plot Setup polish', () => {
     await page.getByRole('button', { name: '3. Build Program' }).first().click();
     await expect(page.getByRole('heading', { name: 'Build Program', level: 2 })).toBeVisible();
 
-    // Inline Plot form labels — every one of the 15 visible labels should
+    // Inline Plot form labels, every one of the 15 visible labels should
     // be present inside the Build Program tab.
     const expectedLabels = [
       'Plot Buildable Area', 'Max FAR', 'Podium Coverage',

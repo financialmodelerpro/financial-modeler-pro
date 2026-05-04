@@ -1,5 +1,5 @@
 -- ============================================================
---  REFM Pro — Supabase Schema
+--  REFM Pro, Supabase Schema
 --  Run this in the Supabase SQL editor (or supabase db push)
 -- ============================================================
 
@@ -161,26 +161,26 @@ create or replace trigger projects_updated_at
 -- This is a minimal inline seed for initial setup only.
 
 insert into features_registry (feature_key, display_name, description, category) values
-  ('module_1',           'Module 1 — Project Setup',        'Timeline, land, area, development costs, financing',       'modules'),
-  ('module_2',           'Module 2 — Revenue Analysis',     'Unit sales, rental pricing, phased delivery',              'modules'),
-  ('module_3',           'Module 3 — Operating Expenses',   'Property management, maintenance, staff costs',            'modules'),
-  ('module_4',           'Module 4 — Returns & Valuation',  'IRR, NPV, equity multiple, cap rate',                     'modules'),
-  ('module_5',           'Module 5 — Financial Statements', 'Auto-generated P&L, Balance Sheet, Cash Flow',            'modules'),
-  ('module_6',           'Module 6 — Reports & Export',     'Investor PDF and Excel workbooks',                        'modules'),
-  ('module_7',           'Module 7 — Scenario Analysis',    'Multi-scenario comparison and stress testing',             'modules'),
-  ('module_8',           'Module 8 — Portfolio Dashboard',  'Multi-project portfolio view and aggregated KPIs',        'modules'),
-  ('module_9',           'Module 9 — Market Data',          'Live market benchmarks and comparable data feeds',        'modules'),
-  ('module_10',          'Module 10 — Collaboration',       'Team sharing, comments, review workflows',                'modules'),
-  ('module_11',          'Module 11 — API Access',          'REST API and webhook integrations',                       'modules'),
-  ('module_8_full',      'Module 8 — Full Edit',            'Full portfolio edit vs read-only view',                   'module_quality'),
-  ('module_9_full',      'Module 9 — Full Metrics',         'Full market metrics vs basic KPIs',                       'module_quality'),
+  ('module_1',           'Module 1, Project Setup',        'Timeline, land, area, development costs, financing',       'modules'),
+  ('module_2',           'Module 2, Revenue Analysis',     'Unit sales, rental pricing, phased delivery',              'modules'),
+  ('module_3',           'Module 3, Operating Expenses',   'Property management, maintenance, staff costs',            'modules'),
+  ('module_4',           'Module 4, Returns & Valuation',  'IRR, NPV, equity multiple, cap rate',                     'modules'),
+  ('module_5',           'Module 5, Financial Statements', 'Auto-generated P&L, Balance Sheet, Cash Flow',            'modules'),
+  ('module_6',           'Module 6, Reports & Export',     'Investor PDF and Excel workbooks',                        'modules'),
+  ('module_7',           'Module 7, Scenario Analysis',    'Multi-scenario comparison and stress testing',             'modules'),
+  ('module_8',           'Module 8, Portfolio Dashboard',  'Multi-project portfolio view and aggregated KPIs',        'modules'),
+  ('module_9',           'Module 9, Market Data',          'Live market benchmarks and comparable data feeds',        'modules'),
+  ('module_10',          'Module 10, Collaboration',       'Team sharing, comments, review workflows',                'modules'),
+  ('module_11',          'Module 11, API Access',          'REST API and webhook integrations',                       'modules'),
+  ('module_8_full',      'Module 8, Full Edit',            'Full portfolio edit vs read-only view',                   'module_quality'),
+  ('module_9_full',      'Module 9, Full Metrics',         'Full market metrics vs basic KPIs',                       'module_quality'),
   ('ai_contextual',      'AI Contextual Assist',            'In-module AI help buttons (Mode 1)',                      'ai'),
   ('ai_research',        'AI Research Agent',               'Full investment memo research (Mode 2)',                   'ai'),
-  ('pdf_basic',          'PDF Export — Basic',              'Standard PDF summary export',                             'export'),
-  ('pdf_full',           'PDF Export — Full',               'Full formatted investor PDF report',                      'export'),
-  ('pdf_whitelabel',     'PDF Export — White-Label',        'White-label branded PDF with custom cover',               'export'),
-  ('excel_static',       'Excel Export — Static',           'Static values Excel workbook',                            'export'),
-  ('excel_formula',      'Excel Export — Formula',          'Formula-linked Excel workbook',                           'export'),
+  ('pdf_basic',          'PDF Export, Basic',              'Standard PDF summary export',                             'export'),
+  ('pdf_full',           'PDF Export, Full',               'Full formatted investor PDF report',                      'export'),
+  ('pdf_whitelabel',     'PDF Export, White-Label',        'White-label branded PDF with custom cover',               'export'),
+  ('excel_static',       'Excel Export, Static',           'Static values Excel workbook',                            'export'),
+  ('excel_formula',      'Excel Export, Formula',          'Formula-linked Excel workbook',                           'export'),
   ('white_label',        'White-Label Branding',            'Custom logo, colours, client name, and domain',           'admin'),
   ('admin_panel',        'Admin Panel',                     'Access to /admin route',                                  'admin'),
   ('projects_10',        'Up to 10 Projects',               'Save and manage up to 10 projects',                       'limits'),

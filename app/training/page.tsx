@@ -42,8 +42,8 @@ export const metadata: Metadata = {
     type: 'website',
     url: `${LEARN_URL}/training`,
     title: 'Financial Modeling Training | FMP Training Hub',
-    description: 'Free practitioner-led financial modeling certification — 3-Statement Modeling, Business Valuation, and Real-World Sessions.',
-    images: [{ url: `${LEARN_URL}/api/og`, width: 1200, height: 630, alt: 'FMP Training Hub — Free Financial Modeling Certification' }],
+    description: 'Free practitioner-led financial modeling certification, 3-Statement Modeling, Business Valuation, and Real-World Sessions.',
+    images: [{ url: `${LEARN_URL}/api/og`, width: 1200, height: 630, alt: 'FMP Training Hub, Free Financial Modeling Certification' }],
   },
   twitter: {
     card: 'summary_large_image',

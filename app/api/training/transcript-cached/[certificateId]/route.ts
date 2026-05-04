@@ -8,7 +8,7 @@ export const runtime = 'nodejs';
  * GET /api/training/transcript-cached/[certificateId]
  *
  * Cached-first transcript access. First click generates the transcript PDF
- * via the existing `/api/training/transcript` pipeline (untouched — still the
+ * via the existing `/api/training/transcript` pipeline (untouched, still the
  * single source of truth for layout + QR), uploads it to Supabase Storage,
  * saves the public URL on `student_certificates.transcript_url`, then
  * 302-redirects to the stored URL. Subsequent clicks short-circuit to the
@@ -41,12 +41,12 @@ export async function GET(
     return NextResponse.json({ error: 'Certificate not found' }, { status: 404 });
   }
 
-  // Cache hit — short-circuit to stored URL.
+  // Cache hit, short-circuit to stored URL.
   if (cert.transcript_url) {
     return NextResponse.redirect(cert.transcript_url, 302);
   }
 
-  // Cache miss — generate once, upload, save URL, redirect.
+  // Cache miss, generate once, upload, save URL, redirect.
   const course = (cert.course_code as string | null) ?? (cert.course as string | null) ?? '3SFM';
   const courseSlug = course.toLowerCase().includes('bvm') ? 'bvm' : '3sfm';
 

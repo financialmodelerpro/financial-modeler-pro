@@ -1227,7 +1227,7 @@ export default function TrainingDashboardPage() {
                     </div>
                   </div>
 
-                  {/* Right: Watch Platform Walkthrough — only renders when
+                  {/* Right: Watch Platform Walkthrough, only renders when
                       an admin has set platform_walkthrough_url. Sits on the
                       right of the hero so it doesn't add vertical height.
                       Gold gradient matches the platform's accent (Points
@@ -1850,7 +1850,7 @@ export default function TrainingDashboardPage() {
       {walkthroughOpen && walkthroughUrl && (() => {
         const ytId = extractYouTubeId(walkthroughUrl);
         // YouTube → embed iframe with autoplay. Anything else (Vimeo,
-        // self-hosted) is rendered via a generic iframe of the URL — most
+        // self-hosted) is rendered via a generic iframe of the URL, most
         // hosts allow direct embedding, and worst case the student sees a
         // standard "open in new tab" link below as a fallback.
         const embedSrc = ytId

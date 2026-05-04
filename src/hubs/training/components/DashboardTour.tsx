@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Training Hub onboarding walkthrough — powered by driver.js.
+ * Training Hub onboarding walkthrough, powered by driver.js.
  *
  * Runs automatically on a new student's first dashboard visit (trigger
  * lives in the parent dashboard page, driven by /api/training/tour-status).
@@ -11,7 +11,7 @@
  *   - Steps targeting selectors that aren't present in the DOM are
  *     skipped by driver.js, never throw.
  *   - Students can dismiss any time via Skip / Close / Esc.
- *   - Tour never blocks navigation — it sits in an overlay layer only.
+ *   - Tour never blocks navigation, it sits in an overlay layer only.
  *
  * Applied to the Training Hub only. Modeling Hub onboarding is planned
  * separately.
@@ -36,7 +36,7 @@ function firstName(full: string): string {
 }
 
 function buildSteps(studentName: string): DriveStep[] {
-  // A step with no `element` renders as a centered modal — driver.js
+  // A step with no `element` renders as a centered modal, driver.js
   // handles that automatically. This is how we cover UI that lives on
   // sub-pages (session card / watch button / assessment button) without
   // having to navigate the student around mid-tour.
@@ -64,7 +64,7 @@ function buildSteps(studentName: string): DriveStep[] {
       popover: {
         title:       'A Course Card',
         description:
-          'Each course has a series of sessions plus a final exam. Click a course to see every session — complete them all to unlock your verified certificate.',
+          'Each course has a series of sessions plus a final exam. Click a course to see every session, complete them all to unlock your verified certificate.',
         side:  'bottom',
         align: 'center',
       },
@@ -95,7 +95,7 @@ function buildSteps(studentName: string): DriveStep[] {
       popover: {
         title:       'Track Your Progress',
         description:
-          'Your overall progress updates as soon as you pass a session. Keep an eye on this — it’s your path to the certificate.',
+          'Your overall progress updates as soon as you pass a session. Keep an eye on this, it’s your path to the certificate.',
         side:  'right',
         align: 'center',
       },
@@ -149,7 +149,7 @@ export function DashboardTour({ run, studentName, onComplete }: DashboardTourPro
 
   useEffect(() => {
     if (!run) {
-      // Parent switched us off — tear down any overlay that was up.
+      // Parent switched us off, tear down any overlay that was up.
       driverRef.current?.destroy();
       driverRef.current = null;
       return;
@@ -174,7 +174,7 @@ export function DashboardTour({ run, studentName, onComplete }: DashboardTourPro
           settledRef.current = true;
           // Driver.js considers the tour "finished" only if we're on the
           // last step. Treat last-step destroy as finished, anything else
-          // as closed/skipped — both count as "don't re-auto-start."
+          // as closed/skipped, both count as "don't re-auto-start."
           const total = instance.getActiveIndex();
           const stepsLen = buildSteps(studentName).length;
           const reachedEnd = typeof total === 'number' && total >= stepsLen - 1;
@@ -200,11 +200,11 @@ export function DashboardTour({ run, studentName, onComplete }: DashboardTourPro
         driverRef.current = null;
       }
     };
-    // studentName change alone shouldn't restart — parent controls via `run`.
+    // studentName change alone shouldn't restart, parent controls via `run`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run]);
 
-  // Brand-tinted popover — styles injected via a plain <style> element
+  // Brand-tinted popover, styles injected via a plain <style> element
   // (global, no styled-jsx dependency). The `.fmp-tour-popover` class is
   // applied via the `popoverClass` config above; `.driver-active-element`
   // is driver.js's built-in spotlight target.
@@ -264,7 +264,7 @@ export function DashboardTour({ run, studentName, onComplete }: DashboardTourPro
       .fmp-tour-popover .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-color: #fff; }
       .fmp-tour-popover .driver-popover-arrow-side-left.driver-popover-arrow { border-left-color: #fff; }
       .fmp-tour-popover .driver-popover-arrow-side-right.driver-popover-arrow { border-right-color: #fff; }
-      /* Spotlight ring — tint to brand gold so the highlighted element
+      /* Spotlight ring, tint to brand gold so the highlighted element
          reads as "the thing we're pointing at". */
       .driver-active-element {
         box-shadow: 0 0 0 4px rgba(201, 168, 76, 0.8), 0 0 0 8px rgba(13, 46, 90, 0.15) !important;

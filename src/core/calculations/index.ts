@@ -651,7 +651,7 @@ export function distributeCost(
 // produce zero / clamped outputs (e.g. coverage > 100% clamps to 100%,
 // landscape + hardscape sum > 100% clamps surfaceParkingArea to 0).
 // The Area Program tab is the place to surface user-facing warnings
-// (e.g. totalBuiltGFA > maxGFA — over-FAR — gets a yellow badge).
+// (e.g. totalBuiltGFA > maxGFA, over-FAR, gets a yellow badge).
 
 export interface PlotEnvelopeInputs {
   plotArea:              number;
@@ -744,7 +744,7 @@ export function computePlotEnvelope(input: PlotEnvelopeInputs): PlotEnvelopeArea
 //   TBA          = BUAExcl + MEP + basementShare        ("Total Built Area")
 //
 // basementShare is per-asset basement parking allocation passed in from
-// the parking allocator (M1.7/2.3) — typically the asset's pro-rata
+// the parking allocator (M1.7/2.3), typically the asset's pro-rata
 // share of plot.basementUsableArea based on bay demand.
 
 export interface AreaCascadeInputs {
@@ -793,7 +793,7 @@ export function computeAreaCascade(input: AreaCascadeInputs): AreaCascadeResult 
 // in @core via computePlotEnvelope: surfaceCapacityBays =
 // surfaceParkingArea / plot.surfaceBaySqm; basementCapacityBays =
 // basementUsableArea / plot.basementBaySqm; verticalCapacityBays =
-// (footprint * verticalParkingFloors) / plot.verticalBaySqm — the
+// (footprint * verticalParkingFloors) / plot.verticalBaySqm, the
 // verticalParkingFloors input is a per-asset / per-plot decision the
 // Area Program tab (M1.7/6) collects from the user).
 //

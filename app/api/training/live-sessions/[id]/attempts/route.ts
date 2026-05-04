@@ -14,7 +14,7 @@ export async function GET(
   const { id } = await params;
   const attempts = await getStudentAttempts(id, sess.email);
 
-  // Never ship the raw `answers` jsonb back — students only need score +
+  // Never ship the raw `answers` jsonb back, students only need score +
   // attempt_number + pass/fail + per-question correctness for the history UI.
   return NextResponse.json({
     attempts: attempts.map(a => ({

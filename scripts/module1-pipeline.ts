@@ -1,5 +1,5 @@
 /**
- * Module 1 — pure calculation pipeline for regression-guard snapshots.
+ * Module 1, pure calculation pipeline for regression-guard snapshots.
  *
  * Loads a fixture-shaped state and reproduces every output Module 1 derives
  * from it: land aggregates, area hierarchy, per-asset areas, per-asset cost
@@ -183,7 +183,7 @@ export function loadFixture(path: string): Module1Input {
 export function runPipeline(input: Module1Input): Module1Snapshot {
   // 1. Lift the v2 fixture into the v4 HydrateSnapshot shape via the
   //    same path the React store uses in production. This is the SUT
-  //    for "how does a saved project become live store state" — the
+  //    for "how does a saved project become live store state", the
   //    snapshot pipeline must exercise it so a regression in either
   //    the migrator or the calc engine surfaces here.
   const legacyV2: LegacyV2Snapshot = {
@@ -252,7 +252,7 @@ export function runPipeline(input: Module1Input): Module1Snapshot {
   const retAsset  = findAsset(LEGACY_ASSET_IDS.retail);
 
   // 4. Land + area hierarchy. All scalars come from the v4 store
-  //    (sub-project-level after M1.5; project-level pre-M1.5 — the
+  //    (sub-project-level after M1.5; project-level pre-M1.5, the
   //    migrator carries them forward 1:1).
   const land = calculateLandAggregates(v4.landParcels);
 
@@ -609,7 +609,7 @@ export function runMultiPhasePipeline(v4: HydrateSnapshot): MultiPhaseSnapshot {
 //        - GFA share = gfaOverrideSqm OR pro-rata allocationPct of
 //          the plot's totalBuiltGFA across other plot assets
 //        - basementShare placeholder (pro-rata of plot
-//          basementUsableArea by GFA share — filled in after parking)
+//          basementUsableArea by GFA share, filled in after parking)
 //        - computeAreaCascade(...) -> { mep, BoH, otherTech, gsaGla, BUA, TBA }
 //        - sum sub-unit parking bays via resolveSubUnitParkingBays
 //   3. computePlotParkingCapacity(envelope) + allocateParking(total demand)
@@ -617,7 +617,7 @@ export function runMultiPhasePipeline(v4: HydrateSnapshot): MultiPhaseSnapshot {
 // Output is keyed by plot id and stable across reruns (assets are
 // processed in store order, NOT sorted, to mirror UI row order).
 //
-// Independent of the legacy single-phase / multi-phase pipelines —
+// Independent of the legacy single-phase / multi-phase pipelines ,
 // this one only fires when at least one plot exists. Pre-M1.7 fixtures
 // produce an empty perPlot array.
 
@@ -711,7 +711,7 @@ export function runAreaProgramPipeline(v4: HydrateSnapshot): AreaProgramSnapshot
       basementCapacityBays: capacity.basementCapacityBays,
     });
 
-    // Pro-rata basement share by GFA. Pure split — does NOT alter the
+    // Pro-rata basement share by GFA. Pure split, does NOT alter the
     // asset's GFA, just stamps how much basement belongs to the asset
     // for cascade.tba reporting.
     const totalGFA = firstPass.reduce((s, p) => s + p.gfaShare, 0);

@@ -197,7 +197,7 @@ export default function ModelingDashboardPage() {
     }
   }, []);
 
-  // Fetch CMS header settings — same source-of-truth as the main-site
+  // Fetch CMS header settings, same source-of-truth as the main-site
   // NavbarServer, so logo and header chrome are consistent across all three
   // subdomains. The keys are read from cms_content section='header_settings'.
   useEffect(() => {
@@ -301,7 +301,7 @@ export default function ModelingDashboardPage() {
 
       <div className="mh-mob-backdrop" onClick={() => setMobileSidebarOpen(false)} />
 
-      {/* TOP NAV — height + logo size driven by cms_content.header_settings
+      {/* TOP NAV, height + logo size driven by cms_content.header_settings
           so this header matches the main-site Navbar across all subdomains. */}
       <div style={{
         background: theme.topbarBg, padding: '0 20px', minHeight: headerHeight,

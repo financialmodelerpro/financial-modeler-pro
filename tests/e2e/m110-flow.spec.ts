@@ -10,14 +10,14 @@
  *
  * Reuses the M1.8 fixture mount at /test-fixtures/m18-wizard.
  *
- * Spec 1 — wizard creates Mixed-Use; allocation badge gone, Over FAR
+ * Spec 1, wizard creates Mixed-Use; allocation badge gone, Over FAR
  * badge gone, reconciliation row visible. Asserts the 3 user-visible
  * regressions Ahmad called out in the M1.10 brief.
  *
- * Spec 2 — Plot Setup Wizard walkthrough: open from a plot, walk steps
+ * Spec 2, Plot Setup Wizard walkthrough: open from a plot, walk steps
  * 1->4, save, confirm plot fields updated.
  *
- * Spec 3 — Parcel Setup Wizard walkthrough + screenshots.
+ * Spec 3, Parcel Setup Wizard walkthrough + screenshots.
  */
 
 import { test, expect, type ConsoleMessage, type Page } from '@playwright/test';
@@ -209,7 +209,7 @@ test.describe('M1.10 setup-completeness fixes', () => {
     // Wizard lands on Schedule.
     await expect(page.getByRole('heading', { name: 'Project Schedule', level: 2 })).toBeVisible({ timeout: 10_000 });
 
-    // ── Land tab — allocations sum to 100% (M1.10/3 fix). Pre-M1.10 the
+    // ── Land tab, allocations sum to 100% (M1.10/3 fix). Pre-M1.10 the
     // Land tab fired "Asset allocations sum to 0.0% (must = 100)" because
     // assetById.get('residential') missed the wizard's wizardasset_1/2/3
     // ids. Post-M1.10 the bucket-sum derivation correctly returns 100%
@@ -218,7 +218,7 @@ test.describe('M1.10 setup-completeness fixes', () => {
     await expect(page.getByRole('heading', { name: 'Land & Area', level: 2 })).toBeVisible();
     await expect(page.getByText(/Asset allocations sum to 0\.0%/)).toHaveCount(0);
 
-    // ── Build Program — no Over FAR badge on first paint (M1.10/2 fix).
+    // ── Build Program, no Over FAR badge on first paint (M1.10/2 fix).
     // The default plot envelope used to be 173.3% (utilisation breached
     // FAR). Retuned defaults give 80% utilisation.
     await page.getByRole('button', { name: '3. Build Program' }).first().click();
@@ -231,7 +231,7 @@ test.describe('M1.10 setup-completeness fixes', () => {
     assertNoErrors(state.captured);
   });
 
-  test('Plot Setup Wizard walkthrough — open, walk 4 steps, save', async ({ page }) => {
+  test('Plot Setup Wizard walkthrough, open, walk 4 steps, save', async ({ page }) => {
     const state = await setupMocks(page);
     await page.goto(`${DEV_SERVER_URL}/test-fixtures/m18-wizard`, { waitUntil: 'domcontentloaded' });
     await page.waitForLoadState('networkidle').catch(() => { /* ok */ });
@@ -251,21 +251,21 @@ test.describe('M1.10 setup-completeness fixes', () => {
     await expect(page.getByTestId('plot-setup-wizard')).toBeVisible();
     await expect(page.getByTestId('plot-wizard-step-1')).toBeVisible();
 
-    // Step 1 — Envelope. Bump FAR.
+    // Step 1, Envelope. Bump FAR.
     const farInput = page.getByTestId('plot-wizard-maxFAR');
     await farInput.fill('4');
     await page.getByTestId('plot-wizard-next').click();
 
-    // Step 2 — Floors. Live envelope preview present.
+    // Step 2, Floors. Live envelope preview present.
     await expect(page.getByTestId('plot-wizard-step-2')).toBeVisible();
     await expect(page.getByTestId('plot-wizard-envelope-preview')).toBeVisible();
     await page.getByTestId('plot-wizard-next').click();
 
-    // Step 3 — Parking.
+    // Step 3, Parking.
     await expect(page.getByTestId('plot-wizard-step-3')).toBeVisible();
     await page.getByTestId('plot-wizard-next').click();
 
-    // Step 4 — Assets. Save & Close.
+    // Step 4, Assets. Save & Close.
     await expect(page.getByTestId('plot-wizard-step-4')).toBeVisible();
     await page.getByTestId('plot-wizard-save').click();
 

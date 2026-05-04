@@ -50,11 +50,11 @@ function buildStudentList(certs: CertRow[]): string {
   return certs.map(c => {
     const name   = c.full_name?.trim() || 'Student';
     const course = resolveCourseName(c.course || c.course_code || '');
-    return `✅ ${name} — ${course}`;
+    return `✅ ${name}, ${course}`;
   }).join('\n');
 }
 
-/** Build the verify-links block — short-form (host + path), bullet prefix. */
+/** Build the verify-links block, short-form (host + path), bullet prefix. */
 function buildVerifyLinks(certs: CertRow[]): string {
   return certs.map(c => {
     const url = c.verification_url || '';
@@ -90,7 +90,7 @@ export default function DailyRoundupPage() {
   }, []);
 
   // Fetch certificates for the selected date. Auto-selects all rows so the
-  // default roundup contains the whole day — admin deselects to trim.
+  // default roundup contains the whole day, admin deselects to trim.
   const loadCerts = useCallback(async (isoDate: string) => {
     setLoading(true);
     try {
@@ -164,7 +164,7 @@ export default function DailyRoundupPage() {
               style={{ ...field, width: '100%' }}
             />
             <div style={{ fontSize: 11, color: MUTED, marginTop: 6 }}>
-              UTC day boundary — certs issued between 00:00 and 24:00 UTC.
+              UTC day boundary, certs issued between 00:00 and 24:00 UTC.
             </div>
           </div>
           <div>
@@ -227,10 +227,10 @@ export default function DailyRoundupPage() {
                     />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 700, color: NAVY }}>
-                        {c.full_name || c.email || '—'}
+                        {c.full_name || c.email || ','}
                       </div>
                       <div style={{ fontSize: 11, color: MUTED }}>
-                        {resolveCourseName(c.course || c.course_code || '—')}
+                        {resolveCourseName(c.course || c.course_code || ',')}
                         {' · '}
                         <code style={{ fontFamily: 'monospace' }}>{c.certificate_id}</code>
                         {c.grade ? ` · Grade ${c.grade}` : ''}

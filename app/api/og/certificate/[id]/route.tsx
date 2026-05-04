@@ -176,7 +176,7 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ id:
             </div>
           </div>
 
-          {/* Right — seal */}
+          {/* Right, seal */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
             <div style={{
               width: 220, height: 220, borderRadius: '50%',

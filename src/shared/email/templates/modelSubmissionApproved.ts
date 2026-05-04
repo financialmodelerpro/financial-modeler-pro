@@ -18,7 +18,7 @@ interface ModelSubmissionApprovedData {
 export async function modelSubmissionApprovedTemplate({
   name, courseLabel, fileName, attemptNumber, reviewerNote,
 }: ModelSubmissionApprovedData) {
-  const subject = `✓ Model approved — Final exam unlocked: ${courseLabel}`;
+  const subject = `✓ Model approved, Final exam unlocked: ${courseLabel}`;
 
   const html = await baseLayoutBranded(`
     ${h1(`Model approved${name ? `, ${name}` : ''}!`)}
@@ -50,7 +50,7 @@ export async function modelSubmissionApprovedTemplate({
     ${p('Thanks for putting the work in. Your model showed the effort we were looking for.', 'font-size:13px;color:#64748B;')}
   `);
 
-  const text = `Financial Modeler Pro — Model Approved\n\n`
+  const text = `Financial Modeler Pro, Model Approved\n\n`
     + `${name ? `Hi ${name},\n\n` : ''}`
     + `Your financial model for ${courseLabel} has been APPROVED.\n`
     + `Submission: ${fileName} (attempt ${attemptNumber})\n`

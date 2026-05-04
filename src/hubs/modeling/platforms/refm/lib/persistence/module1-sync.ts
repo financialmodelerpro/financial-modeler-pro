@@ -15,7 +15,7 @@
  *   detach()
  *     - Unsubscribes, clears the timer, drops the active id. Call
  *       this when the user closes the project (or before
- *       attachToProject for a different project — attach calls
+ *       attachToProject for a different project, attach calls
  *       detach() internally for safety).
  *
  *   loadVersionInto(projectId, versionId)
@@ -51,7 +51,7 @@ import {
 
 const DEBOUNCE_MS = 1500;
 
-// Module-level state. The sync module is a singleton — there is one
+// Module-level state. The sync module is a singleton, there is one
 // active project per browser tab.
 let activeProjectId: string | null = null;
 let unsubscribe:    (() => void) | null = null;
@@ -109,7 +109,7 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
     lastSavedJson = JSON.stringify(snap);
     loaded = 'server';
   } else {
-    // Server miss / network error — fall back to cache.
+    // Server miss / network error, fall back to cache.
     error = serverRes.error;
     const cached = readCachedSnapshot(projectId);
     if (cached) {
@@ -141,7 +141,7 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
  * exact snapshot was just persisted server-side. In those cases the
  * round-trip `loadProject` in `attachToProject` is wasteful AND
  * dangerous: `hydrationFromAnySnapshot` requires `version === 3` to
- * recognize a snapshot as "new shape" — wizard / legacy createProject
+ * recognize a snapshot as "new shape", wizard / legacy createProject
  * snapshots are bare `HydrateSnapshot` (no version discriminator), so
  * the recogniser falls through to `DEFAULT_MODULE1_STATE`, silently
  * wiping the just-hydrated wizard data (3 assets / 1 plot / sub-units
@@ -165,7 +165,7 @@ export function attachToProjectFromLocalSnapshot(
   lastSavedJson = JSON.stringify(snapshot);
 
   // Subscribe AFTER setting lastSavedJson so the very first store
-  // event is a no-op (json === lastSavedJson) — the snapshot is
+  // event is a no-op (json === lastSavedJson), the snapshot is
   // already on the server, no need to immediately re-save.
   unsubscribe = useModule1Store.subscribe(scheduleAutoSave);
   isLoading = false;
@@ -236,7 +236,7 @@ async function runAutoSave(): Promise<void> {
   isSaving = false;
 
   if (res.error) {
-    // Don't update lastSavedJson — the next change will retry. The
+    // Don't update lastSavedJson, the next change will retry. The
     // cache write above already happened so the user doesn't lose
     // data while offline.
     if (typeof console !== 'undefined') {

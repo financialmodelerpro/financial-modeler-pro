@@ -258,7 +258,7 @@ export default function Topbar({
         ⚙️
       </Link>
 
-      {/* Dark mode toggle — flips REFM workspace palette only */}
+      {/* Dark mode toggle, flips REFM workspace palette only */}
       <button
         type="button"
         onClick={onToggleDark}
@@ -269,7 +269,7 @@ export default function Topbar({
         {darkMode ? '☀️' : '🌙'}
       </button>
 
-      {/* Hub link — back to Modeling Hub sidebar landing */}
+      {/* Hub link, back to Modeling Hub sidebar landing */}
       <Link href="/modeling/dashboard" className="portal-back-btn" title="Back to Modeling Hub">
         ← Hub
       </Link>

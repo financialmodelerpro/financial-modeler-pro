@@ -53,7 +53,7 @@ export function RecordedLiveSessionRow({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ session_id: tabKey, student_email: studentEmail, notes: content }),
       });
-    } catch { /* swallow — re-try on next keystroke */ }
+    } catch { /* swallow, re-try on next keystroke */ }
   }
 
   const hasAssessment = !!session.has_assessment;

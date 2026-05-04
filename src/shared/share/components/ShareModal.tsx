@@ -3,18 +3,18 @@
 /**
  * Universal ShareModal for Training Hub.
  *
- * Backed by the shareTo() utility in src/lib/training/share.ts — do not
+ * Backed by the shareTo() utility in src/lib/training/share.ts, do not
  * implement custom share logic inside the modal. Any new share dialog in
  * Training Hub should use this component.
  *
  * Contract:
  *   - The share preview shows the COMPLETE post exactly as it will land
- *     on the clipboard — admin-configured body + hashtags merged inline,
+ *     on the clipboard, admin-configured body + hashtags merged inline,
  *     `{@brand}` / `{@founder}` already resolved by renderShareTemplate.
  *   - The preview is READ-ONLY on the student side. Students cannot edit
- *     the message, the hashtags, or reorder anything — the admin's
+ *     the message, the hashtags, or reorder anything, the admin's
  *     template is the single source of truth for what goes out. (Admin
- *     tooling that needs editing — e.g. the Share Templates editor —
+ *     tooling that needs editing, e.g. the Share Templates editor ,
  *     doesn't use this modal.)
  *   - Clicking any platform button copies the full text to the clipboard
  *     and opens the platform compose window so the student can paste.
@@ -54,7 +54,7 @@ const PLATFORM_META: Record<SharePlatform, { label: string; icon: string; bg: st
   copy:     { label: 'Copy Text',   icon: '🔗', bg: '#F3F4F6', color: '#374151' },
 };
 
-/** Normalize a raw hashtag — strip leading `#` if the admin typed one. */
+/** Normalize a raw hashtag, strip leading `#` if the admin typed one. */
 function cleanTag(h: string): string {
   return h.replace(/^#+/, '').trim();
 }
@@ -74,7 +74,7 @@ export function ShareModal({
 
   // Normalized + deduped hashtags, then the full merged post text. Memoed
   // so the display textarea and the shareTo() payload refer to the same
-  // exact string — what the student sees is byte-identical to what lands
+  // exact string, what the student sees is byte-identical to what lands
   // on their clipboard.
   const cleanedHashtags = useMemo(
     () => Array.from(new Set(hashtags.map(cleanTag).filter(Boolean))),
@@ -90,7 +90,7 @@ export function ShareModal({
   if (!isOpen) return null;
 
   const handleShare = async (platform: SharePlatform) => {
-    // `fullText` already has hashtags baked in — pass an empty array so
+    // `fullText` already has hashtags baked in, pass an empty array so
     // shareTo's buildFullText doesn't double-append.
     await shareTo(platform, {
       text: fullText,
@@ -157,7 +157,7 @@ export function ShareModal({
         )}
 
         {/* Read-only post preview.
-            Body + hashtags are rendered inline as a single block — this is
+            Body + hashtags are rendered inline as a single block, this is
             EXACTLY what lands on the clipboard when the student clicks any
             platform. Locked: the admin's template is the single source of
             truth, so there's no way for the student to strip hashtags,
@@ -195,7 +195,7 @@ export function ShareModal({
           fontSize: 12, color: '#6B7280', background: '#F0F9FF', border: '1px solid #BAE6FD',
           borderRadius: 8, padding: '8px 12px', marginBottom: 14, lineHeight: 1.5,
         }}>
-          💡 Click any platform and the full message (including hashtags) is auto-copied to your clipboard — paste (Ctrl/Cmd+V) into the compose window.
+          💡 Click any platform and the full message (including hashtags) is auto-copied to your clipboard, paste (Ctrl/Cmd+V) into the compose window.
         </div>
 
         {/* Platform buttons */}

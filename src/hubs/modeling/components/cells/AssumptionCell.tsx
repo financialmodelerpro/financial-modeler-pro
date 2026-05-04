@@ -13,8 +13,8 @@ export interface AssumptionCellProps extends Omit<React.InputHTMLAttributes<HTML
 }
 
 /**
- * AssumptionCell — FAST key-driver assumption cell.
- * Yellow background plus blue text. Still an editable input — yellow signals
+ * AssumptionCell, FAST key-driver assumption cell.
+ * Yellow background plus blue text. Still an editable input, yellow signals
  * "this is one of the small set of inputs that drives the model" (e.g. Land
  * Cash on Module 1 Costs, RETT %, Royal Commission Premium).
  *

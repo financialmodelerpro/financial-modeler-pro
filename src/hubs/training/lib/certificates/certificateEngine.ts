@@ -47,7 +47,7 @@ import { sendEmail, FROM } from '@/src/shared/email/sendEmail';
 import { certificateIssuedTemplate } from '@/src/shared/email/templates/certificateIssued';
 
 const MAIN_URL   = process.env.NEXT_PUBLIC_MAIN_URL   ?? 'https://financialmodelerpro.com';
-// Verification page lives on the Training Hub subdomain — /verify/:id is
+// Verification page lives on the Training Hub subdomain, /verify/:id is
 // rewritten to the same Next page on both domains, but learn.* is the
 // canonical URL students share.
 const LEARN_URL  = process.env.NEXT_PUBLIC_LEARN_URL  ?? 'https://learn.financialmodelerpro.com';
@@ -468,7 +468,7 @@ export async function generateBadgePng(data: {
  *   - /api/admin/certificates/force-issue can call it directly to bypass the
  *     eligibility gate for one student
  *
- * `options.force` skips the model-submission gate — use only when an
+ * `options.force` skips the model-submission gate, use only when an
  * admin has explicitly chosen to override (audit trail recorded by caller).
  */
 export async function issueCertificateForPending(
@@ -513,7 +513,7 @@ export async function issueCertificateForPending(
      *
      * Previous version used `.upsert({...}, { onConflict: 'registration_id' })`
      * and never inspected the returned error. Supabase does NOT throw when a
-     * DB-level error occurs — it returns `{ data: null, error }`. If the
+     * DB-level error occurs, it returns `{ data: null, error }`. If the
      * `student_certificates` table lacks a UNIQUE constraint on
      * `registration_id`, Postgres rejects the statement with
      *   "there is no unique or exclusion constraint matching the ON CONFLICT..."
@@ -524,7 +524,7 @@ export async function issueCertificateForPending(
      * Fixed by:
      *  1. Explicit select → update|insert so we're constraint-agnostic.
      *  2. Every supabase call is error-checked and the helper RETURNS the
-     *     real error string on failure — the force-issue route already
+     *     real error string on failure, the force-issue route already
      *     surfaces `result.error` to the admin UI as a 500.
      */
     const row: Record<string, unknown> = {
@@ -628,13 +628,13 @@ export async function issueCertificateForPending(
  *      unique index on `(LOWER(email), course_code)` is the hard DB guard;
  *      this check is just a cheap early-out so we don't regenerate PDFs for
  *      already-issued students.
- *   2. Run `checkEligibility()` against the Supabase-native rules — all
+ *   2. Run `checkEligibility()` against the Supabase-native rules, all
  *      required sessions passed, final passed, watch threshold met (with
  *      grandfathering + per-session bypass).
  *   3. Build `PendingCertificate` from eligibility + training_registrations_meta.
  *   4. Hand off to `issueCertificateForPending()` with `issuedVia: 'auto'`.
  *
- * Safe to call multiple times — the pre-check + DB unique index together
+ * Safe to call multiple times, the pre-check + DB unique index together
  * prevent duplicates. Failure states surface as `{ ok: false, error }`.
  */
 export async function issueCertificateForStudent(

@@ -6,7 +6,7 @@
  *          same metadata (location/status/asset_mix/schema_version),
  *          new id + timestamps. The clone gets exactly one version
  *          row (version_number=1), regardless of how many the
- *          original had — version history does not carry over.
+ *          original had, version history does not carry over.
  *
  * Auth: NextAuth session required. Ownership of the source project is
  * verified before the clone runs; the new project is owned by the
@@ -51,7 +51,7 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
     const { row, error } = await getLatestVersion(source.id);
     if (error) return serverError(error);
     if (!row) {
-      // Project exists but has no version rows — vanishingly rare
+      // Project exists but has no version rows, vanishingly rare
       // (M1.6/2 always seeds version 1 alongside the project) but
       // possible if a manual SQL edit pruned versions. Refuse to
       // duplicate an empty project rather than seed an arbitrary

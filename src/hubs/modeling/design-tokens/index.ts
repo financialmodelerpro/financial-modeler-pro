@@ -1,16 +1,16 @@
 /**
- * Modeling Hub — Design Tokens (barrel)
+ * Modeling Hub, Design Tokens (barrel)
  *
  * Public entry point. Consumers do:
  *
  *   import { chromeColors, fastColors, fontSize, spacing, getFast } from '@modeling/design-tokens';
  *
  * The directory holds:
- *   colors.ts      — chromeColors (skeleton) + fastColors (FAST cell convention)
- *   typography.ts  — font family, sizes, weights, line heights
- *   spacing.ts     — 8px grid + semantic spacing
- *   tokens.css     — optional CSS-vars + @theme bridge for Tailwind v4 utility classes
- *   README.md      — usage rules, FAST cell rules, examples
+ *   colors.ts     , chromeColors (skeleton) + fastColors (FAST cell convention)
+ *   typography.ts , font family, sizes, weights, line heights
+ *   spacing.ts    , 8px grid + semantic spacing
+ *   tokens.css    , optional CSS-vars + @theme bridge for Tailwind v4 utility classes
+ *   README.md     , usage rules, FAST cell rules, examples
  */
 
 export * from './colors';

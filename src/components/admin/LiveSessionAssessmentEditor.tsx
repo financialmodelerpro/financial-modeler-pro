@@ -382,7 +382,7 @@ export function LiveSessionAssessmentEditor({ sessionId, onMessage }: Props) {
                         value={q.explanation ?? ''}
                         onChange={html => updateQ(q.id, { explanation: html })}
                         minHeight={60}
-                        placeholder="Optional — explain why the correct answer is correct."
+                        placeholder="Optional, explain why the correct answer is correct."
                       />
                     </div>
                   </div>

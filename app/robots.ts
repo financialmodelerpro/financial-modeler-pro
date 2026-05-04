@@ -17,7 +17,7 @@ export default function robots(): MetadataRoute.Robots {
           '/admin',
           '/api/',
           '/_next/',
-          // Authenticated / behind-auth areas — not indexable
+          // Authenticated / behind-auth areas, not indexable
           '/training/dashboard',
           '/training/signin',
           '/training/register',
@@ -50,7 +50,7 @@ export default function robots(): MetadataRoute.Robots {
           '/t/',
         ],
       },
-      // Block scraping bots used for LLM training by default — public-facing
+      // Block scraping bots used for LLM training by default, public-facing
       // content is still fully indexable by Google, Bing, etc.
       { userAgent: 'GPTBot',          disallow: '/' },
       { userAgent: 'ChatGPT-User',    disallow: '/' },

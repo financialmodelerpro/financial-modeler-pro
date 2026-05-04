@@ -9,7 +9,7 @@ interface PlanBadgeProps {
 
 // Plan tier base colour. Professional flows through the brand navy CSS var
 // so the badge follows the REFM workspace dark-mode override; enterprise
-// pulls the brand-locked purple from tokens.ts (intentionally off-canon —
+// pulls the brand-locked purple from tokens.ts (intentionally off-canon ,
 // see PLAN_COLOR comment in src/styles/tokens.ts). bg + border are derived
 // from the base via color-mix so the original 10% / 25% alpha relationship
 // is preserved without inline hex suffixes.

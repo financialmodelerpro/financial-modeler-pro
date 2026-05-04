@@ -1,5 +1,5 @@
 /**
- * REFM Module 1 PDF report — pure builder
+ * REFM Module 1 PDF report, pure builder
  *
  * Same Phase 2 split as `excel.ts`: the route file (`app/api/export/pdf/route.ts`)
  * is a thin wrapper; the heavy lifting lives here so a fixture script can
@@ -7,7 +7,7 @@
  *
  * All colours flow from the Modeling Hub design tokens. Per the per-platform
  * decision in the design-tokens README, the PDF exporter is locked on the
- * baked-in light palette — it does not honour any runtime CSS-var override
+ * baked-in light palette, it does not honour any runtime CSS-var override
  * because a saved PDF must stay deterministic across deploys.
  *
  * @react-pdf/renderer accepts CSS-style hex strings directly, so no ARGB

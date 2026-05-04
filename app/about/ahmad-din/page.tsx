@@ -84,7 +84,7 @@ export default async function FounderPage() {
       <NavbarServer />
       <div style={{ height: 64 }} />
 
-      {/* Hero — I3: reduced minmax 260→240 + scaled gap so image+bio fit
+      {/* Hero, I3: reduced minmax 260→240 + scaled gap so image+bio fit
           2-col at 375px instead of single-col with wasted space. */}
       <section style={{ padding: 'clamp(40px, 8vw, 80px) clamp(16px, 4vw, 40px) clamp(32px, 6vw, 64px)', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
         <div style={{ maxWidth: 900, margin: '0 auto', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: 'clamp(24px, 4vw, 56px)', alignItems: 'center' }}>
@@ -257,7 +257,7 @@ export default async function FounderPage() {
         </section>
       )}
 
-      {/* Get in Touch — readable contact details at bottom of page.
+      {/* Get in Touch, readable contact details at bottom of page.
           Each row honours the admin visibility toggle AND the field having a value. */}
       {((cmsVisible(fc ?? {}, 'email') && email)
        || (cmsVisible(fc ?? {}, 'whatsapp_number') && whatsappDigits)

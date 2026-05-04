@@ -9,7 +9,7 @@ import { DEFAULT_TEMPLATES, type ShareTemplate } from './shareTemplates';
  * DB-fetched version once available. A module-level cache prevents repeat
  * network calls when multiple share buttons mount for the same key.
  *
- * Callers never see `null` — there's always a valid template to render,
+ * Callers never see `null`, there's always a valid template to render,
  * even offline or during the first fetch.
  */
 const cache = new Map<string, ShareTemplate>();
@@ -50,14 +50,14 @@ async function fetchTemplate(key: string): Promise<ShareTemplate> {
 export function useShareTemplate(key: string): ShareTemplate {
   // Initial value pulls from the module-cache first (instant on remount),
   // then falls back to the offline seed. `useState`'s initializer reads
-  // the cache exactly once per mount — no synchronous setState inside the
+  // the cache exactly once per mount, no synchronous setState inside the
   // effect, so cascading renders are avoided.
   const [template, setTemplate] = useState<ShareTemplate>(
     () => cache.get(key) ?? DEFAULT_TEMPLATES[key],
   );
 
   useEffect(() => {
-    // Cache hit — state already reflects it via the initializer above.
+    // Cache hit, state already reflects it via the initializer above.
     if (cache.has(key)) return;
 
     let active = true;

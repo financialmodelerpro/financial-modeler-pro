@@ -150,7 +150,7 @@ export default function AssessmentPage() {
   const [linkCopied, setLinkCopied] = useState(false);
   const [studentName, setStudentName] = useState('');
 
-  // Share template (assessment pass) — fetched once, rendered with live data below.
+  // Share template (assessment pass), fetched once, rendered with live data below.
   const shareTemplate = useShareTemplate('assessment_passed');
 
   // Taking state
@@ -228,7 +228,7 @@ export default function AssessmentPage() {
       }
     } catch { /* continue to normal load */ }
 
-    // Fetch global shuffle settings (shared with live sessions — migration 108)
+    // Fetch global shuffle settings (shared with live sessions, migration 108)
     let shuffleQ = true;
     let shuffleOpt = false;
     try {
@@ -239,7 +239,7 @@ export default function AssessmentPage() {
     } catch { /* use defaults */ }
     setShuffleOptions(shuffleOpt);
 
-    // Always ask Apps Script for unshuffled questions — shuffle is applied
+    // Always ask Apps Script for unshuffled questions, shuffle is applied
     // client-side so one global setting drives both Apps Script-backed and
     // Supabase-backed assessments identically.
     const [statusRes, questionsRes] = await Promise.all([
@@ -781,7 +781,7 @@ export default function AssessmentPage() {
       >
         <NavBar isFinal={isFinal} sessionName={sessionName} dashUrl={dashUrl} />
 
-        {/* Paused overlay — blocks interaction while attempt is paused on the
+        {/* Paused overlay, blocks interaction while attempt is paused on the
             server. Auto-dismisses when the visibility-change resume completes
             and attemptState.paused flips back to false. */}
         {attemptState?.paused && (
@@ -1132,7 +1132,7 @@ export default function AssessmentPage() {
           const shareText = rendered.text;
           const shareHashtags = rendered.hashtags;
           // The readonly preview shows exactly what `shareTo()` puts on the
-          // clipboard — body + blank line + space-joined hashtags. Keeps
+          // clipboard, body + blank line + space-joined hashtags. Keeps
           // "what I see" and "what I paste" in sync with every other
           // share entry point across the platform.
           const previewText = shareHashtags.length
@@ -1157,7 +1157,7 @@ export default function AssessmentPage() {
                     ⬇️ Download Achievement Card
                   </a>
                 </div>
-                {/* Share text — includes hashtags so the preview matches what
+                {/* Share text, includes hashtags so the preview matches what
                     the clipboard will contain after clicking Share on LinkedIn. */}
                 <textarea readOnly value={previewText} rows={7}
                   style={{ width: '100%', padding: '10px 12px', border: '1px solid #D1D5DB', borderRadius: 8, fontSize: 12, fontFamily: 'Inter,sans-serif', resize: 'none', lineHeight: 1.6, boxSizing: 'border-box', marginBottom: 12, color: '#374151', background: '#F9FAFB' }} />

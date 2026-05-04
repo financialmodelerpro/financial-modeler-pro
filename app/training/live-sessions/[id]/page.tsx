@@ -173,12 +173,12 @@ export default function LiveSessionDetailPage() {
       .catch(() => {});
   }, [session?.playlist?.id]);
 
-  // Check watched state — "watched" here means status==='completed'
+  // Check watched state, "watched" here means status==='completed'
   // specifically. Without this filter the first progress tick creates
   // an in_progress history row and this effect would then flip
   // isWatched=true, which causes CourseTopBar to hide Mark Complete
   // (the student sees "Completed" text despite never having clicked
-  // the button). Issue 1 root cause — in_progress must not masquerade
+  // the button). Issue 1 root cause, in_progress must not masquerade
   // as a completion flag.
   useEffect(() => {
     if (!studentSession?.email || !session?.id) return;

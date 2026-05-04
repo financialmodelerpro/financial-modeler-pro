@@ -99,7 +99,7 @@ export function LiveSessionBannerStudio() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Field label="Pick session" hint={`${sessions.length} sessions available · auto-fills instructor`}>
               <select value={selectedId} onChange={e => applySession(e.target.value)} style={selectStyle}>
-                <option value="">— Custom (no auto-fill) —</option>
+                <option value="">, Custom (no auto-fill) ,</option>
                 {sessions.map(s => (
                   <option key={s.id} value={s.id}>
                     [{s.session_type === 'recorded' ? 'REC' : 'LIVE'}] {s.title}

@@ -8,10 +8,10 @@ import {
 
 /**
  * KpiCard supports a small palette of value-colour intents:
- *   'formula' — calculated number, neutral chrome (default)
- *   'input'   — derived directly from a user input (blue)
- *   'linked'  — pulled cross-module (green)
- *   'positive'/'negative' — for variance + return KPIs that benefit from
+ *   'formula', calculated number, neutral chrome (default)
+ *   'input'  , derived directly from a user input (blue)
+ *   'linked' , pulled cross-module (green)
+ *   'positive'/'negative', for variance + return KPIs that benefit from
  *                            sign signalling
  */
 export type KpiTone = 'formula' | 'input' | 'linked' | 'positive' | 'negative';
@@ -28,7 +28,7 @@ export interface KpiCardProps {
 }
 
 /**
- * KpiCard — corporate chrome card with a FAST-coloured value.
+ * KpiCard, corporate chrome card with a FAST-coloured value.
  * Used on Dashboard / Overview / Module 1 Financing / Module 9 Market Data
  * for at-a-glance numbers.
  */

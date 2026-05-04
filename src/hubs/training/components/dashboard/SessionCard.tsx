@@ -48,9 +48,9 @@ export interface SessionCardProps {
   courseName?: string;
   /** Student name for achievement card */
   studentName?: string;
-  /** Explicit Watch link — overrides the default `/training/watch/[courseId]/[sessionId]` link. Used by live sessions. */
+  /** Explicit Watch link, overrides the default `/training/watch/[courseId]/[sessionId]` link. Used by live sessions. */
   watchHref?: string;
-  /** Explicit Assessment link — overrides the default `/training/assessment/[tabKey]` link. Used by live sessions. */
+  /** Explicit Assessment link, overrides the default `/training/assessment/[tabKey]` link. Used by live sessions. */
   assessmentHref?: string;
   /** When true, hides the score/attempts row AND the Take Assessment / Locked chip (live sessions with no quiz). `Share` + `Card` buttons still appear on `prog?.passed`. */
   hideAssessment?: boolean;
@@ -90,7 +90,7 @@ export function SessionCard({
   const [showCardModal, setShowCardModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
 
-  // Share template (achievement card) — loaded once, reused when the modal opens.
+  // Share template (achievement card), loaded once, reused when the modal opens.
   const shareTemplate = useShareTemplate('achievement_card');
 
   // Sync incoming noteContent (loaded async)
@@ -160,7 +160,7 @@ export function SessionCard({
       boxShadow: locked ? 'none' : '0 1px 4px rgba(0,0,0,0.04)',
       opacity: locked ? 0.65 : 1,
     }}>
-      {/* Row 1: number + title + badge — flexWrap lets the status badge
+      {/* Row 1: number + title + badge, flexWrap lets the status badge
           drop below the title on narrow phones instead of pushing the
           title to a cramped single column of characters. */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 8, flexWrap: 'wrap' }}>
@@ -212,7 +212,7 @@ export function SessionCard({
         </div>
       )}
 
-      {/* Watch progress indicator intentionally not rendered for students —
+      {/* Watch progress indicator intentionally not rendered for students ,
           the threshold + watched % gate assessment unlock server-side but
           are hidden from the UI so the rule can't be gamed. Status badge
           ("In Progress" / "Passed" / locked) is the only public signal. */}
@@ -265,7 +265,7 @@ export function SessionCard({
 
         {/* Assessment status (assessment itself is on watch page) */}
         {hideAssessment ? (
-          // No assessment configured for this session — still surface Share/Card
+          // No assessment configured for this session, still surface Share/Card
           // once the student has watched (treated as "passed" by parent).
           prog?.passed ? (
             <>
@@ -344,7 +344,7 @@ export function SessionCard({
         />
       )}
 
-      {/* Share achievement modal — universal ShareModal */}
+      {/* Share achievement modal, universal ShareModal */}
       {showShareModal && prog?.passed && (() => {
         const passDate = formatShareDate(prog.completedAt ?? new Date());
         const cardImgUrl = buildAchievementCardUrl(prog.score, passDate);

@@ -7,9 +7,9 @@
  * authenticated REFM session: the public sign-in page (light + dark
  * screenshots) and the gate that redirects /refm without a session.
  *
- * Deeper wizard interactions — clicking + New Project, filling Steps
+ * Deeper wizard interactions, clicking + New Project, filling Steps
  * 1-3, asserting Area Program tab landing, asserting "+ Add Phase" /
- * "Enable Master Holding" reveals the right surfaces — are gated on a
+ * "Enable Master Holding" reveals the right surfaces, are gated on a
  * NextAuth fixture-login or cookie-injection helper that lands in a
  * later phase. They appear in this file as test.skip() entries so the
  * full intended coverage is documented and easy to enable once the
@@ -30,7 +30,7 @@ const DEV_SERVER_URL = process.env.M18_DEV_SERVER_URL ?? 'http://localhost:3000'
 const SHOT_DIR       = resolve(process.cwd(), 'tests/screenshots/m18');
 if (!existsSync(SHOT_DIR)) mkdirSync(SHOT_DIR, { recursive: true });
 
-test.describe('Phase M1.8 — Smart Project Creation Wizard', () => {
+test.describe('Phase M1.8, Smart Project Creation Wizard', () => {
   test.beforeAll(async () => {
     let healthy = false;
     try {
@@ -40,7 +40,7 @@ test.describe('Phase M1.8 — Smart Project Creation Wizard', () => {
     test.skip(!healthy, `dev server not reachable at ${DEV_SERVER_URL}`);
   });
 
-  test('public sign-in page screenshots — light mode', async ({ browser }) => {
+  test('public sign-in page screenshots, light mode', async ({ browser }) => {
     const ctx = await browser.newContext({ colorScheme: 'light', viewport: { width: 1440, height: 900 } });
     const page = await ctx.newPage();
     await page.goto(`${DEV_SERVER_URL}/modeling/signin`);
@@ -49,7 +49,7 @@ test.describe('Phase M1.8 — Smart Project Creation Wizard', () => {
     await ctx.close();
   });
 
-  test('public sign-in page screenshots — dark mode', async ({ browser }) => {
+  test('public sign-in page screenshots, dark mode', async ({ browser }) => {
     const ctx = await browser.newContext({ colorScheme: 'dark', viewport: { width: 1440, height: 900 } });
     const page = await ctx.newPage();
     await page.goto(`${DEV_SERVER_URL}/modeling/signin`);

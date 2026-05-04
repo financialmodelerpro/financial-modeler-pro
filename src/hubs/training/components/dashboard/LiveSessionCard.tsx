@@ -81,7 +81,7 @@ const cardWrapper: React.CSSProperties = {
 };
 
 const bannerBase: React.CSSProperties = {
-  // Height reduced 120 → 90 (~25% shorter) per user request — card
+  // Height reduced 120 → 90 (~25% shorter) per user request, card
   // width stays fluid (1/3 column), only the vertical footprint shrinks.
   height: 90,
   position: 'relative',
@@ -101,7 +101,7 @@ const badge = (bg: string, color: string): React.CSSProperties => ({
 });
 
 const metaRow: React.CSSProperties = {
-  // Vertical rhythm tightened to fit the shorter card height —
+  // Vertical rhythm tightened to fit the shorter card height ,
   // marginBottom 6 → 4, lineHeight 1.4 → 1.3 trims ~20px total.
   display: 'flex', alignItems: 'center', gap: 6,
   fontSize: 12, color: '#4B5563',
@@ -121,7 +121,7 @@ export function LiveSessionCard(props: Props) {
   const [hover, setHover] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
 
-  // Share template is fetched for every variant — hooks must be called in
+  // Share template is fetched for every variant, hooks must be called in
   // the same order every render, so it lives above the variant branch.
   const shareTemplate = useShareTemplate('live_session_watched');
   const shareRendered = renderShareTemplate(shareTemplate, {
@@ -194,7 +194,7 @@ export function LiveSessionCard(props: Props) {
           {session.instructor_name && (
             <div style={{ ...metaRow, marginBottom: 14 }}>
               <User size={13} strokeWidth={2} />
-              <span>{session.instructor_name}{session.instructor_title ? ` — ${session.instructor_title}` : ''}</span>
+              <span>{session.instructor_name}{session.instructor_title ? `, ${session.instructor_title}` : ''}</span>
             </div>
           )}
 
@@ -352,7 +352,7 @@ export function LiveSessionCard(props: Props) {
             </div>
           )}
 
-          {/* Watch-progress bar + percentage intentionally omitted — the
+          {/* Watch-progress bar + percentage intentionally omitted, the
               threshold-based assessment unlock rule is not surfaced to
               students (see WatchProgressBar note). `inProgress` still
               drives the CTA label ("Continue Watching") below, so the

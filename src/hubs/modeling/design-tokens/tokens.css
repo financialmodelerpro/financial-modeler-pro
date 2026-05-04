@@ -1,5 +1,5 @@
 /**
- * Modeling Hub — Tailwind v4 + CSS-vars bridge
+ * Modeling Hub, Tailwind v4 + CSS-vars bridge
  *
  * This file is OPTIONAL in Phase 1. The TypeScript token tree in `colors.ts`
  * is the source of truth. Cell primitives consume the tokens directly via TS
@@ -27,7 +27,7 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  /* Chrome — light defaults */
+  /* Chrome, light defaults */
   --color-mh-chrome-page-bg:              #F9FAFB;
   --color-mh-chrome-surface:              #FFFFFF;
   --color-mh-chrome-surface-muted:        #F3F4F6;
@@ -60,7 +60,7 @@
   --color-mh-chrome-timeline-ops-bg-alt:       #DAE8FC;
   --color-mh-chrome-timeline-ops-text:         #1E3A8A;
 
-  /* FAST — light defaults */
+  /* FAST, light defaults */
   --color-mh-fast-input-text:       #0070C0;
   --color-mh-fast-input-bg:         #FFFFFF;
   --color-mh-fast-formula-text:     #000000;
@@ -74,7 +74,7 @@
   --color-mh-fast-header-text:      #FFFFFF;
   --color-mh-fast-header-bg:        #1E3A8A;
 
-  /* Navy + grey scales — exposed so consumers can write `bg-mh-navy-700` etc. */
+  /* Navy + grey scales, exposed so consumers can write `bg-mh-navy-700` etc. */
   --color-mh-navy-50:   #F0F4FA;
   --color-mh-navy-100:  #DBE5F4;
   --color-mh-navy-200:  #B7CBE9;
@@ -100,7 +100,7 @@
   --color-mh-grey-950:  #030712;
 }
 
-/* Dark-mode overrides — apply to any subtree under `.dark`. */
+/* Dark-mode overrides, apply to any subtree under `.dark`. */
 .dark {
   --color-mh-chrome-page-bg:              #030712;
   --color-mh-chrome-surface:              #111827;

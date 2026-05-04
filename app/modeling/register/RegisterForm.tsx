@@ -268,7 +268,7 @@ function RegisterInner({ preLaunch, launchDate, invitedEmail }: RegisterFormProp
                     style={{ marginTop: 2, accentColor: BLUE, cursor: 'pointer' }}
                   />
                   <span>
-                    Send me the <strong>Modeling Hub newsletter</strong> — new modules, platform updates, and product releases. Unsubscribe anytime.
+                    Send me the <strong>Modeling Hub newsletter</strong>, new modules, platform updates, and product releases. Unsubscribe anytime.
                   </span>
                 </label>
 

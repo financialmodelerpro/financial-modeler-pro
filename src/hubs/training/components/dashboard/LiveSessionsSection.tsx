@@ -18,13 +18,13 @@ interface Props {
   studentName?: string;
   registrationId?: string;
   courseId?: string;
-  /** How many upcoming cards to render. Defaults to 3 — matches the
+  /** How many upcoming cards to render. Defaults to 3, matches the
    *  "max 3 cards per row" dashboard layout. */
   limit?: number;
 }
 
 /**
- * Dashboard live-sessions preview — UPCOMING ONLY. The main
+ * Dashboard live-sessions preview, UPCOMING ONLY. The main
  * `/training/live-sessions` page shows both upcoming + recorded;
  * the dashboard keeps the preview tight so students scan the
  * "what's next" list without scrolling past a wall of recordings.
@@ -50,7 +50,7 @@ export function LiveSessionsSection({ studentEmail, studentName = '', registrati
     return () => { cancelled = true; };
   }, [studentEmail, courseId, limit]);
 
-  // Still loading — hide the section to avoid a flash of empty state before
+  // Still loading, hide the section to avoid a flash of empty state before
   // the fetch completes. Once `data` is set (even to EMPTY_DATA on error),
   // we render either the grid or the empty-state placeholder.
   if (data === null && studentEmail) return null;
@@ -78,7 +78,7 @@ export function LiveSessionsSection({ studentEmail, studentName = '', registrati
       ) : (
         <>
           {/* Fixed 3-slot grid (2 tablet, 1 mobile). Cards stretch to
-              fill their column slot — width shrink-cap was reverted per
+              fill their column slot, width shrink-cap was reverted per
               user request; card HEIGHT is reduced at the card level
               (LiveSessionCard bannerBase + body padding) instead. */}
           <style>{`

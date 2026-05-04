@@ -118,7 +118,7 @@ export function AssessmentClient({
 
   /**
    * Build the shuffled question view + per-question option index maps once the
-   * settings arrive. `optionMaps[qid][shuffledIdx] = originalDbIdx` — used at
+   * settings arrive. `optionMaps[qid][shuffledIdx] = originalDbIdx`, used at
    * submit time to translate the student's choice back to the index the server
    * stored as `correct_index`, since scoring runs against DB-ordered options.
    * Shuffle is deterministic per mount (runs once after settings load) so a
@@ -547,7 +547,7 @@ export function AssessmentClient({
                       <span style={{ fontSize: 12, color: NAVY, fontWeight: 600, flex: 1 }} dangerouslySetInnerHTML={{ __html: q.question }} />
                     </div>
                     <div style={{ fontSize: 12, color: '#6B7280', paddingLeft: 22 }}>
-                      Your answer: <strong>{q.options[studentAns] ?? '—'}</strong>
+                      Your answer: <strong>{q.options[studentAns] ?? ','}</strong>
                       {!correct && correctAnsText && (
                         <> · Correct: <strong style={{ color: GREEN }}>{correctAnsText}</strong></>
                       )}

@@ -100,8 +100,8 @@ export function LaunchStatusCard({ label, icon = '🚀', endpoint, previewUrl, o
           </div>
           <div style={{ fontSize: 12, color: '#6B7280' }}>
             {enabled
-              ? `Coming Soon mode is ON — signin and register pages show ${launchDate ? 'a countdown' : 'a coming soon message'}. Admins can bypass via ?bypass=true on /signin.`
-              : `${label} is LIVE — signin and register pages work normally.`}
+              ? `Coming Soon mode is ON, signin and register pages show ${launchDate ? 'a countdown' : 'a coming soon message'}. Admins can bypass via ?bypass=true on /signin.`
+              : `${label} is LIVE, signin and register pages work normally.`}
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
@@ -122,7 +122,7 @@ export function LaunchStatusCard({ label, icon = '🚀', endpoint, previewUrl, o
       {enabled && (
         <div style={{ marginTop: 16, borderTop: '1px dashed #E5E7EB', paddingTop: 16, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
           <div>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', marginBottom: 4, letterSpacing: '0.05em' }}>LAUNCH DATE &amp; TIME <span style={{ color: '#9CA3AF', fontWeight: 500, letterSpacing: 0, textTransform: 'none' }}>(optional — shows countdown if set)</span></div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#6B7280', marginBottom: 4, letterSpacing: '0.05em' }}>LAUNCH DATE &amp; TIME <span style={{ color: '#9CA3AF', fontWeight: 500, letterSpacing: 0, textTransform: 'none' }}>(optional, shows countdown if set)</span></div>
             <input
               type="datetime-local"
               value={draft}

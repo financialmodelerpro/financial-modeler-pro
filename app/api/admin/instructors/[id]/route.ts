@@ -56,7 +56,7 @@ export async function PATCH(
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   // Keep linked sessions' denormalized name/title in sync when the instructor's
-  // own name/title changed — legacy readers still pull from those columns.
+  // own name/title changed, legacy readers still pull from those columns.
   if (data && (body.name !== undefined || body.title !== undefined)) {
     await sb
       .from('live_sessions')

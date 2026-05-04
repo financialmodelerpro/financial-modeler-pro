@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Compute attempt number server-side from Supabase — don't trust the
+    // Compute attempt number server-side from Supabase, don't trust the
     // client. Source of truth: training_assessment_results.
     //
     // Simple increment: existing + 1. First attempt (no row) → 1.
@@ -126,7 +126,7 @@ export async function POST(req: NextRequest) {
     console.log('[submit-assessment] Recording score:', { tabKey, email, score, passed, attempt });
 
     // Write to Supabase (primary source for dashboard - instant reads).
-    // The `attempts` column records server-incremented attempt count — every
+    // The `attempts` column records server-incremented attempt count, every
     // submission (pass OR fail) bumps it so students can see all three of
     // their attempts on the dashboard, not just the last passing one.
     try {

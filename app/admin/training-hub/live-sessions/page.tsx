@@ -1845,7 +1845,7 @@ export default function LiveSessionsPage() {
                 )}
               </div>
 
-              {/* Teams auto-generate toggle — only meaningful on new upcoming sessions */}
+              {/* Teams auto-generate toggle, only meaningful on new upcoming sessions */}
               {form.type !== 'RECORDED' && (
                 <div style={{ maxWidth: 600, marginTop: 14, padding: '12px 16px', borderRadius: 10, background: '#F0F9FF', border: '1px solid #BAE6FD' }}>
                   <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
@@ -1877,7 +1877,7 @@ export default function LiveSessionsPage() {
                   {form.meeting_provider === 'teams' && editSession?.teams_dial_in?.tollNumber && (
                     <div style={{ fontSize: 11, color: '#475569', marginTop: 8, paddingTop: 8, borderTop: '1px dashed #BAE6FD' }}>
                       Dial-in: <strong>{editSession.teams_dial_in.tollNumber}</strong>
-                      {editSession.teams_dial_in.conferenceId && <> — Conference ID <strong>{editSession.teams_dial_in.conferenceId}</strong></>}
+                      {editSession.teams_dial_in.conferenceId && <>, Conference ID <strong>{editSession.teams_dial_in.conferenceId}</strong></>}
                     </div>
                   )}
                 </div>
@@ -2148,7 +2148,7 @@ export default function LiveSessionsPage() {
               </div>
             )}
 
-            {/* Reset watch progress — only available on an existing
+            {/* Reset watch progress, only available on an existing
                 session (need the id to key the reset). Use after
                 swapping youtube_url so stale completions don't count
                 against the new video. */}
@@ -2159,7 +2159,7 @@ export default function LiveSessionsPage() {
                   onClick={async () => {
                     if (!editSession?.id) return;
                     // `confirm` is shadowed by a state variable in this
-                    // file — use window.confirm explicitly.
+                    // file, use window.confirm explicitly.
                     if (!window.confirm(`Reset watch progress for EVERY student on "${editSession.title ?? 'this session'}"?\n\nAll stored watch_seconds / completion flags for this live session are deleted. Students will need to re-watch to re-unlock the assessment.`)) return;
                     try {
                       const res = await fetch(`/api/admin/sessions/${encodeURIComponent('LIVE_' + editSession.id)}/reset-watch-progress`, { method: 'POST' });
@@ -2175,7 +2175,7 @@ export default function LiveSessionsPage() {
                   🔁 Reset watch progress for all students
                 </button>
                 <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 6 }}>
-                  Safe to use after swapping the YouTube URL. Existing watch rows get deleted — next tick rebuilds fresh.
+                  Safe to use after swapping the YouTube URL. Existing watch rows get deleted, next tick rebuilds fresh.
                 </div>
               </div>
             )}

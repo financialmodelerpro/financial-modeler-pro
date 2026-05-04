@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
 
   // Auto-generate a Teams meeting when the admin toggled it on, we're making
   // an upcoming session, no manual URL was supplied, and credentials exist.
-  // Teams failures return a warning but never block the save — the admin
+  // Teams failures return a warning but never block the save, the admin
   // can still paste a URL manually after the fact.
   const sessionType         = (body.session_type as string | undefined) ?? 'recorded';
   const scheduledDatetime   = (body.scheduled_datetime as string | null | undefined) ?? null;

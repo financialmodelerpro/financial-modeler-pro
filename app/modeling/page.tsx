@@ -20,8 +20,8 @@ export const metadata: Metadata = {
     type: 'website',
     url: `${APP_URL}/modeling`,
     title: 'FMP Modeling Hub | Specialized Financial Modeling Platforms',
-    description: 'Institutional-grade financial modeling platforms — Real Estate, Valuation, LBO, Project Finance, FP&A, Corporate Finance.',
-    images: [{ url: `${APP_URL}/api/og/modeling`, width: 1200, height: 630, alt: 'FMP Modeling Hub — Specialized Financial Modeling Platforms' }],
+    description: 'Institutional-grade financial modeling platforms, Real Estate, Valuation, LBO, Project Finance, FP&A, Corporate Finance.',
+    images: [{ url: `${APP_URL}/api/og/modeling`, width: 1200, height: 630, alt: 'FMP Modeling Hub, Specialized Financial Modeling Platforms' }],
   },
   twitter: {
     card: 'summary_large_image',
@@ -210,7 +210,7 @@ export default async function ModelingHubPage() {
               }}
             />
 
-            {/* Power statement — highlighted block with teal bottom border */}
+            {/* Power statement, highlighted block with teal bottom border */}
             {cmsVisible(h ?? {}, 'powerStatement') && (h?.powerStatement as string) && (
               <div style={{ ...fw('powerStatement'), borderBottom: '3px solid #1ABC9C', maxWidth: 920, margin: '0 auto 26px', textAlign: 'center', paddingBottom: 16 }}>
                 <CmsField
@@ -249,7 +249,7 @@ export default async function ModelingHubPage() {
               </div>
             ) : null}
 
-            {/* Soft CTA — inline link with downward arrow */}
+            {/* Soft CTA, inline link with downward arrow */}
             {cmsVisible(h ?? {}, 'softCta') && (h?.softCta as string) && (
               <div style={{ ...fw('softCta'), marginTop: 26, marginBottom: 26 }}>
                 <a href={(h?.softCtaUrl as string) || '#'} style={{ fontSize: '0.9rem', fontWeight: 500, color: 'rgba(255,255,255,0.65)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
@@ -258,7 +258,7 @@ export default async function ModelingHubPage() {
               </div>
             )}
 
-            {/* Trust line — small muted text */}
+            {/* Trust line, small muted text */}
             {cmsVisible(h ?? {}, 'trustLine') && (h?.trustLine as string) && (
               <CmsField
                 content={h ?? {}}
@@ -268,7 +268,7 @@ export default async function ModelingHubPage() {
               />
             )}
 
-            {/* Tags — comma-separated pill chips */}
+            {/* Tags, comma-separated pill chips */}
             {cmsVisible(h ?? {}, 'tags') && (h?.tags as string) && (() => {
               const tags = ((h?.tags as string) ?? '').split(',').map(t => t.trim()).filter(Boolean);
               if (!tags.length) return null;
@@ -309,7 +309,7 @@ export default async function ModelingHubPage() {
                 className="fmp-modeling-prose"
               />
               {/* C3: was a hardcoded 2-column grid that stayed 2-col on
-                  every viewport — cramped to unreadable on 320px phones.
+                  every viewport, cramped to unreadable on 320px phones.
                   Now auto-collapses via minmax(min(100%, 200px), 1fr). */}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 200px), 1fr))', gap: 16 }}>
                 {audienceItems.map((a) => (

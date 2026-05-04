@@ -298,7 +298,7 @@ export function TrainingRegisterForm({ preLaunch = false, launchDate = null }: T
                   style={{ marginTop: 2, accentColor: GREEN, cursor: 'pointer' }}
                 />
                 <span>
-                  Send me the <strong>Training Hub newsletter</strong> — new sessions, recordings, articles, and certifications. Unsubscribe anytime.
+                  Send me the <strong>Training Hub newsletter</strong>, new sessions, recordings, articles, and certifications. Unsubscribe anytime.
                 </span>
               </label>
 

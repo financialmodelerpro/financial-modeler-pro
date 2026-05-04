@@ -17,7 +17,7 @@ export async function generateMetadata(
   const page = await getCmsPage(slug);
   if (!page) return {};
   // CMS slugs in this route (privacy-policy, terms-of-service, confidentiality,
-  // refund-policy, etc.) are served on the main domain — set canonical to the
+  // refund-policy, etc.) are served on the main domain, set canonical to the
   // matching main-domain URL so Google doesn't treat duplicate URLs as rivals.
   const canonical = canonicalUrl(`/${slug}`, 'main');
   return {

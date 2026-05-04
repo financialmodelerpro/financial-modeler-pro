@@ -24,8 +24,8 @@ export async function modelSubmissionRejectedTemplate({
 }: ModelSubmissionRejectedData) {
   const exhausted = attemptsRemaining <= 0;
   const subject = exhausted
-    ? `Model needs work — Please contact the administrator: ${courseLabel}`
-    : `Model needs work — ${attemptsRemaining} resubmission${attemptsRemaining === 1 ? '' : 's'} left: ${courseLabel}`;
+    ? `Model needs work, Please contact the administrator: ${courseLabel}`
+    : `Model needs work, ${attemptsRemaining} resubmission${attemptsRemaining === 1 ? '' : 's'} left: ${courseLabel}`;
 
   const html = await baseLayoutBranded(`
     ${h1('Your model needs more work')}
@@ -59,7 +59,7 @@ export async function modelSubmissionRejectedTemplate({
     ${p('Reach out if anything in the reviewer note is unclear. We would rather pause and talk it through than have you keep guessing.', 'font-size:13px;color:#64748B;')}
   `);
 
-  const text = `Financial Modeler Pro — Model Needs Work\n\n`
+  const text = `Financial Modeler Pro, Model Needs Work\n\n`
     + `${name ? `Hi ${name},\n\n` : ''}`
     + `Your financial model for ${courseLabel} is not approved yet.\n`
     + `Submission: ${fileName} (attempt ${attemptNumber} of ${maxAttempts})\n`

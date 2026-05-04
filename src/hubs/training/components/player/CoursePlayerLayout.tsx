@@ -115,7 +115,7 @@ interface CoursePlayerLayoutProps {
    *  DB so a returning student's prior watch is union-merged with the
    *  current session for analytics accuracy. */
   initialIntervals?: Interval[];
-  /** Resume video playback from this position (seconds) — threaded to YouTubePlayer.playerVars.start. */
+  /** Resume video playback from this position (seconds), threaded to YouTubePlayer.playerVars.start. */
   resumePositionSeconds?: number;
   // Video (optional - may not have embedded video)
   videoId?: string;
@@ -296,7 +296,7 @@ export function CoursePlayerLayout({
         {/* Middle content */}
         <div style={{ flex: 1, minWidth: 0 }}>
           {/* Screen 1: Video NOT open - full session info.
-              I11: padding clamps down on narrow phones — 24/32px was
+              I11: padding clamps down on narrow phones, 24/32px was
               eating ~64px per side, leaving 256px content on 320px. */}
           {!videoOpen && (
             <div style={{ padding: 'clamp(14px, 4vw, 24px) clamp(14px, 4vw, 32px)', maxWidth: 860 }}>

@@ -112,10 +112,10 @@ export function InstructorPicker({ value, onChange, onMessage }: Props) {
           }}
           style={{ ...field, flex: 1, cursor: 'pointer' }}
         >
-          <option value="">— Select instructor —</option>
+          <option value="">, Select instructor ,</option>
           {active.map(i => (
             <option key={i.id} value={i.id}>
-              {i.name}{i.is_default ? ' (default)' : ''} — {i.title}
+              {i.name}{i.is_default ? ' (default)' : ''}, {i.title}
             </option>
           ))}
         </select>

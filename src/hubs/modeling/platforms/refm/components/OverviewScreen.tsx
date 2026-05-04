@@ -38,7 +38,7 @@ export default function OverviewScreen({
   //   2. activeProjectId is set but the project no longer exists in storage
   //      (e.g. deleted in another tab, or hydration mid-flight). Previously
   //      this returned `null` silently, which rendered a blank Overview
-  //      screen — indistinguishable from a broken page.
+  //      screen, indistinguishable from a broken page.
   if (!proj || !activeProjectId) {
     const reason = activeProjectId
       ? 'The selected project is no longer available. Pick a different project to continue.'

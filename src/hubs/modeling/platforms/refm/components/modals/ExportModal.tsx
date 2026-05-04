@@ -31,7 +31,7 @@ interface ExportModalProps {
 // src/styles/tokens.ts); enterprise uses the brand-locked purple imported
 // from tokens.ts (see PLAN_COLOR comment block there). bg / border pill
 // derivations were originally `${planColor}06` / `${planColor}18` /
-// `${planColor}30` 8-digit-hex alpha suffixes — those only worked when
+// `${planColor}30` 8-digit-hex alpha suffixes, those only worked when
 // planColor was a literal hex string, so now derived via color-mix.
 const PLAN_COLOR: Record<SubscriptionPlan, string> = {
   free:         'var(--color-grey-mid)',

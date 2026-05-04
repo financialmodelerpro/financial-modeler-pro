@@ -6,7 +6,7 @@
  * localStorage AND zero server-side projects, all local projects + all
  * their versions are uploaded to refm_projects + refm_project_versions.
  *
- * After a successful run (even partial — see error policy below), a
+ * After a successful run (even partial, see error policy below), a
  * one-shot flag `refm_v2_migrated_${userId}` is written so the
  * migrator never runs again for that user. This prevents:
  *   - re-uploading and creating duplicate projects on every page load
@@ -14,7 +14,7 @@
  *     keeps the legacy `refm_v2` blob around in localStorage
  *
  * The legacy `refm_v2` key is intentionally NOT deleted by the
- * migrator — the user can manually verify the upload landed before
+ * migrator, the user can manually verify the upload landed before
  * cleanup. A future "Cleanup Legacy Data" admin action can wipe it.
  *
  * Error policy:
@@ -102,7 +102,7 @@ export async function runOneShotMigration(userId: string): Promise<MigrationResu
   //    leave the legacy blob untouched than create duplicates.
   const list = await listProjects();
   if (list.error) {
-    // Couldn't talk to the server — don't mark, retry on next load.
+    // Couldn't talk to the server, don't mark, retry on next load.
     return { ...NO_OP_RESULT, errors: [`Migration check failed: ${list.error}`] };
   }
   if ((list.data?.projects?.length ?? 0) > 0) {
@@ -140,9 +140,9 @@ export async function runOneShotMigration(userId: string): Promise<MigrationResu
     //
     // M1.6/7: hydrationFromAnySnapshotChecked surfaces unrecognized
     // shapes as `recognized: false` instead of silently substituting
-    // defaults. We still upload the (defaulted) snapshot — better to
+    // defaults. We still upload the (defaulted) snapshot, better to
     // preserve project + label + subsequent versions than skip the
-    // whole project — but we tell the user via result.errors so the
+    // whole project, but we tell the user via result.errors so the
     // post-migration toast doesn't claim a clean success.
     const [firstVersionId, firstVersion] = versionEntries[0];
     const firstHydration = hydrationFromAnySnapshotChecked(firstVersion.data);
@@ -198,7 +198,7 @@ export async function runOneShotMigration(userId: string): Promise<MigrationResu
     void firstVersionId;  // kept for symmetry / future logging
   }
 
-  // 4. Mark migrated even on partial failure — the user can re-run
+  // 4. Mark migrated even on partial failure, the user can re-run
   //    selectively if needed via a future admin tool, but we don't
   //    want the migrator firing on every load and creating
   //    duplicates of any project that DID succeed.

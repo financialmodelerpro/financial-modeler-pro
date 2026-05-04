@@ -78,7 +78,7 @@ export async function generateMetadata(): Promise<Metadata> {
       siteName: 'Financial Modeler Pro',
       title: OG_TITLE,
       description: OG_DESC,
-      images: [{ url: ogImage, width: 1200, height: 630, alt: 'Financial Modeler Pro — Structured Modeling. Real-World Finance.' }],
+      images: [{ url: ogImage, width: 1200, height: 630, alt: 'Financial Modeler Pro, Structured Modeling. Real-World Finance.' }],
     },
     twitter: {
       card: 'summary_large_image',

@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 const LEARN_URL = process.env.NEXT_PUBLIC_LEARN_URL ?? 'https://learn.financialmodelerpro.com';
 
 /**
- * Verify pages live on the learn. subdomain by design — QR codes,
+ * Verify pages live on the learn. subdomain by design, QR codes,
  * share previews, and canonical URLs all point here. This layout pins
  * every metadata field that might otherwise inherit a main-domain
  * value from the root layout:

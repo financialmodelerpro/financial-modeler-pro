@@ -2,7 +2,7 @@
  * Module 1 Area Program snapshot diff (Phase M1.7/4).
  *
  * Re-runs runAreaProgramPipeline against the area-program fixture and
- * compares against the committed baseline. Numeric tolerance is zero —
+ * compares against the committed baseline. Numeric tolerance is zero ,
  * the JSON serialization of the live run must match the baseline byte-
  * for-byte.
  *
@@ -60,11 +60,11 @@ function main() {
   const baseline = readBaseline();
 
   if (live === baseline) {
-    console.log(`OK — module1 area-program snapshot matches baseline (${(live.length / 1024).toFixed(1)} KB).`);
+    console.log(`OK, module1 area-program snapshot matches baseline (${(live.length / 1024).toFixed(1)} KB).`);
     process.exit(0);
   }
 
-  console.error('DRIFT — module1 area-program snapshot does not match baseline.');
+  console.error('DRIFT, module1 area-program snapshot does not match baseline.');
   console.error(`Baseline:  ${BASELINE_PATH}`);
   console.error(`Fixture:   ${FIXTURE_PATH}`);
   console.error('');
@@ -74,7 +74,7 @@ function main() {
   console.error('  1. If Module 1 area-program math intentionally changed, regenerate:');
   console.error('       npx tsx scripts/module1-areaprogram-snapshot.ts');
   console.error('     and commit the new baseline alongside the math change.');
-  console.error('  2. Otherwise the change is a real regression — revert and re-test.');
+  console.error('  2. Otherwise the change is a real regression, revert and re-test.');
   process.exit(1);
 }
 

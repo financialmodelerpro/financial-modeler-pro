@@ -1,8 +1,8 @@
 /**
- * Module 1 snapshot diff — bit-identical regression guard.
+ * Module 1 snapshot diff, bit-identical regression guard.
  *
  * Re-runs the pipeline against the same fixture and compares against the
- * committed baseline. Numeric tolerance is zero — the JSON serialization
+ * committed baseline. Numeric tolerance is zero, the JSON serialization
  * of the live run must match the baseline byte-for-byte.
  *
  * Run between every Phase 4 commit:
@@ -56,11 +56,11 @@ function main() {
   const baseline = readBaseline();
 
   if (live === baseline) {
-    console.log(`OK — module1 snapshot matches baseline (${(live.length / 1024).toFixed(1)} KB).`);
+    console.log(`OK, module1 snapshot matches baseline (${(live.length / 1024).toFixed(1)} KB).`);
     process.exit(0);
   }
 
-  console.error('DRIFT — module1 snapshot does not match baseline.');
+  console.error('DRIFT, module1 snapshot does not match baseline.');
   console.error(`Baseline:  ${BASELINE_PATH}`);
   console.error(`Fixture:   ${FIXTURE_PATH}`);
   console.error('');
@@ -70,7 +70,7 @@ function main() {
   console.error('  1. If Module 1 math (or its inlined copy in module1-pipeline.ts) intentionally changed, regenerate the baseline:');
   console.error('       npx tsx scripts/module1-snapshot.ts');
   console.error('     and commit the new baseline alongside the math change.');
-  console.error('  2. If the change was supposed to be JSX/styling only, the diff is a real regression — revert and re-test.');
+  console.error('  2. If the change was supposed to be JSX/styling only, the diff is a real regression, revert and re-test.');
   process.exit(1);
 }
 

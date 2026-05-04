@@ -1,5 +1,5 @@
 /**
- * Modeling Hub — Excel Exporter (token-driven)
+ * Modeling Hub, Excel Exporter (token-driven)
  *
  * Pure function `buildWorkbook(payload)` returns an in-memory ExcelJS
  * workbook for an REFM Module 1 export. The Next.js route handler at
@@ -10,7 +10,7 @@
  * Colour conventions: chrome (corporate skeleton) and FAST (input / formula
  * / linked / external / assumption) come from `@modeling/design-tokens`.
  * The exporter always uses the canonical `light` palette regardless of
- * browser theme — see README §Per-platform decision.
+ * browser theme, see README §Per-platform decision.
  */
 
 import ExcelJS from 'exceljs';

@@ -15,7 +15,7 @@ export interface FormulaCellProps extends React.HTMLAttributes<HTMLDivElement> {
 }
 
 /**
- * FormulaCell — FAST formula cell.
+ * FormulaCell, FAST formula cell.
  * Read-only display of a calculated value. Black text on light grey bg.
  */
 export function FormulaCell({
@@ -38,7 +38,7 @@ export function FormulaCell({
       }}
       {...rest}
     >
-      {value ?? '—'}
+      {value ?? ','}
     </div>
   );
 }

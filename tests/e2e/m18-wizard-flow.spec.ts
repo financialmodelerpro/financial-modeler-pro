@@ -89,7 +89,7 @@ async function setupMocks(page: Page): Promise<MockState> {
   });
 
   // Project list / create. Records the POSTed snapshot in `state.versions`
-  // so subsequent GET /api/refm/projects/[id] returns the same payload —
+  // so subsequent GET /api/refm/projects/[id] returns the same payload ,
   // mirrors a real server's behavior end-to-end.
   await page.route('**/api/refm/projects', async (route, req) => {
     if (req.method() === 'GET') {
@@ -270,7 +270,7 @@ test.describe('M1.8 wizard → all-tabs data flow', () => {
     await openWizard(page);
     await walkWizardWithDefaults(page, 'Riverside Towers', 'Riyadh, KSA');
 
-    // 1) Area Program — wizard's plot + assets should be visible.
+    // 1) Area Program, wizard's plot + assets should be visible.
     await expect(page.getByTestId('area-program-tab')).toBeVisible();
     // 1 plot card minted by wizard.
     const plotCards = page.locator('[data-testid^="plot-card-"]');
@@ -279,7 +279,7 @@ test.describe('M1.8 wizard → all-tabs data flow', () => {
     const assetRows = page.locator('[data-testid^="asset-strategy-"]');
     await expect(assetRows).toHaveCount(3);
 
-    // 2) Hierarchy — should NOT show the first-time empty CTA. Sub-Project
+    // 2) Hierarchy, should NOT show the first-time empty CTA. Sub-Project
     // + Phase + 3 Assets should be in the tree.
     await page.getByRole('button', { name: /Hierarchy/i }).first().click();
     // First-time empty CTA's "⚡ Quick Setup" must NOT be visible (would
@@ -289,7 +289,7 @@ test.describe('M1.8 wizard → all-tabs data flow', () => {
     // Sub-Project name shows the wizard's project name.
     await expect(page.getByText('Riverside Towers').first()).toBeVisible();
 
-    // 3) Timeline — projectName, currency, model type, project start should
+    // 3) Timeline, projectName, currency, model type, project start should
     // surface the wizard's inputs.
     await page.getByRole('button', { name: /Timeline/i }).first().click();
     const projectNameInput = page.locator('input[placeholder="Enter project name..."]');
@@ -297,7 +297,7 @@ test.describe('M1.8 wizard → all-tabs data flow', () => {
     const currencyInput = page.locator('input[placeholder="e.g. SAR"]');
     await expect(currencyInput).toHaveValue('SAR');
 
-    // 4) Land & Area — defaults are fine here; the wizard does not capture
+    // 4) Land & Area, defaults are fine here; the wizard does not capture
     // FAR / land parcels. Tab should render without re-prompting for
     // project name / dates (those don't appear on this tab at all).
     await page.getByRole('button', { name: /Land & Area/i }).first().click();
@@ -308,7 +308,7 @@ test.describe('M1.8 wizard → all-tabs data flow', () => {
     // back, value persists (proves shared store, not per-tab local state).
     const farInput = page.locator('input[type="number"]').first();
     await farInput.click();
-    // Some Land & Area tabs put FAR further down — find the FAR input
+    // Some Land & Area tabs put FAR further down, find the FAR input
     // by looking for a label "FAR" near a number input.
     // Instead: just locate the number-input that currently holds the FAR
     // default 1.5 and update it.
@@ -349,7 +349,7 @@ test.describe('M1.8 wizard → all-tabs data flow', () => {
 
     // The snapshot the wizard POSTed must round-trip with at least the
     // arrays the recogniser inspects (assets / phases / plots /
-    // subProjects). It is bare HydrateSnapshot — no `version: 3`
+    // subProjects). It is bare HydrateSnapshot, no `version: 3`
     // discriminator. This is what the load path will receive on reload.
     const storedSnap = state.versions[0].snapshot as Record<string, unknown>;
     expect(Array.isArray(storedSnap.assets), 'stored snapshot has assets[]').toBe(true);
@@ -373,7 +373,7 @@ test.describe('M1.8 wizard → all-tabs data flow', () => {
 
     // Inspect the Module 1 store directly via the fixture-exposed
     // window.__module1Store handle. This is far more reliable than
-    // navigating tabs — the test isolates the hydration step from the
+    // navigating tabs, the test isolates the hydration step from the
     // navigation path.
     const storeAfterReload = await page.evaluate(() => {
       const store = (window as unknown as { __module1Store?: { getState: () => Record<string, unknown> } }).__module1Store;

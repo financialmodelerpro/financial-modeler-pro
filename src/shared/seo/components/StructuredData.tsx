@@ -19,7 +19,7 @@ function Ld({ data }: { data: unknown }) {
   );
 }
 
-/** Rendered once in the root layout — organization-level facts. */
+/** Rendered once in the root layout, organization-level facts. */
 export function OrganizationJsonLd() {
   return (
     <Ld data={{

@@ -1,34 +1,34 @@
-# Modeling Hub — Design Tokens
+# Modeling Hub, Design Tokens
 
 Single source of truth for every colour, typography, and spacing value used across the Modeling Hub web UI, Excel exporter, and PDF exporter.
 
-Phase 1 deliverable. **No consumers retrofitted yet** — Module 1, the Excel exporter, and the PDF exporter still use their own colour literals as of this writing. Phases 2-4 will retrofit them onto these tokens.
+Phase 1 deliverable. **No consumers retrofitted yet**, Module 1, the Excel exporter, and the PDF exporter still use their own colour literals as of this writing. Phases 2-4 will retrofit them onto these tokens.
 
 ## Folder layout
 
 ```
 src/hubs/modeling/design-tokens/
-├── colors.ts       — chromeColors + fastColors palettes (light + dark)
-├── typography.ts   — font family, sizes, weights, line heights
-├── spacing.ts      — 8px grid + semantic spacing
-├── index.ts        — barrel re-export
-├── tokens.css      — optional Tailwind v4 + CSS-vars bridge
-└── README.md       — this file
+├── colors.ts      , chromeColors + fastColors palettes (light + dark)
+├── typography.ts  , font family, sizes, weights, line heights
+├── spacing.ts     , 8px grid + semantic spacing
+├── index.ts       , barrel re-export
+├── tokens.css     , optional Tailwind v4 + CSS-vars bridge
+└── README.md      , this file
 
 src/hubs/modeling/components/cells/
-├── InputCell.tsx       — FAST input  (blue text, white bg, editable)
-├── FormulaCell.tsx     — FAST formula (black text, light grey bg, read-only)
-├── LinkedCell.tsx      — FAST linked  (green text, read-only, cross-module)
-├── AssumptionCell.tsx  — FAST assumption (yellow bg, blue text, editable)
-├── SectionHeader.tsx   — navy band, white uppercase text
-├── TableHeader.tsx     — `<th>` with chrome navy background
-├── KpiCard.tsx         — corporate chrome card with FAST-coloured value
-└── index.ts            — barrel re-export
+├── InputCell.tsx      , FAST input  (blue text, white bg, editable)
+├── FormulaCell.tsx    , FAST formula (black text, light grey bg, read-only)
+├── LinkedCell.tsx     , FAST linked  (green text, read-only, cross-module)
+├── AssumptionCell.tsx , FAST assumption (yellow bg, blue text, editable)
+├── SectionHeader.tsx  , navy band, white uppercase text
+├── TableHeader.tsx    , `<th>` with chrome navy background
+├── KpiCard.tsx        , corporate chrome card with FAST-coloured value
+└── index.ts           , barrel re-export
 ```
 
 ## Two palettes
 
-### `chromeColors` — corporate skeleton
+### `chromeColors`, corporate skeleton
 
 Top bar, sidebar, table chrome, section headers, borders, surfaces, body text. Anchored on the brand navy from `src/core/branding/index.ts:13` (`DEFAULT_BRANDING.primaryColor = '#1E3A8A'`).
 
@@ -47,7 +47,7 @@ import { getChrome } from '@modeling/design-tokens';
 const c = getChrome('light');
 ```
 
-### `fastColors` — FAST cell convention
+### `fastColors`, FAST cell convention
 
 Standard practice across institutional financial modeling (Macabacus, Marquee, the F.A.S.T. Standard). The same hex values are used in Excel and PDF exports so a model that opens with blue inputs and black formulas in the browser opens that way in Excel too.
 
@@ -60,7 +60,7 @@ Standard practice across institutional financial modeling (Macabacus, Marquee, t
 | Assumption  | `#0070C0` blue on `#FFFF99` yellow | `#4FC3F7` blue on `#5C4D00` muted amber | Key driver input. Editable. Yellow flags it as primary. |
 | Header      | white on `#1E3A8A` navy | white on `#1E5594` navy | Section header band. |
 
-## FAST cell rules — when to use which
+## FAST cell rules, when to use which
 
 | Situation | Component |
 |-----------|-----------|
@@ -73,17 +73,17 @@ Standard practice across institutional financial modeling (Macabacus, Marquee, t
 | Column header inside a `<table>` | `<TableHeader>` |
 | At-a-glance KPI tile | `<KpiCard>` (with `tone` set to match the underlying value's FAST class) |
 
-The rule of thumb: **the colour signals where the number came from**, not how big or important it is. A reader scanning a model should see at a glance whether each cell is an input, a formula, or a link — and trace back accordingly.
+The rule of thumb: **the colour signals where the number came from**, not how big or important it is. A reader scanning a model should see at a glance whether each cell is an input, a formula, or a link, and trace back accordingly.
 
 ### Land Cash, RETT, Royal Commission Premium
 
-Module 1's seeded cost rows where `canDelete === false`, plus tax/permit lines, are conventionally rendered as `<AssumptionCell>` (yellow). They are not formulas — the user types in the value — but they are primary drivers worth flagging visually.
+Module 1's seeded cost rows where `canDelete === false`, plus tax/permit lines, are conventionally rendered as `<AssumptionCell>` (yellow). They are not formulas, the user types in the value, but they are primary drivers worth flagging visually.
 
 ## How consumers use the tokens
 
 Two consumption paths, both supported.
 
-### Path A — TypeScript imports + inline styles (works today)
+### Path A, TypeScript imports + inline styles (works today)
 
 ```tsx
 import { chromeColors, fastColors, fontSize } from '@modeling/design-tokens';
@@ -99,12 +99,12 @@ import { chromeColors, fastColors, fontSize } from '@modeling/design-tokens';
 
 This is what the cell primitives in `components/cells/` do internally. Use this path inside the modeling hub for all per-component styling. No CSS imports required.
 
-### Path B — Tailwind v4 utility classes (optional, Phase 4)
+### Path B, Tailwind v4 utility classes (optional, Phase 4)
 
 Import `tokens.css` from a Modeling Hub layout to register the `@theme` declarations:
 
 ```tsx
-// app/refm/layout.tsx (NOT WIRED IN PHASE 1 — example for Phase 4)
+// app/refm/layout.tsx (NOT WIRED IN PHASE 1, example for Phase 4)
 import '@modeling/design-tokens/tokens.css';
 ```
 
@@ -122,11 +122,11 @@ Dark mode is class-strategy: add `class="dark"` to any ancestor (typically `<htm
 
 The CMS admin can change the primary brand colour at runtime via `/admin/header-settings`. The change writes to `branding_config.primary_color` in Supabase and is applied to the live web UI by `BrandingThemeApplier` (in `src/core/branding/`), which sets `--color-primary` on `:root`.
 
-This Modeling Hub token system stays decoupled from that channel by design — it bakes in the *current* CMS default (`#1E3A8A` from `DEFAULT_BRANDING.primaryColor`) as a TypeScript hex literal.
+This Modeling Hub token system stays decoupled from that channel by design, it bakes in the *current* CMS default (`#1E3A8A` from `DEFAULT_BRANDING.primaryColor`) as a TypeScript hex literal.
 
 If the canonical CMS default ever changes, update both:
-1. `src/core/branding/index.ts:13` — `DEFAULT_BRANDING.primaryColor`
-2. `src/hubs/modeling/design-tokens/colors.ts` — `BRAND_NAVY`
+1. `src/core/branding/index.ts:13`, `DEFAULT_BRANDING.primaryColor`
+2. `src/hubs/modeling/design-tokens/colors.ts`, `BRAND_NAVY`
 
 ### Per-platform decision
 
@@ -169,6 +169,6 @@ const { r, g, b } = toRgbTriple(fastColors.light.formulaText);
 
 ## What's pending (Phase 4)
 
-- **Phase 2 — shipped.** Excel exporter (`app/api/export/excel/route.ts`) consumes tokens via `toArgb(fastColors.light.X)` / `toArgb(chromeColors.light.X)`. Zero hardcoded hex literals remain in the route. `buildWorkbook(payload)` extracted as a pure function so a fixture script (`scripts/excel-export-fixture.ts`) can produce a deterministic xlsx without spinning up the dev server. Run `npx tsx scripts/excel-export-fixture.ts` to generate the diff baseline. Eight new chrome tokens added to support the retrofit: `assetAccent`, `assetAccentText`, `timelineConstrBg`, `timelineConstrBgAlt`, `timelineConstrText`, `timelineOpsBg`, `timelineOpsBgAlt`, `timelineOpsText` (with parallel dark variants).
-- **Phase 3 — shipped.** PDF exporter (`app/api/export/pdf/route.ts`) consumes tokens via `chromeColors.light.X` references. Zero hardcoded hex literals remain in the lib (`src/hubs/modeling/lib/exporters/pdf.ts`). `buildPdfBuffer(payload)` extracted as a pure function so a fixture script (`scripts/pdf-export-fixture.ts`) can produce a deterministic PDF without spinning up the dev server. Run `npx tsx scripts/pdf-export-fixture.ts` to generate the diff baseline. Phase 3 also reconciled three minor visual drifts where the PDF was using slightly off-brand custom navies (`#1B4F8A` → `BRAND_NAVY` `#1E3A8A`, `#F0F5FF` → `navyScale[50]` `#F0F4FA`, `#1E40AF` KPI label → `BRAND_NAVY`); the PDF now matches the Excel exporter on the canonical brand navy. No new tokens needed — every PDF colour mapped onto an existing chrome / navy / grey token.
+- **Phase 2, shipped.** Excel exporter (`app/api/export/excel/route.ts`) consumes tokens via `toArgb(fastColors.light.X)` / `toArgb(chromeColors.light.X)`. Zero hardcoded hex literals remain in the route. `buildWorkbook(payload)` extracted as a pure function so a fixture script (`scripts/excel-export-fixture.ts`) can produce a deterministic xlsx without spinning up the dev server. Run `npx tsx scripts/excel-export-fixture.ts` to generate the diff baseline. Eight new chrome tokens added to support the retrofit: `assetAccent`, `assetAccentText`, `timelineConstrBg`, `timelineConstrBgAlt`, `timelineConstrText`, `timelineOpsBg`, `timelineOpsBgAlt`, `timelineOpsText` (with parallel dark variants).
+- **Phase 3, shipped.** PDF exporter (`app/api/export/pdf/route.ts`) consumes tokens via `chromeColors.light.X` references. Zero hardcoded hex literals remain in the lib (`src/hubs/modeling/lib/exporters/pdf.ts`). `buildPdfBuffer(payload)` extracted as a pure function so a fixture script (`scripts/pdf-export-fixture.ts`) can produce a deterministic PDF without spinning up the dev server. Run `npx tsx scripts/pdf-export-fixture.ts` to generate the diff baseline. Phase 3 also reconciled three minor visual drifts where the PDF was using slightly off-brand custom navies (`#1B4F8A` → `BRAND_NAVY` `#1E3A8A`, `#F0F5FF` → `navyScale[50]` `#F0F4FA`, `#1E40AF` KPI label → `BRAND_NAVY`); the PDF now matches the Excel exporter on the canonical brand navy. No new tokens needed, every PDF colour mapped onto an existing chrome / navy / grey token.
 - **Phase 4**: Module 1 component retrofit. Swap inline colour styles for tokens; replace hand-rolled cells with `<InputCell>` / `<FormulaCell>` / `<AssumptionCell>` / `<LinkedCell>` / `<SectionHeader>` / `<TableHeader>` / `<KpiCard>`. Phase 4 is also where REFM web UI gets wired to follow CMS `--color-primary` (see § Per-platform decision). After Phase 4, a grep for `bg-blue-`, `text-yellow-`, `#1E3A8A`, etc., across `src/hubs/modeling/` should return zero hits outside this folder.

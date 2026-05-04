@@ -17,7 +17,7 @@
  *
  *   1. Wizard create still lands on Schedule (M1.9 wins it; M1.9b keeps
  *      it).
- *   2. The tab row is now 1→5 — no "6. Hierarchy" entry.
+ *   2. The tab row is now 1→5, no "6. Hierarchy" entry.
  *   3. Schedule shows the "Project Structure (Master Holding ·
  *      Sub-Projects · Phases)" section card via the mounted
  *      <Module1Hierarchy sections="structure" />.
@@ -236,7 +236,7 @@ test.describe('M1.9b Module 1 polish', () => {
     // 1) Wizard lands on Schedule (M1.9 win retained).
     await expect(page.getByRole('heading', { name: 'Project Schedule', level: 2 })).toBeVisible({ timeout: 10_000 });
 
-    // 2) Tab row is now 1→5 — no "6. Hierarchy".
+    // 2) Tab row is now 1→5, no "6. Hierarchy".
     const tabRow = page.locator('.sticky-nav').first();
     await expect(tabRow.getByText('1. Schedule')).toBeVisible();
     await expect(tabRow.getByText('2. Land')).toBeVisible();
@@ -257,13 +257,13 @@ test.describe('M1.9b Module 1 polish', () => {
     // 5) "What goes here" callout on Schedule.
     await expect(page.getByText(/What goes here:/i).first()).toBeVisible();
 
-    // 6) Land tab — D8 label + "What goes here" callout.
+    // 6) Land tab, D8 label + "What goes here" callout.
     await page.getByRole('button', { name: '2. Land' }).first().click();
     await expect(page.getByRole('heading', { name: 'Land & Area', level: 2 })).toBeVisible();
     await expect(page.getByText(/Project FAR \(whole-site ceiling\)/i)).toBeVisible();
     await expect(page.getByText(/What goes here:/i).first()).toBeVisible();
 
-    // 7) Build Program tab — h2 renamed + assets-mode mount visible.
+    // 7) Build Program tab, h2 renamed + assets-mode mount visible.
     await page.getByRole('button', { name: '3. Build Program' }).first().click();
     await expect(page.getByRole('heading', { name: 'Build Program', level: 2 })).toBeVisible();
     await expect(page.getByText(/Asset & Sub-Unit Detail Editor/i)).toBeVisible();

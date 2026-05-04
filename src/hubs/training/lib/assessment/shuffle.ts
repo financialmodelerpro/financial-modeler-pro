@@ -28,7 +28,7 @@ function shuffleArray<T>(arr: T[]): T[] {
  *   - Apps Script questions:    { questionText, options, correctIndex }
  *
  * Provide the field names for the correct-answer pointer so the function
- * remains schema-agnostic. Returns a NEW array — does not mutate the input.
+ * remains schema-agnostic. Returns a NEW array, does not mutate the input.
  */
 export function applyShuffles<
   K extends string,

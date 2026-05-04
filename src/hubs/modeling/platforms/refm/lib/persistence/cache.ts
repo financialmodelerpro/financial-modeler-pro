@@ -24,7 +24,7 @@
  *   - `refm_v2_active`         (last-active project id, used to hydrate
  *                               immediately on tab open).
  *   - `refm_v2_migrated_${u}`  (one-shot flag set by the migrator
- *                               after a successful upload — see
+ *                               after a successful upload, see
  *                               lib/persistence/migrator.ts).
  *
  * SSR guard: every read / write checks `typeof window` so this module
@@ -70,7 +70,7 @@ export function writeCachedSnapshot(projectId: string, snapshot: HydrateSnapshot
     };
     window.localStorage.setItem(KEY_PREFIX + projectId, JSON.stringify(entry));
   } catch {
-    // Quota exceeded or storage disabled — fail silently. The server
+    // Quota exceeded or storage disabled, fail silently. The server
     // is the source of truth, so a missing cache entry just means
     // first-paint pulls from the network.
   }

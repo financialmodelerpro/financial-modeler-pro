@@ -68,7 +68,7 @@ export async function checkEligibility(
    * `tab_key` strings. That's because:
    *   - Supabase may store the final as `{COURSE}_Final` OR `{COURSE}_{finalId}`
    *     depending on when the row was written.
-   *   - Early-era sessions may pre-date the Supabase dual-write — so they
+   *   - Early-era sessions may pre-date the Supabase dual-write, so they
    *     only exist in Apps Script and must be merged in from there.
    *
    * Build a set of sessionIds that are known-passed from EITHER source.
@@ -76,7 +76,7 @@ export async function checkEligibility(
   const passedIds = new Set<string>();
   const scoreById = new Map<string, number>();
 
-  // Source 1: Supabase — strip the COURSE_ prefix + rewrite `Final` → finalSessionId.
+  // Source 1: Supabase, strip the COURSE_ prefix + rewrite `Final` → finalSessionId.
   const { data: attempts } = await sb
     .from('training_assessment_results')
     .select('tab_key, passed, score, is_final')
@@ -90,7 +90,7 @@ export async function checkEligibility(
     if (typeof a.score === 'number') scoreById.set(sid, a.score);
   }
 
-  // Source 2: Apps Script progress merge — catches pre-dual-write history.
+  // Source 2: Apps Script progress merge, catches pre-dual-write history.
   // Best-effort: a failure here must not block a student who has everything
   // in Supabase already.
   try {
@@ -164,7 +164,7 @@ export async function checkEligibility(
 export async function findAllEligibleFromSupabase(): Promise<Array<EligibilityResult>> {
   const sb = getServerClient();
 
-  // candidates from the view — must have final_passed = true
+  // candidates from the view, must have final_passed = true
   const { data: raws } = await sb
     .from('certificate_eligibility_raw')
     .select('email, course_code, final_passed')
