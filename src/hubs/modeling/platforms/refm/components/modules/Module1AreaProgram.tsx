@@ -47,6 +47,7 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import PlotSetupWizard from '../modals/PlotSetupWizard';
 import ParcelSetupWizard from '../modals/ParcelSetupWizard';
 import InputLabel from '../ui/InputLabel';
+import FormulaCaption from '../ui/FormulaCaption';
 import { PLOT_FIELD_HELP } from '../../lib/copy/plotFieldHelp';
 import { ASSET_STRATEGY_HELP } from '../../lib/copy/assetStrategyHelp';
 import { PARCEL_FIELD_HELP } from '../../lib/copy/parcelFieldHelp';
@@ -190,10 +191,18 @@ function PlotEditor({ plot, allPlotsCount, onOpenWizard }: { plot: Plot; allPlot
     </div>
   );
 
-  const calcRow = (label: string, value: number, suffix = 'sqm') => (
-    <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 'var(--sp-2)', alignItems: 'center', padding: '4px 0' }}>
-      <span style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)' }}>{label}</span>
-      <span style={{ ...calcOutputStyle, minWidth: 130 }}>{fmt(value)} {suffix}</span>
+  // M1.13/2: each computed-output row optionally renders a FormulaCaption
+  // underneath so the user sees the input -> output mapping in plain
+  // English with current values. The grid stays 1fr auto so the value
+  // chip remains right-aligned; the formula spans both columns on its
+  // own line when present.
+  const calcRow = (label: string, value: number, suffix = 'sqm', formula?: string) => (
+    <div style={{ padding: '4px 0' }} data-testid={`calc-row-${label.replace(/\s+/g, '-').toLowerCase()}`}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 'var(--sp-2)', alignItems: 'center' }}>
+        <span style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)' }}>{label}</span>
+        <span style={{ ...calcOutputStyle, minWidth: 130 }}>{fmt(value)} {suffix}</span>
+      </div>
+      {formula && <FormulaCaption text={formula} />}
     </div>
   );
 
@@ -284,26 +293,41 @@ function PlotEditor({ plot, allPlotsCount, onOpenWizard }: { plot: Plot; allPlot
         </div>
       </div>
 
-      {/* Computed envelope */}
+      {/* Computed envelope, M1.13/2 each derived row carries an inline
+         plain-English formula with the live values substituted, so the
+         relationship between the inputs above and the result is visible
+         at a glance. The formula text recomputes in place on every input
+         edit (no layout reflow because the line is permanent and only
+         the inline numbers update). */}
       <div style={{
         background: 'var(--color-grey-pale)', borderRadius: 'var(--radius-sm)',
         padding: 'var(--sp-2) var(--sp-3)', marginBottom: 'var(--sp-3)',
-      }}>
-        <div style={{ ...labelStyle, marginBottom: 8 }}>Computed envelope</div>
+      }} data-testid={`computed-envelope-${plot.id}`}>
+        <div style={{ ...labelStyle, marginBottom: 8 }}>Computed envelope (live formulas)</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--sp-3)' }}>
           <div>
-            {calcRow('Max GFA',           envelope.maxGFA)}
-            {calcRow('Footprint',         envelope.footprint)}
-            {calcRow('Podium GFA',        envelope.podiumGFA)}
-            {calcRow('Typical GFA',       envelope.typicalGFA)}
-            {calcRow('Total Built GFA',   envelope.totalBuiltGFA)}
+            {calcRow('Max GFA',         envelope.maxGFA,        'sqm',
+              `Plot Area * Max FAR = ${fmt(plot.plotArea)} * ${plot.maxFAR} = ${fmt(envelope.maxGFA)} sqm`)}
+            {calcRow('Footprint',       envelope.footprint,     'sqm',
+              `Plot Area * Podium Coverage = ${fmt(plot.plotArea)} * ${plot.coveragePct}% = ${fmt(envelope.footprint)} sqm`)}
+            {calcRow('Podium GFA',      envelope.podiumGFA,     'sqm',
+              `Footprint * Podium Floors = ${fmt(envelope.footprint)} * ${plot.podiumFloors} = ${fmt(envelope.podiumGFA)} sqm`)}
+            {calcRow('Typical GFA',     envelope.typicalGFA,    'sqm',
+              `Plot Area * Typical Coverage * Typical Floors = ${fmt(plot.plotArea)} * ${plot.typicalCoveragePct}% * ${plot.typicalFloors} = ${fmt(envelope.typicalGFA)} sqm`)}
+            {calcRow('Total Built GFA', envelope.totalBuiltGFA, 'sqm',
+              `Podium GFA + Typical GFA = ${fmt(envelope.podiumGFA)} + ${fmt(envelope.typicalGFA)} = ${fmt(envelope.totalBuiltGFA)} sqm (utilization ${fmt(envelope.utilizationPct, 1)}% of Max GFA)`)}
           </div>
           <div>
-            {calcRow('Public Area',       envelope.publicArea)}
-            {calcRow('Landscape Area',    envelope.landscapeArea)}
-            {calcRow('Hardscape Area',    envelope.hardscapeArea)}
-            {calcRow('Surface Parking',   envelope.surfaceParkingArea)}
-            {calcRow('Basement Usable',   envelope.basementUsableArea)}
+            {calcRow('Public Area',     envelope.publicArea,        'sqm',
+              `Plot Area - Footprint = ${fmt(plot.plotArea)} - ${fmt(envelope.footprint)} = ${fmt(envelope.publicArea)} sqm`)}
+            {calcRow('Landscape Area',  envelope.landscapeArea,     'sqm',
+              `Public Area * Landscape % = ${fmt(envelope.publicArea)} * ${plot.landscapePct}% = ${fmt(envelope.landscapeArea)} sqm`)}
+            {calcRow('Hardscape Area',  envelope.hardscapeArea,     'sqm',
+              `Public Area * Hardscape % = ${fmt(envelope.publicArea)} * ${plot.hardscapePct}% = ${fmt(envelope.hardscapeArea)} sqm`)}
+            {calcRow('Surface Parking', envelope.surfaceParkingArea,'sqm',
+              `Public Area - Landscape - Hardscape = ${fmt(envelope.publicArea)} - ${fmt(envelope.landscapeArea)} - ${fmt(envelope.hardscapeArea)} = ${fmt(envelope.surfaceParkingArea)} sqm`)}
+            {calcRow('Basement Usable', envelope.basementUsableArea,'sqm',
+              `Footprint * Basement Count * Basement Efficiency = ${fmt(envelope.footprint)} * ${plot.basementCount} * ${plot.basementEfficiencyPct}% = ${fmt(envelope.basementUsableArea)} sqm`)}
           </div>
         </div>
       </div>
@@ -569,32 +593,55 @@ function AssetStrategyRow({ asset, envelope, plotAssetCount, totalAllocPctOnPlot
         </label>
       </div>
 
-      {/* Cascade preview */}
-      <div style={{
-        background: 'var(--color-grey-pale)', borderRadius: 'var(--radius-sm)',
-        padding: 'var(--sp-2)', marginBottom: 'var(--sp-2)',
-        display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)',
-      }}>
-        <CascadeCell label="GFA"        value={cascade.gfa} />
-        <CascadeCell label="MEP"        value={cascade.mep} />
-        <CascadeCell label="Net GFA"    value={cascade.netGFA} />
-        <CascadeCell label="GSA / GLA"  value={cascade.gsaGla} />
-        <CascadeCell label="BUA Excl."  value={cascade.buaExcl} />
-        <CascadeCell label="TBA"        value={cascade.tba} />
-        <CascadeCell label="Back-of-House" value={cascade.backOfHouse} />
-        <CascadeCell label="Other Tech."   value={cascade.otherTechnical} />
-      </div>
+      {/* Cascade preview, M1.13/2 each cell carries a plain-English
+         formula so the user reads how their Mix / Deduct / Efficiency
+         inputs (above) cascade into the GFA -> Net GFA -> GSA / GLA
+         chain. Live values substituted into the formula text on every
+         input edit. */}
+      {(() => {
+        const mepPctEff = cascadePcts.mepPct;
+        const bohPctEff = cascadePcts.backOfHousePct;
+        const otherPctEff = cascadePcts.otherTechnicalPct;
+        const effPctEff = asset.efficiencyPct ?? 80;
+        return (
+          <div style={{
+            background: 'var(--color-grey-pale)', borderRadius: 'var(--radius-sm)',
+            padding: 'var(--sp-2)', marginBottom: 'var(--sp-2)',
+            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)',
+          }} data-testid={`cascade-preview-${asset.id}`}>
+            <CascadeCell label="GFA" value={cascade.gfa}
+              formula={asset.gfaOverrideSqm !== undefined
+                ? `manual override = ${fmt(cascade.gfa)} sqm`
+                : `pro-rata Total Built GFA / asset count = ${fmt(envelope.totalBuiltGFA)} / ${plotAssetCount} = ${fmt(cascade.gfa)} sqm`} />
+            <CascadeCell label="MEP" value={cascade.mep}
+              formula={`GFA * MEP % = ${fmt(cascade.gfa)} * ${mepPctEff}% = ${fmt(cascade.mep)} sqm`} />
+            <CascadeCell label="Net GFA" value={cascade.netGFA}
+              formula={`GFA - MEP - BoH - Other = ${fmt(cascade.gfa)} - ${fmt(cascade.mep)} - ${fmt(cascade.backOfHouse)} - ${fmt(cascade.otherTechnical)} = ${fmt(cascade.netGFA)} sqm`} />
+            <CascadeCell label="GSA / GLA" value={cascade.gsaGla}
+              formula={`Net GFA * Efficiency = ${fmt(cascade.netGFA)} * ${effPctEff}% = ${fmt(cascade.gsaGla)} sqm`} />
+            <CascadeCell label="BUA Excl." value={cascade.buaExcl}
+              formula={`GFA + BoH + Other = ${fmt(cascade.gfa)} + ${fmt(cascade.backOfHouse)} + ${fmt(cascade.otherTechnical)} = ${fmt(cascade.buaExcl)} sqm`} />
+            <CascadeCell label="TBA" value={cascade.tba}
+              formula={`BUA Excl + MEP + Basement Share = ${fmt(cascade.buaExcl)} + ${fmt(cascade.mep)} + 0 = ${fmt(cascade.tba)} sqm`} />
+            <CascadeCell label="Back-of-House" value={cascade.backOfHouse}
+              formula={`GFA * BoH % = ${fmt(cascade.gfa)} * ${bohPctEff}% = ${fmt(cascade.backOfHouse)} sqm`} />
+            <CascadeCell label="Other Tech." value={cascade.otherTechnical}
+              formula={`GFA * Other Tech % = ${fmt(cascade.gfa)} * ${otherPctEff}% = ${fmt(cascade.otherTechnical)} sqm`} />
+          </div>
+        );
+      })()}
 
       <SubUnitTable assetId={asset.id} category={asset.category} />
     </div>
   );
 }
 
-function CascadeCell({ label, value }: { label: string; value: number }) {
+function CascadeCell({ label, value, formula }: { label: string; value: number; formula?: string }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column' }}>
+    <div style={{ display: 'flex', flexDirection: 'column' }} data-testid={`cascade-cell-${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`}>
       <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>{label}</span>
       <span style={{ ...calcOutputStyle, textAlign: 'left' }}>{fmt(value)} sqm</span>
+      {formula && <FormulaCaption text={formula} />}
     </div>
   );
 }
@@ -822,23 +869,29 @@ function ParkingSummary({ plot, envelope }: { plot: Plot; envelope: PlotEnvelope
         )}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--sp-2)', alignItems: 'end' }}>
-        <ParkingCell label="Required (sub-units)" value={totalBaysRequired} />
-        <ParkingCell label="Surface" value={alloc.surfaceBays} cap={capacity.surfaceCapacityBays} />
-        <ParkingCell label="Vertical" value={alloc.verticalBays} cap={capacity.verticalCapacityBays} />
-        <ParkingCell label="Basement" value={alloc.basementBays} cap={capacity.basementCapacityBays} />
-        <ParkingCell label="Total Allocated" value={alloc.totalAllocated} />
+        <ParkingCell label="Required (sub-units)" value={totalBaysRequired}
+          formula={`Sum of bays demanded across every Sub-Unit on this plot = ${fmt(totalBaysRequired)} bays`} />
+        <ParkingCell label="Surface" value={alloc.surfaceBays} cap={capacity.surfaceCapacityBays}
+          formula={`Surface Parking / Surface Bay = ${fmt(envelope.surfaceParkingArea)} / ${plot.surfaceBaySqm} = ${fmt(capacity.surfaceCapacityBays)} bay capacity, ${fmt(alloc.surfaceBays)} allocated`} />
+        <ParkingCell label="Vertical" value={alloc.verticalBays} cap={capacity.verticalCapacityBays}
+          formula={`Footprint * Vertical Floors / Vertical Bay = ${fmt(envelope.footprint)} * ${plot.verticalParkingFloors ?? 0} / ${plot.verticalBaySqm} = ${fmt(capacity.verticalCapacityBays)} bay capacity, ${fmt(alloc.verticalBays)} allocated`} />
+        <ParkingCell label="Basement" value={alloc.basementBays} cap={capacity.basementCapacityBays}
+          formula={`Basement Usable / Basement Bay = ${fmt(envelope.basementUsableArea)} / ${plot.basementBaySqm} = ${fmt(capacity.basementCapacityBays)} bay capacity, ${fmt(alloc.basementBays)} allocated`} />
+        <ParkingCell label="Total Allocated" value={alloc.totalAllocated}
+          formula={`Surface + Vertical + Basement = ${fmt(alloc.surfaceBays)} + ${fmt(alloc.verticalBays)} + ${fmt(alloc.basementBays)} = ${fmt(alloc.totalAllocated)} bays${alloc.deficit > 0 ? ` (deficit ${fmt(alloc.deficit)} vs ${fmt(totalBaysRequired)} required)` : ''}`} />
       </div>
     </div>
   );
 }
 
-function ParkingCell({ label, value, cap }: { label: string; value: number; cap?: number }) {
+function ParkingCell({ label, value, cap, formula }: { label: string; value: number; cap?: number; formula?: string }) {
   return (
-    <div>
+    <div data-testid={`parking-cell-${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`}>
       <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>{label}</span>
       <div style={{ ...calcOutputStyle, textAlign: 'left' }}>
         {fmt(value)}{cap !== undefined ? <span style={{ color: 'var(--color-meta)', fontWeight: 'var(--fw-normal)', marginLeft: 4 }}>/ {fmt(cap)}</span> : null}
       </div>
+      {formula && <FormulaCaption text={formula} />}
     </div>
   );
 }
@@ -1044,6 +1097,24 @@ function LandParcelsBlock({ landParcels, currency, readOnly }: {
             </tr>
           </tfoot>
         </table>
+      </div>
+
+      {/* M1.13/2: plain-English totals formulas. Sit under the table so
+         the reader sees how the tfoot row was assembled from per-parcel
+         inputs. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginTop: 6 }}>
+        <FormulaCaption
+          testId="parcel-formula-area"
+          text={`Total Area = sum of parcel areas = ${formatNumber(totalArea)} sqm`}
+        />
+        <FormulaCaption
+          testId="parcel-formula-value"
+          text={`Total Value = sum of (Area * Rate) = ${formatNumber(totalValue)} ${currency}${totalArea > 0 ? ` (weighted ${formatNumber(totalValue / totalArea)} ${currency} per sqm)` : ''}`}
+        />
+        <FormulaCaption
+          testId="parcel-formula-cash"
+          text={`Weighted Cash % = Cash Value / Total Value * 100 = ${formatNumber(cashValue)} / ${formatNumber(totalValue)} * 100 = ${cashPct.toFixed(1)}%`}
+        />
       </div>
     </div>
   );
