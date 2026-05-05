@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-06 (M1.13d Build Program adopts 3-box equation-row layout)**
+**Last updated: 2026-05-06 (M2.0b restores brand-styled shell on top of v5 schema)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -225,9 +225,11 @@ npx tsx scripts/module1-v5-diff.ts              # MAAD-Spec v5, 30.8 KB baseline
 
 # Per-phase verifier (5 sections: schema/types / calc / state / source markers / Playwright UI)
 npx tsx scripts/verify-m20.ts                   # M2.0 MAAD-Spec rebuild (42 pass / 0 fail / 1 skip without dev server)
+npx tsx scripts/verify-m20b.ts                  # M2.0b shell restoration (51 pass / 0 fail / 2 skip without dev server / unauth)
 
 # Playwright e2e specs (M2.0 v5 contract)
 npx playwright test tests/e2e/m20-full-flow.spec.ts        # 2 specs: 3-step wizard create + 4-tab landing (no Land/Build Program/Hierarchy) + 8 light/dark tab screenshots; live-recompute spec asserts editing GFA in Tab 2 updates Tab 3 phase total
+npx playwright test tests/e2e/m20b-shell.spec.ts           # 4 specs: brand topbar/sidebar/dashboard chrome + dark-mode body attribute toggle + 3-modal open-close + light/dark screenshots
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -245,11 +247,76 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 **Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
 (`npx playwright install chromium`).
 
-### Module 1 status (2026-05-06, **M2.0 hard-cut rebuild to MAAD-Spec v5**)
-**M2.0 (current, ships):** Module 1 is rebuilt end-to-end against MAAD
-Residential Cashflow v1.13. The v3/v4 hierarchy (Master Holding /
-Sub-Project / Plot / Zone / FAR / Cascade / Parking Allocator / Build
-Program tab / Land tab / Hierarchy tab) is gone. The new flat schema is:
+### Module 1 status (2026-05-06, **M2.0b restores brand-styled shell on top of v5**)
+**M2.0b (current, ships):** the v5 hard-cut M2.0 rebuild stripped the
+FMP brand identity (navy gradient topbar, gold logo, FAST sidebar,
+KPI dashboard, branded modals, dark-mode toggle) and replaced it
+with slim placeholder components. M2.0b restores all of that against
+the v5 schema across 5 commits:
+
+- **/1 (Topbar + Sidebar)**: Topbar (~360 lines) brings back
+  pm-toolbar layout with brand logo + project/version context
+  buttons + Save/Export pills + admin-only QuickColorPanel + RBAC
+  badge + Settings/Hub/SignOut links. Sidebar (~210 lines) brings
+  back sb-pv-panel project/version rows + module list with
+  PlanBadge for locked modules + Module 1 sub-tab list (4-tab v5
+  contract) + collapsed-state pills + role indicator footer.
+- **/2 (Dashboard + ProjectsScreen + OverviewScreen)**: Dashboard
+  (~340 lines) brings back kpi-card grid (Total Land Area, Land
+  Value, Total GFA, Total CapEx, Construction window, Saved
+  Projects) computing live from v5 store via computeLandAggregate
+  + computePhaseCost; Recent Projects strip; Module 1 + Projects
+  quick-action cards; Module Roadmap with status badges driven by
+  lib/modules-config. ProjectsScreen (~280 lines) brings back
+  pm-project-card grid with status pills + ACTIVE badge + RBAC-
+  gated Open/Edit/Delete. OverviewScreen (~310 lines) brings back
+  project header + KPI tiles + 4-tab quick-link cards (project-
+  phases / assets / costs / financing) + Phase Summary table with
+  per-phase CapEx + Version History card.
+- **/3 (modals)**: ProjectModal becomes brand-chromed picker with
+  search; VersionModal becomes tabbed Save/History; RbacModal
+  becomes role-card grid with per-permission ✓/✗ pills;
+  ExportModal becomes branded option grid (PDF basic / PDF full /
+  PDF white-label / Excel static / Excel formula model) with
+  PLAN_LABEL badges. v5 carve-out: Download click writes a
+  "rebuilding in M2.1" notice instead of running the legacy
+  pipelines.
+- **/4 (RealEstatePlatform shell rewire)**: shell wires every new
+  prop signature: Topbar.{hasUnsaved/lastSavedAt/can/darkMode}, 
+  Sidebar.{canSeeModule/onLockedModuleClick}, Dashboard storage,
+  ProjectsScreen.{onEditProject/onDeleteProject}, Overview-
+  Screen.{onLoadVersion/onSaveVersion/setActiveTab}, VersionModal.
+  {projectName/onSave}, ExportModal.{canAccess}. New helpers:
+  can() reads PERMISSIONS[currentUserRole]; canSeeModule reads
+  MODULE_VISIBILITY[currentUserRole]; hasUnsaved subscribes to
+  store changes; handleSaveVersion writes v5 snapshot via
+  pclient.saveVersion + updates activeVersionId; handle-
+  DeleteProject calls pclient.deleteProject + tears down active
+  state. darkMode toggles body[data-refm-theme="dark"]
+  (workspace-scoped per app/globals.css line 1179 contract);
+  inner content wrapped in .app-shell so the dark-mode token
+  swap takes effect.
+- **/5 (verifier + Playwright + config)**: scripts/verify-m20b.ts
+  with 47 source-file markers + em-dash sweep (51 pass / 0 fail /
+  2 skip without authenticated dev server). tests/e2e/m20b-
+  shell.spec.ts with 4 specs: brand topbar/sidebar/dashboard
+  chrome, dark-mode body-attribute flip, 3-modal open-close,
+  light/dark screenshots. New playwright.config.ts with
+  baseURL=http://localhost:3000 (overridable via
+  PLAYWRIGHT_BASE_URL); fixed page.goto('/refm') failing with
+  "Cannot navigate to invalid URL" because no baseURL was
+  configured.
+
+What stays from M2.0: v5 schema, calc engine, 4-tab Module 1, all
+4 tab components, ProjectWizard 3-step, 30.8 KB v5 snapshot
+baseline (sha256 0424dde6fb19, bit-identical through M2.0b/4),
+hard-cut migration policy, primitives.
+
+**M2.0 (still current, foundation):** Module 1 is rebuilt end-to-
+end against MAAD Residential Cashflow v1.13. The v3/v4 hierarchy
+(Master Holding / Sub-Project / Plot / Zone / FAR / Cascade /
+Parking Allocator / Build Program tab / Land tab / Hierarchy
+tab) is gone. The new flat schema is:
 
 ```
 { version: 5, project, phases[], parcels[], landAllocationMode,
