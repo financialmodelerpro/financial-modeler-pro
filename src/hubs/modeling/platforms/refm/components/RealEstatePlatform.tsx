@@ -1,23 +1,26 @@
 'use client';
 
 /**
- * RealEstatePlatform.tsx (v5 schema, M2.0)
+ * RealEstatePlatform.tsx (v5 schema, M2.0b shell rewire)
  *
- * Slim 4-tab shell. Ditches the 2055-line legacy version that wove
- * Module 1 state through prop-drilling, useState scaffolding, and
- * dead helpers. The 4 new tab components subscribe directly to the
- * v5 Zustand store, so the shell's only job is to wire layout +
- * persistence + project routing.
+ * Phase M2.0 (4-tab MAAD-Spec rebuild) + Phase M2.0b (brand-styled
+ * shell restoration). The 4 tab components subscribe to the v5
+ * Zustand store directly; the shell wires layout + persistence +
+ * project routing + RBAC + dark-mode.
  *
  * Tabs (4): Project & Phases / Assets & Sub-units / Costs / Financing.
- * No Build Program, no Hierarchy, no Land tab, no Plot/Parcel wizards.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { useShallow } from 'zustand/react/shallow';
 import { useSession } from 'next-auth/react';
 
-import { ROLES, ROLE_META, MODULE_VISIBILITY, PERMISSIONS, useBrandingStore } from '@/src/core/state';
+import {
+  ROLES,
+  ROLE_META,
+  MODULE_VISIBILITY,
+  PERMISSIONS,
+  useBrandingStore,
+} from '@/src/core/state';
 import type { Role, ModuleKey, PermissionMap } from '@/src/core/types/settings.types';
 
 import { useModule1Store, DEFAULT_MODULE1_STATE, type HydrateSnapshot } from '../lib/state/module1-store';
@@ -137,7 +140,7 @@ export const sidebarModules: readonly SidebarNavItem[] = [
   ...MODULES.map((m): SidebarNavItem => ({
     key: m.key,
     icon: m.icon,
-    label: `Module ${m.num} - ${m.shortLabel}`,
+    label: `Module ${m.num}, ${m.shortLabel}`,
     featureKey: m.featureKey,
     requiredPlan: m.requiredPlan,
     badge: m.status === 'done' ? '✓' : m.status === 'soon' ? 'SOON' : null,
@@ -177,16 +180,44 @@ export default function RealEstatePlatform(): React.JSX.Element {
   const [rbacModalOpen, setRbacModalOpen] = useState(false);
   const [rbacSelectedRole, setRbacSelectedRole] = useState<Role>(ROLES.ADMIN);
 
+  // Dark mode (workspace-scoped via body[data-refm-theme])
+  const [darkMode, setDarkMode] = useState(false);
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    if (darkMode) {
+      document.body.setAttribute('data-refm-theme', 'dark');
+    } else {
+      document.body.removeAttribute('data-refm-theme');
+    }
+    return () => {
+      document.body.removeAttribute('data-refm-theme');
+    };
+  }, [darkMode]);
+
   // Server-side project list
   const [serverProjects, setServerProjects] = useState<pclient.RefmProjectSummary[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
   const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
+  // Save state
+  const [hasUnsaved, setHasUnsaved] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+
   // Modal state
   const [projectModalOpen, setProjectModalOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [versionModalOpen, setVersionModalOpen] = useState(false);
+
+  // Permissions / visibility helpers
+  const can = useCallback(
+    (permission: keyof PermissionMap): boolean => PERMISSIONS[currentUserRole]?.[permission] === true,
+    [currentUserRole],
+  );
+  const canSeeModule = useCallback(
+    (key: string): boolean => MODULE_VISIBILITY[currentUserRole]?.includes(key as ModuleKey) ?? true,
+    [currentUserRole],
+  );
 
   // Boot: list projects from server
   useEffect(() => {
@@ -199,7 +230,6 @@ export default function RealEstatePlatform(): React.JSX.Element {
         return;
       }
       setServerProjects(res.data?.projects ?? []);
-      // If a previously-active project lives in localStorage, restore it
       const cached = readActiveProjectId();
       if (cached && (res.data?.projects ?? []).some((p) => p.id === cached)) {
         setActiveProjectId(cached);
@@ -212,12 +242,26 @@ export default function RealEstatePlatform(): React.JSX.Element {
     };
   }, []);
 
+  // Track unsaved edits via store subscription. Any HydrateSnapshot field
+  // change marks hasUnsaved=true. lastSavedAt clears it on Save Version.
+  useEffect(() => {
+    if (!activeProjectId) {
+      setHasUnsaved(false);
+      return;
+    }
+    const unsub = useModule1Store.subscribe(() => {
+      setHasUnsaved(true);
+    });
+    return () => unsub();
+  }, [activeProjectId]);
+
   // Project selection / load
   const handleSelectProject = useCallback(async (projectId: string) => {
     setActiveProjectId(projectId);
     writeActiveProjectId(projectId);
     setActiveTab('project-phases');
     setActiveModule('module1');
+    setHasUnsaved(false);
     const res = await attachSyncToProject(projectId);
     if (res.error) setLoadError(res.error);
   }, []);
@@ -225,8 +269,6 @@ export default function RealEstatePlatform(): React.JSX.Element {
   const handleCreateFromWizard = useCallback(
     async (draft: WizardDraft): Promise<void> => {
       const snapshot = buildWizardSnapshot(draft);
-      // Hydrate the store immediately so the post-create UI sees the
-      // wizard data without round-tripping through the server.
       useModule1Store.getState().hydrate(snapshot);
       const res = await pclient.createProject({
         name: snapshot.project.name,
@@ -245,6 +287,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
       attachToProjectFromLocalSnapshot(res.data.project.id, snapshot);
       setActiveTab('project-phases');
       setActiveModule('module1');
+      setHasUnsaved(false);
     },
     [],
   );
@@ -257,6 +300,8 @@ export default function RealEstatePlatform(): React.JSX.Element {
     writeActiveProjectId(null);
     useModule1Store.getState().hydrate({ ...DEFAULT_MODULE1_STATE });
     setActiveModule('projects');
+    setHasUnsaved(false);
+    setLastSavedAt(null);
   }, [activeProjectId]);
 
   const handleLoadVersion = useCallback(async (projectId: string, versionId: string): Promise<void> => {
@@ -269,10 +314,66 @@ export default function RealEstatePlatform(): React.JSX.Element {
     setActiveVersionId(versionId);
     setActiveTab('project-phases');
     setActiveModule('module1');
+    setHasUnsaved(false);
   }, []);
 
-  // Build StorageShape for legacy consumers (Dashboard / ProjectsScreen / Overview)
+  const handleSaveVersion = useCallback(
+    async (versionName: string): Promise<void> => {
+      if (!activeProjectId) return;
+      const snapshot = extractHydrateSnapshot(useModule1Store.getState());
+      const res = await pclient.saveVersion(activeProjectId, {
+        snapshot,
+        label: versionName || null,
+        assetMix: snapshot.assets.filter((a) => a.visible).map((a) => a.name),
+      });
+      if (res.error) {
+        setLoadError(res.error);
+        return;
+      }
+      if (res.data) {
+        setActiveVersionId(res.data.version.id);
+        setServerProjects((prev) => prev.map((p) => (p.id === res.data!.project.id ? res.data!.project : p)));
+      }
+      setHasUnsaved(false);
+      setLastSavedAt(new Date().toLocaleTimeString());
+    },
+    [activeProjectId],
+  );
+
+  const handleSaveQuick = useCallback(() => {
+    void handleSaveVersion(`Save ${new Date().toLocaleTimeString()}`);
+  }, [handleSaveVersion]);
+
+  const handleEditProject = useCallback((_pid: string): void => {
+    setProjectModalOpen(true);
+  }, []);
+
+  const handleDeleteProject = useCallback(
+    async (pid: string): Promise<void> => {
+      const res = await pclient.deleteProject(pid);
+      if (res.error) {
+        setLoadError(res.error);
+        return;
+      }
+      setServerProjects((prev) => prev.filter((p) => p.id !== pid));
+      if (activeProjectId === pid) handleCloseProject();
+    },
+    [activeProjectId, handleCloseProject],
+  );
+
   const storage: StorageShape = projectsToStorageShape(serverProjects, activeProjectId, activeVersionId);
+  const activeProjectData = activeProjectId ? storage.projects[activeProjectId] : null;
+  const activeVersionData =
+    activeProjectData && activeVersionId
+      ? activeProjectData.versions[activeVersionId] ?? null
+      : null;
+
+  const onLockedModuleClick = useCallback(
+    (featureKey: string, requiredPlan: 'professional' | 'enterprise') => {
+      setUpgradePrompt({ featureKey, requiredPlan });
+    },
+    [],
+  );
 
   // Module rendering
   const renderModule = (): React.ReactNode => {
@@ -290,17 +391,31 @@ export default function RealEstatePlatform(): React.JSX.Element {
       return (
         <ProjectsScreen
           storage={storage}
+          activeProjectId={activeProjectId}
           onCreateProject={() => setWizardOpen(true)}
           onSelectProject={(id) => void handleSelectProject(id)}
           onCloseProject={handleCloseProject}
+          onEditProject={handleEditProject}
+          onDeleteProject={(id) => void handleDeleteProject(id)}
+          setActiveModule={setActiveModule}
+          can={can}
         />
       );
     }
     if (activeModule === 'overview') {
-      if (!activeProjectId) {
-        return <div style={{ padding: 'var(--sp-3)' }}>Select a project to view its overview.</div>;
-      }
-      return <OverviewScreen storage={storage} />;
+      return (
+        <OverviewScreen
+          storage={storage}
+          activeProjectId={activeProjectId}
+          activeVersionId={activeVersionId}
+          onLoadVersion={(pid, vid) => void handleLoadVersion(pid, vid)}
+          onSaveVersion={() => setVersionModalOpen(true)}
+          onEditProject={() => setProjectModalOpen(true)}
+          setActiveModule={setActiveModule}
+          setActiveTab={setActiveTab}
+          can={can}
+        />
+      );
     }
     if (activeModule === 'module1') {
       if (!activeProjectId) {
@@ -364,30 +479,43 @@ export default function RealEstatePlatform(): React.JSX.Element {
   };
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <Sidebar
-        activeModule={activeModule}
-        activeTab={activeTab}
-        collapsed={sidebarCollapsed}
-        subOpen={sidebarSubOpen}
-        onSelectModule={setActiveModule}
-        onSelectTab={setActiveTab}
-        onToggleCollapsed={() => setSidebarCollapsed((v) => !v)}
-        onToggleSubOpen={() => setSidebarSubOpen((v) => !v)}
-        canAccess={canAccess}
-        subLoaded={subLoaded}
-        onUpgradePrompt={setUpgradePrompt}
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+      <Topbar
+        projectName={activeProjectData?.name ?? ''}
+        activeProjectData={activeProjectData}
+        activeVersionData={activeVersionData}
+        hasUnsaved={hasUnsaved}
+        lastSavedAt={lastSavedAt}
+        currentUserRole={currentUserRole}
+        can={can}
+        onSave={handleSaveQuick}
+        onOpenProjects={() => setProjectModalOpen(true)}
+        onOpenVersions={() => setVersionModalOpen(true)}
+        onOpenRbac={() => setRbacModalOpen(true)}
+        onExportClick={() => setExportModalOpen(true)}
+        darkMode={darkMode}
+        onToggleDark={() => setDarkMode((v) => !v)}
       />
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-        <Topbar
-          activeProjectId={activeProjectId}
-          activeProject={activeProjectId ? storage.projects[activeProjectId] : null}
-          onOpenProject={() => setProjectModalOpen(true)}
-          onOpenVersion={() => setVersionModalOpen(true)}
-          onOpenExport={() => setExportModalOpen(true)}
-          onOpenRbac={() => setRbacModalOpen(true)}
-          onCloseProject={handleCloseProject}
+      <div className="app-shell" style={{ display: 'flex', flex: 1, minHeight: 0 }}>
+        <Sidebar
+          activeModule={activeModule}
+          setActiveModule={setActiveModule}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          sidebarCollapsed={sidebarCollapsed}
+          setSidebarCollapsed={setSidebarCollapsed}
+          sidebarSubOpen={sidebarSubOpen}
+          setSidebarSubOpen={setSidebarSubOpen}
           currentUserRole={currentUserRole}
+          activeProjectId={activeProjectId}
+          activeProjectName={activeProjectData?.name ?? null}
+          activeVersionName={activeVersionData?.name ?? null}
+          canSeeModule={canSeeModule}
+          canAccess={canAccess}
+          subLoaded={subLoaded}
+          onLockedModuleClick={onLockedModuleClick}
+          onOpenProjects={() => setProjectModalOpen(true)}
+          onOpenRbac={() => setRbacModalOpen(true)}
         />
         <main style={{ flex: 1, padding: 'var(--sp-3)', overflow: 'auto' }}>
           {loadError && (
@@ -434,6 +562,9 @@ export default function RealEstatePlatform(): React.JSX.Element {
         open={versionModalOpen}
         onClose={() => setVersionModalOpen(false)}
         projectId={activeProjectId}
+        projectName={activeProjectData?.name ?? null}
+        activeVersionId={activeVersionId}
+        onSave={can('canSave') ? (name) => void handleSaveVersion(name) : undefined}
         onLoadVersion={(versionId) => {
           if (activeProjectId) void handleLoadVersion(activeProjectId, versionId);
           setVersionModalOpen(false);
@@ -450,18 +581,39 @@ export default function RealEstatePlatform(): React.JSX.Element {
           setRbacModalOpen(false);
         }}
       />
-      <ExportModal open={exportModalOpen} onClose={() => setExportModalOpen(false)} />
+      <ExportModal
+        open={exportModalOpen}
+        onClose={() => setExportModalOpen(false)}
+        canAccess={canAccess}
+      />
       {upgradePrompt && (
         <div
           role="dialog"
           aria-modal="true"
           onClick={() => setUpgradePrompt(null)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 9999,
+          }}
         >
-          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--color-bg)', padding: 'var(--sp-3)', borderRadius: 'var(--radius)' }}>
-            <UpgradePrompt featureKey={upgradePrompt.featureKey} requiredPlan={upgradePrompt.requiredPlan} variant="card" />
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: 'var(--color-bg)', padding: 'var(--sp-3)', borderRadius: 'var(--radius)' }}
+          >
+            <UpgradePrompt
+              featureKey={upgradePrompt.featureKey}
+              requiredPlan={upgradePrompt.requiredPlan}
+              variant="card"
+            />
             <div style={{ textAlign: 'right', marginTop: 'var(--sp-2)' }}>
-              <button type="button" onClick={() => setUpgradePrompt(null)}>Close</button>
+              <button type="button" onClick={() => setUpgradePrompt(null)}>
+                Close
+              </button>
             </div>
           </div>
         </div>
@@ -470,12 +622,6 @@ export default function RealEstatePlatform(): React.JSX.Element {
   );
 }
 
-// References preserved to avoid unused-import warnings while shell modules
-// catch up to v5. Each is consumed by a downstream legacy component that
-// still imports it; deleting these here would break those imports
-// transparently to lint.
 void ROLE_META;
-void MODULE_VISIBILITY;
-void PERMISSIONS;
 void useBrandingStore;
 void extractHydrateSnapshot;
