@@ -36,16 +36,20 @@
 
 import React, { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import type { LandParcel } from '@/src/core/types/project.types';
 import {
   computePlotEnvelope, computeAreaCascade,
   computePlotParkingCapacity, allocateParking,
   type PlotEnvelopeAreas, type ParkingAllocationResult, type PlotCapacityResult,
 } from '@core/calculations';
+import { formatNumber } from '@/src/core/formatters';
 import { useModule1Store } from '../../lib/state/module1-store';
 import PlotSetupWizard from '../modals/PlotSetupWizard';
+import ParcelSetupWizard from '../modals/ParcelSetupWizard';
 import InputLabel from '../ui/InputLabel';
 import { PLOT_FIELD_HELP } from '../../lib/copy/plotFieldHelp';
 import { ASSET_STRATEGY_HELP } from '../../lib/copy/assetStrategyHelp';
+import { PARCEL_FIELD_HELP } from '../../lib/copy/parcelFieldHelp';
 import {
   ASSET_STRATEGIES, DEFAULT_AREA_CASCADE_BY_CATEGORY,
   DEFAULT_PARKING_BAYS_BY_SUBUNIT_TYPE,
@@ -839,6 +843,233 @@ function ParkingCell({ label, value, cap }: { label: string; value: number; cap?
   );
 }
 
+// ── Land Parcels block (M1.12) ─────────────────────────────────────────────
+// Lifted from the dissolved Land tab into Build Program (top section,
+// above the Plot list). Edits flow through Zustand setLand directly so
+// the wizard create flow + ParcelSetupWizard + this inline editor share
+// one update path.
+//
+// Renders a compact parcel table with name / area / rate / cash% /
+// in-kind% inputs + per-row totals + a tfoot summary row. Header cells
+// use the FAST contrast convention (navy bg + white text + uppercase
+// label) so the column titles stay readable in both light and dark mode.
+function LandParcelsBlock({ landParcels, currency, readOnly }: {
+  landParcels: LandParcel[];
+  currency: string;
+  readOnly: boolean;
+}) {
+  const setLand = useModule1Store(s => s.setLand);
+  const [parcelWizardOpen, setParcelWizardOpen] = useState(false);
+
+  const totalArea  = landParcels.reduce((s, p) => s + (Number(p.area) || 0), 0);
+  const totalValue = landParcels.reduce((s, p) => s + p.area * p.rate, 0);
+  const cashValue  = landParcels.reduce((s, p) => s + p.area * p.rate * (p.cashPct / 100), 0);
+  const cashPct    = totalValue > 0 ? (cashValue / totalValue) * 100 : 0;
+
+  const addParcel = () => {
+    const newId = (landParcels.length === 0 ? 1 : Math.max(...landParcels.map(p => p.id)) + 1);
+    setLand({ landParcels: [
+      ...landParcels,
+      { id: newId, name: `Land ${newId}`, area: 0, rate: 0, cashPct: 60, inKindPct: 40 },
+    ] });
+  };
+  const updateParcel = (id: number, field: keyof LandParcel, value: string | number) => {
+    setLand({ landParcels: landParcels.map(p => {
+      if (p.id !== id) return p;
+      const next = { ...p, [field]: value };
+      if (field === 'cashPct')   next.inKindPct = 100 - Number(value);
+      if (field === 'inKindPct') next.cashPct   = 100 - Number(value);
+      return next;
+    }) });
+  };
+  const removeParcel = (id: number) => {
+    if (landParcels.length <= 1) return;
+    setLand({ landParcels: landParcels.filter(p => p.id !== id) });
+  };
+
+  return (
+    <div data-testid="build-program-land-parcels" style={{ ...cardStyle }}>
+      {parcelWizardOpen && <ParcelSetupWizard onClose={() => setParcelWizardOpen(false)} />}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--sp-2)', flexWrap: 'wrap', gap: 8 }}>
+        <h3 style={{
+          fontSize: 'var(--font-section)', fontWeight: 'var(--fw-bold)',
+          color: 'var(--color-heading)', margin: 0,
+        }}>
+          🏞️ Land Parcels (financial, what you own)
+        </h3>
+        {!readOnly && (
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => setParcelWizardOpen(true)}
+              data-testid="bp-open-parcel-wizard"
+              style={{
+                fontSize: 'var(--font-meta)', padding: '5px 12px',
+                border: '1px solid var(--color-primary)', borderRadius: 'var(--radius-sm)',
+                background: 'var(--color-surface)', color: 'var(--color-primary)',
+                cursor: 'pointer', fontFamily: 'Inter, sans-serif', fontWeight: 'var(--fw-semibold)',
+              }}
+            >
+              🪄 Setup wizard
+            </button>
+            <button
+              type="button"
+              onClick={addParcel}
+              data-testid="bp-add-parcel"
+              style={{ ...primaryBtnStyle, fontSize: 'var(--font-meta)', padding: '5px 12px' }}
+            >
+              + Add Parcel
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div style={{ overflowX: 'auto' }}>
+        <table className="table-standard" style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+              <th style={parcelHeaderStyle}>
+                <InputLabel label="Parcel Name" help={PARCEL_FIELD_HELP.name} textStyle={parcelHeaderLabelStyle} />
+              </th>
+              <th style={parcelHeaderStyle}>
+                <InputLabel label="Area (sqm)" help={PARCEL_FIELD_HELP.area} textStyle={parcelHeaderLabelStyle} />
+              </th>
+              <th style={parcelHeaderStyle}>
+                <InputLabel label={`Rate (per sqm, ${currency})`} help={PARCEL_FIELD_HELP.rate} textStyle={parcelHeaderLabelStyle} />
+              </th>
+              <th style={parcelHeaderStyle}>Total Value</th>
+              <th style={parcelHeaderStyle}>
+                <InputLabel label="Cash %" help={PARCEL_FIELD_HELP.cashPct} textStyle={parcelHeaderLabelStyle} />
+              </th>
+              <th style={parcelHeaderStyle}>
+                <InputLabel label="In-Kind %" help={PARCEL_FIELD_HELP.inKindPct} textStyle={parcelHeaderLabelStyle} />
+              </th>
+              {!readOnly && <th style={parcelHeaderStyle}>Del</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {landParcels.map(p => {
+              const total = p.area * p.rate;
+              return (
+                <tr key={p.id} data-testid={`bp-parcel-row-${p.id}`}>
+                  <td>
+                    <input
+                      type="text"
+                      value={p.name}
+                      onChange={e => updateParcel(p.id, 'name', e.target.value)}
+                      disabled={readOnly}
+                      style={{ ...inputStyle, minWidth: 100 }}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      min={0}
+                      value={p.area}
+                      onChange={e => updateParcel(p.id, 'area', Number(e.target.value))}
+                      disabled={readOnly}
+                      style={{ ...inputStyle, textAlign: 'right' }}
+                      data-testid={`bp-parcel-${p.id}-area`}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      min={0}
+                      value={p.rate}
+                      onChange={e => updateParcel(p.id, 'rate', Number(e.target.value))}
+                      disabled={readOnly}
+                      style={{ ...inputStyle, textAlign: 'right' }}
+                    />
+                  </td>
+                  <td style={{ ...calcOutputStyle }}>{formatNumber(total)}</td>
+                  <td>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={p.cashPct}
+                      onChange={e => updateParcel(p.id, 'cashPct', Number(e.target.value))}
+                      disabled={readOnly}
+                      style={{ ...inputStyle, textAlign: 'right' }}
+                    />
+                  </td>
+                  <td>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={p.inKindPct}
+                      onChange={e => updateParcel(p.id, 'inKindPct', Number(e.target.value))}
+                      disabled={readOnly}
+                      style={{ ...inputStyle, textAlign: 'right' }}
+                    />
+                  </td>
+                  {!readOnly && (
+                    <td>
+                      <button
+                        type="button"
+                        onClick={() => removeParcel(p.id)}
+                        disabled={landParcels.length <= 1}
+                        aria-label={`Remove ${p.name}`}
+                        style={{
+                          padding: '3px 8px', fontSize: 'var(--font-meta)',
+                          border: '1px solid var(--color-border)',
+                          borderRadius: 'var(--radius-sm)',
+                          background: 'var(--color-surface)',
+                          color: landParcels.length <= 1 ? 'var(--color-meta)' : 'var(--color-negative)',
+                          cursor: landParcels.length <= 1 ? 'not-allowed' : 'pointer',
+                        }}
+                        data-testid={`bp-parcel-${p.id}-remove`}
+                      >
+                        ✕
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr style={{ background: 'var(--color-grey-pale)' }}>
+              <td style={{ fontWeight: 'var(--fw-bold)' }}>TOTAL</td>
+              <td style={{ ...calcOutputStyle }}>{formatNumber(totalArea)}</td>
+              <td style={{ color: 'var(--color-meta)', textAlign: 'right' }}>
+                {totalArea > 0 ? `${formatNumber(totalValue / totalArea)}/sqm` : ''}
+              </td>
+              <td style={{ ...calcOutputStyle }}>{formatNumber(totalValue)}</td>
+              <td style={{ ...calcOutputStyle }}>{cashPct.toFixed(1)}%</td>
+              <td style={{ ...calcOutputStyle }}>{(100 - cashPct).toFixed(1)}%</td>
+              {!readOnly && <td />}
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+const parcelHeaderStyle: React.CSSProperties = {
+  padding: '8px 10px',
+  textAlign: 'left',
+  fontSize: 'var(--font-micro)',
+  fontWeight: 'var(--fw-bold)',
+  color: 'var(--color-on-primary-navy)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+  borderBottom: '1px solid var(--color-border)',
+};
+
+// White-on-navy variant of InputLabel's label so the FAST header
+// contrast carries through to the embedded ⓘ help button.
+const parcelHeaderLabelStyle: React.CSSProperties = {
+  fontSize: 'var(--font-micro)',
+  fontWeight: 'var(--fw-bold)',
+  color: 'var(--color-on-primary-navy)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.05em',
+};
+
 // ── Top-level component ───────────────────────────────────────────────────
 // Subscribe to base arrays + scalars + actions separately and derive
 // `plots` for the active phase via useMemo. Putting `s.plots.filter(...)`
@@ -859,6 +1090,7 @@ export default function Module1AreaProgram() {
     addPlot:       s.addPlot,
   })));
   const allPlots = useModule1Store(s => s.plots);
+  const currency = useModule1Store(s => s.currency);
   const plots    = useMemo(
     () => allPlots.filter(p => p.phaseId === activePhaseId),
     [allPlots, activePhaseId],
@@ -938,6 +1170,12 @@ export default function Module1AreaProgram() {
           (Schedule), revenue ramps (Module 2, coming next).
         </div>
       </div>
+
+      {/* M1.12, Land Parcels block lifted from the dissolved Land tab.
+         Renders above the reconciliation row so users see the parcel
+         table first, then the financial-vs-physical comparison. Inline
+         editor + Setup Wizard mount + Add Parcel CTA in one card. */}
+      <LandParcelsBlock landParcels={landParcels} currency={currency} readOnly={false} />
 
       {/* M1.10/5, Land vs Plot reconciliation row. Surfaces the relationship
          between Land Parcels (financial, what you own) and Plots
