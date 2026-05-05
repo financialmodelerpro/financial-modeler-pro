@@ -903,15 +903,27 @@ thead th:first-child { border-radius: 0; }
 .gap-1 { gap: var(--sp-1) !important; }
 .gap-2 { gap: var(--sp-2) !important; }
 
-/* ════ COLLAPSIBLE SIDEBAR ════ */
-.app-shell { display: flex; height: calc(100vh - 40px); overflow: hidden; margin-top: 40px; }
+/* ════ COLLAPSIBLE SIDEBAR ════
+   M2.0c (2026-05-06): sidebar participates in the .app-shell flex
+   row instead of `position: fixed`. The pre-M2.0 layout used a
+   40px fixed topbar + a fixed sidebar with main content padded
+   left to clear the sidebar. The M2.0b shell wraps Topbar +
+   .app-shell in a flex column so the topbar takes its own row;
+   the sidebar then needs to flow normally inside .app-shell so
+   it can't overlay workspace content (Issue 1 in M2.0c brief:
+   Asset & Sub-units area input was clipped at the left edge).
+   Setting position: relative + flex-shrink: 0 makes the sidebar
+   own its column; main content gets the remaining width with no
+   manual padding-left.
+   ════════════════════════════════════════════════════ */
+.app-shell { display: flex; flex: 1; min-height: 0; overflow: hidden; }
 .sidebar {
     width: var(--sidebar-width); min-width: var(--sidebar-width);
     background: var(--color-navy-darkest);
     display: flex; flex-direction: column;
     transition: width 0.2s ease, min-width 0.2s ease;
-    position: fixed; top: 40px; left: 0; height: calc(100vh - 40px);
-    overflow: hidden; z-index: 50;
+    position: relative; height: 100%;
+    overflow: hidden; z-index: 1;
     border-right: 1px solid rgba(255,255,255,0.07);
     flex-shrink: 0;
 }
