@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-06 (M1.13c step-by-step verification flow shipped)**
+**Last updated: 2026-05-06 (M1.13d Build Program adopts 3-box equation-row layout)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -236,6 +236,7 @@ npx tsx --env-file=.env.local scripts/verify-m112.ts  # M1.12 Land tab eliminati
 npx tsx --env-file=.env.local scripts/verify-m113.ts  # M1.13 inline plain-English live formulas across 4 tabs (20 pass / 0 fail / 1 skip without dev server; 23 pass / 0 fail / 0 skip with dev server)
 npx tsx --env-file=.env.local scripts/verify-m113b.ts # M1.13b inline-formula layout (panels dissolved, formulas adjacent to inputs) (20 pass / 0 fail / 1 skip without dev server; 23 pass / 0 fail / 0 skip with dev server)
 npx tsx --env-file=.env.local scripts/verify-m113c.ts # M1.13c step-by-step verifiable calculation flow (VerifiedResult primitive: input + formula + result chip + validation state) (24 pass / 0 fail / 2 skip without dev server; 27 pass / 0 fail / 1 skip with dev server)
+npx tsx --env-file=.env.local scripts/verify-m113d.ts # M1.13d Build Program adopts EquationRow 3-box layout (input op input = result, derived field chaining) (18 pass / 0 fail / 3 skip without dev server; 21 pass / 0 fail / 0 skip with dev server)
 
 # Playwright e2e specs (M1.8 + M1.9 + M1.9b + M1.10 + M1.10b + M1.11 + M1.12 + M1.13 + M1.13b regression-guards)
 npx playwright test tests/e2e/m18-wizard-repro.spec.ts     # 1 spec, wizard create does not crash
@@ -249,6 +250,7 @@ npx playwright test tests/e2e/m112-flow.spec.ts            # 2 specs, wizard Ste
 npx playwright test tests/e2e/m113-formulas.spec.ts        # 1 spec, walks all 4 tabs asserting FormulaCaption testIds + live recompute on Plot inputs + 8 light/dark tab screenshots
 npx playwright test tests/e2e/m113b-formulas-inline.spec.ts # 1 spec, panel-absence (no Computed Envelope / Cascade Preview / Timeline Summary) + bounding-box proximity (formula caption < 200px below its driving input) + live recompute + 8 light/dark tab screenshots
 npx playwright test tests/e2e/m113c-step-flow.spec.ts      # 1 spec, VerifiedResult shape (data-formula + data-state + data-result-chip) on every verified step across 4 tabs + math operator (× ÷) assertions + validation state flip (over-FAR push: ok → error → ok) + live recompute + Debt Summary roll-up contract preserved + 9 light/dark/validation screenshots
+npx playwright test tests/e2e/m113d-equation-rows.spec.ts  # 1 spec, EquationRow 3-box layout: 15 envelope row testIds carry data-equation-row + input/derived field + result chip; Public Area row has 2 derived + 0 inputs (chain visible); Surface Parking row has 3 derived; Typical GFA row has 1 derived + 2 inputs; validation flip ok → error → ok; live recompute; light + dark + validation screenshots
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -327,11 +329,27 @@ LTV = 0% (all-equity), to error at LTV >= 100%, and to warn when
 Repayment Periods exceeds Operations window. Playwright spec asserts
 the over-FAR push (Max FAR=1, Typical Floors=20, Typical Coverage=
 60%) flips Total Built GFA chip ok → error in place, then resetting
-to sane values flips back to ok). **Module 1 ships production-ready
-after M1.13c; next phase is M2.0 (revenue, opex, deferred calc-
-engine refinements including the per-plot derive of project-level
-FAR / Roads / NEA still read by calculateAreaHierarchy from stored
-snapshot fields).**
+to sane values flips back to ok).
+→ **M1.13d** (Build Program adopts the EquationRow 3-box layout per
+user feedback that the M1.13c VerifiedResult was still too dense:
+every plot envelope step + every cascade step now reads left-to-
+right as one math equation, [field] op [field] = [result chip].
+Inputs are editable yellow boxes; derived values (Footprint, Public
+Area, etc.) render as read-only dashed boxes when they feed
+downstream rows so the user sees the calc chain visually. 14 plot
+envelope rows + 8 cascade rows + 1 parking allocator row per plot,
+each with section headers acting as subtle dividers (Plot Envelope,
+Podium, Typical Tower, Floors Check, Public Area Split, Parking
+surface / vertical / basement). Validation states preserved on
+result chips, ok green-pale, warn amber, error red, with issue
+callout rendered as sibling below the row. Three-input rows
+supported (Typical GFA = Plot × Coverage × Floors, parking allocator
+total = Surface + Vertical + Basement) so any equation up to 3
+input fields fits in one visual row). **Module 1 ships production-
+ready after M1.13d; next phase is M2.0 (revenue, opex, deferred
+calc-engine refinements including the per-plot derive of project-
+level FAR / Roads / NEA still read by calculateAreaHierarchy from
+stored snapshot fields).**
 
 **M1.10 setup-completeness series (8 commits, 2026-05-05 → 2026-05-06, all snapshot diffs bit-identical):**
 - `d295dc8` 2/8: tune plot defaults so fresh plots stay inside FAR ceiling.
@@ -849,6 +867,89 @@ diffs bit-identical):**
 - (this commit) 8/8 (docs sweep): CLAUDE.md M1.13c series block,
   scripts table entry, Playwright spec entry, Module 1 status
   header extended with the M1.13c completion line.
+
+**M1.13d Build Program 3-box equation-row layout (3 commits,
+2026-05-06, all snapshot diffs bit-identical):**
+- `c4dbc01` 1/3 (primitive): src/hubs/modeling/platforms/refm/components/
+  ui/EquationRow.tsx. New shared primitive renders one calculation
+  step as a horizontal row, [field] op [field] = [result chip].
+  Two field kinds: 'input' (editable yellow box, FAST navy-pale bg
+  + navy text, carries canonical input element id) and 'derived'
+  (read-only dashed box, grey-pale bg + meta text, used when a
+  value is computed upstream and feeds the current row). Result
+  chip carries data-result-chip + data-formula + data-state for
+  Playwright targeting; validation tints the chip and surfaces an
+  issue callout below the row when state is 'warn' or 'error'.
+  Operators between fields use Unicode math (× ÷ + -); equals is a
+  literal "=". Up to 3 input fields per row supported (Typical GFA,
+  parking allocator total).
+- `5e53c2e` 2/3 (refactor): Module1AreaProgram PlotEditor renders
+  the entire 14-step plot envelope chain (Max GFA, Footprint,
+  Podium GFA, Public Area, Typical GFA, Total Built GFA, Floors
+  check, Landscape, Hardscape, Surface Parking, 3 parking
+  capacities, 2 basement outputs) and the 8-step asset cascade
+  (GFA, MEP, BoH, Other Tech, Net GFA, BUA Excl, TBA, GSA/GLA) as
+  EquationRow steps. The parking allocator total (Surface +
+  Vertical + Basement = Total Allocated) also adopted; deficit
+  flips to error state. Land parcel totals retained as
+  VerifiedResult (data shape is sum-of-rows not equation chain).
+  Cleanup: numField helper, sectionGridStyle helper,
+  formulaStackStyle helper, and the now-unused VerifiedState
+  type-only import all removed (each render block builds its own
+  EquationField factories inline). testIds preserved end-to-end:
+  every existing formula-* testId carries through to the chip,
+  and new row-* testIds added for the row containers.
+- `afe374b` 3/3 (verifier + Playwright + spec updates):
+  scripts/verify-m113d.ts mirrors the standing 5-section template;
+  section 4 has 9 markers across E1 (primitive shape), B1-B7
+  (Build Program rows / cascade rows / allocator / formula testId
+  preservation / legacy helper removal / validation state wiring),
+  X1 (em-dash sweep). Result: 21 pass / 0 fail / 0 skip with dev
+  server up. tests/e2e/m113d-equation-rows.spec.ts (1 spec, 4.9s)
+  walks the Build Program tab and asserts: layout shape across all
+  15 envelope rows, derived chain visible (Public Area row has 2
+  derived + 0 inputs; Surface Parking has 3 derived + 0 inputs),
+  3-input row works (Typical GFA has 1 derived + 2 inputs),
+  validation flip (over-FAR push flips Total Built chip to error
+  with issue chip; reset flips back to ok), live recompute (Plot
+  Area edit updates Max GFA chip text in place). M1.13b spec
+  updated to assert the new chip-numeric format ('1,000,000' for
+  200,000 × 5) and the proximity helper relaxed to accept both
+  horizontal adjacency (chip side-by-side with input in the same
+  EquationRow) and vertical adjacency (chip below input within
+  200 px). M1.13c spec same proximity update; × ÷ operator
+  assertions moved from chip text to row container text;
+  validation flip uses chip testId for data-state and row testId
+  for issue chip child. All 3 specs pass in parallel (17.6s total).
+
+**M1.13d pattern decisions for downstream phases:**
+- EquationRow is the canonical layout for "input drives a derived
+  value" UX whenever the calculation reads naturally as a math
+  equation (≤ 3 input fields). VerifiedResult remains correct for
+  contexts where the data shape is sum-of-rows, free-form
+  derivation, or single-line summary that does not split cleanly
+  into N input fields × 1 result.
+- Derived field rendering is the missing M1.13c piece. By making
+  upstream-computed values visible as read-only dashed boxes IN
+  THE ROW that consumes them, the user reads the calc chain
+  visually instead of having to remember "which value did this
+  come from". Footprint feeding Podium GFA + Public Area is the
+  prototypical case; same applies to MEP / BoH / Other feeding
+  Net GFA in the cascade.
+- Section headers stay as subtle uppercase dividers (small font,
+  thin top border, var(--color-heading) + meta letter-spacing),
+  not boxed cards. They group related rows but never compete
+  with the rows for attention.
+- testIds split into two layers: row-{name}-{plotId} on the
+  EquationRow container (use for: targeting the issue chip
+  child, assertions about the whole row) and formula-{name}-
+  {plotId} on the chip (use for: data-state checks, text content
+  of the resolved value). The split lets specs check both row-
+  level and chip-level contracts cleanly.
+- Validation issue callouts render as siblings of the row content,
+  not children of the chip. This keeps the chip a single text
+  node (easier to toContainText against) while the issue text
+  reads as a sentence below the row when applicable.
 
 **M1.13c pattern decisions for downstream phases:**
 - VerifiedResult is the canonical primitive for "input drives a
