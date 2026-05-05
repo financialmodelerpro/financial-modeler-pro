@@ -27,7 +27,7 @@
  * The caller owns those side effects.
  */
 
-import type { ModelType } from '@core/types/project.types';
+import type { LandParcel, ModelType } from '@core/types/project.types';
 import type { HydrateSnapshot } from '../state/module1-store';
 import { DEFAULT_MODULE1_STATE } from '../state/module1-store';
 import type {
@@ -154,12 +154,30 @@ export function buildWizardSnapshot(draft: WizardDraft): BuildWizardSnapshotResu
     });
   }
 
+  // ── Land Parcels (M1.12, captured in Step 2) ──
+  // Wizard rows map directly into the persistence shape. Falls back to
+  // the seed default when the draft somehow arrives empty (defence
+  // against pre-M1.12 wizard drafts in flight at deploy time).
+  const wizardParcels: LandParcel[] = draft.parcels.length > 0
+    ? draft.parcels.map(p => ({
+        id:        p.id,
+        name:      p.name.trim() || `Land ${p.id}`,
+        area:      Number.isFinite(p.area) ? p.area : 0,
+        rate:      Number.isFinite(p.rate) ? p.rate : 0,
+        cashPct:   Math.max(0, Math.min(100, p.cashPct)),
+        inKindPct: Math.max(0, Math.min(100, p.inKindPct)),
+      }))
+    : DEFAULT_MODULE1_STATE.landParcels;
+
   // ── Plots (plotCount of them, all bound to Phase 1) ──
-  // Plot area is split evenly from the default land parcel size (100k sqm)
-  // so the wizard projects total land area is ~constant regardless of
-  // plotCount. Users edit per-plot from the Area Program tab.
+  // Plot area is split evenly from the wizard's total parcel area so the
+  // Build Program reconciliation row reads "matches" out of the gate.
+  // Falls back to the legacy seed (100k sqm) when parcels somehow arrive
+  // with zero total area, the Land vs Plot warning then surfaces in
+  // Build Program for the user to investigate.
   const phase1Id      = phases[0].id;
-  const seedLandArea  = DEFAULT_MODULE1_STATE.landParcels[0]?.area ?? 100_000;
+  const totalParcelArea = wizardParcels.reduce((s, p) => s + (p.area || 0), 0);
+  const seedLandArea  = totalParcelArea > 0 ? totalParcelArea : (DEFAULT_MODULE1_STATE.landParcels[0]?.area ?? 100_000);
   const plotAreaEach  = Math.round(seedLandArea / draft.plotCount);
   const plots: Plot[] = [];
   for (let i = 0; i < draft.plotCount; i++) {
@@ -220,6 +238,7 @@ export function buildWizardSnapshot(draft: WizardDraft): BuildWizardSnapshotResu
     modelType:    draft.modelType as ModelType,
     projectStart: draft.startDate,
     masterHolding,
+    landParcels:  wizardParcels,
     subProjects:  [subProject],
     phases,
     plots,

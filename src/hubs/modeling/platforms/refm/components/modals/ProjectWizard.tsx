@@ -69,6 +69,20 @@ export interface WizardDraftAsset {
   strategy:      AssetStrategy;
 }
 
+// ── Wizard land parcel row (Step 2, M1.12) ────────────────────────────────
+// Parcel acquisition (area + rate + cash/in-kind split) captured upfront
+// so the wizard mints a populated landParcels[] in the snapshot. `id` is
+// the numeric LandParcel id used by the rest of REFM; the wizard issues
+// 1-indexed ids in row order.
+export interface WizardDraftParcel {
+  id:        number;
+  name:      string;
+  area:      number;
+  rate:      number;
+  cashPct:   number;
+  inKindPct: number;
+}
+
 // ── Full wizard draft ──────────────────────────────────────────────────────
 // Single source of truth for everything the user has entered so far.
 // Held in this component's local useState; never leaks to the store
@@ -103,6 +117,12 @@ export interface WizardDraft {
   constructionPeriods: number;
   operationsPeriods:   number;
   overlapPeriods:      number;
+  // M1.12, Land Parcels captured upfront. The Land tab is gone; parcels
+  // live here at creation time and on the Build Program tab afterwards.
+  // Default 1 parcel of 100,000 sqm at 500/sqm with a 60/40 cash split,
+  // matching DEFAULT_MODULE1_STATE so wizard projects mint identical
+  // baselines to the legacy create flow.
+  parcels:             WizardDraftParcel[];
 
   // Step 3
   wizardProjectType: WizardProjectType;
@@ -182,6 +202,12 @@ export function makeWizardDefaultDraft(): WizardDraft {
     constructionPeriods: 4,
     operationsPeriods:   5,
     overlapPeriods:      0,
+    // M1.12, default single parcel matches DEFAULT_MODULE1_STATE so
+    // existing snapshot fixtures stay bit-identical when a wizard
+    // project lands at default values.
+    parcels: [{
+      id: 1, name: 'Land 1', area: 100000, rate: 500, cashPct: 60, inKindPct: 40,
+    }],
     wizardProjectType:   'Mixed-Use',
     // Pre-seed with the Mixed-Use defaults so Step 3 opens with a
     // populated list. The user can change the project type at any time
@@ -202,6 +228,12 @@ function assetSignature(assets: WizardDraftAsset[]): string {
   return assets.map(a => `${a.name}:${a.type}:${a.category}:${a.allocationPct}:${a.strategy}`).join('|');
 }
 
+// M1.12, parcel signature mirrors assetSignature so dirty detection
+// catches edits to land parcels in Step 2.
+function parcelSignature(parcels: WizardDraftParcel[]): string {
+  return parcels.map(p => `${p.name}:${p.area}:${p.rate}:${p.cashPct}:${p.inKindPct}`).join('|');
+}
+
 function isDraftDirty(d: WizardDraft, seed: WizardDraft): boolean {
   return (
     d.name !== seed.name ||
@@ -218,7 +250,8 @@ function isDraftDirty(d: WizardDraft, seed: WizardDraft): boolean {
     d.operationsPeriods !== seed.operationsPeriods ||
     d.overlapPeriods !== seed.overlapPeriods ||
     d.wizardProjectType !== seed.wizardProjectType ||
-    assetSignature(d.assets) !== assetSignature(seed.assets)
+    assetSignature(d.assets) !== assetSignature(seed.assets) ||
+    parcelSignature(d.parcels) !== parcelSignature(seed.parcels)
   );
 }
 
@@ -310,10 +343,22 @@ export default function ProjectWizard({ onCreate, onClose }: ProjectWizardProps)
   // Step 1 valid: name + location both filled.
   // Steps 2/3 will tighten validation in their respective commits.
   const step1Valid = draft.name.trim().length > 0 && draft.location.trim().length > 0;
+  // M1.12, every parcel must have a positive area + non-negative rate +
+  // a cash/in-kind split that sums to 100. We allow rate=0 for in-kind-
+  // only contributions (cashPct=0, inKindPct=100) but always require
+  // some land area, otherwise total project GFA collapses to zero.
+  const step2ParcelsValid = draft.parcels.length >= 1
+    && draft.parcels.every(p =>
+      p.area > 0
+      && p.rate >= 0
+      && p.cashPct >= 0 && p.cashPct <= 100
+      && Math.abs(p.cashPct + p.inKindPct - 100) < 0.01,
+    );
   const step2Valid = draft.phaseCount >= 1 && draft.phaseCount <= 10
     && draft.plotCount >= 1 && draft.plotCount <= 20
     && draft.constructionPeriods >= 1 && draft.operationsPeriods >= 1
-    && draft.overlapPeriods >= 0 && draft.overlapPeriods <= draft.constructionPeriods;
+    && draft.overlapPeriods >= 0 && draft.overlapPeriods <= draft.constructionPeriods
+    && step2ParcelsValid;
   // Step 3 valid: at least 1 asset AND total allocation sums to 100%
   // within a 0.1 tolerance. M1.11/M8 bumped this from 0.01 because manual
   // entry of equal thirds (33.333 x 3) rounds to 99.999 in float math, and
@@ -901,6 +946,180 @@ function Step2Structure({ draft, setDraft }: Step2Props) {
             </label>
           </div>
         </div>
+
+        {/* M1.12, Land Parcels capture. Replaces the dissolved Land tab.
+            Each row stores area + rate + cash/in-kind split; +Add Parcel
+            seeds a new row with the same defaults as
+            DEFAULT_MODULE1_STATE.landParcels[0]. Users can edit further
+            from Build Program after the project is created. */}
+        <Step2LandParcels draft={draft} setDraft={setDraft} />
+      </div>
+    </div>
+  );
+}
+
+// ── Step 2 Land Parcels block (M1.12) ─────────────────────────────────────
+// Extracted from Step2Structure so the parcel rows + totals + add/remove
+// handlers don't bloat the main step body. Rendered inline at the bottom
+// of Step 2 in the same vertical column.
+function Step2LandParcels({ draft, setDraft }: Step2Props) {
+  const totalArea  = draft.parcels.reduce((s, p) => s + (Number.isFinite(p.area) ? p.area : 0), 0);
+  const totalValue = draft.parcels.reduce((s, p) => s + p.area * p.rate, 0);
+  const cashValue  = draft.parcels.reduce((s, p) => s + p.area * p.rate * (p.cashPct / 100), 0);
+
+  const addParcel = () => {
+    setDraft(prev => {
+      const nextId = (prev.parcels.length === 0 ? 1 : Math.max(...prev.parcels.map(p => p.id)) + 1);
+      return {
+        ...prev,
+        parcels: [...prev.parcels, {
+          id: nextId, name: `Land ${nextId}`,
+          area: 100000, rate: 500, cashPct: 60, inKindPct: 40,
+        }],
+      };
+    });
+  };
+
+  const updateParcel = (id: number, field: keyof WizardDraftParcel, value: string | number) => {
+    setDraft(prev => ({
+      ...prev,
+      parcels: prev.parcels.map(p => {
+        if (p.id !== id) return p;
+        const next = { ...p, [field]: value };
+        if (field === 'cashPct')   next.inKindPct = 100 - Number(value);
+        if (field === 'inKindPct') next.cashPct   = 100 - Number(value);
+        return next;
+      }),
+    }));
+  };
+
+  const removeParcel = (id: number) => {
+    setDraft(prev => prev.parcels.length <= 1
+      ? prev
+      : { ...prev, parcels: prev.parcels.filter(p => p.id !== id) },
+    );
+  };
+
+  return (
+    <div data-testid="wizard-parcels-section">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <span style={labelTextStyle}>Land Parcels</span>
+        <button
+          type="button"
+          onClick={addParcel}
+          data-testid="wizard-add-parcel"
+          style={{
+            padding: '4px 10px',
+            border: '1px solid var(--color-primary)',
+            borderRadius: 'var(--radius-sm)',
+            background: 'var(--color-surface)', color: 'var(--color-primary)',
+            fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', cursor: 'pointer',
+          }}
+        >
+          + Add Parcel
+        </button>
+      </div>
+      <div style={{
+        fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 2,
+      }}>
+        Acquisition footprint, what land are you buying or contributing
+        in-kind? You can add or edit parcels later from Build Program.
+      </div>
+
+      <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {draft.parcels.map(p => (
+          <div
+            key={p.id}
+            data-testid={`wizard-parcel-row-${p.id}`}
+            style={{
+              display: 'grid',
+              gridTemplateColumns: '1.4fr 1fr 1fr 0.8fr 0.8fr auto',
+              gap: 6,
+              alignItems: 'center',
+            }}
+          >
+            <input
+              type="text"
+              value={p.name}
+              onChange={e => updateParcel(p.id, 'name', e.target.value)}
+              placeholder="Parcel name"
+              style={wizardInputStyle}
+              data-testid={`wizard-parcel-${p.id}-name`}
+            />
+            <input
+              type="number"
+              min={0}
+              value={p.area}
+              onChange={e => updateParcel(p.id, 'area', Number(e.target.value))}
+              placeholder="Area (sqm)"
+              style={{ ...wizardInputStyle, textAlign: 'right' }}
+              data-testid={`wizard-parcel-${p.id}-area`}
+            />
+            <input
+              type="number"
+              min={0}
+              value={p.rate}
+              onChange={e => updateParcel(p.id, 'rate', Number(e.target.value))}
+              placeholder={`Rate (${draft.currency}/sqm)`}
+              style={{ ...wizardInputStyle, textAlign: 'right' }}
+              data-testid={`wizard-parcel-${p.id}-rate`}
+            />
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={p.cashPct}
+              onChange={e => updateParcel(p.id, 'cashPct', Number(e.target.value))}
+              placeholder="Cash %"
+              style={{ ...wizardInputStyle, textAlign: 'right' }}
+              data-testid={`wizard-parcel-${p.id}-cashPct`}
+            />
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={p.inKindPct}
+              onChange={e => updateParcel(p.id, 'inKindPct', Number(e.target.value))}
+              placeholder="In-Kind %"
+              style={{ ...wizardInputStyle, textAlign: 'right' }}
+              data-testid={`wizard-parcel-${p.id}-inKindPct`}
+            />
+            <button
+              type="button"
+              onClick={() => removeParcel(p.id)}
+              disabled={draft.parcels.length <= 1}
+              aria-label={`Remove ${p.name}`}
+              style={{
+                padding: '4px 8px',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-sm)',
+                background: 'var(--color-surface)',
+                color: draft.parcels.length <= 1 ? 'var(--color-meta)' : 'var(--color-negative)',
+                fontSize: 'var(--font-meta)', cursor: draft.parcels.length <= 1 ? 'not-allowed' : 'pointer',
+              }}
+              data-testid={`wizard-parcel-${p.id}-remove`}
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div
+        data-testid="wizard-parcels-totals"
+        style={{
+          marginTop: 6, padding: '6px 10px',
+          background: 'var(--color-grey-pale)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-sm)',
+          fontSize: 'var(--font-meta)', color: 'var(--color-heading)',
+          fontWeight: 'var(--fw-semibold)',
+          display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8,
+        }}
+      >
+        <span>Total area: <strong>{totalArea.toLocaleString()} sqm</strong></span>
+        <span>Total value: <strong>{totalValue.toLocaleString()} {draft.currency}</strong></span>
+        <span>Cash share: <strong>{totalValue > 0 ? ((cashValue / totalValue) * 100).toFixed(1) : '0.0'}%</strong></span>
       </div>
     </div>
   );
