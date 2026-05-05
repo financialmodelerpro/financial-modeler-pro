@@ -771,15 +771,22 @@ export interface SubmitAssessmentResult {
   results?: QuestionResult[];
 }
 
-/** Fetch questions for a given tab key. */
+/** Fetch questions for a given tab key.
+ *
+ * `isFinal` is forwarded to Apps Script so the model-submission gate (which
+ * is supposed to apply only to Final Exams) cannot mistakenly block per-
+ * session quizzes. Older Apps Script revisions ignore unknown params, so
+ * this is safe to send unconditionally. */
 export async function getAssessmentQuestions(
   tabKey: string,
   email: string,
   regId: string,
   shuffle?: boolean,
+  isFinal?: boolean,
 ): Promise<ScriptResponse<AssessmentQuestionsData>> {
   const params: Record<string, string> = { action: 'getQuestions', tabKey, email, regId };
   if (shuffle === false) params.shuffle = 'false';
+  if (typeof isFinal === 'boolean') params.isFinal = isFinal ? 'true' : 'false';
   return callScript<AssessmentQuestionsData>(params);
 }
 

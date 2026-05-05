@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAssessmentQuestions } from '@/src/hubs/training/lib/appsScript/sheets';
+import { resolveIsFinal, looksLikeModelGateError } from '@/src/hubs/training/lib/assessment/modelGateScope';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -12,11 +13,28 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ success: false, error: 'Missing tabKey, email, or regId' }, { status: 400 });
   }
 
-  const result = await getAssessmentQuestions(tabKey, email, regId, shuffle === 'false' ? false : undefined);
+  // Assessment-type check: derive isFinal from the static COURSES config so
+  // the model-submission gate can only fire on a Final Exam. Forward the
+  // hint to Apps Script (defense-in-depth on that side once it honours the
+  // param) and use it locally to filter misfired model-gate errors.
+  const isFinal = resolveIsFinal(tabKey);
+
+  const result = await getAssessmentQuestions(
+    tabKey,
+    email,
+    regId,
+    shuffle === 'false' ? false : undefined,
+    isFinal,
+  );
 
   if (!result.success) {
-    console.error('[questions] getAssessmentQuestions failed:', result.error, { tabKey, email });
-    return NextResponse.json({ success: false, error: result.error ?? 'Failed to load questions' });
+    const rawError = result.error ?? 'Failed to load questions';
+    if (!isFinal && looksLikeModelGateError(rawError)) {
+      console.error('[questions] Apps Script applied model gate to non-final session, ignoring:', { tabKey, rawError });
+      return NextResponse.json({ success: false, error: 'Could not load questions. Please try again or contact support.' });
+    }
+    console.error('[questions] getAssessmentQuestions failed:', rawError, { tabKey, email });
+    return NextResponse.json({ success: false, error: rawError });
   }
 
   // Normalize question fields - handle both nested `data` and flat root shapes
@@ -39,7 +57,7 @@ export async function GET(req: NextRequest) {
     tabKey:       nested?.tabKey       ?? raw.tabKey       ?? tabKey,
     sessionName:  nested?.sessionName  ?? raw.sessionName,
     course:       nested?.course       ?? raw.course,
-    isFinal:      nested?.isFinal      ?? raw.isFinal      ?? false,
+    isFinal:      nested?.isFinal      ?? raw.isFinal      ?? isFinal,
     questions:    normalizedQs,
     timeLimit:    nested?.timeLimit     ?? raw.timeLimit,
     passingScore: nested?.passingScore  ?? raw.passingScore,

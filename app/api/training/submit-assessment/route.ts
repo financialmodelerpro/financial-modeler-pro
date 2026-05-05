@@ -6,6 +6,7 @@ import { lockedOutTemplate } from '@/src/shared/email/templates/lockedOut';
 import { issueCertificateForStudent } from '@/src/hubs/training/lib/certificates/certificateEngine';
 import { deleteInProgressForKey } from '@/src/hubs/training/lib/assessment/attemptInProgress';
 import { getModelSubmissionStatus } from '@/src/hubs/training/lib/modelSubmission/checkApproval';
+import { resolveIsFinal } from '@/src/hubs/training/lib/assessment/modelGateScope';
 
 // Cert generation (PDF render + satori/sharp badge + Storage upload + DB write
 // + email) averages 5-10s. Default of 10s on Hobby was right at the edge; 60s
@@ -67,7 +68,14 @@ export async function POST(req: NextRequest) {
     // hide the exam page from the dashboard; this is the defense-in-depth
     // layer that catches stale tabs, deeplinks, and direct cURL hits.
     // Dormant by default (per-course required flags ship 'false').
-    if (isFinal === true) {
+    //
+    // The gate fires only when both the client body claims isFinal AND the
+    // tabKey resolves to a known Final session in the COURSES config. This
+    // pinning prevents a misreported isFinal=true on a per-session quiz
+    // from triggering the gate, the regression that surfaced as Session 2
+    // students being told to upload a model.
+    const tabKeyIsFinal = resolveIsFinal(tabKey);
+    if (isFinal === true && tabKeyIsFinal) {
       const courseCodeForGate = tabKey.toUpperCase().startsWith('BVM') ? 'BVM' : '3SFM';
       const cleanEmailForGate = email.trim().toLowerCase();
       try {

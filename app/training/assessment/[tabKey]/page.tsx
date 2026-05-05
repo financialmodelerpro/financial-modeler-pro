@@ -72,6 +72,7 @@ import {
   getAttemptStateApi,
   firePauseOnUnload,
 } from '@/src/hubs/training/lib/assessment/attemptInProgressClient';
+import { resolveIsFinal } from '@/src/hubs/training/lib/assessment/modelGateScope';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -197,7 +198,11 @@ export default function AssessmentPage() {
     // sees the unified ModelSubmissionCard + Final Exam Lock panel instead
     // of a deeplink that would 403 on submit. Non-final tab keys skip the
     // check. Failure modes are fail-open (cert engine still gates issuance).
-    if (tabKey.toUpperCase().endsWith('_FINAL')) {
+    //
+    // Resolution goes through resolveIsFinal so the scoping is canonical
+    // (looks up the session in COURSES) instead of a tabKey suffix string
+    // match, which is fragile across Apps Script naming variants.
+    if (resolveIsFinal(tabKey)) {
       try {
         const courseCode = tabKey.toUpperCase().startsWith('BVM') ? 'BVM' : '3SFM';
         const gateRes = await fetch(`/api/training/model-submission?courseCode=${courseCode}`);
