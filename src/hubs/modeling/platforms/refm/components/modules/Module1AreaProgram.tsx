@@ -47,7 +47,6 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import PlotSetupWizard from '../modals/PlotSetupWizard';
 import ParcelSetupWizard from '../modals/ParcelSetupWizard';
 import InputLabel from '../ui/InputLabel';
-import FormulaCaption from '../ui/FormulaCaption';
 import VerifiedResult, { type VerifiedState } from '../ui/VerifiedResult';
 import { PLOT_FIELD_HELP } from '../../lib/copy/plotFieldHelp';
 import { ASSET_STRATEGY_HELP } from '../../lib/copy/assetStrategyHelp';

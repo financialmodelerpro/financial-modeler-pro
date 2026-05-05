@@ -301,12 +301,14 @@ test.describe('M1.13b inline-formula layout (no panels, formulas adjacent to inp
       `formula-basement-capacity-${id}`, 'Build Program: Basement Efficiency -> Basement Capacity');
 
     // Live recompute: edit Max FAR and the Max GFA caption text changes
-    // in place (no unmount).
+    // in place (no unmount). M1.13c uses × (Unicode multiply) instead
+    // of ASCII *, so we assert the substituted text contains the new
+    // operator.
     const farInput = page.locator(`#plot-${id}-maxFAR`);
     await farInput.fill('5');
-    await expect(page.getByTestId(`formula-max-gfa-${id}`)).toContainText('* 5 =', { timeout: 3_000 });
+    await expect(page.getByTestId(`formula-max-gfa-${id}`)).toContainText('× 5', { timeout: 3_000 });
     await page.locator(`#plot-${id}-plotArea`).fill('200000');
-    await expect(page.getByTestId(`formula-max-gfa-${id}`)).toContainText('200,000 * 5', { timeout: 3_000 });
+    await expect(page.getByTestId(`formula-max-gfa-${id}`)).toContainText('200,000 × 5', { timeout: 3_000 });
 
     await page.screenshot({ path: resolve(SCREENSHOT_DIR, 'light-build-program.png'), fullPage: true });
 
