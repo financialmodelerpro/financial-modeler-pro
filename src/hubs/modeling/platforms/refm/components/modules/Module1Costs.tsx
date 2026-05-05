@@ -92,6 +92,15 @@ const calcOutputStyle: React.CSSProperties = {
   fontWeight: 'var(--fw-semibold)',
 };
 
+// M1.12, white-on-navy variant for InputLabel placed inside table-standard
+// <th> cells. The default body color renders dark on the navy header
+// background; FAST contrast convention is white uppercase labels so the
+// column titles stay legible in both light and dark mode.
+const tableHeaderLabelStyle: React.CSSProperties = {
+  color: 'var(--color-on-primary-navy)',
+  fontWeight: 'var(--fw-bold)',
+};
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function getPeriodLabel(idx: number, projectStart: string, modelType: 'monthly' | 'annual'): string {
@@ -521,24 +530,28 @@ function CostTable({
                 <InputLabel
                   label="Cost Name"
                   help="A short identifier for this cost row. Pick something you would recognise on a P and L (e.g., Site Preparation, Architect Fees, Permit Fees)."
+                  textStyle={tableHeaderLabelStyle}
                 />
               </th>
               <th style={{ minWidth: 90 }}>
                 <InputLabel
                   label="Stage / Scope"
                   help="Stage groups costs into 1 (Direct, hard construction), 2 (Shared, soft costs and overheads), or 3 (Derived, percentage-based on other costs). Scope flags the cost as Land, Hard, Soft, or Other for the V14 schema."
+                  textStyle={tableHeaderLabelStyle}
                 />
               </th>
               <th style={{ minWidth: 200 }}>
                 <InputLabel
                   label="Method / Base"
                   help="How this cost is computed. Fixed Amount: enter a number. Rate times Area: rate per sqm of GFA, BUA, NDA, Roads, or Total Land. Percent of Selected: a percentage of another cost row you pick. Percent of Land Value: percentage of total, cash, or in-kind land value."
+                  textStyle={tableHeaderLabelStyle}
                 />
               </th>
               <th style={{ minWidth: 80 }}>
                 <InputLabel
                   label="Input Value"
                   help="The number you enter. For Fixed methods this is currency. For Rate methods this is per sqm. For Percent methods this is 0 to 100."
+                  textStyle={tableHeaderLabelStyle}
                 />
               </th>
               <th style={{ minWidth: 100 }}>Total ({currency})</th>
@@ -546,18 +559,21 @@ function CostTable({
                 <InputLabel
                   label="Start"
                   help="First period this cost draws (1-indexed). Period 1 is the first month or year of construction depending on model granularity."
+                  textStyle={tableHeaderLabelStyle}
                 />
               </th>
               <th style={{ minWidth: 60 }}>
                 <InputLabel
                   label="End"
                   help="Last period this cost draws. Together with Start, defines the cost's draw window inside the construction period."
+                  textStyle={tableHeaderLabelStyle}
                 />
               </th>
               <th style={{ minWidth: 90 }}>
                 <InputLabel
                   label="Phasing"
                   help="How the total spreads across the Start to End window. Even spreads equally across periods. S-curve front-loads slowly, peaks mid, tails off. Manual lets you enter per-period percentages."
+                  textStyle={tableHeaderLabelStyle}
                 />
               </th>
               {!readOnly && <th style={{ width: 40 }}>Del</th>}
