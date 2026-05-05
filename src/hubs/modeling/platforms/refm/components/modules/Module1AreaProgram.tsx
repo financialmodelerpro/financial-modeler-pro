@@ -105,6 +105,43 @@ const cardStyle: React.CSSProperties = {
   marginBottom: 'var(--sp-3)',
 };
 
+// M1.13b: small section divider for the inline-formula layout. Sits
+// above each input cluster and carries a thin top border so the
+// envelope -> podium -> typical -> public area -> parking flow reads
+// like a sequence rather than one undifferentiated form.
+const sectionHeaderStyle: React.CSSProperties = {
+  fontSize: 'var(--font-meta)',
+  fontWeight: 'var(--fw-bold)',
+  color: 'var(--color-heading)',
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+  padding: '10px 0 6px',
+  borderTop: '1px solid var(--color-border)',
+  marginTop: 'var(--sp-1)',
+};
+
+function SectionHeader({ label, testId }: { label: string; testId?: string }) {
+  return <div style={sectionHeaderStyle} data-testid={testId}>{label}</div>;
+}
+
+// M1.13b: small grouped grid wrapper. Inputs in a section sit in a
+// 2-col or 3-col grid (depending on count); formula captions sit
+// below the grid at full width.
+const sectionGridStyle = (cols: number): React.CSSProperties => ({
+  display: 'grid',
+  gridTemplateColumns: `repeat(${cols}, 1fr)`,
+  gap: 'var(--sp-2)',
+  marginBottom: 'var(--sp-1)',
+});
+
+const formulaStackStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  marginTop: 6,
+  marginBottom: 'var(--sp-2)',
+};
+
 const primaryBtnStyle: React.CSSProperties = {
   background: 'var(--color-primary)',
   color: 'var(--color-on-primary)',
@@ -191,21 +228,6 @@ function PlotEditor({ plot, allPlotsCount, onOpenWizard }: { plot: Plot; allPlot
     </div>
   );
 
-  // M1.13/2: each computed-output row optionally renders a FormulaCaption
-  // underneath so the user sees the input -> output mapping in plain
-  // English with current values. The grid stays 1fr auto so the value
-  // chip remains right-aligned; the formula spans both columns on its
-  // own line when present.
-  const calcRow = (label: string, value: number, suffix = 'sqm', formula?: string) => (
-    <div style={{ padding: '4px 0' }} data-testid={`calc-row-${label.replace(/\s+/g, '-').toLowerCase()}`}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 'var(--sp-2)', alignItems: 'center' }}>
-        <span style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)' }}>{label}</span>
-        <span style={{ ...calcOutputStyle, minWidth: 130 }}>{fmt(value)} {suffix}</span>
-      </div>
-      {formula && <FormulaCaption text={formula} />}
-    </div>
-  );
-
   const handleAddZone = () => {
     const nextN = zones.length + 1;
     addZone({ id: `zone_${plot.id}_${Date.now()}`, name: `Zone ${nextN}`, plotId: plot.id });
@@ -255,28 +277,118 @@ function PlotEditor({ plot, allPlotsCount, onOpenWizard }: { plot: Plot; allPlot
         <button onClick={handleDeletePlot} style={dangerBtnStyle} disabled={allPlotsCount <= 0} aria-label={`Delete ${plot.name}`}>Delete</button>
       </div>
 
-      {/* Inputs grid, M1.10b/2 reconciled: all 15 Plot writable fields,
-         same labels + order as PlotSetupWizard's 4 steps:
-         Envelope (3) -> Floors+PublicArea (6) -> Parking (6). */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-3)' }}>
-        {/* Envelope */}
-        {numField('plotArea',              'Plot Buildable Area', 'sqm')}
-        {numField('maxFAR',                'Max FAR',             'ratio')}
-        {numField('coveragePct',           'Podium Coverage',     '%')}
-        {/* Floors */}
-        {numField('numberOfFloors',        'Total Floors',        '#')}
-        {numField('podiumFloors',          'Podium Floors',       '#')}
-        {numField('typicalFloors',         'Typical Floors',      '#')}
-        {numField('typicalCoveragePct',    'Typical Coverage',    '%')}
-        {/* Public area allocation */}
-        {numField('landscapePct',          'Landscape',           '% public')}
-        {numField('hardscapePct',          'Hardscape',           '% public')}
-        {/* Parking */}
-        {numField('surfaceBaySqm',         'Surface Bay',         'sqm')}
-        {numField('verticalBaySqm',        'Vertical Bay',        'sqm')}
-        {numField('basementBaySqm',        'Basement Bay',        'sqm')}
-        {numField('basementCount',         'Basement Count',      '#')}
-        {numField('basementEfficiencyPct', 'Basement Efficiency', '%')}
+      {/* M1.13b: inputs grouped into 5 ordered sections with formula
+         captions sitting directly below the input row that completes
+         them. Eliminates the previous "Computed envelope" panel; every
+         derived value lives next to its driving inputs.
+         Order: Plot Envelope -> Podium -> Typical Tower -> Total Floors
+         (check) -> Public Area Split -> Parking. */}
+
+      {/* Section: Plot Envelope */}
+      <SectionHeader label="Plot envelope" testId={`section-envelope-${plot.id}`} />
+      <div style={sectionGridStyle(2)}>
+        {numField('plotArea', 'Plot Buildable Area', 'sqm')}
+        {numField('maxFAR',   'Max FAR',             'ratio')}
+      </div>
+      <div style={formulaStackStyle}>
+        <FormulaCaption
+          testId={`formula-max-gfa-${plot.id}`}
+          text={`Max GFA = Plot Area * Max FAR = ${fmt(plot.plotArea)} * ${plot.maxFAR} = ${fmt(envelope.maxGFA)} sqm`}
+        />
+      </div>
+
+      {/* Section: Podium */}
+      <SectionHeader label="Podium" testId={`section-podium-${plot.id}`} />
+      <div style={sectionGridStyle(2)}>
+        {numField('coveragePct',  'Podium Coverage', '%')}
+        {numField('podiumFloors', 'Podium Floors',   '#')}
+      </div>
+      <div style={formulaStackStyle}>
+        <FormulaCaption
+          testId={`formula-footprint-${plot.id}`}
+          text={`Footprint = Plot Area * Podium Coverage = ${fmt(plot.plotArea)} * ${plot.coveragePct}% = ${fmt(envelope.footprint)} sqm`}
+        />
+        <FormulaCaption
+          testId={`formula-podium-gfa-${plot.id}`}
+          text={`Podium GFA = Footprint * Podium Floors = ${fmt(envelope.footprint)} * ${plot.podiumFloors} = ${fmt(envelope.podiumGFA)} sqm`}
+        />
+        <FormulaCaption
+          testId={`formula-public-area-${plot.id}`}
+          text={`Public Area = Plot Area - Footprint = ${fmt(plot.plotArea)} - ${fmt(envelope.footprint)} = ${fmt(envelope.publicArea)} sqm`}
+        />
+      </div>
+
+      {/* Section: Typical Tower */}
+      <SectionHeader label="Typical tower" testId={`section-typical-${plot.id}`} />
+      <div style={sectionGridStyle(2)}>
+        {numField('typicalCoveragePct', 'Typical Coverage', '%')}
+        {numField('typicalFloors',      'Typical Floors',   '#')}
+      </div>
+      <div style={formulaStackStyle}>
+        <FormulaCaption
+          testId={`formula-typical-gfa-${plot.id}`}
+          text={`Typical GFA = Plot Area * Typical Coverage * Typical Floors = ${fmt(plot.plotArea)} * ${plot.typicalCoveragePct}% * ${plot.typicalFloors} = ${fmt(envelope.typicalGFA)} sqm`}
+        />
+        <FormulaCaption
+          testId={`formula-total-built-${plot.id}`}
+          text={`Total Built GFA = Podium GFA + Typical GFA = ${fmt(envelope.podiumGFA)} + ${fmt(envelope.typicalGFA)} = ${fmt(envelope.totalBuiltGFA)} sqm (utilization ${fmt(envelope.utilizationPct, 1)}% of Max GFA)`}
+        />
+      </div>
+
+      {/* Section: Total Floors check (informational, not a calc input
+         in the envelope chain; kept so users can sanity-check
+         podium + typical against total). */}
+      <SectionHeader label="Floors check" testId={`section-floors-check-${plot.id}`} />
+      <div style={sectionGridStyle(2)}>
+        {numField('numberOfFloors', 'Total Floors', '#')}
+        <div />
+      </div>
+      <div style={formulaStackStyle}>
+        <FormulaCaption
+          testId={`formula-floors-check-${plot.id}`}
+          text={`Sanity check: Podium Floors + Typical Floors = ${plot.podiumFloors} + ${plot.typicalFloors} = ${plot.podiumFloors + plot.typicalFloors} floors${plot.numberOfFloors !== plot.podiumFloors + plot.typicalFloors ? ` (does not match Total Floors ${plot.numberOfFloors})` : ' (matches Total Floors)'}`}
+        />
+      </div>
+
+      {/* Section: Public area split */}
+      <SectionHeader label="Public area split" testId={`section-public-area-${plot.id}`} />
+      <div style={sectionGridStyle(2)}>
+        {numField('landscapePct', 'Landscape', '% public')}
+        {numField('hardscapePct', 'Hardscape', '% public')}
+      </div>
+      <div style={formulaStackStyle}>
+        <FormulaCaption
+          testId={`formula-landscape-${plot.id}`}
+          text={`Landscape Area = Public Area * Landscape % = ${fmt(envelope.publicArea)} * ${plot.landscapePct}% = ${fmt(envelope.landscapeArea)} sqm`}
+        />
+        <FormulaCaption
+          testId={`formula-hardscape-${plot.id}`}
+          text={`Hardscape Area = Public Area * Hardscape % = ${fmt(envelope.publicArea)} * ${plot.hardscapePct}% = ${fmt(envelope.hardscapeArea)} sqm`}
+        />
+        <FormulaCaption
+          testId={`formula-surface-parking-${plot.id}`}
+          text={`Surface Parking = Public Area - Landscape - Hardscape = ${fmt(envelope.publicArea)} - ${fmt(envelope.landscapeArea)} - ${fmt(envelope.hardscapeArea)} = ${fmt(envelope.surfaceParkingArea)} sqm`}
+        />
+      </div>
+
+      {/* Section: Parking, three sub-clusters (surface / vertical /
+         basement). Each sub-cluster's formulas sit immediately below
+         the inputs that complete its capacity calculation. */}
+      <SectionHeader label="Parking, surface" testId={`section-parking-surface-${plot.id}`} />
+      <div style={sectionGridStyle(2)}>
+        {numField('surfaceBaySqm', 'Surface Bay', 'sqm')}
+        <div />
+      </div>
+      <div style={formulaStackStyle}>
+        <FormulaCaption
+          testId={`formula-surface-capacity-${plot.id}`}
+          text={`Surface Capacity = Surface Parking / Surface Bay = ${fmt(envelope.surfaceParkingArea)} / ${plot.surfaceBaySqm} = ${fmt(Math.floor(envelope.surfaceParkingArea / Math.max(1, plot.surfaceBaySqm)))} bays`}
+        />
+      </div>
+
+      <SectionHeader label="Parking, vertical" testId={`section-parking-vertical-${plot.id}`} />
+      <div style={sectionGridStyle(2)}>
+        {numField('verticalBaySqm', 'Vertical Bay', 'sqm')}
         <div style={{ display: 'block' }}>
           <InputLabel
             label="Vertical Parking Floors (#)"
@@ -292,46 +404,33 @@ function PlotEditor({ plot, allPlotsCount, onOpenWizard }: { plot: Plot; allPlot
           />
         </div>
       </div>
-
-      {/* Computed envelope, M1.13/2 each derived row carries an inline
-         plain-English formula with the live values substituted, so the
-         relationship between the inputs above and the result is visible
-         at a glance. The formula text recomputes in place on every input
-         edit (no layout reflow because the line is permanent and only
-         the inline numbers update). */}
-      <div style={{
-        background: 'var(--color-grey-pale)', borderRadius: 'var(--radius-sm)',
-        padding: 'var(--sp-2) var(--sp-3)', marginBottom: 'var(--sp-3)',
-      }} data-testid={`computed-envelope-${plot.id}`}>
-        <div style={{ ...labelStyle, marginBottom: 8 }}>Computed envelope (live formulas)</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--sp-3)' }}>
-          <div>
-            {calcRow('Max GFA',         envelope.maxGFA,        'sqm',
-              `Plot Area * Max FAR = ${fmt(plot.plotArea)} * ${plot.maxFAR} = ${fmt(envelope.maxGFA)} sqm`)}
-            {calcRow('Footprint',       envelope.footprint,     'sqm',
-              `Plot Area * Podium Coverage = ${fmt(plot.plotArea)} * ${plot.coveragePct}% = ${fmt(envelope.footprint)} sqm`)}
-            {calcRow('Podium GFA',      envelope.podiumGFA,     'sqm',
-              `Footprint * Podium Floors = ${fmt(envelope.footprint)} * ${plot.podiumFloors} = ${fmt(envelope.podiumGFA)} sqm`)}
-            {calcRow('Typical GFA',     envelope.typicalGFA,    'sqm',
-              `Plot Area * Typical Coverage * Typical Floors = ${fmt(plot.plotArea)} * ${plot.typicalCoveragePct}% * ${plot.typicalFloors} = ${fmt(envelope.typicalGFA)} sqm`)}
-            {calcRow('Total Built GFA', envelope.totalBuiltGFA, 'sqm',
-              `Podium GFA + Typical GFA = ${fmt(envelope.podiumGFA)} + ${fmt(envelope.typicalGFA)} = ${fmt(envelope.totalBuiltGFA)} sqm (utilization ${fmt(envelope.utilizationPct, 1)}% of Max GFA)`)}
-          </div>
-          <div>
-            {calcRow('Public Area',     envelope.publicArea,        'sqm',
-              `Plot Area - Footprint = ${fmt(plot.plotArea)} - ${fmt(envelope.footprint)} = ${fmt(envelope.publicArea)} sqm`)}
-            {calcRow('Landscape Area',  envelope.landscapeArea,     'sqm',
-              `Public Area * Landscape % = ${fmt(envelope.publicArea)} * ${plot.landscapePct}% = ${fmt(envelope.landscapeArea)} sqm`)}
-            {calcRow('Hardscape Area',  envelope.hardscapeArea,     'sqm',
-              `Public Area * Hardscape % = ${fmt(envelope.publicArea)} * ${plot.hardscapePct}% = ${fmt(envelope.hardscapeArea)} sqm`)}
-            {calcRow('Surface Parking', envelope.surfaceParkingArea,'sqm',
-              `Public Area - Landscape - Hardscape = ${fmt(envelope.publicArea)} - ${fmt(envelope.landscapeArea)} - ${fmt(envelope.hardscapeArea)} = ${fmt(envelope.surfaceParkingArea)} sqm`)}
-            {calcRow('Basement Usable', envelope.basementUsableArea,'sqm',
-              `Footprint * Basement Count * Basement Efficiency = ${fmt(envelope.footprint)} * ${plot.basementCount} * ${plot.basementEfficiencyPct}% = ${fmt(envelope.basementUsableArea)} sqm`)}
-          </div>
-        </div>
+      <div style={formulaStackStyle}>
+        <FormulaCaption
+          testId={`formula-vertical-capacity-${plot.id}`}
+          text={`Vertical Capacity = Footprint * Vertical Floors / Vertical Bay = ${fmt(envelope.footprint)} * ${plot.verticalParkingFloors ?? 0} / ${plot.verticalBaySqm} = ${fmt(Math.floor((envelope.footprint * (plot.verticalParkingFloors ?? 0)) / Math.max(1, plot.verticalBaySqm)))} bays`}
+        />
       </div>
 
+      <SectionHeader label="Parking, basement" testId={`section-parking-basement-${plot.id}`} />
+      <div style={sectionGridStyle(3)}>
+        {numField('basementBaySqm',         'Basement Bay',        'sqm')}
+        {numField('basementCount',          'Basement Count',      '#')}
+        {numField('basementEfficiencyPct',  'Basement Efficiency', '%')}
+      </div>
+      <div style={formulaStackStyle}>
+        <FormulaCaption
+          testId={`formula-basement-usable-${plot.id}`}
+          text={`Basement Usable = Footprint * Basement Count * Basement Efficiency = ${fmt(envelope.footprint)} * ${plot.basementCount} * ${plot.basementEfficiencyPct}% = ${fmt(envelope.basementUsableArea)} sqm`}
+        />
+        <FormulaCaption
+          testId={`formula-basement-capacity-${plot.id}`}
+          text={`Basement Capacity = Basement Usable / Basement Bay = ${fmt(envelope.basementUsableArea)} / ${plot.basementBaySqm} = ${fmt(Math.floor(envelope.basementUsableArea / Math.max(1, plot.basementBaySqm)))} bays`}
+        />
+      </div>
+
+      {/* Allocator summary, separate from envelope inputs because it
+         depends on sub-units (which live below this card). Stays as a
+         compact summary panel showing Required vs. Allocated bay flow. */}
       <ParkingSummary plot={plot} envelope={envelope} />
 
 
@@ -593,55 +692,61 @@ function AssetStrategyRow({ asset, envelope, plotAssetCount, totalAllocPctOnPlot
         </label>
       </div>
 
-      {/* Cascade preview, M1.13/2 each cell carries a plain-English
-         formula so the user reads how their Mix / Deduct / Efficiency
-         inputs (above) cascade into the GFA -> Net GFA -> GSA / GLA
-         chain. Live values substituted into the formula text on every
-         input edit. */}
+      {/* M1.13b: cascade output formulas inline. The "Cascade preview"
+         panel is dissolved; outputs render as a stack of formula
+         captions immediately under the MEP / BoH / Efficiency inputs
+         that drive them. GFA is the upstream input (override or pro-
+         rata), then MEP and BoH each compute their share, then Net
+         GFA, BUA Excl, TBA, and GSA / GLA roll up. */}
       {(() => {
         const mepPctEff = cascadePcts.mepPct;
         const bohPctEff = cascadePcts.backOfHousePct;
         const otherPctEff = cascadePcts.otherTechnicalPct;
         const effPctEff = asset.efficiencyPct ?? 80;
         return (
-          <div style={{
-            background: 'var(--color-grey-pale)', borderRadius: 'var(--radius-sm)',
-            padding: 'var(--sp-2)', marginBottom: 'var(--sp-2)',
-            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)',
-          }} data-testid={`cascade-preview-${asset.id}`}>
-            <CascadeCell label="GFA" value={cascade.gfa}
-              formula={asset.gfaOverrideSqm !== undefined
-                ? `manual override = ${fmt(cascade.gfa)} sqm`
-                : `pro-rata Total Built GFA / asset count = ${fmt(envelope.totalBuiltGFA)} / ${plotAssetCount} = ${fmt(cascade.gfa)} sqm`} />
-            <CascadeCell label="MEP" value={cascade.mep}
-              formula={`GFA * MEP % = ${fmt(cascade.gfa)} * ${mepPctEff}% = ${fmt(cascade.mep)} sqm`} />
-            <CascadeCell label="Net GFA" value={cascade.netGFA}
-              formula={`GFA - MEP - BoH - Other = ${fmt(cascade.gfa)} - ${fmt(cascade.mep)} - ${fmt(cascade.backOfHouse)} - ${fmt(cascade.otherTechnical)} = ${fmt(cascade.netGFA)} sqm`} />
-            <CascadeCell label="GSA / GLA" value={cascade.gsaGla}
-              formula={`Net GFA * Efficiency = ${fmt(cascade.netGFA)} * ${effPctEff}% = ${fmt(cascade.gsaGla)} sqm`} />
-            <CascadeCell label="BUA Excl." value={cascade.buaExcl}
-              formula={`GFA + BoH + Other = ${fmt(cascade.gfa)} + ${fmt(cascade.backOfHouse)} + ${fmt(cascade.otherTechnical)} = ${fmt(cascade.buaExcl)} sqm`} />
-            <CascadeCell label="TBA" value={cascade.tba}
-              formula={`BUA Excl + MEP + Basement Share = ${fmt(cascade.buaExcl)} + ${fmt(cascade.mep)} + 0 = ${fmt(cascade.tba)} sqm`} />
-            <CascadeCell label="Back-of-House" value={cascade.backOfHouse}
-              formula={`GFA * BoH % = ${fmt(cascade.gfa)} * ${bohPctEff}% = ${fmt(cascade.backOfHouse)} sqm`} />
-            <CascadeCell label="Other Tech." value={cascade.otherTechnical}
-              formula={`GFA * Other Tech % = ${fmt(cascade.gfa)} * ${otherPctEff}% = ${fmt(cascade.otherTechnical)} sqm`} />
+          <div
+            style={{ ...formulaStackStyle, marginBottom: 'var(--sp-2)' }}
+            data-testid={`cascade-formulas-${asset.id}`}
+          >
+            <FormulaCaption
+              testId={`formula-cascade-gfa-${asset.id}`}
+              text={asset.gfaOverrideSqm !== undefined
+                ? `GFA = manual override = ${fmt(cascade.gfa)} sqm`
+                : `GFA = Total Built GFA / asset count = ${fmt(envelope.totalBuiltGFA)} / ${plotAssetCount} = ${fmt(cascade.gfa)} sqm`}
+            />
+            <FormulaCaption
+              testId={`formula-cascade-mep-${asset.id}`}
+              text={`MEP = GFA * MEP % = ${fmt(cascade.gfa)} * ${mepPctEff}% = ${fmt(cascade.mep)} sqm`}
+            />
+            <FormulaCaption
+              testId={`formula-cascade-boh-${asset.id}`}
+              text={`Back-of-House = GFA * BoH % = ${fmt(cascade.gfa)} * ${bohPctEff}% = ${fmt(cascade.backOfHouse)} sqm`}
+            />
+            <FormulaCaption
+              testId={`formula-cascade-other-${asset.id}`}
+              text={`Other Tech = GFA * Other Tech % = ${fmt(cascade.gfa)} * ${otherPctEff}% = ${fmt(cascade.otherTechnical)} sqm`}
+            />
+            <FormulaCaption
+              testId={`formula-cascade-net-${asset.id}`}
+              text={`Net GFA = GFA - MEP - BoH - Other = ${fmt(cascade.gfa)} - ${fmt(cascade.mep)} - ${fmt(cascade.backOfHouse)} - ${fmt(cascade.otherTechnical)} = ${fmt(cascade.netGFA)} sqm`}
+            />
+            <FormulaCaption
+              testId={`formula-cascade-gsa-${asset.id}`}
+              text={`GSA / GLA = Net GFA * Efficiency = ${fmt(cascade.netGFA)} * ${effPctEff}% = ${fmt(cascade.gsaGla)} sqm`}
+            />
+            <FormulaCaption
+              testId={`formula-cascade-bua-${asset.id}`}
+              text={`BUA Excl = GFA + BoH + Other = ${fmt(cascade.gfa)} + ${fmt(cascade.backOfHouse)} + ${fmt(cascade.otherTechnical)} = ${fmt(cascade.buaExcl)} sqm`}
+            />
+            <FormulaCaption
+              testId={`formula-cascade-tba-${asset.id}`}
+              text={`TBA = BUA Excl + MEP + Basement Share = ${fmt(cascade.buaExcl)} + ${fmt(cascade.mep)} + 0 = ${fmt(cascade.tba)} sqm`}
+            />
           </div>
         );
       })()}
 
       <SubUnitTable assetId={asset.id} category={asset.category} />
-    </div>
-  );
-}
-
-function CascadeCell({ label, value, formula }: { label: string; value: number; formula?: string }) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column' }} data-testid={`cascade-cell-${label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}`}>
-      <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>{label}</span>
-      <span style={{ ...calcOutputStyle, textAlign: 'left' }}>{fmt(value)} sqm</span>
-      {formula && <FormulaCaption text={formula} />}
     </div>
   );
 }
