@@ -26,6 +26,7 @@ import React from 'react';
 import type { ModelType } from '@/src/core/types/project.types';
 import Module1Hierarchy from './Module1Hierarchy';
 import InputLabel from '../ui/InputLabel';
+import FormulaCaption from '../ui/FormulaCaption';
 import ProjectTimelineVisual from '../ui/ProjectTimelineVisual';
 
 // M1.11/M1: dead identity setters removed from props interface.
@@ -232,29 +233,51 @@ export default function Module1Timeline({
             </div>
           </div>
 
-          {/* Timeline summary, calculated outputs (FAST formula black-on-grey) */}
+          {/* Timeline summary, M1.13/3 each derived row carries an
+             inline plain-English formula so the user reads how the
+             Construction / Operations / Overlap inputs above flow into
+             Total Periods and Project End Date. */}
           <div style={{
             background: calcOutputStyle.background,
             border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius-sm)',
             padding: '12px',
             marginTop: 'var(--sp-1)',
-          }}>
+          }} data-testid="timeline-summary">
             <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-primary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>
-              Timeline Summary
+              Timeline Summary (live formulas)
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-              {[
-                { label: 'Start', value: projectStart },
-                { label: 'End',   value: endDate },
-                { label: 'Total Periods', value: `${effectivePeriods} ${periodLabel}` },
-                { label: 'Type', value: modelType === 'annual' ? 'Annual model' : 'Monthly model' },
-              ].map(item => (
-                <div key={item.label}>
-                  <div style={{ fontSize: '10px', color: 'var(--color-muted)', fontWeight: 600, textTransform: 'uppercase' }}>{item.label}</div>
-                  <div style={{ fontSize: 'var(--font-body)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)' }}>{item.value}</div>
-                </div>
-              ))}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div>
+                <div style={{ fontSize: '10px', color: 'var(--color-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Start</div>
+                <div style={{ fontSize: 'var(--font-body)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)' }}>{projectStart}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: '10px', color: 'var(--color-muted)', fontWeight: 600, textTransform: 'uppercase' }}>End</div>
+                <div style={{ fontSize: 'var(--font-body)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)' }}>{endDate}</div>
+                <FormulaCaption
+                  testId="timeline-formula-end"
+                  text={`Project Start + Total Periods (${effectivePeriods} ${periodLabel}) = ${endDate}`}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: '10px', color: 'var(--color-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Total Periods</div>
+                <div style={{ fontSize: 'var(--font-body)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)' }}>{effectivePeriods} {periodLabel}</div>
+                <FormulaCaption
+                  testId="timeline-formula-total-periods"
+                  text={`Construction + Operations - Overlap = ${constructionPeriods} + ${operationsPeriods} - ${overlapPeriods} = ${effectivePeriods} ${periodLabel}`}
+                />
+              </div>
+              <div>
+                <div style={{ fontSize: '10px', color: 'var(--color-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Type</div>
+                <div style={{ fontSize: 'var(--font-body)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)' }}>{modelType === 'annual' ? 'Annual model' : 'Monthly model'}</div>
+                <FormulaCaption
+                  testId="timeline-formula-type"
+                  text={modelType === 'annual'
+                    ? '1 period = 1 year, every cashflow bucket spans 12 months'
+                    : '1 period = 1 month, every cashflow bucket spans one calendar month'}
+                />
+              </div>
             </div>
           </div>
         </div>
