@@ -233,8 +233,9 @@ npx tsx --env-file=.env.local scripts/verify-m110.ts  # M1.10 setup-completeness
 npx tsx --env-file=.env.local scripts/verify-m110b.ts # M1.10b Plot Setup polish (18 pass / 0 fail / 0 skip with dev server)
 npx tsx --env-file=.env.local scripts/verify-m111.ts  # M1.11 holistic audit + fix pass (23 pass / 0 fail / 1 skip without dev server)
 npx tsx --env-file=.env.local scripts/verify-m112.ts  # M1.12 Land tab elimination + 4-tab consolidation (15 pass / 0 fail / 2 skip without dev server; 21 pass / 0 fail / 0 skip with dev server)
+npx tsx --env-file=.env.local scripts/verify-m113.ts  # M1.13 inline plain-English live formulas across 4 tabs (20 pass / 0 fail / 1 skip without dev server; 23 pass / 0 fail / 0 skip with dev server)
 
-# Playwright e2e specs (M1.8 + M1.9 + M1.9b + M1.10 + M1.10b + M1.11 + M1.12 regression-guards)
+# Playwright e2e specs (M1.8 + M1.9 + M1.9b + M1.10 + M1.10b + M1.11 + M1.12 + M1.13 regression-guards)
 npx playwright test tests/e2e/m18-wizard-repro.spec.ts     # 1 spec, wizard create does not crash
 npx playwright test tests/e2e/m18-wizard-flow.spec.ts      # 2 specs, every tab shows wizard data + reload persists
 npx playwright test tests/e2e/m19-redesign-flow.spec.ts    # 2 specs, wizard lands on Schedule tab + numbered tab row + light/dark screenshots
@@ -243,6 +244,7 @@ npx playwright test tests/e2e/m110-flow.spec.ts            # 3 specs, Mixed-Use 
 npx playwright test tests/e2e/m110b-flow.spec.ts           # 2 specs, Plot Setup Wizard portal-centers in viewport + tooltip a11y (focus reveal, Esc dismiss) + 15-field inline form + light/dark tooltip screenshots
 npx playwright test tests/e2e/m111-full-flow.spec.ts       # 2 specs, ProjectWizard portal regression guard + full first-time flow walking 5 tabs with M1.11 fix markers + 10 light/dark tab screenshots
 npx playwright test tests/e2e/m112-flow.spec.ts            # 2 specs, wizard Step 2 parcel CRUD + post-create 4-tab row (no Land) with parcel block on Build Program + 8 light/dark tab screenshots
+npx playwright test tests/e2e/m113-formulas.spec.ts        # 1 spec, walks all 4 tabs asserting FormulaCaption testIds + live recompute on Plot inputs + 8 light/dark tab screenshots
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -260,7 +262,7 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 **Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
 (`npx playwright install chromium`).
 
-### Module 1 status (2026-05-06, M1.12 closes the Land tab)
+### Module 1 status (2026-05-06, M1.13 makes Module 1 self-explanatory)
 **All sub-phases shipped:** M1.R (cost engine + Zustand restoration) → M1.5 (multi-asset
 + multi-phase + storage v3 bump) → M1.5b (UX polish + Quick Setup wizard inside Hierarchy)
 → M1.6 (Supabase persistence + version history) → M1.7 (Area Program tab + plots / zones
@@ -282,17 +284,31 @@ Module1Timeline, asset Strategy + Zone tooltips on Build Program, parcel state-p
 unified to Zustand setLand, shared parcelFieldHelp + assetStrategyHelp modules, Dev
 Costs phase-scope explainer + cost row tooltips, Financing per-line Debt % tooltip,
 em-dash sweep across the whole repo with new writing rule prohibiting reintroduction)
-→ **M1.12** (Land tab dissolved + tab consolidation 5→4: Land Parcels capture moved
+→ M1.12 (Land tab dissolved + tab consolidation 5→4: Land Parcels capture moved
 upfront into ProjectWizard Step 2 with default 100k @ 500 single-row seed and inline
 add/remove + live totals; Build Program grows a Land Parcels block at the top of the
 tab with the same CRUD surface plus the Setup Wizard CTA; Site Parameters Project
 Roads % / Project FAR / Non-Enclosed Area % no longer have a UI surface and live only
 on the per-Plot card under Build Program; Module 1 table headers gain the FAST
 contrast convention via tableHeaderLabelStyle / parcelHeaderLabelStyle (white-on-navy
-InputLabel) so column titles stay legible in light + dark mode). **Module 1 ships
-production-ready after M1.12; next phase is M2.0 (revenue, opex, deferred calc-engine
-refinements including the per-plot derive of project-level FAR / Roads / NEA still
-read by calculateAreaHierarchy from stored snapshot fields).**
+InputLabel) so column titles stay legible in light + dark mode)
+→ **M1.13** (Module 1 self-explanatory: a new FormulaCaption primitive renders a
+small italic "= <expression> = <values> = <result>" line adjacent to every derived
+output across all 4 tabs, with live values substituted into the plain-English
+formula on every input edit. Schedule: Total Periods + Project End Date + Type.
+Build Program: 10 envelope rows (Max GFA, Footprint, Podium GFA, Typical GFA, Total
+Built, Public Area, Landscape, Hardscape, Surface Parking, Basement Usable), 8
+asset cascade cells (GFA, MEP, Net GFA, GSA / GLA, BUA Excl, TBA, BoH, Other Tech),
+5 parking cells (Required + Surface / Vertical / Basement / Total Allocated with
+capacity = area / bay-size formulas), 3 Land Parcel totals captions. Dev Costs:
+per-row Method * Base = Total formula and a grand-total caption per asset. Financing:
+Debt = LTV * CapEx + Equity = (1 - LTV) * CapEx, Periodic Rate = Annual / 12,
+Repayment principal-per-period, plus the Debt Summary card rebuilt as 5 live-formula
+rows. No layout reflow because the line is permanent and only the inline numbers
+update). **Module 1 ships production-ready after M1.13; next phase is M2.0 (revenue,
+opex, deferred calc-engine refinements including the per-plot derive of project-
+level FAR / Roads / NEA still read by calculateAreaHierarchy from stored snapshot
+fields).**
 
 **M1.10 setup-completeness series (8 commits, 2026-05-05 → 2026-05-06, all snapshot diffs bit-identical):**
 - `d295dc8` 2/8: tune plot defaults so fresh plots stay inside FAR ceiling.
@@ -573,6 +589,92 @@ all snapshot diffs bit-identical):**
 - (this commit) 6/6 (docs sweep): CLAUDE.md M1.12 series block,
   scripts table entry, Playwright spec entry, Module 1 status header
   extended with the M1.12 completion line.
+
+**M1.13 Module 1 self-explanatory inline live formulas (7 commits,
+2026-05-06, all snapshot diffs bit-identical):**
+- `af3d429` 1/7 (primitive): src/hubs/modeling/platforms/refm/components/
+  ui/FormulaCaption.tsx. New shared primitive that renders a single
+  line of small italic meta-color text shaped "= <expression> =
+  <substituted with current values> = <result>". Caller passes the
+  fully formatted text + an optional testId; the primitive just
+  renders it on transparent background under the value chip so the
+  formula visually recedes behind the FAST grey calc-output style.
+  data-formula="true" attribute on every render so Playwright can
+  count captions per tab. Forbids em-dashes by convention (M1.11
+  writing rule).
+- `e87afe1` 2/7 (Build Program): Module1AreaProgram grows formula
+  captions on every derived output. calcRow + CascadeCell + ParkingCell
+  helpers each accept an optional formula prop; the legacy "Computed
+  envelope" panel now renders 10 plain-English formulas (Plot Area *
+  Max FAR for Max GFA, Footprint * Podium Floors for Podium GFA, etc.)
+  with live values substituted. Cascade preview gains 8 captions
+  walking the GFA -> MEP -> Net GFA -> GSA / GLA -> BUA -> TBA -> BoH
+  -> Other Tech chain. Parking summary gains 5 captions showing
+  capacity = area / bay-size for surface / vertical / basement.
+  LandParcelsBlock tfoot sprouts 3 captions for Total Area, Total
+  Value, weighted Cash %. data-testids: computed-envelope-{plotId},
+  cascade-preview-{assetId}, calc-row-{label}, cascade-cell-{label},
+  parking-cell-{label}, parcel-formula-area / -value / -cash.
+- `f35ac44` 3/7 (Schedule): Module1Timeline Timeline Summary panel
+  rebuilt as a 4-cell grid with FormulaCaption rows beneath End,
+  Total Periods, and Type. End formula: Project Start + Total Periods.
+  Total Periods formula: Construction + Operations - Overlap with the
+  three input numbers substituted live. Type formula explains what
+  monthly vs annual granularity means in practice ("1 period = 1
+  month" vs "1 period = 1 year, 12 months per bucket"). data-testids:
+  timeline-summary, timeline-formula-end, timeline-formula-total-
+  periods, timeline-formula-type.
+- `cb2cb2f` 4/7 (Dev Costs): Module1Costs gets a buildCostFormula
+  helper that, given a CostItem + the resolved AreaMetrics, returns
+  the plain-English formula string for the active method (Fixed
+  Amount, Rate * Total Land / NDA / Roads / GFA / BUA, % of Selected
+  Costs, % of Total / Cash / In-Kind Land Value). Each cost row's
+  Total cell now renders the formula caption beneath the value via
+  data-testid="cost-formula-{cost.id}". The asset's Grand Total tfoot
+  cell carries a sum-of-stages caption via data-testid="cost-grand-
+  total-formula-{assetType}". Selected-costs sum is computed live for
+  percent_base rows so users see exactly which dollar base the
+  percentage applied to.
+- `c6a3017` 5/7 (Financing): Module1Financing adds 3 input-side
+  formula captions and rebuilds the Debt Summary card as 5 live-
+  formula rows. Inputs: financing-formula-debt-equity (Debt = LTV *
+  CapEx + Equity = (100 - LTV) * CapEx with both numbers live),
+  financing-formula-periodic-rate (Annual / 12 for monthly or
+  Annual for annual; rendered with the resolved 4-decimal periodic
+  rate), financing-formula-repayment (Principal per Period = Debt /
+  Repayment Periods for Fixed; placeholder for Cash Sweep). Debt
+  Summary: Total CapEx, Debt, Equity, Estimated Interest, All-in
+  Cost of Debt; each value paired with a formula explaining how it
+  derives. data-testid="financing-debt-summary".
+- `afe4f00` 6/7 (verifier + Playwright): scripts/verify-m113.ts
+  mirrors the M1.12 5-section template. Section 4 has 11 markers
+  (F1 primitive, S1 Schedule, B1-B4 Build Program, C1-C2 Dev Costs,
+  P1-P2 Financing, X1 em-dash sweep). Result: 23 pass / 0 fail / 0
+  skip with dev server up; 20 pass / 0 fail / 1 skip without (UI
+  rendering skips on no server). tests/e2e/m113-formulas.spec.ts
+  has 1 spec walking Schedule -> Build Program -> Dev Costs ->
+  Financing, asserting the right testIds on each tab + the live-
+  recompute contract: editing a Plot's Max FAR or Plot Area updates
+  the Max GFA caption inline within 3 seconds (no unmount, no
+  reflow). 8 light + dark screenshots into tests/screenshots/M1.13/.
+  Both pass locally (10.4s).
+- (this commit) 7/7 (docs sweep): CLAUDE.md M1.13 series block,
+  scripts table entry, Playwright spec entry, Module 1 status header
+  extended with the M1.13 completion line.
+
+**M1.13 pattern decisions for downstream phases:**
+- FormulaCaption is the canonical way to surface input -> output
+  relationships in Module 2+ (revenue, opex, returns). Caller-formats-
+  text gives flexibility for different operators (* / + -) and units
+  without expanding the primitive's API surface.
+- Live recompute via inline-text substitution avoids layout reflow.
+  Captions become permanent rendered nodes; only their inline numbers
+  change on input edit. This is the contract Playwright tests in
+  m113-formulas.spec.ts exercise.
+- Plain-English formula text is preferred over LaTeX or pure math
+  notation. M1.13 captions read like a sentence with operators
+  spelled out (e.g., "Plot Area * Max FAR" not "PA x FAR" or
+  "PA \\times FAR"). Operators stick to ASCII (* not x or X).
 
 **M1.12 deferred to M2.0 (calc engine territory, out of scope per
 phase brief):**
