@@ -219,38 +219,15 @@ npm run type-check   # tsc --noEmit, must be zero errors
 npm run build        # next build --webpack (avoids MAX_PATH on Windows/OneDrive)
 npm run verify       # type-check + lint + build
 
-# Module 1 regression-guard snapshot diffs (run per commit; all 3 must be exit 0)
-npx tsx scripts/module1-snapshot-diff.ts        # legacy single-phase, 17.5 KB baseline
-npx tsx scripts/module1-multiphase-diff.ts      # multi-phase v4, 23.0 KB baseline
-npx tsx scripts/module1-areaprogram-diff.ts     # M1.7 Area Program, 2.8 KB baseline
+# Module 1 v5 (M2.0) regression-guard snapshot diff (single baseline,
+# replaces the 3 retired ones)
+npx tsx scripts/module1-v5-diff.ts              # MAAD-Spec v5, 30.8 KB baseline (sha256 0424dde6fb19)
 
-# Per-phase verifier (5 sections: DB / routes / calc / state / Playwright UI)
-npx tsx --env-file=.env.local scripts/verify-m17.ts   # M1.7 Area Program (25 pass / 0 fail / 2 skip without dev server)
-npx tsx --env-file=.env.local scripts/verify-m18.ts   # M1.8 Smart Project Wizard (19 pass / 0 fail / 1 skip without dev server)
-npx tsx --env-file=.env.local scripts/verify-m19.ts   # M1.9 UX redesign (16 pass / 0 fail / 2 skip without dev server)
-npx tsx --env-file=.env.local scripts/verify-m19b.ts  # M1.9b polish (19 pass / 0 fail / 2 skip without dev server; 29 pass / 0 fail / 1 skip with dev server)
-npx tsx --env-file=.env.local scripts/verify-m110.ts  # M1.10 setup-completeness (25 pass / 0 fail / 1 skip with dev server)
-npx tsx --env-file=.env.local scripts/verify-m110b.ts # M1.10b Plot Setup polish (18 pass / 0 fail / 0 skip with dev server)
-npx tsx --env-file=.env.local scripts/verify-m111.ts  # M1.11 holistic audit + fix pass (23 pass / 0 fail / 1 skip without dev server)
-npx tsx --env-file=.env.local scripts/verify-m112.ts  # M1.12 Land tab elimination + 4-tab consolidation (15 pass / 0 fail / 2 skip without dev server; 21 pass / 0 fail / 0 skip with dev server)
-npx tsx --env-file=.env.local scripts/verify-m113.ts  # M1.13 inline plain-English live formulas across 4 tabs (20 pass / 0 fail / 1 skip without dev server; 23 pass / 0 fail / 0 skip with dev server)
-npx tsx --env-file=.env.local scripts/verify-m113b.ts # M1.13b inline-formula layout (panels dissolved, formulas adjacent to inputs) (20 pass / 0 fail / 1 skip without dev server; 23 pass / 0 fail / 0 skip with dev server)
-npx tsx --env-file=.env.local scripts/verify-m113c.ts # M1.13c step-by-step verifiable calculation flow (VerifiedResult primitive: input + formula + result chip + validation state) (24 pass / 0 fail / 2 skip without dev server; 27 pass / 0 fail / 1 skip with dev server)
-npx tsx --env-file=.env.local scripts/verify-m113d.ts # M1.13d Build Program adopts EquationRow 3-box layout (input op input = result, derived field chaining) (18 pass / 0 fail / 3 skip without dev server; 21 pass / 0 fail / 0 skip with dev server)
+# Per-phase verifier (5 sections: schema/types / calc / state / source markers / Playwright UI)
+npx tsx scripts/verify-m20.ts                   # M2.0 MAAD-Spec rebuild (42 pass / 0 fail / 1 skip without dev server)
 
-# Playwright e2e specs (M1.8 + M1.9 + M1.9b + M1.10 + M1.10b + M1.11 + M1.12 + M1.13 + M1.13b regression-guards)
-npx playwright test tests/e2e/m18-wizard-repro.spec.ts     # 1 spec, wizard create does not crash
-npx playwright test tests/e2e/m18-wizard-flow.spec.ts      # 2 specs, every tab shows wizard data + reload persists
-npx playwright test tests/e2e/m19-redesign-flow.spec.ts    # 2 specs, wizard lands on Schedule tab + numbered tab row + light/dark screenshots
-npx playwright test tests/e2e/m19b-redesign-flow.spec.ts   # 2 specs, Hierarchy dissolved (1→5 tabs) + nested mounts + D7/D8 labels + What-goes-here callouts + light/dark screenshots
-npx playwright test tests/e2e/m110-flow.spec.ts            # 3 specs, Mixed-Use wizard lands clean (no 0% / no Over FAR / reconciliation row) + Plot wizard + Parcel wizard walkthroughs + screenshots
-npx playwright test tests/e2e/m110b-flow.spec.ts           # 2 specs, Plot Setup Wizard portal-centers in viewport + tooltip a11y (focus reveal, Esc dismiss) + 15-field inline form + light/dark tooltip screenshots
-npx playwright test tests/e2e/m111-full-flow.spec.ts       # 2 specs, ProjectWizard portal regression guard + full first-time flow walking 5 tabs with M1.11 fix markers + 10 light/dark tab screenshots
-npx playwright test tests/e2e/m112-flow.spec.ts            # 2 specs, wizard Step 2 parcel CRUD + post-create 4-tab row (no Land) with parcel block on Build Program + 8 light/dark tab screenshots
-npx playwright test tests/e2e/m113-formulas.spec.ts        # 1 spec, walks all 4 tabs asserting FormulaCaption testIds + live recompute on Plot inputs + 8 light/dark tab screenshots
-npx playwright test tests/e2e/m113b-formulas-inline.spec.ts # 1 spec, panel-absence (no Computed Envelope / Cascade Preview / Timeline Summary) + bounding-box proximity (formula caption < 200px below its driving input) + live recompute + 8 light/dark tab screenshots
-npx playwright test tests/e2e/m113c-step-flow.spec.ts      # 1 spec, VerifiedResult shape (data-formula + data-state + data-result-chip) on every verified step across 4 tabs + math operator (× ÷) assertions + validation state flip (over-FAR push: ok → error → ok) + live recompute + Debt Summary roll-up contract preserved + 9 light/dark/validation screenshots
-npx playwright test tests/e2e/m113d-equation-rows.spec.ts  # 1 spec, EquationRow 3-box layout: 15 envelope row testIds carry data-equation-row + input/derived field + result chip; Public Area row has 2 derived + 0 inputs (chain visible); Surface Parking row has 3 derived; Typical GFA row has 1 derived + 2 inputs; validation flip ok → error → ok; live recompute; light + dark + validation screenshots
+# Playwright e2e specs (M2.0 v5 contract)
+npx playwright test tests/e2e/m20-full-flow.spec.ts        # 2 specs: 3-step wizard create + 4-tab landing (no Land/Build Program/Hierarchy) + 8 light/dark tab screenshots; live-recompute spec asserts editing GFA in Tab 2 updates Tab 3 phase total
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -268,7 +245,87 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 **Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
 (`npx playwright install chromium`).
 
-### Module 1 status (2026-05-06, M1.13b dissolves the calc panels into inline formulas)
+### Module 1 status (2026-05-06, **M2.0 hard-cut rebuild to MAAD-Spec v5**)
+**M2.0 (current, ships):** Module 1 is rebuilt end-to-end against MAAD
+Residential Cashflow v1.13. The v3/v4 hierarchy (Master Holding /
+Sub-Project / Plot / Zone / FAR / Cascade / Parking Allocator / Build
+Program tab / Land tab / Hierarchy tab) is gone. The new flat schema is:
+
+```
+{ version: 5, project, phases[], parcels[], landAllocationMode,
+  assets[], subUnits[], costLines[], costOverrides[],
+  financingTranches[], equityContributions[] }
+```
+
+**4 tabs:**
+- 1. Project & Phases: project meta + Phase[] timing
+- 2. Assets & Sub-units: Land Parcels block + landAllocationMode +
+  Asset cards with strategy (Sell/Operate/Lease/Hybrid) + GFA/BUA/
+  sellable BUA/parking + nested Sub-unit editor
+- 3. Costs: 9 fixed cost lines per phase (Land, Construction BUA,
+  Construction Parking, Infrastructure, Landscaping, Pre-operating,
+  Professional fee, Commission fee, Contingency) with method + value
+  + phasing + per-asset overrides
+- 4. Financing: per-phase tranches (5 drawdown methods × 3 repayment
+  methods + IDC capitalization + cash sweep) + Equity contributions
+
+**Hard-cut policy:** v3/v4 snapshots return error "Schema migrated to
+v5. Please recreate this project." (module1-migrate.ts isPreV5Snapshot
+detects + flags). Supabase migration `m2_0_module1_rebuild.sql` bumps
+schema_version DEFAULT 4 -> 5 and auto-archives pre-v5 projects.
+
+**M2.0 deliverables:** v5 types/store/migrate, slim 869-line calc
+engine (delete computePlotEnvelope/computeAreaCascade/
+computePlotParkingCapacity/allocateParking; add computeAssetBua/
+computeAssetSellableBua/computeAssetLandCost/computePhaseCost/
+computeAssetCost/computeFinancing + distribute curves), 4 new tab
+components, 3-step ProjectWizard rewrite, slim shell components
+(Sidebar/Topbar/Dashboard/ProjectsScreen/OverviewScreen/Modals),
+single 30.8 KB v5 snapshot baseline, verify-m20.ts (42 pass / 0
+fail / 1 skip without dev server), m20-full-flow.spec.ts.
+
+**M2.1 deferred:**
+- Modules 2-11: Revenue (cohort collection / hospitality USAH /
+  retail NOI / hybrid), OpEx, Returns (IRR / NPV / DSCR / MoIC),
+  P&L statements, cash flow, balance sheet, deck export. All
+  modules already exist as `export {};` placeholders ready to consume
+  the v5 HydrateSnapshot.
+- Cash sweep math: today straight-lines outstanding balance; needs
+  Module 3 cashflow to drive real surplus-driven principal repayment.
+- IDC schedule: today capitalises to balance; full breakdown
+  (capitalised vs paid in cash post-construction) ships with Module 5
+  statements.
+- Excel + PDF exports: stub modal in M2.0; rebuild against v5 in M2.1.
+- Wizard polish: type bank auto-pre-fills GFA/BUA defaults from sub-
+  unit metric (e.g. count * unitArea) so Tab 2 doesn't need manual
+  entry; preset templates ("Saudi mixed-use", "Branded residences",
+  "Hotel-led resort") seed Step 3 with industry-typical asset mixes.
+
+**M2.0 pattern decisions for downstream phases:**
+- Flat Project -> Phase -> Asset -> SubUnit hierarchy. No more
+  Master Holding / Sub-Project / Plot / Zone layers. If a future
+  modeling need arises (e.g. portfolio rollup), it's a NEW concept,
+  not a return to the M1.5 hierarchy.
+- 9 standard cost lines, fixed identity. Users do NOT add cost lines;
+  per-asset overrides cover the customisation cases.
+- Per-phase tranches with explicit drawdown × repayment matrix.
+  Cash sweep + IDC are first-class concepts at the schema level
+  (vs M1.x where they were UI-toggle modifiers).
+- Land allocation mode is an explicit toggle (sqm / percent /
+  autoByBua), not derived. Auto-by-BUA is the recommended default.
+- v5 is a hard-cut schema. Future schema bumps (v6+) follow the same
+  policy: flag pre-vN snapshots with explicit error rather than
+  silently coercing.
+- Snapshot baseline is ONE file per major schema version (replacing
+  M1's 3-baseline pattern). 30.8 KB v5 baseline at
+  scripts/baselines/module1-v5.json.
+
+---
+
+### Module 1 historical (M1.R through M1.13d, frozen pre-M2.0)
+For history, see CLAUDE-FEATURES.md and `git log -- 'src/hubs/modeling/platforms/refm/lib/state/module1-types.ts'` for the v3/v4 evolution. The text below is the M1.13b closure note retained as historical reference; M2.0 supersedes it.
+
+### Module 1 status (legacy, M1.13b dissolves the calc panels into inline formulas)
 **All sub-phases shipped:** M1.R (cost engine + Zustand restoration) → M1.5 (multi-asset
 + multi-phase + storage v3 bump) → M1.5b (UX polish + Quick Setup wizard inside Hierarchy)
 → M1.6 (Supabase persistence + version history) → M1.7 (Area Program tab + plots / zones
