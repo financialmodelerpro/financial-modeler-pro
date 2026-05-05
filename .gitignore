@@ -41,3 +41,4 @@ scripts/pdf-export-fixture.out.pdf
 test-results/
 playwright-report/
 tests/screenshots/
+Maad_Residential_Cashflow*.xlsx
