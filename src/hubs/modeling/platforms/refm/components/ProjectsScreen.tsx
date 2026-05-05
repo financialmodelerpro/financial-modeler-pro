@@ -1,216 +1,98 @@
 'use client';
 
-import React, { useState } from 'react';
-import type { PermissionMap } from '@/src/core/types/settings.types';
+/**
+ * ProjectsScreen.tsx (v5 schema, M2.0 stub)
+ *
+ * Project list with create + open + close actions.
+ */
+
+import React from 'react';
 import type { StorageShape } from './RealEstatePlatform';
 
 interface ProjectsScreenProps {
-  storageData: StorageShape;
-  activeProjectId: string | null;
-  onSelectProject: (pid: string) => void;
+  storage: StorageShape;
   onCreateProject: () => void;
-  onEditProject: (pid: string) => void;
-  onDeleteProject: (pid: string) => void;
-  setActiveModule: (m: string) => void;
-  can: (permission: keyof PermissionMap) => boolean;
+  onSelectProject: (id: string) => void;
+  onCloseProject: () => void;
 }
 
-const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
-  'Draft':     { bg: 'color-mix(in srgb, var(--color-grey-mid) 12%, transparent)',     color: 'var(--color-grey-mid)' },
-  'Active':    { bg: 'color-mix(in srgb, var(--color-success) 12%, transparent)',      color: 'var(--color-success)' },
-  'IC Review': { bg: 'color-mix(in srgb, var(--color-input-border) 12%, transparent)', color: 'var(--color-gold-dark)' },
-  'Approved':  { bg: 'color-mix(in srgb, var(--color-primary) 12%, transparent)',      color: 'var(--color-primary)' },
-  'Archived':  { bg: 'color-mix(in srgb, var(--color-negative) 10%, transparent)',     color: 'var(--color-negative)' },
-};
-
 export default function ProjectsScreen({
-  storageData, activeProjectId,
-  onSelectProject, onCreateProject, onEditProject, onDeleteProject,
-  setActiveModule, can,
-}: ProjectsScreenProps) {
-  const [search, setSearch] = useState('');
-  const [filterStatus, setFilterStatus] = useState('all');
-
-  const projects = Object.entries(storageData.projects);
-  const filtered = projects.filter(([, p]) => {
-    const matchSearch = !search || p.name.toLowerCase().includes(search.toLowerCase())
-      || p.location?.toLowerCase().includes(search.toLowerCase());
-    const matchStatus = filterStatus === 'all' || p.status === filterStatus;
-    return matchSearch && matchStatus;
-  });
-
+  storage,
+  onCreateProject,
+  onSelectProject,
+  onCloseProject,
+}: ProjectsScreenProps): React.JSX.Element {
+  const projects = Object.entries(storage.projects);
   return (
-    <div className="module-view">
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--sp-3)' }}>
-        <div>
-          <h1 style={{
-            fontSize: 'var(--font-h1)', fontWeight: 'var(--fw-bold)',
-            color: 'var(--color-heading)', margin: 0, letterSpacing: '-0.02em',
-          }}>Projects</h1>
-          <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-body)', marginTop: '4px' }}>
-            {projects.length} project{projects.length !== 1 ? 's' : ''} in portfolio
-          </p>
-        </div>
-        {can('canCreateProject') && (
-          <button className="btn-primary" onClick={onCreateProject}>
+    <div data-testid="projects-screen">
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: 'var(--sp-3)',
+        }}
+      >
+        <h2 style={{ margin: 0 }}>Projects</h2>
+        <div style={{ display: 'flex', gap: 'var(--sp-1)' }}>
+          <button
+            type="button"
+            onClick={onCreateProject}
+            className="btn-primary"
+            style={{ padding: 'var(--sp-1) var(--sp-2)' }}
+            data-testid="projects-create"
+          >
             + New Project
           </button>
-        )}
-      </div>
-
-      {/* Search & Filter */}
-      <div style={{ display: 'flex', gap: 'var(--sp-1)', marginBottom: 'var(--sp-2)', flexWrap: 'wrap' }}>
-        <input
-          type="text"
-          placeholder="Search projects..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{
-            padding: '8px 12px', border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-body)',
-            background: 'var(--color-surface)', flex: '1', minWidth: '200px',
-          }}
-        />
-        <select
-          value={filterStatus}
-          onChange={e => setFilterStatus(e.target.value)}
-          style={{
-            padding: '8px 12px', border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-sm)', fontSize: 'var(--font-body)',
-            background: 'var(--color-surface)',
-          }}
-        >
-          <option value="all">All Statuses</option>
-          <option value="Draft">Draft</option>
-          <option value="Active">Active</option>
-          <option value="IC Review">IC Review</option>
-          <option value="Approved">Approved</option>
-          <option value="Archived">Archived</option>
-        </select>
-      </div>
-
-      {/* Projects list */}
-      {filtered.length === 0 ? (
-        <div className="state-empty">
-          {projects.length === 0
-            ? '📁 No projects yet. Create your first project to get started.'
-            : '🔍 No projects match your search.'}
+          {storage.activeProjectId && (
+            <button
+              type="button"
+              onClick={onCloseProject}
+              style={{ padding: 'var(--sp-1) var(--sp-2)', border: '1px solid var(--color-border)', background: 'var(--color-bg)', borderRadius: 'var(--radius-sm)' }}
+              data-testid="projects-close-active"
+            >
+              Close active
+            </button>
+          )}
         </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-1)' }}>
-          {filtered.map(([pid, proj]) => {
-            const isActive = pid === activeProjectId;
-            const statusStyle = STATUS_COLORS[proj.status] ?? STATUS_COLORS['Draft'];
-            // Phase M1.6: prefer the server-decorated `versionCount`
-            // when present (set by RealEstatePlatform from the
-            // listProjects response). Fall back to counting the
-            // versions{} dict for the active project (which has the
-            // dict populated lazily after select).
-            const versionCount = proj.versionCount ?? Object.keys(proj.versions || {}).length;
-
-            return (
-              <div
-                key={pid}
-                className={`pm-project-card${isActive ? ' active-project' : ''}`}
-                onClick={() => {
-                  onSelectProject(pid);
-                  setActiveModule('overview');
-                }}
-              >
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
-                    <span style={{
-                      fontSize: 'var(--font-body)', fontWeight: 'var(--fw-semibold)',
-                      color: 'var(--color-heading)',
-                    }}>
-                      {proj.name}
-                    </span>
-                    <span style={{
-                      fontSize: '10px', fontWeight: 700, padding: '2px 8px',
-                      borderRadius: '20px',
-                      background: statusStyle.bg, color: statusStyle.color,
-                    }}>
-                      {proj.status}
-                    </span>
-                    {isActive && (
-                      <span style={{
-                        fontSize: '10px', fontWeight: 700, padding: '2px 8px',
-                        borderRadius: '20px',
-                        background: 'color-mix(in srgb, var(--color-success) 15%, transparent)',
-                        color: 'var(--color-success)',
-                        border: '1px solid color-mix(in srgb, var(--color-success) 30%, transparent)',
-                      }}>
-                        ACTIVE
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
-                    {proj.location && (
-                      <span style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)' }}>
-                        📍 {proj.location}
-                      </span>
-                    )}
-                    <span style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)' }}>
-                      📅 {new Date(proj.createdAt).toLocaleDateString()}
-                    </span>
-                    <span style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)' }}>
-                      📌 {versionCount} version{versionCount !== 1 ? 's' : ''}
-                    </span>
-                    {proj.assetMix && proj.assetMix.length > 0 && (
-                      <span style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)' }}>
-                        🏢 {proj.assetMix.join(', ')}
-                      </span>
-                    )}
-                  </div>
-                </div>
-
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0 }}>
-                  <button
-                    className="btn-secondary"
-                    style={{ fontSize: '12px', padding: '5px 12px' }}
-                    onClick={e => {
-                      e.stopPropagation();
-                      onSelectProject(pid);
-                      setActiveModule('overview');
-                    }}
-                  >
-                    Open →
-                  </button>
-                  {can('canEditProject') && (
-                    <button
-                      className="btn-secondary"
-                      style={{ fontSize: '12px', padding: '5px 10px' }}
-                      title="Edit project name & location"
-                      aria-label="Edit project name & location"
-                      onClick={e => {
-                        e.stopPropagation();
-                        onEditProject(pid);
-                      }}
-                    >
-                      ✏️
-                    </button>
-                  )}
-                  {can('canDeleteProject') && (
-                    <button
-                      className="btn-danger"
-                      style={{ fontSize: '12px', padding: '5px 10px' }}
-                      onClick={e => {
-                        e.stopPropagation();
-                        if (window.confirm(`Delete "${proj.name}"? This cannot be undone.`)) {
-                          onDeleteProject(pid);
-                        }
-                      }}
-                    >
-                      🗑
-                    </button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+      </div>
+      {projects.length === 0 && (
+        <div style={{ padding: 'var(--sp-3)', textAlign: 'center', color: 'var(--color-meta)' }} data-testid="projects-empty">
+          No projects yet. Click <strong>+ New Project</strong> to start.
         </div>
       )}
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ background: 'var(--color-grey-pale)' }}>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Name</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Location</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Status</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Updated</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {projects.map(([id, p]) => (
+            <tr key={id} data-testid={`projects-row-${id}`} style={{ borderTop: '1px solid var(--color-border)' }}>
+              <td style={{ padding: 'var(--sp-1)' }}>{p.name}</td>
+              <td style={{ padding: 'var(--sp-1)' }}>{p.location || '-'}</td>
+              <td style={{ padding: 'var(--sp-1)' }}>{p.status}</td>
+              <td style={{ padding: 'var(--sp-1)' }}>{new Date(p.lastModified).toLocaleDateString()}</td>
+              <td style={{ padding: 'var(--sp-1)', textAlign: 'right' }}>
+                <button
+                  type="button"
+                  onClick={() => onSelectProject(id)}
+                  data-testid={`projects-open-${id}`}
+                  className="btn-primary"
+                  style={{ padding: '2px 8px', fontSize: 'var(--font-small)' }}
+                >
+                  Open
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

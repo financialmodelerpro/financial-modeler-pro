@@ -1,268 +1,232 @@
 /**
- * buildWizardSnapshot.ts
+ * buildWizardSnapshot.ts (v5 schema)
  *
- * Phase M1.8/5, pure function that turns a wizard draft into a full
- * HydrateSnapshot ready for `pclient.createProject`.
+ * Phase M2.0 (2026-05-06): rewrite for MAAD-Spec.
  *
- * Responsibilities:
- *   1. Map the wizard's display-level WizardProjectType to the legacy
- *      ProjectType enum the rest of REFM still uses ('residential' |
- *      'hospitality' | 'mixed-use'). The cascade math in @core/calculations
- *      reads `projectType` for showResidential / showHospitality flags,
- *      so any wizard project that isn't pure residential or pure
- *      hospitality lands on 'mixed-use' (the only enum value that admits
- *      arbitrary asset mixes).
- *   2. Mint stable hierarchy ids per row: 1 SubProject + N Phases + N
- *      Plots + 1 Asset per wizard row + 1 Sub-Unit per asset.
- *   3. Bind every asset to Phase 1 + Plot 1 (the brief's default, users
- *      reassign via the Hierarchy / Area Program tabs later).
- *   4. Mint a single placeholder Sub-Unit per asset whose metric +
- *      metricValue match the asset's strategy (Sell/Operate → count=1,
- *      Lease → area=0). Unit price always 0; users fill in revenue side
- *      later.
- *   5. Stamp `hierarchyDisclosure: 'progressive'` so the Hierarchy tab
- *      knows to hide unused layers (M1.8/6 reads this).
+ * Translates a ProjectWizard draft into a v5 HydrateSnapshot. The
+ * wizard captures:
+ *   1. Project basics: name, currency, modelType, location
+ *   2. Phases & land: per-phase construction/operations/overlap +
+ *      land parcels with rate + cash/in-kind split
+ *   3. Assets seed: per-asset name + strategy + type + GFA + BUA +
+ *      sub-unit count + parking
  *
- * Pure function, does NOT touch the Zustand store or persistence client.
- * The caller owns those side effects.
+ * The output is a complete v5 HydrateSnapshot (not partial; every
+ * field set so the store can hydrate cleanly without enrichment).
  */
 
-import type { LandParcel, ModelType } from '@core/types/project.types';
 import type { HydrateSnapshot } from '../state/module1-store';
-import { DEFAULT_MODULE1_STATE } from '../state/module1-store';
-import type {
-  AssetClass, MasterHolding, Phase, Plot, SubProject, SubUnit,
-} from '../state/module1-types';
 import {
-  makeDefaultMasterHolding, makeDefaultPlot,
-  DEFAULT_SUB_PROJECT_ID, DEFAULT_PHASE_ID,
+  type ModelGranularity,
+  type Project,
+  type Phase,
+  type Parcel,
+  type Asset,
+  type SubUnit,
+  type FinancingTranche,
+  type LandAllocationMode,
+  type AssetStrategy,
+  DEFAULT_OPERATIONS_BY_STRATEGY,
+  makeDefaultCostLines,
+  makeDefaultFinancingTranche,
 } from '../state/module1-types';
-import type { WizardDraft, WizardDraftAsset, WizardProjectType } from '../../components/modals/ProjectWizard';
 
-// ── Wizard → ProjectType collapse ──
-// Pure residential / pure hospitality wizard types map to the legacy
-// scalar enum so the area-cascade math behaves as it always did.
-// Everything else (Mixed-Use, Office, Retail, Custom) lands on
-// 'mixed-use' which is the only enum value that allows arbitrary
-// per-asset allocations on the Land & Area tab.
-export function mapWizardToProjectType(t: WizardProjectType): 'residential' | 'hospitality' | 'mixed-use' {
-  if (t === 'Residential') return 'residential';
-  if (t === 'Hospitality') return 'hospitality';
-  return 'mixed-use';
+export interface WizardDraftPhase {
+  name: string;
+  constructionPeriods: number;
+  operationsPeriods: number;
+  overlapPeriods: number;
 }
 
-// ── Sub-Unit metric selection per strategy ──
-// Sell: 1 unit, count metric, 100 sqm placeholder unit size
-// Operate: 1 key, count metric, quantity = 1
-// Lease: 1 area, area metric, area = 0 (user fills later)
-// All unit prices start at 0. Users wire the revenue model up in M2+
-// once it lands; the placeholders just guarantee each asset has at
-// least one inventory row so downstream tabs never crash on empty
-// SubUnit lists.
-function makePlaceholderSubUnit(asset: AssetClass): SubUnit {
-  if (asset.category === 'Sell') {
-    return {
-      id:           `subunit_${asset.id}`,
-      assetId:      asset.id,
-      name:         `${asset.name} Units`,
-      metric:       'count',
-      metricValue:  1,
-      unitPrice:    0,
-    };
-  }
-  if (asset.category === 'Operate') {
-    return {
-      id:           `subunit_${asset.id}`,
-      assetId:      asset.id,
-      name:         `${asset.name} Keys`,
-      metric:       'count',
-      metricValue:  1,
-      unitPrice:    0,
-    };
-  }
-  // Lease + Hybrid both default to area metric, Hybrid users can edit.
-  return {
-    id:           `subunit_${asset.id}`,
-    assetId:      asset.id,
-    name:         `${asset.name} Area`,
-    metric:       'area',
-    metricValue:  0,
-    unitPrice:    0,
-  };
+export interface WizardDraftParcel {
+  name: string;
+  area: number;
+  rate: number;
+  cashPct: number;
+  inKindPct: number;
 }
 
-// ── Hierarchy id helpers ──
-// Stable, deterministic ids so a wizard-built snapshot looks tidy when
-// inspected in the Supabase JSONB column. SubProject and Phase 1 reuse
-// the canonical ids from module1-types so legacy code paths that still
-// reference DEFAULT_SUB_PROJECT_ID / DEFAULT_PHASE_ID keep working
-// without surprises. Subsequent phases / plots use 1-indexed numeric
-// suffixes.
-function phaseIdFor(idx: number): string {
-  return idx === 0 ? DEFAULT_PHASE_ID : `phase_${idx + 1}`;
-}
-function plotIdFor(idx: number): string {
-  return `plot_${idx + 1}`;
-}
-function assetIdFor(idx: number): string {
-  return `wizardasset_${idx + 1}`;
-}
-
-// ── Build helper ──
-export interface BuildWizardSnapshotResult {
-  snapshot:   HydrateSnapshot;
-  /** Arrays the caller can pass to pclient.createProject for the asset_mix column. */
-  assetMix:   string[];
-  /** Display-level project type the wizard chose, for logging / future use. */
-  wizardType: WizardProjectType;
+export interface WizardDraftAsset {
+  name: string;
+  strategy: AssetStrategy;
+  type: string;
+  gfaSqm: number;
+  buaSqm: number;
+  sellableBuaSqm: number;
+  parkingBaysRequired: number;
+  // Seed sub-unit shape (single sub-unit per asset on create; user
+  // adds more in Tab 2)
+  subUnitName: string;
+  subUnitMetric: 'count' | 'area';
+  subUnitMetricValue: number;
+  subUnitUnitArea?: number;
+  subUnitUnitPrice: number;
 }
 
-export function buildWizardSnapshot(draft: WizardDraft): BuildWizardSnapshotResult {
-  const projectType = mapWizardToProjectType(draft.wizardProjectType);
+export interface WizardDraft {
+  // Step 1
+  projectName: string;
+  currency: string;
+  modelType: ModelGranularity;
+  startDate: string;
+  location: string;
+  // Step 2
+  phases: WizardDraftPhase[];
+  parcels: WizardDraftParcel[];
+  landAllocationMode: LandAllocationMode;
+  // Step 3
+  assets: WizardDraftAsset[];
+}
 
-  // ── 1 SubProject ──
-  const subProject: SubProject = {
-    id:                   DEFAULT_SUB_PROJECT_ID,
-    name:                 draft.name.trim() || 'Main',
-    currency:             draft.currency,
-    masterHoldingId:      draft.enableMasterHolding ? 'mh_1' : null,
-    revenueShareToMaster: 0,
+export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
+  // Project meta
+  const project: Project = {
+    name: draft.projectName,
+    currency: draft.currency,
+    modelType: draft.modelType,
+    startDate: draft.startDate,
+    status: 'draft',
+    location: draft.location,
   };
 
-  // ── Phases (phaseCount of them; first is Phase 1 with canonical id) ──
-  // M1.9: each phase inherits the user-picked timeline (construction +
-  // operations + overlap) from Step 2. Pre-M1.9 wizards borrowed the
-  // legacy single-phase default (4 / 5 / 0), those fields now live on
-  // the draft itself, defaulting to the same 4 / 5 / 0 window so prior
-  // behavior is preserved when the user accepts defaults.
+  // Phases (sequential timing: each phase starts after the previous
+  // ends minus overlap)
   const phases: Phase[] = [];
-  const seedPhase = DEFAULT_MODULE1_STATE.phases[0];
-  const wizardConstruction = draft.constructionPeriods > 0 ? draft.constructionPeriods : seedPhase.constructionPeriods;
-  const wizardOperations   = draft.operationsPeriods   > 0 ? draft.operationsPeriods   : seedPhase.operationsPeriods;
-  const wizardOverlap      = Math.max(0, Math.min(draft.overlapPeriods, wizardConstruction));
-  const wizardOpsStart     = Math.max(1, wizardConstruction - wizardOverlap + 1);
-  for (let i = 0; i < draft.phaseCount; i++) {
+  let cursor = 1;
+  for (let i = 0; i < draft.phases.length; i++) {
+    const wp = draft.phases[i];
     phases.push({
-      id:                  phaseIdFor(i),
-      name:                draft.phaseCount === 1 ? 'Phase 1' : `Phase ${i + 1}`,
-      subProjectId:        subProject.id,
-      constructionStart:   seedPhase.constructionStart,
-      constructionPeriods: wizardConstruction,
-      operationsStart:     wizardOpsStart,
-      operationsPeriods:   wizardOperations,
-      overlapPeriods:      wizardOverlap,
+      id: `phase_${i + 1}`,
+      name: wp.name || `Phase ${i + 1}`,
+      constructionStart: cursor,
+      constructionPeriods: Math.max(1, wp.constructionPeriods),
+      operationsPeriods: Math.max(0, wp.operationsPeriods),
+      overlapPeriods: Math.max(0, Math.min(wp.constructionPeriods, wp.overlapPeriods)),
+    });
+    cursor += Math.max(1, wp.constructionPeriods) - Math.max(0, wp.overlapPeriods);
+  }
+  if (phases.length === 0) {
+    phases.push({
+      id: 'phase_1',
+      name: 'Phase 1',
+      constructionStart: 1,
+      constructionPeriods: 24,
+      operationsPeriods: 60,
+      overlapPeriods: 0,
+    });
+  }
+  const firstPhaseId = phases[0].id;
+
+  // Parcels (all bound to first phase by default; users move parcels
+  // to other phases in Tab 2 after create)
+  const parcels: Parcel[] = draft.parcels.map((wp, idx) => ({
+    id: `parcel_${idx + 1}`,
+    phaseId: firstPhaseId,
+    name: wp.name || `Land ${idx + 1}`,
+    area: Math.max(0, wp.area),
+    rate: Math.max(0, wp.rate),
+    cashPct: Math.max(0, Math.min(100, wp.cashPct)),
+    inKindPct: Math.max(0, Math.min(100, wp.inKindPct)),
+  }));
+  if (parcels.length === 0) {
+    parcels.push({
+      id: 'parcel_1',
+      phaseId: firstPhaseId,
+      name: 'Land 1',
+      area: 100000,
+      rate: 500,
+      cashPct: 60,
+      inKindPct: 40,
     });
   }
 
-  // ── Land Parcels (M1.12, captured in Step 2) ──
-  // Wizard rows map directly into the persistence shape. Falls back to
-  // the seed default when the draft somehow arrives empty (defence
-  // against pre-M1.12 wizard drafts in flight at deploy time).
-  const wizardParcels: LandParcel[] = draft.parcels.length > 0
-    ? draft.parcels.map(p => ({
-        id:        p.id,
-        name:      p.name.trim() || `Land ${p.id}`,
-        area:      Number.isFinite(p.area) ? p.area : 0,
-        rate:      Number.isFinite(p.rate) ? p.rate : 0,
-        cashPct:   Math.max(0, Math.min(100, p.cashPct)),
-        inKindPct: Math.max(0, Math.min(100, p.inKindPct)),
-      }))
-    : DEFAULT_MODULE1_STATE.landParcels;
-
-  // ── Plots (plotCount of them, all bound to Phase 1) ──
-  // Plot area is split evenly from the wizard's total parcel area so the
-  // Build Program reconciliation row reads "matches" out of the gate.
-  // Falls back to the legacy seed (100k sqm) when parcels somehow arrive
-  // with zero total area, the Land vs Plot warning then surfaces in
-  // Build Program for the user to investigate.
-  const phase1Id      = phases[0].id;
-  const totalParcelArea = wizardParcels.reduce((s, p) => s + (p.area || 0), 0);
-  const seedLandArea  = totalParcelArea > 0 ? totalParcelArea : (DEFAULT_MODULE1_STATE.landParcels[0]?.area ?? 100_000);
-  const plotAreaEach  = Math.round(seedLandArea / draft.plotCount);
-  const plots: Plot[] = [];
-  for (let i = 0; i < draft.plotCount; i++) {
-    const id = plotIdFor(i);
-    const name = draft.plotCount === 1 ? 'Plot 1' : `Plot ${i + 1}`;
-    plots.push(makeDefaultPlot(id, name, phase1Id, plotAreaEach));
-  }
-  const plot1Id = plots[0].id;
-
-  // ── Assets (1 per wizard row, all bound to Phase 1 + Plot 1) ──
-  const assets: AssetClass[] = draft.assets.map((row: WizardDraftAsset, idx: number): AssetClass => {
-    const id = assetIdFor(idx);
-    return {
+  // Assets + sub-units (one seed sub-unit per asset)
+  const assets: Asset[] = [];
+  const subUnits: SubUnit[] = [];
+  draft.assets.forEach((wa, idx) => {
+    const id = `asset_${idx + 1}`;
+    assets.push({
       id,
-      name:           row.name.trim() || `Asset ${idx + 1}`,
-      type:           row.type,
-      category:       row.category,
-      allocationPct:  row.allocationPct,
-      // deductPct + efficiencyPct: borrow industry-typical legacy seeds
-      // per category so the Land & Area tab renders sensible numbers.
-      // Sell ~10/85, Operate ~15/80, Lease ~5/90, Hybrid ~10/85.
-      deductPct:      row.category === 'Operate' ? 15 : row.category === 'Lease' ? 5 : 10,
-      efficiencyPct:  row.category === 'Operate' ? 80 : row.category === 'Lease' ? 90 : 85,
-      visible:        true,
-      subProjectId:   subProject.id,
-      phaseId:        phase1Id,
-      plotId:         plot1Id,
-      primaryStrategy:    row.strategy,
-      primaryStrategyPct: 100,
-    };
+      phaseId: firstPhaseId,
+      name: wa.name || `Asset ${idx + 1}`,
+      type: wa.type,
+      strategy: wa.strategy,
+      visible: true,
+      gfaSqm: Math.max(0, wa.gfaSqm),
+      buaSqm: Math.max(0, wa.buaSqm),
+      sellableBuaSqm: Math.max(0, wa.sellableBuaSqm),
+      parkingBaysRequired: Math.max(0, wa.parkingBaysRequired),
+    });
+    const ops = DEFAULT_OPERATIONS_BY_STRATEGY[wa.strategy];
+    const category =
+      wa.strategy === 'Lease' ? 'Leasable' :
+      wa.strategy === 'Operate' ? 'Operable' : 'Sellable';
+    subUnits.push({
+      id: `subunit_${idx + 1}`,
+      assetId: id,
+      name: wa.subUnitName || 'Sub-unit',
+      category,
+      metric: wa.subUnitMetric,
+      metricValue: Math.max(0, wa.subUnitMetricValue),
+      unitArea: wa.subUnitUnitArea,
+      unitPrice: Math.max(0, wa.subUnitUnitPrice),
+      occupancyPct: ops.occupancyPct,
+      operatingMargin: ops.operatingMargin,
+    });
   });
 
-  // ── Sub-Units (1 placeholder per asset) ──
-  const subUnits: SubUnit[] = assets.map(makePlaceholderSubUnit);
+  // Default cost lines for every phase
+  const costLines = phases.flatMap((p) => makeDefaultCostLines(p.id));
 
-  // ── Master Holding ──
-  // Always create the singleton; enabled flag is the only thing that
-  // changes whether the Hierarchy tab shows it as a configurable
-  // header card.
-  const masterHolding: MasterHolding = {
-    ...makeDefaultMasterHolding(),
-    enabled: draft.enableMasterHolding,
-  };
+  // Default financing tranche per phase
+  const financingTranches: FinancingTranche[] = phases.map((p, i) =>
+    makeDefaultFinancingTranche(`tranche_${i + 1}`, p.id),
+  );
 
-  // ── Compose the full snapshot ──
-  // Start from the canonical defaults so any field we don't touch
-  // (interestRate, lineRatios, costStage, etc.) reads exactly the same
-  // values the rest of REFM expects. We then layer wizard inputs on top.
-  const snapshot: HydrateSnapshot = {
-    ...DEFAULT_MODULE1_STATE,
-    projectName:  draft.name.trim() || 'New Project',
-    projectType,
-    // M1.9, country joins the snapshot. Falls back to the existing
-    // DEFAULT_MODULE1_STATE.country when the wizard didn't set it (older
-    // drafts in flight when this lands won't carry the field).
-    country:      draft.country || DEFAULT_MODULE1_STATE.country,
-    currency:     draft.currency,
-    modelType:    draft.modelType as ModelType,
-    projectStart: draft.startDate,
-    masterHolding,
-    landParcels:  wizardParcels,
-    subProjects:  [subProject],
+  return {
+    project,
     phases,
-    plots,
-    zones:        [],
+    parcels,
+    landAllocationMode: draft.landAllocationMode,
     assets,
     subUnits,
-    // Costs intentionally start empty. The legacy default-cost seed
-    // useEffect in RealEstatePlatform fires whenever a per-asset cost
-    // array becomes empty AND its asset exists, so wizard assets pick
-    // up the standard 12-cost seed automatically when the user opens
-    // the Dev Costs tab. Avoids duplicating the seed list here.
-    costs:        [],
-    // Hierarchy disclosure flag (M1.8/6): wizard projects open in
-    // 'progressive' mode (hide unused layers). Pre-existing projects
-    // that never went through the wizard load with this field absent
-    // (= 'manual' fallback) so their Hierarchy tab keeps the current
-    // show-all-layers behavior.
-    hierarchyDisclosure: 'progressive',
+    costLines,
+    costOverrides: [],
+    financingTranches,
+    equityContributions: [],
   };
+}
 
-  // Asset-mix column for the project list (used by ProjectsScreen
-  // chips). Use the wizard asset names so users see "Hotel, Retail
-  // Podium" rather than the asset categories.
-  const assetMix = assets.map(a => a.name);
-
-  return { snapshot, assetMix, wizardType: draft.wizardProjectType };
+// ── Default draft factory (used by the wizard's initial state) ─────────────
+export function makeDefaultWizardDraft(): WizardDraft {
+  return {
+    projectName: 'New Project',
+    currency: 'SAR',
+    modelType: 'annual',
+    startDate: new Date().toISOString().slice(0, 10),
+    location: '',
+    phases: [
+      { name: 'Phase 1', constructionPeriods: 3, operationsPeriods: 5, overlapPeriods: 0 },
+    ],
+    parcels: [
+      { name: 'Land 1', area: 100000, rate: 500, cashPct: 60, inKindPct: 40 },
+    ],
+    landAllocationMode: 'autoByBua',
+    assets: [
+      {
+        name: 'Residential',
+        strategy: 'Sell',
+        type: 'High-end Apartments',
+        gfaSqm: 0,
+        buaSqm: 0,
+        sellableBuaSqm: 0,
+        parkingBaysRequired: 0,
+        subUnitName: '2BR',
+        subUnitMetric: 'count',
+        subUnitMetricValue: 100,
+        subUnitUnitArea: 120,
+        subUnitUnitPrice: 1500000,
+      },
+    ],
+  };
 }

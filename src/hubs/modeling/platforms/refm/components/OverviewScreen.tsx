@@ -1,251 +1,100 @@
 'use client';
 
+/**
+ * OverviewScreen.tsx (v5 schema, M2.0 stub)
+ *
+ * Project overview page. M2.0 stub shows project meta + phase
+ * summary; richer KPIs (revenue, returns, statements) land when
+ * Modules 2-5 are built on top of v5.
+ */
+
 import React from 'react';
-import type { ProjectType } from '@/src/core/types/project.types';
-import type { PermissionMap } from '@/src/core/types/settings.types';
-import { formatCurrency, formatNumber } from '@/src/core/formatters';
+import { useShallow } from 'zustand/react/shallow';
 import type { StorageShape } from './RealEstatePlatform';
+import { useModule1Store } from '../lib/state/module1-store';
+import { computePhaseCost, computeLandAggregate } from '@/src/core/calculations';
 
 interface OverviewScreenProps {
-  storageData: StorageShape;
-  activeProjectId: string | null;
-  activeVersionId: string | null;
-  projectName: string;
-  projectType: ProjectType;
-  currency: string;
-  totalLandValue: number;
-  totalProjectGFA: number;
-  totalCapex: number;
-  onLoadVersion: (pid: string, vid: string) => void;
-  onSaveVersion: () => void;
-  onEditProject: () => void;
-  setActiveModule: (m: string) => void;
-  setActiveTab: (t: string) => void;
-  can: (permission: keyof PermissionMap) => boolean;
+  storage: StorageShape;
 }
 
-export default function OverviewScreen({
-  storageData, activeProjectId, activeVersionId,
-  projectName, projectType, currency,
-  totalLandValue, totalProjectGFA, totalCapex,
-  onLoadVersion, onSaveVersion, onEditProject,
-  setActiveModule, setActiveTab, can,
-}: OverviewScreenProps) {
-  const proj = activeProjectId ? storageData.projects[activeProjectId] : null;
-
-  // Two empty-state cases collapse to the same UX:
-  //   1. activeProjectId is null (nothing selected yet).
-  //   2. activeProjectId is set but the project no longer exists in storage
-  //      (e.g. deleted in another tab, or hydration mid-flight). Previously
-  //      this returned `null` silently, which rendered a blank Overview
-  //      screen, indistinguishable from a broken page.
-  if (!proj || !activeProjectId) {
-    const reason = activeProjectId
-      ? 'The selected project is no longer available. Pick a different project to continue.'
-      : 'No project selected. Go to Projects and select a project first.';
-    return (
-      <div className="module-view">
-        <div className="state-empty">
-          📋 {reason}
-        </div>
-        <div style={{ marginTop: 'var(--sp-2)', textAlign: 'center' }}>
-          <button className="btn-primary" onClick={() => setActiveModule('projects')}>
-            → Go to Projects
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const versions = Object.entries(proj.versions || {});
-
-  const quickLinks = [
-    { icon: '📅', label: 'Timeline',    tab: 'timeline',  desc: 'Project schedule & model type' },
-    { icon: '🗺️', label: 'Land & Area', tab: 'area',      desc: 'Land parcels & GFA hierarchy' },
-    { icon: '💸', label: 'Dev Costs',   tab: 'costs',     desc: 'Construction cost items' },
-    { icon: '🏦', label: 'Financing',   tab: 'financing', desc: 'Debt/equity structure' },
-  ];
+export default function OverviewScreen({ storage }: OverviewScreenProps): React.JSX.Element {
+  const { project, phases, assets, parcels, subUnits, costLines } = useModule1Store(
+    useShallow((s) => ({
+      project: s.project,
+      phases: s.phases,
+      assets: s.assets,
+      parcels: s.parcels,
+      subUnits: s.subUnits,
+      costLines: s.costLines,
+    })),
+  );
+  const land = computeLandAggregate(parcels);
+  const totalCapex = phases.reduce(
+    (sum, phase) => sum + computePhaseCost(phase, costLines, parcels, assets, subUnits).total,
+    0,
+  );
+  const activeId = storage.activeProjectId;
 
   return (
-    <div className="module-view">
-      {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 'var(--sp-3)' }}>
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <h1 style={{
-              fontSize: 'var(--font-h1)', fontWeight: 'var(--fw-bold)',
-              color: 'var(--color-heading)', margin: 0, letterSpacing: '-0.02em',
-            }}>
-              {proj.name}
-            </h1>
-            {can('canEditProject') && (
-              <button
-                type="button"
-                onClick={onEditProject}
-                title="Edit project name & location"
-                aria-label="Edit project name & location"
-                style={{
-                  background: 'transparent',
-                  border: '1px solid var(--color-border)',
-                  borderRadius: 'var(--radius-sm)',
-                  width: 30, height: 30,
-                  cursor: 'pointer',
-                  fontSize: 14, lineHeight: 1,
-                  color: 'var(--color-meta)',
-                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                  transition: 'border-color 0.15s, color 0.15s, background 0.15s',
-                }}
-                onMouseEnter={e => {
-                  e.currentTarget.style.borderColor = 'var(--color-primary)';
-                  e.currentTarget.style.color = 'var(--color-primary)';
-                  e.currentTarget.style.background = 'color-mix(in srgb, var(--color-primary) 6%, transparent)';
-                }}
-                onMouseLeave={e => {
-                  e.currentTarget.style.borderColor = 'var(--color-border)';
-                  e.currentTarget.style.color = 'var(--color-meta)';
-                  e.currentTarget.style.background = 'transparent';
-                }}
-              >
-                ✏️
-              </button>
-            )}
-          </div>
-          <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-body)', marginTop: '6px' }}>
-            {proj.status} · {projectType} · {proj.location || 'No location set'}
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          {can('canSave') && (
-            <button className="btn-primary" onClick={onSaveVersion}>
-              💾 Save Version
-            </button>
-          )}
-          <button className="btn-secondary" onClick={() => setActiveModule('module1')}>
-            Edit Model →
-          </button>
-        </div>
+    <div data-testid="overview-screen">
+      <h2 style={{ marginTop: 0 }}>Overview {activeId ? `· ${project.name}` : ''}</h2>
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gap: 'var(--sp-2)',
+          marginBottom: 'var(--sp-3)',
+        }}
+      >
+        <Card label="Project" value={project.name} />
+        <Card label="Location" value={project.location || '-'} />
+        <Card label="Currency" value={project.currency} />
+        <Card label="Granularity" value={project.modelType} />
+        <Card label="Phases" value={String(phases.length)} />
+        <Card label="Assets" value={String(assets.length)} />
+        <Card label="Land Area" value={`${land.totalAreaSqm.toLocaleString()} sqm`} />
+        <Card label="Total CapEx" value={`${totalCapex.toLocaleString()} ${project.currency}`} />
       </div>
+      <h3>Phases</h3>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr style={{ background: 'var(--color-grey-pale)' }}>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Name</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Construction</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Operations</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Overlap</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Assets</th>
+          </tr>
+        </thead>
+        <tbody>
+          {phases.map((p) => (
+            <tr key={p.id} data-testid={`overview-phase-${p.id}`} style={{ borderTop: '1px solid var(--color-border)' }}>
+              <td style={{ padding: 'var(--sp-1)' }}>{p.name}</td>
+              <td style={{ padding: 'var(--sp-1)' }}>{p.constructionPeriods}</td>
+              <td style={{ padding: 'var(--sp-1)' }}>{p.operationsPeriods}</td>
+              <td style={{ padding: 'var(--sp-1)' }}>{p.overlapPeriods}</td>
+              <td style={{ padding: 'var(--sp-1)' }}>{assets.filter((a) => a.phaseId === p.id).length}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
-      {/* Summary KPIs */}
-      <div style={{
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))',
-        gap: 'var(--sp-2)',
-        marginBottom: 'var(--sp-3)',
-      }}>
-        {[
-          { label: 'Land Value',  value: formatCurrency(totalLandValue, currency), color: 'var(--color-green-dark)' },
-          { label: 'Total GFA',   value: `${formatNumber(totalProjectGFA)} sqm`,   color: 'var(--color-accent-warm)' },
-          { label: 'Total CapEx', value: formatCurrency(totalCapex, currency),      color: 'var(--color-navy)' },
-          { label: 'Versions',    value: String(versions.length),                  color: 'var(--color-grey-mid)' },
-        ].map((kpi, i) => (
-          <div key={i} className="kpi-card">
-            <div className="kpi-card__accent" style={{ background: kpi.color }} />
-            <div className="kpi-card__body">
-              <div className="kpi-card__label">{kpi.label}</div>
-              <div className="kpi-card__value">{kpi.value}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Quick links to module tabs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 'var(--sp-1)', marginBottom: 'var(--sp-3)' }}>
-        {quickLinks.map(ql => (
-          <div
-            key={ql.tab}
-            className="module-card"
-            style={{ padding: 'var(--sp-2)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '12px' }}
-            onClick={() => { setActiveModule('module1'); setActiveTab(ql.tab); }}
-          >
-            <span style={{ fontSize: '1.5rem', flexShrink: 0 }}>{ql.icon}</span>
-            <div>
-              <div style={{ fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)', fontSize: 'var(--font-body)' }}>
-                {ql.label}
-              </div>
-              <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)' }}>{ql.desc}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Version history */}
-      <div className="module-card" style={{ padding: 'var(--sp-3)' }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          marginBottom: 'var(--sp-2)',
-        }}>
-          <h3 style={{
-            fontSize: '11px', fontWeight: 'var(--fw-bold)',
-            color: 'var(--color-heading)', margin: 0,
-            textTransform: 'uppercase', letterSpacing: '0.06em',
-          }}>
-            Version History
-          </h3>
-          {can('canSave') && (
-            <button className="btn-primary" style={{ fontSize: '12px', padding: '5px 12px' }} onClick={onSaveVersion}>
-              + Save Version
-            </button>
-          )}
-        </div>
-
-        {versions.length === 0 ? (
-          <div style={{ color: 'var(--color-muted)', fontSize: 'var(--font-meta)', padding: 'var(--sp-2) 0' }}>
-            No saved versions yet. Save a version to track changes.
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {[...versions].reverse().map(([vid, ver]) => {
-              const isActive = vid === activeVersionId;
-              return (
-                <div
-                  key={vid}
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                    padding: '10px 12px', borderRadius: 'var(--radius-sm)',
-                    border: isActive
-                      ? '1px solid color-mix(in srgb, var(--color-success) 40%, transparent)'
-                      : '1px solid var(--color-border)',
-                    background: isActive
-                      ? 'color-mix(in srgb, var(--color-success) 6%, transparent)'
-                      : 'transparent',
-                  }}
-                >
-                  <div>
-                    <div style={{
-                      fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)',
-                      fontSize: 'var(--font-body)', marginBottom: '2px',
-                      display: 'flex', alignItems: 'center', gap: '8px',
-                    }}>
-                      {ver.name}
-                      {isActive && (
-                        <span style={{
-                          fontSize: '9px', fontWeight: 700, padding: '1px 7px',
-                          borderRadius: '20px',
-                          background: 'color-mix(in srgb, var(--color-success) 15%, transparent)',
-                          color: 'var(--color-success)',
-                        }}>LOADED</span>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-muted)' }}>
-                      {new Date(ver.createdAt).toLocaleString()}
-                    </div>
-                  </div>
-                  {can('canManageVersions') && !isActive && (
-                    <button
-                      className="btn-secondary"
-                      style={{ fontSize: '12px', padding: '5px 12px' }}
-                      onClick={() => onLoadVersion(activeProjectId, vid)}
-                    >
-                      Load
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+function Card({ label, value }: { label: string; value: string }): React.JSX.Element {
+  return (
+    <div
+      style={{
+        padding: 'var(--sp-2)',
+        border: '1px solid var(--color-border)',
+        borderRadius: 'var(--radius)',
+        background: 'var(--color-surface)',
+      }}
+    >
+      <div style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)', textTransform: 'uppercase' }}>{label}</div>
+      <div style={{ fontSize: 'var(--font-h3)', fontWeight: 'var(--fw-bold)' }}>{value}</div>
     </div>
   );
 }

@@ -1,144 +1,93 @@
 'use client';
 
+/**
+ * ProjectModal.tsx (v5 schema, M2.0 stub)
+ *
+ * Quick-pick modal for opening an existing project from the topbar.
+ * Full edit / rename / delete flows live in ProjectsScreen.
+ */
+
 import React from 'react';
+import { createPortal } from 'react-dom';
+import type { StorageShape } from '../RealEstatePlatform';
 
 interface ProjectModalProps {
-  mode: 'new' | 'edit';
-  initialName: string;
-  initialLocation: string;
-  pmInputVal: string;
-  setPmInputVal: (v: string) => void;
-  pmLocationVal: string;
-  setPmLocationVal: (v: string) => void;
-  onConfirm: (name: string, location: string) => void;
+  open: boolean;
   onClose: () => void;
+  storage: StorageShape;
+  onSelectProject: (id: string) => void;
 }
 
 export default function ProjectModal({
-  mode, initialName, initialLocation,
-  pmInputVal, setPmInputVal,
-  pmLocationVal, setPmLocationVal,
-  onConfirm, onClose,
-}: ProjectModalProps) {
-  // Initialize values from props on first render
-  const [name, setName] = React.useState(pmInputVal || initialName);
-  const [location, setLocation] = React.useState(pmLocationVal || initialLocation);
-
-  const handleConfirm = () => {
-    if (!name.trim()) return;
-    onConfirm(name.trim(), location.trim());
-    setPmInputVal('');
-    setPmLocationVal('');
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') handleConfirm();
-    if (e.key === 'Escape') onClose();
-  };
-
-  return (
-    <div className="pm-modal-overlay" onClick={onClose}>
-      <div className="pm-modal" onClick={e => e.stopPropagation()}>
-        <div className="pm-modal-header">
-          <div>
-            <div style={{ fontSize: '15px', fontWeight: 700 }}>
-              {mode === 'new' ? '🏗️ Create New Project' : '✏️ Edit Project'}
-            </div>
-            <div style={{ fontSize: '11px', color: 'color-mix(in srgb, var(--color-on-primary-navy) 50%, transparent)', marginTop: '2px' }}>
-              {mode === 'new' ? 'Define the project name and location' : 'Update project details'}
-            </div>
-          </div>
+  open,
+  onClose,
+  storage,
+  onSelectProject,
+}: ProjectModalProps): React.JSX.Element | null {
+  if (!open) return null;
+  if (typeof document === 'undefined') return null;
+  const projects = Object.entries(storage.projects);
+  const content = (
+    <div
+      role="dialog"
+      aria-modal="true"
+      data-testid="project-modal"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 9999,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          background: 'var(--color-bg)',
+          borderRadius: 'var(--radius)',
+          padding: 'var(--sp-3)',
+          maxWidth: 600,
+          width: '90vw',
+          maxHeight: '80vh',
+          overflow: 'auto',
+        }}
+      >
+        <h3 style={{ marginTop: 0 }}>Open Project</h3>
+        {projects.length === 0 && <div style={{ color: 'var(--color-meta)' }}>No projects yet.</div>}
+        {projects.map(([id, p]) => (
           <button
-            onClick={onClose}
+            key={id}
+            type="button"
+            onClick={() => {
+              onSelectProject(id);
+              onClose();
+            }}
+            data-testid={`project-modal-${id}`}
             style={{
-              background: 'color-mix(in srgb, var(--color-on-primary-navy) 10%, transparent)', border: 'none', borderRadius: '6px',
-              width: '28px', height: '28px', cursor: 'pointer', color: 'var(--color-on-primary-navy)', fontSize: '14px',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              display: 'block',
+              width: '100%',
+              padding: 'var(--sp-2)',
+              marginBottom: 6,
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-sm)',
+              background: storage.activeProjectId === id ? 'var(--color-navy-pale)' : 'var(--color-bg)',
+              cursor: 'pointer',
+              textAlign: 'left',
             }}
           >
-            ✕
+            <strong>{p.name}</strong> · <span style={{ color: 'var(--color-meta)' }}>{p.status}</span>
           </button>
-        </div>
-
-        <div className="pm-modal-body">
-          <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={{
-              display: 'block', fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)',
-              color: 'var(--color-body)', marginBottom: '6px',
-              textTransform: 'uppercase', letterSpacing: '0.05em',
-            }}>
-              Project Name *
-            </label>
-            <input
-              autoFocus
-              type="text"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="e.g. Skyline Towers, Marina Residences..."
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '10px 12px',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: 'var(--font-body)',
-                fontFamily: 'Inter, sans-serif',
-              }}
-            />
-          </div>
-
-          <div style={{ marginBottom: 'var(--sp-2)' }}>
-            <label style={{
-              display: 'block', fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)',
-              color: 'var(--color-body)', marginBottom: '6px',
-              textTransform: 'uppercase', letterSpacing: '0.05em',
-            }}>
-              Location / City
-            </label>
-            <input
-              type="text"
-              value={location}
-              onChange={e => setLocation(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="e.g. Riyadh, Dubai, Cairo..."
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                padding: '10px 12px',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-sm)',
-                fontSize: 'var(--font-body)',
-                fontFamily: 'Inter, sans-serif',
-              }}
-            />
-          </div>
-
-          <div style={{
-            background: 'var(--color-navy-light)',
-            border: '1px solid color-mix(in srgb, var(--color-primary) 12%, transparent)',
-            borderRadius: 'var(--radius-sm)',
-            padding: '10px 12px',
-            fontSize: '12px', color: 'var(--color-meta)',
-          }}>
-            💡 A new project will be created with Draft status. You can save versions of the model to track changes over time.
-          </div>
-        </div>
-
-        <div className="pm-modal-footer">
-          <button
-            className="btn-secondary"
-            onClick={onClose}
-          >
-            Cancel
-          </button>
-          <button
-            className="btn-primary"
-            onClick={handleConfirm}
-            disabled={!name.trim()}
-          >
-            {mode === 'new' ? '+ Create Project' : '✓ Save Changes'}
+        ))}
+        <div style={{ textAlign: 'right', marginTop: 'var(--sp-2)' }}>
+          <button type="button" onClick={onClose} data-testid="project-modal-close">
+            Close
           </button>
         </div>
       </div>
     </div>
   );
+  return createPortal(content, document.body);
 }

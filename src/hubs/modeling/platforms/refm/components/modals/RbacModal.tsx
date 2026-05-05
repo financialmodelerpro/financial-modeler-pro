@@ -1,102 +1,82 @@
 'use client';
 
+/**
+ * RbacModal.tsx (v5 schema, M2.0 stub)
+ *
+ * Role switcher used during pre-launch testing. Pass-through for the
+ * 4 ROLES tokens.
+ */
+
 import React from 'react';
+import { createPortal } from 'react-dom';
+import { ROLES } from '@/src/core/state';
 import type { Role } from '@/src/core/types/settings.types';
-import { ROLES, ROLE_META, PERMISSIONS } from '@/src/core/state';
 
 interface RbacModalProps {
-  rbacSelectedRole: Role;
-  setRbacSelectedRole: (r: Role) => void;
-  onApply: (role: Role) => void;
+  open: boolean;
   onClose: () => void;
+  currentRole: Role;
+  selectedRole: Role;
+  onSelectRole: (r: Role) => void;
+  onApply: (role: Role) => void;
 }
 
-const PERM_LABELS: Record<string, string> = {
-  canCreateProject:  'Create Projects',
-  canEditProject:    'Edit Projects',
-  canDeleteProject:  'Delete Projects',
-  canManageVersions: 'Manage Versions',
-  canEditInputs:     'Edit Inputs',
-  canSave:           'Save',
-  canChangeBranding: 'Branding',
-  canViewReports:    'View Reports',
-  canAddComments:    'Add Comments',
-  canExport:         'Export',
-  canImport:         'Import',
-};
-
-export default function RbacModal({ rbacSelectedRole, setRbacSelectedRole, onApply, onClose }: RbacModalProps) {
-  const roles = Object.values(ROLES) as Role[];
-
-  return (
-    <div className="rbac-modal-overlay" onClick={onClose}>
-      <div className="rbac-modal" onClick={e => e.stopPropagation()}>
-        <div className="rbac-modal-header">
-          <div>
-            <h2>Role Switcher</h2>
-            <p>Select a role to simulate access permissions</p>
-          </div>
-          <button className="rbac-modal-close" onClick={onClose} title="Close">✕</button>
+export default function RbacModal({
+  open,
+  onClose,
+  currentRole,
+  selectedRole,
+  onSelectRole,
+  onApply,
+}: RbacModalProps): React.JSX.Element | null {
+  if (!open) return null;
+  if (typeof document === 'undefined') return null;
+  const allRoles = Object.values(ROLES) as Role[];
+  const content = (
+    <div
+      role="dialog"
+      aria-modal="true"
+      data-testid="rbac-modal"
+      style={{
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 9999,
+      }}
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: 'var(--color-bg)', borderRadius: 'var(--radius)', padding: 'var(--sp-3)', maxWidth: 480, width: '90vw' }}
+      >
+        <h3 style={{ marginTop: 0 }}>Switch role (testing)</h3>
+        <div style={{ marginBottom: 'var(--sp-1)', color: 'var(--color-meta)', fontSize: 'var(--font-small)' }}>
+          Current: <strong>{currentRole}</strong>
         </div>
-
-        <div className="rbac-modal-body">
-          {roles.map(role => {
-            const meta = ROLE_META[role];
-            const perms = PERMISSIONS[role];
-            const isSelected = rbacSelectedRole === role;
-
-            return (
-              <div
-                key={role}
-                className={`rbac-role-card${isSelected ? ' selected' : ''}`}
-                onClick={() => setRbacSelectedRole(role)}
-              >
-                <div
-                  className="rbac-role-icon"
-                  style={{ background: meta.bg }}
-                >
-                  {meta.icon}
-                </div>
-                <div className="rbac-role-card-content">
-                  <div className="rbac-role-name">
-                    <span style={{ color: meta.color }}>{meta.label}</span>
-                    {isSelected && (
-                      <span style={{
-                        fontSize: '9px', fontWeight: 700, padding: '1px 7px',
-                        borderRadius: '20px', background: 'color-mix(in srgb, var(--color-primary) 20%, transparent)',
-                        color: 'color-mix(in srgb, var(--color-on-primary-navy) 60%, var(--color-navy))', border: '1px solid color-mix(in srgb, var(--color-primary) 30%, transparent)',
-                      }}>
-                        SELECTED
-                      </span>
-                    )}
-                  </div>
-                  <div className="rbac-role-desc">{meta.desc}</div>
-                  <div className="rbac-role-perms">
-                    {Object.entries(perms).map(([perm, allowed]) => (
-                      <span
-                        key={perm}
-                        className={`rbac-perm-tag ${allowed ? 'rbac-perm-allow' : 'rbac-perm-deny'}`}
-                      >
-                        {allowed ? '✓' : '✗'} {PERM_LABELS[perm] ?? perm}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="rbac-modal-footer">
-          <button className="rbac-cancel-btn" onClick={onClose}>Cancel</button>
-          <button
-            className="rbac-apply-btn"
-            onClick={() => onApply(rbacSelectedRole)}
-          >
-            Apply Role - {ROLE_META[rbacSelectedRole]?.label}
+        {allRoles.map((r) => (
+          <label key={r} style={{ display: 'block', padding: 6 }} data-testid={`rbac-role-${r}`}>
+            <input
+              type="radio"
+              name="rbac-role"
+              checked={selectedRole === r}
+              onChange={() => onSelectRole(r)}
+            />{' '}
+            {r}
+          </label>
+        ))}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 6, marginTop: 'var(--sp-2)' }}>
+          <button type="button" onClick={onClose} data-testid="rbac-cancel">
+            Cancel
+          </button>
+          <button type="button" onClick={() => onApply(selectedRole)} className="btn-primary" data-testid="rbac-apply">
+            Apply
           </button>
         </div>
       </div>
     </div>
   );
+  return createPortal(content, document.body);
 }

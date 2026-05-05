@@ -1,1446 +1,803 @@
 'use client';
 
 /**
- * ProjectWizard.tsx
+ * ProjectWizard.tsx (v5 schema, M2.0)
  *
- * Phase M1.8, Smart Project Creation Wizard.
+ * 3-step modal walk that mints a new project:
  *
- * Replaces the legacy "+ New Project" → ProjectModal flow (which dropped
- * the user into an empty Hierarchy tab) with a guided 3-step wizard that
- * asks 3-5 simple questions and pre-creates the project structure. The
- * user lands in a populated workspace (Area Program tab) instead of a
- * 5-layer empty tree.
+ *   1. Basics:    name, currency, modelType, startDate, location
+ *   2. Phases & land: per-phase timing + land parcels with rate
+ *      and cash/in-kind split + landAllocationMode
+ *   3. Assets:    seed asset list with strategy + type + areas +
+ *      one default sub-unit each
  *
- * Step machine:
- *   1. Project Basics        , name, location, currency, model type,
- *                                start date, status
- *   2. Project Structure     , Master Holding toggle, phase count,
- *                                plot count
- *   3. Assets                , project type radio + editable asset list
- *                                with auto-balanced allocation %
+ * Output flows through buildWizardSnapshot to produce a complete
+ * v5 HydrateSnapshot. Mounted via createPortal so the modal escapes
+ * any ancestor containing-block.
  *
- * Lifecycle:
- *   - All draft state is held locally in this component; nothing writes
- *     to the Zustand store or the persistence client until the user
- *     clicks "Create Project" on Step 3.
- *   - Esc / backdrop click prompts a confirm if any data has been
- *     entered (any field deviates from the seed default), otherwise
- *     closes silently.
- *   - Tab navigates between fields; Enter on the final step's last
- *     field activates Create Project.
- *   - Back / Continue preserve all entered data; the user can move
- *     freely between steps until they commit.
- *
- * Commit 1 (this commit) ships the scaffold + state machine + draft
- * shape. Step bodies are placeholder cards that explain what each step
- * will ask for; the actual fields land in commits M1.8/2-4. Clicking
- * Create Project on the placeholder Step 3 falls back to the legacy
- * onCreate(name, location) handler so the wizard remains functional
- * end-to-end during the staged build.
+ * Em-dash rule: NEVER use em-dashes (CLAUDE.md writing rule, M1.11).
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import type { ModelType } from '@core/types/project.types';
-import type { AssetCategory, AssetStrategy } from '../../lib/state/module1-types';
-import { PREBUILT_ASSET_TYPES, DEFAULT_STRATEGY_BY_CATEGORY } from '../../lib/state/module1-types';
-import { COUNTRY_DATA } from '../RealEstatePlatform';
+import {
+  type WizardDraft,
+  type WizardDraftPhase,
+  type WizardDraftParcel,
+  type WizardDraftAsset,
+  makeDefaultWizardDraft,
+} from '../../lib/wizard/buildWizardSnapshot';
+import {
+  type AssetStrategy,
+  type LandAllocationMode,
+  type ModelGranularity,
+  ASSET_STRATEGIES,
+  ASSET_TYPES_BY_STRATEGY,
+  LAND_ALLOCATION_MODES,
+} from '../../lib/state/module1-types';
 
-// ── Wizard project type (display-level enum) ───────────────────────────────
-// Independent of the store's ProjectType ('residential' | 'hospitality' |
-// 'mixed-use'). The wizard exposes this richer enum to the user so the
-// Step 3 default-asset matrix can suggest something sensible per
-// vertical; the build helper (commit M1.8/5) collapses it back to the
-// legacy ProjectType when writing to the snapshot.
-export const WIZARD_PROJECT_TYPES = ['Residential', 'Hospitality', 'Retail', 'Office', 'Mixed-Use', 'Custom'] as const;
-export type WizardProjectType = typeof WIZARD_PROJECT_TYPES[number];
+export type { WizardDraft } from '../../lib/wizard/buildWizardSnapshot';
 
-// ── Wizard asset row (Step 3) ──────────────────────────────────────────────
-// `id` is a local uuid used as the React key while the row is in the
-// wizard. The build helper assigns the persisted AssetClass id when the
-// snapshot is constructed. `strategy` drives the placeholder sub-unit's
-// metric (Sell/Operate → count, Lease → area).
-export interface WizardDraftAsset {
-  id:            string;
-  name:          string;
-  type:          string;
-  category:      AssetCategory;
-  allocationPct: number;
-  strategy:      AssetStrategy;
+interface ProjectWizardProps {
+  open: boolean;
+  onClose: () => void;
+  onCreate: (draft: WizardDraft) => void;
 }
 
-// ── Wizard land parcel row (Step 2, M1.12) ────────────────────────────────
-// Parcel acquisition (area + rate + cash/in-kind split) captured upfront
-// so the wizard mints a populated landParcels[] in the snapshot. `id` is
-// the numeric LandParcel id used by the rest of REFM; the wizard issues
-// 1-indexed ids in row order.
-export interface WizardDraftParcel {
-  id:        number;
-  name:      string;
-  area:      number;
-  rate:      number;
-  cashPct:   number;
-  inKindPct: number;
-}
-
-// ── Full wizard draft ──────────────────────────────────────────────────────
-// Single source of truth for everything the user has entered so far.
-// Held in this component's local useState; never leaks to the store
-// until commit on Step 3.
-//
-// M1.9 expansion (2026-05-04):
-//   - `country` joins `currency` in Step 1 so the wizard captures the
-//     country that auto-derives the currency. The Schedule tab no longer
-//     re-asks for it (single source of truth).
-//   - `constructionPeriods` / `operationsPeriods` / `overlapPeriods` join
-//     Step 2 so the wizard captures the project timeline upfront. Phase
-//     timing flows into every wizard-built phase via buildWizardSnapshot
-//     (each phase inherits the project-level window the user picked).
-export interface WizardDraft {
-  // Step 1
-  name:        string;
-  location:    string;
-  country:     string;       // M1.9, country name from COUNTRY_DATA; drives currency auto-fill
-  currency:    string;
-  modelType:   ModelType;
-  startDate:   string;       // YYYY-MM-DD
-  status:      'Draft' | 'Active';
-
-  // Step 2
-  enableMasterHolding: boolean;
-  phaseCount:          number;   // 1..10
-  plotCount:           number;   // 1..20
-  // M1.9, project timeline captured upfront. Default to the legacy
-  // single-phase window (4 / 5 / 0). Stored in periods (months for
-  // monthly model, years for annual). Wizard renders the unit hint
-  // beside each input so users don't have to guess.
-  constructionPeriods: number;
-  operationsPeriods:   number;
-  overlapPeriods:      number;
-  // M1.12, Land Parcels captured upfront. The Land tab is gone; parcels
-  // live here at creation time and on the Build Program tab afterwards.
-  // Default 1 parcel of 100,000 sqm at 500/sqm with a 60/40 cash split,
-  // matching DEFAULT_MODULE1_STATE so wizard projects mint identical
-  // baselines to the legacy create flow.
-  parcels:             WizardDraftParcel[];
-
-  // Step 3
-  wizardProjectType: WizardProjectType;
-  assets:            WizardDraftAsset[];
-}
-
-// ── Default asset matrix per project type (M1.8/4) ─────────────────────────
-// Suggested seed assets per wizard project type. Each row mirrors a
-// WizardDraftAsset minus the local id (assigned at seed time). Allocation
-// % per row sums to 100 within each type. Custom returns []; the user
-// adds rows manually.
-//
-// Source: brief table, Residential 100% high-end apartments, Hospitality
-// 100% Hotel 5-star, Retail 100% Retail, Office 100% Office, Mixed-Use
-// split 50/30/20 across residential/hotel/retail. Asset names + types
-// match PREBUILT_ASSET_TYPES so the type dropdown lands on the right
-// option without the user picking again.
-type WizardDefaultAssetSeed = Omit<WizardDraftAsset, 'id'>;
-
-export const WIZARD_DEFAULT_ASSETS_BY_TYPE: Record<WizardProjectType, WizardDefaultAssetSeed[]> = {
-  Residential: [
-    { name: 'Residential Tower', type: 'High-end Apartments', category: 'Sell', allocationPct: 100, strategy: 'Develop & Sell' },
-  ],
-  Hospitality: [
-    { name: 'Hotel', type: 'Hotel 5-star', category: 'Operate', allocationPct: 100, strategy: 'Develop & Operate' },
-  ],
-  Retail: [
-    { name: 'Retail Center', type: 'Retail', category: 'Lease', allocationPct: 100, strategy: 'Develop & Lease' },
-  ],
-  Office: [
-    { name: 'Office Tower', type: 'Office', category: 'Lease', allocationPct: 100, strategy: 'Develop & Lease' },
-  ],
-  'Mixed-Use': [
-    { name: 'Residential Tower', type: 'High-end Apartments', category: 'Sell',    allocationPct: 50, strategy: 'Develop & Sell' },
-    { name: 'Hotel',             type: 'Hotel 5-star',        category: 'Operate', allocationPct: 30, strategy: 'Develop & Operate' },
-    { name: 'Retail Podium',     type: 'Retail',              category: 'Lease',   allocationPct: 20, strategy: 'Develop & Lease' },
-  ],
-  Custom: [],
-};
-
-// Local id helper. The wizard never persists these, the build helper
-// (M1.8/5) mints stable AssetClass ids when writing the snapshot.
-let _wizardAssetIdCounter = 0;
-function makeWizardAssetId(): string {
-  _wizardAssetIdCounter += 1;
-  return `wizard_asset_${Date.now()}_${_wizardAssetIdCounter}`;
-}
-
-export function seedAssetsForType(type: WizardProjectType): WizardDraftAsset[] {
-  return WIZARD_DEFAULT_ASSETS_BY_TYPE[type].map(a => ({ ...a, id: makeWizardAssetId() }));
-}
-
-// ── Defaults ───────────────────────────────────────────────────────────────
-// Step 1 default startDate = today + 6 months (clamped to YYYY-MM-DD).
-// Currency default SAR matches DEFAULT_MODULE1_STATE so wizard projects
-// align with the rest of the platform.
-function todayPlus6MonthsIso(): string {
-  const d = new Date();
-  d.setMonth(d.getMonth() + 6);
-  return d.toISOString().slice(0, 10);
-}
-
-export function makeWizardDefaultDraft(): WizardDraft {
-  return {
-    name:                '',
-    location:            '',
-    country:             'Saudi Arabia',  // M1.9, drives currency auto-fill
-    currency:            'SAR',
-    modelType:           'annual',
-    startDate:           todayPlus6MonthsIso(),
-    status:              'Draft',
-    enableMasterHolding: false,
-    phaseCount:          1,
-    plotCount:           1,
-    // M1.9, legacy single-phase window: 4 + 5 + 0. Wizard label shows
-    // unit hint (years/months) so users adjust without guessing the model.
-    constructionPeriods: 4,
-    operationsPeriods:   5,
-    overlapPeriods:      0,
-    // M1.12, default single parcel matches DEFAULT_MODULE1_STATE so
-    // existing snapshot fixtures stay bit-identical when a wizard
-    // project lands at default values.
-    parcels: [{
-      id: 1, name: 'Land 1', area: 100000, rate: 500, cashPct: 60, inKindPct: 40,
-    }],
-    wizardProjectType:   'Mixed-Use',
-    // Pre-seed with the Mixed-Use defaults so Step 3 opens with a
-    // populated list. The user can change the project type at any time
-    // and the assets table re-seeds (see Step3Assets handleTypeChange).
-    assets:              seedAssetsForType('Mixed-Use'),
-  };
-}
-
-// ── Dirty detection (Esc / backdrop confirm) ───────────────────────────────
-// "Has the user entered any data" reduces to "does the current draft
-// differ from the seed default in any field that we'd be sad to lose?"
-// Asset list is compared by signature (name/type/category/allocationPct)
-// rather than by reference equality because the seed populates ids via
-// makeWizardAssetId() at draft-creation time, and those ids will never
-// match a re-seeded list even when the user hasn't actually changed
-// anything.
-function assetSignature(assets: WizardDraftAsset[]): string {
-  return assets.map(a => `${a.name}:${a.type}:${a.category}:${a.allocationPct}:${a.strategy}`).join('|');
-}
-
-// M1.12, parcel signature mirrors assetSignature so dirty detection
-// catches edits to land parcels in Step 2.
-function parcelSignature(parcels: WizardDraftParcel[]): string {
-  return parcels.map(p => `${p.name}:${p.area}:${p.rate}:${p.cashPct}:${p.inKindPct}`).join('|');
-}
-
-function isDraftDirty(d: WizardDraft, seed: WizardDraft): boolean {
-  return (
-    d.name !== seed.name ||
-    d.location !== seed.location ||
-    d.country !== seed.country ||
-    d.currency !== seed.currency ||
-    d.modelType !== seed.modelType ||
-    d.startDate !== seed.startDate ||
-    d.status !== seed.status ||
-    d.enableMasterHolding !== seed.enableMasterHolding ||
-    d.phaseCount !== seed.phaseCount ||
-    d.plotCount !== seed.plotCount ||
-    d.constructionPeriods !== seed.constructionPeriods ||
-    d.operationsPeriods !== seed.operationsPeriods ||
-    d.overlapPeriods !== seed.overlapPeriods ||
-    d.wizardProjectType !== seed.wizardProjectType ||
-    assetSignature(d.assets) !== assetSignature(seed.assets) ||
-    parcelSignature(d.parcels) !== parcelSignature(seed.parcels)
-  );
-}
-
-// ── Visual tokens (FAST blue convention; mirrors REFM input style) ─────────
-export const wizardInputStyle: React.CSSProperties = {
-  padding: '8px 10px',
-  border: '1px solid var(--color-border)',
-  borderRadius: 'var(--radius-sm)',
-  fontSize: 'var(--font-body)',
-  fontFamily: 'Inter, sans-serif',
+const inputStyle: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
   color: 'var(--color-navy)',
-  fontWeight: 'var(--fw-semibold)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius-sm)',
+  padding: 'var(--sp-1)',
+  fontSize: 'var(--font-body)',
+  width: '100%',
 };
 
-const stepIndicatorPill = (active: boolean, done: boolean): React.CSSProperties => ({
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  width: 24,
-  height: 24,
-  borderRadius: '50%',
-  background: active
-    ? 'var(--color-primary)'
-    : done
-    ? 'color-mix(in srgb, var(--color-primary) 35%, transparent)'
-    : 'color-mix(in srgb, var(--color-on-primary-navy) 12%, transparent)',
-  color: active ? 'var(--color-on-primary-navy)' : done ? 'var(--color-on-primary-navy)' : 'color-mix(in srgb, var(--color-on-primary-navy) 60%, transparent)',
-  fontSize: 12,
-  fontWeight: 700,
-});
-
-const stepLabelStyle = (active: boolean): React.CSSProperties => ({
-  fontSize: 12,
-  fontWeight: active ? 700 : 500,
-  color: active
-    ? 'var(--color-on-primary-navy)'
-    : 'color-mix(in srgb, var(--color-on-primary-navy) 60%, transparent)',
-  marginLeft: 6,
-});
-
-// ── Component props ───────────────────────────────────────────────────────
-export interface ProjectWizardProps {
-  /**
-   * M1.8/5: receives the full wizard draft. RealEstatePlatform's
-   * handleCreateProjectFromWizard turns this into a populated
-   * HydrateSnapshot via buildWizardSnapshot(draft) and posts it to
-   * the persistence layer, then routes to the Area Program tab.
-   */
-  onCreate: (draft: WizardDraft) => void;
-  /**
-   * Close handler. The wizard itself decides whether to prompt the
-   * user before calling this (dirty-confirm rule).
-   */
-  onClose: () => void;
-}
-
-// ── Component ─────────────────────────────────────────────────────────────
-export default function ProjectWizard({ onCreate, onClose }: ProjectWizardProps) {
-  const [seed] = useState<WizardDraft>(() => makeWizardDefaultDraft());
-  const [draft, setDraft] = useState<WizardDraft>(seed);
-  const [step, setStep] = useState<1 | 2 | 3>(1);
-
-  // ── Esc key handler (with dirty confirm) ──
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        attemptClose();
-      }
-    }
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-    // attemptClose closes over draft+seed via the latest render, but is
-    // stable in shape; we re-bind on every state change so the latest
-    // dirty check is in scope without a useCallback.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draft, seed]);
-
-  function attemptClose(): void {
-    if (isDraftDirty(draft, seed)) {
-      const ok = window.confirm('Discard your wizard progress?\n\nThe values you entered will be lost.');
-      if (!ok) return;
-    }
-    onClose();
-  }
-
-  // ── Step machine ──
-  // Step 1 valid: name + location both filled.
-  // Steps 2/3 will tighten validation in their respective commits.
-  const step1Valid = draft.name.trim().length > 0 && draft.location.trim().length > 0;
-  // M1.12, every parcel must have a positive area + non-negative rate +
-  // a cash/in-kind split that sums to 100. We allow rate=0 for in-kind-
-  // only contributions (cashPct=0, inKindPct=100) but always require
-  // some land area, otherwise total project GFA collapses to zero.
-  const step2ParcelsValid = draft.parcels.length >= 1
-    && draft.parcels.every(p =>
-      p.area > 0
-      && p.rate >= 0
-      && p.cashPct >= 0 && p.cashPct <= 100
-      && Math.abs(p.cashPct + p.inKindPct - 100) < 0.01,
-    );
-  const step2Valid = draft.phaseCount >= 1 && draft.phaseCount <= 10
-    && draft.plotCount >= 1 && draft.plotCount <= 20
-    && draft.constructionPeriods >= 1 && draft.operationsPeriods >= 1
-    && draft.overlapPeriods >= 0 && draft.overlapPeriods <= draft.constructionPeriods
-    && step2ParcelsValid;
-  // Step 3 valid: at least 1 asset AND total allocation sums to 100%
-  // within a 0.1 tolerance. M1.11/M8 bumped this from 0.01 because manual
-  // entry of equal thirds (33.333 x 3) rounds to 99.999 in float math, and
-  // 33.33 + 33.33 + 33.34 = 100.00 only by luck. 0.1 still rejects truly
-  // wrong sums (95% or 105%) while accepting reasonable manual entry.
-  const step3AllocSum = draft.assets.reduce((s, a) => s + (Number.isFinite(a.allocationPct) ? a.allocationPct : 0), 0);
-  const step3Valid = draft.assets.length > 0 && Math.abs(step3AllocSum - 100) < 0.1;
-
-  const continueEnabled =
-    step === 1 ? step1Valid :
-    step === 2 ? step2Valid :
-    step === 3 ? step3Valid :
-    false;
-
-  function handleContinue(): void {
-    if (!continueEnabled) return;
-    if (step < 3) {
-      setStep(((step + 1) as 1 | 2 | 3));
-    } else {
-      // Step 3 commit: hand the full draft to the parent's
-      // transactional create handler (M1.8/5). The parent normalizes
-      // the draft into a HydrateSnapshot via buildWizardSnapshot, then
-      // posts to /api/refm/projects with the populated structure.
-      onCreate({
-        ...draft,
-        name: draft.name.trim(),
-        location: draft.location.trim(),
-      });
-    }
-  }
-
-  function handleBack(): void {
-    if (step > 1) setStep(((step - 1) as 1 | 2 | 3));
-  }
-
-  // M1.11/C2, portal to document.body so the modal escapes any ancestor
-  // containing block (transform, will-change, filter on the platform
-  // shell) that would otherwise resolve `position: fixed` relative to the
-  // ancestor. Mirrors the M1.10b/1 fix on PlotSetupWizard + ParcelSetupWizard.
-  if (typeof document === 'undefined') return null;
-  return createPortal(
-    <div className="pm-modal-overlay" onClick={attemptClose} role="presentation">
-      <div
-        className="pm-modal"
-        onClick={e => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="project-wizard-title"
-        style={{ maxWidth: 1080, width: '100%' }}
-      >
-        {/* Header */}
-        <div className="pm-modal-header" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 'var(--sp-2)' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div id="project-wizard-title" style={{ fontSize: '15px', fontWeight: 700 }}>
-                🏗️ Create New Project
-              </div>
-              <div style={{ fontSize: '11px', color: 'color-mix(in srgb, var(--color-on-primary-navy) 50%, transparent)', marginTop: '2px' }}>
-                Answer 3 quick questions to land in a workspace that&apos;s already set up.
-              </div>
-            </div>
-            <button
-              onClick={attemptClose}
-              aria-label="Close wizard"
-              style={{
-                background: 'color-mix(in srgb, var(--color-on-primary-navy) 10%, transparent)',
-                border: 'none', borderRadius: '6px',
-                width: '28px', height: '28px', cursor: 'pointer',
-                color: 'var(--color-on-primary-navy)', fontSize: '14px',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}
-            >
-              ✕
-            </button>
-          </div>
-
-          {/* Step indicator: 3 pills + connector lines */}
-          <div
-            data-testid="wizard-step-indicator"
-            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
-          >
-            {[1, 2, 3].map((n, idx) => (
-              <React.Fragment key={n}>
-                <div style={{ display: 'inline-flex', alignItems: 'center' }}>
-                  <span style={stepIndicatorPill(step === n, step > n)}>
-                    {step > n ? '✓' : n}
-                  </span>
-                  <span style={stepLabelStyle(step === n)}>
-                    {n === 1 ? 'Basics' : n === 2 ? 'Structure' : 'Assets'}
-                  </span>
-                </div>
-                {idx < 2 && (
-                  <span style={{
-                    flex: 1,
-                    height: 1,
-                    background: 'color-mix(in srgb, var(--color-on-primary-navy) 18%, transparent)',
-                  }} />
-                )}
-              </React.Fragment>
-            ))}
-          </div>
-        </div>
-
-        {/* Body, placeholder content per step until M1.8/2-4 fill them in */}
-        <div className="pm-modal-body" style={{ minHeight: 280 }}>
-          {step === 1 && (
-            <Step1Basics draft={draft} setDraft={setDraft} />
-          )}
-          {step === 2 && (
-            <Step2Structure draft={draft} setDraft={setDraft} />
-          )}
-          {step === 3 && (
-            <Step3Assets draft={draft} setDraft={setDraft} allocSum={step3AllocSum} />
-          )}
-        </div>
-
-        {/* Footer: Back / Continue or Create Project */}
-        <div className="pm-modal-footer" style={{ justifyContent: 'space-between' }}>
-          <button
-            className="btn-secondary"
-            onClick={step === 1 ? attemptClose : handleBack}
-            data-testid="wizard-back"
-          >
-            {step === 1 ? 'Cancel' : '← Back'}
-          </button>
-          <button
-            className="btn-primary"
-            onClick={handleContinue}
-            disabled={!continueEnabled}
-            data-testid={step === 3 ? 'wizard-create' : 'wizard-continue'}
-          >
-            {step === 3 ? '+ Create Project' : 'Continue →'}
-          </button>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  );
-}
-
-// ── Step body shared label cell ───────────────────────────────────────────
-const labelTextStyle: React.CSSProperties = {
+const labelStyle: React.CSSProperties = {
   fontSize: 'var(--font-meta)',
   fontWeight: 'var(--fw-semibold)',
   color: 'var(--color-body)',
   textTransform: 'uppercase',
   letterSpacing: '0.05em',
+  display: 'block',
+  marginBottom: 4,
 };
 
-const radioGroupStyle: React.CSSProperties = {
-  display: 'flex',
-  gap: 6,
-  flexWrap: 'wrap',
-};
+export default function ProjectWizard({
+  open,
+  onClose,
+  onCreate,
+}: ProjectWizardProps): React.JSX.Element | null {
+  const [step, setStep] = useState<1 | 2 | 3>(1);
+  const [draft, setDraft] = useState<WizardDraft>(() => makeDefaultWizardDraft());
 
-function radioPillStyle(active: boolean): React.CSSProperties {
-  return {
-    padding: '6px 12px',
-    border: `1px solid ${active ? 'var(--color-navy)' : 'var(--color-border)'}`,
-    borderRadius: 'var(--radius-sm)',
-    fontSize: 'var(--font-meta)',
-    fontFamily: 'Inter, sans-serif',
-    fontWeight: 'var(--fw-semibold)',
-    background: active ? 'var(--color-navy-pale)' : 'var(--color-surface)',
-    color: active ? 'var(--color-navy)' : 'var(--color-body)',
-    cursor: 'pointer',
-  };
-}
+  useEffect(() => {
+    if (open) {
+      setStep(1);
+      setDraft(makeDefaultWizardDraft());
+    }
+  }, [open]);
 
-// ── Step 1: Project Basics (M1.8/2) ───────────────────────────────────────
-// Six fields. Name + Location required (Continue gating in the parent).
-// Currency dropdown lifts COUNTRY_DATA so the wizard offers the same set
-// the rest of REFM uses; the option label combines the country flag +
-// currency code so users can scan visually.
-interface Step1Props {
-  draft:    WizardDraft;
-  setDraft: React.Dispatch<React.SetStateAction<WizardDraft>>;
-}
+  if (!open) return null;
+  if (typeof document === 'undefined') return null;
 
-function Step1Basics({ draft, setDraft }: Step1Props) {
-  return (
-    <div data-testid="wizard-step-1">
-      <h3 style={{
-        fontSize: 'var(--font-body)',
-        fontWeight: 'var(--fw-semibold)',
-        color: 'var(--color-heading)',
-        margin: '0 0 6px 0',
-      }}>
-        Step 1, Project Basics
-      </h3>
-      <p style={{
-        fontSize: 'var(--font-meta)',
-        color: 'var(--color-meta)',
-        margin: '0 0 var(--sp-3) 0',
-      }}>
-        Tell us about the project so we can set up your workspace.
-      </p>
+  const update = (patch: Partial<WizardDraft>): void => setDraft((d) => ({ ...d, ...patch }));
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
-        {/* Name */}
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={labelTextStyle}>Project Name *</span>
-          <input
-            autoFocus
-            type="text"
-            value={draft.name}
-            onChange={e => setDraft(prev => ({ ...prev, name: e.target.value }))}
-            placeholder="e.g. Skyline Towers, Marina Residences..."
-            data-testid="wizard-name"
-            style={wizardInputStyle}
-          />
-        </label>
-
-        {/* Location */}
-        <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <span style={labelTextStyle}>Location *</span>
-          <input
-            type="text"
-            value={draft.location}
-            onChange={e => setDraft(prev => ({ ...prev, location: e.target.value }))}
-            placeholder="e.g. Riyadh, Saudi Arabia"
-            data-testid="wizard-location"
-            style={wizardInputStyle}
-          />
-        </label>
-
-        {/* Country + Start Date row (M1.9, country drives currency
-            auto-fill so the wizard captures both fields with one
-            choice; the Schedule tab no longer re-asks). */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-2)' }}>
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={labelTextStyle}>Country</span>
-            <select
-              value={draft.country}
-              onChange={e => {
-                const next = COUNTRY_DATA.find(c => c.name === e.target.value);
-                if (!next) return;
-                setDraft(prev => ({ ...prev, country: next.name, currency: next.currency }));
-              }}
-              data-testid="wizard-country"
-              style={wizardInputStyle}
-            >
-              {COUNTRY_DATA.map(c => (
-                <option key={c.name} value={c.name}>
-                  {c.flag} {c.name}, {c.currency}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={labelTextStyle}>Project Start Date</span>
-            <input
-              type="date"
-              value={draft.startDate}
-              onChange={e => setDraft(prev => ({ ...prev, startDate: e.target.value }))}
-              data-testid="wizard-start-date"
-              style={wizardInputStyle}
-            />
-          </label>
-        </div>
-
-        {/* Model Type + Status row (paired so Step 1 fits one screen on
-            standard 1080p displays, no scroll required). */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-2)' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={labelTextStyle}>Model Type</span>
-            <div style={radioGroupStyle} role="radiogroup" aria-label="Model Type">
-              {(['annual', 'monthly'] as const).map(m => (
-                <button
-                  key={m}
-                  type="button"
-                  role="radio"
-                  aria-checked={draft.modelType === m}
-                  onClick={() => setDraft(prev => ({ ...prev, modelType: m }))}
-                  data-testid={`wizard-model-type-${m}`}
-                  style={radioPillStyle(draft.modelType === m)}
-                >
-                  {m === 'annual' ? 'Annual' : 'Monthly'}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <span style={labelTextStyle}>Status</span>
-            <div style={radioGroupStyle} role="radiogroup" aria-label="Status">
-              {(['Draft', 'Active'] as const).map(s => (
-                <button
-                  key={s}
-                  type="button"
-                  role="radio"
-                  aria-checked={draft.status === s}
-                  onClick={() => setDraft(prev => ({ ...prev, status: s }))}
-                  data-testid={`wizard-status-${s.toLowerCase()}`}
-                  style={radioPillStyle(draft.status === s)}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Step 2: Project Structure (M1.8/3) ────────────────────────────────────
-// Three questions with smart defaults:
-//   1. Is this part of a fund/portfolio? → Master Holding toggle
-//   2. How many phases? → Single (1) or Multiple (2-10)
-//   3. How many plots?  → Single (1) or Multiple (2-20)
-//
-// "Single" is the default for both phase + plot, the brief calls out
-// that 90% of users (single phase, single plot, 2-3 assets) shouldn't
-// see multi-phase / multi-plot complexity unless they opt in. The
-// conditional 2-10 / 2-20 numeric input only appears when the user
-// flips to Multiple.
-//
-// Ratification: progressive disclosure pattern from M1.5/M1.7. Selecting
-// Multiple expands an inline numeric input; selecting Single collapses
-// the count back to 1 so the wizard doesn't carry a dangling 5-phase
-// intent if the user changed their mind.
-interface Step2Props {
-  draft:    WizardDraft;
-  setDraft: React.Dispatch<React.SetStateAction<WizardDraft>>;
-}
-
-function Step2Structure({ draft, setDraft }: Step2Props) {
-  return (
-    <div data-testid="wizard-step-2">
-      <h3 style={{
-        fontSize: 'var(--font-body)',
-        fontWeight: 'var(--fw-semibold)',
-        color: 'var(--color-heading)',
-        margin: '0 0 6px 0',
-      }}>
-        Step 2, Project Structure
-      </h3>
-      <p style={{
-        fontSize: 'var(--font-meta)',
-        color: 'var(--color-meta)',
-        margin: '0 0 var(--sp-3) 0',
-      }}>
-        These choices control which layers show up in the Hierarchy tab.
-        Defaults work for most projects, you can always enable more
-        layers later from the Hierarchy tab.
-      </p>
-
-      {/* M1.10/4, gap shrunk sp-3 -> sp-2 + Phases & Plots collapsed
-         into a single 2-column row + MH descriptive paragraph compressed
-         to a one-liner so Step 2 fits a 1080p viewport without scroll. */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)' }}>
-        {/* Q1: Master Holding toggle */}
-        <div>
-          <span style={labelTextStyle}>Is this part of a fund or portfolio?</span>
-          <div style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            marginTop: 6,
-            padding: '8px 12px',
-            background: 'color-mix(in srgb, var(--color-primary) 4%, var(--color-surface))',
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-sm)',
-          }}>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={draft.enableMasterHolding}
-              data-testid="wizard-mh-toggle"
-              onClick={() => setDraft(prev => ({ ...prev, enableMasterHolding: !prev.enableMasterHolding }))}
-              style={{
-                position: 'relative',
-                width: 40,
-                height: 22,
-                borderRadius: 11,
-                border: 'none',
-                cursor: 'pointer',
-                background: draft.enableMasterHolding ? 'var(--color-primary)' : 'var(--color-input-border)',
-                transition: 'background 0.15s ease',
-                padding: 0,
-              }}
-            >
-              <span style={{
-                position: 'absolute',
-                top: 2,
-                left: draft.enableMasterHolding ? 20 : 2,
-                width: 18,
-                height: 18,
-                borderRadius: '50%',
-                background: 'var(--color-surface)',
-                transition: 'left 0.15s ease',
-              }} />
-            </button>
-            <div style={{ flex: 1 }}>
-              <div style={{
-                fontSize: 'var(--font-body)',
-                fontWeight: 'var(--fw-semibold)',
-                color: 'var(--color-heading)',
-              }}>
-                {draft.enableMasterHolding
-                  ? 'Yes, show Master Holding layer'
-                  : 'No, single project (you can convert later)'}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Q2 + Q3: Phases + Plots, paired side-by-side (M1.10/4) */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-2)' }}>
-        <div>
-          <span style={labelTextStyle}>How many phases?</span>
-          <div style={{ ...radioGroupStyle, marginTop: 6 }} role="radiogroup" aria-label="Phase count">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={draft.phaseCount === 1}
-              data-testid="wizard-phases-single"
-              onClick={() => setDraft(prev => ({ ...prev, phaseCount: 1 }))}
-              style={radioPillStyle(draft.phaseCount === 1)}
-            >
-              Single Phase (most projects)
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={draft.phaseCount > 1}
-              data-testid="wizard-phases-multiple"
-              onClick={() => setDraft(prev => ({ ...prev, phaseCount: prev.phaseCount > 1 ? prev.phaseCount : 2 }))}
-              style={radioPillStyle(draft.phaseCount > 1)}
-            >
-              Multiple Phases (staged development)
-            </button>
-          </div>
-          {draft.phaseCount > 1 && (
-            <label
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10, marginTop: 8,
-                fontSize: 'var(--font-meta)', color: 'var(--color-meta)',
-              }}
-            >
-              <span>How many?</span>
-              <input
-                type="number"
-                min={2}
-                max={10}
-                value={draft.phaseCount}
-                onChange={e => {
-                  const v = parseInt(e.target.value, 10);
-                  if (Number.isNaN(v)) return;
-                  setDraft(prev => ({ ...prev, phaseCount: Math.min(10, Math.max(2, v)) }));
-                }}
-                data-testid="wizard-phase-count"
-                style={{ ...wizardInputStyle, width: 80 }}
-              />
-              <span>(2–10)</span>
-            </label>
-          )}
-        </div>
-
-        {/* Q3: Plots */}
-        <div>
-          <span style={labelTextStyle}>How many plots?</span>
-          <div style={{ ...radioGroupStyle, marginTop: 6 }} role="radiogroup" aria-label="Plot count">
-            <button
-              type="button"
-              role="radio"
-              aria-checked={draft.plotCount === 1}
-              data-testid="wizard-plots-single"
-              onClick={() => setDraft(prev => ({ ...prev, plotCount: 1 }))}
-              style={radioPillStyle(draft.plotCount === 1)}
-            >
-              Single Plot
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={draft.plotCount > 1}
-              data-testid="wizard-plots-multiple"
-              onClick={() => setDraft(prev => ({ ...prev, plotCount: prev.plotCount > 1 ? prev.plotCount : 2 }))}
-              style={radioPillStyle(draft.plotCount > 1)}
-            >
-              Multiple Plots (large land bank)
-            </button>
-          </div>
-          {draft.plotCount > 1 && (
-            <label
-              style={{
-                display: 'flex', alignItems: 'center', gap: 10, marginTop: 8,
-                fontSize: 'var(--font-meta)', color: 'var(--color-meta)',
-              }}
-            >
-              <span>How many?</span>
-              <input
-                type="number"
-                min={2}
-                max={20}
-                value={draft.plotCount}
-                onChange={e => {
-                  const v = parseInt(e.target.value, 10);
-                  if (Number.isNaN(v)) return;
-                  setDraft(prev => ({ ...prev, plotCount: Math.min(20, Math.max(2, v)) }));
-                }}
-                data-testid="wizard-plot-count"
-                style={{ ...wizardInputStyle, width: 80 }}
-              />
-              <span>(2–20)</span>
-            </label>
-          )}
-        </div>
-        </div>{/* /Q2+Q3 grid (M1.10/4) */}
-
-        {/* Q4: Timeline (M1.9). Capture construction + operations + overlap
-            upfront so the user is never asked again on the Schedule tab.
-            Unit suffix follows the model granularity from Step 1 (months
-            or years). Each phase the wizard mints inherits this window
-            via buildWizardSnapshot. */}
-        <div>
-          <span style={labelTextStyle}>Project Timeline</span>
-          <div style={{
-            fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 2,
-          }}>
-            How long does construction run, and how long do you model
-            operations afterwards? You can adjust per phase later.
-          </div>
-          <div style={{
-            display: 'grid', gridTemplateColumns: '1fr 1fr 1fr',
-            gap: 'var(--sp-2)', marginTop: 8,
-          }}>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ ...labelTextStyle, fontSize: 11 }}>
-                Construction ({draft.modelType === 'monthly' ? 'months' : 'years'})
-              </span>
-              <input
-                type="number"
-                min={1}
-                max={draft.modelType === 'monthly' ? 240 : 20}
-                value={draft.constructionPeriods}
-                onChange={e => {
-                  const v = parseInt(e.target.value, 10);
-                  if (Number.isNaN(v) || v < 1) return;
-                  setDraft(prev => ({ ...prev, constructionPeriods: v }));
-                }}
-                data-testid="wizard-construction-periods"
-                style={wizardInputStyle}
-              />
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ ...labelTextStyle, fontSize: 11 }}>
-                Operations ({draft.modelType === 'monthly' ? 'months' : 'years'})
-              </span>
-              <input
-                type="number"
-                min={1}
-                max={draft.modelType === 'monthly' ? 600 : 50}
-                value={draft.operationsPeriods}
-                onChange={e => {
-                  const v = parseInt(e.target.value, 10);
-                  if (Number.isNaN(v) || v < 1) return;
-                  setDraft(prev => ({ ...prev, operationsPeriods: v }));
-                }}
-                data-testid="wizard-operations-periods"
-                style={wizardInputStyle}
-              />
-            </label>
-            <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              <span style={{ ...labelTextStyle, fontSize: 11 }}>
-                Overlap ({draft.modelType === 'monthly' ? 'months' : 'years'})
-              </span>
-              <input
-                type="number"
-                min={0}
-                max={draft.constructionPeriods}
-                value={draft.overlapPeriods}
-                onChange={e => {
-                  const v = parseInt(e.target.value, 10);
-                  if (Number.isNaN(v) || v < 0) return;
-                  setDraft(prev => ({ ...prev, overlapPeriods: v }));
-                }}
-                data-testid="wizard-overlap-periods"
-                style={wizardInputStyle}
-              />
-            </label>
-          </div>
-        </div>
-
-        {/* M1.12, Land Parcels capture. Replaces the dissolved Land tab.
-            Each row stores area + rate + cash/in-kind split; +Add Parcel
-            seeds a new row with the same defaults as
-            DEFAULT_MODULE1_STATE.landParcels[0]. Users can edit further
-            from Build Program after the project is created. */}
-        <Step2LandParcels draft={draft} setDraft={setDraft} />
-      </div>
-    </div>
-  );
-}
-
-// ── Step 2 Land Parcels block (M1.12) ─────────────────────────────────────
-// Extracted from Step2Structure so the parcel rows + totals + add/remove
-// handlers don't bloat the main step body. Rendered inline at the bottom
-// of Step 2 in the same vertical column.
-function Step2LandParcels({ draft, setDraft }: Step2Props) {
-  const totalArea  = draft.parcels.reduce((s, p) => s + (Number.isFinite(p.area) ? p.area : 0), 0);
-  const totalValue = draft.parcels.reduce((s, p) => s + p.area * p.rate, 0);
-  const cashValue  = draft.parcels.reduce((s, p) => s + p.area * p.rate * (p.cashPct / 100), 0);
-
-  const addParcel = () => {
-    setDraft(prev => {
-      const nextId = (prev.parcels.length === 0 ? 1 : Math.max(...prev.parcels.map(p => p.id)) + 1);
-      return {
-        ...prev,
-        parcels: [...prev.parcels, {
-          id: nextId, name: `Land ${nextId}`,
-          area: 100000, rate: 500, cashPct: 60, inKindPct: 40,
-        }],
-      };
-    });
+  const handleCreate = (): void => {
+    onCreate(draft);
+    onClose();
   };
 
-  const updateParcel = (id: number, field: keyof WizardDraftParcel, value: string | number) => {
-    setDraft(prev => ({
-      ...prev,
-      parcels: prev.parcels.map(p => {
-        if (p.id !== id) return p;
-        const next = { ...p, [field]: value };
-        if (field === 'cashPct')   next.inKindPct = 100 - Number(value);
-        if (field === 'inKindPct') next.cashPct   = 100 - Number(value);
-        return next;
-      }),
-    }));
-  };
-
-  const removeParcel = (id: number) => {
-    setDraft(prev => prev.parcels.length <= 1
-      ? prev
-      : { ...prev, parcels: prev.parcels.filter(p => p.id !== id) },
+  const step1Valid = draft.projectName.trim() !== '' && draft.currency.trim() !== '';
+  const step2Valid =
+    draft.phases.every((p) => p.constructionPeriods > 0 && p.operationsPeriods >= 0) &&
+    draft.parcels.every(
+      (p) => p.area > 0 && p.rate > 0 && Math.abs(p.cashPct + p.inKindPct - 100) < 0.1,
     );
-  };
+  const step3Valid = draft.assets.length > 0;
 
-  return (
-    <div data-testid="wizard-parcels-section">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={labelTextStyle}>Land Parcels</span>
-        <button
-          type="button"
-          onClick={addParcel}
-          data-testid="wizard-add-parcel"
+  const content = (
+    <div
+      role="dialog"
+      aria-modal="true"
+      data-testid="project-wizard"
+      style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 9999,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: 'var(--color-bg)',
+          borderRadius: 'var(--radius)',
+          padding: 'var(--sp-3)',
+          maxWidth: 1080,
+          width: '90vw',
+          maxHeight: '90vh',
+          overflow: 'auto',
+        }}
+        onClick={(e) => e.stopPropagation()}
+        data-testid="project-wizard-body"
+      >
+        <div
           style={{
-            padding: '4px 10px',
-            border: '1px solid var(--color-primary)',
-            borderRadius: 'var(--radius-sm)',
-            background: 'var(--color-surface)', color: 'var(--color-primary)',
-            fontSize: 'var(--font-meta)', fontWeight: 'var(--fw-semibold)', cursor: 'pointer',
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            marginBottom: 'var(--sp-3)',
           }}
         >
-          + Add Parcel
-        </button>
-      </div>
-      <div style={{
-        fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 2,
-      }}>
-        Acquisition footprint, what land are you buying or contributing
-        in-kind? You can add or edit parcels later from Build Program.
-      </div>
-
-      <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-        {draft.parcels.map(p => (
-          <div
-            key={p.id}
-            data-testid={`wizard-parcel-row-${p.id}`}
+          <h2 style={{ margin: 0 }}>Create Project</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            data-testid="wizard-close"
             style={{
-              display: 'grid',
-              gridTemplateColumns: '1.4fr 1fr 1fr 0.8fr 0.8fr auto',
-              gap: 6,
-              alignItems: 'center',
+              background: 'transparent',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-sm)',
+              padding: '4px 12px',
+              cursor: 'pointer',
             }}
           >
-            <input
-              type="text"
-              value={p.name}
-              onChange={e => updateParcel(p.id, 'name', e.target.value)}
-              placeholder="Parcel name"
-              style={wizardInputStyle}
-              data-testid={`wizard-parcel-${p.id}-name`}
-            />
-            <input
-              type="number"
-              min={0}
-              value={p.area}
-              onChange={e => updateParcel(p.id, 'area', Number(e.target.value))}
-              placeholder="Area (sqm)"
-              style={{ ...wizardInputStyle, textAlign: 'right' }}
-              data-testid={`wizard-parcel-${p.id}-area`}
-            />
-            <input
-              type="number"
-              min={0}
-              value={p.rate}
-              onChange={e => updateParcel(p.id, 'rate', Number(e.target.value))}
-              placeholder={`Rate (${draft.currency}/sqm)`}
-              style={{ ...wizardInputStyle, textAlign: 'right' }}
-              data-testid={`wizard-parcel-${p.id}-rate`}
-            />
-            <input
-              type="number"
-              min={0}
-              max={100}
-              value={p.cashPct}
-              onChange={e => updateParcel(p.id, 'cashPct', Number(e.target.value))}
-              placeholder="Cash %"
-              style={{ ...wizardInputStyle, textAlign: 'right' }}
-              data-testid={`wizard-parcel-${p.id}-cashPct`}
-            />
-            <input
-              type="number"
-              min={0}
-              max={100}
-              value={p.inKindPct}
-              onChange={e => updateParcel(p.id, 'inKindPct', Number(e.target.value))}
-              placeholder="In-Kind %"
-              style={{ ...wizardInputStyle, textAlign: 'right' }}
-              data-testid={`wizard-parcel-${p.id}-inKindPct`}
-            />
+            x
+          </button>
+        </div>
+
+        <div
+          data-testid="wizard-stepper"
+          style={{
+            display: 'flex',
+            gap: 'var(--sp-2)',
+            marginBottom: 'var(--sp-3)',
+            fontSize: 'var(--font-small)',
+          }}
+        >
+          {[1, 2, 3].map((s) => (
+            <div
+              key={s}
+              data-testid={`wizard-step-${s}`}
+              style={{
+                padding: '4px 12px',
+                borderRadius: 'var(--radius-sm)',
+                background: step === s ? 'var(--color-navy)' : 'transparent',
+                color: step === s ? 'var(--color-on-primary-navy)' : 'var(--color-meta)',
+                border: '1px solid var(--color-border)',
+              }}
+            >
+              {s === 1 && '1. Basics'}
+              {s === 2 && '2. Phases & Land'}
+              {s === 3 && '3. Assets'}
+            </div>
+          ))}
+        </div>
+
+        {step === 1 && <Step1 draft={draft} onUpdate={update} />}
+        {step === 2 && <Step2 draft={draft} onUpdate={update} />}
+        {step === 3 && <Step3 draft={draft} onUpdate={update} />}
+
+        <div
+          style={{
+            marginTop: 'var(--sp-3)',
+            display: 'flex',
+            justifyContent: 'space-between',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => setStep((s) => Math.max(1, s - 1) as 1 | 2 | 3)}
+            disabled={step === 1}
+            data-testid="wizard-back"
+            style={{
+              padding: 'var(--sp-1) var(--sp-2)',
+              borderRadius: 'var(--radius-sm)',
+              border: '1px solid var(--color-border)',
+              background: 'transparent',
+              cursor: step === 1 ? 'not-allowed' : 'pointer',
+              opacity: step === 1 ? 0.5 : 1,
+            }}
+          >
+            Back
+          </button>
+          {step < 3 ? (
             <button
               type="button"
-              onClick={() => removeParcel(p.id)}
-              disabled={draft.parcels.length <= 1}
-              aria-label={`Remove ${p.name}`}
-              style={{
-                padding: '4px 8px',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-sm)',
-                background: 'var(--color-surface)',
-                color: draft.parcels.length <= 1 ? 'var(--color-meta)' : 'var(--color-negative)',
-                fontSize: 'var(--font-meta)', cursor: draft.parcels.length <= 1 ? 'not-allowed' : 'pointer',
-              }}
-              data-testid={`wizard-parcel-${p.id}-remove`}
+              onClick={() => setStep((s) => Math.min(3, s + 1) as 1 | 2 | 3)}
+              disabled={(step === 1 && !step1Valid) || (step === 2 && !step2Valid)}
+              data-testid="wizard-next"
+              className="btn-primary"
+              style={{ padding: 'var(--sp-1) var(--sp-2)' }}
             >
-              ✕
+              Next
             </button>
-          </div>
-        ))}
+          ) : (
+            <button
+              type="button"
+              onClick={handleCreate}
+              disabled={!step3Valid}
+              data-testid="wizard-create"
+              className="btn-primary"
+              style={{ padding: 'var(--sp-1) var(--sp-2)' }}
+            >
+              Create Project
+            </button>
+          )}
+        </div>
       </div>
+    </div>
+  );
 
+  return createPortal(content, document.body);
+}
+
+function Step1({
+  draft,
+  onUpdate,
+}: {
+  draft: WizardDraft;
+  onUpdate: (patch: Partial<WizardDraft>) => void;
+}): React.JSX.Element {
+  return (
+    <div data-testid="wizard-step-1-content">
       <div
-        data-testid="wizard-parcels-totals"
         style={{
-          marginTop: 6, padding: '6px 10px',
-          background: 'var(--color-grey-pale)',
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-sm)',
-          fontSize: 'var(--font-meta)', color: 'var(--color-heading)',
-          fontWeight: 'var(--fw-semibold)',
-          display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, 1fr)',
+          gap: 'var(--sp-2)',
         }}
       >
-        <span>Total area: <strong>{totalArea.toLocaleString()} sqm</strong></span>
-        <span>Total value: <strong>{totalValue.toLocaleString()} {draft.currency}</strong></span>
-        <span>Cash share: <strong>{totalValue > 0 ? ((cashValue / totalValue) * 100).toFixed(1) : '0.0'}%</strong></span>
+        <div>
+          <label style={labelStyle} htmlFor="wiz-projectName">Project Name</label>
+          <input
+            id="wiz-projectName"
+            data-testid="wiz-projectName"
+            type="text"
+            value={draft.projectName}
+            onChange={(e) => onUpdate({ projectName: e.target.value })}
+            style={inputStyle}
+          />
+        </div>
+        <div>
+          <label style={labelStyle} htmlFor="wiz-currency">Currency</label>
+          <input
+            id="wiz-currency"
+            data-testid="wiz-currency"
+            type="text"
+            value={draft.currency}
+            onChange={(e) => onUpdate({ currency: e.target.value.toUpperCase().slice(0, 4) })}
+            style={inputStyle}
+          />
+        </div>
+        <div>
+          <label style={labelStyle} htmlFor="wiz-modelType">Model Granularity</label>
+          <select
+            id="wiz-modelType"
+            data-testid="wiz-modelType"
+            value={draft.modelType}
+            onChange={(e) => onUpdate({ modelType: e.target.value as ModelGranularity })}
+            style={inputStyle}
+          >
+            <option value="annual">Annual</option>
+            <option value="monthly">Monthly</option>
+          </select>
+        </div>
+        <div>
+          <label style={labelStyle} htmlFor="wiz-startDate">Project Start Date</label>
+          <input
+            id="wiz-startDate"
+            data-testid="wiz-startDate"
+            type="date"
+            value={draft.startDate}
+            onChange={(e) => onUpdate({ startDate: e.target.value })}
+            style={inputStyle}
+          />
+        </div>
+        <div style={{ gridColumn: '1 / span 2' }}>
+          <label style={labelStyle} htmlFor="wiz-location">Location</label>
+          <input
+            id="wiz-location"
+            data-testid="wiz-location"
+            type="text"
+            value={draft.location}
+            onChange={(e) => onUpdate({ location: e.target.value })}
+            style={inputStyle}
+            placeholder="Riyadh, Saudi Arabia"
+          />
+        </div>
       </div>
     </div>
   );
 }
 
-// ── Step 3: Assets (M1.8/4) ───────────────────────────────────────────────
-// Project Type radio (Residential / Hospitality / Retail / Office /
-// Mixed-Use / Custom) + an editable asset list. Changing the type re-
-// seeds the asset list from WIZARD_DEFAULT_ASSETS_BY_TYPE, but only
-// when the user hasn't manually customized it (otherwise we'd discard
-// their work on an accidental click). We track this via the asset
-// signature (length + name list).
-//
-// Each row exposes Name / Type / Category / Allocation % / Remove. The
-// Type dropdown is built from PREBUILT_ASSET_TYPES bucketed by category,
-// plus a "Custom" option that lets the user type a free-form name.
-// Category is editable independently so users can override the default
-// per-type bucket (e.g. set a Hotel asset to Operate or Hybrid).
-//
-// Allocation % is a free-form number input. The "Auto-balance" button
-// distributes 100% evenly across all rows (rounded down with the
-// remainder added to the first row so the total lands exactly on 100).
-// Step3Valid in the parent gates on sum===100 so the user can't proceed
-// with an invalid mix.
-interface Step3Props {
-  draft:    WizardDraft;
-  setDraft: React.Dispatch<React.SetStateAction<WizardDraft>>;
-  allocSum: number;
-}
-
-const PREBUILT_TYPE_FLAT: Array<{ category: AssetCategory; type: string }> = (() => {
-  const out: Array<{ category: AssetCategory; type: string }> = [];
-  for (const cat of ['Sell', 'Operate', 'Lease', 'Hybrid'] as const) {
-    for (const t of PREBUILT_ASSET_TYPES[cat]) out.push({ category: cat, type: t });
-  }
-  return out;
-})();
-
-function Step3Assets({ draft, setDraft, allocSum }: Step3Props) {
-  // Has the user customized the auto-seeded asset list? Compare the
-  // current row signature to the seed for the active type. If it
-  // matches, switching project type re-seeds the list automatically.
-  // If the user has edited rows, switching type pops a confirm so we
-  // don't silently throw away their work.
-  const seedSignature = useMemo(() => {
-    return WIZARD_DEFAULT_ASSETS_BY_TYPE[draft.wizardProjectType]
-      .map(a => `${a.name}:${a.type}:${a.category}:${a.allocationPct}`).join('|');
-  }, [draft.wizardProjectType]);
-  const currentSignature = draft.assets
-    .map(a => `${a.name}:${a.type}:${a.category}:${a.allocationPct}`).join('|');
-  const isSeeded = seedSignature === currentSignature;
-
-  function handleTypeChange(next: WizardProjectType) {
-    if (next === draft.wizardProjectType) return;
-    let assets = draft.assets;
-    if (isSeeded || draft.assets.length === 0) {
-      assets = seedAssetsForType(next);
-    } else {
-      const ok = window.confirm(
-        `Replace the current asset list with the default mix for "${next}"?\n\nYour edits to the existing assets will be lost.`,
-      );
-      if (ok) assets = seedAssetsForType(next);
-    }
-    setDraft(prev => ({ ...prev, wizardProjectType: next, assets }));
-  }
-
-  function updateAsset(id: string, patch: Partial<WizardDraftAsset>) {
-    setDraft(prev => ({
-      ...prev,
-      assets: prev.assets.map(a => (a.id === id ? { ...a, ...patch } : a)),
-    }));
-  }
-
-  function removeAsset(id: string) {
-    setDraft(prev => ({
-      ...prev,
-      assets: prev.assets.filter(a => a.id !== id),
-    }));
-  }
-
-  function addAsset() {
-    const newRow: WizardDraftAsset = {
-      id: makeWizardAssetId(),
-      name: 'New Asset',
-      type: 'High-end Apartments',
-      category: 'Sell',
-      allocationPct: 0,
-      strategy: DEFAULT_STRATEGY_BY_CATEGORY['Sell'],
-    };
-    setDraft(prev => ({ ...prev, assets: [...prev.assets, newRow] }));
-  }
-
-  function autoBalance() {
-    setDraft(prev => {
-      const n = prev.assets.length;
-      if (n === 0) return prev;
-      const base = Math.floor(10000 / n) / 100;     // % with 2dp, rounded down
-      const remainder = 100 - base * n;
-      return {
-        ...prev,
-        assets: prev.assets.map((a, i) => ({
-          ...a,
-          allocationPct: i === 0 ? Math.round((base + remainder) * 100) / 100 : base,
-        })),
-      };
+function Step2({
+  draft,
+  onUpdate,
+}: {
+  draft: WizardDraft;
+  onUpdate: (patch: Partial<WizardDraft>) => void;
+}): React.JSX.Element {
+  const updatePhase = (idx: number, patch: Partial<WizardDraftPhase>): void => {
+    onUpdate({ phases: draft.phases.map((p, i) => (i === idx ? { ...p, ...patch } : p)) });
+  };
+  const addPhase = (): void => {
+    onUpdate({
+      phases: [
+        ...draft.phases,
+        { name: `Phase ${draft.phases.length + 1}`, constructionPeriods: 3, operationsPeriods: 5, overlapPeriods: 0 },
+      ],
     });
-  }
+  };
+  const removePhase = (idx: number): void => {
+    if (draft.phases.length <= 1) return;
+    onUpdate({ phases: draft.phases.filter((_, i) => i !== idx) });
+  };
 
-  // Type dropdown change: also flips category to the matching bucket
-  // so the row stays internally consistent. If user picks Custom, leave
-  // category alone (they may want Sell/Operate/Lease/Hybrid manually).
-  function handleAssetTypeChange(id: string, type: string) {
-    const found = PREBUILT_TYPE_FLAT.find(p => p.type === type);
-    if (found) {
-      updateAsset(id, {
-        type,
-        category: found.category,
-        strategy: DEFAULT_STRATEGY_BY_CATEGORY[found.category],
-      });
-    } else {
-      updateAsset(id, { type });
-    }
-  }
-
-  function handleAssetCategoryChange(id: string, category: AssetCategory) {
-    updateAsset(id, {
-      category,
-      strategy: DEFAULT_STRATEGY_BY_CATEGORY[category],
+  const updateParcel = (idx: number, patch: Partial<WizardDraftParcel>): void => {
+    onUpdate({ parcels: draft.parcels.map((p, i) => (i === idx ? { ...p, ...patch } : p)) });
+  };
+  const addParcel = (): void => {
+    onUpdate({
+      parcels: [
+        ...draft.parcels,
+        { name: `Land ${draft.parcels.length + 1}`, area: 50000, rate: 500, cashPct: 60, inKindPct: 40 },
+      ],
     });
-  }
-
-  const allocOk = Math.abs(allocSum - 100) < 0.01;
-  const allocColor = allocOk ? 'var(--color-positive)' : 'var(--color-negative)';
+  };
+  const removeParcel = (idx: number): void => {
+    if (draft.parcels.length <= 1) return;
+    onUpdate({ parcels: draft.parcels.filter((_, i) => i !== idx) });
+  };
 
   return (
-    <div data-testid="wizard-step-3">
-      <h3 style={{
-        fontSize: 'var(--font-body)',
-        fontWeight: 'var(--fw-semibold)',
-        color: 'var(--color-heading)',
-        margin: '0 0 6px 0',
-      }}>
-        Step 3, Assets
-      </h3>
-      <p style={{
-        fontSize: 'var(--font-meta)',
-        color: 'var(--color-meta)',
-        margin: '0 0 var(--sp-3) 0',
-      }}>
-        Pick a project type, we&apos;ll suggest a starting set. Edit / add /
-        remove assets as needed; allocation % across all rows must sum
-        to 100.
-      </p>
+    <div data-testid="wizard-step-2-content">
+      <h3 style={{ margin: 0, marginBottom: 'var(--sp-2)' }}>Phases</h3>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 'var(--sp-2)' }}>
+        <thead>
+          <tr style={{ background: 'var(--color-grey-pale)' }}>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Name</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Construction</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Operations</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Overlap</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {draft.phases.map((p, idx) => (
+            <tr key={idx} data-testid={`wiz-phase-row-${idx}`}>
+              <td style={{ padding: 'var(--sp-1)' }}>
+                <input
+                  type="text"
+                  data-testid={`wiz-phase-${idx}-name`}
+                  value={p.name}
+                  onChange={(e) => updatePhase(idx, { name: e.target.value })}
+                  style={inputStyle}
+                />
+              </td>
+              <td style={{ padding: 'var(--sp-1)' }}>
+                <input
+                  type="number"
+                  min={1}
+                  data-testid={`wiz-phase-${idx}-constructionPeriods`}
+                  value={p.constructionPeriods}
+                  onChange={(e) => updatePhase(idx, { constructionPeriods: Math.max(1, Number(e.target.value) || 1) })}
+                  style={inputStyle}
+                />
+              </td>
+              <td style={{ padding: 'var(--sp-1)' }}>
+                <input
+                  type="number"
+                  min={0}
+                  data-testid={`wiz-phase-${idx}-operationsPeriods`}
+                  value={p.operationsPeriods}
+                  onChange={(e) => updatePhase(idx, { operationsPeriods: Math.max(0, Number(e.target.value) || 0) })}
+                  style={inputStyle}
+                />
+              </td>
+              <td style={{ padding: 'var(--sp-1)' }}>
+                <input
+                  type="number"
+                  min={0}
+                  data-testid={`wiz-phase-${idx}-overlapPeriods`}
+                  value={p.overlapPeriods}
+                  onChange={(e) => updatePhase(idx, { overlapPeriods: Math.max(0, Number(e.target.value) || 0) })}
+                  style={inputStyle}
+                />
+              </td>
+              <td style={{ padding: 'var(--sp-1)' }}>
+                {draft.phases.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removePhase(idx)}
+                    data-testid={`wiz-phase-${idx}-remove`}
+                    style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 4, padding: '2px 6px', cursor: 'pointer' }}
+                  >
+                    x
+                  </button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button
+        type="button"
+        onClick={addPhase}
+        data-testid="wiz-add-phase"
+        style={{ marginBottom: 'var(--sp-3)', padding: 'var(--sp-1) var(--sp-2)', background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+      >
+        + Add Phase
+      </button>
 
-      {/* Project Type radio (3 across) */}
-      <div style={{ marginBottom: 'var(--sp-3)' }}>
-        <span style={labelTextStyle}>Project Type</span>
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, 1fr)',
-          gap: 6,
-          marginTop: 6,
-        }} role="radiogroup" aria-label="Project Type">
-          {WIZARD_PROJECT_TYPES.map(t => (
-            <button
-              key={t}
-              type="button"
-              role="radio"
-              aria-checked={draft.wizardProjectType === t}
-              data-testid={`wizard-project-type-${t.toLowerCase().replace(/[^a-z]/g, '')}`}
-              onClick={() => handleTypeChange(t)}
-              style={{
-                ...radioPillStyle(draft.wizardProjectType === t),
-                textAlign: 'center',
-              }}
-            >
-              {t}
-            </button>
+      <h3 style={{ margin: 0, marginBottom: 'var(--sp-2)' }}>Land Parcels</h3>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 'var(--sp-2)' }}>
+        <thead>
+          <tr style={{ background: 'var(--color-grey-pale)' }}>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Name</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Area (sqm)</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Rate</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Cash %</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>In-Kind %</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {draft.parcels.map((p, idx) => (
+            <tr key={idx} data-testid={`wiz-parcel-row-${idx}`}>
+              <td style={{ padding: 'var(--sp-1)' }}>
+                <input
+                  type="text"
+                  data-testid={`wiz-parcel-${idx}-name`}
+                  value={p.name}
+                  onChange={(e) => updateParcel(idx, { name: e.target.value })}
+                  style={inputStyle}
+                />
+              </td>
+              <td style={{ padding: 'var(--sp-1)' }}>
+                <input
+                  type="number"
+                  min={0}
+                  data-testid={`wiz-parcel-${idx}-area`}
+                  value={p.area}
+                  onChange={(e) => updateParcel(idx, { area: Math.max(0, Number(e.target.value) || 0) })}
+                  style={inputStyle}
+                />
+              </td>
+              <td style={{ padding: 'var(--sp-1)' }}>
+                <input
+                  type="number"
+                  min={0}
+                  data-testid={`wiz-parcel-${idx}-rate`}
+                  value={p.rate}
+                  onChange={(e) => updateParcel(idx, { rate: Math.max(0, Number(e.target.value) || 0) })}
+                  style={inputStyle}
+                />
+              </td>
+              <td style={{ padding: 'var(--sp-1)' }}>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  data-testid={`wiz-parcel-${idx}-cashPct`}
+                  value={p.cashPct}
+                  onChange={(e) => {
+                    const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                    updateParcel(idx, { cashPct: v, inKindPct: 100 - v });
+                  }}
+                  style={inputStyle}
+                />
+              </td>
+              <td style={{ padding: 'var(--sp-1)' }}>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  data-testid={`wiz-parcel-${idx}-inKindPct`}
+                  value={p.inKindPct}
+                  onChange={(e) => {
+                    const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                    updateParcel(idx, { inKindPct: v, cashPct: 100 - v });
+                  }}
+                  style={inputStyle}
+                />
+              </td>
+              <td style={{ padding: 'var(--sp-1)' }}>
+                {draft.parcels.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeParcel(idx)}
+                    data-testid={`wiz-parcel-${idx}-remove`}
+                    style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 4, padding: '2px 6px', cursor: 'pointer' }}
+                  >
+                    x
+                  </button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <button
+        type="button"
+        onClick={addParcel}
+        data-testid="wiz-add-parcel"
+        style={{ marginBottom: 'var(--sp-3)', padding: 'var(--sp-1) var(--sp-2)', background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+      >
+        + Add Parcel
+      </button>
+
+      <div style={{ marginBottom: 'var(--sp-2)' }}>
+        <label style={labelStyle} htmlFor="wiz-landAllocationMode">Land Allocation Mode</label>
+        <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+          {LAND_ALLOCATION_MODES.map((mode) => (
+            <label key={mode} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer' }} data-testid={`wiz-land-mode-${mode}`}>
+              <input
+                type="radio"
+                name="wiz-land-allocation-mode"
+                value={mode}
+                checked={draft.landAllocationMode === mode}
+                onChange={() => onUpdate({ landAllocationMode: mode as LandAllocationMode })}
+              />
+              {mode === 'sqm' && 'A. Direct sqm'}
+              {mode === 'percent' && 'B. Percent split'}
+              {mode === 'autoByBua' && 'C. Auto by BUA'}
+            </label>
           ))}
         </div>
       </div>
+    </div>
+  );
+}
 
-      {/* Asset rows */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }} data-testid="wizard-assets-list">
-        {draft.assets.length === 0 && (
-          <div style={{
-            padding: 'var(--sp-3)',
-            textAlign: 'center',
-            border: '1px dashed var(--color-border)',
-            borderRadius: 'var(--radius-sm)',
-            color: 'var(--color-meta)',
-            fontSize: 'var(--font-meta)',
-          }}>
-            No assets yet. Click <strong>+ Add Asset</strong> below to build your mix manually.
-          </div>
-        )}
-        {draft.assets.map(a => (
-          <div
-            key={a.id}
-            data-testid={`wizard-asset-row-${a.id}`}
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1.5fr) minmax(0, 1fr) 80px 28px',
-              gap: 6,
-              alignItems: 'center',
-              padding: '8px',
-              background: 'color-mix(in srgb, var(--color-positive) 4%, var(--color-surface))',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-            }}
-          >
-            <input
-              type="text"
-              value={a.name}
-              onChange={e => updateAsset(a.id, { name: e.target.value })}
-              placeholder="Asset name"
-              data-testid="wizard-asset-name"
-              style={wizardInputStyle}
-            />
-            <select
-              value={a.type}
-              onChange={e => handleAssetTypeChange(a.id, e.target.value)}
-              data-testid="wizard-asset-type"
-              style={wizardInputStyle}
-            >
-              {(['Sell', 'Operate', 'Lease', 'Hybrid'] as const).map(cat => (
-                <optgroup key={cat} label={cat}>
-                  {PREBUILT_ASSET_TYPES[cat].map(t => <option key={`${cat}/${t}`} value={t}>{t}</option>)}
-                </optgroup>
-              ))}
-              {!PREBUILT_TYPE_FLAT.some(p => p.type === a.type) && (
-                <option value={a.type}>{a.type} (custom)</option>
-              )}
-            </select>
-            <select
-              value={a.category}
-              onChange={e => handleAssetCategoryChange(a.id, e.target.value as AssetCategory)}
-              data-testid="wizard-asset-category"
-              style={wizardInputStyle}
-            >
-              <option value="Sell">Sell</option>
-              <option value="Operate">Operate</option>
-              <option value="Lease">Lease</option>
-              <option value="Hybrid">Hybrid</option>
-            </select>
-            <input
-              type="number"
-              min={0}
-              max={100}
-              step={0.01}
-              value={a.allocationPct}
-              onChange={e => {
-                const v = parseFloat(e.target.value);
-                updateAsset(a.id, { allocationPct: Number.isFinite(v) ? v : 0 });
-              }}
-              data-testid="wizard-asset-allocation"
-              style={{ ...wizardInputStyle, textAlign: 'right' }}
-            />
-            <button
-              type="button"
-              onClick={() => removeAsset(a.id)}
-              disabled={draft.assets.length <= 1}
-              aria-label={`Remove ${a.name}`}
-              title={draft.assets.length <= 1 ? 'Need at least one asset' : `Remove ${a.name}`}
-              data-testid="wizard-asset-remove"
-              style={{
-                background: 'transparent',
-                border: 'none',
-                cursor: draft.assets.length <= 1 ? 'not-allowed' : 'pointer',
-                opacity: draft.assets.length <= 1 ? 0.3 : 1,
-                color: 'var(--color-negative)',
-                fontSize: 14,
-                padding: 0,
-              }}
-            >
-              ✕
-            </button>
-          </div>
-        ))}
-      </div>
+function Step3({
+  draft,
+  onUpdate,
+}: {
+  draft: WizardDraft;
+  onUpdate: (patch: Partial<WizardDraft>) => void;
+}): React.JSX.Element {
+  const update = (idx: number, patch: Partial<WizardDraftAsset>): void => {
+    onUpdate({ assets: draft.assets.map((a, i) => (i === idx ? { ...a, ...patch } : a)) });
+  };
+  const add = (): void => {
+    onUpdate({
+      assets: [
+        ...draft.assets,
+        {
+          name: `Asset ${draft.assets.length + 1}`,
+          strategy: 'Sell',
+          type: 'High-end Apartments',
+          gfaSqm: 0,
+          buaSqm: 0,
+          sellableBuaSqm: 0,
+          parkingBaysRequired: 0,
+          subUnitName: 'Sub-unit',
+          subUnitMetric: 'count',
+          subUnitMetricValue: 50,
+          subUnitUnitArea: 100,
+          subUnitUnitPrice: 1000000,
+        },
+      ],
+    });
+  };
+  const remove = (idx: number): void => {
+    if (draft.assets.length <= 1) return;
+    onUpdate({ assets: draft.assets.filter((_, i) => i !== idx) });
+  };
 
-      {/* Add + Auto-balance + Total */}
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        gap: 'var(--sp-2)',
-        marginTop: 'var(--sp-2)',
-      }}>
-        <div style={{ display: 'flex', gap: 6 }}>
-          <button
-            type="button"
-            onClick={addAsset}
-            data-testid="wizard-asset-add"
-            className="btn-secondary"
-            style={{ fontSize: 'var(--font-meta)', padding: '6px 12px' }}
-          >
-            + Add Asset
-          </button>
-          <button
-            type="button"
-            onClick={autoBalance}
-            disabled={draft.assets.length === 0}
-            data-testid="wizard-asset-autobalance"
-            className="btn-secondary"
-            style={{ fontSize: 'var(--font-meta)', padding: '6px 12px' }}
-          >
-            ⚖ Auto-balance
-          </button>
-        </div>
+  return (
+    <div data-testid="wizard-step-3-content">
+      {draft.assets.map((a, idx) => (
         <div
-          data-testid="wizard-asset-total"
+          key={idx}
+          data-testid={`wiz-asset-row-${idx}`}
           style={{
-            fontSize: 'var(--font-meta)',
-            fontWeight: 'var(--fw-semibold)',
-            color: allocColor,
+            border: '1px solid var(--color-border)',
+            borderRadius: 'var(--radius-sm)',
+            padding: 'var(--sp-2)',
+            marginBottom: 'var(--sp-2)',
           }}
         >
-          Total: {allocSum.toFixed(2)}% {allocOk ? '✓' : '(must = 100)'}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 'var(--sp-2)',
+              marginBottom: 'var(--sp-2)',
+            }}
+          >
+            <div>
+              <label style={labelStyle}>Name</label>
+              <input
+                type="text"
+                data-testid={`wiz-asset-${idx}-name`}
+                value={a.name}
+                onChange={(e) => update(idx, { name: e.target.value })}
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Strategy</label>
+              <select
+                data-testid={`wiz-asset-${idx}-strategy`}
+                value={a.strategy}
+                onChange={(e) => update(idx, { strategy: e.target.value as AssetStrategy, type: ASSET_TYPES_BY_STRATEGY[e.target.value as AssetStrategy][0] })}
+                style={inputStyle}
+              >
+                {ASSET_STRATEGIES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Type</label>
+              <input
+                type="text"
+                list={`wiz-asset-types-${idx}`}
+                data-testid={`wiz-asset-${idx}-type`}
+                value={a.type}
+                onChange={(e) => update(idx, { type: e.target.value })}
+                style={inputStyle}
+              />
+              <datalist id={`wiz-asset-types-${idx}`}>
+                {ASSET_TYPES_BY_STRATEGY[a.strategy].map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end' }}>
+              {draft.assets.length > 1 && (
+                <button
+                  type="button"
+                  onClick={() => remove(idx)}
+                  data-testid={`wiz-asset-${idx}-remove`}
+                  style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 4, padding: '2px 8px', cursor: 'pointer' }}
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+          </div>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 'var(--sp-2)',
+            }}
+          >
+            <div>
+              <label style={labelStyle}>GFA (sqm)</label>
+              <input
+                type="number"
+                min={0}
+                data-testid={`wiz-asset-${idx}-gfaSqm`}
+                value={a.gfaSqm}
+                onChange={(e) => update(idx, { gfaSqm: Math.max(0, Number(e.target.value) || 0) })}
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>BUA (sqm)</label>
+              <input
+                type="number"
+                min={0}
+                data-testid={`wiz-asset-${idx}-buaSqm`}
+                value={a.buaSqm}
+                onChange={(e) => update(idx, { buaSqm: Math.max(0, Number(e.target.value) || 0) })}
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Sellable BUA (sqm)</label>
+              <input
+                type="number"
+                min={0}
+                data-testid={`wiz-asset-${idx}-sellableBuaSqm`}
+                value={a.sellableBuaSqm}
+                onChange={(e) => update(idx, { sellableBuaSqm: Math.max(0, Number(e.target.value) || 0) })}
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Parking Bays</label>
+              <input
+                type="number"
+                min={0}
+                data-testid={`wiz-asset-${idx}-parkingBaysRequired`}
+                value={a.parkingBaysRequired}
+                onChange={(e) => update(idx, { parkingBaysRequired: Math.max(0, Number(e.target.value) || 0) })}
+                style={inputStyle}
+              />
+            </div>
+          </div>
+          <div
+            style={{
+              marginTop: 'var(--sp-2)',
+              borderTop: '1px solid var(--color-border)',
+              paddingTop: 'var(--sp-2)',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(5, 1fr)',
+              gap: 'var(--sp-2)',
+            }}
+          >
+            <div>
+              <label style={labelStyle}>Sub-unit Name</label>
+              <input
+                type="text"
+                data-testid={`wiz-asset-${idx}-subUnitName`}
+                value={a.subUnitName}
+                onChange={(e) => update(idx, { subUnitName: e.target.value })}
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Metric</label>
+              <select
+                data-testid={`wiz-asset-${idx}-subUnitMetric`}
+                value={a.subUnitMetric}
+                onChange={(e) => update(idx, { subUnitMetric: e.target.value as 'count' | 'area' })}
+                style={inputStyle}
+              >
+                <option value="count">count</option>
+                <option value="area">area</option>
+              </select>
+            </div>
+            <div>
+              <label style={labelStyle}>Value</label>
+              <input
+                type="number"
+                min={0}
+                data-testid={`wiz-asset-${idx}-subUnitMetricValue`}
+                value={a.subUnitMetricValue}
+                onChange={(e) => update(idx, { subUnitMetricValue: Math.max(0, Number(e.target.value) || 0) })}
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>sqm/unit</label>
+              <input
+                type="number"
+                min={0}
+                data-testid={`wiz-asset-${idx}-subUnitUnitArea`}
+                value={a.subUnitUnitArea ?? 0}
+                onChange={(e) => update(idx, { subUnitUnitArea: Math.max(0, Number(e.target.value) || 0) })}
+                style={inputStyle}
+                disabled={a.subUnitMetric === 'area'}
+              />
+            </div>
+            <div>
+              <label style={labelStyle}>Unit Price</label>
+              <input
+                type="number"
+                min={0}
+                data-testid={`wiz-asset-${idx}-subUnitUnitPrice`}
+                value={a.subUnitUnitPrice}
+                onChange={(e) => update(idx, { subUnitUnitPrice: Math.max(0, Number(e.target.value) || 0) })}
+                style={inputStyle}
+              />
+            </div>
+          </div>
         </div>
-      </div>
+      ))}
+      <button
+        type="button"
+        onClick={add}
+        data-testid="wiz-add-asset"
+        style={{ padding: 'var(--sp-1) var(--sp-2)', background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+      >
+        + Add Asset
+      </button>
     </div>
   );
 }

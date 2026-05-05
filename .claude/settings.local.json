@@ -157,7 +157,9 @@
       "Bash(pkill -f \"next dev\")",
       "Bash(taskkill //F //IM node.exe //T)",
       "Bash(sort -t: -k2 -n -r)",
-      "Bash(awk -F: '{s+=$2} END {print s+0}')"
+      "Bash(awk -F: '{s+=$2} END {print s+0}')",
+      "Bash(tee /tmp/m112-dev.log)",
+      "Bash(echo \"exit=$?\")"
     ]
   }
 }

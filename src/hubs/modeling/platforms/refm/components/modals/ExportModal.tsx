@@ -1,235 +1,57 @@
 'use client';
 
+/**
+ * ExportModal.tsx (v5 schema, M2.0 stub)
+ *
+ * Excel + PDF export entry point. Real export pipelines (lib/export/*)
+ * still consume the legacy v3/v4 hierarchy; M2.0 ships them as no-op
+ * stubs that surface a "rebuilding in M2.1" message.
+ */
+
 import React from 'react';
-import { PLAN_COLOR as TOKEN_PLAN_COLOR } from '@/src/styles/tokens';
-
-type SubscriptionPlan = 'free' | 'professional' | 'enterprise';
-
-interface ExportOption {
-  key:          string;
-  icon:         string;
-  label:        string;
-  description:  string;
-  featureKey:   string;
-  requiredPlan: SubscriptionPlan;
-  onExport?:    () => void;
-  exporting?:   boolean;
-}
+import { createPortal } from 'react-dom';
 
 interface ExportModalProps {
-  canAccess:      (featureKey: string) => boolean;
-  onClose:        () => void;
-  onExportExcel:  () => void;
-  onExportPdf:    () => void;
-  exportingExcel: boolean;
-  exportingPdf:   boolean;
+  open: boolean;
+  onClose: () => void;
 }
 
-// Plan tier colour. Free flows through the brand grey-mid CSS var, so the
-// 'Free' badge tracks REFM dark-mode; professional uses the brand navy
-// (also matches canonical PLAN_COLOR.professional.color === COLOR.navy in
-// src/styles/tokens.ts); enterprise uses the brand-locked purple imported
-// from tokens.ts (see PLAN_COLOR comment block there). bg / border pill
-// derivations were originally `${planColor}06` / `${planColor}18` /
-// `${planColor}30` 8-digit-hex alpha suffixes, those only worked when
-// planColor was a literal hex string, so now derived via color-mix.
-const PLAN_COLOR: Record<SubscriptionPlan, string> = {
-  free:         'var(--color-grey-mid)',
-  professional: 'var(--color-navy)',
-  enterprise:   TOKEN_PLAN_COLOR.enterprise.color,
-};
-const PLAN_LABEL: Record<SubscriptionPlan, string> = {
-  free:         'Free',
-  professional: 'Professional',
-  enterprise:   'Enterprise',
-};
-
-export default function ExportModal({
-  canAccess,
-  onClose,
-  onExportExcel,
-  onExportPdf,
-  exportingExcel,
-  exportingPdf,
-}: ExportModalProps) {
-  const options: ExportOption[] = [
-    {
-      key: 'pdf_basic',
-      icon: '📄',
-      label: 'PDF - Basic Report',
-      description: 'Summary financials, project overview',
-      featureKey:   'pdf_basic',
-      requiredPlan: 'free',
-      onExport:     onExportPdf,
-      exporting:    exportingPdf,
-    },
-    {
-      key: 'pdf_full',
-      icon: '📋',
-      label: 'PDF - Full Report',
-      description: 'All modules, schedules, charts',
-      featureKey:   'pdf_full',
-      requiredPlan: 'professional',
-      onExport:     onExportPdf,
-      exporting:    exportingPdf,
-    },
-    {
-      key: 'pdf_whitelabel',
-      icon: '🏷️',
-      label: 'PDF - White-Label',
-      description: 'Branded report with client logo',
-      featureKey:   'pdf_whitelabel',
-      requiredPlan: 'enterprise',
-    },
-    {
-      key: 'excel_static',
-      icon: '📊',
-      label: 'Excel - Static',
-      description: 'Pre-calculated values, formatted',
-      featureKey:   'excel_static',
-      requiredPlan: 'professional',
-      onExport:     onExportExcel,
-      exporting:    exportingExcel,
-    },
-    {
-      key: 'excel_formula',
-      icon: '⚡',
-      label: 'Excel - Formula Model',
-      description: 'Live formulas, full auditability',
-      featureKey:   'excel_formula',
-      requiredPlan: 'enterprise',
-    },
-  ];
-
-  return (
+export default function ExportModal({ open, onClose }: ExportModalProps): React.JSX.Element | null {
+  if (!open) return null;
+  if (typeof document === 'undefined') return null;
+  const content = (
     <div
+      role="dialog"
+      aria-modal="true"
+      data-testid="export-modal"
       style={{
-        position: 'fixed', inset: 0, zIndex: 2000,
-        background: 'color-mix(in srgb, var(--color-heading) 55%, transparent)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        padding: 16,
+        position: 'fixed',
+        inset: 0,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        zIndex: 9999,
       }}
       onClick={onClose}
     >
       <div
-        style={{
-          background: 'var(--color-surface)', borderRadius: 14,
-          boxShadow: 'var(--shadow-modal)',
-          width: '100%', maxWidth: 480,
-          overflow: 'hidden',
-          fontFamily: 'Inter, sans-serif',
-        }}
-        onClick={e => e.stopPropagation()}
+        onClick={(e) => e.stopPropagation()}
+        style={{ background: 'var(--color-bg)', borderRadius: 'var(--radius)', padding: 'var(--sp-3)', maxWidth: 480, width: '90vw' }}
       >
-        {/* Header */}
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '18px 24px 16px',
-          borderBottom: '1px solid var(--color-border)',
-        }}>
-          <div>
-            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--color-heading)' }}>Export</div>
-            <div style={{ fontSize: 12, color: 'var(--color-meta)', marginTop: 2 }}>
-              Choose an export format
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              color: 'var(--color-muted)', fontSize: 20, lineHeight: 1, padding: 4,
-            }}
-          >
-            ✕
-          </button>
+        <h3 style={{ marginTop: 0 }}>Export</h3>
+        <div style={{ color: 'var(--color-meta)', marginBottom: 'var(--sp-2)' }}>
+          Excel + PDF exports are being rebuilt against the v5 schema.
+          They return in M2.1 once Modules 2-5 supply revenue / opex /
+          returns / statements outputs to feed them.
         </div>
-
-        {/* Options */}
-        <div style={{ padding: '12px 16px 16px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {options.map(opt => {
-            const unlocked = canAccess(opt.featureKey);
-            const planColor = PLAN_COLOR[opt.requiredPlan];
-            const planLabel = PLAN_LABEL[opt.requiredPlan];
-
-            return (
-              <div
-                key={opt.key}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 14,
-                  padding: '12px 14px',
-                  borderRadius: 8,
-                  border: unlocked ? '1.5px solid var(--color-border)' : `1.5px solid color-mix(in srgb, ${planColor} 19%, transparent)`,
-                  background: unlocked ? 'var(--color-surface)' : `color-mix(in srgb, ${planColor} 2%, transparent)`,
-                  cursor: unlocked ? 'pointer' : 'default',
-                  opacity: opt.exporting ? 0.6 : 1,
-                  transition: 'box-shadow 0.15s, border-color 0.15s',
-                }}
-                onClick={() => {
-                  if (unlocked && opt.onExport && !opt.exporting) {
-                    opt.onExport();
-                    onClose();
-                  }
-                }}
-              >
-                <span style={{ fontSize: 22, flexShrink: 0 }}>{opt.icon}</span>
-
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: unlocked ? 'var(--color-heading)' : 'var(--color-meta)' }}>
-                      {opt.label}
-                    </span>
-                    {!unlocked && (
-                      <span style={{
-                        fontSize: 9, fontWeight: 800, padding: '2px 6px', borderRadius: 4,
-                        background: `color-mix(in srgb, ${planColor} 9%, transparent)`, color: planColor,
-                        border: `1px solid color-mix(in srgb, ${planColor} 19%, transparent)`,
-                        letterSpacing: '0.07em', textTransform: 'uppercase',
-                        flexShrink: 0,
-                      }}>
-                        {planLabel}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--color-muted)', marginTop: 2 }}>
-                    {opt.description}
-                  </div>
-                </div>
-
-                <div style={{ flexShrink: 0 }}>
-                  {unlocked ? (
-                    opt.exporting ? (
-                      <span style={{ fontSize: 12, color: 'var(--color-meta)' }}>Exporting…</span>
-                    ) : (
-                      opt.onExport ? (
-                        <span style={{
-                          fontSize: 11, fontWeight: 700, color: 'var(--color-on-primary-navy)',
-                          background: 'var(--color-primary)', padding: '5px 12px', borderRadius: 6,
-                        }}>
-                          Download →
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: 11, color: 'var(--color-muted)' }}>SOON</span>
-                      )
-                    )
-                  ) : (
-                    <a
-                      href="/settings"
-                      style={{
-                        fontSize: 11, fontWeight: 700, color: 'var(--color-on-primary-navy)',
-                        background: planColor, padding: '5px 10px', borderRadius: 6,
-                        textDecoration: 'none', whiteSpace: 'nowrap',
-                      }}
-                      onClick={e => e.stopPropagation()}
-                    >
-                      🔒 Upgrade
-                    </a>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+        <div style={{ textAlign: 'right' }}>
+          <button type="button" onClick={onClose} data-testid="export-modal-close">
+            Close
+          </button>
         </div>
       </div>
     </div>
   );
+  return createPortal(content, document.body);
 }
