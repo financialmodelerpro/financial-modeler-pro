@@ -235,7 +235,7 @@ export default function Module1Costs(): React.JSX.Element {
                 <InputLabel label="Method" help="How the value is interpreted (lumpsum, rate per BUA / land / parking, % of construction or total)." textStyle={tableHeaderLabelStyle} />
               </th>
               <th style={tableHeaderStyle}>
-                <InputLabel label="Value" help="The number — interpretation depends on method." textStyle={tableHeaderLabelStyle} />
+                <InputLabel label="Value" help="The number, interpretation depends on method." textStyle={tableHeaderLabelStyle} />
               </th>
               <th style={tableHeaderStyle}>
                 <InputLabel label="Phasing" help="How spend is spread across the construction window. Manual lets you supply per-period weights." textStyle={tableHeaderLabelStyle} />
@@ -522,8 +522,8 @@ function CostOverrideRow({
       ) : (
         <>
           <span style={{ color: 'var(--color-meta)' }}>(default)</span>
-          <span style={{ color: 'var(--color-meta)' }}>—</span>
-          <span style={{ color: 'var(--color-meta)' }}>—</span>
+          <span style={{ color: 'var(--color-meta)' }}>(default)</span>
+          <span style={{ color: 'var(--color-meta)' }}>(default)</span>
           <span style={calcOutputStyle} data-testid={`override-${assetId}-${costKey}-total`}>
             {fmt(derivedTotal)} {currency}
           </span>

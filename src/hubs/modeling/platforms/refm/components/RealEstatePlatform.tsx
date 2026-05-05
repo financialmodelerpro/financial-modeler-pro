@@ -452,11 +452,19 @@ export default function RealEstatePlatform(): React.JSX.Element {
       />
       <ExportModal open={exportModalOpen} onClose={() => setExportModalOpen(false)} />
       {upgradePrompt && (
-        <UpgradePrompt
-          featureKey={upgradePrompt.featureKey}
-          requiredPlan={upgradePrompt.requiredPlan}
-          onClose={() => setUpgradePrompt(null)}
-        />
+        <div
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setUpgradePrompt(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+        >
+          <div onClick={(e) => e.stopPropagation()} style={{ background: 'var(--color-bg)', padding: 'var(--sp-3)', borderRadius: 'var(--radius)' }}>
+            <UpgradePrompt featureKey={upgradePrompt.featureKey} requiredPlan={upgradePrompt.requiredPlan} variant="card" />
+            <div style={{ textAlign: 'right', marginTop: 'var(--sp-2)' }}>
+              <button type="button" onClick={() => setUpgradePrompt(null)}>Close</button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
