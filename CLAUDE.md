@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-06**
+**Last updated: 2026-05-06 (M1.13c step-by-step verification flow shipped)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -235,6 +235,7 @@ npx tsx --env-file=.env.local scripts/verify-m111.ts  # M1.11 holistic audit + f
 npx tsx --env-file=.env.local scripts/verify-m112.ts  # M1.12 Land tab elimination + 4-tab consolidation (15 pass / 0 fail / 2 skip without dev server; 21 pass / 0 fail / 0 skip with dev server)
 npx tsx --env-file=.env.local scripts/verify-m113.ts  # M1.13 inline plain-English live formulas across 4 tabs (20 pass / 0 fail / 1 skip without dev server; 23 pass / 0 fail / 0 skip with dev server)
 npx tsx --env-file=.env.local scripts/verify-m113b.ts # M1.13b inline-formula layout (panels dissolved, formulas adjacent to inputs) (20 pass / 0 fail / 1 skip without dev server; 23 pass / 0 fail / 0 skip with dev server)
+npx tsx --env-file=.env.local scripts/verify-m113c.ts # M1.13c step-by-step verifiable calculation flow (VerifiedResult primitive: input + formula + result chip + validation state) (24 pass / 0 fail / 2 skip without dev server; 27 pass / 0 fail / 1 skip with dev server)
 
 # Playwright e2e specs (M1.8 + M1.9 + M1.9b + M1.10 + M1.10b + M1.11 + M1.12 + M1.13 + M1.13b regression-guards)
 npx playwright test tests/e2e/m18-wizard-repro.spec.ts     # 1 spec, wizard create does not crash
@@ -247,6 +248,7 @@ npx playwright test tests/e2e/m111-full-flow.spec.ts       # 2 specs, ProjectWiz
 npx playwright test tests/e2e/m112-flow.spec.ts            # 2 specs, wizard Step 2 parcel CRUD + post-create 4-tab row (no Land) with parcel block on Build Program + 8 light/dark tab screenshots
 npx playwright test tests/e2e/m113-formulas.spec.ts        # 1 spec, walks all 4 tabs asserting FormulaCaption testIds + live recompute on Plot inputs + 8 light/dark tab screenshots
 npx playwright test tests/e2e/m113b-formulas-inline.spec.ts # 1 spec, panel-absence (no Computed Envelope / Cascade Preview / Timeline Summary) + bounding-box proximity (formula caption < 200px below its driving input) + live recompute + 8 light/dark tab screenshots
+npx playwright test tests/e2e/m113c-step-flow.spec.ts      # 1 spec, VerifiedResult shape (data-formula + data-state + data-result-chip) on every verified step across 4 tabs + math operator (× ÷) assertions + validation state flip (over-FAR push: ok → error → ok) + live recompute + Debt Summary roll-up contract preserved + 9 light/dark/validation screenshots
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -308,10 +310,28 @@ Schedule timeline summary panel dissolved into 3 inline captions next to the
 Granularity / Project Start / Overlap inputs; Financing Debt Summary card rolled
 up to a clean reckoning without duplicate formula lines. Playwright proximity
 spec asserts every formula caption sits within 200 vertical pixels of its driving
-input). **Module 1 ships production-ready after M1.13b; next phase is M2.0
-(revenue, opex, deferred calc-engine refinements including the per-plot derive
-of project-level FAR / Roads / NEA still read by calculateAreaHierarchy from
-stored snapshot fields).**
+input).
+→ **M1.13c** (step-by-step verifiable calculation flow: every input
+followed by a VerifiedResult primitive that visually binds three
+elements into one verification unit, the formula expression in plain
+English, the substituted values with proper math operators (× ÷),
+and the result chip with units. Validation states tint the result
+chip ('warn' amber, 'error' red) and surface an issue callout when
+the value is invalid. Wired across all 4 tabs: Build Program flips
+to error when utilization > 100% of Max GFA, when cascade MEP+BoH+
+Other > 100% of GFA, or when parking allocator deficit > 0; Schedule
+flips to error when Construction + Operations - Overlap <= 0 (warn
+when overlap exceeds either window); Dev Costs flips to warn when
+the rate / percent base resolves to 0; Financing flips to warn at
+LTV = 0% (all-equity), to error at LTV >= 100%, and to warn when
+Repayment Periods exceeds Operations window. Playwright spec asserts
+the over-FAR push (Max FAR=1, Typical Floors=20, Typical Coverage=
+60%) flips Total Built GFA chip ok → error in place, then resetting
+to sane values flips back to ok). **Module 1 ships production-ready
+after M1.13c; next phase is M2.0 (revenue, opex, deferred calc-
+engine refinements including the per-plot derive of project-level
+FAR / Roads / NEA still read by calculateAreaHierarchy from stored
+snapshot fields).**
 
 **M1.10 setup-completeness series (8 commits, 2026-05-05 → 2026-05-06, all snapshot diffs bit-identical):**
 - `d295dc8` 2/8: tune plot defaults so fresh plots stay inside FAR ceiling.
@@ -728,6 +748,136 @@ diffs bit-identical):**
   verifier and spec stay green alongside M1.13b's. CLAUDE.md M1.13b
   series block, scripts table entry, Playwright spec entry, Module 1
   status header extended.
+
+**M1.13c step-by-step verifiable calculation flow (8 commits,
+2026-05-06, all snapshot diffs bit-identical):**
+- `7c8d492` 1/8 (primitive): src/hubs/modeling/platforms/refm/components/
+  ui/VerifiedResult.tsx. New shared primitive that renders one
+  verification step visually binding three pieces into one row:
+  the formula expression in plain English, the live substitution
+  with current numbers, and the result chip with units. Validation
+  state ('ok' / 'warn' / 'error') tints the row + chip and surfaces
+  an issue callout to the right when not 'ok'. data-formula="true",
+  data-state, and data-result-chip="true" attributes wired so
+  Playwright + future regression specs can target the shape without
+  reading display text. Display text uses Unicode operators (× ÷)
+  per the M1.13c brief; internal data attributes stay ASCII for
+  selector simplicity. Sits below the input(s) with a 200 vertical
+  px proximity contract carried over from M1.13b.
+- `776b15d` 2/8 (Schedule): Module1Timeline replaces the 3
+  FormulaCaption rows (granularity, project end, total periods)
+  with VerifiedResult verification steps. Overlap step gains a
+  validation derivation: state='warn' when overlapPeriods exceeds
+  Construction or Operations window; state='error' when
+  Construction + Operations - Overlap <= 0 (model would have no
+  periods to run). testIds preserved so M1.13b proximity contract
+  still holds.
+- `d00187d` 3/8 (Build Program): Module1AreaProgram converts every
+  plot envelope formula (Max GFA, Footprint, Podium GFA, Public
+  Area, Typical GFA, Total Built GFA, Floors check, Landscape,
+  Hardscape, Surface Parking, 3 parking capacities, 2 basement
+  outputs) plus all 8 cascade outputs (GFA, MEP, BoH, Other Tech,
+  Net GFA, BUA Excl, TBA, GSA/GLA) plus 3 land-parcel totals into
+  VerifiedResult steps. Math operators upgraded to × and ÷.
+  Validation states wired:
+    * Total Built GFA: state='error' when utilization > 100% of
+      Max GFA. Issue chip names the exact percentage.
+    * Floors check: state='warn' when Podium + Typical does not
+      match Total Floors.
+    * Surface Parking: state='warn' when Landscape + Hardscape >
+      100% of public area.
+    * Cascade Net GFA: state='error' when MEP + BoH + Other Tech
+      > 100% of GFA (cascade over-deducts).
+    * Parking allocator: state='error' when alloc.deficit > 0,
+      with the deficit named in the issue chip.
+  ParkingCell render simplified, the per-cell FormulaCaption is
+  removed in favour of a new bottom-row VerifiedResult on the
+  allocator total. Land parcel totals show per-parcel substitution
+  chains (e.g. "100,000 × 500 + 25,000 × 700 = ...").
+- `6721522` 4/8 (Dev Costs): Module1Costs replaces the cost-row
+  FormulaCaption in the Total cell with VerifiedResult.
+  buildCostFormula refactored into buildCostFormulaParts that
+  returns a structured (formula, substitution, result) tuple so the
+  three pieces wire cleanly into the primitive. Math operators
+  upgraded (Rate × GFA, Rate × NDA, Rate × BUA, ...). Validation
+  state: soft-warn (amber) when the cost method is rate or percent
+  and the resolved base resolves to 0 (rate_gfa with GFA=0,
+  percent_base with selectedSum=0, etc.). Issue chip names which
+  base collapsed so the user can fix the upstream input. Grand
+  Total tfoot row also becomes a VerifiedResult so Σ-of-stages
+  is visible inline.
+- `d628745` 5/8 (Financing): Module1Financing replaces the 3
+  inline FormulaCaption rows (debt-equity, periodic-rate,
+  repayment) with VerifiedResult steps. Math operators upgraded
+  (Debt = LTV × Total CapEx, Periodic Rate = Annual Rate ÷ 12,
+  Principal per Period = Total Debt ÷ Repayment Periods).
+  Validation states:
+    * LTV: state='warn' when LTV = 0% (all-equity sanity flag);
+      state='error' when LTV >= 100%.
+    * Repayment: state='warn' when repaymentPeriods >
+      operationsPeriods (the math clamps to ops window, but the
+      user has typed a value the model silently overrides).
+  Debt Summary card preserved as a clean roll-up per M1.13b's F1
+  contract (no VerifiedResult / FormulaCaption rows inside).
+- `4ba4c90` 6/8 (M1.13b spec operator update + import cleanup):
+  M1.13b spec asserted FormulaCaption text contained 'X * Y ='
+  literals with ASCII *. Updated to '× Y =' so the M1.13b
+  regression test continues to pass alongside the new primitive's
+  Unicode operators. Also dropped the now-unused FormulaCaption
+  import from Module1AreaProgram.tsx (every caller switched to
+  VerifiedResult in M1.13c/3).
+- `d560bb4` 7/8 (verifier + Playwright): scripts/verify-m113c.ts
+  mirrors the standing 5-section template. Section 4 has 17
+  markers across V1 (primitive shape), B1-B5 (Build Program), S1-
+  S3 (Schedule), C1-C4 (Dev Costs), F1-F4 (Financing), X1 (em-
+  dash sweep). Result: 27 pass / 0 fail / 1 skip with dev server
+  up; 24 pass / 0 fail / 2 skip without. tests/e2e/m113c-step-
+  flow.spec.ts (1 spec, 20.6s) walks all 4 tabs and asserts:
+  (1) every VerifiedResult render carries data-formula="true",
+  data-state ∈ {ok, warn, error}, and a data-result-chip child;
+  (2) math operators (× ÷) appear in rendered text not just source;
+  (3) validation flip, push Plot to over-FAR (Max FAR=1, Typical
+  Floors=20, Typical Coverage=60%) and Total Built GFA chip flips
+  ok → error with issue callout visible; reset to sane values and
+  it flips back to ok; (4) live recompute, edit Plot Area to
+  200,000 and Max GFA chip shows "200,000 × 3" inline; (5) Debt
+  Summary card stays a clean roll-up (no data-formula rows
+  inside, M1.13b F1 carryover); (6) proximity contract still
+  holds for the 5 key chain anchor inputs. 9 screenshots into
+  tests/screenshots/M1.13c/ (4 light + 4 dark + 1 over-FAR
+  validation state).
+- (this commit) 8/8 (docs sweep): CLAUDE.md M1.13c series block,
+  scripts table entry, Playwright spec entry, Module 1 status
+  header extended with the M1.13c completion line.
+
+**M1.13c pattern decisions for downstream phases:**
+- VerifiedResult is the canonical primitive for "input drives a
+  derived value" UX in Module 2+ (revenue, opex, returns). The
+  formula + substitution + result-chip triple becomes the unit of
+  verification, so users can sanity-check every derivation in
+  place rather than reading a separate output panel. FormulaCaption
+  is retained for narrow contexts where only the formula text is
+  needed (no result chip), but VerifiedResult is preferred whenever
+  there is a discrete result with units.
+- Validation states should fail loud at the result, not silent at
+  the input. A user who types Max FAR=1 with Typical Floors=20 has
+  not made an input error per se; the cascade has run past the FAR
+  ceiling. Marking the chip 'error' with an issue callout names
+  the consequence rather than the keystroke. Validation derivations
+  live next to where they are surfaced so the developer can audit
+  the rule with the chip's substitution chain.
+- Math operators in display text use Unicode (× ÷ ± ≤ ≥) for
+  readability; internal data attributes and testIds stay ASCII so
+  Playwright selectors work without dealing with Unicode escapes.
+  Operator swap is a display-text-only concern, no impact on
+  calc engine or persistence.
+- Roll-up summary cards (Financing Debt Summary, ParkingSummary)
+  remain valuable for resolved-totals views even when every
+  derivation is visible inline above. The card label stays
+  understated and contains no inline formulas.
+- Live recompute by inline-text substitution remains the contract
+  M1.13c+ exercises. Captions become permanent rendered nodes;
+  only their inline numbers change on input edit.
 
 **M1.13b pattern decisions for downstream phases:**
 - Eliminate calc-output panels in favour of input-anchored formula
