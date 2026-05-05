@@ -1000,9 +1000,11 @@ export default function Module1Financing({
             })()}
           </div>
 
-          {/* Debt Summary, M1.13/5 each row paired with the plain-English
-             formula that produced it so the user reads the math in
-             place. */}
+          {/* Debt Summary, M1.13b roll-up only. The per-input formula
+             captions inline above (debt-equity, periodic-rate,
+             repayment) already explain the math; this card serves as
+             a clean reckoning of the resolved values without
+             duplicating formula text. */}
           <div style={{
             background: 'color-mix(in srgb, var(--color-primary) 4%, transparent)',
             border: '1px solid color-mix(in srgb, var(--color-primary) 12%, transparent)',
@@ -1010,41 +1012,18 @@ export default function Module1Financing({
             padding: '12px',
           }} data-testid="financing-debt-summary">
             <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-primary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>
-              Debt Summary (live formulas)
+              Debt Summary
             </div>
             {[
-              {
-                label: 'Total CapEx',
-                value: formatCurrency(totalCapex, currency),
-                formula: `Sum of every Dev Costs line across all assets = ${formatNumber(totalCapex)} ${currency}`,
-              },
-              {
-                label: `Debt (${globalDebtPct}%)`,
-                value: formatCurrency(totalDebt, currency),
-                formula: `LTV * Total CapEx = ${globalDebtPct}% * ${formatNumber(totalCapex)} = ${formatNumber(totalDebt)} ${currency}`,
-              },
-              {
-                label: `Equity (${equityPct}%)`,
-                value: formatCurrency(totalEquity, currency),
-                formula: `(100% - LTV) * Total CapEx = ${equityPct}% * ${formatNumber(totalCapex)} = ${formatNumber(totalEquity)} ${currency}`,
-              },
-              {
-                label: 'Estimated Interest',
-                value: formatCurrency(totalInterestAll, currency),
-                formula: `Sum of per-period (Opening Debt Balance * Periodic Rate) across all assets = ${formatNumber(totalInterestAll)} ${currency}`,
-              },
-              {
-                label: 'All-in Cost of Debt',
-                value: formatCurrency(totalDebt + totalInterestAll, currency),
-                formula: `Total Debt + Estimated Interest = ${formatNumber(totalDebt)} + ${formatNumber(totalInterestAll)} = ${formatNumber(totalDebt + totalInterestAll)} ${currency}`,
-              },
+              { label: 'Total CapEx',                  value: formatCurrency(totalCapex, currency) },
+              { label: `Debt (${globalDebtPct}%)`,     value: formatCurrency(totalDebt, currency) },
+              { label: `Equity (${equityPct}%)`,       value: formatCurrency(totalEquity, currency) },
+              { label: 'Estimated Interest',           value: formatCurrency(totalInterestAll, currency) },
+              { label: 'All-in Cost of Debt',          value: formatCurrency(totalDebt + totalInterestAll, currency) },
             ].map(row => (
-              <div key={row.label} style={{ marginBottom: '8px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--color-meta)' }}>{row.label}</span>
-                  <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-heading)' }}>{row.value}</span>
-                </div>
-                <FormulaCaption text={row.formula} />
+              <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--color-meta)' }}>{row.label}</span>
+                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-heading)' }}>{row.value}</span>
               </div>
             ))}
           </div>
