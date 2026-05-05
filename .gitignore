@@ -42,3 +42,4 @@ test-results/
 playwright-report/
 tests/screenshots/
 Maad_Residential_Cashflow*.xlsx
+.m20b-legacy/

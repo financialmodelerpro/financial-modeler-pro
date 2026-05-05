@@ -1,133 +1,251 @@
 'use client';
 
 /**
- * Sidebar.tsx (v5 schema, M2.0 stub)
+ * Sidebar.tsx (M2.0b restored brand-styled sidebar)
  *
- * Minimal sidebar that surfaces module navigation + the 4 Module 1
- * tab labels. The legacy multi-prop sprawl is replaced with a
- * compact set, full plan-gating + role-aware visibility lands in
- * M2.1+ once the shell stabilises.
+ * Phase M2.0b (2026-05-06): brings back the FMP brand sidebar that
+ * the M2.0 slim shell stripped, project/version panel, module list
+ * with locks/badges, Module 1 sub-tabs, collapsed pills, role
+ * indicator footer.
+ *
+ * Adapted to v5: m1Tabs reads the new 4-tab structure (project-
+ * phases / assets / costs / financing). Project + version names
+ * passed in via props from the v5-aware shell.
  */
 
 import React from 'react';
+import type { Role } from '@/src/core/types/settings.types';
+import { ROLE_META } from '@/src/core/state';
 import { sidebarModules, m1Tabs } from './RealEstatePlatform';
+import PlanBadge from './PlanBadge';
 
 interface SidebarProps {
   activeModule: string;
+  setActiveModule: (m: string) => void;
   activeTab: string;
-  collapsed: boolean;
-  subOpen: boolean;
-  onSelectModule: (m: string) => void;
-  onSelectTab: (t: string) => void;
-  onToggleCollapsed: () => void;
-  onToggleSubOpen: () => void;
+  setActiveTab: (t: string) => void;
+  sidebarCollapsed: boolean;
+  setSidebarCollapsed: (v: boolean) => void;
+  sidebarSubOpen: boolean;
+  setSidebarSubOpen: (v: boolean) => void;
+  currentUserRole: Role;
+  activeProjectId: string | null;
+  activeProjectName: string | null;
+  activeVersionName: string | null;
+  canSeeModule: (key: string) => boolean;
   canAccess: (featureKey: string) => boolean;
   subLoaded: boolean;
-  onUpgradePrompt: (p: { featureKey: string; requiredPlan: 'professional' | 'enterprise' } | null) => void;
+  onLockedModuleClick: (featureKey: string, requiredPlan: 'professional' | 'enterprise') => void;
+  onOpenProjects: () => void;
+  onOpenRbac: () => void;
 }
 
 export default function Sidebar({
   activeModule,
+  setActiveModule,
   activeTab,
-  collapsed,
-  subOpen,
-  onSelectModule,
-  onSelectTab,
-  onToggleCollapsed,
-  onToggleSubOpen,
+  setActiveTab,
+  sidebarCollapsed,
+  setSidebarCollapsed,
+  sidebarSubOpen,
+  setSidebarSubOpen,
+  currentUserRole,
+  activeProjectId,
+  activeProjectName,
+  activeVersionName,
+  canSeeModule,
   canAccess,
   subLoaded,
-  onUpgradePrompt,
+  onLockedModuleClick,
+  onOpenProjects,
+  onOpenRbac,
 }: SidebarProps): React.JSX.Element {
+  const roleMeta = ROLE_META[currentUserRole];
+
   return (
-    <aside
-      className={`sidebar${collapsed ? ' collapsed' : ''}`}
-      style={{
-        width: collapsed ? 60 : 240,
-        background: 'var(--color-surface)',
-        borderRight: '1px solid var(--color-border)',
-        padding: 'var(--sp-2)',
-        transition: 'width 0.15s ease',
-      }}
-      data-testid="sidebar"
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-2)' }}>
-        {!collapsed && <strong style={{ fontSize: 'var(--font-small)' }}>Navigation</strong>}
+    <aside className={`sidebar${sidebarCollapsed ? ' collapsed' : ''}`} data-testid="sidebar">
+      <div className="sidebar-header">
+        <span className="sidebar-header-title">Navigation</span>
         <button
-          type="button"
-          onClick={onToggleCollapsed}
-          style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+          className="sidebar-toggle"
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           data-testid="sidebar-toggle"
         >
-          {collapsed ? '▶' : '◀'}
+          ◀
         </button>
       </div>
-      {sidebarModules.map((m) => (
-        <button
-          key={m.key}
-          type="button"
-          onClick={() => {
-            if (m.disabled) return;
-            if (m.featureKey && !canAccess(m.featureKey) && subLoaded && m.requiredPlan && m.requiredPlan !== 'free') {
-              onUpgradePrompt({ featureKey: m.featureKey, requiredPlan: m.requiredPlan as 'professional' | 'enterprise' });
-              return;
-            }
-            onSelectModule(m.key);
-            if (m.key === 'module1') onToggleSubOpen();
-          }}
-          data-testid={`sidebar-${m.key}`}
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            width: '100%',
-            padding: 'var(--sp-1)',
-            border: 'none',
-            borderRadius: 'var(--radius-sm)',
-            background: activeModule === m.key ? 'var(--color-navy-pale)' : 'transparent',
-            color: activeModule === m.key ? 'var(--color-navy)' : 'var(--color-body)',
-            cursor: m.disabled ? 'not-allowed' : 'pointer',
-            opacity: m.disabled ? 0.5 : 1,
-            fontSize: 'var(--font-small)',
-            textAlign: 'left',
-            marginBottom: 2,
-          }}
-          title={m.disabled ? m.disabledReason : undefined}
+
+      <div className="sb-pv-panel">
+        <div
+          className="sb-pv-row"
+          onClick={onOpenProjects}
+          title="Switch project"
+          data-testid="sidebar-pv-project"
         >
-          <span>{m.icon}</span>
-          {!collapsed && <span style={{ flex: 1 }}>{m.label}</span>}
-          {!collapsed && m.badge && (
-            <span style={{ fontSize: 'var(--font-micro)', color: 'var(--color-meta)' }}>{m.badge}</span>
-          )}
-        </button>
-      ))}
-      {!collapsed && activeModule === 'module1' && subOpen && (
-        <div style={{ marginTop: 'var(--sp-2)', paddingLeft: 'var(--sp-2)', borderLeft: '2px solid var(--color-border)' }}>
-          {m1Tabs.map((tab) => (
-            <button
-              key={tab.key}
-              type="button"
-              onClick={() => onSelectTab(tab.key)}
-              data-testid={`sidebar-tab-${tab.key}`}
-              style={{
-                display: 'block',
-                width: '100%',
-                padding: 'var(--sp-1)',
-                border: 'none',
-                borderRadius: 'var(--radius-sm)',
-                background: activeTab === tab.key ? 'var(--color-navy-pale)' : 'transparent',
-                color: activeTab === tab.key ? 'var(--color-navy)' : 'var(--color-body)',
-                cursor: 'pointer',
-                fontSize: 'var(--font-small)',
-                textAlign: 'left',
-                marginBottom: 2,
-              }}
-            >
-              {tab.label}
-            </button>
-          ))}
+          <div className="sb-pv-dot sb-pv-dot-proj" />
+          <div className="sb-pv-content">
+            <div className="sb-pv-eyebrow">Project</div>
+            <div className="sb-pv-name">{activeProjectName ?? 'No project selected'}</div>
+          </div>
+          <div className="sb-pv-arrow">▶</div>
         </div>
-      )}
+        <div className="sb-pv-row" title="Current version" data-testid="sidebar-pv-version">
+          <div className="sb-pv-dot sb-pv-dot-ver" />
+          <div className="sb-pv-content">
+            <div className="sb-pv-eyebrow">Version</div>
+            <div className="sb-pv-name">{activeVersionName ?? 'Unsaved draft'}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="sb-pv-collapsed">
+        <button
+          className="sb-pv-collapsed-pill"
+          onClick={onOpenProjects}
+          title={activeProjectName ?? 'Projects'}
+        >
+          🏗️
+        </button>
+        <button className="sb-pv-collapsed-pill" title={activeVersionName ?? 'Versions'}>
+          📌
+        </button>
+      </div>
+
+      <nav className="sidebar-nav">
+        <div className="sidebar-section-label">Platform</div>
+
+        {sidebarModules.map((mod) => {
+          const isDisabledByPermission = !canSeeModule(mod.key);
+          const isDisabledByConfig = mod.disabled === true;
+          const isOverviewDisabled = mod.key === 'overview' && !activeProjectId;
+          const isFeatureLocked = subLoaded && !!mod.featureKey && !canAccess(mod.featureKey);
+
+          const isDisabled = isFeatureLocked
+            ? false
+            : isDisabledByPermission || isDisabledByConfig || isOverviewDisabled;
+
+          const disabledReason = isDisabledByPermission
+            ? 'Your role cannot view this module'
+            : isOverviewDisabled
+            ? 'Select a project first'
+            : mod.disabledReason;
+
+          const isActive = activeModule === mod.key;
+          const isModule1 = mod.key === 'module1';
+
+          return (
+            <div key={mod.key} className="sidebar-item-wrap">
+              <button
+                className={`sidebar-item${isActive ? ' active' : ''}${isDisabled ? ' disabled' : ''}${isFeatureLocked ? ' feature-locked' : ''}`}
+                onClick={() => {
+                  if (
+                    isFeatureLocked &&
+                    mod.featureKey &&
+                    (mod.requiredPlan === 'professional' || mod.requiredPlan === 'enterprise')
+                  ) {
+                    onLockedModuleClick(mod.featureKey, mod.requiredPlan);
+                    return;
+                  }
+                  if (isDisabled) return;
+                  setActiveModule(mod.key);
+                  if (isModule1) setSidebarSubOpen(true);
+                }}
+                disabled={isDisabled}
+                title={isFeatureLocked ? `Requires ${mod.requiredPlan} plan` : isDisabled ? disabledReason : mod.label}
+                data-testid={`sidebar-${mod.key}`}
+              >
+                <span className="sidebar-icon">{mod.icon}</span>
+                <span className="sidebar-label">{mod.label}</span>
+                {isFeatureLocked ? (
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 4, marginLeft: 'auto', flexShrink: 0 }}>
+                    <span style={{ fontSize: 10 }}>🔒</span>
+                    {(mod.requiredPlan === 'professional' || mod.requiredPlan === 'enterprise') && (
+                      <PlanBadge requiredPlan={mod.requiredPlan} />
+                    )}
+                  </span>
+                ) : (
+                  mod.badge && <span className={`sidebar-badge ${mod.badgeClass}`}>{mod.badge}</span>
+                )}
+                {isModule1 && !sidebarCollapsed && (
+                  <span
+                    style={{
+                      fontSize: '10px',
+                      color: 'color-mix(in srgb, var(--color-on-primary-navy) 40%, transparent)',
+                      marginLeft: '4px',
+                      flexShrink: 0,
+                      transition: 'transform 0.2s ease',
+                      transform: sidebarSubOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSidebarSubOpen(!sidebarSubOpen);
+                    }}
+                  >
+                    ▶
+                  </span>
+                )}
+              </button>
+
+              {sidebarCollapsed && (
+                <div className="sidebar-tooltip">
+                  {isFeatureLocked ? `Requires ${mod.requiredPlan} plan` : isDisabled ? disabledReason : mod.label}
+                </div>
+              )}
+
+              {isModule1 && (
+                <div className={`sidebar-sub${sidebarSubOpen && isActive ? ' open' : ''}`}>
+                  {m1Tabs.map((tab) => (
+                    <button
+                      key={tab.key}
+                      className={`sidebar-sub-item${activeTab === tab.key && isActive ? ' active' : ''}`}
+                      onClick={() => {
+                        setActiveModule('module1');
+                        setActiveTab(tab.key);
+                      }}
+                      data-testid={`sidebar-tab-${tab.key}`}
+                    >
+                      <span>{tab.icon}</span>
+                      <span>{tab.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+
+        <div className="sidebar-divider" />
+        <div className="sidebar-section-label">Tools</div>
+
+        <div className="sidebar-item-wrap">
+          <button className="sidebar-item" style={{ opacity: 0.5, cursor: 'not-allowed' }} disabled>
+            <span className="sidebar-icon">⚙️</span>
+            <span className="sidebar-label">Settings</span>
+            <span className="sidebar-badge badge-soon">SOON</span>
+          </button>
+        </div>
+      </nav>
+
+      <div className="sidebar-footer">
+        <div
+          className="sb-role-indicator"
+          onClick={onOpenRbac}
+          title={`Role: ${roleMeta?.label}. Click to switch.`}
+          data-testid="sidebar-role-indicator"
+        >
+          <div className="sb-role-dot" style={{ background: roleMeta?.dotColor }} />
+          <span
+            style={{
+              fontSize: '11px',
+              color: 'color-mix(in srgb, var(--color-on-primary-navy) 65%, transparent)',
+              fontWeight: 600,
+            }}
+          >
+            {roleMeta?.label}
+          </span>
+        </div>
+      </div>
     </aside>
   );
 }
