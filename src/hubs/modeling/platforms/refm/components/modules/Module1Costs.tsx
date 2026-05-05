@@ -5,7 +5,7 @@ import type { CostItem, CostInputMode, ProjectType, AreaMetrics } from '@/src/co
 import { formatNumber, formatCurrency } from '@/src/core/formatters';
 import { STAGE_COLOR, STAGE_BG_RGBA, PHASE_COLOR, ASSET_COLOR, KPI_ACCENT } from '@/src/styles/tokens';
 import InputLabel from '../ui/InputLabel';
-import FormulaCaption from '../ui/FormulaCaption';
+import VerifiedResult, { type VerifiedState } from '../ui/VerifiedResult';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -125,42 +125,88 @@ function buildMethodHint(method: string, areas: AreaMetrics, currency: string): 
   }
 }
 
-// M1.13/4: builds a plain-English formula string for the cost row total.
-// Reads the active method, the input value, and the resolved area /
-// land-value base, returns "<input> * <base> = <result> currency" so the
-// reader can trace every Total back to its inputs without a calculator.
-function buildCostFormula(
+// M1.13c: builds the (formula, substitution, result) tuple that
+// VerifiedResult renders for a cost row's Total cell. Reads the active
+// method, the input value, and the resolved area / land-value base so
+// the user can trace every Total back to its inputs without a
+// calculator. Uses proper math operators (× ÷) per M1.13c brief.
+function buildCostFormulaParts(
   cost: CostItem,
   method: string,
   total: number,
   areas: AreaMetrics,
   currency: string,
   selectedSum: number,
-): string {
+): { formula: string; substitution: string; result: string } {
   const v = cost.value;
+  const cur = ` ${currency}`;
   switch (method) {
     case 'fixed':
-      return `Fixed Amount = ${formatNumber(total)} ${currency}`;
+      return {
+        formula:      'Fixed Amount',
+        substitution: `${formatNumber(v)}`,
+        result:       `${formatNumber(total)}${cur}`,
+      };
     case 'rate_total_allocated':
-      return `Rate * Total Land = ${formatNumber(v)} * ${formatNumber(areas.totalAllocated)} = ${formatNumber(total)} ${currency}`;
+      return {
+        formula:      'Rate × Total Land',
+        substitution: `${formatNumber(v)} × ${formatNumber(areas.totalAllocated)}`,
+        result:       `${formatNumber(total)}${cur}`,
+      };
     case 'rate_net_developable':
-      return `Rate * NDA = ${formatNumber(v)} * ${formatNumber(areas.netDevelopable)} = ${formatNumber(total)} ${currency}`;
+      return {
+        formula:      'Rate × NDA',
+        substitution: `${formatNumber(v)} × ${formatNumber(areas.netDevelopable)}`,
+        result:       `${formatNumber(total)}${cur}`,
+      };
     case 'rate_roads':
-      return `Rate * Roads = ${formatNumber(v)} * ${formatNumber(areas.roadsArea)} = ${formatNumber(total)} ${currency}`;
+      return {
+        formula:      'Rate × Roads',
+        substitution: `${formatNumber(v)} × ${formatNumber(areas.roadsArea)}`,
+        result:       `${formatNumber(total)}${cur}`,
+      };
     case 'rate_gfa':
-      return `Rate * GFA = ${formatNumber(v)} * ${formatNumber(areas.gfa)} = ${formatNumber(total)} ${currency}`;
+      return {
+        formula:      'Rate × GFA',
+        substitution: `${formatNumber(v)} × ${formatNumber(areas.gfa)}`,
+        result:       `${formatNumber(total)}${cur}`,
+      };
     case 'rate_bua':
-      return `Rate * BUA = ${formatNumber(v)} * ${formatNumber(areas.bua)} = ${formatNumber(total)} ${currency}`;
+      return {
+        formula:      'Rate × BUA',
+        substitution: `${formatNumber(v)} × ${formatNumber(areas.bua)}`,
+        result:       `${formatNumber(total)}${cur}`,
+      };
     case 'percent_base':
-      return `${v}% of Selected Costs (${formatNumber(selectedSum)} ${currency}) = ${formatNumber(total)} ${currency}`;
+      return {
+        formula:      'Selected Costs × %',
+        substitution: `${formatNumber(selectedSum)} × ${v}%`,
+        result:       `${formatNumber(total)}${cur}`,
+      };
     case 'percent_total_land':
-      return `${v}% of Total Land Value (${formatNumber(areas.landValue)} ${currency}) = ${formatNumber(total)} ${currency}`;
+      return {
+        formula:      'Total Land Value × %',
+        substitution: `${formatNumber(areas.landValue)} × ${v}%`,
+        result:       `${formatNumber(total)}${cur}`,
+      };
     case 'percent_cash_land':
-      return `${v}% of Cash Land Value (${formatNumber(areas.cashLandValue)} ${currency}) = ${formatNumber(total)} ${currency}`;
+      return {
+        formula:      'Cash Land Value × %',
+        substitution: `${formatNumber(areas.cashLandValue)} × ${v}%`,
+        result:       `${formatNumber(total)}${cur}`,
+      };
     case 'percent_inkind_land':
-      return `${v}% of In-Kind Land Value (${formatNumber(areas.inKindLandValue)} ${currency}) = ${formatNumber(total)} ${currency}`;
+      return {
+        formula:      'In-Kind Land Value × %',
+        substitution: `${formatNumber(areas.inKindLandValue)} × ${v}%`,
+        result:       `${formatNumber(total)}${cur}`,
+      };
     default:
-      return `Total = ${formatNumber(total)} ${currency}`;
+      return {
+        formula:      'Total',
+        substitution: '-',
+        result:       `${formatNumber(total)}${cur}`,
+      };
   }
 }
 
@@ -403,20 +449,43 @@ function CostTable({
             />
           </td>
 
-          {/* Total, M1.13/4 inline plain-English formula caption shows
-             how the active method, value, and base resolve into the
-             total. Substituted-with-current-values so the reader sees
-             the math live. */}
+          {/* Total. M1.13c renders a VerifiedResult verification step
+             beneath the value so the reader can trace formula +
+             substituted values + result chip without a calculator.
+             Soft-warn when method is rate-of-area but the area base
+             resolves to 0 (Total = 0, but the user probably did not
+             intend that). */}
           <td style={{ fontWeight: 600, color: 'var(--color-heading)', textAlign: 'right', minWidth: 100 }}>
-            <div>{formatNumber(total)}</div>
             {(() => {
               const selectedSum = (cost.selectedIds || []).reduce((s, id) => {
                 const other = costs.find(c => c.id === id);
                 if (!other) return s;
                 return s + (isSameForAll ? calcSameForAllDisplayTotal(other) : calculateItemTotal(other, assetType, costs));
               }, 0);
-              const formula = buildCostFormula(cost, cost.method, total, areas, currency, selectedSum);
-              return <FormulaCaption testId={`cost-formula-${cost.id}`} text={formula} style={{ textAlign: 'right' }} />;
+              const parts = buildCostFormulaParts(cost, cost.method, total, areas, currency, selectedSum);
+              const baseResolvesToZero =
+                (cost.method === 'rate_gfa'             && areas.gfa             === 0) ||
+                (cost.method === 'rate_bua'             && areas.bua             === 0) ||
+                (cost.method === 'rate_total_allocated' && areas.totalAllocated  === 0) ||
+                (cost.method === 'rate_net_developable' && areas.netDevelopable  === 0) ||
+                (cost.method === 'rate_roads'           && areas.roadsArea       === 0) ||
+                (cost.method === 'percent_base'         && selectedSum           === 0 && cost.value > 0) ||
+                (cost.method === 'percent_total_land'   && areas.landValue       === 0) ||
+                (cost.method === 'percent_cash_land'    && areas.cashLandValue   === 0) ||
+                (cost.method === 'percent_inkind_land'  && areas.inKindLandValue === 0);
+              const state: VerifiedState = baseResolvesToZero ? 'warn' : 'ok';
+              const issue = baseResolvesToZero ? 'Base resolves to 0, total will be 0' : undefined;
+              return (
+                <VerifiedResult
+                  testId={`cost-formula-${cost.id}`}
+                  formula={parts.formula}
+                  substitution={parts.substitution}
+                  result={parts.result}
+                  state={state}
+                  issue={issue}
+                  style={{ textAlign: 'left' }}
+                />
+              );
             })()}
           </td>
 
@@ -715,16 +784,18 @@ function CostTable({
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={4} style={{ fontWeight: 700 }}>TOTAL DEVELOPMENT COSTS</td>
-              <td style={{ fontWeight: 700, textAlign: 'right' }}>
-                <div>{formatCurrency(grandTotal, currency)}</div>
-                <FormulaCaption
+              <td colSpan={!readOnly ? 9 : 8} style={{ padding: 'var(--sp-2)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <strong style={{ fontWeight: 700 }}>TOTAL DEVELOPMENT COSTS</strong>
+                  <strong style={{ fontWeight: 700 }}>{formatCurrency(grandTotal, currency)}</strong>
+                </div>
+                <VerifiedResult
                   testId={`cost-grand-total-formula-${assetType}`}
-                  text={`Sum of every Stage 1 + Stage 2 + Stage 3 line above + locked Land rows = ${formatNumber(grandTotal)} ${currency}`}
-                  style={{ textAlign: 'right' }}
+                  formula="Grand Total = Σ (every Stage 1 + Stage 2 + Stage 3 line) + locked Land rows"
+                  substitution={`${costs.length} cost line(s)`}
+                  result={`${formatNumber(grandTotal)} ${currency}`}
                 />
               </td>
-              <td colSpan={!readOnly ? 4 : 3} />
             </tr>
           </tfoot>
         </table>
