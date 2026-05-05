@@ -218,20 +218,24 @@ function checkStateIntegrity(): void {
   }
 
   // S1: Schedule (Module1Timeline) imports + uses FormulaCaption
+  // (M1.13b: captions sit inline beneath the inputs, no Timeline
+  // Summary panel).
   try {
     const tl = readSrc('src/hubs/modeling/platforms/refm/components/modules/Module1Timeline.tsx');
     const ok =
       tl.includes("import FormulaCaption from '../ui/FormulaCaption'") &&
       tl.includes('testId="timeline-formula-end"') &&
       tl.includes('testId="timeline-formula-total-periods"');
-    record('S1: Schedule timeline summary uses FormulaCaption',
+    record('S1: Schedule inline timeline formulas wired',
       ok ? 'pass' : 'fail',
-      ok ? 'end + total-periods captions wired' : 'caption markers missing');
+      ok ? 'end + total-periods captions wired inline' : 'caption markers missing');
   } catch (e) {
     record('S1: Schedule formula captions', 'fail', e instanceof Error ? e.message : String(e));
   }
 
-  // B1: Build Program imports FormulaCaption + envelope rows pass formula text
+  // B1: Build Program imports FormulaCaption + envelope formulas
+  // present (M1.13b layout: inline beneath input rows, no Computed
+  // Envelope panel). The panel testId is intentionally gone.
   try {
     const ap = readSrc('src/hubs/modeling/platforms/refm/components/modules/Module1AreaProgram.tsx');
     const ok =
@@ -239,25 +243,26 @@ function checkStateIntegrity(): void {
       ap.includes('Plot Area * Max FAR') &&
       ap.includes('Footprint * Podium Floors') &&
       ap.includes('Public Area - Landscape - Hardscape') &&
-      ap.includes('data-testid={`computed-envelope-${plot.id}`}');
-    record('B1: Build Program envelope rows carry formulas',
+      ap.includes('formula-max-gfa-');
+    record('B1: Build Program envelope rows carry formulas (inline)',
       ok ? 'pass' : 'fail',
-      ok ? 'envelope formulas in plain English' : 'formula text missing');
+      ok ? 'envelope formulas in plain English, inline layout' : 'formula text missing');
   } catch (e) {
     record('B1: Build Program envelope formulas', 'fail', e instanceof Error ? e.message : String(e));
   }
 
-  // B2: Asset cascade preview cells carry formulas
+  // B2: Asset cascade chain formulas present (M1.13b layout: inline
+  // formula stack, no Cascade Preview panel).
   try {
     const ap = readSrc('src/hubs/modeling/platforms/refm/components/modules/Module1AreaProgram.tsx');
     const ok =
       ap.includes('GFA - MEP - BoH - Other') &&
       ap.includes('Net GFA * Efficiency') &&
       ap.includes('GFA + BoH + Other') &&
-      ap.includes('data-testid={`cascade-preview-${asset.id}`}');
-    record('B2: Build Program cascade cells carry formulas',
+      ap.includes('formula-cascade-tba-');
+    record('B2: Build Program cascade chain formulas (inline)',
       ok ? 'pass' : 'fail',
-      ok ? 'cascade chain formulas in plain English' : 'cascade formulas missing');
+      ok ? 'cascade chain formulas in plain English, inline layout' : 'cascade formulas missing');
   } catch (e) {
     record('B2: Build Program cascade formulas', 'fail', e instanceof Error ? e.message : String(e));
   }
@@ -332,17 +337,17 @@ function checkStateIntegrity(): void {
     record('P1: Financing input formulas', 'fail', e instanceof Error ? e.message : String(e));
   }
 
-  // P2: Financing Debt Summary box uses live-formulas variant
+  // P2: Financing Debt Summary card present (M1.13b: roll-up only,
+  // formulas are inline above the card not inside it).
   try {
     const fn = readSrc('src/hubs/modeling/platforms/refm/components/modules/Module1Financing.tsx');
     const ok =
       fn.includes('data-testid="financing-debt-summary"') &&
-      fn.includes('Debt Summary (live formulas)') &&
-      fn.includes('LTV * Total CapEx') &&
-      fn.includes('All-in Cost of Debt');
-    record('P2: Financing Debt Summary live formulas',
+      fn.includes('All-in Cost of Debt') &&
+      fn.includes('LTV * Total CapEx');  // still appears in input-side caption
+    record('P2: Financing Debt Summary card present',
       ok ? 'pass' : 'fail',
-      ok ? '5 summary rows paired with formulas' : 'debt summary formulas missing');
+      ok ? 'summary roll-up + LTV formula in input-side caption' : 'debt summary card missing');
   } catch (e) {
     record('P2: Financing Debt Summary', 'fail', e instanceof Error ? e.message : String(e));
   }

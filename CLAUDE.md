@@ -234,8 +234,9 @@ npx tsx --env-file=.env.local scripts/verify-m110b.ts # M1.10b Plot Setup polish
 npx tsx --env-file=.env.local scripts/verify-m111.ts  # M1.11 holistic audit + fix pass (23 pass / 0 fail / 1 skip without dev server)
 npx tsx --env-file=.env.local scripts/verify-m112.ts  # M1.12 Land tab elimination + 4-tab consolidation (15 pass / 0 fail / 2 skip without dev server; 21 pass / 0 fail / 0 skip with dev server)
 npx tsx --env-file=.env.local scripts/verify-m113.ts  # M1.13 inline plain-English live formulas across 4 tabs (20 pass / 0 fail / 1 skip without dev server; 23 pass / 0 fail / 0 skip with dev server)
+npx tsx --env-file=.env.local scripts/verify-m113b.ts # M1.13b inline-formula layout (panels dissolved, formulas adjacent to inputs) (20 pass / 0 fail / 1 skip without dev server; 23 pass / 0 fail / 0 skip with dev server)
 
-# Playwright e2e specs (M1.8 + M1.9 + M1.9b + M1.10 + M1.10b + M1.11 + M1.12 + M1.13 regression-guards)
+# Playwright e2e specs (M1.8 + M1.9 + M1.9b + M1.10 + M1.10b + M1.11 + M1.12 + M1.13 + M1.13b regression-guards)
 npx playwright test tests/e2e/m18-wizard-repro.spec.ts     # 1 spec, wizard create does not crash
 npx playwright test tests/e2e/m18-wizard-flow.spec.ts      # 2 specs, every tab shows wizard data + reload persists
 npx playwright test tests/e2e/m19-redesign-flow.spec.ts    # 2 specs, wizard lands on Schedule tab + numbered tab row + light/dark screenshots
@@ -245,6 +246,7 @@ npx playwright test tests/e2e/m110b-flow.spec.ts           # 2 specs, Plot Setup
 npx playwright test tests/e2e/m111-full-flow.spec.ts       # 2 specs, ProjectWizard portal regression guard + full first-time flow walking 5 tabs with M1.11 fix markers + 10 light/dark tab screenshots
 npx playwright test tests/e2e/m112-flow.spec.ts            # 2 specs, wizard Step 2 parcel CRUD + post-create 4-tab row (no Land) with parcel block on Build Program + 8 light/dark tab screenshots
 npx playwright test tests/e2e/m113-formulas.spec.ts        # 1 spec, walks all 4 tabs asserting FormulaCaption testIds + live recompute on Plot inputs + 8 light/dark tab screenshots
+npx playwright test tests/e2e/m113b-formulas-inline.spec.ts # 1 spec, panel-absence (no Computed Envelope / Cascade Preview / Timeline Summary) + bounding-box proximity (formula caption < 200px below its driving input) + live recompute + 8 light/dark tab screenshots
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -262,7 +264,7 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 **Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
 (`npx playwright install chromium`).
 
-### Module 1 status (2026-05-06, M1.13 makes Module 1 self-explanatory)
+### Module 1 status (2026-05-06, M1.13b dissolves the calc panels into inline formulas)
 **All sub-phases shipped:** M1.R (cost engine + Zustand restoration) → M1.5 (multi-asset
 + multi-phase + storage v3 bump) → M1.5b (UX polish + Quick Setup wizard inside Hierarchy)
 → M1.6 (Supabase persistence + version history) → M1.7 (Area Program tab + plots / zones
@@ -292,23 +294,24 @@ Roads % / Project FAR / Non-Enclosed Area % no longer have a UI surface and live
 on the per-Plot card under Build Program; Module 1 table headers gain the FAST
 contrast convention via tableHeaderLabelStyle / parcelHeaderLabelStyle (white-on-navy
 InputLabel) so column titles stay legible in light + dark mode)
-→ **M1.13** (Module 1 self-explanatory: a new FormulaCaption primitive renders a
-small italic "= <expression> = <values> = <result>" line adjacent to every derived
+→ M1.13 (Module 1 self-explanatory: a new FormulaCaption primitive renders a small
+italic "= <expression> = <values> = <result>" line adjacent to every derived
 output across all 4 tabs, with live values substituted into the plain-English
-formula on every input edit. Schedule: Total Periods + Project End Date + Type.
-Build Program: 10 envelope rows (Max GFA, Footprint, Podium GFA, Typical GFA, Total
-Built, Public Area, Landscape, Hardscape, Surface Parking, Basement Usable), 8
-asset cascade cells (GFA, MEP, Net GFA, GSA / GLA, BUA Excl, TBA, BoH, Other Tech),
-5 parking cells (Required + Surface / Vertical / Basement / Total Allocated with
-capacity = area / bay-size formulas), 3 Land Parcel totals captions. Dev Costs:
-per-row Method * Base = Total formula and a grand-total caption per asset. Financing:
-Debt = LTV * CapEx + Equity = (1 - LTV) * CapEx, Periodic Rate = Annual / 12,
-Repayment principal-per-period, plus the Debt Summary card rebuilt as 5 live-formula
-rows. No layout reflow because the line is permanent and only the inline numbers
-update). **Module 1 ships production-ready after M1.13; next phase is M2.0 (revenue,
-opex, deferred calc-engine refinements including the per-plot derive of project-
-level FAR / Roads / NEA still read by calculateAreaHierarchy from stored snapshot
-fields).**
+formula on every input edit)
+→ **M1.13b** (eliminate the separate "Computed Envelope" + "Cascade Preview" +
+"Timeline Summary" panels; restructure Build Program inputs into 8 ordered
+sections with formula captions sitting directly under the input row that completes
+each formula. Plot Envelope -> Podium -> Typical Tower -> Floors check -> Public
+Area Split -> Parking surface -> Parking vertical -> Parking basement; cascade
+chain renders inline beneath the cascade inputs as a stack of 8 formula captions;
+Schedule timeline summary panel dissolved into 3 inline captions next to the
+Granularity / Project Start / Overlap inputs; Financing Debt Summary card rolled
+up to a clean reckoning without duplicate formula lines. Playwright proximity
+spec asserts every formula caption sits within 200 vertical pixels of its driving
+input). **Module 1 ships production-ready after M1.13b; next phase is M2.0
+(revenue, opex, deferred calc-engine refinements including the per-plot derive
+of project-level FAR / Roads / NEA still read by calculateAreaHierarchy from
+stored snapshot fields).**
 
 **M1.10 setup-completeness series (8 commits, 2026-05-05 → 2026-05-06, all snapshot diffs bit-identical):**
 - `d295dc8` 2/8: tune plot defaults so fresh plots stay inside FAR ceiling.
@@ -661,6 +664,89 @@ all snapshot diffs bit-identical):**
 - (this commit) 7/7 (docs sweep): CLAUDE.md M1.13 series block,
   scripts table entry, Playwright spec entry, Module 1 status header
   extended with the M1.13 completion line.
+
+**M1.13b inline-formula layout (5 commits, 2026-05-06, all snapshot
+diffs bit-identical):**
+- `8aa81b7` 1/5 (Build Program): Module1AreaProgram restructure. The
+  previous 4-column 15-input grid + Computed Envelope panel + Cascade
+  Preview panel are dissolved. Inputs regroup into 8 ordered sections,
+  each with a small uppercase header + thin top border:
+  Plot envelope (Plot Buildable Area + Max FAR -> Max GFA),
+  Podium (Podium Coverage + Podium Floors -> Footprint, Podium GFA,
+  Public Area), Typical tower (Typical Coverage + Typical Floors ->
+  Typical GFA, Total Built GFA + utilization), Floors check (Total
+  Floors with podium+typical sanity check), Public area split
+  (Landscape % + Hardscape % -> Landscape Area, Hardscape Area, Surface
+  Parking), Parking surface (Surface Bay -> Surface Capacity), Parking
+  vertical (Vertical Bay + Vertical Parking Floors -> Vertical
+  Capacity), Parking basement (Basement Bay + Count + Efficiency ->
+  Basement Usable + Basement Capacity). Each cascade output renders as
+  an inline FormulaCaption stack beneath the cascade inputs (no panel
+  wrapper). 14 plot-formula testIds + 8 cascade-formula testIds + 8
+  section testIds wired for Playwright proximity assertions.
+  ParkingSummary kept as a compact roll-up at the bottom of the plot
+  card (its Required vs Allocated math depends on Sub-Units which live
+  outside the plot input grid). Removed legacy calcRow + CascadeCell
+  helpers.
+- `2afb188` 2/5 (Schedule): Module1Timeline dissolves the gray
+  "Timeline Summary (live formulas)" panel. Three inline captions
+  re-anchored: Granularity toggle gets a 1-line caption explaining
+  what monthly vs annual means; Project Start Date input gets the
+  Project End caption (= Start + Total Periods); Project Overlap
+  input gets the Total Periods caption (= Construction + Operations -
+  Overlap). Removed unused calcOutputStyle + labelStyle constants.
+- `365a5a1` 3/5 (Financing): Module1Financing Debt Summary card
+  reverts to a clean 5-row roll-up without FormulaCaption rows
+  inside. The per-input formula captions inline above (debt-equity,
+  periodic-rate, repayment) already explain the math; the summary
+  serves as a reckoning of the resolved values. Card label rolled up
+  from "Debt Summary (live formulas)" back to "Debt Summary".
+- `0e39c4d` 4/5 (verifier + Playwright): scripts/verify-m113b.ts
+  mirrors the M1.13 5-section template; section 4 grows new panel-
+  absence + per-formula testId markers (A1-A6 Build Program, S1-S2
+  Schedule, F1-F2 Financing, X1 em-dash sweep). Result: 23 pass / 0
+  fail / 0 skip with dev server up. tests/e2e/m113b-formulas-inline.
+  spec.ts (1 spec, 14.5s) walks all 4 tabs with two contracts:
+  (1) panel absence, the 3 dissolved panels MUST NOT render; (2)
+  proximity, each driving input is followed by its formula caption
+  within 200 vertical pixels (assertProximate helper computes
+  bounding-box distance). Schedule: Overlap -> Total Periods, Project
+  Start -> Project End. Build Program: Max FAR -> Max GFA, Podium
+  Floors -> Podium GFA, Typical Floors -> Total Built GFA, Hardscape
+  -> Surface Parking, Surface Bay -> Surface Capacity, Vertical
+  Floors -> Vertical Capacity, Basement Efficiency -> Basement
+  Capacity. Live recompute on Max FAR + Plot Area still works (caption
+  text substitutes inline, no unmount). Financing Debt Summary card
+  has zero FormulaCaption rows + label is "Debt Summary" (not "Debt
+  Summary (live formulas)"). 8 light + dark screenshots into
+  tests/screenshots/M1.13b/.
+- (this commit) 5/5 (docs sweep + M1.13 artifact updates): updated
+  scripts/verify-m113.ts B1/B2/S1/P2 markers + tests/e2e/m113-
+  formulas.spec.ts assertions to track the new inline-layout testIds
+  (formula-max-gfa-{id} instead of computed-envelope-{id}; "Debt
+  Summary" instead of "Debt Summary (live formulas)") so M1.13's
+  verifier and spec stay green alongside M1.13b's. CLAUDE.md M1.13b
+  series block, scripts table entry, Playwright spec entry, Module 1
+  status header extended.
+
+**M1.13b pattern decisions for downstream phases:**
+- Eliminate calc-output panels in favour of input-anchored formula
+  stacks. Panels that summarise derivations (Computed Envelope,
+  Cascade Preview, Timeline Summary) tend to feel disconnected from
+  the inputs that drive them, especially for first-time users. Inline
+  captions, anchored to the last input that completes each formula,
+  read top-to-bottom with the user's mental model.
+- Section headers are subtle by default (small uppercase + thin top
+  border + `var(--color-heading)`), not boxed cards. They divide the
+  flow without competing with the input/formula pairs for attention.
+- Roll-up summary cards are still useful for resolved-totals views
+  (Financing Debt Summary, ParkingSummary). They should NOT duplicate
+  formula text already shown inline above. The card label stays
+  understated ("Debt Summary", not "Debt Summary (live formulas)").
+- Proximity contract: formula caption sits within 200 vertical pixels
+  of its driving input's bottom edge, anchored after the LAST input
+  that completes the formula. Playwright's assertProximate helper
+  computes bounding-box distance to enforce this.
 
 **M1.13 pattern decisions for downstream phases:**
 - FormulaCaption is the canonical way to surface input -> output

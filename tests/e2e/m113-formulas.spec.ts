@@ -229,8 +229,9 @@ test.describe('M1.13 inline plain-English formulas across Module 1', () => {
     const id = plotIdAttr?.replace('plot-card-', '') ?? '';
     expect(id).not.toEqual('');
 
-    await expect(firstPlotCard.locator('[data-testid^="computed-envelope-"]').first()).toBeVisible();
-    const maxGfaRow = firstPlotCard.locator('[data-testid="calc-row-max-gfa"]').first();
+    // M1.13b layout: no Computed Envelope panel; Max GFA caption sits
+    // inline under Plot Area + Max FAR with testId formula-max-gfa-{id}.
+    const maxGfaRow = page.getByTestId(`formula-max-gfa-${id}`);
     await expect(maxGfaRow).toBeVisible();
     await expect(maxGfaRow).toContainText('Plot Area * Max FAR');
 
@@ -271,8 +272,11 @@ test.describe('M1.13 inline plain-English formulas across Module 1', () => {
     await expect(page.getByTestId('financing-formula-repayment').first()).toBeVisible();
     const debtSummary = page.getByTestId('financing-debt-summary');
     await expect(debtSummary).toBeVisible();
-    await expect(debtSummary).toContainText('Debt Summary (live formulas)');
-    await expect(debtSummary).toContainText('LTV * Total CapEx');
+    // M1.13b: card header rolled up to plain "Debt Summary"; the
+    // "LTV * Total CapEx" formula now appears inline above the card
+    // (debt-equity caption), not inside it.
+    await expect(debtSummary).toContainText('Debt Summary');
+    await expect(page.getByTestId('financing-formula-debt-equity').first()).toContainText('LTV * Total CapEx');
     await page.screenshot({ path: resolve(SCREENSHOT_DIR, 'light-financing.png'), fullPage: true });
 
     // ── Dark-mode pass: capture all 4 tabs. ───────────────────────────
