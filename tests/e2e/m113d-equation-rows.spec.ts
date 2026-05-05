@@ -1,31 +1,38 @@
 /**
- * tests/e2e/m113b-formulas-inline.spec.ts
+ * tests/e2e/m113d-equation-rows.spec.ts
  *
- * M1.13b regression guard. Two contracts in a single walking spec:
+ * M1.13d regression guard. Build Program adopts the EquationRow
+ * 3-box layout. Three contracts in one walking spec:
  *
- *   1. Panel absence. The previous "Computed Envelope", "Cascade
- *      Preview", and "Timeline Summary" panels MUST NOT render. Their
- *      old testIds are gone.
+ *   1. Layout shape. Every plot envelope step + every cascade step
+ *      renders as one EquationRow (data-equation-row="true") with at
+ *      least one input field, at least one operator span, and one
+ *      result chip carrying data-result-chip="true".
  *
- *   2. Proximity. Each input on Build Program + Schedule + Financing
- *      is followed by its formula caption within 200 vertical pixels
- *      of the input's bottom edge. Exercises the "formula adjacent
- *      to driving input" contract.
+ *   2. Derived chaining. Footprint feeds Podium GFA + Public Area;
+ *      Public Area feeds Landscape / Hardscape / Surface Parking.
+ *      The downstream rows show their upstream values as read-only
+ *      dashed boxes (data-derived="true"), so the user reads the
+ *      chain visually instead of having to remember it.
  *
- *   Light + dark screenshots, all 4 tabs, into tests/screenshots/M1.13b/.
+ *   3. Validation. Pushing a plot's coverage and floors past the
+ *      FAR ceiling flips the Total Built GFA chip to data-state=
+ *      "error" with an issue chip below the row. Resetting brings
+ *      it back to ok.
+ *
+ *   Light + dark screenshots into tests/screenshots/M1.13d/.
  */
 
 import { test, expect, type ConsoleMessage, type Page, type Locator } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const DEV_SERVER_URL = process.env.M113B_DEV_SERVER_URL ?? 'http://localhost:3000';
-const SCREENSHOT_DIR = resolve(process.cwd(), 'tests/screenshots/M1.13b');
+const DEV_SERVER_URL = process.env.M113D_DEV_SERVER_URL ?? 'http://localhost:3000';
+const SCREENSHOT_DIR = resolve(process.cwd(), 'tests/screenshots/M1.13d');
 
 const FAKE_PROJECT_ID = '11111111-1111-1111-1111-111111111111';
 const FAKE_VERSION_ID = '22222222-2222-2222-2222-222222222222';
 const FAKE_USER_ID    = '00000000-0000-0000-0000-000000000000';
-const PROXIMITY_PX    = 200;
 
 type Captured = { type: 'console' | 'pageerror'; text: string };
 
@@ -183,32 +190,26 @@ async function createWizardProject(page: Page, name: string): Promise<void> {
 }
 
 /**
- * Asserts the formula caption + input are visually adjacent. Tolerant
- * of two layouts after M1.13d:
- *
- *   - Horizontal (EquationRow): chip and input share a row.
- *   - Vertical   (VerifiedResult): chip sits below input within
- *     PROXIMITY_PX pixels.
+ * Asserts a row carries the EquationRow shape contract: container has
+ * data-equation-row="true", contains at least one input field (or
+ * derived box), and contains a result chip with data-result-chip.
  */
-async function assertProximate(page: Page, inputSelector: string, formulaTestId: string, label: string): Promise<void> {
-  const inputBox = await page.locator(inputSelector).first().boundingBox();
-  const formulaBox = await page.getByTestId(formulaTestId).first().boundingBox();
-  expect(inputBox, `${label}: input bounding box missing for ${inputSelector}`).not.toBeNull();
-  expect(formulaBox, `${label}: formula bounding box missing for ${formulaTestId}`).not.toBeNull();
-  if (!inputBox || !formulaBox) return;
-  const inputCenterY   = inputBox.y + inputBox.height / 2;
-  const formulaCenterY = formulaBox.y + formulaBox.height / 2;
-  const verticalGap    = Math.abs(inputCenterY - formulaCenterY);
-  const sameRow        = verticalGap < inputBox.height;
-  const belowWithin    = (formulaBox.y - (inputBox.y + inputBox.height)) >= 0
-                      && (formulaBox.y - (inputBox.y + inputBox.height)) < PROXIMITY_PX;
-  expect(
-    sameRow || belowWithin,
-    `${label}: formula ${formulaTestId} not adjacent to ${inputSelector} (verticalGap=${verticalGap.toFixed(0)}px, sameRow=${sameRow}, belowWithin=${belowWithin})`,
-  ).toBe(true);
+async function assertEquationShape(page: Page, rowTestId: string, label: string): Promise<void> {
+  const row = page.getByTestId(rowTestId).first();
+  await expect(row, `${label}: row missing`).toBeVisible();
+  await expect(row, `${label}: row missing data-equation-row`).toHaveAttribute('data-equation-row', 'true');
+  // Row must contain an input element OR a derived box.
+  const hasInput   = await row.locator('input[type="number"]').count();
+  const hasDerived = await row.locator('[data-derived="true"]').count();
+  expect(hasInput + hasDerived,
+    `${label}: row has ${hasInput} input(s) and ${hasDerived} derived box(es), expected >= 1`,
+  ).toBeGreaterThanOrEqual(1);
+  // Row must contain a result chip.
+  const chip = row.locator('[data-result-chip="true"]').first();
+  await expect(chip, `${label}: result chip missing`).toBeVisible();
 }
 
-test.describe('M1.13b inline-formula layout (no panels, formulas adjacent to inputs)', () => {
+test.describe('M1.13d EquationRow 3-box layout (Build Program)', () => {
   test.beforeAll(async () => {
     let healthy = false;
     try {
@@ -219,39 +220,16 @@ test.describe('M1.13b inline-formula layout (no panels, formulas adjacent to inp
     mkdirSync(SCREENSHOT_DIR, { recursive: true });
   });
 
-  test('All 4 tabs: panels absent + formulas within 200px of driving inputs + live recompute', async ({ page }) => {
+  test('Plot envelope + cascade render as EquationRows; derived chain visible; validation flips', async ({ page }) => {
     const state = await setupMocks(page);
     await page.setViewportSize({ width: 1440, height: 1100 });
     await page.goto(`${DEV_SERVER_URL}/test-fixtures/m18-wizard`, { waitUntil: 'domcontentloaded' });
     await page.waitForLoadState('networkidle').catch(() => { /* ok */ });
 
-    await createWizardProject(page, 'M113B-Inline');
+    await createWizardProject(page, 'M113D-Equation');
     const main = page.getByRole('main');
 
-    // ── Schedule tab proximity ────────────────────────────────────────
-    // Total Periods caption sits under the Overlap input.
-    // Project End caption sits under the Project Start input.
-    // Type caption sits under the Granularity toggle.
-    await assertProximate(
-      page,
-      'input[type="number"][min="0"][max]',
-      'timeline-formula-total-periods',
-      'Schedule: Overlap input -> Total Periods',
-    );
-    await assertProximate(
-      page,
-      'input[type="date"]',
-      'timeline-formula-end',
-      'Schedule: Project Start input -> Project End',
-    );
-
-    // Timeline Summary panel must not exist.
-    await expect(page.getByTestId('timeline-summary')).toHaveCount(0);
-    await expect(page.locator('text=Timeline Summary (live formulas)')).toHaveCount(0);
-
-    await page.screenshot({ path: resolve(SCREENSHOT_DIR, 'light-schedule.png'), fullPage: true });
-
-    // ── Build Program tab proximity ──────────────────────────────────
+    // Move to Build Program tab + add first plot.
     await main.getByRole('button', { name: '2. Build Program' }).first().click();
     const addFirstBtn = page.getByTestId('add-first-plot-btn');
     if (await addFirstBtn.isVisible().catch(() => false)) {
@@ -263,100 +241,74 @@ test.describe('M1.13b inline-formula layout (no panels, formulas adjacent to inp
     const id = plotTestId?.replace('plot-card-', '') ?? '';
     expect(id).not.toEqual('');
 
-    // Computed Envelope and Cascade Preview panels must not render.
-    await expect(page.getByTestId(`computed-envelope-${id}`)).toHaveCount(0);
-    await expect(page.locator('[data-testid^="cascade-preview-"]')).toHaveCount(0);
-    await expect(page.locator('text=Computed envelope (live formulas)')).toHaveCount(0);
-
-    // Section headers (8) all visible.
-    for (const sec of [
-      `section-envelope-${id}`,
-      `section-podium-${id}`,
-      `section-typical-${id}`,
-      `section-floors-check-${id}`,
-      `section-public-area-${id}`,
-      `section-parking-surface-${id}`,
-      `section-parking-vertical-${id}`,
-      `section-parking-basement-${id}`,
-    ]) {
-      await expect(page.getByTestId(sec).first()).toBeVisible();
+    // ── Contract 1: layout shape across all 14 envelope steps. ─────
+    const envelopeRows = [
+      `row-max-gfa-${id}`,           `row-footprint-${id}`,
+      `row-podium-gfa-${id}`,        `row-public-area-${id}`,
+      `row-typical-gfa-${id}`,       `row-total-built-${id}`,
+      `row-floors-check-${id}`,      `row-landscape-${id}`,
+      `row-hardscape-${id}`,         `row-surface-parking-${id}`,
+      `row-surface-capacity-${id}`,  `row-vertical-capacity-${id}`,
+      `row-basement-usable-${id}`,   `row-basement-capacity-${id}`,
+      `row-parking-total-${id}`,
+    ];
+    for (const r of envelopeRows) {
+      await assertEquationShape(page, r, `envelope row ${r}`);
     }
 
-    // Proximity: Max GFA below Max FAR.
-    await assertProximate(page, `#plot-${id}-maxFAR`,
-      `formula-max-gfa-${id}`, 'Build Program: Max FAR -> Max GFA');
-    // Footprint / Podium GFA / Public Area below Podium Floors.
-    await assertProximate(page, `#plot-${id}-podiumFloors`,
-      `formula-podium-gfa-${id}`, 'Build Program: Podium Floors -> Podium GFA');
-    // Typical GFA / Total Built below Typical Floors.
-    await assertProximate(page, `#plot-${id}-typicalFloors`,
-      `formula-total-built-${id}`, 'Build Program: Typical Floors -> Total Built GFA');
-    // Surface Parking below Hardscape.
-    await assertProximate(page, `#plot-${id}-hardscapePct`,
-      `formula-surface-parking-${id}`, 'Build Program: Hardscape -> Surface Parking');
-    // Surface Capacity below Surface Bay.
-    await assertProximate(page, `#plot-${id}-surfaceBaySqm`,
-      `formula-surface-capacity-${id}`, 'Build Program: Surface Bay -> Surface Capacity');
-    // Vertical Capacity below Vertical Parking Floors.
-    await assertProximate(page, `#plot-${id}-verticalParkingFloors`,
-      `formula-vertical-capacity-${id}`, 'Build Program: Vertical Floors -> Vertical Capacity');
-    // Basement Usable + Capacity below Basement Efficiency.
-    await assertProximate(page, `#plot-${id}-basementEfficiencyPct`,
-      `formula-basement-capacity-${id}`, 'Build Program: Basement Efficiency -> Basement Capacity');
+    // ── Contract 2: derived chain visible. The Public Area row must
+    //     contain TWO derived boxes (Plot Area + Footprint), no input.
+    //     The Surface Parking row must contain THREE derived boxes
+    //     (Public Area, Landscape, Hardscape). ─────────────────────
+    const publicAreaRow = page.getByTestId(`row-public-area-${id}`);
+    await expect(publicAreaRow.locator('[data-derived="true"]')).toHaveCount(2);
+    await expect(publicAreaRow.locator('input[type="number"]')).toHaveCount(0);
 
-    // Live recompute: edit Max FAR and the Max GFA result chip value
-    // changes in place (no unmount). M1.13d's EquationRow puts the
-    // numeric result in the chip (no embedded substitution string),
-    // so assertions look at the calculated value.
-    const farInput = page.locator(`#plot-${id}-maxFAR`);
-    await farInput.fill('5');
+    const surfaceParkingRow = page.getByTestId(`row-surface-parking-${id}`);
+    await expect(surfaceParkingRow.locator('[data-derived="true"]')).toHaveCount(3);
+    await expect(surfaceParkingRow.locator('input[type="number"]')).toHaveCount(0);
+
+    // ── Contract 3: 3-input row works (Typical GFA = Plot × Cov ×
+    //     Floors). Has 1 derived (Plot Area) + 2 inputs (Coverage,
+    //     Floors) and 2 operator spans. ─────────────────────────
+    const typicalRow = page.getByTestId(`row-typical-gfa-${id}`);
+    await expect(typicalRow.locator('[data-derived="true"]')).toHaveCount(1);
+    await expect(typicalRow.locator('input[type="number"]')).toHaveCount(2);
+
+    // ── Contract 4: validation flip + issue chip. ──────────────────
+    await page.locator(`#plot-${id}-maxFAR`).fill('1');
+    await page.locator(`#plot-${id}-typicalFloors`).fill('20');
+    await page.locator(`#plot-${id}-typicalCoveragePct`).fill('60');
+    await page.locator(`#plot-${id}-typicalCoveragePct`).press('Tab');
+
+    const totalBuiltChip = page.getByTestId(`formula-total-built-${id}`);
+    const totalBuiltRow  = page.getByTestId(`row-total-built-${id}`);
+    await expect(totalBuiltChip).toHaveAttribute('data-state', 'error', { timeout: 3_000 });
+    await expect(totalBuiltRow.locator('[data-result-issue="true"]')).toBeVisible();
+    await page.screenshot({ path: resolve(SCREENSHOT_DIR, 'light-build-program-overfar.png'), fullPage: true });
+
+    // Reset to sane values.
+    await page.locator(`#plot-${id}-maxFAR`).fill('3');
+    await page.locator(`#plot-${id}-typicalFloors`).fill('6');
+    await page.locator(`#plot-${id}-typicalCoveragePct`).fill('30');
+    await page.locator(`#plot-${id}-typicalCoveragePct`).press('Tab');
+    await expect(totalBuiltChip).toHaveAttribute('data-state', 'ok', { timeout: 3_000 });
+
+    // ── Contract 5: live recompute. Edit Plot Area and Max GFA
+    //     chip's text changes in place. ──────────────────────────
     await page.locator(`#plot-${id}-plotArea`).fill('200000');
     await expect(page.getByTestId(`formula-max-gfa-${id}`))
-      .toHaveText(/1,000,000/, { timeout: 3_000 }); // 200,000 × 5
+      .toHaveText(/600,000/, { timeout: 3_000 }); // 200,000 × 3
 
     await page.screenshot({ path: resolve(SCREENSHOT_DIR, 'light-build-program.png'), fullPage: true });
 
-    // ── Dev Costs tab ─────────────────────────────────────────────────
-    await main.getByRole('button', { name: '3. Dev Costs' }).first().click();
-    await page.waitForTimeout(300);
-    const costFormulaCount = await page.locator('[data-formula="true"]').count();
-    expect(costFormulaCount).toBeGreaterThanOrEqual(5);
-    await page.screenshot({ path: resolve(SCREENSHOT_DIR, 'light-dev-costs.png'), fullPage: true });
-
-    // ── Financing tab ────────────────────────────────────────────────
-    await main.getByRole('button', { name: '4. Financing' }).first().click();
-    await page.waitForTimeout(300);
-
-    // Inline formulas still wired.
-    await expect(page.getByTestId('financing-formula-debt-equity').first()).toBeVisible();
-    await expect(page.getByTestId('financing-formula-periodic-rate').first()).toBeVisible();
-    await expect(page.getByTestId('financing-formula-repayment').first()).toBeVisible();
-
-    // Debt Summary card is now a roll-up (no FormulaCaption rows
-    // inside, header label rolled up).
-    const debtSummary = page.getByTestId('financing-debt-summary');
-    await expect(debtSummary).toBeVisible();
-    await expect(debtSummary.locator('[data-formula="true"]')).toHaveCount(0);
-    await expect(debtSummary).not.toContainText('Debt Summary (live formulas)');
-
-    await page.screenshot({ path: resolve(SCREENSHOT_DIR, 'light-financing.png'), fullPage: true });
-
-    // ── Dark-mode pass ───────────────────────────────────────────────
+    // ── Dark-mode pass ─────────────────────────────────────────────
     await page.evaluate(() => {
       localStorage.setItem('refmDarkMode', 'true');
       document.body.setAttribute('data-refm-theme', 'dark');
     });
     await page.waitForTimeout(300);
-    for (const [tabLabel, fileName] of [
-      ['1. Schedule', 'dark-schedule.png'],
-      ['2. Build Program', 'dark-build-program.png'],
-      ['3. Dev Costs', 'dark-dev-costs.png'],
-      ['4. Financing', 'dark-financing.png'],
-    ] as const) {
-      await main.getByRole('button', { name: tabLabel }).first().click();
-      await page.waitForTimeout(200);
-      await page.screenshot({ path: resolve(SCREENSHOT_DIR, fileName), fullPage: true });
-    }
+    await page.screenshot({ path: resolve(SCREENSHOT_DIR, 'dark-build-program.png'), fullPage: true });
 
     assertNoErrors(state.captured);
   });

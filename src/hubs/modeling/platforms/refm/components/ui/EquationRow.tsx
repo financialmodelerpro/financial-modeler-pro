@@ -244,6 +244,7 @@ export default function EquationRow({ fields, operators, result, testId }: Equat
             data-testid={result.testId}
             data-result-chip="true"
             data-formula="true"
+            data-state={state}
           >
             {fmt(result.value)}
           </div>

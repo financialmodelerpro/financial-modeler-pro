@@ -192,25 +192,37 @@ async function createWizardProject(page: Page, name: string): Promise<void> {
 }
 
 /**
- * Asserts a VerifiedResult render carries the three required visual
- * elements: data-formula attribute, data-state, and a data-result-chip
- * child node.
+ * Asserts a verified result render carries the three required visual
+ * elements: data-formula attribute, data-state, and a result chip.
+ * Tolerant of two layouts:
+ *
+ *   - VerifiedResult primitive: testId target is the row div, contains
+ *     a data-result-chip child.
+ *   - EquationRow primitive: testId target is the chip itself, with
+ *     all three attributes on the same node.
  */
 async function assertVerifiedShape(page: Page, testId: string, label: string): Promise<void> {
-  const row = page.getByTestId(testId).first();
-  await expect(row, `${label}: row missing`).toBeVisible();
-  await expect(row, `${label}: row missing data-formula="true"`).toHaveAttribute('data-formula', 'true');
-  const state = await row.getAttribute('data-state');
-  expect(state, `${label}: row missing data-state attribute`).not.toBeNull();
-  expect(['ok', 'warn', 'error'], `${label}: data-state must be ok|warn|error, got ${state}`).toContain(state);
-  const chip = row.locator('[data-result-chip="true"]').first();
-  await expect(chip, `${label}: result chip missing`).toBeVisible();
+  const target = page.getByTestId(testId).first();
+  await expect(target, `${label}: target missing`).toBeVisible();
+  await expect(target, `${label}: target missing data-formula="true"`).toHaveAttribute('data-formula', 'true');
+  await expect(target, `${label}: target missing data-state`).toHaveAttribute('data-state', /ok|warn|error/);
+  const isSelfChip = await target.evaluate((el) => el.getAttribute('data-result-chip') === 'true');
+  if (!isSelfChip) {
+    const chip = target.locator('[data-result-chip="true"]').first();
+    await expect(chip, `${label}: result chip missing`).toBeVisible();
+  }
 }
 
 /**
- * Asserts the formula caption sits within PROXIMITY_PX vertical pixels
- * of the input's bottom edge, i.e. the user does not have to scroll
- * past unrelated content to read the formula.
+ * Asserts the formula chip + input are visually adjacent. Two valid
+ * layouts:
+ *
+ *   - Horizontal (M1.13d EquationRow): chip and input share a row,
+ *     vertical distance close to 0, chip is to the right of the input.
+ *   - Vertical   (M1.13b VerifiedResult): chip sits below the input
+ *     within PROXIMITY_PX pixels.
+ *
+ * Either passes; the user can reach both visually without scrolling.
  */
 async function assertProximate(page: Page, inputSelector: string, formulaTestId: string, label: string): Promise<void> {
   const inputBox = await page.locator(inputSelector).first().boundingBox();
@@ -218,15 +230,17 @@ async function assertProximate(page: Page, inputSelector: string, formulaTestId:
   expect(inputBox, `${label}: input bounding box missing for ${inputSelector}`).not.toBeNull();
   expect(formulaBox, `${label}: formula bounding box missing for ${formulaTestId}`).not.toBeNull();
   if (!inputBox || !formulaBox) return;
-  const verticalDistance = formulaBox.y - (inputBox.y + inputBox.height);
+  const inputCenterY = inputBox.y + inputBox.height / 2;
+  const formulaCenterY = formulaBox.y + formulaBox.height / 2;
+  const verticalGap   = Math.abs(inputCenterY - formulaCenterY);
+  // Either same row (horizontal) or chip below input within PROXIMITY.
+  const sameRow = verticalGap < inputBox.height; // overlap, side by side
+  const belowWithin = (formulaBox.y - (inputBox.y + inputBox.height)) >= 0
+    && (formulaBox.y - (inputBox.y + inputBox.height)) < PROXIMITY_PX;
   expect(
-    verticalDistance,
-    `${label}: formula ${formulaTestId} sits ${verticalDistance}px below ${inputSelector}, must be in [0, ${PROXIMITY_PX})`,
-  ).toBeGreaterThanOrEqual(0);
-  expect(
-    verticalDistance,
-    `${label}: formula ${formulaTestId} sits ${verticalDistance}px below ${inputSelector}, must be < ${PROXIMITY_PX}px.`,
-  ).toBeLessThan(PROXIMITY_PX);
+    sameRow || belowWithin,
+    `${label}: formula ${formulaTestId} not adjacent to ${inputSelector} (verticalGap=${verticalGap.toFixed(0)}px, sameRow=${sameRow}, belowWithin=${belowWithin})`,
+  ).toBe(true);
 }
 
 test.describe('M1.13c step-by-step verification flow (input + formula + result + state)', () => {
@@ -291,9 +305,12 @@ test.describe('M1.13c step-by-step verification flow (input + formula + result +
       await assertVerifiedShape(page, t, `Build Program: ${t}`);
     }
 
-    // Math operators present in the rendered text (not just the source).
-    await expect(page.getByTestId(`formula-max-gfa-${id}`))      .toContainText('×', { timeout: 3_000 });
-    await expect(page.getByTestId(`formula-surface-capacity-${id}`)).toContainText('÷', { timeout: 3_000 });
+    // Math operators present in the rendered text. M1.13d puts the
+    // operator in a separate <span> between fields (not inside the
+    // result chip), so we assert against the row container which
+    // contains both the operator span and the chip.
+    await expect(page.getByTestId(`row-max-gfa-${id}`))         .toContainText('×', { timeout: 3_000 });
+    await expect(page.getByTestId(`row-surface-capacity-${id}`)).toContainText('÷', { timeout: 3_000 });
 
     // Proximity contract still holds for the key chain points.
     await assertProximate(page, `#plot-${id}-maxFAR`,         `formula-max-gfa-${id}`,        'Build Program: Max FAR -> Max GFA');
@@ -313,8 +330,12 @@ test.describe('M1.13c step-by-step verification flow (input + formula + result +
     await page.locator(`#plot-${id}-typicalCoveragePct`).fill('60');
     // Force a blur so the controlled input commits.
     await page.locator(`#plot-${id}-typicalCoveragePct`).press('Tab');
-    const totalBuiltRow = page.getByTestId(`formula-total-built-${id}`);
-    await expect(totalBuiltRow).toHaveAttribute('data-state', 'error', { timeout: 3_000 });
+    // Chip carries data-state in M1.13d; issue chip is rendered as a
+    // sibling inside the row container, so we query the row testId
+    // (row-total-built-{id}) for the issue locator.
+    const totalBuiltChip = page.getByTestId(`formula-total-built-${id}`);
+    const totalBuiltRow  = page.getByTestId(`row-total-built-${id}`);
+    await expect(totalBuiltChip).toHaveAttribute('data-state', 'error', { timeout: 3_000 });
     await expect(totalBuiltRow.locator('[data-result-issue="true"]')).toBeVisible();
     await page.screenshot({ path: resolve(SCREENSHOT_DIR, 'light-build-program-overfar.png'), fullPage: true });
 
@@ -323,11 +344,14 @@ test.describe('M1.13c step-by-step verification flow (input + formula + result +
     await page.locator(`#plot-${id}-typicalFloors`).fill('6');
     await page.locator(`#plot-${id}-typicalCoveragePct`).fill('30');
     await page.locator(`#plot-${id}-typicalCoveragePct`).press('Tab');
-    await expect(totalBuiltRow).toHaveAttribute('data-state', 'ok', { timeout: 3_000 });
+    await expect(totalBuiltChip).toHaveAttribute('data-state', 'ok', { timeout: 3_000 });
 
-    // Live recompute: edit Plot Area, Max GFA chip text changes in place.
+    // Live recompute: edit Plot Area, Max GFA chip value updates in
+    // place. M1.13d's chip carries the result number; the substituted
+    // operator string lives in the row container's operator span.
     await page.locator(`#plot-${id}-plotArea`).fill('200000');
-    await expect(page.getByTestId(`formula-max-gfa-${id}`)).toContainText('200,000 × 3', { timeout: 3_000 });
+    await expect(page.getByTestId(`formula-max-gfa-${id}`))
+      .toHaveText(/600,000/, { timeout: 3_000 }); // 200,000 × 3
 
     await page.screenshot({ path: resolve(SCREENSHOT_DIR, 'light-build-program.png'), fullPage: true });
 
