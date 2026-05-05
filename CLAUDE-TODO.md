@@ -4,6 +4,93 @@
 
 ---
 
+## Recently Completed, REFM Module 1 Phase M1.13b Inline-Layout Polish (2026-05-06, 5 commits)
+
+Closes M1.13b. Eliminates the standalone "Computed Envelope" / "Cascade Preview" / "Timeline Summary" panels added in M1.13 and re-anchors every formula caption inline directly beneath the input row that completes its formula. Reads as a continuous flow of input + formula + input + formula instead of input grid then panel of formulas at the bottom.
+
+**Per-commit shape:** 5 commits, all 3 snapshot diffs (legacy 17.5 KB, multiphase 23.0 KB, areaprogram 2.8 KB) bit-identical at every step. Pure UI restructure, no calc engine touch.
+
+| # | What changed |
+|---|--------------|
+| M1.13b/1 | Module1AreaProgram restructured into 8 ordered sections (Plot envelope, Podium, Typical tower, Floors check, Public area split, Parking surface, Parking vertical, Parking basement) with `SectionHeader` helper + `sectionGridStyle` + `formulaStackStyle` constants. FormulaCaption rows live directly under the input row that completes their driving inputs. Cascade preview panel dissolved into 8 inline FormulaCaption rows after MEP/BoH inputs. Removed legacy `calcRow` + `CascadeCell` helpers. LandParcelsBlock totals carry 3 FormulaCaption rows (parcel-formula-area, parcel-formula-value, parcel-formula-cash). |
+| M1.13b/2 | Module1Timeline gray Timeline Summary panel dissolved. 3 captions re-anchored: `timeline-formula-type` beneath Granularity toggle, `timeline-formula-end` beneath Project Start input, `timeline-formula-total-periods` beneath Project Overlap input. Removed unused `calcOutputStyle` + `labelStyle` constants. |
+| M1.13b/3 | Module1Financing Debt Summary card rolled up to clean 5-row reckoning. Inline FormulaCaption rows inside the summary card removed (they were redundant with the 3 input-side `financing-formula-*` captions retained from M1.13/5). Card label rolled back from "Debt Summary (live formulas)" to "Debt Summary". |
+| M1.13b/4 | NEW `scripts/verify-m113b.ts` (5-section verifier with 11 markers: A1-A6 panel-absence + section + new inline-formula testIds, S1-S2 Schedule re-anchor, F1-F2 Financing rollup, X1 em-dash sweep). 23 pass / 0 fail / 0 skip with dev server up. NEW `tests/e2e/m113b-formulas-inline.spec.ts` (1 spec, 14.5s). Two contracts: (1) panel absence (computed-envelope-*, cascade-preview-*, timeline-summary, "Debt Summary (live formulas)" all count == 0); (2) proximity (`assertProximate` helper using bounding-box arithmetic verifies each driving input followed by its FormulaCaption within 0..200 vertical pixels). Live recompute reassertion + 8 light/dark tab screenshots into `tests/screenshots/M1.13b/`. |
+| M1.13b/5 | Docs sweep: M1.13 + M1.13b series blocks added to CLAUDE.md, scripts table + Playwright spec table extended; m113-formulas.spec.ts + verify-m113.ts updated to track new inline-layout testIds (formula-max-gfa-{id} instead of computed-envelope-{id}) + rolled-up Debt Summary label. |
+
+**Verification at phase close (all green):**
+- `npm run type-check`: clean
+- `module1-snapshot-diff` / `multiphase-diff` / `areaprogram-diff`: all 3 baselines untouched
+- `npm run build`: clean
+- `verify-m113b.ts`: 23 pass / 0 fail / 0 skip with dev server up
+- Playwright `m113b-formulas-inline.spec.ts`: 1 passed (14.5s)
+
+**No new tables, no new API routes, no new packages, no schema changes.** UI restructure only.
+
+---
+
+## Recently Completed, REFM Module 1 Phase M1.13 Self-Explanatory Module 1 (2026-05-06, 6 commits)
+
+Closes M1.13. Makes Module 1 self-explanatory by surfacing every derived output's formula in plain English with live values next to its driving inputs. Every input edit recomputes the visible formula text inline (numbers swap in place, no layout reflow).
+
+**Per-commit shape:** 6 commits, all 3 snapshot diffs bit-identical at every step. Pure UI; no calc engine touch.
+
+| # | What changed |
+|---|--------------|
+| M1.13/1 | NEW `src/hubs/modeling/platforms/refm/components/ui/FormulaCaption.tsx` (~30 lines), reusable plain-English formula display primitive rendering `= <text>` in small italic meta-color, transparent bg, `data-formula="true"` + `data-testid` hook. Used by all 4 Module 1 tabs. |
+| M1.13/2 | Module1AreaProgram per-Plot Computed Envelope panel + per-Asset Cascade Preview panel grow live formulas via FormulaCaption (eg "Max GFA = Plot Area * Max FAR = 100,000 * 5 = 500,000 sqm"). LandParcelsBlock totals carry 3 captions for area / value / weighted cash share. |
+| M1.13/3 | Module1Timeline Schedule tab grows a Timeline Summary panel with 3 captions: model-type (Years vs Months), construction-end date math, total periods derived from construction + operations - overlap. |
+| M1.13/4 | Module1Costs grows `buildCostFormula()` helper returning a plain-English formula for the active method (Per sqm / % of base / Lump sum / Per unit). Per-cost-row Total cell renders FormulaCaption beneath the value. Grand-total tfoot caption per asset. |
+| M1.13/5 | Module1Financing grows 3 input-side captions: financing-formula-debt-equity (Debt = CapEx * LTV; Equity = CapEx - Debt), financing-formula-periodic-rate (annual % converted to per-period factor when modelType=monthly), financing-formula-repayment (term length explanation). Debt Summary card grows live FormulaCaption rows for Debt / Equity / Interest / Principal / Total. |
+| M1.13/6 | NEW `scripts/verify-m113.ts` (5-section verifier covering FormulaCaption primitive existence + per-tab formula testId coverage + em-dash absence sweep). 23 pass / 0 fail / 0 skip with dev server up. NEW `tests/e2e/m113-formulas.spec.ts` (1 consolidated spec, 13.4s) walks all 4 tabs asserting FormulaCaption testIds + live recompute (edits Plot Max FAR + Plot Area, asserts Max GFA caption text updates inline within 3s without layout reflow). 8 light/dark tab screenshots into `tests/screenshots/M1.13/`. |
+
+**Verification at phase close (all green):**
+- `npm run type-check`: clean
+- All 3 snapshot baselines untouched
+- `npm run build`: clean
+- `verify-m113.ts`: 23 pass / 0 fail / 0 skip with dev server up
+- Playwright `m113-formulas.spec.ts`: 1 passed (13.4s)
+
+**No new tables, no new API routes, no new packages, no schema changes.** UI-only addition.
+
+---
+
+## Recently Completed, REFM Module 1 Phase M1.12 Land Tab Elimination + 4-Tab Consolidation (2026-05-06, 6 commits)
+
+Closes M1.12. Dissolves the standalone Land tab entirely. m1Tabs reduces from 5 to 4 entries: 1. Schedule, 2. Build Program, 3. Dev Costs, 4. Financing. Land Parcels capture lifts upfront into ProjectWizard Step 2 (default 100k sqm @ 500 single-row seed with inline add/remove + live totals); Build Program grows a Land Parcels block at the top of the tab with the same CRUD surface plus the Setup Wizard CTA. Site Parameters Project Roads % / Project FAR / Non-Enclosed Area % no longer have a UI surface and live only on the per-Plot card under Build Program.
+
+**Per-commit shape:** 6 commits, all 3 snapshot diffs bit-identical at every step. Underlying state schema (`landParcels`, `projectFAR`, `projectRoadsPct`, `projectNonEnclosedPct`) is preserved so the calc engine signature + snapshot fixtures stay bit-identical; only the UI surface is gone.
+
+| # | What changed |
+|---|--------------|
+| M1.12/1 (`ae7fec6`) | ProjectWizard Step 2 grows a Land Parcels capture block. New `WizardDraftParcel` interface + `parcels: WizardDraftParcel[]` field on WizardDraft seeded with one row (Land 1, 100,000 sqm, 500 / sqm, 60 / 40 cash split). NEW `Step2LandParcels` component (~150 lines) with inline Parcel Name / Area / Rate / Cash % / In-Kind % grid, +Add Parcel button, remove control per row when count > 1, totals row. Step 2 validation gate extended via `step2ParcelsValid`. data-testid hooks for Playwright. `buildWizardSnapshot` maps `draft.parcels` to `LandParcel[]` and writes `snapshot.landParcels`; per-plot area derives from `totalParcelArea / draft.plotCount`. |
+| M1.12/2 (`8f99ce2`) | Build Program grows a Land Parcels block at the top of the tab. NEW `LandParcelsBlock` component renders the same 5-column table as the wizard but bound to the Zustand store via `setLand({ landParcels })`. Header row uses the FAST contrast convention via new local `parcelHeaderStyle` (navy bg) + `parcelHeaderLabelStyle` (white text, bold) constants threaded into `<InputLabel textStyle={...}>`. Help copy reuses `PARCEL_FIELD_HELP` from `lib/copy/parcelFieldHelp.ts`. ParcelSetupWizard CTA stays as a Setup wizard button on the block. |
+| M1.12/3 (`b056062`) | Land tab dissolved entirely. m1Tabs reduces from 5 to 4 entries (no 'land' key). `Module1Area` import + JSX mount removed from `RealEstatePlatform.tsx`; replaced with a docstring marker explaining the schema is preserved. ProjectFAR / Roads % / Non-Enclosed % no longer have any UI surface; the per-Plot card under Build Program is the single source of truth users edit. Auto-derive deferred to M2.0 so the calc engine signature does not change inside this phase. |
+| M1.12/4 (`4287623`) | Module 1 table-header contrast audit. `Module1Costs.tsx` grows a local `tableHeaderLabelStyle` constant (`color: var(--color-on-primary-navy); fontWeight: var(--fw-bold)`) threaded through 7 InputLabel instances inside `<th>` cells. Mirrors the new `parcelHeaderLabelStyle` introduced for Build Program in M1.12/2. Light-mode reads cleanly because the navy bg gives white text the WCAG AA contrast it needs. |
+| M1.12/5 (`2a2b3a7`) | NEW `scripts/verify-m112.ts` mirrors the M1.11 5-section template. Section 4 markers F1 (m1Tabs has 4 entries with no 'land' key), F2 (Module1Area is unmounted), F3 (numbered labels renumbered 1-4), P1-P3 (wizard parcel default seed + Step2LandParcels mounted + buildWizardSnapshot writes landParcels), B1-B2 (Build Program LandParcelsBlock mount + FAST contrast constants), C1 (Module1Costs tableHeaderLabelStyle). 21 pass / 0 fail / 0 skip with dev server up; 15 pass / 0 fail / 2 skip without dev server. NEW `tests/e2e/m112-flow.spec.ts` (2 specs, 18.7s). Spec 1: wizard Step 2 parcel CRUD (default seed, +Add Parcel, edit area / rate / split, remove, live totals). Spec 2: post-create flow asserts the 4-tab row (no Land) + Build Program parcel block is the canonical CRUD surface + 8 light/dark tab screenshots into `tests/screenshots/M1.12/`. |
+| M1.12/6 | Docs sweep: CLAUDE.md M1.12 series block, scripts table entry, Playwright spec entry, Module 1 status header extended with the M1.12 completion line. |
+
+**Verification at phase close (all green):**
+- `npm run type-check`: clean
+- All 3 snapshot baselines untouched
+- `npm run build`: clean
+- `verify-m112.ts`: 21 pass / 0 fail / 0 skip with dev server up
+- Playwright `m112-flow.spec.ts`: 2 passed (18.7s)
+
+**No new tables, no new API routes, no new packages, no schema changes.** UI consolidation only. **Module 1 ships production-ready after M1.12; next phase is M2.0 (revenue, opex, deferred calc-engine refinements).**
+
+**M1.12 deferred to M2.0 (calc engine territory, out of scope per phase brief):**
+- ProjectFAR / Roads % / Non-Enclosed % auto-derive from per-plot maxFAR + plot landscape / hardscape coverage (today calc engine reads stored project-level scalars from snapshot; M2.0 should derive via weighted average so the snapshot can drop the redundant fields entirely).
+- Migration sweep on existing user projects: snapshots written before M1.12 still carry the project-level scalars and load fine because the schema is preserved. M2.0 derive will need a one-time recompute + persist pass on live data so historical projects converge with newly created ones.
+
+---
+
+## Recently Completed, Training Hub Final Exam Gate Scope Correction (2026-05-06, 1 commit)
+
+Hot-fix `f09b337` scopes the model-submission gate to the Final Exam only. Prior to the fix, the gate fired on every assessment (including practice quizzes + live-session assessments), which was not the intended behavior. NEW helper `src/hubs/training/lib/assessment/modelGateScope.ts` exports `isFinalExamAssessment(assessmentName: string): boolean` that normalizes the input and returns `true` only when the lowercased trimmed name === `'final exam'`. All gate-check sites in the assessment flow now wrap their existing gate logic in this predicate. No DB changes, no migrations, no new API routes; pure application-layer scoping.
+
+---
+
 ## Recently Completed, REFM Module 1 Phase M1.11 Holistic Re-Audit + 22 Fixes (2026-05-05, 13 commits)
 
 Closes M1.11 and ships **Module 1 as production-ready**. Comprehensive holistic re-audit of all 5 Module 1 tabs covering 7 areas: data flow integrity (every input writes to the canonical Zustand store, no orphaned setters), UX coherence (every label resolves to a single canonical surface), ProjectTimelineVisual (4 semantic dates instead of just Start/End), Land vs Build Program redundancy (independent arrays with reconciliation row, no double-edit risk), calc correctness (snapshot-baseline regression on all 3 fixtures stays bit-identical), first-time user flow (wizard projects land setup-complete on Schedule, no 0% / Over FAR / phantom badges), regression check on M1.5b through M1.10b. Audit produced via 4 parallel Explore agents over `src/hubs/modeling/platforms/refm/`.
