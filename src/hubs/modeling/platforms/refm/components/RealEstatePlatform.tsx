@@ -34,7 +34,10 @@ import Dashboard from './Dashboard';
 import ProjectsScreen from './ProjectsScreen';
 import OverviewScreen from './OverviewScreen';
 import Module1Timeline from './modules/Module1Timeline';
-import Module1Area from './modules/Module1Area';
+// M1.12, Module1Area (the dissolved Land tab) is no longer mounted from
+// here. The file is kept on disk so historical git references resolve and
+// future inspection of the legacy layout stays possible; remove it after a
+// release of stable behaviour.
 import Module1Costs from './modules/Module1Costs';
 import Module1Financing from './modules/Module1Financing';
 import Module1Hierarchy from './modules/Module1Hierarchy';
@@ -217,10 +220,9 @@ export const sidebarModules: readonly SidebarNavItem[] = [
 // new names.
 export const m1Tabs = [
   { key: 'timeline',     icon: '📅', label: '1. Schedule',     step: 1 },
-  { key: 'area',         icon: '🗺️', label: '2. Land',          step: 2 },
-  { key: 'area-program', icon: '📐', label: '3. Build Program', step: 3 },
-  { key: 'costs',        icon: '💸', label: '4. Dev Costs',     step: 4 },
-  { key: 'financing',    icon: '🏦', label: '5. Financing',     step: 5 },
+  { key: 'area-program', icon: '📐', label: '2. Build Program', step: 2 },
+  { key: 'costs',        icon: '💸', label: '3. Dev Costs',     step: 3 },
+  { key: 'financing',    icon: '🏦', label: '4. Financing',     step: 4 },
 ];
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -1734,48 +1736,14 @@ export default function RealEstatePlatform() {
                   readOnly={readOnly}
                 />
               )}
-              {activeTab === 'area' && (
-                <Module1Area
-                  landParcels={landParcels}
-                  projectRoadsPct={projectRoadsPct} setProjectRoadsPct={setProjectRoadsPct}
-                  projectFAR={projectFAR} setProjectFAR={setProjectFAR}
-                  projectNonEnclosedPct={projectNonEnclosedPct} setProjectNonEnclosedPct={setProjectNonEnclosedPct}
-                  residentialPercent={residentialPercent}
-                  hospitalityPercent={hospitalityPercent}
-                  retailPercent={retailPercent}
-                  residentialDeductPct={residentialDeductPct}
-                  residentialEfficiency={residentialEfficiency}
-                  hospitalityDeductPct={hospitalityDeductPct}
-                  hospitalityEfficiency={hospitalityEfficiency}
-                  retailDeductPct={retailDeductPct}
-                  retailEfficiency={retailEfficiency}
-                  projectType={projectType}
-                  currency={currency}
-                  totalLandArea={totalLandArea}
-                  totalLandValue={totalLandValue}
-                  landValuePerSqm={landValuePerSqm}
-                  cashValue={cashValue}
-                  inKindValue={inKindValue}
-                  cashPercent={cashPercent}
-                  inKindPercent={inKindPercent}
-                  showResidential={showResidential}
-                  showHospitality={showHospitality}
-                  showRetail={showRetail}
-                  projectRoadsArea={projectRoadsArea}
-                  projectNDA={projectNDA}
-                  totalProjectGFA={totalProjectGFA}
-                  residentialGFA={residentialGFA}
-                  hospitalityGFA={hospitalityGFA}
-                  retailGFA={retailGFA}
-                  residentialBUA={residentialBUA}
-                  residentialNetSaleable={residentialNetSaleable}
-                  hospitalityBUA={hospitalityBUA}
-                  hospitalityNetSaleable={hospitalityNetSaleable}
-                  retailBUA={retailBUA}
-                  retailNetSaleable={retailNetSaleable}
-                  readOnly={readOnly}
-                />
-              )}
+              {/* M1.12, the Land tab is dissolved. Land Parcels live on
+                  Build Program (top section) and were captured upfront in
+                  ProjectWizard Step 2. Project-level Site Parameters
+                  (Roads % / FAR / Non-Enclosed %) stay in state for back-
+                  compat with stored projects + the cascade math, but the
+                  user no longer edits them directly: per-plot maxFAR /
+                  podiumCoverage / non-enclosed live on the Plot card under
+                  Build Program. */}
               {activeTab === 'costs' && (
                 <Module1Costs
                   projectType={projectType}
