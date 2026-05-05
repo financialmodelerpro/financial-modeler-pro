@@ -26,7 +26,7 @@ import React from 'react';
 import type { ModelType } from '@/src/core/types/project.types';
 import Module1Hierarchy from './Module1Hierarchy';
 import InputLabel from '../ui/InputLabel';
-import FormulaCaption from '../ui/FormulaCaption';
+import VerifiedResult, { type VerifiedState } from '../ui/VerifiedResult';
 import ProjectTimelineVisual from '../ui/ProjectTimelineVisual';
 
 // M1.11/M1: dead identity setters removed from props interface.
@@ -71,6 +71,20 @@ export default function Module1Timeline({
   const periodLabel = modelType === 'monthly' ? 'months' : 'years';
   const effectivePeriods = constructionPeriods + operationsPeriods - overlapPeriods;
   const endDate = getProjectEndDate();
+
+  // M1.13c, validation states for the schedule inputs.
+  // overlap exceeds either window, soft-warn (the model still runs but
+  // the user has likely mis-typed). effectivePeriods <= 0, hard-error
+  // (no operations would actually run).
+  const overlapMax = Math.min(constructionPeriods, operationsPeriods);
+  const overlapState: VerifiedState =
+    effectivePeriods <= 0 ? 'error' :
+    overlapPeriods > overlapMax ? 'warn' :
+    'ok';
+  const overlapIssue =
+    overlapState === 'error' ? `Net periods would be ${effectivePeriods}, must be ≥ 1`
+    : overlapState === 'warn' ? `Overlap exceeds Construction (${constructionPeriods}) or Operations (${operationsPeriods}) window`
+    : undefined;
 
   const rowStyle: React.CSSProperties = {
     display: 'grid',
@@ -147,15 +161,14 @@ export default function Module1Timeline({
                 </button>
               ))}
             </div>
-            {/* M1.13b: granularity formula inline beneath the toggle. */}
-            <div style={{ marginTop: 6 }}>
-              <FormulaCaption
-                testId="timeline-formula-type"
-                text={modelType === 'annual'
-                  ? '1 period = 1 year, every cashflow bucket spans 12 months'
-                  : '1 period = 1 month, every cashflow bucket spans one calendar month'}
-              />
-            </div>
+            {/* M1.13c: granularity verified step. Single-line statement
+               of what 1 period means in calendar terms. */}
+            <VerifiedResult
+              testId="timeline-formula-type"
+              formula="1 period"
+              substitution={modelType === 'annual' ? '1 year' : '1 month'}
+              result={modelType === 'annual' ? '12 months per bucket' : '1 calendar month per bucket'}
+            />
           </div>
 
           <div style={{ marginBottom: 'var(--sp-2)' }}>
@@ -170,15 +183,16 @@ export default function Module1Timeline({
               onChange={e => setProjectStart(e.target.value)}
               disabled={readOnly}
             />
-            {/* M1.13b: project end date formula inline beneath the
-               start input. End date depends on Start + Total Periods,
-               so the caption surfaces both. */}
-            <div style={{ marginTop: 6 }}>
-              <FormulaCaption
-                testId="timeline-formula-end"
-                text={`Project End = Project Start + Total Periods (${effectivePeriods} ${periodLabel}) = ${endDate}`}
-              />
-            </div>
+            {/* M1.13c: project-end verified step beneath Project Start.
+               End date depends on Start + Total Periods, both shown
+               substituted into the formula so the user can verify the
+               math without a calendar lookup. */}
+            <VerifiedResult
+              testId="timeline-formula-end"
+              formula="Project End = Project Start + Total Periods"
+              substitution={`${projectStart} + ${effectivePeriods} ${periodLabel}`}
+              result={`${endDate}`}
+            />
           </div>
 
           <div style={rowStyle}>
@@ -233,16 +247,19 @@ export default function Module1Timeline({
               early-handover units). Per-phase overlap can override
               this in the Project Structure tree below.
             </div>
-            {/* M1.13b: total-periods formula inline beneath the
-               Overlap input. Overlap is the last input that completes
-               the Total Periods formula (Construction + Operations -
-               Overlap), so the caption sits here. */}
-            <div style={{ marginTop: 6 }}>
-              <FormulaCaption
-                testId="timeline-formula-total-periods"
-                text={`Total Periods = Construction + Operations - Overlap = ${constructionPeriods} + ${operationsPeriods} - ${overlapPeriods} = ${effectivePeriods} ${periodLabel}`}
-              />
-            </div>
+            {/* M1.13c: total-periods verified step beneath Overlap.
+               Overlap is the last input that completes the Total
+               Periods formula, so the result sits here. Validation:
+               warn if overlap exceeds either window; error if net
+               periods <= 0. */}
+            <VerifiedResult
+              testId="timeline-formula-total-periods"
+              formula="Total Periods = Construction + Operations - Overlap"
+              substitution={`${constructionPeriods} + ${operationsPeriods} - ${overlapPeriods}`}
+              result={`${effectivePeriods} ${periodLabel}`}
+              state={overlapState}
+              issue={overlapIssue}
+            />
           </div>
         </div>
       </div>
