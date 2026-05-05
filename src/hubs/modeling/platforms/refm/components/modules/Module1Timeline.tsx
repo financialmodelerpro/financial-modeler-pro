@@ -59,22 +59,6 @@ const inputStyle: React.CSSProperties = {
   fontWeight: 'var(--fw-semibold)',
 };
 
-const calcOutputStyle: React.CSSProperties = {
-  background: 'var(--color-grey-pale)',
-  color: 'var(--color-heading)',
-  fontWeight: 'var(--fw-semibold)',
-};
-
-const labelStyle: React.CSSProperties = {
-  fontSize: 'var(--font-meta)',
-  fontWeight: 'var(--fw-semibold)',
-  color: 'var(--color-body)',
-  marginBottom: '5px',
-  display: 'block',
-  textTransform: 'uppercase',
-  letterSpacing: '0.05em',
-};
-
 export default function Module1Timeline({
   modelType, setModelType,
   projectStart, setProjectStart,
@@ -163,6 +147,15 @@ export default function Module1Timeline({
                 </button>
               ))}
             </div>
+            {/* M1.13b: granularity formula inline beneath the toggle. */}
+            <div style={{ marginTop: 6 }}>
+              <FormulaCaption
+                testId="timeline-formula-type"
+                text={modelType === 'annual'
+                  ? '1 period = 1 year, every cashflow bucket spans 12 months'
+                  : '1 period = 1 month, every cashflow bucket spans one calendar month'}
+              />
+            </div>
           </div>
 
           <div style={{ marginBottom: 'var(--sp-2)' }}>
@@ -177,6 +170,15 @@ export default function Module1Timeline({
               onChange={e => setProjectStart(e.target.value)}
               disabled={readOnly}
             />
+            {/* M1.13b: project end date formula inline beneath the
+               start input. End date depends on Start + Total Periods,
+               so the caption surfaces both. */}
+            <div style={{ marginTop: 6 }}>
+              <FormulaCaption
+                testId="timeline-formula-end"
+                text={`Project End = Project Start + Total Periods (${effectivePeriods} ${periodLabel}) = ${endDate}`}
+              />
+            </div>
           </div>
 
           <div style={rowStyle}>
@@ -231,53 +233,15 @@ export default function Module1Timeline({
               early-handover units). Per-phase overlap can override
               this in the Project Structure tree below.
             </div>
-          </div>
-
-          {/* Timeline summary, M1.13/3 each derived row carries an
-             inline plain-English formula so the user reads how the
-             Construction / Operations / Overlap inputs above flow into
-             Total Periods and Project End Date. */}
-          <div style={{
-            background: calcOutputStyle.background,
-            border: '1px solid var(--color-border)',
-            borderRadius: 'var(--radius-sm)',
-            padding: '12px',
-            marginTop: 'var(--sp-1)',
-          }} data-testid="timeline-summary">
-            <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-primary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>
-              Timeline Summary (live formulas)
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div>
-                <div style={{ fontSize: '10px', color: 'var(--color-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Start</div>
-                <div style={{ fontSize: 'var(--font-body)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)' }}>{projectStart}</div>
-              </div>
-              <div>
-                <div style={{ fontSize: '10px', color: 'var(--color-muted)', fontWeight: 600, textTransform: 'uppercase' }}>End</div>
-                <div style={{ fontSize: 'var(--font-body)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)' }}>{endDate}</div>
-                <FormulaCaption
-                  testId="timeline-formula-end"
-                  text={`Project Start + Total Periods (${effectivePeriods} ${periodLabel}) = ${endDate}`}
-                />
-              </div>
-              <div>
-                <div style={{ fontSize: '10px', color: 'var(--color-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Total Periods</div>
-                <div style={{ fontSize: 'var(--font-body)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)' }}>{effectivePeriods} {periodLabel}</div>
-                <FormulaCaption
-                  testId="timeline-formula-total-periods"
-                  text={`Construction + Operations - Overlap = ${constructionPeriods} + ${operationsPeriods} - ${overlapPeriods} = ${effectivePeriods} ${periodLabel}`}
-                />
-              </div>
-              <div>
-                <div style={{ fontSize: '10px', color: 'var(--color-muted)', fontWeight: 600, textTransform: 'uppercase' }}>Type</div>
-                <div style={{ fontSize: 'var(--font-body)', fontWeight: 'var(--fw-semibold)', color: 'var(--color-heading)' }}>{modelType === 'annual' ? 'Annual model' : 'Monthly model'}</div>
-                <FormulaCaption
-                  testId="timeline-formula-type"
-                  text={modelType === 'annual'
-                    ? '1 period = 1 year, every cashflow bucket spans 12 months'
-                    : '1 period = 1 month, every cashflow bucket spans one calendar month'}
-                />
-              </div>
+            {/* M1.13b: total-periods formula inline beneath the
+               Overlap input. Overlap is the last input that completes
+               the Total Periods formula (Construction + Operations -
+               Overlap), so the caption sits here. */}
+            <div style={{ marginTop: 6 }}>
+              <FormulaCaption
+                testId="timeline-formula-total-periods"
+                text={`Total Periods = Construction + Operations - Overlap = ${constructionPeriods} + ${operationsPeriods} - ${overlapPeriods} = ${effectivePeriods} ${periodLabel}`}
+              />
             </div>
           </div>
         </div>
