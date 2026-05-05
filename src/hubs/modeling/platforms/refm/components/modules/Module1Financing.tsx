@@ -6,7 +6,7 @@ import type {
 } from '@/src/core/types/project.types';
 import type { FinancingResult } from '@/src/core/types/project.types';
 import InputLabel from '../ui/InputLabel';
-import FormulaCaption from '../ui/FormulaCaption';
+import VerifiedResult, { type VerifiedState } from '../ui/VerifiedResult';
 import { formatCurrency, formatNumber, formatPercent } from '@/src/core/formatters';
 import { ASSET_COLOR, ASSET_BG, ASSET_LABEL, PHASE_COLOR, SCHEDULE_TITLE_BG, KPI_ACCENT } from '@/src/styles/tokens';
 
@@ -878,12 +878,31 @@ export default function Module1Financing({
               <span style={{ fontSize: '10px', color: 'var(--color-negative)', fontWeight: 700 }}>Debt {globalDebtPct}%</span>
               <span style={{ fontSize: '10px', color: 'var(--color-green-dark)', fontWeight: 700 }}>Equity {equityPct}%</span>
             </div>
-            {/* M1.13/5: live LTV formula. Shows how Debt and Equity
-               numbers above derive from CapEx + LTV%. */}
-            <FormulaCaption
-              testId="financing-formula-debt-equity"
-              text={`Debt = LTV * Total CapEx = ${globalDebtPct}% * ${formatNumber(totalCapex)} = ${formatNumber(totalDebt)} ${currency}; Equity = (100% - LTV) * Total CapEx = ${equityPct}% * ${formatNumber(totalCapex)} = ${formatNumber(totalEquity)} ${currency}`}
-            />
+            {/* M1.13c: live LTV verification steps. Two stacked
+               VerifiedResults (Debt and Equity) so each derivation is
+               independently verifiable. State warns when LTV is at
+               the extremes (0% = all-equity sanity flag; 100% =
+               all-debt, lender will not actually fund this). */}
+            {(() => {
+              const ltvState: VerifiedState =
+                globalDebtPct >= 100 ? 'error'
+                : globalDebtPct === 0 ? 'warn'
+                : 'ok';
+              const ltvIssue =
+                globalDebtPct >= 100 ? 'LTV ≥ 100%, no equity required (unrealistic)'
+                : globalDebtPct === 0 ? 'LTV = 0%, all-equity capital stack'
+                : undefined;
+              return (
+                <VerifiedResult
+                  testId="financing-formula-debt-equity"
+                  formula="Debt = LTV × Total CapEx;  Equity = (100% - LTV) × Total CapEx"
+                  substitution={`Debt: ${globalDebtPct}% × ${formatNumber(totalCapex)};  Equity: ${equityPct}% × ${formatNumber(totalCapex)}`}
+                  result={`Debt ${formatNumber(totalDebt)} ${currency}, Equity ${formatNumber(totalEquity)} ${currency}`}
+                  state={ltvState}
+                  issue={ltvIssue}
+                />
+              );
+            })()}
           </div>
 
           <div style={{ marginBottom: 'var(--sp-2)' }}>
@@ -899,17 +918,23 @@ export default function Module1Financing({
               onChange={e => setInterestRate(Number(e.target.value))}
               disabled={readOnly}
             />
-            {/* M1.13/5: live periodic-rate formula. Shows the conversion
-               from annual nominal to the per-period rate the debt
-               schedule actually uses. */}
+            {/* M1.13c: periodic-rate verification step. Shows the
+               conversion from annual nominal to the per-period rate
+               the debt schedule actually uses. */}
             {(() => {
               const periodicRate = (interestRate / 100) / (modelType === 'monthly' ? 12 : 1);
               return (
-                <FormulaCaption
+                <VerifiedResult
                   testId="financing-formula-periodic-rate"
-                  text={modelType === 'monthly'
-                    ? `Periodic Rate = Annual Rate / 12 = ${interestRate}% / 12 = ${(periodicRate * 100).toFixed(4)}% per month, applied to Opening Debt Balance each period`
-                    : `Periodic Rate = Annual Rate = ${interestRate}% per year, applied to Opening Debt Balance each period`}
+                  formula={modelType === 'monthly'
+                    ? 'Periodic Rate = Annual Rate ÷ 12'
+                    : 'Periodic Rate = Annual Rate'}
+                  substitution={modelType === 'monthly'
+                    ? `${interestRate}% ÷ 12`
+                    : `${interestRate}%`}
+                  result={modelType === 'monthly'
+                    ? `${(periodicRate * 100).toFixed(4)}% per month`
+                    : `${interestRate}% per year`}
                 />
               );
             })()}
@@ -980,21 +1005,35 @@ export default function Module1Financing({
             <div style={{ fontSize: '11px', color: 'var(--color-muted)', marginTop: '4px' }}>
               Max: {operationsPeriods} {periodLabel} (operations period)
             </div>
-            {/* M1.13/5: live repayment formula. Fixed method spreads
+            {/* M1.13c: repayment verification step. Fixed method spreads
                principal evenly across the repayment window; cash sweep
-               is currently a placeholder pending Module 5. */}
+               is currently a placeholder pending Module 5.
+               State warns when repayment > operations window (math
+               clamps to ops window so user is repaying faster than
+               quoted; informational, not an error). */}
             {(() => {
               const repWindow = Math.min(repaymentPeriods, operationsPeriods);
               const principalPerPeriod = repWindow > 0 ? totalDebt / repWindow : 0;
+              const clamped = repaymentPeriods > operationsPeriods;
+              const repState: VerifiedState = clamped ? 'warn' : 'ok';
+              const repIssue = clamped
+                ? `Repayment Periods (${repaymentPeriods}) exceeds Operations window (${operationsPeriods}), clamped to ${operationsPeriods}`
+                : undefined;
               return repaymentMethod === 'fixed' ? (
-                <FormulaCaption
+                <VerifiedResult
                   testId="financing-formula-repayment"
-                  text={`Principal per Period = Total Debt / Repayment Periods = ${formatNumber(totalDebt)} / ${repWindow} = ${formatNumber(principalPerPeriod)} ${currency} per ${periodLabel}, starting after construction (${constructionPeriods} ${periodLabel} grace)`}
+                  formula="Principal per Period = Total Debt ÷ Repayment Periods"
+                  substitution={`${formatNumber(totalDebt)} ÷ ${repWindow}`}
+                  result={`${formatNumber(principalPerPeriod)} ${currency} per ${periodLabel} (after ${constructionPeriods} ${periodLabel} grace)`}
+                  state={repState}
+                  issue={repIssue}
                 />
               ) : (
-                <FormulaCaption
+                <VerifiedResult
                   testId="financing-formula-repayment"
-                  text={`Cash Sweep: principal repays as fast as cashflow allows. Currently shown as a fixed straight-line placeholder pending Module 5.`}
+                  formula="Principal per Period (Cash Sweep)"
+                  substitution="placeholder pending Module 5"
+                  result={`fixed straight-line stand-in: ${formatNumber(principalPerPeriod)} ${currency} per ${periodLabel}`}
                 />
               );
             })()}
