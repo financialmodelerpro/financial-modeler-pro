@@ -232,8 +232,9 @@ npx tsx --env-file=.env.local scripts/verify-m19b.ts  # M1.9b polish (19 pass / 
 npx tsx --env-file=.env.local scripts/verify-m110.ts  # M1.10 setup-completeness (25 pass / 0 fail / 1 skip with dev server)
 npx tsx --env-file=.env.local scripts/verify-m110b.ts # M1.10b Plot Setup polish (18 pass / 0 fail / 0 skip with dev server)
 npx tsx --env-file=.env.local scripts/verify-m111.ts  # M1.11 holistic audit + fix pass (23 pass / 0 fail / 1 skip without dev server)
+npx tsx --env-file=.env.local scripts/verify-m112.ts  # M1.12 Land tab elimination + 4-tab consolidation (15 pass / 0 fail / 2 skip without dev server; 21 pass / 0 fail / 0 skip with dev server)
 
-# Playwright e2e specs (M1.8 + M1.9 + M1.9b + M1.10 + M1.10b + M1.11 regression-guards)
+# Playwright e2e specs (M1.8 + M1.9 + M1.9b + M1.10 + M1.10b + M1.11 + M1.12 regression-guards)
 npx playwright test tests/e2e/m18-wizard-repro.spec.ts     # 1 spec, wizard create does not crash
 npx playwright test tests/e2e/m18-wizard-flow.spec.ts      # 2 specs, every tab shows wizard data + reload persists
 npx playwright test tests/e2e/m19-redesign-flow.spec.ts    # 2 specs, wizard lands on Schedule tab + numbered tab row + light/dark screenshots
@@ -241,6 +242,7 @@ npx playwright test tests/e2e/m19b-redesign-flow.spec.ts   # 2 specs, Hierarchy 
 npx playwright test tests/e2e/m110-flow.spec.ts            # 3 specs, Mixed-Use wizard lands clean (no 0% / no Over FAR / reconciliation row) + Plot wizard + Parcel wizard walkthroughs + screenshots
 npx playwright test tests/e2e/m110b-flow.spec.ts           # 2 specs, Plot Setup Wizard portal-centers in viewport + tooltip a11y (focus reveal, Esc dismiss) + 15-field inline form + light/dark tooltip screenshots
 npx playwright test tests/e2e/m111-full-flow.spec.ts       # 2 specs, ProjectWizard portal regression guard + full first-time flow walking 5 tabs with M1.11 fix markers + 10 light/dark tab screenshots
+npx playwright test tests/e2e/m112-flow.spec.ts            # 2 specs, wizard Step 2 parcel CRUD + post-create 4-tab row (no Land) with parcel block on Build Program + 8 light/dark tab screenshots
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -258,7 +260,7 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 **Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
 (`npx playwright install chromium`).
 
-### Module 1 status (2026-05-06)
+### Module 1 status (2026-05-06, M1.12 closes the Land tab)
 **All sub-phases shipped:** M1.R (cost engine + Zustand restoration) → M1.5 (multi-asset
 + multi-phase + storage v3 bump) → M1.5b (UX polish + Quick Setup wizard inside Hierarchy)
 → M1.6 (Supabase persistence + version history) → M1.7 (Area Program tab + plots / zones
@@ -273,15 +275,24 @@ category-sum allocation derivation, wizard Step 2 fits 1080p, Land vs Plot recon
 row, modal-step Plot + Parcel setup wizards) → M1.10b (Plot Setup polish: Plot+Parcel
 wizards portal to document.body + center in viewport, inline Plot form reconciled with
 the wizard at 15 writable fields, accessible InputLabel + ⓘ tooltip primitive with
-plain-English help wired into every input across all 5 Module 1 tabs) → **M1.11**
+plain-English help wired into every input across all 5 Module 1 tabs) → M1.11
 (holistic re-audit + 22 coordinated fixes: ProjectWizard portal mount, semantic Project
 Timeline Visual with multi-phase awareness, dead setters removed from Module1Area +
 Module1Timeline, asset Strategy + Zone tooltips on Build Program, parcel state-path
 unified to Zustand setLand, shared parcelFieldHelp + assetStrategyHelp modules, Dev
 Costs phase-scope explainer + cost row tooltips, Financing per-line Debt % tooltip,
-em-dash sweep across the whole repo with new writing rule prohibiting reintroduction).
-**Module 1 ships production-ready after M1.11; next phase is M2.0 (revenue, opex,
-deferred calc-engine refinements).**
+em-dash sweep across the whole repo with new writing rule prohibiting reintroduction)
+→ **M1.12** (Land tab dissolved + tab consolidation 5→4: Land Parcels capture moved
+upfront into ProjectWizard Step 2 with default 100k @ 500 single-row seed and inline
+add/remove + live totals; Build Program grows a Land Parcels block at the top of the
+tab with the same CRUD surface plus the Setup Wizard CTA; Site Parameters Project
+Roads % / Project FAR / Non-Enclosed Area % no longer have a UI surface and live only
+on the per-Plot card under Build Program; Module 1 table headers gain the FAST
+contrast convention via tableHeaderLabelStyle / parcelHeaderLabelStyle (white-on-navy
+InputLabel) so column titles stay legible in light + dark mode). **Module 1 ships
+production-ready after M1.12; next phase is M2.0 (revenue, opex, deferred calc-engine
+refinements including the per-plot derive of project-level FAR / Roads / NEA still
+read by calculateAreaHierarchy from stored snapshot fields).**
 
 **M1.10 setup-completeness series (8 commits, 2026-05-05 → 2026-05-06, all snapshot diffs bit-identical):**
 - `d295dc8` 2/8: tune plot defaults so fresh plots stay inside FAR ceiling.
@@ -487,6 +498,95 @@ deferred calc-engine refinements).**
 - (this commit) 12/12 (docs sweep): CLAUDE.md M1.11 closure note, scripts
   table entry, Playwright spec entry, Module 1 status header extended
   with the M1.11 completion line.
+
+**M1.12 Land tab elimination + 4-tab consolidation (6 commits, 2026-05-06,
+all snapshot diffs bit-identical):**
+- `ae7fec6` 1/6 (wizard): ProjectWizard Step 2 grows a Land Parcels
+  capture block. New `WizardDraftParcel` interface + `parcels:
+  WizardDraftParcel[]` field on WizardDraft seeded with one row
+  (`Land 1`, 100,000 sqm, 500 / sqm, 60 / 40 cash split). New
+  `Step2LandParcels` component (~150 lines) renders an inline grid
+  with Parcel Name + Area + Rate + Cash % + In-Kind % columns, a
+  `+ Add Parcel` button, a remove control per row when count > 1, and
+  a totals row showing total area / total value / weighted cash share.
+  Step 2 validation gate extended via `step2ParcelsValid` (every
+  parcel has area > 0, rate > 0, cashPct + inKindPct sum to 100 within
+  tolerance). data-testid markers (`wizard-parcels-section`,
+  `wizard-add-parcel`, `wizard-parcel-row-{id}`,
+  `wizard-parcel-{id}-{field}`, `wizard-parcels-totals`) wired for
+  Playwright. `buildWizardSnapshot` maps `draft.parcels` to
+  `LandParcel[]` and writes `snapshot.landParcels`; per-plot area
+  derives from `totalParcelArea / draft.plotCount` so the wizard
+  preserves the Plot vs Parcel split established in M1.10.
+- `8f99ce2` 2/6 (Build Program): Land Parcels block lifts to the top
+  of the Build Program tab as a full-CRUD section above the
+  reconciliation row. New `LandParcelsBlock` component renders the
+  same 5-column table as the wizard but bound to the Zustand store
+  via `setLand({ landParcels })`. Header row uses the FAST contrast
+  convention via new local `parcelHeaderStyle` (navy bg) +
+  `parcelHeaderLabelStyle` (white text, bold) constants threaded into
+  `<InputLabel textStyle={...}>`. Help copy reuses `PARCEL_FIELD_HELP`
+  from `lib/copy/parcelFieldHelp.ts` (M1.11/3) so Wizard, Build
+  Program, and `ParcelSetupWizard` share one source of truth.
+  ParcelSetupWizard CTA stays as a "🪄 Setup wizard" button on the
+  block.
+- `b056062` 3/6 (tab consolidation): Land tab dissolved entirely.
+  `m1Tabs` reduces from 5 to 4 entries: 1. Schedule, 2. Build Program,
+  3. Dev Costs, 4. Financing. `Module1Area` import + JSX mount removed
+  from `RealEstatePlatform.tsx`; replaced with a docstring marker
+  explaining that the underlying state schema (`landParcels`,
+  `projectFAR`, `projectRoadsPct`, `projectNonEnclosedPct`) is
+  preserved so calc engine signatures + snapshot fixtures stay
+  bit-identical; only the UI surface is gone. Existing snapshots
+  load through `module1-migrate.ts` unchanged. ProjectFAR / Roads % /
+  Non-Enclosed % no longer have any UI surface in M1.12; the per-Plot
+  card under Build Program is the single source of truth users edit.
+  Auto-derive (weighted average from per-plot maxFAR + plot
+  landscape / hardscape coverage) deferred to M2.0 so the calc
+  engine signature does not change inside this phase.
+- `4287623` 4/6 (FAST contrast): Module 1 table-header contrast audit.
+  `Module1Costs.tsx` grows a local `tableHeaderLabelStyle` constant
+  (`color: var(--color-on-primary-navy); fontWeight: var(--fw-bold)`)
+  threaded through 7 InputLabel instances inside `<th>` cells (Cost
+  Name, Stage / Scope, Method / Base, Input Value, Start, End,
+  Phasing). Mirrors the new `parcelHeaderLabelStyle` introduced for
+  Build Program in M1.12/2. Light-mode reads cleanly because the
+  navy bg gives white text the WCAG AA contrast it needs; dark mode
+  unchanged because the convention was already partly in place
+  pre-audit.
+- `2a2b3a7` 5/6 (verifier + Playwright): scripts/verify-m112.ts
+  mirrors the M1.11 5-section template (DB / routes / calc / state /
+  UI). Section 4 markers F1 (m1Tabs has 4 entries with no `'land'`
+  key), F2 (Module1Area is unmounted from RealEstatePlatform), F3
+  (numbered labels renumbered 1→4), P1 (wizard parcel default seed),
+  P2 (Step2LandParcels mounted in ProjectWizard), P3
+  (buildWizardSnapshot writes landParcels), B1 (Build Program
+  LandParcelsBlock mount), B2 (FAST contrast constants present),
+  C1 (Module1Costs tableHeaderLabelStyle present). Result: 21 pass /
+  0 fail / 0 skip with dev server up; 15 pass / 0 fail / 2 skip
+  without dev server. tests/e2e/m112-flow.spec.ts has 2 specs:
+  (1) wizard Step 2 parcel CRUD (default seed, +Add Parcel, edit
+  area / rate / split, remove, live totals), (2) post-create flow
+  asserts the 4-tab row (no Land tab) + Build Program parcel block
+  is the canonical CRUD surface + 8 light/dark tab screenshots into
+  tests/screenshots/M1.12/. Both pass locally (18.7s).
+- (this commit) 6/6 (docs sweep): CLAUDE.md M1.12 series block,
+  scripts table entry, Playwright spec entry, Module 1 status header
+  extended with the M1.12 completion line.
+
+**M1.12 deferred to M2.0 (calc engine territory, out of scope per
+phase brief):**
+- ProjectFAR / Roads % / Non-Enclosed % auto-derive: today the calc
+  engine reads stored project-level scalars from the snapshot. Plot
+  cards are the only UI surface that edit per-plot maxFAR + landscape
+  / hardscape coverage. M2.0 should derive the project-level scalars
+  via weighted average so the snapshot can drop the redundant fields
+  entirely.
+- Migration sweep on existing user projects: snapshots written before
+  M1.12 still carry the project-level scalars and load fine because
+  the schema is preserved. M2.0 derive will need a one-time recompute
+  + persist pass on live data so historical projects converge with
+  newly created ones.
 
 **M1.11 deferred to M2.0 (calc engine territory, out of scope per audit):**
 - `getSameForAllFactor` division-by-zero guard when all assets are hidden
