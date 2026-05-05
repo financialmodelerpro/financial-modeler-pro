@@ -5,6 +5,7 @@ import type { CostItem, CostInputMode, ProjectType, AreaMetrics } from '@/src/co
 import { formatNumber, formatCurrency } from '@/src/core/formatters';
 import { STAGE_COLOR, STAGE_BG_RGBA, PHASE_COLOR, ASSET_COLOR, KPI_ACCENT } from '@/src/styles/tokens';
 import InputLabel from '../ui/InputLabel';
+import FormulaCaption from '../ui/FormulaCaption';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -121,6 +122,45 @@ function buildMethodHint(method: string, areas: AreaMetrics, currency: string): 
     case 'percent_cash_land':     return `× ${currency} ${formatNumber(areas.cashLandValue)} (Cash Land)`;
     case 'percent_inkind_land':   return `× ${currency} ${formatNumber(areas.inKindLandValue)} (In-Kind Land)`;
     default: return '';
+  }
+}
+
+// M1.13/4: builds a plain-English formula string for the cost row total.
+// Reads the active method, the input value, and the resolved area /
+// land-value base, returns "<input> * <base> = <result> currency" so the
+// reader can trace every Total back to its inputs without a calculator.
+function buildCostFormula(
+  cost: CostItem,
+  method: string,
+  total: number,
+  areas: AreaMetrics,
+  currency: string,
+  selectedSum: number,
+): string {
+  const v = cost.value;
+  switch (method) {
+    case 'fixed':
+      return `Fixed Amount = ${formatNumber(total)} ${currency}`;
+    case 'rate_total_allocated':
+      return `Rate * Total Land = ${formatNumber(v)} * ${formatNumber(areas.totalAllocated)} = ${formatNumber(total)} ${currency}`;
+    case 'rate_net_developable':
+      return `Rate * NDA = ${formatNumber(v)} * ${formatNumber(areas.netDevelopable)} = ${formatNumber(total)} ${currency}`;
+    case 'rate_roads':
+      return `Rate * Roads = ${formatNumber(v)} * ${formatNumber(areas.roadsArea)} = ${formatNumber(total)} ${currency}`;
+    case 'rate_gfa':
+      return `Rate * GFA = ${formatNumber(v)} * ${formatNumber(areas.gfa)} = ${formatNumber(total)} ${currency}`;
+    case 'rate_bua':
+      return `Rate * BUA = ${formatNumber(v)} * ${formatNumber(areas.bua)} = ${formatNumber(total)} ${currency}`;
+    case 'percent_base':
+      return `${v}% of Selected Costs (${formatNumber(selectedSum)} ${currency}) = ${formatNumber(total)} ${currency}`;
+    case 'percent_total_land':
+      return `${v}% of Total Land Value (${formatNumber(areas.landValue)} ${currency}) = ${formatNumber(total)} ${currency}`;
+    case 'percent_cash_land':
+      return `${v}% of Cash Land Value (${formatNumber(areas.cashLandValue)} ${currency}) = ${formatNumber(total)} ${currency}`;
+    case 'percent_inkind_land':
+      return `${v}% of In-Kind Land Value (${formatNumber(areas.inKindLandValue)} ${currency}) = ${formatNumber(total)} ${currency}`;
+    default:
+      return `Total = ${formatNumber(total)} ${currency}`;
   }
 }
 
@@ -363,9 +403,21 @@ function CostTable({
             />
           </td>
 
-          {/* Total */}
+          {/* Total, M1.13/4 inline plain-English formula caption shows
+             how the active method, value, and base resolve into the
+             total. Substituted-with-current-values so the reader sees
+             the math live. */}
           <td style={{ fontWeight: 600, color: 'var(--color-heading)', textAlign: 'right', minWidth: 100 }}>
-            {formatNumber(total)}
+            <div>{formatNumber(total)}</div>
+            {(() => {
+              const selectedSum = (cost.selectedIds || []).reduce((s, id) => {
+                const other = costs.find(c => c.id === id);
+                if (!other) return s;
+                return s + (isSameForAll ? calcSameForAllDisplayTotal(other) : calculateItemTotal(other, assetType, costs));
+              }, 0);
+              const formula = buildCostFormula(cost, cost.method, total, areas, currency, selectedSum);
+              return <FormulaCaption testId={`cost-formula-${cost.id}`} text={formula} style={{ textAlign: 'right' }} />;
+            })()}
           </td>
 
           {/* Start */}
@@ -664,7 +716,14 @@ function CostTable({
           <tfoot>
             <tr>
               <td colSpan={4} style={{ fontWeight: 700 }}>TOTAL DEVELOPMENT COSTS</td>
-              <td style={{ fontWeight: 700, textAlign: 'right' }}>{formatCurrency(grandTotal, currency)}</td>
+              <td style={{ fontWeight: 700, textAlign: 'right' }}>
+                <div>{formatCurrency(grandTotal, currency)}</div>
+                <FormulaCaption
+                  testId={`cost-grand-total-formula-${assetType}`}
+                  text={`Sum of every Stage 1 + Stage 2 + Stage 3 line above + locked Land rows = ${formatNumber(grandTotal)} ${currency}`}
+                  style={{ textAlign: 'right' }}
+                />
+              </td>
               <td colSpan={!readOnly ? 4 : 3} />
             </tr>
           </tfoot>
