@@ -6,6 +6,7 @@ import type {
 } from '@/src/core/types/project.types';
 import type { FinancingResult } from '@/src/core/types/project.types';
 import InputLabel from '../ui/InputLabel';
+import FormulaCaption from '../ui/FormulaCaption';
 import { formatCurrency, formatNumber, formatPercent } from '@/src/core/formatters';
 import { ASSET_COLOR, ASSET_BG, ASSET_LABEL, PHASE_COLOR, SCHEDULE_TITLE_BG, KPI_ACCENT } from '@/src/styles/tokens';
 
@@ -877,6 +878,12 @@ export default function Module1Financing({
               <span style={{ fontSize: '10px', color: 'var(--color-negative)', fontWeight: 700 }}>Debt {globalDebtPct}%</span>
               <span style={{ fontSize: '10px', color: 'var(--color-green-dark)', fontWeight: 700 }}>Equity {equityPct}%</span>
             </div>
+            {/* M1.13/5: live LTV formula. Shows how Debt and Equity
+               numbers above derive from CapEx + LTV%. */}
+            <FormulaCaption
+              testId="financing-formula-debt-equity"
+              text={`Debt = LTV * Total CapEx = ${globalDebtPct}% * ${formatNumber(totalCapex)} = ${formatNumber(totalDebt)} ${currency}; Equity = (100% - LTV) * Total CapEx = ${equityPct}% * ${formatNumber(totalCapex)} = ${formatNumber(totalEquity)} ${currency}`}
+            />
           </div>
 
           <div style={{ marginBottom: 'var(--sp-2)' }}>
@@ -892,6 +899,20 @@ export default function Module1Financing({
               onChange={e => setInterestRate(Number(e.target.value))}
               disabled={readOnly}
             />
+            {/* M1.13/5: live periodic-rate formula. Shows the conversion
+               from annual nominal to the per-period rate the debt
+               schedule actually uses. */}
+            {(() => {
+              const periodicRate = (interestRate / 100) / (modelType === 'monthly' ? 12 : 1);
+              return (
+                <FormulaCaption
+                  testId="financing-formula-periodic-rate"
+                  text={modelType === 'monthly'
+                    ? `Periodic Rate = Annual Rate / 12 = ${interestRate}% / 12 = ${(periodicRate * 100).toFixed(4)}% per month, applied to Opening Debt Balance each period`
+                    : `Periodic Rate = Annual Rate = ${interestRate}% per year, applied to Opening Debt Balance each period`}
+                />
+              );
+            })()}
           </div>
 
           <div style={{ marginBottom: 'var(--sp-2)', display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -959,28 +980,71 @@ export default function Module1Financing({
             <div style={{ fontSize: '11px', color: 'var(--color-muted)', marginTop: '4px' }}>
               Max: {operationsPeriods} {periodLabel} (operations period)
             </div>
+            {/* M1.13/5: live repayment formula. Fixed method spreads
+               principal evenly across the repayment window; cash sweep
+               is currently a placeholder pending Module 5. */}
+            {(() => {
+              const repWindow = Math.min(repaymentPeriods, operationsPeriods);
+              const principalPerPeriod = repWindow > 0 ? totalDebt / repWindow : 0;
+              return repaymentMethod === 'fixed' ? (
+                <FormulaCaption
+                  testId="financing-formula-repayment"
+                  text={`Principal per Period = Total Debt / Repayment Periods = ${formatNumber(totalDebt)} / ${repWindow} = ${formatNumber(principalPerPeriod)} ${currency} per ${periodLabel}, starting after construction (${constructionPeriods} ${periodLabel} grace)`}
+                />
+              ) : (
+                <FormulaCaption
+                  testId="financing-formula-repayment"
+                  text={`Cash Sweep: principal repays as fast as cashflow allows. Currently shown as a fixed straight-line placeholder pending Module 5.`}
+                />
+              );
+            })()}
           </div>
 
-          {/* Summary box */}
+          {/* Debt Summary, M1.13/5 each row paired with the plain-English
+             formula that produced it so the user reads the math in
+             place. */}
           <div style={{
             background: 'color-mix(in srgb, var(--color-primary) 4%, transparent)',
             border: '1px solid color-mix(in srgb, var(--color-primary) 12%, transparent)',
             borderRadius: 'var(--radius-sm)',
             padding: '12px',
-          }}>
+          }} data-testid="financing-debt-summary">
             <div style={{ fontSize: '11px', fontWeight: 700, color: 'var(--color-primary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '8px' }}>
-              Debt Summary
+              Debt Summary (live formulas)
             </div>
             {[
-              { label: 'Total CapEx',                   value: formatCurrency(totalCapex, currency) },
-              { label: `Debt (${globalDebtPct}%)`,      value: formatCurrency(totalDebt, currency) },
-              { label: `Equity (${equityPct}%)`,        value: formatCurrency(totalEquity, currency) },
-              { label: 'Estimated Interest',            value: formatCurrency(totalInterestAll, currency) },
-              { label: 'All-in Cost of Debt',           value: formatCurrency(totalDebt + totalInterestAll, currency) },
+              {
+                label: 'Total CapEx',
+                value: formatCurrency(totalCapex, currency),
+                formula: `Sum of every Dev Costs line across all assets = ${formatNumber(totalCapex)} ${currency}`,
+              },
+              {
+                label: `Debt (${globalDebtPct}%)`,
+                value: formatCurrency(totalDebt, currency),
+                formula: `LTV * Total CapEx = ${globalDebtPct}% * ${formatNumber(totalCapex)} = ${formatNumber(totalDebt)} ${currency}`,
+              },
+              {
+                label: `Equity (${equityPct}%)`,
+                value: formatCurrency(totalEquity, currency),
+                formula: `(100% - LTV) * Total CapEx = ${equityPct}% * ${formatNumber(totalCapex)} = ${formatNumber(totalEquity)} ${currency}`,
+              },
+              {
+                label: 'Estimated Interest',
+                value: formatCurrency(totalInterestAll, currency),
+                formula: `Sum of per-period (Opening Debt Balance * Periodic Rate) across all assets = ${formatNumber(totalInterestAll)} ${currency}`,
+              },
+              {
+                label: 'All-in Cost of Debt',
+                value: formatCurrency(totalDebt + totalInterestAll, currency),
+                formula: `Total Debt + Estimated Interest = ${formatNumber(totalDebt)} + ${formatNumber(totalInterestAll)} = ${formatNumber(totalDebt + totalInterestAll)} ${currency}`,
+              },
             ].map(row => (
-              <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                <span style={{ fontSize: '12px', color: 'var(--color-meta)' }}>{row.label}</span>
-                <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-heading)' }}>{row.value}</span>
+              <div key={row.label} style={{ marginBottom: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--color-meta)' }}>{row.label}</span>
+                  <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--color-heading)' }}>{row.value}</span>
+                </div>
+                <FormulaCaption text={row.formula} />
               </div>
             ))}
           </div>
