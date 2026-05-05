@@ -1,13 +1,18 @@
 'use client';
 
 /**
- * ProjectModal.tsx (v5 schema, M2.0 stub)
+ * ProjectModal.tsx (M2.0b restored brand-styled project picker)
  *
- * Quick-pick modal for opening an existing project from the topbar.
- * Full edit / rename / delete flows live in ProjectsScreen.
+ * Phase M2.0b (2026-05-06): brings back the FMP brand modal chrome
+ * (pm-modal-overlay + pm-modal), navy-gradient header + close
+ * button + search + per-project list with active highlight.
+ *
+ * Adapted to v5: still a project picker (the create/edit flow lives
+ * in ProjectWizard + ProjectsScreen). Renders via createPortal to
+ * document.body so the overlay clears any ancestor stacking-context.
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { StorageShape } from '../RealEstatePlatform';
 
@@ -24,70 +29,154 @@ export default function ProjectModal({
   storage,
   onSelectProject,
 }: ProjectModalProps): React.JSX.Element | null {
+  const [search, setSearch] = useState('');
+
   if (!open) return null;
   if (typeof document === 'undefined') return null;
+
   const projects = Object.entries(storage.projects);
+  const filtered = projects.filter(([, p]) => {
+    if (!search) return true;
+    const q = search.toLowerCase();
+    return p.name.toLowerCase().includes(q) || (p.location ?? '').toLowerCase().includes(q);
+  });
+
   const content = (
-    <div
-      role="dialog"
-      aria-modal="true"
-      data-testid="project-modal"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        background: 'rgba(0,0,0,0.5)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 9999,
-      }}
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          background: 'var(--color-bg)',
-          borderRadius: 'var(--radius)',
-          padding: 'var(--sp-3)',
-          maxWidth: 600,
-          width: '90vw',
-          maxHeight: '80vh',
-          overflow: 'auto',
-        }}
-      >
-        <h3 style={{ marginTop: 0 }}>Open Project</h3>
-        {projects.length === 0 && <div style={{ color: 'var(--color-meta)' }}>No projects yet.</div>}
-        {projects.map(([id, p]) => (
+    <div className="pm-modal-overlay" onClick={onClose} data-testid="project-modal">
+      <div className="pm-modal" onClick={(e) => e.stopPropagation()}>
+        <div className="pm-modal-header">
+          <div>
+            <div style={{ fontSize: '15px', fontWeight: 700 }}>🏗️ Open Project</div>
+            <div
+              style={{
+                fontSize: '11px',
+                color: 'color-mix(in srgb, var(--color-on-primary-navy) 50%, transparent)',
+                marginTop: '2px',
+              }}
+            >
+              Select a project to open, or create a new one from the dashboard
+            </div>
+          </div>
           <button
-            key={id}
-            type="button"
-            onClick={() => {
-              onSelectProject(id);
-              onClose();
-            }}
-            data-testid={`project-modal-${id}`}
+            onClick={onClose}
+            data-testid="project-modal-close"
             style={{
-              display: 'block',
-              width: '100%',
-              padding: 'var(--sp-2)',
-              marginBottom: 6,
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              background: storage.activeProjectId === id ? 'var(--color-navy-pale)' : 'var(--color-bg)',
+              background: 'color-mix(in srgb, var(--color-on-primary-navy) 10%, transparent)',
+              border: 'none',
+              borderRadius: '6px',
+              width: '28px',
+              height: '28px',
               cursor: 'pointer',
-              textAlign: 'left',
+              color: 'var(--color-on-primary-navy)',
+              fontSize: '14px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
           >
-            <strong>{p.name}</strong> · <span style={{ color: 'var(--color-meta)' }}>{p.status}</span>
+            ✕
           </button>
-        ))}
-        <div style={{ textAlign: 'right', marginTop: 'var(--sp-2)' }}>
-          <button type="button" onClick={onClose} data-testid="project-modal-close">
+        </div>
+
+        <div className="pm-modal-body">
+          <input
+            autoFocus
+            type="text"
+            placeholder="Search projects..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            data-testid="project-modal-search"
+            style={{
+              width: '100%',
+              boxSizing: 'border-box',
+              padding: '10px 12px',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: 'var(--font-body)',
+              fontFamily: 'Inter, sans-serif',
+              marginBottom: 'var(--sp-2)',
+            }}
+          />
+
+          {filtered.length === 0 ? (
+            <div className="state-empty" data-testid="project-modal-empty">
+              {projects.length === 0
+                ? 'No projects yet. Create one from the Dashboard.'
+                : 'No projects match your search.'}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '50vh', overflow: 'auto' }}>
+              {filtered.map(([id, p]) => {
+                const isActive = storage.activeProjectId === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    data-testid={`project-modal-${id}`}
+                    onClick={() => {
+                      onSelectProject(id);
+                      onClose();
+                    }}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      width: '100%',
+                      textAlign: 'left',
+                      padding: '10px 12px',
+                      border: isActive
+                        ? '1px solid color-mix(in srgb, var(--color-primary) 40%, transparent)'
+                        : '1px solid var(--color-border)',
+                      borderRadius: 'var(--radius-sm)',
+                      background: isActive ? 'color-mix(in srgb, var(--color-primary) 6%, transparent)' : 'transparent',
+                      cursor: 'pointer',
+                      fontFamily: 'Inter, sans-serif',
+                    }}
+                  >
+                    <div>
+                      <div
+                        style={{
+                          fontWeight: 'var(--fw-semibold)',
+                          color: 'var(--color-heading)',
+                          fontSize: 'var(--font-body)',
+                          marginBottom: '2px',
+                        }}
+                      >
+                        {p.name}
+                      </div>
+                      <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-muted)' }}>
+                        {p.location || 'No location'} · {p.status}
+                      </div>
+                    </div>
+                    {isActive && (
+                      <span
+                        style={{
+                          fontSize: '9px',
+                          fontWeight: 700,
+                          padding: '1px 7px',
+                          borderRadius: '20px',
+                          background: 'color-mix(in srgb, var(--color-success) 15%, transparent)',
+                          color: 'var(--color-success)',
+                        }}
+                      >
+                        ACTIVE
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        <div className="pm-modal-footer">
+          <button className="btn-secondary" onClick={onClose}>
             Close
           </button>
         </div>
       </div>
     </div>
   );
+
   return createPortal(content, document.body);
 }
