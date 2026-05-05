@@ -1,869 +1,543 @@
 /**
- * core-calculations.ts
- * Pure calculation functions extracted from refm-platform.js Module 1.
- * No React state - all inputs passed explicitly as parameters.
+ * src/core/calculations/index.ts (v5 schema)
+ *
+ * Phase M2.0 (2026-05-06): complete rewrite.
+ *
+ * Pure calculation functions for the MAAD-Spec Module 1. Inputs are
+ * always v5 HydrateSnapshot slices; no React state, no globals.
+ *
+ * Removed (versus v3/v4):
+ *   - computePlotEnvelope
+ *   - computeAreaCascade
+ *   - computePlotParkingCapacity
+ *   - allocateParking
+ *   - calculateAreaHierarchy (FAR / Roads / NEA derivation)
+ *   - calculateItemTotal (12-cost-line legacy method)
+ *   - distributeCost (legacy phasing)
+ *   - calcFinancing (single-tranche legacy)
+ *
+ * Added:
+ *   - computeAssetLandCost
+ *   - computeAssetBua
+ *   - computeAssetSellableBua
+ *   - computeAssetCost
+ *   - computePhaseCost
+ *   - computeFinancing (per-tranche)
+ *   - distribute (5 methods: even / sameAsCost / frontloaded / backloaded / manual)
  */
 
-import {
-  LandParcel,
-  LandAggregates,
-  AreaMetrics,
-  CostItem,
-  CostInputMode,
-  ModelType,
-  FinancingMode,
-  FinancingResult,
-} from '../types/project.types';
+import type {
+  Project,
+  Phase,
+  Parcel,
+  Asset,
+  SubUnit,
+  CostLine,
+  CostOverride,
+  CostLineKey,
+  CostMethod,
+  CostPhasing,
+  FinancingTranche,
+  EquityContribution,
+  LandAllocationMode,
+  DrawdownMethod,
+} from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
-// ─── Area hierarchy context ────────────────────────────────────────────────
-
-export interface AreaHierarchy {
-  projectRoadsArea: number;
-  projectNDA: number;
-  totalProjectGFA: number;
-  totalProjectBUA: number;
-  residentialGFA: number;
-  hospitalityGFA: number;
-  retailGFA: number;
-  residentialBUA: number;
-  hospitalityBUA: number;
-  retailBUA: number;
-  residentialNetSaleable: number;
-  hospitalityNetSaleable: number;
-  retailNetSaleable: number;
-  residentialLandValue: number;
-  hospitalityLandValue: number;
-  retailLandValue: number;
-  showResidential: boolean;
-  showHospitality: boolean;
-  showRetail: boolean;
+// ── Land aggregates ────────────────────────────────────────────────────────
+// Project-level: total land area + total cash + in-kind values.
+export interface LandAggregate {
+  totalAreaSqm: number;
+  totalValue: number;
+  cashValue: number;
+  inKindValue: number;
+  weightedRate: number;
 }
 
-// ─── 1. calculateLandAggregates ────────────────────────────────────────────
-// Lines ~390-397 of legacy refm-platform.js
-
-export function calculateLandAggregates(parcels: LandParcel[]): LandAggregates {
-  const totalLandArea = parcels.reduce((s, p) => s + (parseFloat(String(p.area)) || 0), 0);
-  const totalLandValue = parcels.reduce(
-    (s, p) => s + (parseFloat(String(p.area)) || 0) * (parseFloat(String(p.rate)) || 0),
-    0,
-  );
-  const landValuePerSqm =
-    totalLandArea > 0 ? totalLandValue / totalLandArea : 0;
-  const cashValue = parcels.reduce(
-    (s, p) =>
-      s +
-      (parseFloat(String(p.area)) || 0) *
-        (parseFloat(String(p.rate)) || 0) *
-        (parseFloat(String(p.cashPct)) || 0) /
-        100,
-    0,
-  );
-  const inKindValue = parcels.reduce(
-    (s, p) =>
-      s +
-      (parseFloat(String(p.area)) || 0) *
-        (parseFloat(String(p.rate)) || 0) *
-        (parseFloat(String(p.inKindPct)) || 0) /
-        100,
-    0,
-  );
-  const cashPercent = totalLandValue > 0 ? (cashValue / totalLandValue) * 100 : 0;
-  const inKindPercent = totalLandValue > 0 ? (inKindValue / totalLandValue) * 100 : 0;
-
-  return {
-    totalLandArea,
-    landValuePerSqm,
-    totalLandValue,
-    cashValue,
-    inKindValue,
-    cashPercent,
-    inKindPercent,
-  };
-}
-
-// ─── 2. calculateProjectEndDate ────────────────────────────────────────────
-// Lines ~400-413 of legacy refm-platform.js
-
-export function calculateProjectEndDate(
-  projectStart: string,
-  constructionPeriods: number,
-  operationsPeriods: number,
-  overlapPeriods: number,
-  modelType: ModelType,
-): string {
-  const startDate = new Date(projectStart);
-  const effectivePeriods = constructionPeriods + operationsPeriods - overlapPeriods;
-  const totalMonths = modelType === 'monthly' ? effectivePeriods : effectivePeriods * 12;
-
-  // Add months and subtract 1 day to get end of last month
-  const endDate = new Date(startDate);
-  endDate.setMonth(endDate.getMonth() + totalMonths);
-  endDate.setDate(0); // Last day of previous month
-
-  return endDate.toISOString().split('T')[0];
-}
-
-// ─── 3. calculateAreaHierarchy ─────────────────────────────────────────────
-// Lines ~425-461 of legacy refm-platform.js
-
-export interface AreaHierarchyParams {
-  totalLandArea: number;
-  landValuePerSqm: number;
-  /** cashPercent and inKindPercent are passed through to consumers of AreaHierarchy (e.g. getAreas). */
-  cashPercent: number;
-  inKindPercent: number;
-  projectRoadsPct: number;
-  projectFAR: number;
-  projectNonEnclosedPct: number;
-  residentialPercent: number;
-  hospitalityPercent: number;
-  retailPercent: number;
-  residentialDeductPct: number;
-  residentialEfficiency: number;
-  hospitalityDeductPct: number;
-  hospitalityEfficiency: number;
-  retailDeductPct: number;
-  retailEfficiency: number;
-  showResidential: boolean;
-  showHospitality: boolean;
-  showRetail: boolean;
-}
-
-export function calculateAreaHierarchy(params: AreaHierarchyParams): AreaHierarchy {
-  const {
-    totalLandArea,
-    landValuePerSqm,
-    projectRoadsPct,
-    projectFAR,
-    projectNonEnclosedPct,
-    residentialPercent,
-    hospitalityPercent,
-    retailPercent,
-    residentialDeductPct,
-    residentialEfficiency,
-    hospitalityDeductPct,
-    hospitalityEfficiency,
-    retailDeductPct,
-    retailEfficiency,
-    showResidential,
-    showHospitality,
-    showRetail,
-  } = params;
-  // cashPercent and inKindPercent are exposed on LandAggregates for callers; not needed here.
-
-  const projectRoadsArea = totalLandArea * (projectRoadsPct / 100);
-  const projectNDA = totalLandArea - projectRoadsArea;
-  const totalProjectGFA = projectNDA * projectFAR;
-  const totalProjectBUA = totalProjectGFA * (1 - projectNonEnclosedPct / 100);
-
-  // Asset GFA (zero for hidden assets)
-  const residentialGFA = showResidential ? totalProjectGFA * (residentialPercent / 100) : 0;
-  const hospitalityGFA = showHospitality ? totalProjectGFA * (hospitalityPercent / 100) : 0;
-  const retailGFA = showRetail ? totalProjectGFA * (retailPercent / 100) : 0;
-
-  // Asset BUA & Net Saleable
-  const residentialBUA = residentialGFA * (1 - residentialDeductPct / 100);
-  const residentialNetSaleable = residentialBUA * (residentialEfficiency / 100);
-
-  const hospitalityBUA = hospitalityGFA * (1 - hospitalityDeductPct / 100);
-  const hospitalityNetSaleable = hospitalityBUA * (hospitalityEfficiency / 100);
-
-  const retailBUA = retailGFA * (1 - retailDeductPct / 100);
-  const retailNetSaleable = retailBUA * (retailEfficiency / 100);
-
-  // Legacy land value aliases (used in cost calculations downstream)
-  const residentialLandValue = showResidential
-    ? totalLandArea * (residentialPercent / 100) * landValuePerSqm
-    : 0;
-  const hospitalityLandValue = showHospitality
-    ? totalLandArea * (hospitalityPercent / 100) * landValuePerSqm
-    : 0;
-  const retailLandValue = showRetail
-    ? totalLandArea * (retailPercent / 100) * landValuePerSqm
-    : 0;
-
-  return {
-    projectRoadsArea,
-    projectNDA,
-    totalProjectGFA,
-    totalProjectBUA,
-    residentialGFA,
-    hospitalityGFA,
-    retailGFA,
-    residentialBUA,
-    hospitalityBUA,
-    retailBUA,
-    residentialNetSaleable,
-    hospitalityNetSaleable,
-    retailNetSaleable,
-    residentialLandValue,
-    hospitalityLandValue,
-    retailLandValue,
-    showResidential,
-    showHospitality,
-    showRetail,
-  };
-}
-
-// ─── 4. getAreas ──────────────────────────────────────────────────────────
-// Line ~480-484 of legacy refm-platform.js
-
-export interface GetAreasParams {
-  hierarchy: AreaHierarchy;
-  landAggregates: LandAggregates;
-  residentialPercent: number;
-  hospitalityPercent: number;
-  retailPercent: number;
-  projectNDA: number;
-}
-
-export function getAreas(
-  assetType: string,
-  params: GetAreasParams,
-): AreaMetrics {
-  const {
-    hierarchy,
-    landAggregates,
-    residentialPercent,
-    hospitalityPercent,
-    retailPercent,
-    projectNDA,
-  } = params;
-
-  const { totalLandArea, cashPercent, inKindPercent } = landAggregates;
-  const {
-    residentialGFA,
-    hospitalityGFA,
-    retailGFA,
-    residentialBUA,
-    hospitalityBUA,
-    retailBUA,
-    residentialNetSaleable,
-    hospitalityNetSaleable,
-    retailNetSaleable,
-    residentialLandValue,
-    hospitalityLandValue,
-    retailLandValue,
-  } = hierarchy;
-
-  const areasMap: Record<string, AreaMetrics> = {
-    residential: {
-      totalAllocated: totalLandArea * (residentialPercent / 100),
-      netDevelopable: projectNDA * (residentialPercent / 100),
-      roadsArea: 0,
-      gfa: residentialGFA,
-      bua: residentialBUA,
-      nsa: residentialNetSaleable,
-      landValue: residentialLandValue,
-      cashLandValue: residentialLandValue * (cashPercent / 100),
-      inKindLandValue: residentialLandValue * (inKindPercent / 100),
-    },
-    hospitality: {
-      totalAllocated: totalLandArea * (hospitalityPercent / 100),
-      netDevelopable: projectNDA * (hospitalityPercent / 100),
-      roadsArea: 0,
-      gfa: hospitalityGFA,
-      bua: hospitalityBUA,
-      nsa: hospitalityNetSaleable,
-      landValue: hospitalityLandValue,
-      cashLandValue: hospitalityLandValue * (cashPercent / 100),
-      inKindLandValue: hospitalityLandValue * (inKindPercent / 100),
-    },
-    retail: {
-      totalAllocated: totalLandArea * (retailPercent / 100),
-      netDevelopable: projectNDA * (retailPercent / 100),
-      roadsArea: 0,
-      gfa: retailGFA,
-      bua: retailBUA,
-      nsa: retailNetSaleable,
-      landValue: retailLandValue,
-      cashLandValue: retailLandValue * (cashPercent / 100),
-      inKindLandValue: retailLandValue * (inKindPercent / 100),
-    },
-  };
-
-  const result = areasMap[assetType];
-  if (!result) {
-    throw new Error(`Unknown assetType: ${assetType}`);
+export function computeLandAggregate(parcels: Parcel[], phaseId?: string): LandAggregate {
+  const filtered = phaseId === undefined
+    ? parcels
+    : parcels.filter((p) => p.phaseId === phaseId);
+  let totalArea = 0;
+  let totalValue = 0;
+  let cashValue = 0;
+  let inKindValue = 0;
+  for (const p of filtered) {
+    const a = Math.max(0, p.area);
+    const r = Math.max(0, p.rate);
+    const v = a * r;
+    totalArea += a;
+    totalValue += v;
+    cashValue += v * (Math.max(0, p.cashPct) / 100);
+    inKindValue += v * (Math.max(0, p.inKindPct) / 100);
   }
-  return result;
+  const weightedRate = totalArea > 0 ? totalValue / totalArea : 0;
+  return { totalAreaSqm: totalArea, totalValue, cashValue, inKindValue, weightedRate };
 }
 
-// ─── 5. getPhasingMode ────────────────────────────────────────────────────
-// Lines ~581-586 of legacy refm-platform.js
-
-export function getPhasingMode(cost: CostItem): 'even' | 'manual' {
-  if (!cost.phasing) return 'even';
-  if (typeof cost.phasing === 'object') return cost.phasing.type || 'even';
-  if (cost.phasing.trim().toLowerCase() === 'even') return 'even';
-  return 'manual';
-}
-
-// ─── 6. getPhasingValues ──────────────────────────────────────────────────
-// Lines ~589-595 of legacy refm-platform.js
-
-export function getPhasingValues(cost: CostItem): number[] {
-  if (typeof cost.phasing === 'object' && cost.phasing.values) return cost.phasing.values;
-  if (
-    typeof cost.phasing === 'string' &&
-    cost.phasing.trim().toLowerCase() !== 'even'
-  ) {
-    return cost.phasing
-      .split(',')
-      .map((v) => parseFloat(v.trim()))
-      .filter((v) => !isNaN(v));
+// ── Asset BUA + sellable BUA ───────────────────────────────────────────────
+// Sum sub-unit area contributions:
+//   metric === 'count' -> count * unitArea
+//   metric === 'area'  -> metricValue (sqm directly)
+// computeAssetBua sums every sub-unit. computeAssetSellableBua sums only
+// 'Sellable' + 'Operable' + 'Leasable' categories (not 'Support').
+export function computeSubUnitArea(u: SubUnit): number {
+  if (u.metric === 'count') {
+    return Math.max(0, u.metricValue) * Math.max(0, u.unitArea ?? 0);
   }
-  return [];
+  return Math.max(0, u.metricValue);
 }
 
-// ─── 7. validatePhasingValues ─────────────────────────────────────────────
-// Lines ~598-603 of legacy refm-platform.js
-
-export function validatePhasingValues(
-  values: number[],
-  startPeriod: number,
-  endPeriod: number,
-): { valid: boolean; sum?: number; error: string } {
-  const periods = endPeriod - startPeriod + 1;
-  if (values.length !== periods) return { valid: false, error: `Need ${periods} values` };
-  const sum = values.reduce((a, b) => a + b, 0);
-  if (Math.abs(sum - 100) > 0.01) return { valid: false, sum, error: `Sum: ${sum.toFixed(1)}%` };
-  return { valid: true, sum, error: '' };
+export function computeAssetBua(asset: Asset, subUnits: SubUnit[]): number {
+  if (asset.buaSqm > 0) return asset.buaSqm;
+  return subUnits
+    .filter((u) => u.assetId === asset.id)
+    .reduce((s, u) => s + computeSubUnitArea(u), 0);
 }
 
-// ─── Internal: getSelectedBase ─────────────────────────────────────────────
-// Lines ~498-503 of legacy refm-platform.js
-// Forward declaration needed since calculateItemTotal and getSelectedBase are mutually recursive.
-
-function getSelectedBase(
-  cost: CostItem,
-  costsArr: CostItem[],
-  assetType: string,
-  areas: AreaMetrics,
-  costInputMode: CostInputMode,
-  assetPercents: Record<string, number>,
-  showFlags: Record<string, boolean>,
-): number {
-  return (cost.selectedIds ?? [])
-    .filter((sid) => sid !== cost.id)
-    .map((sid) => costsArr.find((c) => c.id === sid))
-    .filter((c): c is CostItem => c !== undefined)
-    .reduce(
-      (sum, c) =>
-        sum +
-        calculateItemTotal(c, assetType, areas, costsArr, costInputMode, assetPercents, showFlags),
-      0,
-    );
+export function computeAssetSellableBua(asset: Asset, subUnits: SubUnit[]): number {
+  if (asset.sellableBuaSqm > 0) return asset.sellableBuaSqm;
+  return subUnits
+    .filter((u) => u.assetId === asset.id && u.category !== 'Support')
+    .reduce((s, u) => s + computeSubUnitArea(u), 0);
 }
 
-// ─── 8. calculateItemTotal ────────────────────────────────────────────────
-// Lines ~505-535 of legacy refm-platform.js
-
-export function calculateItemTotal(
-  cost: CostItem,
-  assetType: string,
-  areas: AreaMetrics,
-  costsArr: CostItem[],
-  costInputMode: CostInputMode,
-  assetPercents: Record<string, number>,
-  showFlags: Record<string, boolean>,
-): number {
-  const val = parseFloat(String(cost.value)) || 0;
-  const a = areas;
-
-  // In same-for-all mode, fixed amounts are project-level totals and must be
-  // proportioned by this asset's land allocation share.
-  const getSameForAllFactor = (): number => {
-    if (costInputMode !== 'same-for-all' || cost.canDelete === false) return 1;
-    const totalAlloc =
-      (showFlags['residential'] ? (assetPercents['residential'] ?? 0) : 0) +
-      (showFlags['hospitality'] ? (assetPercents['hospitality'] ?? 0) : 0) +
-      (showFlags['retail'] ? (assetPercents['retail'] ?? 0) : 0);
-    if (totalAlloc <= 0) return 0;
-    const thisAlloc = assetPercents[assetType] ?? 0;
-    return thisAlloc / totalAlloc;
-  };
-
-  switch (cost.method) {
-    case 'fixed':
-      return val * getSameForAllFactor();
-    case 'rate_total_allocated':
-      return val * a.totalAllocated;
-    case 'rate_net_developable':
-      return val * a.netDevelopable;
-    case 'rate_roads':
-      return val * a.roadsArea;
-    case 'rate_gfa':
-      return val * a.gfa;
-    case 'rate_bua':
-      return val * a.bua;
-    case 'percent_base':
-      return (
-        getSelectedBase(cost, costsArr, assetType, a, costInputMode, assetPercents, showFlags) *
-        (val / 100)
-      );
-    case 'percent_total_land':
-      return a.landValue * (val / 100);
-    case 'percent_cash_land':
-      return a.cashLandValue * (val / 100);
-    case 'percent_inkind_land':
-      return a.inKindLandValue * (val / 100);
-    default:
-      return 0;
-  }
-}
-
-// ─── 8a. buildAssetFinancing ──────────────────────────────────────────────
-// Phase M1.R/3: lifted verbatim from RealEstatePlatform.tsx and the
-// snapshot pipeline's previously-inlined copy, so both consumers share
-// one definition. The pipeline header at scripts/module1-pipeline.ts
-// previously documented a "lockstep contract" that this extraction
-// eliminates: the pure function below is now the single source of truth
-// for asset-level financing math.
+// ── Asset land cost ────────────────────────────────────────────────────────
+// Resolves each asset's share of total parcel value based on
+// landAllocationMode:
+//   'sqm'       -> asset.landAreaSqm / totalAreaSqm * totalValue
+//   'percent'   -> asset.landAreaPct / 100 * totalValue
+//   'autoByBua' -> assetBua / totalBua * totalValue
 //
-// Math is bit-identical to the prior inlined / closure forms; the
-// snapshot baseline must match exactly after this commit.
+// Returns 0 when total area / total bua are zero (avoids divide-by-zero).
+export function computeAssetLandCost(
+  asset: Asset,
+  parcels: Parcel[],
+  assets: Asset[],
+  subUnits: SubUnit[],
+  mode: LandAllocationMode,
+): number {
+  const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
+  const aggregate = computeLandAggregate(phaseParcels);
+  if (aggregate.totalValue <= 0) return 0;
 
-export interface BuildAssetFinancingParams {
-  assetType: string;
-  areas: AreaMetrics;
-  costs: CostItem[];
-  constructionPeriods: number;
-  operationsPeriods: number;
-  interestRate: number;
-  modelType: ModelType;
-  repaymentPeriods: number;
-  capitalizeInterest: boolean;
-  costInputMode: CostInputMode;
-  financingMode: FinancingMode;
-  globalDebtPct: number;
-  lineRatios: Record<string, number>;
-  // Per-asset land allocation (% of project GFA) and visibility flags.
-  // Used by both the same-for-all proportioning factor and the
-  // financing layer's `bafTotalAllocPct` denominator.
-  assetPercents: Record<string, number>;
-  showFlags: Record<string, boolean>;
+  if (mode === 'sqm') {
+    if (aggregate.totalAreaSqm <= 0) return 0;
+    const share = Math.max(0, asset.landAreaSqm ?? 0) / aggregate.totalAreaSqm;
+    return aggregate.totalValue * share;
+  }
+  if (mode === 'percent') {
+    return aggregate.totalValue * (Math.max(0, asset.landAreaPct ?? 0) / 100);
+  }
+  // autoByBua
+  const phaseAssets = assets.filter((a) => a.phaseId === asset.phaseId);
+  const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
+  if (totalBua <= 0) return 0;
+  const myBua = computeAssetBua(asset, subUnits);
+  return aggregate.totalValue * (myBua / totalBua);
 }
 
-export function buildAssetFinancing(p: BuildAssetFinancingParams): FinancingResult {
-  const {
-    assetType, areas, costs,
-    constructionPeriods, operationsPeriods,
-    interestRate, modelType,
-    repaymentPeriods, capitalizeInterest,
-    costInputMode, financingMode, globalDebtPct, lineRatios,
-    assetPercents, showFlags,
-  } = p;
+// ── Cost line resolution ───────────────────────────────────────────────────
+// Resolves a CostLine's currency total against the project context. Used
+// by computePhaseCost to roll the 9 standard lines + any per-asset
+// overrides into a phase total.
+export interface CostContext {
+  totalLandSqm: number;
+  totalBuaSqm: number;
+  totalParkingBays: number;
+  totalLandValue: number;
+  totalCashLandValue: number;
+  totalInKindLandValue: number;
+}
 
-  const totalPeriods = constructionPeriods + operationsPeriods;
-  const periodicRate = (interestRate / 100) / (modelType === 'monthly' ? 12 : 1);
-
-  // Same-for-all proportioning: in same-for-all mode, locked rows
-  // (canDelete=false, e.g. Land Cash) carry the project-level total and
-  // must be split per-asset by allocation share. Enumerate visible
-  // assets so the denominator is the sum of allocations actually shown.
-  const visibleAssetIds = Object.keys(showFlags).filter(k => showFlags[k]);
-  const totalAllocPct = visibleAssetIds.reduce((s, a) => s + (assetPercents[a] || 0), 0);
-
-  const getProportionedDist = (cost: CostItem): number[] => {
-    if (costInputMode === 'same-for-all' && cost.canDelete === false) {
-      const fullDist = distributeCost(cost, assetType, constructionPeriods, areas, costs, costInputMode, assetPercents, showFlags);
-      const factor = totalAllocPct > 0 ? (assetPercents[assetType] || 0) / totalAllocPct : 0;
-      return fullDist.map(v => v * factor);
-    }
-    return distributeCost(cost, assetType, constructionPeriods, areas, costs, costInputMode, assetPercents, showFlags);
-  };
-
-  const getProportionedTotal = (cost: CostItem): number => {
-    if (costInputMode === 'same-for-all' && cost.canDelete === false) {
-      const fullTotal = calculateItemTotal(cost, assetType, areas, costs, costInputMode, assetPercents, showFlags);
-      const factor = totalAllocPct > 0 ? (assetPercents[assetType] || 0) / totalAllocPct : 0;
-      return fullTotal * factor;
-    }
-    return calculateItemTotal(cost, assetType, areas, costs, costInputMode, assetPercents, showFlags);
-  };
-
-  const getLineDebtPct = (name: string): number => {
-    if (financingMode === 'fixed') return globalDebtPct;
-    return lineRatios[name] !== undefined ? lineRatios[name] : globalDebtPct;
-  };
-
-  const lineItems = costs.map(c => {
-    const total     = getProportionedTotal(c);
-    const debtPct   = getLineDebtPct(c.name);
-    const debtAmt   = total * (debtPct / 100);
-    const equityAmt = total - debtAmt;
-    return { name: c.name, total, debtAmt, equityAmt, debtPct };
-  });
-
-  const lineDistributions = costs.map(c => ({
-    name: c.name,
-    dist: getProportionedDist(c).slice(0, constructionPeriods + 1),
-  }));
-
-  const totalDebtCalc   = lineItems.reduce((s, l) => s + l.debtAmt,   0);
-  const totalEquityCalc = lineItems.reduce((s, l) => s + l.equityAmt, 0);
-
-  const debtAdd   = new Array(totalPeriods + 1).fill(0);
-  const equityAdd = new Array(totalPeriods + 1).fill(0);
-
-  costs.forEach(cost => {
-    const d       = getProportionedDist(cost);
-    const debtPct = getLineDebtPct(cost.name);
-    d.forEach((v, i) => {
-      if (i <= constructionPeriods) {
-        debtAdd[i]   += v * (debtPct / 100);
-        equityAdd[i] += v * (1 - debtPct / 100);
-      }
-    });
-  });
-
-  // Phase 1 - construction (no repayment, optional capitalized interest).
-  const debtOpen  = new Array(totalPeriods + 1).fill(0);
-  const debtRep   = new Array(totalPeriods + 1).fill(0);
-  const debtClose = new Array(totalPeriods + 1).fill(0);
-  const interest  = new Array(totalPeriods + 1).fill(0);
-
-  let debtBal = 0;
-  for (let p = 0; p <= constructionPeriods; p++) {
-    debtOpen[p] = debtBal;
-    const draw = debtAdd[p] || 0;
-    const inConstruction = p >= 1 && p <= constructionPeriods;
-    const intCharge = debtBal * periodicRate
-      + (inConstruction && capitalizeInterest ? draw * periodicRate / 2 : 0);
-    interest[p] = intCharge;
-    debtRep[p]  = 0;
-    debtBal += draw + (capitalizeInterest && inConstruction ? intCharge : 0);
-    debtClose[p] = Math.max(0, debtBal);
-  }
-
-  const repPerPeriod = repaymentPeriods > 0 ? debtClose[constructionPeriods] / repaymentPeriods : 0;
-
-  // Phase 2 - operations (repay + charge interest on declining balance).
-  for (let p = constructionPeriods + 1; p <= totalPeriods; p++) {
-    debtOpen[p] = debtBal;
-    const opIdx     = p - constructionPeriods;
-    const intCharge = debtBal * periodicRate;
-    interest[p] = intCharge;
-    const repayment = opIdx <= repaymentPeriods ? repPerPeriod : 0;
-    debtRep[p] = repayment;
-    debtBal = Math.max(0, debtBal - repayment);
-    debtClose[p] = debtBal;
-  }
-
-  // Equity balance.
-  const eqOpen  = new Array(totalPeriods + 1).fill(0);
-  const eqClose = new Array(totalPeriods + 1).fill(0);
-  let eqBal = 0;
-  for (let p = 0; p <= totalPeriods; p++) {
-    eqOpen[p] = eqBal;
-    eqBal += equityAdd[p] || 0;
-    eqClose[p] = eqBal;
-  }
-
-  const totalInterest = interest.reduce((s, v) => s + v, 0);
-
-  // operationsPeriods is unused inside this function but is part of the
-  // input contract; explicitly void it so unused-parameter lints still
-  // catch unrelated drift.
-  void operationsPeriods;
-
+export function buildCostContext(
+  phase: Phase,
+  parcels: Parcel[],
+  assets: Asset[],
+  subUnits: SubUnit[],
+): CostContext {
+  const phaseParcels = parcels.filter((p) => p.phaseId === phase.id);
+  const phaseAssets = assets.filter((a) => a.phaseId === phase.id);
+  const land = computeLandAggregate(phaseParcels);
+  const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
+  const totalParking = phaseAssets.reduce((s, a) => s + Math.max(0, a.parkingBaysRequired), 0);
   return {
-    lineItems,
-    lineDistributions,
-    debtAdd, debtOpen, debtRep, debtClose,
-    equityAdd, eqOpen, eqClose,
-    interest,
-    totalDebt: totalDebtCalc,
-    totalEquity: totalEquityCalc,
-    totalInterest,
-    periodicRate,
-    totalPeriods,
+    totalLandSqm: land.totalAreaSqm,
+    totalBuaSqm: totalBua,
+    totalParkingBays: totalParking,
+    totalLandValue: land.totalValue,
+    totalCashLandValue: land.cashValue,
+    totalInKindLandValue: land.inKindValue,
   };
 }
 
-// ─── 9. distributeCost ────────────────────────────────────────────────────
-// Lines ~564-578 of legacy refm-platform.js
+// Resolves a cost line's gross currency total before % methods that
+// reference other lines. Returns NaN when method requires a base it
+// cannot reach without recursion (% of construction / % of total).
+function resolveDirectCost(
+  method: CostMethod,
+  value: number,
+  ctx: CostContext,
+): number | null {
+  switch (method) {
+    case 'lumpsum':
+      return Math.max(0, value);
+    case 'rate_per_bua':
+      return Math.max(0, value) * ctx.totalBuaSqm;
+    case 'rate_per_park':
+      return Math.max(0, value) * ctx.totalParkingBays;
+    case 'rate_per_land':
+      return Math.max(0, value) * ctx.totalLandSqm;
+    case 'percent_of_construction':
+    case 'percent_of_total_cost':
+      return null;
+  }
+}
 
-export function distributeCost(
-  cost: CostItem,
-  assetType: string,
-  constructionPeriods: number,
-  areas: AreaMetrics,
-  costsArr: CostItem[],
-  costInputMode: CostInputMode,
-  assetPercents: Record<string, number>,
-  showFlags: Record<string, boolean>,
-): number[] {
-  const total = calculateItemTotal(
-    cost,
-    assetType,
-    areas,
-    costsArr,
-    costInputMode,
-    assetPercents,
-    showFlags,
-  );
-  const distribution = Array<number>(constructionPeriods + 1).fill(0);
+// ── Phase cost rollup ──────────────────────────────────────────────────────
+// Two-pass: first resolve the direct lines, then resolve % methods using
+// the direct sums. percent_of_construction sums constructionBua +
+// constructionParking. percent_of_total_cost sums every direct line plus
+// the percent_of_construction lines, but excludes other percent_of_total
+// lines (so contingency on contingency doesn't compound).
+export interface PhaseCostBreakdown {
+  byLine: Record<CostLineKey, number>;
+  constructionTotal: number;
+  total: number;
+}
 
-  if (cost.startPeriod === 0 && cost.endPeriod === 0) {
-    distribution[0] = total;
-    return distribution;
+export function computePhaseCost(
+  phase: Phase,
+  costLines: CostLine[],
+  parcels: Parcel[],
+  assets: Asset[],
+  subUnits: SubUnit[],
+): PhaseCostBreakdown {
+  const ctx = buildCostContext(phase, parcels, assets, subUnits);
+  const lines = costLines.filter((c) => c.phaseId === phase.id);
+  const byLine: Record<CostLineKey, number> = {
+    land: 0,
+    constructionBua: 0,
+    constructionParking: 0,
+    infrastructure: 0,
+    landscaping: 0,
+    preOperating: 0,
+    professionalFee: 0,
+    commissionFee: 0,
+    contingency: 0,
+  };
+
+  // Pass 1: direct lines
+  for (const line of lines) {
+    const direct = resolveDirectCost(line.method, line.value, ctx);
+    if (direct !== null) byLine[line.key] = direct;
   }
 
-  const phasingMode = getPhasingMode(cost);
-  if (phasingMode === 'even') {
-    const cnt = cost.endPeriod - cost.startPeriod + 1;
-    const amt = cnt > 0 ? total / cnt : 0;
-    for (let i = cost.startPeriod; i <= cost.endPeriod && i <= constructionPeriods; i++) {
-      distribution[i] = amt;
+  // Land line: if method is 'lumpsum' AND value is 0, fall back to the
+  // phase's actual parcel total. This is the typical wizard-seeded path.
+  const landLine = lines.find((c) => c.key === 'land');
+  if (landLine && landLine.method === 'lumpsum' && landLine.value === 0) {
+    byLine.land = ctx.totalLandValue;
+  }
+
+  const constructionTotal = byLine.constructionBua + byLine.constructionParking;
+
+  // Pass 2: percent_of_construction
+  for (const line of lines) {
+    if (line.method === 'percent_of_construction') {
+      byLine[line.key] = constructionTotal * (Math.max(0, line.value) / 100);
+    }
+  }
+
+  // Pass 3: percent_of_total_cost. Base = sum of every line resolved so
+  // far (direct + percent_of_construction).
+  const baseForTotal = (Object.keys(byLine) as CostLineKey[])
+    .filter((k) => {
+      const line = lines.find((c) => c.key === k);
+      return line ? line.method !== 'percent_of_total_cost' : true;
+    })
+    .reduce((s, k) => s + byLine[k], 0);
+
+  for (const line of lines) {
+    if (line.method === 'percent_of_total_cost') {
+      byLine[line.key] = baseForTotal * (Math.max(0, line.value) / 100);
+    }
+  }
+
+  const total = Object.values(byLine).reduce((s, v) => s + v, 0);
+  return { byLine, constructionTotal, total };
+}
+
+// ── Per-asset cost (with overrides) ────────────────────────────────────────
+// Resolves an asset's share of phase cost. For each cost line, if a
+// per-asset override exists, that override's method/value applies in
+// isolation (the asset gets exactly that override, not a share of the
+// project line). Otherwise the asset's share is its BUA-weighted slice.
+export interface AssetCostBreakdown {
+  byLine: Record<CostLineKey, number>;
+  total: number;
+}
+
+export function computeAssetCost(
+  asset: Asset,
+  costLines: CostLine[],
+  costOverrides: CostOverride[],
+  parcels: Parcel[],
+  assets: Asset[],
+  subUnits: SubUnit[],
+): AssetCostBreakdown {
+  const phase = { id: asset.phaseId } as Phase; // type-only stub (cost rollup only reads phase.id)
+  const phaseLines = costLines.filter((c) => c.phaseId === asset.phaseId);
+  const phaseAssets = assets.filter((a) => a.phaseId === asset.phaseId);
+  const ctx = buildCostContext(
+    { ...phase, name: '', constructionStart: 0, constructionPeriods: 0, operationsPeriods: 0, overlapPeriods: 0 },
+    parcels,
+    assets,
+    subUnits,
+  );
+  const myBua = computeAssetBua(asset, subUnits);
+  const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
+  const buaShare = totalBua > 0 ? myBua / totalBua : 0;
+
+  const phaseTotals = computePhaseCost(
+    { ...phase, name: '', constructionStart: 0, constructionPeriods: 0, operationsPeriods: 0, overlapPeriods: 0 },
+    costLines,
+    parcels,
+    assets,
+    subUnits,
+  );
+
+  const byLine: Record<CostLineKey, number> = {
+    land: 0,
+    constructionBua: 0,
+    constructionParking: 0,
+    infrastructure: 0,
+    landscaping: 0,
+    preOperating: 0,
+    professionalFee: 0,
+    commissionFee: 0,
+    contingency: 0,
+  };
+
+  for (const key of Object.keys(byLine) as CostLineKey[]) {
+    const override = costOverrides.find(
+      (o) => o.assetId === asset.id && o.key === key,
+    );
+    if (override) {
+      const direct = resolveDirectCost(override.method, override.value, ctx);
+      if (direct !== null) {
+        byLine[key] = direct;
+      } else if (override.method === 'percent_of_construction') {
+        byLine[key] = phaseTotals.constructionTotal * (Math.max(0, override.value) / 100);
+      } else {
+        // percent_of_total_cost as override: share of phase total
+        byLine[key] = phaseTotals.total * (Math.max(0, override.value) / 100);
+      }
+    } else if (key === 'land') {
+      // Land always allocated by mode-driven allocation, not BUA share
+      byLine[key] = 0; // computeAssetLandCost is called separately by callers
+    } else {
+      byLine[key] = phaseTotals.byLine[key] * buaShare;
+    }
+  }
+
+  // Note: Land slot left at 0 here. Callers add computeAssetLandCost
+  // for the land number.
+  void phaseLines;
+  const total = Object.values(byLine).reduce((s, v) => s + v, 0);
+  return { byLine, total };
+}
+
+// ── Distribution curves ────────────────────────────────────────────────────
+// Returns a unit vector of length n that sums to 1.0. Math:
+//   even        -> [1/n, 1/n, ..., 1/n]
+//   frontloaded -> S-curve weighted toward early periods (decay 0.85)
+//   backloaded  -> reverse of frontloaded
+//   manual      -> caller-supplied; normalized if it doesn't sum to 1
+export function distribute(
+  method: CostPhasing | DrawdownMethod | 'sameAsCost',
+  n: number,
+  manual?: number[],
+): number[] {
+  if (n <= 0) return [];
+  if (method === 'manual') {
+    if (!manual || manual.length === 0) return new Array(n).fill(1 / n);
+    const padded = manual.slice(0, n);
+    while (padded.length < n) padded.push(0);
+    const sum = padded.reduce((s, v) => s + Math.max(0, v), 0);
+    if (sum <= 0) return new Array(n).fill(1 / n);
+    return padded.map((v) => Math.max(0, v) / sum);
+  }
+  if (method === 'frontloaded') {
+    const decay = 0.85;
+    const weights = Array.from({ length: n }, (_, i) => Math.pow(decay, i));
+    const sum = weights.reduce((s, w) => s + w, 0);
+    return weights.map((w) => w / sum);
+  }
+  if (method === 'backloaded') {
+    const decay = 0.85;
+    const weights = Array.from({ length: n }, (_, i) => Math.pow(decay, n - 1 - i));
+    const sum = weights.reduce((s, w) => s + w, 0);
+    return weights.map((w) => w / sum);
+  }
+  // 'even' and 'sameAsCost' (sameAsCost mirrors capex curve at the call site,
+  // not here; treat as even for fallback)
+  return new Array(n).fill(1 / n);
+}
+
+// ── Financing ──────────────────────────────────────────────────────────────
+// Per-tranche debt math. Returns the per-period series for the model
+// granularity (months for monthly, years for annual).
+export interface FinancingResult {
+  periods: number;                 // total period count (construction + operations - overlap)
+  periodicRate: number;            // applied rate per period (annual / 12 for monthly)
+  drawSchedule: number[];          // per-period debt drawdowns (sums to ltv * capex)
+  outstandingBalance: number[];    // per-period closing balance
+  interestAccrued: number[];       // per-period interest charge
+  interestCapitalized: number[];   // per-period IDC added to principal (when idcCapitalize)
+  interestPaid: number[];          // per-period interest paid in cash (non-IDC or post-construction)
+  principalRepaid: number[];       // per-period principal repayment
+  totalDebt: number;
+  totalInterest: number;
+  totalRepayment: number;
+}
+
+export function computeFinancing(
+  tranche: FinancingTranche,
+  phase: Phase,
+  capexPerPeriod: number[],
+  modelType: Project['modelType'],
+): FinancingResult {
+  const periods = phase.constructionPeriods + phase.operationsPeriods - phase.overlapPeriods;
+  const periodicRate =
+    modelType === 'monthly'
+      ? Math.max(0, tranche.interestRatePct) / 100 / 12
+      : Math.max(0, tranche.interestRatePct) / 100;
+
+  const totalCapex = capexPerPeriod.reduce((s, v) => s + v, 0);
+  const totalDebt = totalCapex * (Math.max(0, Math.min(100, tranche.ltvPct)) / 100);
+
+  // Drawdown schedule
+  const drawSchedule = new Array<number>(periods).fill(0);
+  if (tranche.drawdownMethod === 'sameAsCost') {
+    const ratio = totalCapex > 0 ? totalDebt / totalCapex : 0;
+    for (let i = 0; i < phase.constructionPeriods && i < periods; i++) {
+      drawSchedule[i] = (capexPerPeriod[i] ?? 0) * ratio;
     }
   } else {
-    const pcts = getPhasingValues(cost);
-    pcts.forEach((pct, idx) => {
-      const p = cost.startPeriod + idx;
-      if (p <= constructionPeriods) distribution[p] = total * (pct / 100);
-    });
+    const weights = distribute(
+      tranche.drawdownMethod,
+      phase.constructionPeriods,
+      tranche.drawdownDistribution,
+    );
+    for (let i = 0; i < weights.length && i < periods; i++) {
+      drawSchedule[i] = totalDebt * weights[i];
+    }
   }
 
-  return distribution;
-}
+  // Repayment schedule baseline (refined per method)
+  const opsStartIdx = phase.constructionStart - 1 + phase.constructionPeriods - phase.overlapPeriods;
+  const repaymentBudget = new Array<number>(periods).fill(0);
+  if (tranche.repaymentMethod === 'fixedSchedule' && tranche.repaymentPeriods > 0) {
+    const principalPerPeriod = totalDebt / tranche.repaymentPeriods;
+    for (let i = 0; i < tranche.repaymentPeriods && (opsStartIdx + i) < periods; i++) {
+      repaymentBudget[opsStartIdx + i] = principalPerPeriod;
+    }
+  } else if (tranche.repaymentMethod === 'bullet' && tranche.repaymentPeriods > 0) {
+    const idx = Math.min(periods - 1, opsStartIdx + tranche.repaymentPeriods - 1);
+    if (idx >= 0) repaymentBudget[idx] = totalDebt;
+  }
+  // cashSweep: per-period principal driven by cash position; here we
+  // treat it as straight-line over (periods - opsStartIdx) for the
+  // current pass. Real cash-sweep math needs Module 3+ revenue inputs;
+  // when those modules ship, this branch should consume the cashflow
+  // surplus per period.
 
-// ─── M1.7 Area Program calc engines ────────────────────────────────────────
-// Pure functions used by the Area Program tab (M1.7/5) and the area-
-// program cascade rollup. NOT consumed by the Module 1 financing /
-// distribution math today, so they do NOT affect the M1.R / M1.5 /
-// M1.6 snapshot baselines (single-phase 17.5 KB, multi-phase 23.0 KB).
-//
-// All inputs are scalars / plain objects; all outputs are plain objects.
-// No store reads, no React, no side effects. The Plot / Sub-Unit
-// shapes live in module1-types.ts; @core/calculations stays free of
-// that import to keep the dependency direction one-way (REFM consumes
-// @core, never the other way around).
+  // Walk the period series with running balance + interest accrual
+  const outstanding = new Array<number>(periods).fill(0);
+  const interestAccrued = new Array<number>(periods).fill(0);
+  const interestCapitalized = new Array<number>(periods).fill(0);
+  const interestPaid = new Array<number>(periods).fill(0);
+  const principalRepaid = new Array<number>(periods).fill(0);
 
-// ── 1. Plot envelope ──────────────────────────────────────────────────────
-// Derives all areas a plot's envelope produces from its inputs. Inputs
-// are passed as a plain object so callers can mix-and-match without
-// importing the Plot interface from REFM into core.
-//
-// Validation policy: the function never throws. Negative or zero inputs
-// produce zero / clamped outputs (e.g. coverage > 100% clamps to 100%,
-// landscape + hardscape sum > 100% clamps surfaceParkingArea to 0).
-// The Area Program tab is the place to surface user-facing warnings
-// (e.g. totalBuiltGFA > maxGFA, over-FAR, gets a yellow badge).
+  let balance = 0;
+  for (let i = 0; i < periods; i++) {
+    balance += drawSchedule[i];
+    const interest = balance * periodicRate;
+    interestAccrued[i] = interest;
+    if (tranche.idcCapitalize && i < phase.constructionPeriods) {
+      interestCapitalized[i] = interest;
+      balance += interest;
+    } else {
+      interestPaid[i] = interest;
+    }
+    let repay = repaymentBudget[i] ?? 0;
+    if (tranche.repaymentMethod === 'cashSweep' && i >= opsStartIdx) {
+      // Placeholder: split balance evenly across remaining periods
+      const remainingPeriods = Math.max(1, periods - i);
+      repay = balance / remainingPeriods;
+    }
+    repay = Math.min(repay, balance);
+    balance -= repay;
+    principalRepaid[i] = repay;
+    outstanding[i] = balance;
+  }
 
-export interface PlotEnvelopeInputs {
-  plotArea:              number;
-  maxFAR:                number;
-  coveragePct:           number;
-  podiumFloors:          number;
-  typicalFloors:         number;
-  typicalCoveragePct:    number;
-  landscapePct:          number;
-  hardscapePct:          number;
-  basementCount:         number;
-  basementEfficiencyPct: number;
-}
-
-export interface PlotEnvelopeAreas {
-  // Caps and footprints
-  maxGFA:               number;   // plotArea * maxFAR
-  footprint:            number;   // plotArea * coveragePct/100  (podium plate)
-  typicalFootprint:     number;   // plotArea * typicalCoveragePct/100
-  // Vertical buildup
-  podiumGFA:            number;   // footprint * podiumFloors
-  typicalGFA:           number;   // typicalFootprint * typicalFloors
-  totalBuiltGFA:        number;   // podiumGFA + typicalGFA
-  // Public-area allocation
-  publicArea:           number;   // plotArea - footprint
-  landscapeArea:        number;   // publicArea * landscapePct/100
-  hardscapeArea:        number;   // publicArea * hardscapePct/100
-  surfaceParkingArea:   number;   // publicArea - landscape - hardscape (clamped >= 0)
-  // Basement (parking-usable)
-  basementGrossArea:    number;   // footprint * basementCount  (incl. ramps / walls)
-  basementUsableArea:   number;   // basementGrossArea * basementEfficiencyPct/100
-  // Diagnostics (informational; the UI reads these to render warnings)
-  utilizationPct:       number;   // totalBuiltGFA / maxGFA * 100  (0 when maxGFA = 0)
-  isOverFAR:            boolean;  // utilizationPct > 100
-}
-
-const clampPct = (n: number): number => Math.max(0, Math.min(100, n));
-
-export function computePlotEnvelope(input: PlotEnvelopeInputs): PlotEnvelopeAreas {
-  const plotArea          = Math.max(0, input.plotArea);
-  const maxFAR            = Math.max(0, input.maxFAR);
-  const coveragePct       = clampPct(input.coveragePct);
-  const podiumFloors      = Math.max(0, input.podiumFloors);
-  const typicalFloors     = Math.max(0, input.typicalFloors);
-  const typicalCoveragePct = clampPct(input.typicalCoveragePct);
-  const landscapePct      = clampPct(input.landscapePct);
-  const hardscapePct      = clampPct(input.hardscapePct);
-  const basementCount     = Math.max(0, input.basementCount);
-  const basementEffPct    = clampPct(input.basementEfficiencyPct);
-
-  const maxGFA             = plotArea * maxFAR;
-  const footprint          = plotArea * (coveragePct / 100);
-  const typicalFootprint   = plotArea * (typicalCoveragePct / 100);
-  const podiumGFA          = footprint * podiumFloors;
-  const typicalGFA         = typicalFootprint * typicalFloors;
-  const totalBuiltGFA      = podiumGFA + typicalGFA;
-
-  const publicArea         = Math.max(0, plotArea - footprint);
-  const landscapeArea      = publicArea * (landscapePct / 100);
-  const hardscapeArea      = publicArea * (hardscapePct / 100);
-  const surfaceParkingArea = Math.max(0, publicArea - landscapeArea - hardscapeArea);
-
-  const basementGrossArea  = footprint * basementCount;
-  const basementUsableArea = basementGrossArea * (basementEffPct / 100);
-
-  const utilizationPct     = maxGFA > 0 ? (totalBuiltGFA / maxGFA) * 100 : 0;
-  const isOverFAR          = utilizationPct > 100;
+  const totalInterest = interestAccrued.reduce((s, v) => s + v, 0);
+  const totalRepayment = principalRepaid.reduce((s, v) => s + v, 0);
 
   return {
-    maxGFA, footprint, typicalFootprint,
-    podiumGFA, typicalGFA, totalBuiltGFA,
-    publicArea, landscapeArea, hardscapeArea, surfaceParkingArea,
-    basementGrossArea, basementUsableArea,
-    utilizationPct, isOverFAR,
+    periods,
+    periodicRate,
+    drawSchedule,
+    outstandingBalance: outstanding,
+    interestAccrued,
+    interestCapitalized,
+    interestPaid,
+    principalRepaid,
+    totalDebt,
+    totalInterest,
+    totalRepayment,
   };
 }
 
-// ── 2. Area cascade (per asset) ───────────────────────────────────────────
-// Takes a single asset's allocated GFA and the breakdown percentages
-// (typical industry ranges: MEP 8-15%, Back-of-House 5-10%, Other
-// Technical 3-5%, Efficiency 75-90%) and produces the standard cascade:
-//
-//   GFA          (input)
-//   MEP          = GFA * mepPct/100
-//   backOfHouse  = GFA * backOfHousePct/100
-//   otherTech    = GFA * otherTechnicalPct/100
-//   netGFA       = GFA - MEP - backOfHouse - otherTech  (clamped >= 0)
-//   GSA / GLA    = netGFA * efficiencyPct/100
-//   BUAExcl      = GFA + backOfHouse + otherTech       ("BUA excluding MEP & Basement")
-//   TBA          = BUAExcl + MEP + basementShare        ("Total Built Area")
-//
-// basementShare is per-asset basement parking allocation passed in from
-// the parking allocator (M1.7/2.3), typically the asset's pro-rata
-// share of plot.basementUsableArea based on bay demand.
-
-export interface AreaCascadeInputs {
-  gfa:                number;
-  mepPct:             number;  // % of GFA
-  backOfHousePct:     number;  // % of GFA
-  otherTechnicalPct:  number;  // % of GFA
-  efficiencyPct:      number;  // % of net GFA -> GSA/GLA
-  basementShare?:     number;  // sqm allocated to this asset's basement parking (default 0)
+// ── Equity contribution distribution ───────────────────────────────────────
+export function distributeEquity(
+  contrib: EquityContribution,
+  constructionPeriods: number,
+): number[] {
+  if (contrib.timing === 'upfront') {
+    const out = new Array<number>(constructionPeriods).fill(0);
+    if (constructionPeriods > 0) out[0] = contrib.amount;
+    return out;
+  }
+  const weights = distribute(
+    contrib.timing === 'evenOverPhase' ? 'even' : 'manual',
+    constructionPeriods,
+    contrib.distribution,
+  );
+  return weights.map((w) => w * contrib.amount);
 }
 
-export interface AreaCascadeResult {
-  gfa:           number;
-  mep:           number;
-  backOfHouse:   number;
-  otherTechnical: number;
-  netGFA:        number;
-  gsaGla:        number;
-  buaExcl:       number;  // BUA excluding MEP & Basement
-  tba:           number;  // Total Built Area
-}
-
-export function computeAreaCascade(input: AreaCascadeInputs): AreaCascadeResult {
-  const gfa             = Math.max(0, input.gfa);
-  const mepPct          = clampPct(input.mepPct);
-  const backOfHousePct  = clampPct(input.backOfHousePct);
-  const otherTechPct    = clampPct(input.otherTechnicalPct);
-  const efficiencyPct   = clampPct(input.efficiencyPct);
-  const basementShare   = Math.max(0, input.basementShare ?? 0);
-
-  const mep             = gfa * (mepPct / 100);
-  const backOfHouse     = gfa * (backOfHousePct / 100);
-  const otherTechnical  = gfa * (otherTechPct / 100);
-  const netGFA          = Math.max(0, gfa - mep - backOfHouse - otherTechnical);
-  const gsaGla          = netGFA * (efficiencyPct / 100);
-  const buaExcl         = gfa + backOfHouse + otherTechnical;
-  const tba             = buaExcl + mep + basementShare;
-
-  return { gfa, mep, backOfHouse, otherTechnical, netGFA, gsaGla, buaExcl, tba };
-}
-
-// ── 3. Parking allocator ──────────────────────────────────────────────────
-// Waterfall allocator: required bays land in Surface first (cheapest /
-// most natural), then Vertical (podium), then Basement (most expensive).
-// Capacities are caller-provided (typically derived from plot envelope
-// in @core via computePlotEnvelope: surfaceCapacityBays =
-// surfaceParkingArea / plot.surfaceBaySqm; basementCapacityBays =
-// basementUsableArea / plot.basementBaySqm; verticalCapacityBays =
-// (footprint * verticalParkingFloors) / plot.verticalBaySqm, the
-// verticalParkingFloors input is a per-asset / per-plot decision the
-// Area Program tab (M1.7/6) collects from the user).
-//
-// Returns a deficit when demand exceeds combined capacity. The Area
-// Program tab surfaces deficit > 0 as a red warning.
-
-export interface ParkingAllocationInputs {
-  totalBaysRequired:    number;
-  surfaceCapacityBays:  number;
-  verticalCapacityBays: number;
-  basementCapacityBays: number;
-}
-
-export interface ParkingAllocationResult {
-  surfaceBays:    number;
-  verticalBays:   number;
-  basementBays:   number;
-  totalAllocated: number;
-  deficit:        number;  // > 0 when demand > capacity
-}
-
-export function allocateParking(input: ParkingAllocationInputs): ParkingAllocationResult {
-  const required    = Math.max(0, Math.floor(input.totalBaysRequired));
-  const surfaceCap  = Math.max(0, Math.floor(input.surfaceCapacityBays));
-  const verticalCap = Math.max(0, Math.floor(input.verticalCapacityBays));
-  const basementCap = Math.max(0, Math.floor(input.basementCapacityBays));
-
-  const surfaceBays  = Math.min(required, surfaceCap);
-  const remaining1   = required - surfaceBays;
-  const verticalBays = Math.min(remaining1, verticalCap);
-  const remaining2   = remaining1 - verticalBays;
-  const basementBays = Math.min(remaining2, basementCap);
-  const totalAllocated = surfaceBays + verticalBays + basementBays;
-  const deficit      = required - totalAllocated;
-
-  return { surfaceBays, verticalBays, basementBays, totalAllocated, deficit };
-}
-
-// ── 4. Plot-level capacities helper ────────────────────────────────────────
-// Convenience wrapper: given a Plot's envelope output + bay-size config
-// + the number of podium floors the Area Program tab dedicates to
-// vertical parking, returns the three integer bay capacities the
-// allocator above expects. Caller-passed verticalParkingFloors (default
-// 0) is independent of plot.podiumFloors so the user can split podium
-// between retail / amenity / parking explicitly.
-
-export interface PlotCapacityInputs {
-  envelope: PlotEnvelopeAreas;
-  surfaceBaySqm:           number;
-  verticalBaySqm:          number;
-  basementBaySqm:          number;
-  verticalParkingFloors?:  number;  // default 0
-}
-
-export interface PlotCapacityResult {
-  surfaceCapacityBays:  number;
-  verticalCapacityBays: number;
-  basementCapacityBays: number;
-}
-
-export function computePlotParkingCapacity(input: PlotCapacityInputs): PlotCapacityResult {
-  const envelope = input.envelope;
-  const surfaceBaySqm  = Math.max(1, input.surfaceBaySqm);   // guard /0
-  const verticalBaySqm = Math.max(1, input.verticalBaySqm);
-  const basementBaySqm = Math.max(1, input.basementBaySqm);
-  const vertFloors     = Math.max(0, input.verticalParkingFloors ?? 0);
-
-  const surfaceCapacityBays  = Math.floor(envelope.surfaceParkingArea  / surfaceBaySqm);
-  const verticalCapacityBays = Math.floor((envelope.footprint * vertFloors) / verticalBaySqm);
-  const basementCapacityBays = Math.floor(envelope.basementUsableArea / basementBaySqm);
-
-  return { surfaceCapacityBays, verticalCapacityBays, basementCapacityBays };
+// ── Project end date ───────────────────────────────────────────────────────
+export function computeProjectEndDate(project: Project, phases: Phase[]): string {
+  if (phases.length === 0) return project.startDate;
+  const start = new Date(project.startDate);
+  if (Number.isNaN(start.getTime())) return project.startDate;
+  let maxOffset = 0;
+  for (const phase of phases) {
+    const offset =
+      (phase.constructionStart - 1) +
+      phase.constructionPeriods +
+      phase.operationsPeriods -
+      phase.overlapPeriods;
+    if (offset > maxOffset) maxOffset = offset;
+  }
+  const end = new Date(start);
+  if (project.modelType === 'monthly') {
+    end.setMonth(end.getMonth() + maxOffset);
+  } else {
+    end.setFullYear(end.getFullYear() + maxOffset);
+  }
+  end.setDate(end.getDate() - 1);
+  return end.toISOString().slice(0, 10);
 }

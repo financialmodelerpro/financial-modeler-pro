@@ -1,74 +1,416 @@
 /**
- * module1-types.ts
+ * module1-types.ts (v5 schema)
  *
- * Normalized data shape for REFM Module 1.
+ * Phase M2.0 (2026-05-06): complete rebuild to MAAD-Spec.
  *
- * Phase M1.R (2026-05-02) introduced the assets[] / phases[] / costs[]
- * model that replaced the 3 hardcoded asset arrays.
+ * Reference: MAAD Residential Cashflow v1.13 (Saudi mixed-use feasibility,
+ * 4-day model). The previous v3/v4 schema (Master Holding / Sub-Project /
+ * Plot / Zone / FAR / Cascade / Parking Allocator) has been retired
+ * entirely. Module 1 is now flat:
  *
- * Phase M1.5 (2026-05-02) layers in the full 5-tier hierarchy from
- * Architecture sheet section 1: Master Holding > Sub-Project > Phase >
- * Asset > Sub-Unit. Sub-Project becomes the parent of Phases. Each
- * Asset is bound to one Phase (and therefore to one Sub-Project),
- * which lets a single project span multiple phases with their own
- * asset lists and operations start years.
+ *   Project -> Phase[] -> Asset[] -> SubUnit[]
+ *                       -> Parcel[]                (land at project level)
+ *                       -> CostLine[]              (9 standard lines)
+ *                       -> FinancingTranche[]      (per-phase debt)
+ *                       -> EquityContribution[]    (per-phase equity)
  *
- * Phase M1.7 (2026-05-02) extends the hierarchy with Plot (and
- * optional Zone) entities BETWEEN Phase and Asset. A Plot owns the
- * physical envelope (plot area, FAR, coverage, floors, parking
- * config) and zero-or-more Zones (e.g. "1A", "1B"). Assets remain
- * phase-bound for backward compatibility but gain an optional
- * plotId / zoneId so the Area Program tab can roll the area cascade
- * (TBA -> BUA -> GFA -> GSA/GLA -> MEP -> basement parking ->
- * back-of-house -> other technical) up to the plot envelope. M1.7/1
- * is structure-only: the calc engines, AssetClass strategy fields,
- * and Area Program tab UI land in subsequent sub-commits.
+ * Hard cuts versus M1.13d:
+ *   - Master Holding   (deleted)
+ *   - Sub-Project      (renamed Project; one per workspace)
+ *   - Plot             (deleted; assets carry GFA/BUA directly)
+ *   - Zone             (deleted)
+ *   - FAR / Coverage / Podium / Typical / Public-area split (deleted)
+ *   - Parking allocator (deleted; parking is just a bay-count input)
+ *   - Build Program tab + Plot/Parcel Setup Wizards (deleted)
  *
- * Architecture references applied here:
- *   - Section 1: 5-layer hierarchy, single-project users leave MH null.
- *   - Section 1A: Plot / Zone live between Phase and Asset (M1.7).
- *   - Section 2: Category enum locked, 20 prebuilt asset types.
- *   - Section 8: Cost methods preserved verbatim from project.types.
+ * The 4 tabs that consume this schema:
+ *   1. Project & Phases     (project meta + Phase[] timing)
+ *   2. Assets & Sub-units   (Parcel[] block at top, then Asset[] cards)
+ *   3. Costs                (9 fixed cost lines, per-asset overridable)
+ *   4. Financing            (FinancingTranche[] + EquityContribution[])
  *
- * Design choices ratified by Ahmad on 2026-05-02:
- *   - Master Holding P&L / consolidation math is OUT OF SCOPE here;
- *     it lives in M8.1 (Portfolio rollup) where it belongs naturally.
- *     M1.5 is structure-only.
- *   - CostLine.phaseId semantics: undefined = global to the sub-
- *     project (applies across all its phases), defined = phase-
- *     specific. Preserves the M1.R single-phase migration as a
- *     degenerate case (no phaseId set).
- *   - AssetClass.phaseId is REQUIRED: every asset belongs to exactly
- *     one phase. The Hierarchy tab UI is the only place this can
- *     change (move-asset-between-phases).
- *   - AssetClass.plotId / zoneId are OPTIONAL (M1.7): legacy assets
- *     without a plot still load and behave as before. Assets only
- *     pick up area-cascade math once they are assigned to a plot
- *     via the Area Program tab. This preserves the M1.R / M1.5
- *     migration as a degenerate case (no plotId set).
- *   - Plot defaults (FAR 3.0, coverage 60%, basement efficiency 95%,
- *     bay sizes 25/40/44 sqm) are industry-typical seeds; they are
- *     NOT lifted from any specific project file. Users always
- *     override them per-plot in the Area Program tab.
+ * v3/v4 snapshots are intentionally NOT migrated; module1-migrate.ts
+ * returns an error so the old data does not silently upgrade to a
+ * different model.
  */
 
-import type { CostItem } from '@core/types/project.types';
+// ── Strategy enum ──────────────────────────────────────────────────────────
+// MAAD vocabulary: how an asset earns money over its life.
+//   'Sell'     -> develop and sell on completion (residential, villas)
+//   'Operate'  -> develop and run as a going concern (hotel, serviced)
+//   'Lease'    -> develop and lease to tenants (retail, office)
+//   'Hybrid'   -> sell-then-operate (e.g. branded residences sold first
+//                 then operated under a hospitality flag)
+export type AssetStrategy = 'Sell' | 'Operate' | 'Lease' | 'Hybrid';
 
-// ── Asset categories (Architecture section 2, locked enum) ─────────────────
-export type AssetCategory = 'Sell' | 'Operate' | 'Lease' | 'Hybrid';
+export const ASSET_STRATEGIES: readonly AssetStrategy[] = [
+  'Sell',
+  'Operate',
+  'Lease',
+  'Hybrid',
+] as const;
 
-// ── Pre-built asset types (Architecture section 2, 20 entries) ─────────────
-export const PREBUILT_ASSET_TYPES = {
+// ── Sub-unit categories ────────────────────────────────────────────────────
+// Drives metric semantics + which Module 2 revenue stream it feeds.
+//   'Sellable' -> sale revenue (cohort collection over construction)
+//   'Operable' -> hospitality USAH (ADR x occupancy x keys x days)
+//   'Leasable' -> retail/office NOI (rent per sqm x occupancy)
+//   'Support'  -> non-revenue (back-of-house, parking, MEP); appears in
+//                 area roll-ups but not in revenue streams
+export type SubUnitCategory = 'Sellable' | 'Operable' | 'Leasable' | 'Support';
+
+export const SUB_UNIT_CATEGORIES: readonly SubUnitCategory[] = [
+  'Sellable',
+  'Operable',
+  'Leasable',
+  'Support',
+] as const;
+
+// ── Sub-unit metric semantics ──────────────────────────────────────────────
+// 'count' -> integer inventory units (apartments, hotel keys, parking bays)
+// 'area'  -> sqm of leasable / sellable area (retail GLA, office GLA)
+export type SubUnitMetric = 'count' | 'area';
+
+// ── Land allocation mode ───────────────────────────────────────────────────
+// How parcel land is split across assets:
+//   'sqm'       -> user enters absolute sqm per asset (sum must <= total)
+//   'percent'   -> user enters % per asset (sum must == 100)
+//   'autoByBua' -> Module 1 derives % automatically as asset.bua / total bua
+export type LandAllocationMode = 'sqm' | 'percent' | 'autoByBua';
+
+export const LAND_ALLOCATION_MODES: readonly LandAllocationMode[] = [
+  'sqm',
+  'percent',
+  'autoByBua',
+] as const;
+
+// ── Project meta ───────────────────────────────────────────────────────────
+export type ModelGranularity = 'monthly' | 'annual';
+export type ProjectStatus     = 'draft' | 'active' | 'archived';
+
+export interface Project {
+  name: string;
+  currency: string;          // ISO code (e.g. 'SAR', 'USD', 'AED')
+  modelType: ModelGranularity;
+  startDate: string;         // ISO 'YYYY-MM-DD'
+  status: ProjectStatus;
+  location: string;          // free-text city / country (display only)
+}
+
+// ── Phase ──────────────────────────────────────────────────────────────────
+// Each phase has its own construction window + operations window. Periods
+// are integer counts in the model granularity (months for monthly, years
+// for annual). overlapPeriods >= 0 lets operations begin before
+// construction ends (e.g. tower 1 opens while tower 2 is still building).
+//
+// All assets, parcels, costLines, financingTranches, and
+// equityContributions are PER-PHASE. operationsStart is derived in the UI:
+//   operationsStart = constructionStart + constructionPeriods - overlapPeriods
+export interface Phase {
+  id: string;
+  name: string;
+  constructionStart: number;     // 1-indexed period number
+  constructionPeriods: number;
+  operationsPeriods: number;
+  overlapPeriods: number;
+}
+
+// ── Parcel (land) ──────────────────────────────────────────────────────────
+// Project-level land. Multiple parcels supported (mixed cash + in-kind +
+// donated land are common in MAAD models). Allocation across assets is
+// driven by landAllocationMode at the snapshot level.
+export interface Parcel {
+  id: string;
+  phaseId: string;            // parcel is bought/transferred during a phase
+  name: string;
+  area: number;               // sqm
+  rate: number;               // currency per sqm
+  cashPct: number;            // 0..100; remainder is in-kind
+  inKindPct: number;          // 0..100; cashPct + inKindPct must sum to 100
+}
+
+// ── Sub-unit ───────────────────────────────────────────────────────────────
+// Inventory beneath an asset. metricValue meaning depends on metric:
+//   metric === 'count' -> integer count (units, keys, bays)
+//   metric === 'area'  -> total sqm (GLA / GSA)
+//
+// unitArea: only meaningful when metric === 'count'. The per-unit floor
+// area in sqm. Used to compute the asset's sellable/operable/leasable
+// BUA contribution: count * unitArea.
+//
+// unitPrice: meaning depends on parent asset strategy:
+//   Sell    -> sale price per unit (or per sqm for area metrics)
+//   Operate -> ADR (per key per day) or per-key annual revenue
+//   Lease   -> rent per sqm per year
+//   Hybrid  -> sale price per unit (operate phase priced separately)
+export interface SubUnit {
+  id: string;
+  assetId: string;
+  name: string;
+  category: SubUnitCategory;
+  metric: SubUnitMetric;
+  metricValue: number;
+  unitArea?: number;            // sqm per unit (count metric only)
+  unitPrice: number;            // see strategy table above
+  priceEscalationPct?: number;  // annual escalation on unitPrice
+  // Operate-only (Module 2 picks these up; ignored for other strategies):
+  occupancyPct?: number;        // 0..100, hospitality / leasable utilisation
+  operatingMargin?: number;     // 0..100, share of revenue retained as NOI
+}
+
+// ── Asset ──────────────────────────────────────────────────────────────────
+// Top-level revenue-producing entity beneath a phase.
+//
+// landAreaSqm: directly entered when landAllocationMode === 'sqm';
+//              ignored otherwise.
+// landAreaPct: directly entered when landAllocationMode === 'percent';
+//              ignored otherwise.
+// (autoByBua mode derives both from the asset's bua share at compute
+//  time; neither field is read.)
+//
+// gfaSqm / buaSqm / sellableBuaSqm: explicit area inputs in MAAD-Spec.
+// No FAR / coverage / cascade math; the user enters whatever the
+// architect handed them. UI shows live-derived ratios (efficiency =
+// sellable / bua, etc.) as read-outs only.
+//
+// parkingBaysRequired: integer count, fed straight to the cost engine.
+// No allocator, no surface/vertical/basement split, just a number.
+export interface Asset {
+  id: string;
+  phaseId: string;
+  name: string;
+  type: string;                  // free-text, chosen from the M2.0 type bank
+  strategy: AssetStrategy;
+  visible: boolean;
+  // Land
+  landAreaSqm?: number;
+  landAreaPct?: number;
+  // Areas (entered, not derived)
+  gfaSqm: number;                // gross floor area
+  buaSqm: number;                // built-up area (subset of gfa, after MEP/BoH)
+  sellableBuaSqm: number;        // saleable / leasable area within bua
+  // Parking
+  parkingBaysRequired: number;
+}
+
+// ── Cost line ──────────────────────────────────────────────────────────────
+// MAAD's 9 standard cost lines, fixed identity (id is one of the
+// COST_LINE_KEYS constants). Per-asset overrides live in costOverrides
+// keyed by `${assetId}.${costLineKey}` (see HydrateSnapshot below).
+//
+// method:
+//   'lumpsum'        -> value is total currency amount
+//   'rate_per_bua'   -> value is currency per BUA sqm (multiplied by total BUA)
+//   'rate_per_park'  -> value is currency per parking bay (parking line only)
+//   'rate_per_land'  -> value is currency per land sqm (land/infra/landscape)
+//   'percent_of_construction' -> value is % of summed Construction lines
+//   'percent_of_total_cost'   -> value is % of summed all-other-lines
+//
+// phasing:
+//   'even'           -> spread across construction window evenly
+//   'frontloaded'    -> S-curve weighted toward early periods
+//   'backloaded'     -> S-curve weighted toward late periods
+//   'manual'         -> distribution[] supplies per-period weights (sum = 1)
+export type CostLineKey =
+  | 'land'
+  | 'constructionBua'
+  | 'constructionParking'
+  | 'infrastructure'
+  | 'landscaping'
+  | 'preOperating'
+  | 'professionalFee'
+  | 'commissionFee'
+  | 'contingency';
+
+export const COST_LINE_KEYS: readonly CostLineKey[] = [
+  'land',
+  'constructionBua',
+  'constructionParking',
+  'infrastructure',
+  'landscaping',
+  'preOperating',
+  'professionalFee',
+  'commissionFee',
+  'contingency',
+] as const;
+
+export const COST_LINE_LABELS: Record<CostLineKey, string> = {
+  land:                 'Land',
+  constructionBua:      'Construction (BUA)',
+  constructionParking:  'Construction (Parking)',
+  infrastructure:       'Infrastructure',
+  landscaping:          'Landscaping',
+  preOperating:         'Pre-operating',
+  professionalFee:      'Professional fee',
+  commissionFee:        'Commission fee',
+  contingency:          'Contingency',
+};
+
+export type CostMethod =
+  | 'lumpsum'
+  | 'rate_per_bua'
+  | 'rate_per_park'
+  | 'rate_per_land'
+  | 'percent_of_construction'
+  | 'percent_of_total_cost';
+
+export const COST_METHODS: readonly CostMethod[] = [
+  'lumpsum',
+  'rate_per_bua',
+  'rate_per_park',
+  'rate_per_land',
+  'percent_of_construction',
+  'percent_of_total_cost',
+] as const;
+
+export type CostPhasing = 'even' | 'frontloaded' | 'backloaded' | 'manual';
+
+export const COST_PHASINGS: readonly CostPhasing[] = [
+  'even',
+  'frontloaded',
+  'backloaded',
+  'manual',
+] as const;
+
+export interface CostLine {
+  key: CostLineKey;
+  phaseId: string;
+  method: CostMethod;
+  value: number;
+  phasing: CostPhasing;
+  distribution?: number[];   // manual only; length = constructionPeriods, sums to 1
+}
+
+// Per-asset override keyed by `${assetId}.${costLineKey}`. When present,
+// replaces the project-level CostLine for that asset only. Method + value +
+// phasing are all overridable; distribution rides along when phasing ===
+// 'manual'.
+export interface CostOverride {
+  assetId: string;
+  key: CostLineKey;
+  method: CostMethod;
+  value: number;
+  phasing: CostPhasing;
+  distribution?: number[];
+}
+
+// ── Financing tranche ──────────────────────────────────────────────────────
+// Per-phase debt instrument. Multiple tranches per phase supported (senior
+// + mezzanine, multi-currency, etc.). All financial math is currency-
+// neutral; the UI assumes the tranche pulls from the project's currency.
+//
+// drawdownMethod:
+//   'sameAsCost'      -> tranche draws in lockstep with the construction
+//                        capex curve (default for most projects)
+//   'evenOverPhase'   -> equal slices across constructionPeriods
+//   'frontloaded'     -> S-curve weighted toward early periods
+//   'backloaded'      -> S-curve weighted toward late periods
+//   'manual'          -> drawdownDistribution[] supplies per-period weights
+//
+// repaymentMethod:
+//   'fixedSchedule'   -> straight-line principal across repaymentPeriods,
+//                        interest accrues on outstanding balance
+//   'cashSweep'       -> all available cash above cashFloorPct goes to
+//                        principal until extinguished
+//   'bullet'          -> interest-only during ops, principal due at
+//                        repaymentPeriods (single bullet payment)
+//
+// idcCapitalize: when true, interest during construction (period <=
+// constructionEnd) is added to principal rather than paid. When false,
+// IDC is expensed in P&L during construction and reduces equity.
+//
+// cashSweep-only fields:
+//   sweepStartPeriod: 0 (default) sweeps continuously; positive integer
+//                     defers sweep until that period.
+//   cashFloorPct:     % of monthly cash retained before sweep applies.
+export type DrawdownMethod =
+  | 'sameAsCost'
+  | 'evenOverPhase'
+  | 'frontloaded'
+  | 'backloaded'
+  | 'manual';
+
+export const DRAWDOWN_METHODS: readonly DrawdownMethod[] = [
+  'sameAsCost',
+  'evenOverPhase',
+  'frontloaded',
+  'backloaded',
+  'manual',
+] as const;
+
+export type RepaymentMethod = 'fixedSchedule' | 'cashSweep' | 'bullet';
+
+export const REPAYMENT_METHODS: readonly RepaymentMethod[] = [
+  'fixedSchedule',
+  'cashSweep',
+  'bullet',
+] as const;
+
+export interface FinancingTranche {
+  id: string;
+  phaseId: string;
+  name: string;
+  // Sizing
+  ltvPct: number;                  // 0..100, share of phase capex funded by debt
+  // Pricing
+  interestRatePct: number;         // annual %, divided by 12 for monthly model
+  // Drawdown
+  drawdownMethod: DrawdownMethod;
+  drawdownDistribution?: number[]; // manual only; length = constructionPeriods
+  // Repayment
+  repaymentMethod: RepaymentMethod;
+  repaymentPeriods: number;        // 0 means tranche stays open until paid via cash sweep / bullet
+  // Cash-sweep only
+  sweepStartPeriod?: number;
+  cashFloorPct?: number;
+  // IDC
+  idcCapitalize: boolean;
+}
+
+// ── Equity contribution ────────────────────────────────────────────────────
+// Per-phase equity injection. Multiple contributions per phase supported
+// (sponsor + LP, staged commitments). Contribution amount is the
+// remainder after debt covers ltvPct of capex, but explicit contributions
+// override the default split.
+//
+// timing:
+//   'upfront'     -> single contribution in constructionStart
+//   'evenOverPhase' -> equal slices across constructionPeriods
+//   'manual'      -> distribution[] supplies per-period weights
+export type EquityTiming = 'upfront' | 'evenOverPhase' | 'manual';
+
+export const EQUITY_TIMINGS: readonly EquityTiming[] = [
+  'upfront',
+  'evenOverPhase',
+  'manual',
+] as const;
+
+export interface EquityContribution {
+  id: string;
+  phaseId: string;
+  name: string;
+  amount: number;             // currency
+  timing: EquityTiming;
+  distribution?: number[];    // manual only; length = constructionPeriods
+}
+
+// ── Asset type bank ────────────────────────────────────────────────────────
+// Reference list of asset types per strategy. UI offers these as auto-
+// complete suggestions; user can free-text any other type.
+export const ASSET_TYPES_BY_STRATEGY: Record<AssetStrategy, readonly string[]> = {
   Sell: [
     'Branded Villas',
     'Branded Apartments',
     'High-end Villas',
     'High-end Apartments',
+    'Class A Apartments',
     'Class B Apartments',
+    'Townhouses',
   ],
   Operate: [
-    'Hotel 4-star',
     'Hotel 5-star',
+    'Hotel 4-star',
+    'Hotel 3-star',
     'Resort',
     'Serviced Apartments',
     'Senior Living',
@@ -81,475 +423,118 @@ export const PREBUILT_ASSET_TYPES = {
     'Healthcare',
     'Self-Storage',
     'Data Center',
+    'Mixed Retail / F&B',
   ],
-  Hybrid: ['Marina', 'Cinema', 'Mixed-Use'],
-} as const;
+  Hybrid: [
+    'Branded Residences',
+    'Mixed-Use Tower',
+    'Lifestyle Cluster',
+  ],
+};
 
-// ── Master Holding (Architecture section 1, optional top-level) ────────────
-// When `enabled === false` the rest of the fields are inert; the toggle
-// in the Hierarchy tab flips this. Single-project users keep enabled
-// false and the panel stays hidden.
-export interface MasterHolding {
-  id: string;
-  name: string;
-  enabled: boolean;
-  // Master-level land cost (separate from per-sub-project lands).
-  // Held as a simple { method, value } pair until M1.6 fleshes out a
-  // full land-parcel structure for MH.
-  landCostMethod: 'fixed' | 'rate_total_allocated';
-  landCostValue: number;
-  // Master-level debt for land acquisition. Term in periods (months
-  // for monthly model, years for annual).
-  masterDebtPrincipal: number;
-  masterDebtRate: number;
-  masterDebtTermPeriods: number;
-}
-
-// ── Sub-Project (Architecture section 1, "Fund") ───────────────────────────
-// Independent financing unit. Today most projects are 1 sub-project; a
-// "fund of zones" project has multiple. Currency is per-sub-project
-// per the v1 currency note in section 3 (multi-currency deferred to v2).
-export interface SubProject {
-  id: string;
-  name: string;
-  currency: string;
-  // null = standalone sub-project. When set, the sub-project rolls up
-  // into the named MH and pays revenueShareToMaster %.
-  masterHoldingId: string | null;
-  revenueShareToMaster: number;
-}
-
-// ── Phase (extended from M1.R) ──────────────────────────────────────────────
-// New in M1.5: subProjectId binds the phase to its parent sub-project.
-// All other fields preserved.
-export interface Phase {
-  id: string;
-  name: string;
-  subProjectId: string;
-  constructionStart: number;
-  constructionPeriods: number;
-  operationsStart: number;
-  operationsPeriods: number;
-  overlapPeriods: number;
-}
-
-// ── Asset (extended from M1.R) ──────────────────────────────────────────────
-// New in M1.5: subProjectId + phaseId are REQUIRED. Every asset belongs
-// to exactly one phase, which transitively binds it to one sub-project.
-// The Hierarchy tab is the canonical place to set / change these.
-//
-// New in M1.7: plotId / zoneId are OPTIONAL. An asset is only included
-// in the Area Program cascade once it has been assigned to a plot via
-// the Area Program tab. Legacy / pre-M1.7 assets keep these undefined
-// and behave exactly as before. AssetClass strategy fields land in
-// M1.7/3 (primaryStrategy + allocation %, optional secondary).
-export interface AssetClass {
-  id: string;
-  name: string;
-  type: string;
-  category: AssetCategory;
-  allocationPct: number;
-  deductPct: number;
-  efficiencyPct: number;
-  visible: boolean;
-  subProjectId: string;
-  phaseId: string;
-  // M1.7: optional plot binding. Keep undefined for assets that pre-date
-  // the Area Program tab; set via the Area Program tab (M1.7/5).
-  plotId?: string;
-  zoneId?: string;
-  // M1.7/3: strategy + secondary allocation. Primary defaults to
-  // DEFAULT_STRATEGY_BY_CATEGORY[category] when unset; primaryStrategyPct
-  // defaults to 100 (i.e. the asset is fully one strategy). Secondary
-  // is undefined unless the user enables a split (e.g. strata-sell
-  // ground-floor retail of an otherwise leased tower).
-  primaryStrategy?:    AssetStrategy;
-  primaryStrategyPct?: number;
-  secondaryStrategy?:  AssetStrategy;
-  secondaryStrategyPct?: number;
-  // M1.7/3: per-asset area-cascade assumption inputs feeding
-  // computeAreaCascade. All optional, Area Program tab seeds
-  // industry-typical defaults (mep 12, BoH 8, otherTech 4) when
-  // undefined and the user can override per-asset.
-  mepPct?:            number;
-  backOfHousePct?:    number;
-  otherTechnicalPct?: number;
-  // Per-asset GFA allocation override on this plot. When undefined,
-  // the asset takes a pro-rata share of the plot's totalBuiltGFA in
-  // proportion to its allocationPct (the existing field) within the
-  // plot. Setting this fixes the asset's GFA in absolute sqm.
-  gfaOverrideSqm?:    number;
-}
-
-// ── Industry-typical area-cascade defaults (M1.7/3) ────────────────────────
-// Used by the Area Program tab when an asset lacks per-asset overrides.
-// Sources: developer-side rules of thumb. MEP higher for hospitality
-// (cooling/kitchen loads), BoH higher for hospitality (laundry / staff
-// areas), other-tech relatively constant.
-export const DEFAULT_AREA_CASCADE_BY_CATEGORY: Record<AssetCategory, {
-  mepPct: number; backOfHousePct: number; otherTechnicalPct: number;
+// ── Default occupancy + operating margin per strategy (Module 2 seed) ──────
+// Used to pre-fill SubUnit.occupancyPct / operatingMargin when the user
+// adds a sub-unit. Operate uses hospitality industry typicals; Lease uses
+// stabilised retail typicals; Sell + Hybrid leave them undefined (no
+// recurring revenue concept during the sell phase).
+export const DEFAULT_OPERATIONS_BY_STRATEGY: Record<AssetStrategy, {
+  occupancyPct?: number;
+  operatingMargin?: number;
 }> = {
-  Sell:    { mepPct:  8, backOfHousePct:  3, otherTechnicalPct: 3 },
-  Lease:   { mepPct: 12, backOfHousePct:  5, otherTechnicalPct: 4 },
-  Operate: { mepPct: 15, backOfHousePct: 12, otherTechnicalPct: 5 },
-  Hybrid:  { mepPct: 12, backOfHousePct:  8, otherTechnicalPct: 4 },
+  Sell:    {},
+  Operate: { occupancyPct: 65, operatingMargin: 35 },
+  Lease:   { occupancyPct: 92, operatingMargin: 80 },
+  Hybrid:  {},
 };
-
-// ── Strategy enum (Architecture section 1A; Project West vocabulary) ──────
-// A Plot's assets each pick a Primary Strategy + an optional Secondary
-// Strategy with allocation %. Strategy expresses the operating model:
-//   'Develop & Sell'   , sell on completion (residential / villas / etc.)
-//   'Develop & Lease'  , lease to tenants on completion (retail / office)
-//   'Develop & Operate', operate as a going concern (hotel / serviced)
-// Strategy is RELATED TO but distinct from AssetCategory: an Operate-
-// category hotel typically uses 'Develop & Operate' Primary, but a
-// Lease-category retail asset can carry 'Develop & Sell' as a Secondary
-// (e.g. strata-sell ground-floor retail while leasing the rest). The
-// AssetClass.primaryStrategy / secondaryStrategy fields are added in
-// M1.7/3 alongside the rest of the area-cascade extensions.
-export type AssetStrategy = 'Develop & Sell' | 'Develop & Lease' | 'Develop & Operate';
-
-export const ASSET_STRATEGIES: readonly AssetStrategy[] = [
-  'Develop & Sell',
-  'Develop & Lease',
-  'Develop & Operate',
-] as const;
-
-// Default strategy lookup keyed by AssetCategory. Used when the user
-// adds a new asset on a Plot without specifying a strategy explicitly:
-// the Area Program tab (M1.7/5) seeds primaryStrategy from this map.
-export const DEFAULT_STRATEGY_BY_CATEGORY: Record<AssetCategory, AssetStrategy> = {
-  Sell:    'Develop & Sell',
-  Lease:   'Develop & Lease',
-  Operate: 'Develop & Operate',
-  Hybrid:  'Develop & Sell',  // Hybrid defaults to Sell; user picks Secondary explicitly.
-};
-
-// ── Plot (NEW in M1.7; Architecture section 1A) ────────────────────────────
-// A Plot is the physical land parcel beneath a Phase. It owns the
-// envelope inputs (plot area, FAR, coverage, floors) plus parking
-// config, and parents zero-or-more Zones and one-or-more Assets.
-//
-// Computed fields (NOT stored on Plot, derived in @core/calculations
-// in M1.7/2):
-//   maxGFA      = plotArea * maxFAR
-//   footprint   = plotArea * coveragePct/100
-//   publicArea  = plotArea - footprint
-//   podiumGFA   = footprint * podiumFloors
-//   typicalGFA  = (plotArea * typicalCoveragePct/100) * typicalFloors
-//   totalBuiltGFA = podiumGFA + typicalGFA  (must be <= maxGFA; UI warns on overshoot)
-//
-// Parking calculation (M1.7/2): Surface bays consume publicArea (after
-// landscape/hardscape allocation), Vertical bays consume podium floors,
-// Basement bays consume basementCount * footprint * basementEfficiencyPct/100.
-export interface Plot {
-  id: string;
-  name: string;
-  phaseId: string;
-  // Envelope
-  plotArea: number;        // sqm
-  maxFAR: number;          // ratio (e.g. 3.0)
-  coveragePct: number;     // % of plotArea (drives podium footprint)
-  // Floors
-  numberOfFloors: number;  // total floors above ground (informational)
-  podiumFloors: number;    // count
-  typicalFloors: number;   // count
-  typicalCoveragePct: number; // % of plotArea (for typical floor plates above podium)
-  // Optional shape (for plate / massing tools later; UI may derive from area)
-  length?: number;         // m
-  width?: number;          // m
-  // Public-area allocation (% of publicArea = plotArea - footprint)
-  landscapePct: number;    // %
-  hardscapePct: number;    // %  (the rest of public area is available for surface parking)
-  // Parking config
-  surfaceBaySqm:          number; // sqm per surface parking bay
-  verticalBaySqm:         number; // sqm per vertical (podium) parking bay
-  basementBaySqm:         number; // sqm per basement parking bay
-  basementCount:          number; // # of basement levels
-  basementEfficiencyPct:  number; // % of footprint usable for parking per basement level
-  // M1.7/6 (optional): podium floors dedicated to vertical parking.
-  // Independent of plot.podiumFloors so the user can split podium
-  // between retail / amenity / parking explicitly. Defaults to 0
-  // (no vertical parking), surface + basement absorb demand.
-  verticalParkingFloors?: number;
-}
-
-// ── Zone (NEW in M1.7; optional sub-grouping under Plot) ───────────────────
-// A Zone is an optional logical sub-division of a Plot, e.g. a single
-// 100,000 sqm plot might carry "Zone 1A" (residential tower cluster) and
-// "Zone 1B" (mixed-use podium). Zones do NOT affect the area cascade by
-// themselves; they are grouping labels that the Area Program tab uses to
-// segment per-asset rollups when the user wants to slice a single
-// envelope into multiple operating clusters.
-export interface Zone {
-  id: string;
-  name: string;
-  plotId: string;
-  // Optional share of the parent plot's area. When undefined the zone
-  // inherits no area on its own, it is a pure label. When set, the
-  // Area Program tab can warn if zones[].areaSharePct sum > 100% on the
-  // same plot.
-  areaSharePct?: number;
-}
-
-// ── Sub-Unit (NEW in M1.5; Architecture section 1 + section 7) ─────────────
-// Inventory unit beneath an asset. Metric semantics depend on the parent
-// asset's category:
-//   Sell    -> metric='count' (units), unitPrice = price per unit
-//   Operate -> metric='count' (keys),  unitPrice = ADR or per-key value
-//   Lease   -> metric='area'  (sqm),   unitPrice = rent per sqm/year
-//   Hybrid  -> caller chooses; UI offers both forms per stream
-export interface SubUnit {
-  id: string;
-  assetId: string;
-  name: string;
-  metric: 'count' | 'area';
-  metricValue: number;
-  unitPrice: number;
-  priceEscalationPct?: number;
-  // M1.7/3: parking demand inputs.
-  //   metric === 'count': parkingBaysPerUnit means bays per dwelling /
-  //     hotel key. Default lookup via DEFAULT_PARKING_BAYS_BY_SUBUNIT_TYPE
-  //     keyed on `name` (e.g. "Studio" -> 1.0, "2BR" -> 1.6, "Hotel
-  //     Key" -> 1.0). Custom names default to 1.0 in the Area Program
-  //     tab seed logic.
-  //   metric === 'area': parkingBaysPerUnit means bays per 25 sqm of
-  //     the asset's GFA share for this sub-unit (e.g. Office "1.0"
-  //     means 1 bay / 25 sqm GFA). The Area Program tab divides
-  //     metricValue by 25 before multiplying.
-  parkingBaysPerUnit?: number;
-  // Per-sub-unit GFA / GLA allocation share (for assets where one
-  // SubUnit type covers part of an asset's GLA, e.g. retail asset
-  // with Anchor (40%), In-line (50%), F&B (10%)). When omitted the
-  // sub-unit is treated as having metricValue * unitArea sqm via
-  // metric semantics.
-  gfaSharePct?: number;
-}
-
-// ── CostLine (extended from M1.R) ──────────────────────────────────────────
-// New in M1.5: optional subProjectId. Today it always equals the cost's
-// asset's subProjectId, but storing it explicitly lets future
-// project-scope cost rows (per Architecture section 8) live without
-// being tied to a single asset.
-//
-// phaseId semantics (finalized in M1.5):
-//   undefined -> cost is GLOBAL to its sub-project (applies across all
-//                phases). This is the migrated-from-v3 default.
-//   defined   -> cost is PHASE-SPECIFIC; only contributes to that
-//                phase's capex curve.
-export interface CostLine extends CostItem {
-  assetId: string;
-  phaseId?: string;
-  subProjectId?: string;
-}
 
 // ── Canonical default ids ──────────────────────────────────────────────────
-export const LEGACY_ASSET_IDS = {
-  residential: 'residential',
-  hospitality: 'hospitality',
-  retail:      'retail',
-} as const;
-
-export type LegacyAssetId = (typeof LEGACY_ASSET_IDS)[keyof typeof LEGACY_ASSET_IDS];
-
-export const DEFAULT_SUB_PROJECT_ID = 'subproject_1';
-export const DEFAULT_PHASE_ID       = 'phase_1';
-export const DEFAULT_MASTER_HOLDING_ID = 'mh_1';
-export const DEFAULT_PLOT_ID        = 'plot_1';
-
-// ── Industry-typical Plot defaults (M1.7, retuned M1.10) ───────────────────
-// Seeds for a brand-new plot. NOT lifted from any specific project; users
-// always override these per-plot in the Area Program tab. Source: common
-// developer-side rules of thumb (FAR 3.0, coverage 60%) and surveyed
-// regional bay-size standards (Surface 25 sqm incl. drive, Vertical 40
-// sqm incl. ramps, Basement 44 sqm incl. ramps + walls).
-//
-// M1.10: floor + typical-coverage defaults retuned so a fresh plot is
-// inside its FAR ceiling on first paint regardless of plot size. Math
-// is plot-area-invariant: utilisation = (coverage * podium + typicalCoverage
-// * typical) / (FAR * 100). Old defaults gave (60*2 + 40*10)/(3*100) =
-// 173.3% (Over FAR badge fired immediately). New defaults give
-// (60*1 + 30*6)/(3*100) = 80%, clean headroom for the user to upsize.
-export const DEFAULT_PLOT_FAR                    = 3.0;
-export const DEFAULT_PLOT_COVERAGE_PCT           = 60;
-export const DEFAULT_PLOT_TYPICAL_COVERAGE_PCT   = 30;
-export const DEFAULT_PLOT_LANDSCAPE_PCT          = 40;
-export const DEFAULT_PLOT_HARDSCAPE_PCT          = 40;
-export const DEFAULT_PLOT_NUMBER_OF_FLOORS       = 7;
-export const DEFAULT_PLOT_PODIUM_FLOORS          = 1;
-export const DEFAULT_PLOT_TYPICAL_FLOORS         = 6;
-export const DEFAULT_PLOT_BASEMENT_COUNT         = 1;
-export const DEFAULT_PLOT_BASEMENT_EFFICIENCY_PCT = 95;
-export const PARKING_BAY_SQM_SURFACE  = 25;
-export const PARKING_BAY_SQM_VERTICAL = 40;
-export const PARKING_BAY_SQM_BASEMENT = 44;
-
-// ── Sub-Unit parking ratio defaults (M1.7; consumed in M1.7/3) ─────────────
-// Lookup keyed by sub-unit type label. Residential ratios are bays-per-
-// unit; hospitality ratios are bays-per-key; lease-class (office /
-// retail) ratios are bays-per-25-sqm-GFA. The Area Program tab seeds
-// SubUnit.parkingBaysPerUnit from this table when the user picks a
-// known type; custom types default to 1.0 with a hint to adjust.
-export const DEFAULT_PARKING_BAYS_BY_SUBUNIT_TYPE: Record<string, number> = {
-  // Residential, bays per dwelling
-  'Studio': 1.0,
-  '1BR':    1.0,
-  '2BR':    1.6,
-  '3BR':    2.0,
-  'Apartments Type 1':   1.0,
-  'Apartments Type 2':   1.6,
-  'Apartments Type 3':   2.0,
-  'Branded Residences':  2.0,
-  // Hospitality, bays per key
-  'Hotel Key':          1.0,
-  'Serviced Apartment': 1.0,
-  // Lease, bays per 25 sqm GFA (M1.7/2 calc engine handles the
-  // /25 conversion when sub-unit metric === 'area'; the value here is
-  // the per-25-sqm bay count, so 1.0 means 1 bay / 25 sqm).
-  'Office':  1.0,
-  'Retail':  1.0,
-};
+export const DEFAULT_PHASE_ID  = 'phase_1';
+export const DEFAULT_PARCEL_ID = 'parcel_1';
 
 // ── Factories ──────────────────────────────────────────────────────────────
-export function makeDefaultSubProject(name: string, currency: string): SubProject {
-  return {
-    id: DEFAULT_SUB_PROJECT_ID,
-    name,
-    currency,
-    masterHoldingId: null,
-    revenueShareToMaster: 0,
-  };
-}
-
 export function makeDefaultPhase(
-  subProjectId: string,
-  constructionPeriods: number,
-  operationsPeriods: number,
-  overlapPeriods: number,
+  id: string = DEFAULT_PHASE_ID,
+  name: string = 'Phase 1',
+  constructionPeriods = 24,
+  operationsPeriods = 60,
+  overlapPeriods = 0,
 ): Phase {
   return {
-    id: DEFAULT_PHASE_ID,
-    name: 'Phase 1',
-    subProjectId,
+    id,
+    name,
     constructionStart: 1,
     constructionPeriods,
-    operationsStart: Math.max(1, constructionPeriods - overlapPeriods + 1),
     operationsPeriods,
     overlapPeriods,
   };
 }
 
-// ── M1.7/3 resolvers for asset / sub-unit defaults ────────────────────────
-// Pure helpers callers (Area Program tab + verify-m17.ts + future Excel
-// export) use to read effective values when the persisted asset / sub-
-// unit field is undefined. Keeps the per-type logic in one place so
-// future tweaks (e.g. region-specific parking ratios) live next to
-// the constants they override.
-
-export function resolveAssetStrategy(asset: Pick<AssetClass, 'category' | 'primaryStrategy'>): AssetStrategy {
-  return asset.primaryStrategy ?? DEFAULT_STRATEGY_BY_CATEGORY[asset.category];
-}
-
-export function resolveAssetCascadePcts(asset: Pick<AssetClass, 'category' | 'mepPct' | 'backOfHousePct' | 'otherTechnicalPct'>): {
-  mepPct: number; backOfHousePct: number; otherTechnicalPct: number;
-} {
-  const def = DEFAULT_AREA_CASCADE_BY_CATEGORY[asset.category];
-  return {
-    mepPct:            asset.mepPct            ?? def.mepPct,
-    backOfHousePct:    asset.backOfHousePct    ?? def.backOfHousePct,
-    otherTechnicalPct: asset.otherTechnicalPct ?? def.otherTechnicalPct,
-  };
-}
-
-export function resolveSubUnitParkingBays(subUnit: Pick<SubUnit, 'name' | 'metric' | 'metricValue' | 'parkingBaysPerUnit'>): number {
-  const ratio = subUnit.parkingBaysPerUnit ?? DEFAULT_PARKING_BAYS_BY_SUBUNIT_TYPE[subUnit.name] ?? 1.0;
-  if (subUnit.metric === 'count') {
-    return Math.max(0, subUnit.metricValue) * ratio;
-  }
-  // metric === 'area': ratio is bays-per-25-sqm
-  return (Math.max(0, subUnit.metricValue) / 25) * ratio;
-}
-
-// Plot factory (M1.7). Industry-typical defaults; users override per-plot
-// in the Area Program tab. plotArea is required from the caller because
-// there is no sensible default, callers either pull it from a land
-// parcel (most common) or accept the user's input from the Area Program
-// tab's "Add Plot" form.
-export function makeDefaultPlot(id: string, name: string, phaseId: string, plotArea: number): Plot {
+export function makeDefaultParcel(
+  id: string = DEFAULT_PARCEL_ID,
+  phaseId: string = DEFAULT_PHASE_ID,
+  name: string = 'Land 1',
+  area = 100000,
+  rate = 500,
+): Parcel {
   return {
     id,
-    name,
     phaseId,
-    plotArea,
-    maxFAR:                DEFAULT_PLOT_FAR,
-    coveragePct:           DEFAULT_PLOT_COVERAGE_PCT,
-    numberOfFloors:        DEFAULT_PLOT_NUMBER_OF_FLOORS,
-    podiumFloors:          DEFAULT_PLOT_PODIUM_FLOORS,
-    typicalFloors:         DEFAULT_PLOT_TYPICAL_FLOORS,
-    typicalCoveragePct:    DEFAULT_PLOT_TYPICAL_COVERAGE_PCT,
-    landscapePct:          DEFAULT_PLOT_LANDSCAPE_PCT,
-    hardscapePct:          DEFAULT_PLOT_HARDSCAPE_PCT,
-    surfaceBaySqm:         PARKING_BAY_SQM_SURFACE,
-    verticalBaySqm:        PARKING_BAY_SQM_VERTICAL,
-    basementBaySqm:        PARKING_BAY_SQM_BASEMENT,
-    basementCount:         DEFAULT_PLOT_BASEMENT_COUNT,
-    basementEfficiencyPct: DEFAULT_PLOT_BASEMENT_EFFICIENCY_PCT,
+    name,
+    area,
+    rate,
+    cashPct: 60,
+    inKindPct: 40,
   };
 }
 
-export function makeDefaultMasterHolding(): MasterHolding {
+export function makeDefaultProject(
+  name: string = 'New Project',
+  currency: string = 'SAR',
+  modelType: ModelGranularity = 'annual',
+): Project {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, '0');
+  const dd = String(now.getDate()).padStart(2, '0');
   return {
-    id: DEFAULT_MASTER_HOLDING_ID,
-    name: 'Master Holding',
-    enabled: false,
-    landCostMethod: 'fixed',
-    landCostValue: 0,
-    masterDebtPrincipal: 0,
-    masterDebtRate: 0,
-    masterDebtTermPeriods: 0,
+    name,
+    currency,
+    modelType,
+    startDate: `${yyyy}-${mm}-${dd}`,
+    status: 'draft',
+    location: '',
   };
 }
 
-// ── Defaults ───────────────────────────────────────────────────────────────
-// The 3 canonical legacy assets, now bound to the default sub-project +
-// default phase. Used only by the migrator when upgrading an existing
-// v2/v3 snapshot. Brand-new projects start with assets=[] (M1.5 default
-// init drops the 3-asset seed; users add assets via the Hierarchy tab).
-export const DEFAULT_LEGACY_ASSETS: AssetClass[] = [
-  {
-    id: LEGACY_ASSET_IDS.residential,
-    name: 'Residential',
-    type: 'High-end Apartments',
-    category: 'Sell',
-    allocationPct: 50,
-    deductPct: 10,
-    efficiencyPct: 85,
-    visible: true,
-    subProjectId: DEFAULT_SUB_PROJECT_ID,
-    phaseId:      DEFAULT_PHASE_ID,
-  },
-  {
-    id: LEGACY_ASSET_IDS.hospitality,
-    name: 'Hospitality',
-    type: 'Hotel 5-star',
-    category: 'Operate',
-    allocationPct: 30,
-    deductPct: 15,
-    efficiencyPct: 80,
-    visible: true,
-    subProjectId: DEFAULT_SUB_PROJECT_ID,
-    phaseId:      DEFAULT_PHASE_ID,
-  },
-  {
-    id: LEGACY_ASSET_IDS.retail,
-    name: 'Retail',
-    type: 'Retail',
-    category: 'Lease',
-    allocationPct: 20,
-    deductPct: 5,
-    efficiencyPct: 90,
-    visible: true,
-    subProjectId: DEFAULT_SUB_PROJECT_ID,
-    phaseId:      DEFAULT_PHASE_ID,
-  },
-];
+// Default cost lines for a freshly minted phase. Values are the MAAD
+// reference defaults (Saudi mixed-use); UI exposes them all for edit.
+export function makeDefaultCostLines(phaseId: string): CostLine[] {
+  return [
+    { key: 'land',                 phaseId, method: 'lumpsum',                 value: 0,    phasing: 'even' },
+    { key: 'constructionBua',      phaseId, method: 'rate_per_bua',            value: 4500, phasing: 'frontloaded' },
+    { key: 'constructionParking',  phaseId, method: 'rate_per_park',           value: 60000, phasing: 'frontloaded' },
+    { key: 'infrastructure',       phaseId, method: 'rate_per_land',           value: 350,  phasing: 'frontloaded' },
+    { key: 'landscaping',          phaseId, method: 'rate_per_land',           value: 150,  phasing: 'backloaded' },
+    { key: 'preOperating',         phaseId, method: 'lumpsum',                 value: 0,    phasing: 'backloaded' },
+    { key: 'professionalFee',      phaseId, method: 'percent_of_construction', value: 6,    phasing: 'even' },
+    { key: 'commissionFee',        phaseId, method: 'percent_of_construction', value: 2,    phasing: 'backloaded' },
+    { key: 'contingency',          phaseId, method: 'percent_of_total_cost',   value: 5,    phasing: 'even' },
+  ];
+}
+
+export function makeDefaultFinancingTranche(
+  id: string,
+  phaseId: string,
+): FinancingTranche {
+  return {
+    id,
+    phaseId,
+    name: 'Senior debt',
+    ltvPct: 60,
+    interestRatePct: 7.5,
+    drawdownMethod: 'sameAsCost',
+    repaymentMethod: 'fixedSchedule',
+    repaymentPeriods: 60,
+    idcCapitalize: true,
+  };
+}
