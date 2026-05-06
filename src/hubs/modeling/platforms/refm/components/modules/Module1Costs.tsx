@@ -334,12 +334,15 @@ interface CostRowProps {
   // M2.0g Addendum 2: caller supplies a period -> label resolver so
   // Start / End columns display "Dec 25" alongside the integer input.
   periodLabel: (idx: number) => string;
+  // M2.0g Addendum 1: phase construction periods so Manual % phasing
+  // can render per-period % inputs.
+  constructionPeriods: number;
 }
 
 function CostRow({
   asset, line, override, total, isLocked,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
-  currency, scale, periodLabel,
+  currency, scale, periodLabel, constructionPeriods,
 }: CostRowProps): React.JSX.Element {
   // M2.0g Fix 6: Stage label still drives the row background + summary
   // tables, but the Direct/Indirect label is dropped (per-asset cost
@@ -398,10 +401,42 @@ function CostRow({
     if (override) onRemoveOverride();
   };
 
+  // M2.0g Addendum 1: per-period % distribution editor (Manual % phasing).
+  // The distribution array sits on either the line OR the per-asset
+  // override. writeDistribution merges in place.
+  const effDistribution = override?.distribution ?? line.distribution ?? [];
+  const writeDistribution = (next: number[]): void => {
+    if (isProjectWide) {
+      onUpdateOverride({ assetId: asset.id, lineId: line.id, method: effMethod, value: effValue, phasing: effPhasing, distribution: next, disabled: override?.disabled });
+    } else {
+      onUpdateLine({ distribution: next });
+    }
+  };
+  const updateDistAt = (idx: number, val: number): void => {
+    const periods = Math.max(1, line.endPeriod - line.startPeriod + 1);
+    const dist = Array.from({ length: periods }, (_, i) => effDistribution[i] ?? 0);
+    dist[idx] = Math.max(0, val);
+    writeDistribution(dist);
+  };
+  const autoNormalize = (): void => {
+    const periods = Math.max(1, line.endPeriod - line.startPeriod + 1);
+    const dist = Array.from({ length: periods }, (_, i) => effDistribution[i] ?? 0);
+    const total = dist.reduce((s, v) => s + v, 0);
+    if (total === 0) {
+      // even spread fallback
+      const even = 100 / periods;
+      writeDistribution(dist.map(() => even));
+      return;
+    }
+    writeDistribution(dist.map((v) => (v / total) * 100));
+  };
+  const distSum = effDistribution.reduce((s, v) => s + (v ?? 0), 0);
+
   // Stage tooltip text (M2.0g Fix 6: scope label removed)
   const stageTooltip = `Stage: ${COST_STAGE_LABELS[stage]} (auto-derived).`;
 
   return (
+    <>
     <tr
       data-testid={`cost-row-${asset.id}-${line.id}`}
       style={{
@@ -534,6 +569,66 @@ function CostRow({
         )}
       </td>
     </tr>
+    {/* M2.0g Addendum 1: Manual % per-period inputs sub-row.
+        Renders only when the effective phasing is 'manual'. The
+        period range is [line.startPeriod, line.endPeriod]; one input
+        per period in that range. Sum indicator + auto-normalize
+        button on the right. */}
+    {effPhasing === 'manual' && (() => {
+      const periods = Math.max(1, line.endPeriod - line.startPeriod + 1);
+      const sumOk = Math.abs(distSum - 100) < 0.5;
+      return (
+        <tr data-testid={`cost-row-${asset.id}-${line.id}-manual-row`} style={{ background: 'var(--color-grey-pale)' }}>
+          <td colSpan={8} style={{ padding: '8px 12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>
+                Manual %
+              </strong>
+              {Array.from({ length: periods }, (_, i) => {
+                const periodIdx = line.startPeriod + i;
+                return (
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.1}
+                      value={effDistribution[i] ?? 0}
+                      onChange={(e) => updateDistAt(i, parseFloat(e.target.value) || 0)}
+                      disabled={isLocked}
+                      data-testid={`cost-${asset.id}-${line.id}-manual-${i}`}
+                      style={{ ...inputStyle, width: 60, fontSize: 11 }}
+                    />
+                    <span style={{ fontSize: 9, color: 'var(--color-meta)' }}>{periodLabel(periodIdx)}</span>
+                  </div>
+                );
+              })}
+              <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, color: sumOk ? 'var(--color-success)' : 'var(--color-accent-warm)' }} data-testid={`cost-${asset.id}-${line.id}-manual-sum`}>
+                Sum: {distSum.toFixed(1)}% {sumOk ? '✓' : '(need 100%)'}
+              </span>
+              <button
+                type="button"
+                onClick={autoNormalize}
+                disabled={isLocked}
+                data-testid={`cost-${asset.id}-${line.id}-manual-normalize`}
+                style={{
+                  fontSize: 11,
+                  padding: '4px 10px',
+                  background: 'var(--color-navy)',
+                  color: 'var(--color-on-primary-navy)',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  cursor: isLocked ? 'not-allowed' : 'pointer',
+                }}
+              >
+                Auto-normalize
+              </button>
+            </div>
+          </td>
+        </tr>
+      );
+    })()}
+    </>
   );
 }
 
@@ -546,6 +641,7 @@ interface AssetCostSectionProps {
   currency: string;
   scale: DisplayScale;
   periodLabel: (idx: number) => string;
+  constructionPeriods: number;
   onUpdateLine: (lineId: string, patch: Partial<CostLine>) => void;
   onUpdateOverride: (override: CostOverride) => void;
   onRemoveOverride: (assetId: string, lineId: string) => void;
@@ -554,7 +650,7 @@ interface AssetCostSectionProps {
 }
 
 function AssetCostSection({
-  asset, lines, costOverrides, breakdown, currency, scale, periodLabel,
+  asset, lines, costOverrides, breakdown, currency, scale, periodLabel, constructionPeriods,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   onAddCustom,
 }: AssetCostSectionProps): React.JSX.Element {
@@ -625,6 +721,7 @@ function AssetCostSection({
                     currency={currency}
                     scale={scale}
                     periodLabel={periodLabel}
+                    constructionPeriods={constructionPeriods}
                     onUpdateLine={(patch) => onUpdateLine(line.id, patch)}
                     onUpdateOverride={onUpdateOverride}
                     onRemoveOverride={() => onRemoveOverride(asset.id, line.id)}
@@ -1068,6 +1165,7 @@ export default function Module1Costs(): React.JSX.Element {
                   currency={project.currency}
                   scale={scale}
                   periodLabel={periodLabelFn}
+                  constructionPeriods={pb.cp}
                   onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
                   onUpdateOverride={setCostOverride}
                   onRemoveOverride={removeCostOverride}
