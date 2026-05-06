@@ -18,6 +18,7 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import {
   type Asset,
   type AssetStrategy,
+  type ManagementAgreement,
   type Parcel,
   type SubUnit,
   type SubUnitCategory,
@@ -26,9 +27,12 @@ import {
   ASSET_STRATEGIES,
   ASSET_TYPES_BY_STRATEGY,
   DEFAULT_OPERATIONS_BY_STRATEGY,
+  DEFAULT_MANAGEMENT_AGREEMENT,
+  DEFAULT_USEFUL_LIFE_YEARS,
   SUB_UNIT_CATEGORIES,
   LAND_ALLOCATION_MODES,
 } from '../../lib/state/module1-types';
+import { resolveUsefulLifeYears } from '@/src/core/calculations';
 import {
   computeAssetBua,
   computeAssetSellableBua,
@@ -82,6 +86,16 @@ const tableHeaderLabelStyle: React.CSSProperties = {
 
 const fmt = (n: number, digits = 0): string =>
   Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: digits }) : 'n/a';
+
+// M2.0d: long-form strategy labels for the dropdown. The stored enum
+// stays the short slug (Sell / Operate / Lease / Sell + Manage); the
+// label only changes display text so users see the accounting intent.
+const STRATEGY_LABELS: Record<AssetStrategy, string> = {
+  'Sell':          'Sell, build and sell units (residential apartments)',
+  'Operate':       'Operate (Own), build, retain, operate (hotel ownership)',
+  'Lease':         'Lease (Own), build, retain, lease (retail ownership)',
+  'Sell + Manage': 'Sell + Manage, sell to investors, manage via agreement (Tower pattern)',
+};
 
 export default function Module1Assets(): React.JSX.Element {
   const {
@@ -556,7 +570,7 @@ function AssetCard({
           >
             {ASSET_STRATEGIES.map((s) => (
               <option key={s} value={s}>
-                {s}
+                {STRATEGY_LABELS[s]}
               </option>
             ))}
           </select>
@@ -715,6 +729,20 @@ function AssetCard({
           />
         </div>
       </div>
+
+      {asset.strategy === 'Sell + Manage' && (
+        <ManagementAgreementForm
+          asset={asset}
+          onUpdate={onUpdate}
+        />
+      )}
+
+      {(asset.strategy === 'Operate' || asset.strategy === 'Lease') && (
+        <UsefulLifeForm
+          asset={asset}
+          onUpdate={onUpdate}
+        />
+      )}
 
       <div
         style={{
@@ -904,6 +932,172 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove }: SubUnitRowProps):
       >
         x
       </button>
+    </div>
+  );
+}
+
+// ── M2.0d: Management Agreement form (Sell + Manage strategy only) ────────
+interface ManagementAgreementFormProps {
+  asset: Asset;
+  onUpdate: (patch: Partial<Asset>) => void;
+}
+
+function ManagementAgreementForm({ asset, onUpdate }: ManagementAgreementFormProps): React.JSX.Element {
+  const ag = asset.managementAgreement ?? DEFAULT_MANAGEMENT_AGREEMENT;
+  const setAg = (patch: Partial<ManagementAgreement>): void => {
+    onUpdate({ managementAgreement: { ...ag, ...patch } });
+  };
+  return (
+    <div
+      style={{
+        border: '1px solid var(--color-navy)',
+        background: 'var(--color-navy-pale)',
+        borderRadius: 'var(--radius)',
+        padding: 'var(--sp-2)',
+        marginBottom: 'var(--sp-2)',
+      }}
+      data-testid={`asset-${asset.id}-mgmt-agreement`}
+    >
+      <strong style={{ fontSize: 'var(--font-small)', display: 'block', marginBottom: 'var(--sp-1)' }}>
+        Management Agreement, Sell + Manage
+      </strong>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)' }}>
+        <div>
+          <InputLabel
+            label="Management Fee %"
+            help="Share of operating revenue accruing to the developer post-handover. Default 30%."
+            inputId={`asset-${asset.id}-mgmt-fee`}
+          />
+          <input
+            id={`asset-${asset.id}-mgmt-fee`}
+            data-testid={`asset-${asset.id}-mgmt-fee`}
+            type="number"
+            min={0}
+            max={100}
+            value={ag.managementFeePct}
+            onChange={(e) => {
+              const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+              // Auto-adjust owner share to 100 - fee unless user already
+              // typed a non-defaulting value.
+              const ownerAuto = 100 - v;
+              setAg({ managementFeePct: v, ownerRevenueSharePct: ownerAuto });
+            }}
+            style={inputStyle}
+          />
+        </div>
+        <div>
+          <InputLabel
+            label="Owner Share %"
+            help="Share to unit owners. Auto = 100 minus fee. Editable when atypical."
+            inputId={`asset-${asset.id}-mgmt-owner-share`}
+          />
+          <input
+            id={`asset-${asset.id}-mgmt-owner-share`}
+            data-testid={`asset-${asset.id}-mgmt-owner-share`}
+            type="number"
+            min={0}
+            max={100}
+            value={ag.ownerRevenueSharePct}
+            onChange={(e) => setAg({ ownerRevenueSharePct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
+            style={inputStyle}
+          />
+        </div>
+        <div>
+          <InputLabel
+            label="Start Period"
+            help="Optional. When the management fee revenue starts. Defaults to handover (sales schedule end) when blank."
+            inputId={`asset-${asset.id}-mgmt-start`}
+          />
+          <input
+            id={`asset-${asset.id}-mgmt-start`}
+            data-testid={`asset-${asset.id}-mgmt-start`}
+            type="number"
+            min={0}
+            value={ag.agreementStartPeriod ?? 0}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setAg({ agreementStartPeriod: v > 0 ? v : undefined });
+            }}
+            style={inputStyle}
+          />
+        </div>
+        <div>
+          <InputLabel
+            label="Duration (periods)"
+            help="Optional. Blank = perpetual. In project granularity (years for annual, months for monthly)."
+            inputId={`asset-${asset.id}-mgmt-duration`}
+          />
+          <input
+            id={`asset-${asset.id}-mgmt-duration`}
+            data-testid={`asset-${asset.id}-mgmt-duration`}
+            type="number"
+            min={0}
+            value={ag.agreementDurationPeriods ?? 0}
+            onChange={(e) => {
+              const v = Number(e.target.value);
+              setAg({ agreementDurationPeriods: v > 0 ? v : undefined });
+            }}
+            style={inputStyle}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── M2.0d: Useful Life form (Operate / Lease strategies only) ─────────────
+interface UsefulLifeFormProps {
+  asset: Asset;
+  onUpdate: (patch: Partial<Asset>) => void;
+}
+
+function UsefulLifeForm({ asset, onUpdate }: UsefulLifeFormProps): React.JSX.Element {
+  const resolved = resolveUsefulLifeYears(asset);
+  const explicit = asset.usefulLifeYears && asset.usefulLifeYears > 0;
+  const fallback = asset.strategy === 'Operate' ? DEFAULT_USEFUL_LIFE_YEARS.hospitality
+                  : asset.strategy === 'Lease'   ? DEFAULT_USEFUL_LIFE_YEARS.retail
+                  : DEFAULT_USEFUL_LIFE_YEARS.default;
+  return (
+    <div
+      style={{
+        border: '1px solid var(--color-border)',
+        background: 'var(--color-grey-pale)',
+        borderRadius: 'var(--radius)',
+        padding: 'var(--sp-2)',
+        marginBottom: 'var(--sp-2)',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(4, 1fr)',
+        gap: 'var(--sp-2)',
+        alignItems: 'flex-end',
+      }}
+      data-testid={`asset-${asset.id}-useful-life`}
+    >
+      <div>
+        <InputLabel
+          label="Useful Life (years)"
+          help="Depreciation horizon for Operate / Lease assets. Blank uses category default. Land never depreciates regardless."
+          inputId={`asset-${asset.id}-useful-life-input`}
+        />
+        <input
+          id={`asset-${asset.id}-useful-life-input`}
+          data-testid={`asset-${asset.id}-useful-life-input`}
+          type="number"
+          min={0}
+          value={asset.usefulLifeYears ?? 0}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            onUpdate({ usefulLifeYears: v > 0 ? v : undefined });
+          }}
+          placeholder={`default ${fallback}`}
+          style={inputStyle}
+        />
+      </div>
+      <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)' }}>
+        <strong>Resolved:</strong> {resolved} years
+        {!explicit && (
+          <span style={{ display: 'block', marginTop: 2 }}>(category default)</span>
+        )}
+      </div>
     </div>
   );
 }
