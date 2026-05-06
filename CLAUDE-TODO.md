@@ -4,6 +4,82 @@
 
 ---
 
+## Recently Completed, REFM Module 1 Phase M2.0g Display + Reconciliation + Costs Restructure + v8 Schema (2026-05-06, 11 commits)
+
+Closes M2.0g. Resolves the 7 testing-feedback items + 3 addendum items Ahmad raised on M2.0f. Pivotal v7 → v8 schema bump: inputs are entered annually, output granularity (`outputGranularity: 'annual' | 'quarterly' | 'monthly'`) replaces `project.modelType`, phase periods are now always integer YEARS regardless of the eventual statement granularity. Pre-v8 monthly snapshots are migrated by aggregating each phase's `constructionPeriods / operationsPeriods / overlapPeriods` from months to years (×12 → ×1).
+
+**Per-commit shape:** 11 commits. Snapshot baseline regenerated twice (M2.0g/3 after end-of-period date convention change, then M2.0g/9 after the v8 schema bump): `scripts/baselines/module1-v5.json` ends at 47.8 KB sha256 22923b5275a7.
+
+| # | What changed |
+|---|--------------|
+| M2.0g/1 (Fix 1) | Period end-of-period dates: `periodEndDate(start, periods, modelType)` returns the LAST DAY of the last period (Dec 31 of year N for annual, last day of month N for monthly), not the FIRST DAY of period N+1. `computePhaseTimeline` + `computeProjectEndDate` re-anchored. MAAD endYear changes 2039 → 2038. |
+| M2.0g/2 (Fix 2) | Tab 2 land reconciliation block at top of Module1Assets. New testIds: `land-reconciliation`, `land-reconciliation-parcels-sqm`, `land-reconciliation-allocated-sqm`, `land-reconciliation-status` (matches / mismatch by N sqm). Parcel dropdown defaults to first parcel + adds Weighted Average + Custom Rate options (`PARCEL_WEIGHTED_AVG` / `PARCEL_CUSTOM_RATE` sentinels). |
+| M2.0g/3 | Snapshot baseline regenerated for end-of-period date drift (47.8 KB sha256 f30d5d219e57). |
+| M2.0g/4 (Fix 3 + Addendum 3) | Wizard Step 1 grows Display Scale radio block (full / thousands / millions) + always-years column headers in Step 2 (regardless of Reporting Granularity). New `wiz-displayScale-*` testIds. Reporting Granularity replaces Model Granularity label. |
+| M2.0g/5 (Fix 4 + 5) | Tab 2 asset card grows asset-level Support / Parking inputs (`supportArea`, `parkingArea`) + BUA reconciliation block with itemized breakdown (Sellable + Operable + Leasable + Support + Parking = BUA Total). Drops sub-unit category 'Parking' (asset-level instead). |
+| M2.0g/6 | Display scale formatters (`formatScaled`, `formatScaledCurrency`, `formatInteger`) added to `@core/formatters`. Display scale threaded into Module1ProjectPhases / Module1Assets / Module1Costs / Module1Financing. |
+| M2.0g/7 (Fix 7) | Module1Costs gains Inputs / Results sub-tabs (`costs-sub-tabs`, `costs-sub-tab-inputs`, `costs-sub-tab-results`). Results tab renders 4 summary tables (Capex by Period per cost-line, Capex by Stage transposed, Capex by Treatment, NEW Capex by Cost Type per Asset) all with Total in 2nd column. Direct / Indirect labels removed (Fix 6). Period labels Y0/Dec 25 (Addendum 2). |
+| M2.0g/8 (Addendum 1) | Manual % phasing UI restoration. Selecting `phasing='manual'` on a cost line reveals per-period inputs (`*-manual-row`), live sum (`*-manual-sum`), and auto-normalize button (`*-manual-normalize`) that proportionally scales values to 100%. |
+| M2.0g/9 (Addendum 3) | **v7 → v8 schema bump.** `SCHEMA_VERSION = 8`. New helpers: `isV8Snapshot`, `migrateV7ToV8` (aggregates monthly phase periods 12 → 1), `migrateM20gParkingSubUnits` (drops 'Parking' sub-units, sums area into `asset.parkingArea`). `Project.modelType` removed; `Project.outputGranularity` (`'annual' \| 'quarterly' \| 'monthly'`) added. New cost methods: `rate_x_support_area`, `rate_x_parking_area`, `rate_x_specific_subunit`. Snapshot baseline regenerated: 47.8 KB sha256 22923b5275a7. |
+| M2.0g/10 | NEW `scripts/verify-m20g.ts` (5 sections, 68 pass / 0 fail / 2 skip without dev server, **canonical green**). All prior M2.0[d-f] verifiers still green via loosen-prior-verifier precedent (M2.0e ProjectTypes assertion `>= 6` not `=== 6`; M2.0d cost methods `>= 14` not `=== 14`). |
+| M2.0g/11 | NEW `tests/e2e/m20g-display-recon-costs.spec.ts` (5 specs covering wizard Step 1 Display Scale + Reporting Granularity, Tab 3 Inputs/Results sub-tabs, Tab 2 land reconciliation, Tab 2 asset card asset-level Support/Parking + BUA reconciliation, Manual % phasing per-period inputs). Light/dark screenshots into `tests/screenshots/M2.0g/`. Docs sweep across CLAUDE.md (M2.0g closure block + M2.0f re-titled "foundation for M2.0g"). |
+
+**Verification at phase close (all green):**
+- `npm run type-check`: clean
+- `verify-m20g.ts`: 68 pass / 0 fail / 2 skip without dev server (canonical green for the v8 schema)
+- `verify-m20[d-f].ts`: still pass after the loosen-prior-verifier precedent
+- Playwright `m20g-display-recon-costs.spec.ts`: 5 specs
+
+**M2.0g pattern decisions for downstream phases:**
+- Inputs are always annual; granularity is an output-time concern only. Module 5 Statements + Module 3 Cashflow consume v8 snapshots and produce annual / quarterly / monthly views by aggregation, not re-input.
+- Display Scale is a model-wide property (`project.displayScale`). All numeric tiles + tables thread through `formatScaled` / `formatScaledCurrency`. Module 2 Revenue should adopt the same pattern from day one.
+- End-of-period dates (Dec 31 / last day of month) are the canonical date convention going forward. `periodEndDate(start, periods, modelType)` is the single helper; never compute end as `start + periods` directly.
+- Sub-unit category 'Parking' is retired; asset-level `parkingArea` is the source of truth. Module 2 Revenue should bind parking-related revenue (paid parking, valet) to `asset.parkingArea` directly.
+- Costs Tab Inputs/Results split is the canonical pattern for any tab that has both editable rows and roll-up summary tables. Module 2 Revenue + Module 3 OpEx + Module 5 Statements should follow the same shape.
+
+**Schema bump v7 → v8 is the third hard-cut.** Pre-v8 snapshots flag with "Schema migrated to v8. Please recreate this project." Same precedent as v5→v6, v6→v7.
+
+---
+
+## Recently Completed, REFM Module 1 Phase M2.0f Structural Fixes (2026-05-06, 6 commits)
+
+Closes M2.0f. Resolves 6 testing-feedback items Ahmad raised after M2.0e (header clipping, multi-parcel allocation per-parcel rates, project type catalog 6 → 14, Phase Start Date persistence to Tab 1, project end-date off-by-one, sub-unit BUA as source of truth). Additive on v7 schema (no SCHEMA_VERSION bump within M2.0f; v8 ships in M2.0g).
+
+**Per-commit shape:** 6 commits, baseline regenerated once mid-phase.
+
+| # | What changed |
+|---|--------------|
+| M2.0f/1 (Fix 1) | `app/globals.css` `.pm-toolbar` `position: fixed` → `position: sticky; top: 0`. Removes a redundant 40px top offset that clipped the page header below the topbar at viewport scroll. `.module-view` removes redundant padding so the dashboard fills the new sticky envelope correctly. |
+| M2.0f/2 (Fix 2) | Multi-parcel land allocation. New `AssetLandAllocation` shape (`mode: 'single' \| 'split' \| 'weighted'`) with optional `parcelSplits[]` (per-parcel sqm + cash% + in-kind%). New sentinels: `PARCEL_WEIGHTED_AVG` (allocate proportionally to all parcels), `PARCEL_CUSTOM_RATE` (per-parcel custom rate). New calc helpers: `computeAssetLandBreakdown`, `validateLandAllocation`. Module1Assets per-asset land card renders mode toggles + per-parcel rows. |
+| M2.0f/3 (Fix 3) | `PROJECT_TYPES` expanded 6 → 14: adds Industrial, Data Center, Education, Healthcare, Marina, Hospitality + Branded Residences, Senior Living, Self-Storage. `SUGGESTED_CATEGORIES_BY_PROJECT_TYPE` + `ASSET_TYPES_BY_PROJECT_TYPE` updated. Wizard Step 3 radio block grows to 14 entries. |
+| M2.0f/4 (Fix 4 + 5) | Phase Start Date persistence to Tab 1 (was wizard-only in M2.0e). Module1ProjectPhases gains a date input column wired to `phase.startDate`. Computed end columns (Construction End, Operations Start, Operations End) display via `periodEndDate` helper. Project end-date off-by-one fix: `computeProjectEndDate` now returns last day of last period, not first day of next period. |
+| M2.0f/5 (Fix 6) | Sub-unit BUA as source of truth. `Asset.buaTotal` removed; new `computeAssetAreaTotals(asset, subUnits)` derives `buaTotal` + per-category sums + parking totals. Module1Assets BUA reconciliation block displays `derivedBuaTotal` from sub-units. Calc engine updated end-to-end (computeAssetCost reads `computeAssetAreaTotals(asset, subUnits)` instead of `asset.buaTotal`). |
+| M2.0f/6 | NEW `scripts/verify-m20f.ts` (61 pass / 0 fail / 2 skip without dev server). NEW `tests/e2e/m20f-structural-fixes.spec.ts` (4 specs covering 6 fixes). Snapshot baseline regenerated for the BUA derivation drift. Docs sweep. |
+
+**Verification at phase close (all green):**
+- `npm run type-check`: clean
+- `verify-m20f.ts`: 61 pass / 0 fail / 2 skip without dev server
+- Playwright `m20f-structural-fixes.spec.ts`: 4 specs
+
+---
+
+## Recently Completed, REFM Module 1 Phase M2.0e Wizard Simplification + Tab 2 Full Asset Entry (2026-05-06, 8 commits)
+
+Closes M2.0e. Wizard simplifies to capture only project shape (basics + phases + land + project type); detail entry lives in Tab 2 going forward. Additive schema (no SCHEMA_VERSION bump, v7 stays).
+
+| # | What changed |
+|---|--------------|
+| M2.0e/1 | Schema additions: `Phase.startDate?`, `Asset.status?`, `Project.projectType?` + `PROJECT_TYPES` (6) + `ASSET_STATUSES` (3). New catalogs: `ASSET_TYPES_BY_PROJECT_TYPE` + `SUGGESTED_CATEGORIES_BY_PROJECT_TYPE`. New helpers: `computePhaseTimeline(phase, project)`, `computeProjectTimeline`. |
+| M2.0e/2 | Wizard Step 2 column headers gain unit suffix tracking `draft.modelType` ("Construction (years)" / "(months)"). New Phase Start Date column inserted before Construction. addPhase auto-defaults next phase startDate = prior.startDate + prior.constructionPeriods. |
+| M2.0e/3 | Wizard Step 3 simplified. `WizardDraftAsset` interface retired. `WizardDraft.assets[]` removed. `WizardDraft.projectType` added (single ProjectType pick). Step 3 collapses from per-asset card grid into a single 6-radio project-type pick + a "Tab 2 will suggest" preview. |
+| M2.0e/4 | Tab 2 rewrite. Per-phase asset sections replace the flat "Assets" list. AssetCard rebuilt with header row (name + Phase dropdown reassign + Strategy + Type catalog filtered via `resolveTypeCatalog` + Status pill + Visible + Delete). Sub-unit table with new column shape (Type / Category / Metric / Area / Unit Size / Count / Rate / Rate Unit). Card footer with BUA reconciliation + efficiency % + land cost. |
+| M2.0e/5 | Snapshot baseline regenerated 47.8 KB sha256 824ef8e1706d (drift sources: phase.startDate populated, project.projectType: 'Mixed-Use', Asset.status: 'planned', Asset 3 type renamed to match Mixed-Use catalog). |
+| M2.0e/6 | NEW `scripts/verify-m20e.ts` (58 pass / 0 fail / 2 skip without dev server). |
+| M2.0e/7 | NEW `tests/e2e/m20e-wizard-tab2.spec.ts` (6 specs). |
+| M2.0e/8 | Docs sweep: CLAUDE.md M2.0e closure block, scripts table updated. |
+
+---
+
 ## Recently Completed, REFM Module 1 Phase M1.13b Inline-Layout Polish (2026-05-06, 5 commits)
 
 Closes M1.13b. Eliminates the standalone "Computed Envelope" / "Cascade Preview" / "Timeline Summary" panels added in M1.13 and re-anchors every formula caption inline directly beneath the input row that completes its formula. Reads as a continuous flow of input + formula + input + formula instead of input grid then panel of formulas at the bottom.
@@ -780,14 +856,23 @@ Closes Phase 4. Every component under `src/hubs/modeling/platforms/refm/` is now
 
 ## Not Started, REFM Modules
 
+> Module 1 ships production-ready on the v8 schema after M2.0g (2026-05-06). Next phase is **M2.1 Revenue Analysis**, which consumes the v8 HydrateSnapshot. Pattern decisions for downstream modules are codified at the bottom of CLAUDE.md M2.0g closure block (rate-unit → revenue stream mapping, asset.status revenue gating, sub-unit category drives revenue source, asset-level parkingArea consumption, Inputs/Results sub-tab pattern).
+
 | Module | Name | Status |
 |--------|------|--------|
-| Module 2 | Revenue Analysis | Stub only |
+| Module 2 | Revenue Analysis | Stub only (next up; reads v8 HydrateSnapshot, asset.status gates revenue per period, rate-unit drives revenue stream) |
 | Module 3 | Operating Expenses | Stub only |
 | Module 4 | Returns & Valuation | Stub only |
-| Module 5 | Financial Statements | Stub only |
+| Module 5 | Financial Statements | Stub only (consumes `classifyAssetCapex` + `computeCashFlowImpact` from M2.0d unchanged) |
 | Module 6 | Reports & Visualizations | Stub only |
 | Modules 7–11 | (various) | Placeholder stubs |
+
+**Deferred from M2.0 / M2.0g (carried forward):**
+- Module 2 Revenue: cohort collection (Sell + Sell+Manage), hospitality USAH (Operate + count), retail NOI (Lease + area), mixed strategy. Asset.status drives revenue gating (`planned` no revenue, `construction` pre-sale only, `operational` full).
+- Module 3 Cashflow: real surplus-driven cash sweep math (today straight-lines outstanding balance).
+- Module 5 Statements: full IDC schedule breakdown (capitalised vs paid in cash post-construction).
+- Excel + PDF exports: stub modal in M2.0; rebuild against v8 in M2.1+.
+- Wizard polish: type bank auto-pre-fills GFA/BUA defaults from sub-unit metric; preset templates ("Saudi mixed-use", "Branded residences", "Hotel-led resort") seed Tab 2 with industry-typical asset mixes.
 
 ---
 
