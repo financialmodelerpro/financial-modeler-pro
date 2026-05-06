@@ -31,6 +31,8 @@ import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import {
   type Asset,
+  type AssetLandAllocation,
+  type AssetParcelSplit,
   type AssetStrategy,
   type AssetStatus,
   type ManagementAgreement,
@@ -54,13 +56,12 @@ import {
   LAND_ALLOCATION_MODES,
 } from '../../lib/state/module1-types';
 import {
-  computeAssetBua,
-  computeAssetSellableBua,
-  computeAssetLandCost,
+  computeAssetLandBreakdown,
   computeLandAggregate,
   computeSubUnitArea,
   computePhaseTimeline,
   resolveUsefulLifeYears,
+  validateLandAllocation,
 } from '@/src/core/calculations';
 import InputLabel from '../ui/InputLabel';
 
@@ -154,9 +155,10 @@ function statusBadgeStyle(status: AssetStatus): React.CSSProperties {
 }
 
 // Rate Unit derivation for sub-unit table column: combo of category +
-// metric tells us what the "Rate" column means.
+// metric tells us what the "Rate" column means. M2.0f Fix 6: Parking
+// joins Support as a non-revenue category (cost only).
 function rateUnitLabel(category: SubUnitCategory, metric: SubUnitMetric): string {
-  if (category === 'Support') return '';
+  if (category === 'Support' || category === 'Parking') return '';
   if (category === 'Sellable') return metric === 'count' ? 'per unit' : 'per sqm';
   if (category === 'Operable') return metric === 'count' ? 'per room/night' : 'per sqm/year';
   if (category === 'Leasable') return metric === 'count' ? 'per unit/year' : 'per sqm/year';
@@ -209,6 +211,12 @@ export default function Module1Assets(): React.JSX.Element {
   // Aggregate land across all phases (M2.0e: parcels can spread across
   // phases). Land allocation mode applies project-wide.
   const aggregate = useMemo(() => computeLandAggregate(parcels), [parcels]);
+  // M2.0f Fix 2: under/over allocation banner. Mode A only (sqm); modes B
+  // and C are auto-balanced by definition.
+  const landValidation = useMemo(
+    () => validateLandAllocation(parcels, assets, landAllocationMode),
+    [parcels, assets, landAllocationMode],
+  );
 
   // Build per-phase asset groups, sorted by startDate / constructionStart
   const phaseGroups = useMemo(() => {
@@ -226,20 +234,22 @@ export default function Module1Assets(): React.JSX.Element {
   }, [phases, assets, project]);
 
   // Global totals computed across all visible assets (post-strategy
-  // category rollup).
+  // category rollup). M2.0f Fix 6: Parking is a discrete category now.
   const globals = useMemo(() => {
-    let totalBua = 0, sellable = 0, operable = 0, leasable = 0;
+    let totalBua = 0, sellable = 0, operable = 0, leasable = 0, support = 0, parking = 0;
     for (const a of assets.filter((x) => x.visible)) {
-      totalBua += computeAssetBua(a, subUnits);
       const aSubUnits = subUnits.filter((u) => u.assetId === a.id);
       for (const u of aSubUnits) {
         const area = computeSubUnitArea(u);
+        totalBua += area;
         if (u.category === 'Sellable') sellable += area;
         else if (u.category === 'Operable') operable += area;
         else if (u.category === 'Leasable') leasable += area;
+        else if (u.category === 'Support') support += area;
+        else if (u.category === 'Parking') parking += area;
       }
     }
-    return { totalBua, sellable, operable, leasable };
+    return { totalBua, sellable, operable, leasable, support, parking };
   }, [assets, subUnits]);
 
   const handleAddParcel = (): void => {
@@ -360,6 +370,27 @@ export default function Module1Assets(): React.JSX.Element {
             </label>
           ))}
         </div>
+        {landAllocationMode === 'sqm' && landValidation.status !== 'ok' && (
+          <div
+            style={{
+              marginTop: 'var(--sp-2)',
+              padding: 'var(--sp-1) var(--sp-2)',
+              borderRadius: 'var(--radius-sm)',
+              fontSize: 'var(--font-small)',
+              background: landValidation.status === 'over' ? 'var(--color-warning-bg)' : 'var(--color-grey-pale)',
+              border: `1px solid ${landValidation.status === 'over' ? 'var(--color-negative)' : 'var(--color-border)'}`,
+              color: landValidation.status === 'over' ? 'var(--color-negative)' : 'var(--color-meta)',
+            }}
+            data-testid="land-allocation-validation"
+          >
+            {landValidation.status === 'over' && (
+              <>Over-allocation: assets request <strong>{fmt(landValidation.allocatedSqm)} sqm</strong> but parcels total <strong>{fmt(landValidation.parcelTotalSqm)} sqm</strong> (excess {fmt(landValidation.overAllocatedSqm)} sqm).</>
+            )}
+            {landValidation.status === 'under' && (
+              <>Under-allocation: <strong>{fmt(landValidation.unallocatedSqm)} sqm</strong> of land is unassigned (parcels total {fmt(landValidation.parcelTotalSqm)} sqm, assets request {fmt(landValidation.allocatedSqm)} sqm). Assign in each asset card or set aside.</>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Per-phase asset sections */}
@@ -384,7 +415,7 @@ export default function Module1Assets(): React.JSX.Element {
       {/* Global totals */}
       <div style={{ ...sectionCardStyle, background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }} data-testid="assets-globals">
         <h3 style={{ fontSize: 'var(--font-h3)', margin: 0, marginBottom: 'var(--sp-2)', color: 'var(--color-on-primary-navy)' }}>Project Totals</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--sp-2)', fontSize: 'var(--font-small)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 'var(--sp-2)', fontSize: 'var(--font-small)' }}>
           <div>
             <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total BUA</div>
             <strong style={{ fontSize: 16 }} data-testid="globals-total-bua">{fmt(globals.totalBua)} sqm</strong>
@@ -400,6 +431,14 @@ export default function Module1Assets(): React.JSX.Element {
           <div>
             <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Leasable</div>
             <strong style={{ fontSize: 16 }} data-testid="globals-leasable">{fmt(globals.leasable)} sqm</strong>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Support</div>
+            <strong style={{ fontSize: 16 }} data-testid="globals-support">{fmt(globals.support)} sqm</strong>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Parking</div>
+            <strong style={{ fontSize: 16 }} data-testid="globals-parking">{fmt(globals.parking)} sqm</strong>
           </div>
           <div>
             <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Land Cost</div>
@@ -588,14 +627,59 @@ function AssetCard({
   );
   const [collapsed, setCollapsed] = useState(false);
   const assetSubUnits = subUnits.filter((u) => u.assetId === asset.id);
-  const derivedBua = computeAssetBua(asset, subUnits);
-  const derivedSellable = computeAssetSellableBua(asset, subUnits);
-  const landCost = computeAssetLandCost(asset, parcels, allAssets, subUnits, landAllocationMode);
-  const subUnitBuaSum = assetSubUnits.reduce((s, u) => s + computeSubUnitArea(u), 0);
+  // M2.0f Fix 6: BUA totals derive from sub-units. Asset.buaSqm /
+  // sellableBuaSqm fields stay on the schema for v7 compat but are
+  // now read-only display lines (no longer hand-editable inputs).
+  const derivedBua = assetSubUnits.reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const sellableSum = assetSubUnits
+    .filter((u) => u.category === 'Sellable')
+    .reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const operableSum = assetSubUnits
+    .filter((u) => u.category === 'Operable')
+    .reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const leasableSum = assetSubUnits
+    .filter((u) => u.category === 'Leasable')
+    .reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const supportSum = assetSubUnits
+    .filter((u) => u.category === 'Support')
+    .reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const parkingSum = assetSubUnits
+    .filter((u) => u.category === 'Parking')
+    .reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const derivedSellable = sellableSum + operableSum + leasableSum;
+  // M2.0f Fix 2: per-parcel breakdown drives the land cost summary.
+  const landBreakdown = computeAssetLandBreakdown(asset, parcels, allAssets, subUnits, landAllocationMode);
+  const landCost = landBreakdown.landValue;
   const efficiency = derivedBua > 0 ? (derivedSellable / derivedBua) * 100 : 0;
-  // Reconciliation: asset.buaSqm typed value vs sub-unit area sum.
-  const reconciles = asset.buaSqm === 0 || Math.abs(asset.buaSqm - subUnitBuaSum) < 1;
-  const reconcileDiff = asset.buaSqm - subUnitBuaSum;
+
+  const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
+  const allocation: AssetLandAllocation = asset.landAllocation ?? {};
+
+  const setAllocation = (patch: Partial<AssetLandAllocation>): void => {
+    onUpdate({
+      landAllocation: { ...allocation, ...patch },
+      // Mirror legacy fields when the structured shape is set so any
+      // legacy reader still sees consistent data.
+      landAreaSqm: patch.sqm !== undefined ? patch.sqm : asset.landAreaSqm,
+      landAreaPct: patch.pct !== undefined ? patch.pct : asset.landAreaPct,
+    });
+  };
+
+  const addSplit = (): void => {
+    const fallbackParcel = phaseParcels[0]?.id ?? '';
+    const newSplit: AssetParcelSplit = { parcelId: fallbackParcel, sqm: 0 };
+    setAllocation({
+      multiParcelSplits: [...(allocation.multiParcelSplits ?? []), newSplit],
+    });
+  };
+  const removeSplit = (idx: number): void => {
+    const next = (allocation.multiParcelSplits ?? []).filter((_, i) => i !== idx);
+    setAllocation({ multiParcelSplits: next.length > 0 ? next : undefined });
+  };
+  const updateSplit = (idx: number, patch: Partial<AssetParcelSplit>): void => {
+    const list = (allocation.multiParcelSplits ?? []).map((sp, i) => (i === idx ? { ...sp, ...patch } : sp));
+    setAllocation({ multiParcelSplits: list });
+  };
 
   const handleAddSubUnit = (): void => {
     const ops = DEFAULT_OPERATIONS_BY_STRATEGY[asset.strategy];
@@ -708,40 +792,176 @@ function AssetCard({
             <UsefulLifeForm asset={asset} onUpdate={onUpdate} />
           )}
 
-          {/* Land + areas row */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
-            {landAllocationMode === 'sqm' && (
-              <div>
-                <InputLabel label="Land Area (sqm)" help="Direct sqm assigned to this asset from the parcel pool." inputId={`asset-${asset.id}-landAreaSqm`} />
-                <input id={`asset-${asset.id}-landAreaSqm`} data-testid={`asset-${asset.id}-landAreaSqm`} type="number" min={0} value={asset.landAreaSqm ?? 0} onChange={(e) => onUpdate({ landAreaSqm: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+          {/* M2.0f Fix 2: Land row (parcel dropdown + sqm/% input + multi-parcel splits)
+              + M2.0f Fix 6: Areas row (BUA + breakdown derived from sub-units; GFA optional input). */}
+          <div
+            style={{
+              border: '1px dashed var(--color-border)',
+              borderRadius: 'var(--radius)',
+              padding: 'var(--sp-2)',
+              marginBottom: 'var(--sp-2)',
+              background: 'var(--color-grey-pale)',
+            }}
+            data-testid={`asset-${asset.id}-land-allocation-block`}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-1)' }}>
+              <strong style={{ fontSize: 'var(--font-small)' }}>Land Allocation</strong>
+              {landAllocationMode === 'sqm' && (
+                <button
+                  type="button"
+                  onClick={addSplit}
+                  data-testid={`asset-${asset.id}-add-parcel-split`}
+                  style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', border: 'none', borderRadius: 'var(--radius-sm)', padding: '2px 10px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}
+                >
+                  + Add Parcel Allocation
+                </button>
+              )}
+            </div>
+
+            {(allocation.multiParcelSplits && allocation.multiParcelSplits.length > 0) ? (
+              // Multi-parcel split mode: each row picks a parcel + sqm. Land
+              // cost computes per-parcel using each parcel's own rate.
+              <div data-testid={`asset-${asset.id}-multi-parcel-section`}>
+                {allocation.multiParcelSplits.map((sp, idx) => {
+                  const parcel = phaseParcels.find((p) => p.id === sp.parcelId);
+                  const rate = parcel ? parcel.rate : 0;
+                  const value = Math.max(0, sp.sqm) * rate;
+                  return (
+                    <div
+                      key={idx}
+                      style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 2fr auto', gap: 'var(--sp-1)', marginBottom: 'var(--sp-1)', alignItems: 'flex-end' }}
+                      data-testid={`asset-${asset.id}-split-${idx}`}
+                    >
+                      <div>
+                        <InputLabel label="Parcel" help="Source parcel; allocation uses that parcel's own rate." inputId={`asset-${asset.id}-split-${idx}-parcelId`} />
+                        <select
+                          id={`asset-${asset.id}-split-${idx}-parcelId`}
+                          data-testid={`asset-${asset.id}-split-${idx}-parcelId`}
+                          value={sp.parcelId}
+                          onChange={(e) => updateSplit(idx, { parcelId: e.target.value })}
+                          style={inputStyle}
+                        >
+                          {phaseParcels.length === 0 && <option value="">(no parcels in phase)</option>}
+                          {phaseParcels.map((p) => (
+                            <option key={p.id} value={p.id}>{p.name} ({fmt(p.rate)} {project.currency}/sqm)</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <InputLabel label="Sqm" help="Land area drawn from this parcel." inputId={`asset-${asset.id}-split-${idx}-sqm`} />
+                        <input
+                          id={`asset-${asset.id}-split-${idx}-sqm`}
+                          data-testid={`asset-${asset.id}-split-${idx}-sqm`}
+                          type="number"
+                          min={0}
+                          value={sp.sqm}
+                          onChange={(e) => updateSplit(idx, { sqm: Math.max(0, Number(e.target.value) || 0) })}
+                          style={inputStyle}
+                        />
+                      </div>
+                      <div>
+                        <InputLabel label="Rate" help="Per-sqm rate of the selected parcel." inputId={`asset-${asset.id}-split-${idx}-rate`} />
+                        <div style={calcOutputStyle} data-testid={`asset-${asset.id}-split-${idx}-rate`}>{fmt(rate)}</div>
+                      </div>
+                      <div>
+                        <InputLabel label="Cost" help="sqm x rate for this parcel slice." inputId={`asset-${asset.id}-split-${idx}-cost`} />
+                        <div style={calcOutputStyle} data-testid={`asset-${asset.id}-split-${idx}-cost`}>{fmt(value)} {project.currency}</div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeSplit(idx)}
+                        data-testid={`asset-${asset.id}-split-${idx}-remove`}
+                        style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}
+                      >
+                        x
+                      </button>
+                    </div>
+                  );
+                })}
+                <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', marginTop: 'var(--sp-1)' }} data-testid={`asset-${asset.id}-multi-parcel-total`}>
+                  Total: <strong>{fmt(landBreakdown.landSqm)} sqm</strong> · weighted rate <strong>{fmt(landBreakdown.rate)} {project.currency}/sqm</strong> · cost <strong>{fmt(landCost)} {project.currency}</strong>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)' }}>
+                {landAllocationMode === 'sqm' && (
+                  <>
+                    <div>
+                      <InputLabel label="Parcel" help="Source parcel for this asset's land draw. Pick a parcel; rate applies at its per-sqm rate." inputId={`asset-${asset.id}-parcelId`} />
+                      <select
+                        id={`asset-${asset.id}-parcelId`}
+                        data-testid={`asset-${asset.id}-parcelId`}
+                        value={allocation.parcelId ?? ''}
+                        onChange={(e) => setAllocation({ parcelId: e.target.value || undefined })}
+                        style={inputStyle}
+                      >
+                        <option value="">(weighted average across parcels)</option>
+                        {phaseParcels.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name} ({fmt(p.rate)} {project.currency}/sqm)</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <InputLabel label="Land Area (sqm)" help="Direct sqm assigned to this asset from the chosen parcel (or weighted across all phase parcels when no parcel is picked)." inputId={`asset-${asset.id}-landAreaSqm`} />
+                      <input id={`asset-${asset.id}-landAreaSqm`} data-testid={`asset-${asset.id}-landAreaSqm`} type="number" min={0} value={allocation.sqm ?? asset.landAreaSqm ?? 0} onChange={(e) => setAllocation({ sqm: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+                    </div>
+                    <div>
+                      <InputLabel label="Resolved Rate" help="Picked parcel's rate, or weighted average when blank." inputId={`asset-${asset.id}-resolved-rate`} />
+                      <div style={calcOutputStyle} data-testid={`asset-${asset.id}-resolved-rate`}>{fmt(landBreakdown.rate)} {project.currency}/sqm</div>
+                    </div>
+                  </>
+                )}
+                {landAllocationMode === 'percent' && (
+                  <div>
+                    <InputLabel label="Land Allocation (%)" help="Share of total land value attributed to this asset." inputId={`asset-${asset.id}-landAreaPct`} />
+                    <input id={`asset-${asset.id}-landAreaPct`} data-testid={`asset-${asset.id}-landAreaPct`} type="number" min={0} max={100} value={allocation.pct ?? asset.landAreaPct ?? 0} onChange={(e) => setAllocation({ pct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} style={inputStyle} />
+                  </div>
+                )}
+                {landAllocationMode === 'autoByBua' && (
+                  <div>
+                    <InputLabel label="Land (auto by BUA)" help="Auto-allocated land share = this asset's BUA / total project BUA." inputId={`asset-${asset.id}-land-auto`} />
+                    <div style={calcOutputStyle} data-testid={`asset-${asset.id}-land-auto`}>{fmt(landBreakdown.landSqm)} sqm</div>
+                  </div>
+                )}
+                <div>
+                  <InputLabel label="Land Cost" help="Resolved land area x parcel rate." inputId={`asset-${asset.id}-land-cost-display`} />
+                  <div style={calcOutputStyle} data-testid={`asset-${asset.id}-land-cost-display`}>{fmt(landCost)} {project.currency}</div>
+                </div>
               </div>
             )}
-            {landAllocationMode === 'percent' && (
-              <div>
-                <InputLabel label="Land Allocation (%)" help="Share of total land value attributed to this asset." inputId={`asset-${asset.id}-landAreaPct`} />
-                <input id={`asset-${asset.id}-landAreaPct`} data-testid={`asset-${asset.id}-landAreaPct`} type="number" min={0} max={100} value={asset.landAreaPct ?? 0} onChange={(e) => onUpdate({ landAreaPct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} style={inputStyle} />
-              </div>
-            )}
-            {landAllocationMode === 'autoByBua' && (
-              <div>
-                <InputLabel label="Land (auto by BUA)" help="Auto-allocated land share = this asset's BUA / total project BUA." inputId={`asset-${asset.id}-land-auto`} />
-                <div style={calcOutputStyle} data-testid={`asset-${asset.id}-land-auto`}>{fmt(landCost)} {project.currency}</div>
-              </div>
-            )}
+          </div>
+
+          {/* M2.0f Fix 6: Areas row, BUA derived from sub-units (read-only)
+              with optional manual GFA override. Asset.buaSqm /
+              sellableBuaSqm fields preserved on the schema for v7 compat
+              but no longer hand-editable, so the asset card has a single
+              source of truth (the sub-unit table). */}
+          <div
+            style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr) auto', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}
+            data-testid={`asset-${asset.id}-areas-row`}
+          >
             <div>
-              <InputLabel label="GFA (sqm)" help="Gross Floor Area." inputId={`asset-${asset.id}-gfaSqm`} />
-              <input id={`asset-${asset.id}-gfaSqm`} data-testid={`asset-${asset.id}-gfaSqm`} type="number" min={0} value={asset.gfaSqm} onChange={(e) => onUpdate({ gfaSqm: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+              <InputLabel label="GFA (sqm)" help="Gross Floor Area. Optional manual entry; defaults to BUA when 0 (covers the typical case where GFA == BUA + non-enclosed terraces is negligible)." inputId={`asset-${asset.id}-gfaSqm`} />
+              <input id={`asset-${asset.id}-gfaSqm`} data-testid={`asset-${asset.id}-gfaSqm`} type="number" min={0} value={asset.gfaSqm} onChange={(e) => onUpdate({ gfaSqm: Math.max(0, Number(e.target.value) || 0) })} placeholder={`auto = ${fmt(derivedBua)}`} style={inputStyle} />
             </div>
             <div>
-              <InputLabel label="BUA (sqm)" help="Built-Up Area. Auto-derived from sub-units when 0." inputId={`asset-${asset.id}-buaSqm`} />
-              <input id={`asset-${asset.id}-buaSqm`} data-testid={`asset-${asset.id}-buaSqm`} type="number" min={0} value={asset.buaSqm} onChange={(e) => onUpdate({ buaSqm: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} placeholder={asset.buaSqm === 0 ? `auto = ${fmt(derivedBua)}` : undefined} />
+              <InputLabel label="BUA Total (sqm)" help="Sum of all sub-unit areas. Source of truth for revenue + cost; edit sub-units to change." inputId={`asset-${asset.id}-derivedBua-input`} />
+              <div style={calcOutputStyle} data-testid={`asset-${asset.id}-buaSqm`}>{fmt(derivedBua)}</div>
             </div>
             <div>
-              <InputLabel label="Sellable BUA (sqm)" help="Sellable / leasable / operable area." inputId={`asset-${asset.id}-sellableBuaSqm`} />
-              <input id={`asset-${asset.id}-sellableBuaSqm`} data-testid={`asset-${asset.id}-sellableBuaSqm`} type="number" min={0} value={asset.sellableBuaSqm} onChange={(e) => onUpdate({ sellableBuaSqm: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} placeholder={asset.sellableBuaSqm === 0 ? `auto = ${fmt(derivedSellable)}` : undefined} />
+              <InputLabel label="Sellable BUA" help="Sum of sub-unit areas with category Sellable + Operable + Leasable." inputId={`asset-${asset.id}-sellableBuaSqm-display`} />
+              <div style={calcOutputStyle} data-testid={`asset-${asset.id}-sellableBuaSqm`}>{fmt(derivedSellable)}</div>
             </div>
             <div>
-              <InputLabel label="Parking Bays" help="Total parking bay count fed to construction-parking cost line." inputId={`asset-${asset.id}-parkingBaysRequired`} />
+              <InputLabel label="Support BUA" help="Sum of sub-unit areas with category Support (back-of-house, MEP)." inputId={`asset-${asset.id}-supportSum-display`} />
+              <div style={calcOutputStyle} data-testid={`asset-${asset.id}-supportBua`}>{fmt(supportSum)}</div>
+            </div>
+            <div>
+              <InputLabel label="Parking BUA" help="Sum of sub-unit areas with category Parking. Cost only, no revenue." inputId={`asset-${asset.id}-parkingSum-display`} />
+              <div style={calcOutputStyle} data-testid={`asset-${asset.id}-parkingBua`}>{fmt(parkingSum)}</div>
+            </div>
+            <div>
+              <InputLabel label="Bays" help="Total parking bay count fed to the construction-parking cost line." inputId={`asset-${asset.id}-parkingBaysRequired`} />
               <input id={`asset-${asset.id}-parkingBaysRequired`} data-testid={`asset-${asset.id}-parkingBaysRequired`} type="number" min={0} value={asset.parkingBaysRequired} onChange={(e) => onUpdate({ parkingBaysRequired: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
             </div>
           </div>
@@ -793,7 +1013,9 @@ function AssetCard({
             )}
           </div>
 
-          {/* Asset card footer */}
+          {/* M2.0f Fix 6: footer condenses to "Areas + cost summary".
+              Reconciliation row removed (asset BUA is now the sub-unit
+              sum, so there is nothing to reconcile against). */}
           <div
             style={{
               marginTop: 'var(--sp-2)',
@@ -810,21 +1032,13 @@ function AssetCard({
               <span style={{ color: 'var(--color-meta)' }}>BUA total: </span>
               <strong>{fmt(derivedBua)} sqm</strong>
             </div>
-            <div data-testid={`asset-${asset.id}-subunit-bua`}>
-              <span style={{ color: 'var(--color-meta)' }}>Sub-unit BUA: </span>
-              <strong>{fmt(subUnitBuaSum)} sqm</strong>
+            <div data-testid={`asset-${asset.id}-derived-sellable`}>
+              <span style={{ color: 'var(--color-meta)' }}>Sellable: </span>
+              <strong>{fmt(derivedSellable)} sqm</strong>
             </div>
-            <div data-testid={`asset-${asset.id}-reconciliation`}>
-              {reconciles ? (
-                <span style={{ color: 'var(--color-success)' }}>✓ matches</span>
-              ) : (
-                <span style={{ color: 'var(--color-accent-warm)' }}>
-                  ⚠ mismatch by {fmt(Math.abs(reconcileDiff))} sqm
-                </span>
-              )}
-              {derivedBua > 0 && (
-                <span style={{ color: 'var(--color-meta)', marginLeft: 6 }}>· efficiency {fmt(efficiency, 1)}%</span>
-              )}
+            <div data-testid={`asset-${asset.id}-efficiency`}>
+              <span style={{ color: 'var(--color-meta)' }}>Efficiency: </span>
+              <strong>{derivedBua > 0 ? `${fmt(efficiency, 1)}%` : 'n/a'}</strong>
             </div>
             <div data-testid={`asset-${asset.id}-land-cost`}>
               <span style={{ color: 'var(--color-meta)' }}>Land cost: </span>

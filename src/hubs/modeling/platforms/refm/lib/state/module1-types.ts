@@ -124,15 +124,21 @@ export const DEFAULT_USEFUL_LIFE_YEARS = {
 //   'Sellable' -> sale revenue (cohort collection over construction)
 //   'Operable' -> hospitality USAH (ADR x occupancy x keys x days)
 //   'Leasable' -> retail/office NOI (rent per sqm x occupancy)
-//   'Support'  -> non-revenue (back-of-house, parking, MEP); appears in
-//                 area roll-ups but not in revenue streams
-export type SubUnitCategory = 'Sellable' | 'Operable' | 'Leasable' | 'Support';
+//   'Support'  -> non-revenue (back-of-house, MEP); appears in area
+//                 roll-ups but not in revenue streams
+//   'Parking'  -> non-revenue (M2.0f Fix 6); contributes to construction
+//                 cost (BUA x parking rate) but no revenue stream. Splits
+//                 from Support so MAAD pattern (Parking as a discrete
+//                 sub-unit category, not a generic Support row) is
+//                 representable.
+export type SubUnitCategory = 'Sellable' | 'Operable' | 'Leasable' | 'Support' | 'Parking';
 
 export const SUB_UNIT_CATEGORIES: readonly SubUnitCategory[] = [
   'Sellable',
   'Operable',
   'Leasable',
   'Support',
+  'Parking',
 ] as const;
 
 // ── Sub-unit metric semantics ──────────────────────────────────────────────
@@ -296,6 +302,13 @@ export interface SubUnit {
 // (autoByBua mode derives both from the asset's bua share at compute
 //  time; neither field is read.)
 //
+// M2.0f Fix 2: assets can carry an explicit parcel reference for the
+// case where multiple parcels exist with DIFFERENT rates. parcelId
+// (single-parcel) and parcelSplits (multi-parcel) are optional; when
+// undefined, the calc engine falls back to the project-wide allocation
+// rules (sqm / percent / autoByBua) using a value-weighted average
+// rate across the phase's parcels. See AssetLandAllocation below.
+//
 // gfaSqm / buaSqm / sellableBuaSqm: explicit area inputs in MAAD-Spec.
 // No FAR / coverage / cascade math; the user enters whatever the
 // architect handed them. UI shows live-derived ratios (efficiency =
@@ -318,6 +331,32 @@ export const ASSET_STATUS_LABELS: Record<AssetStatus, string> = {
   operational:  'Operational',
 };
 
+// M2.0f Fix 2: a single per-asset / per-parcel allocation slice.
+// When asset.landAllocation.multiParcelSplits is populated, each
+// entry maps a distinct parcelId -> sqm draw, and the asset's land
+// cost is the sum across slices using each parcel's own rate. When
+// only landAllocation.parcelId is set, the entire allocation comes
+// from that one parcel.
+export interface AssetParcelSplit {
+  parcelId: string;
+  sqm: number;
+}
+
+// M2.0f Fix 2: AssetLandAllocation captures the per-asset land entry.
+// Mode A (sqm)     -> use sqm OR multiParcelSplits[]
+// Mode B (percent) -> use pct (whole-portfolio share)
+// Mode C (autoByBua) -> auto-derived; nothing stored
+//
+// parcelId narrows mode A to a SINGLE source parcel. multiParcelSplits
+// extends mode A to multiple parcels with explicit per-parcel sqm
+// draws. When BOTH are set, multiParcelSplits wins.
+export interface AssetLandAllocation {
+  parcelId?: string;
+  sqm?: number;
+  pct?: number;
+  multiParcelSplits?: AssetParcelSplit[];
+}
+
 export interface Asset {
   id: string;
   phaseId: string;
@@ -325,9 +364,16 @@ export interface Asset {
   type: string;                  // free-text, chosen from the M2.0 type bank
   strategy: AssetStrategy;
   visible: boolean;
-  // Land
+  // Land (legacy mirrors; kept for backward compat with v7 snapshots
+  // pre-M2.0f). New code should read asset.landAllocation; calc engine
+  // copies legacy fields into the structured shape if landAllocation
+  // is undefined.
   landAreaSqm?: number;
   landAreaPct?: number;
+  // M2.0f Fix 2: structured allocation (parcelId / multi-parcel splits).
+  // Optional so v7 snapshots without it stay valid; resolveAssetLand-
+  // Allocation flattens legacy fields into this shape.
+  landAllocation?: AssetLandAllocation;
   // Areas (entered, not derived)
   gfaSqm: number;                // gross floor area
   buaSqm: number;                // built-up area (subset of gfa, after MEP/BoH)

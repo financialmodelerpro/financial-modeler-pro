@@ -106,18 +106,26 @@ export function computeSubUnitArea(u: SubUnit): number {
   return Math.max(0, u.metricValue);
 }
 
+// M2.0f Fix 6 (2026-05-06): asset BUA = sum of sub-unit areas. The
+// asset.buaSqm field stays on the schema for v7 compat (legacy
+// snapshots may have a hand-typed value) but the calc engine now
+// treats sub-units as the source of truth. Same for sellable BUA.
+//
+// Behaviour: prefer the sub-unit sum unconditionally. Fall back to
+// asset.buaSqm only when the asset has no sub-units yet (so empty-
+// asset placeholders show the user-entered hint, not 0).
 export function computeAssetBua(asset: Asset, subUnits: SubUnit[]): number {
-  if (asset.buaSqm > 0) return asset.buaSqm;
-  return subUnits
-    .filter((u) => u.assetId === asset.id)
-    .reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const phaseSubUnits = subUnits.filter((u) => u.assetId === asset.id);
+  if (phaseSubUnits.length === 0) return Math.max(0, asset.buaSqm ?? 0);
+  return phaseSubUnits.reduce((s, u) => s + computeSubUnitArea(u), 0);
 }
 
 export function computeAssetSellableBua(asset: Asset, subUnits: SubUnit[]): number {
-  if (asset.sellableBuaSqm > 0) return asset.sellableBuaSqm;
-  return subUnits
-    .filter((u) => u.assetId === asset.id && u.category !== 'Support')
-    .reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const phaseSubUnits = subUnits.filter(
+    (u) => u.assetId === asset.id && u.category !== 'Support' && u.category !== 'Parking',
+  );
+  if (phaseSubUnits.length === 0) return Math.max(0, asset.sellableBuaSqm ?? 0);
+  return phaseSubUnits.reduce((s, u) => s + computeSubUnitArea(u), 0);
 }
 
 // Sum of Sellable / Operable / Leasable units where metric === 'count'.
@@ -130,6 +138,13 @@ export function computeAssetUnitCount(asset: Asset, subUnits: SubUnit[]): number
 
 // ── Asset land sqm + value ─────────────────────────────────────────────────
 // Resolve each asset's land area in sqm based on landAllocationMode.
+//
+// M2.0f Fix 2 (2026-05-06): when asset.landAllocation.parcelId or
+// asset.landAllocation.multiParcelSplits is populated, the asset
+// pulls land sqm + cost from those specific parcels at each parcel's
+// own rate (not the phase-weighted average). Falls back to the
+// project-wide allocation rules (sqm / percent / autoByBua) when
+// neither is set, so legacy v7 snapshots stay correct.
 export function computeAssetLandSqm(
   asset: Asset,
   parcels: Parcel[],
@@ -137,14 +152,22 @@ export function computeAssetLandSqm(
   subUnits: SubUnit[],
   mode: LandAllocationMode,
 ): number {
+  // M2.0f Fix 2: explicit multi-parcel allocation wins.
+  const splits = asset.landAllocation?.multiParcelSplits;
+  if (splits && splits.length > 0) {
+    return splits.reduce((s, sp) => s + Math.max(0, sp.sqm), 0);
+  }
   const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
   const agg = computeLandAggregate(phaseParcels);
   if (agg.totalAreaSqm <= 0) return 0;
   if (mode === 'sqm') {
-    return Math.max(0, asset.landAreaSqm ?? 0);
+    // Read from structured shape first, then legacy field.
+    const sqm = asset.landAllocation?.sqm ?? asset.landAreaSqm ?? 0;
+    return Math.max(0, sqm);
   }
   if (mode === 'percent') {
-    return agg.totalAreaSqm * (Math.max(0, asset.landAreaPct ?? 0) / 100);
+    const pct = asset.landAllocation?.pct ?? asset.landAreaPct ?? 0;
+    return agg.totalAreaSqm * (Math.max(0, pct) / 100);
   }
   // autoByBua
   const phaseAssets = assets.filter((a) => a.phaseId === asset.phaseId);
@@ -154,6 +177,70 @@ export function computeAssetLandSqm(
   return agg.totalAreaSqm * (myBua / totalBua);
 }
 
+// M2.0f Fix 2: per-asset land breakdown for cost engine + UI display.
+// Returns the resolved land area + value plus an optional per-parcel
+// breakdown when multiParcelSplits is in use. The resolved rate is the
+// value-weighted average across the slices, useful for the asset card
+// summary line.
+export interface AssetLandBreakdown {
+  landSqm: number;
+  landValue: number;
+  rate: number;
+  splits: { parcelId: string; sqm: number; rate: number; value: number }[];
+}
+
+export function computeAssetLandBreakdown(
+  asset: Asset,
+  parcels: Parcel[],
+  assets: Asset[],
+  subUnits: SubUnit[],
+  mode: LandAllocationMode,
+): AssetLandBreakdown {
+  const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
+
+  // Branch 1: explicit multi-parcel splits.
+  const splits = asset.landAllocation?.multiParcelSplits;
+  if (splits && splits.length > 0) {
+    const resolved = splits.map((sp) => {
+      const parcel = phaseParcels.find((p) => p.id === sp.parcelId);
+      const sqm = Math.max(0, sp.sqm);
+      const rate = parcel ? Math.max(0, parcel.rate) : 0;
+      return { parcelId: sp.parcelId, sqm, rate, value: sqm * rate };
+    });
+    const landSqm = resolved.reduce((s, r) => s + r.sqm, 0);
+    const landValue = resolved.reduce((s, r) => s + r.value, 0);
+    const rate = landSqm > 0 ? landValue / landSqm : 0;
+    return { landSqm, landValue, rate, splits: resolved };
+  }
+
+  // Branch 2: single explicit parcel (mode A only).
+  const singleParcelId = asset.landAllocation?.parcelId;
+  if (mode === 'sqm' && singleParcelId) {
+    const parcel = phaseParcels.find((p) => p.id === singleParcelId);
+    const sqm = Math.max(0, asset.landAllocation?.sqm ?? asset.landAreaSqm ?? 0);
+    const rate = parcel ? Math.max(0, parcel.rate) : 0;
+    const value = sqm * rate;
+    return {
+      landSqm: sqm,
+      landValue: value,
+      rate,
+      splits: [{ parcelId: singleParcelId, sqm, rate, value }],
+    };
+  }
+
+  // Branch 3: legacy / mode B / mode C - phase aggregate weighted average.
+  const agg = computeLandAggregate(phaseParcels);
+  const landSqm = computeAssetLandSqm(asset, parcels, assets, subUnits, mode);
+  if (agg.totalAreaSqm <= 0 || landSqm <= 0) {
+    return { landSqm, landValue: 0, rate: 0, splits: [] };
+  }
+  // Value share = landSqm / total, applied to total value.
+  const valueShare = agg.totalAreaSqm > 0 ? landSqm / agg.totalAreaSqm : 0;
+  const landValue = agg.totalValue * valueShare;
+  const rate = landSqm > 0 ? landValue / landSqm : 0;
+  return { landSqm, landValue, rate, splits: [] };
+}
+
 export function computeAssetLandCost(
   asset: Asset,
   parcels: Parcel[],
@@ -161,21 +248,45 @@ export function computeAssetLandCost(
   subUnits: SubUnit[],
   mode: LandAllocationMode,
 ): number {
-  const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
-  const agg = computeLandAggregate(phaseParcels);
-  if (agg.totalValue <= 0) return 0;
-  if (mode === 'sqm') {
-    if (agg.totalAreaSqm <= 0) return 0;
-    return agg.totalValue * (Math.max(0, asset.landAreaSqm ?? 0) / agg.totalAreaSqm);
+  return computeAssetLandBreakdown(asset, parcels, assets, subUnits, mode).landValue;
+}
+
+// M2.0f Fix 2: asset land allocation total exceeds available parcel
+// area? Returns the over-/under-allocation summary used for UI
+// validation banners. Only counts assets whose allocation exists
+// (multiParcelSplits, parcelId+sqm, or legacy landAreaSqm in mode A).
+export interface LandAllocationValidation {
+  parcelTotalSqm: number;
+  allocatedSqm: number;
+  unallocatedSqm: number;     // parcelTotal - allocated (positive = under)
+  overAllocatedSqm: number;   // allocated - parcelTotal (positive = over)
+  status: 'ok' | 'under' | 'over';
+}
+
+export function validateLandAllocation(
+  parcels: Parcel[],
+  assets: Asset[],
+  mode: LandAllocationMode,
+): LandAllocationValidation {
+  const parcelTotalSqm = parcels.reduce((s, p) => s + Math.max(0, p.area), 0);
+  let allocatedSqm = 0;
+  for (const a of assets) {
+    if (!a.visible) continue;
+    const splits = a.landAllocation?.multiParcelSplits;
+    if (splits && splits.length > 0) {
+      allocatedSqm += splits.reduce((s, sp) => s + Math.max(0, sp.sqm), 0);
+      continue;
+    }
+    if (mode === 'sqm') {
+      const sqm = a.landAllocation?.sqm ?? a.landAreaSqm ?? 0;
+      allocatedSqm += Math.max(0, sqm);
+    }
   }
-  if (mode === 'percent') {
-    return agg.totalValue * (Math.max(0, asset.landAreaPct ?? 0) / 100);
-  }
-  const phaseAssets = assets.filter((a) => a.phaseId === asset.phaseId);
-  const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
-  if (totalBua <= 0) return 0;
-  const myBua = computeAssetBua(asset, subUnits);
-  return agg.totalValue * (myBua / totalBua);
+  const overAllocatedSqm = Math.max(0, allocatedSqm - parcelTotalSqm);
+  const unallocatedSqm = Math.max(0, parcelTotalSqm - allocatedSqm);
+  const status: LandAllocationValidation['status'] =
+    overAllocatedSqm > 0.5 ? 'over' : unallocatedSqm > 0.5 ? 'under' : 'ok';
+  return { parcelTotalSqm, allocatedSqm, unallocatedSqm, overAllocatedSqm, status };
 }
 
 // ── Asset area metrics ─────────────────────────────────────────────────────
@@ -203,25 +314,41 @@ export function resolveAssetAreaMetrics(
   subUnits: SubUnit[],
   mode: LandAllocationMode,
 ): AssetAreaMetrics {
-  const landSqm = computeAssetLandSqm(asset, parcels, assets, subUnits, mode);
+  // M2.0f Fix 2: when explicit per-parcel splits are present, cash /
+  // in-kind splits track each source parcel's own cashPct / inKindPct;
+  // otherwise the legacy phase-level value share applies.
+  const breakdown = computeAssetLandBreakdown(asset, parcels, assets, subUnits, mode);
+  const landSqm = breakdown.landSqm;
+  const landValue = breakdown.landValue;
   const roadsPct = Math.max(0, Math.min(100, project.projectRoadsPct ?? 0));
   const ndaSqm = landSqm * (1 - roadsPct / 100);
   const roadsSqm = landSqm - ndaSqm;
   const bua = computeAssetBua(asset, subUnits);
   const nsa = computeAssetSellableBua(asset, subUnits);
   const unitCount = computeAssetUnitCount(asset, subUnits);
-  const landValue = computeAssetLandCost(asset, parcels, assets, subUnits, mode);
   const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
-  const agg = computeLandAggregate(phaseParcels);
-  // Cash / in-kind splits track the asset's land value share of agg.totalValue.
-  const valueShare = agg.totalValue > 0 ? landValue / agg.totalValue : 0;
-  const cashLandValue = agg.cashValue * valueShare;
-  const inKindLandValue = agg.inKindValue * valueShare;
+
+  let cashLandValue = 0;
+  let inKindLandValue = 0;
+  if (breakdown.splits.length > 0) {
+    for (const split of breakdown.splits) {
+      const parcel = phaseParcels.find((p) => p.id === split.parcelId);
+      if (!parcel) continue;
+      cashLandValue += split.value * (Math.max(0, parcel.cashPct) / 100);
+      inKindLandValue += split.value * (Math.max(0, parcel.inKindPct) / 100);
+    }
+  } else {
+    const agg = computeLandAggregate(phaseParcels);
+    const valueShare = agg.totalValue > 0 ? landValue / agg.totalValue : 0;
+    cashLandValue = agg.cashValue * valueShare;
+    inKindLandValue = agg.inKindValue * valueShare;
+  }
+
   return {
     landSqm,
     ndaSqm,
     roadsSqm,
-    gfa: asset.gfaSqm,
+    gfa: asset.gfaSqm > 0 ? asset.gfaSqm : bua,  // M2.0f Fix 6: GFA falls back to BUA when blank
     bua,
     nsa,
     unitCount,
