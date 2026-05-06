@@ -48,8 +48,8 @@ const FIXTURE: WizardDraft = {
   startDate: '2026-01-01',
   location: 'Riyadh',
   phases: [
-    { name: 'Phase 1', constructionPeriods: 24, operationsPeriods: 60, overlapPeriods: 0 },
-    { name: 'Phase 2', constructionPeriods: 18, operationsPeriods: 60, overlapPeriods: 6 },
+    { name: 'Phase 1', startDate: '2026-01-01', constructionPeriods: 24, operationsPeriods: 60, overlapPeriods: 0 },
+    { name: 'Phase 2', startDate: '2027-07-01', constructionPeriods: 18, operationsPeriods: 60, overlapPeriods: 6 },
   ],
   parcels: [
     { name: 'Parcel A', area: 80000, rate: 600, cashPct: 70, inKindPct: 30 },

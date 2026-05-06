@@ -33,6 +33,11 @@ import {
 
 export interface WizardDraftPhase {
   name: string;
+  // M2.0e: ISO date (YYYY-MM-DD). Per-phase start date drives concrete
+  // timeline display (computePhaseTimeline). When the wizard mints
+  // multiple phases, the next phase's startDate defaults to the prior
+  // phase's constructionEnd (or project.startDate for the first phase).
+  startDate: string;
   constructionPeriods: number;
   operationsPeriods: number;
   overlapPeriods: number;
@@ -89,8 +94,10 @@ export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
     location: draft.location,
   };
 
-  // Phases (sequential timing: each phase starts after the previous
-  // ends minus overlap)
+  // Phases. M2.0e: each phase carries its own startDate from the wizard.
+  // constructionStart still reflects sequential ordering (1-indexed
+  // periods from project start) so the legacy calc surface keeps
+  // working; the new computePhaseTimeline prefers startDate when set.
   const phases: Phase[] = [];
   let cursor = 1;
   for (let i = 0; i < draft.phases.length; i++) {
@@ -102,6 +109,7 @@ export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
       constructionPeriods: Math.max(1, wp.constructionPeriods),
       operationsPeriods: Math.max(0, wp.operationsPeriods),
       overlapPeriods: Math.max(0, Math.min(wp.constructionPeriods, wp.overlapPeriods)),
+      startDate: wp.startDate && wp.startDate.length === 10 ? wp.startDate : undefined,
     });
     cursor += Math.max(1, wp.constructionPeriods) - Math.max(0, wp.overlapPeriods);
   }
@@ -113,6 +121,7 @@ export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
       constructionPeriods: 24,
       operationsPeriods: 60,
       overlapPeriods: 0,
+      startDate: draft.startDate,
     });
   }
   const firstPhaseId = phases[0].id;
@@ -206,7 +215,7 @@ export function makeDefaultWizardDraft(): WizardDraft {
     startDate: new Date().toISOString().slice(0, 10),
     location: '',
     phases: [
-      { name: 'Phase 1', constructionPeriods: 3, operationsPeriods: 5, overlapPeriods: 0 },
+      { name: 'Phase 1', startDate: new Date().toISOString().slice(0, 10), constructionPeriods: 3, operationsPeriods: 5, overlapPeriods: 0 },
     ],
     parcels: [
       { name: 'Land 1', area: 100000, rate: 500, cashPct: 60, inKindPct: 40 },

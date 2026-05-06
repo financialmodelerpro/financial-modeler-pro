@@ -104,7 +104,7 @@ const fixtureDraft: WizardDraft = {
   modelType: 'monthly',
   startDate: '2026-01-01',
   location: 'Riyadh',
-  phases: [{ name: 'Phase 1', constructionPeriods: 24, operationsPeriods: 60, overlapPeriods: 0 }],
+  phases: [{ name: 'Phase 1', startDate: '2026-01-01', constructionPeriods: 24, operationsPeriods: 60, overlapPeriods: 0 }],
   parcels: [{ name: 'Parcel A', area: 100000, rate: 500, cashPct: 60, inKindPct: 40 }],
   landAllocationMode: 'autoByBua',
   assets: [

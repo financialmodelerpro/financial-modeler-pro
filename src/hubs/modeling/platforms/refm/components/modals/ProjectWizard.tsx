@@ -329,11 +329,23 @@ function Step2({
   const updatePhase = (idx: number, patch: Partial<WizardDraftPhase>): void => {
     onUpdate({ phases: draft.phases.map((p, i) => (i === idx ? { ...p, ...patch } : p)) });
   };
+  // M2.0e: default a new phase's startDate = previous phase's
+  // construction-end date (or project.startDate when first). The next
+  // phase visually picks up where the prior one stopped.
+  const computeNextPhaseStartDate = (): string => {
+    const prior = draft.phases[draft.phases.length - 1];
+    if (!prior || !prior.startDate) return draft.startDate;
+    const d = new Date(prior.startDate);
+    if (Number.isNaN(d.getTime())) return draft.startDate;
+    if (draft.modelType === 'monthly') d.setMonth(d.getMonth() + Math.max(0, prior.constructionPeriods));
+    else d.setFullYear(d.getFullYear() + Math.max(0, prior.constructionPeriods));
+    return d.toISOString().slice(0, 10);
+  };
   const addPhase = (): void => {
     onUpdate({
       phases: [
         ...draft.phases,
-        { name: `Phase ${draft.phases.length + 1}`, constructionPeriods: 3, operationsPeriods: 5, overlapPeriods: 0 },
+        { name: `Phase ${draft.phases.length + 1}`, startDate: computeNextPhaseStartDate(), constructionPeriods: 3, operationsPeriods: 5, overlapPeriods: 0 },
       ],
     });
   };
@@ -358,16 +370,22 @@ function Step2({
     onUpdate({ parcels: draft.parcels.filter((_, i) => i !== idx) });
   };
 
+  // M2.0e: unit suffix tracks the project's modelType. "(years)" for
+  // annual, "(months)" for monthly. Reactive so editing modelType in
+  // Step 1 and returning to Step 2 reflects the change immediately.
+  const periodUnit = draft.modelType === 'annual' ? 'years' : 'months';
+
   return (
     <div data-testid="wizard-step-2-content">
       <h3 style={{ margin: 0, marginBottom: 'var(--sp-2)' }}>Phases</h3>
-      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 'var(--sp-2)' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 'var(--sp-2)' }} data-testid="wiz-phases-table">
         <thead>
           <tr style={{ background: 'var(--color-grey-pale)' }}>
             <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Name</th>
-            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Construction</th>
-            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Operations</th>
-            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }}>Overlap</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }} data-testid="wiz-phase-header-startdate">Phase Start Date</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }} data-testid="wiz-phase-header-construction">Construction ({periodUnit})</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }} data-testid="wiz-phase-header-operations">Operations ({periodUnit})</th>
+            <th style={{ textAlign: 'left', padding: 'var(--sp-1)' }} data-testid="wiz-phase-header-overlap">Overlap ({periodUnit})</th>
             <th></th>
           </tr>
         </thead>
@@ -380,6 +398,15 @@ function Step2({
                   data-testid={`wiz-phase-${idx}-name`}
                   value={p.name}
                   onChange={(e) => updatePhase(idx, { name: e.target.value })}
+                  style={inputStyle}
+                />
+              </td>
+              <td style={{ padding: 'var(--sp-1)' }}>
+                <input
+                  type="date"
+                  data-testid={`wiz-phase-${idx}-startDate`}
+                  value={p.startDate}
+                  onChange={(e) => updatePhase(idx, { startDate: e.target.value })}
                   style={inputStyle}
                 />
               </td>
