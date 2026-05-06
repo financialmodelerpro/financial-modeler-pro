@@ -23,7 +23,14 @@ import { resolve } from 'node:path';
 
 const SCREENSHOT_DIR = resolve(__dirname, '..', 'screenshots', 'M2.0c');
 
-test.describe('M2.0c Dev Costs + Financing', () => {
+// M2.0d (2026-05-06) restructured the Costs tab into per-asset
+// segregated sections, retired the global "+ Cost" buttons grouped by
+// stage (costs-add-land / -hard / -soft / -operating), and replaced
+// the single 13-method dropdown table with a per-asset table that
+// includes the new rate_per_parking_bay (14 methods). The original
+// M2.0c assertions are intentionally frozen and skipped; the live
+// canonical Costs spec is tests/e2e/m20d-costs-polish.spec.ts.
+test.describe.skip('M2.0c Dev Costs + Financing (frozen, superseded by M2.0d)', () => {
   test.use({ viewport: { width: 1600, height: 1000 } });
 
   test('shell layout: sidebar does not overlay workspace content', async ({ page }) => {
