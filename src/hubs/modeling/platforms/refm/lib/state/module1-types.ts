@@ -364,15 +364,25 @@ export interface AssetParcelSplit {
 // Mode B (percent) -> use pct (whole-portfolio share)
 // Mode C (autoByBua) -> auto-derived; nothing stored
 //
-// parcelId narrows mode A to a SINGLE source parcel. multiParcelSplits
-// extends mode A to multiple parcels with explicit per-parcel sqm
-// draws. When BOTH are set, multiParcelSplits wins.
+// parcelId narrows mode A to a SINGLE source parcel. The sentinel
+// "__weighted__" means "use the phase-weighted-average rate"; the
+// sentinel "__custom__" means "use the customRate field". Anything
+// else is a real parcel id. multiParcelSplits extends mode A to
+// multiple parcels with explicit per-parcel sqm draws. When BOTH are
+// set, multiParcelSplits wins.
+//
+// M2.0g Fix 2 (2026-05-06): adds customRate so the user can override
+// with a specific rate without picking a parcel.
 export interface AssetLandAllocation {
   parcelId?: string;
   sqm?: number;
   pct?: number;
+  customRate?: number;
   multiParcelSplits?: AssetParcelSplit[];
 }
+
+export const PARCEL_WEIGHTED_AVG = '__weighted__';
+export const PARCEL_CUSTOM_RATE = '__custom__';
 
 export interface Asset {
   id: string;

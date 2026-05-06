@@ -213,11 +213,29 @@ export function computeAssetLandBreakdown(
     return { landSqm, landValue, rate, splits: resolved };
   }
 
-  // Branch 2: single explicit parcel (mode A only).
+  // M2.0g Fix 2: explicit custom rate sentinel.
+  const PARCEL_WEIGHTED_AVG = '__weighted__';
+  const PARCEL_CUSTOM_RATE = '__custom__';
   const singleParcelId = asset.landAllocation?.parcelId;
+  const sqm = Math.max(0, asset.landAllocation?.sqm ?? asset.landAreaSqm ?? 0);
+
+  if (mode === 'sqm' && singleParcelId === PARCEL_CUSTOM_RATE) {
+    const rate = Math.max(0, asset.landAllocation?.customRate ?? 0);
+    const value = sqm * rate;
+    return { landSqm: sqm, landValue: value, rate, splits: [] };
+  }
+
+  // M2.0g Fix 2: explicit weighted-average sentinel (mode A).
+  if (mode === 'sqm' && singleParcelId === PARCEL_WEIGHTED_AVG) {
+    const agg = computeLandAggregate(phaseParcels);
+    const rate = agg.weightedRate;
+    const value = sqm * rate;
+    return { landSqm: sqm, landValue: value, rate, splits: [] };
+  }
+
+  // Branch 2: single explicit parcel (mode A only).
   if (mode === 'sqm' && singleParcelId) {
     const parcel = phaseParcels.find((p) => p.id === singleParcelId);
-    const sqm = Math.max(0, asset.landAllocation?.sqm ?? asset.landAreaSqm ?? 0);
     const rate = parcel ? Math.max(0, parcel.rate) : 0;
     const value = sqm * rate;
     return {
@@ -239,6 +257,47 @@ export function computeAssetLandBreakdown(
   const landValue = agg.totalValue * valueShare;
   const rate = landSqm > 0 ? landValue / landSqm : 0;
   return { landSqm, landValue, rate, splits: [] };
+}
+
+// M2.0g Fix 2 (2026-05-06): project-level land reconciliation. Renders
+// at top of Tab 2 above the asset list.
+export interface LandReconciliation {
+  parcelsTotalSqm: number;
+  parcelsTotalValue: number;
+  assetsAllocatedSqm: number;
+  assetsAllocatedValue: number;
+  matches: boolean;
+  shortBy: number; // positive when assets allocated less than parcels total
+  overBy: number;  // positive when assets allocated more than parcels total
+}
+
+export function computeLandReconciliation(
+  parcels: Parcel[],
+  assets: Asset[],
+  subUnits: SubUnit[],
+  mode: LandAllocationMode,
+): LandReconciliation {
+  const parcelsTotalSqm = parcels.reduce((s, p) => s + Math.max(0, p.area), 0);
+  const parcelsTotalValue = parcels.reduce((s, p) => s + Math.max(0, p.area) * Math.max(0, p.rate), 0);
+  let assetsAllocatedSqm = 0;
+  let assetsAllocatedValue = 0;
+  for (const a of assets) {
+    if (!a.visible) continue;
+    const breakdown = computeAssetLandBreakdown(a, parcels, assets, subUnits, mode);
+    assetsAllocatedSqm += breakdown.landSqm;
+    assetsAllocatedValue += breakdown.landValue;
+  }
+  const diffSqm = assetsAllocatedSqm - parcelsTotalSqm;
+  const matches = Math.abs(diffSqm) < 0.5;
+  return {
+    parcelsTotalSqm,
+    parcelsTotalValue,
+    assetsAllocatedSqm,
+    assetsAllocatedValue,
+    matches,
+    shortBy: diffSqm < -0.5 ? Math.abs(diffSqm) : 0,
+    overBy:  diffSqm >  0.5 ? diffSqm           : 0,
+  };
 }
 
 export function computeAssetLandCost(

@@ -54,10 +54,13 @@ import {
   DEFAULT_USEFUL_LIFE_YEARS,
   SUB_UNIT_CATEGORIES,
   LAND_ALLOCATION_MODES,
+  PARCEL_WEIGHTED_AVG,
+  PARCEL_CUSTOM_RATE,
 } from '../../lib/state/module1-types';
 import {
   computeAssetLandBreakdown,
   computeLandAggregate,
+  computeLandReconciliation,
   computeSubUnitArea,
   computePhaseTimeline,
   resolveUsefulLifeYears,
@@ -224,6 +227,13 @@ export default function Module1Assets(): React.JSX.Element {
     [parcels, assets, landAllocationMode],
   );
 
+  // M2.0g Fix 2: project-wide land reconciliation. Renders below
+  // the parcels block.
+  const landReconciliation = useMemo(
+    () => computeLandReconciliation(parcels, assets, subUnits, landAllocationMode),
+    [parcels, assets, subUnits, landAllocationMode],
+  );
+
   // Build per-phase asset groups, sorted by startDate / constructionStart
   const phaseGroups = useMemo(() => {
     return [...phases]
@@ -278,6 +288,11 @@ export default function Module1Assets(): React.JSX.Element {
 
   const handleAddAssetToPhase = (phaseId: string): void => {
     const phaseAssetCount = assets.filter((a) => a.phaseId === phaseId).length;
+    // M2.0g Fix 2: default land allocation to the first phase parcel
+    // (not "(weighted average)") so the asset's resolved rate matches
+    // a real parcel rate out of the box.
+    const phaseParcels = parcels.filter((p) => p.phaseId === phaseId);
+    const fallbackParcel = phaseParcels[0] ?? parcels[0];
     addAsset({
       id: `asset_${Date.now()}`,
       phaseId,
@@ -290,6 +305,7 @@ export default function Module1Assets(): React.JSX.Element {
       sellableBuaSqm: 0,
       parkingBaysRequired: 0,
       status: 'planned',
+      landAllocation: fallbackParcel ? { parcelId: fallbackParcel.id, sqm: 0 } : undefined,
     });
   };
 
@@ -366,6 +382,63 @@ export default function Module1Assets(): React.JSX.Element {
             </tr>
           </tfoot>
         </table>
+      </div>
+
+      {/* M2.0g Fix 2: Land Reconciliation block (project-wide).
+          Compares parcels total area + value against the sum of asset
+          allocations + values. Match / under / over states drive a
+          color-coded banner so the user catches mis-allocations
+          before saving. */}
+      <div
+        style={{
+          ...sectionCardStyle,
+          background: landReconciliation.matches
+            ? 'color-mix(in srgb, var(--color-success) 10%, transparent)'
+            : landReconciliation.overBy > 0
+              ? 'color-mix(in srgb, var(--color-negative) 10%, transparent)'
+              : 'color-mix(in srgb, var(--color-accent-warm) 10%, transparent)',
+          border: `1px solid ${landReconciliation.matches
+            ? 'var(--color-success)'
+            : landReconciliation.overBy > 0
+              ? 'var(--color-negative)'
+              : 'var(--color-accent-warm)'}`,
+        }}
+        data-testid="land-reconciliation"
+      >
+        <h3 style={{ fontSize: 'var(--font-h3)', margin: 0, marginBottom: 'var(--sp-2)' }}>Land Reconciliation</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 'var(--sp-2)', fontSize: 'var(--font-small)' }}>
+          <div>
+            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total parcels area</div>
+            <div data-testid="land-reconciliation-parcels-sqm"><strong>{fmt(landReconciliation.parcelsTotalSqm)}</strong> sqm</div>
+          </div>
+          <div>
+            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Allocated to assets</div>
+            <div data-testid="land-reconciliation-allocated-sqm"><strong>{fmt(landReconciliation.assetsAllocatedSqm)}</strong> sqm</div>
+          </div>
+          <div>
+            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</div>
+            <div data-testid="land-reconciliation-status">
+              {landReconciliation.matches && (
+                <span style={{ color: 'var(--color-success)', fontWeight: 700 }}>matches</span>
+              )}
+              {landReconciliation.overBy > 0 && (
+                <span style={{ color: 'var(--color-negative)', fontWeight: 700 }}>over by {fmt(landReconciliation.overBy)} sqm</span>
+              )}
+              {landReconciliation.shortBy > 0 && (
+                <span style={{ color: 'var(--color-accent-warm)', fontWeight: 700 }}>short by {fmt(landReconciliation.shortBy)} sqm (some land unassigned)</span>
+              )}
+            </div>
+          </div>
+          <div>
+            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total parcels value</div>
+            <div data-testid="land-reconciliation-parcels-value"><strong>{fmtCurrency(landReconciliation.parcelsTotalValue, project.currency, project.displayScale ?? 'full')}</strong></div>
+          </div>
+          <div>
+            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Asset land cost</div>
+            <div data-testid="land-reconciliation-allocated-value"><strong>{fmtCurrency(landReconciliation.assetsAllocatedValue, project.currency, project.displayScale ?? 'full')}</strong></div>
+          </div>
+          <div></div>
+        </div>
       </div>
 
       {/* Land Allocation Mode (unchanged) */}
@@ -902,28 +975,36 @@ function AssetCard({
                 {landAllocationMode === 'sqm' && (
                   <>
                     <div>
-                      <InputLabel label="Parcel" help="Source parcel for this asset's land draw. Pick a parcel; rate applies at its per-sqm rate." inputId={`asset-${asset.id}-parcelId`} />
+                      <InputLabel label="Parcel" help="Source parcel for this asset's land draw. Default = first parcel; pick (Weighted Average) to use the phase-blended rate or (Custom Rate) to override with a specific value." inputId={`asset-${asset.id}-parcelId`} />
                       <select
                         id={`asset-${asset.id}-parcelId`}
                         data-testid={`asset-${asset.id}-parcelId`}
-                        value={allocation.parcelId ?? ''}
+                        value={allocation.parcelId ?? phaseParcels[0]?.id ?? ''}
                         onChange={(e) => setAllocation({ parcelId: e.target.value || undefined })}
                         style={inputStyle}
                       >
-                        <option value="">(weighted average across parcels)</option>
                         {phaseParcels.map((p) => (
                           <option key={p.id} value={p.id}>{p.name} ({fmt(p.rate)} {project.currency}/sqm)</option>
                         ))}
+                        <option value={PARCEL_WEIGHTED_AVG}>(Weighted Average across parcels)</option>
+                        <option value={PARCEL_CUSTOM_RATE}>(Custom Rate)</option>
                       </select>
                     </div>
                     <div>
-                      <InputLabel label="Land Area (sqm)" help="Direct sqm assigned to this asset from the chosen parcel (or weighted across all phase parcels when no parcel is picked)." inputId={`asset-${asset.id}-landAreaSqm`} />
+                      <InputLabel label="Land Area (sqm)" help="Direct sqm assigned to this asset from the chosen parcel." inputId={`asset-${asset.id}-landAreaSqm`} />
                       <input id={`asset-${asset.id}-landAreaSqm`} data-testid={`asset-${asset.id}-landAreaSqm`} type="number" min={0} value={allocation.sqm ?? asset.landAreaSqm ?? 0} onChange={(e) => setAllocation({ sqm: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
                     </div>
-                    <div>
-                      <InputLabel label="Resolved Rate" help="Picked parcel's rate, or weighted average when blank." inputId={`asset-${asset.id}-resolved-rate`} />
-                      <div style={calcOutputStyle} data-testid={`asset-${asset.id}-resolved-rate`}>{fmt(landBreakdown.rate)} {project.currency}/sqm</div>
-                    </div>
+                    {allocation.parcelId === PARCEL_CUSTOM_RATE ? (
+                      <div>
+                        <InputLabel label="Custom Rate" help="Per-sqm rate override. Used instead of any parcel's rate." inputId={`asset-${asset.id}-customRate`} />
+                        <input id={`asset-${asset.id}-customRate`} data-testid={`asset-${asset.id}-customRate`} type="number" min={0} value={allocation.customRate ?? 0} onChange={(e) => setAllocation({ customRate: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+                      </div>
+                    ) : (
+                      <div>
+                        <InputLabel label="Resolved Rate" help="Picked parcel's rate (or weighted average / custom override)." inputId={`asset-${asset.id}-resolved-rate`} />
+                        <div style={calcOutputStyle} data-testid={`asset-${asset.id}-resolved-rate`}>{fmt(landBreakdown.rate)} {project.currency}/sqm</div>
+                      </div>
+                    )}
                   </>
                 )}
                 {landAllocationMode === 'percent' && (
