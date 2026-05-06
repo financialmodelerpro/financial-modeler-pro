@@ -1,9 +1,12 @@
 /**
- * module1-store.ts (v5 schema)
+ * module1-store.ts (v6 schema)
  *
- * Phase M2.0 (2026-05-06): complete rebuild.
+ * Phase M2.0 (2026-05-06): MAAD-Spec rebuild (flat hierarchy).
+ * Phase M2.0c (2026-05-06): cost-line catalog opens up + financing
+ * matrix expands; the store API switches from `(key, phaseId)` lookup
+ * to `(lineId)` lookup since lineIds are now globally unique.
  *
- * Zustand store for Module 1 in MAAD-Spec shape. Flat hierarchy:
+ * Flat hierarchy:
  *   project + phases[] + parcels[] + assets[] + subUnits[] +
  *   costLines[] + costOverrides[] + financingTranches[] +
  *   equityContributions[] + landAllocationMode
@@ -25,7 +28,6 @@ import type {
   FinancingTranche,
   EquityContribution,
   LandAllocationMode,
-  CostLineKey,
 } from './module1-types';
 import {
   DEFAULT_PHASE_ID,
@@ -89,9 +91,11 @@ export interface Module1Store {
   removeSubUnit: (id: string) => void;
 
   setCostLines: (costLines: CostLine[]) => void;
-  updateCostLine: (key: CostLineKey, phaseId: string, patch: Partial<CostLine>) => void;
+  addCostLine: (costLine: CostLine) => void;
+  updateCostLine: (id: string, patch: Partial<CostLine>) => void;
+  removeCostLine: (id: string) => void;
   setCostOverride: (override: CostOverride) => void;
-  removeCostOverride: (assetId: string, key: CostLineKey) => void;
+  removeCostOverride: (assetId: string, lineId: string) => void;
 
   setFinancingTranches: (tranches: FinancingTranche[]) => void;
   addFinancingTranche: (tranche: FinancingTranche) => void;
@@ -130,7 +134,7 @@ export type HydrateSnapshot = Pick<Module1Store,
 const defaultPhase = makeDefaultPhase();
 const defaultParcel = makeDefaultParcel(undefined, defaultPhase.id);
 const defaultTranche = makeDefaultFinancingTranche('tranche_1', defaultPhase.id);
-const defaultCostLines = makeDefaultCostLines(defaultPhase.id);
+const defaultCostLines = makeDefaultCostLines(defaultPhase.id, defaultPhase.constructionPeriods);
 
 export const DEFAULT_MODULE1_STATE: HydrateSnapshot = {
   project: makeDefaultProject(),
@@ -217,20 +221,23 @@ export function createModule1Store() {
     })),
 
     setCostLines: (costLines) => set({ costLines }),
-    updateCostLine: (key, phaseId, patch) => set((s) => ({
-      costLines: s.costLines.map((c) =>
-        c.key === key && c.phaseId === phaseId ? { ...c, ...patch } : c,
-      ),
+    addCostLine: (costLine) => set((s) => ({ costLines: [...s.costLines, costLine] })),
+    updateCostLine: (id, patch) => set((s) => ({
+      costLines: s.costLines.map((c) => (c.id === id ? { ...c, ...patch } : c)),
+    })),
+    removeCostLine: (id) => set((s) => ({
+      costLines: s.costLines.filter((c) => c.id !== id),
+      costOverrides: s.costOverrides.filter((o) => o.lineId !== id),
     })),
     setCostOverride: (override) => set((s) => {
       const filtered = s.costOverrides.filter(
-        (o) => !(o.assetId === override.assetId && o.key === override.key),
+        (o) => !(o.assetId === override.assetId && o.lineId === override.lineId),
       );
       return { costOverrides: [...filtered, override] };
     }),
-    removeCostOverride: (assetId, key) => set((s) => ({
+    removeCostOverride: (assetId, lineId) => set((s) => ({
       costOverrides: s.costOverrides.filter(
-        (o) => !(o.assetId === assetId && o.key === key),
+        (o) => !(o.assetId === assetId && o.lineId === lineId),
       ),
     })),
 
@@ -298,5 +305,5 @@ export const selectFinancingTranchesForPhase = (phaseId: string) => (s: Module1S
 export const selectEquityContributionsForPhase = (phaseId: string) => (s: Module1Store): EquityContribution[] =>
   s.equityContributions.filter((e) => e.phaseId === phaseId);
 
-export const selectCostOverride = (assetId: string, key: CostLineKey) => (s: Module1Store): CostOverride | undefined =>
-  s.costOverrides.find((o) => o.assetId === assetId && o.key === key);
+export const selectCostOverride = (assetId: string, lineId: string) => (s: Module1Store): CostOverride | undefined =>
+  s.costOverrides.find((o) => o.assetId === assetId && o.lineId === lineId);

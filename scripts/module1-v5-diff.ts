@@ -122,26 +122,34 @@ const snapshot = buildWizardSnapshot(FIXTURE);
 const land = computeLandAggregate(snapshot.parcels);
 const projectEnd = computeProjectEndDate(snapshot.project, snapshot.phases);
 
-const perAsset = snapshot.assets.map((a) => ({
-  id: a.id,
-  bua: computeAssetBua(a, snapshot.subUnits),
-  sellable: computeAssetSellableBua(a, snapshot.subUnits),
-  land: computeAssetLandCost(a, snapshot.parcels, snapshot.assets, snapshot.subUnits, snapshot.landAllocationMode),
-  cost: computeAssetCost(a, snapshot.costLines, snapshot.costOverrides, snapshot.parcels, snapshot.assets, snapshot.subUnits),
-}));
+const perAsset = snapshot.assets.map((a) => {
+  const phase = snapshot.phases.find((p) => p.id === a.phaseId)!;
+  return {
+    id: a.id,
+    bua: computeAssetBua(a, snapshot.subUnits),
+    sellable: computeAssetSellableBua(a, snapshot.subUnits),
+    land: computeAssetLandCost(a, snapshot.parcels, snapshot.assets, snapshot.subUnits, snapshot.landAllocationMode),
+    cost: computeAssetCost(a, snapshot.project, phase, snapshot.parcels, snapshot.assets, snapshot.subUnits, snapshot.costLines, snapshot.costOverrides, snapshot.landAllocationMode),
+  };
+});
 
 const perPhase = snapshot.phases.map((p) => ({
   id: p.id,
-  cost: computePhaseCost(p, snapshot.costLines, snapshot.parcels, snapshot.assets, snapshot.subUnits),
+  cost: computePhaseCost(p, snapshot.project, snapshot.costLines, snapshot.costOverrides, snapshot.parcels, snapshot.assets, snapshot.subUnits, snapshot.landAllocationMode),
 }));
 
 const perTranche = snapshot.financingTranches.map((t) => {
   const phase = snapshot.phases.find((p) => p.id === t.phaseId)!;
   const phaseCost = perPhase.find((pp) => pp.id === phase.id)!.cost;
-  const capex = new Array(phase.constructionPeriods).fill(phaseCost.total / phase.constructionPeriods);
+  const totalSpan = phase.constructionPeriods + phase.operationsPeriods - phase.overlapPeriods;
+  const capex = new Array(totalSpan).fill(0);
+  for (let i = 0; i < phase.constructionPeriods; i++) {
+    capex[i] = phaseCost.total / phase.constructionPeriods;
+  }
+  const presales = new Array(totalSpan).fill(0);
   return {
     id: t.id,
-    fin: computeFinancing(t, phase, capex, snapshot.project.modelType),
+    fin: computeFinancing(t, phase, capex, presales, snapshot.project),
   };
 });
 

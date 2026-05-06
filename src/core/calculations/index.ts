@@ -1,29 +1,31 @@
 /**
- * src/core/calculations/index.ts (v5 schema)
+ * src/core/calculations/index.ts (v6 schema)
  *
- * Phase M2.0 (2026-05-06): complete rewrite.
+ * Phase M2.0c (2026-05-06): rewrite for the v6 cost-line catalog (12+
+ * open lines) and 5×5 financing matrix. The pre-M2.0 cost engine
+ * (calculateItemTotal / distributeCost / buildAssetFinancing) is
+ * restored, adapted to read v5 Asset / Parcel / SubUnit instead of
+ * the legacy AreaMetrics. Granularity (annual / monthly) flows from
+ * Project.modelType through Phase.constructionPeriods, since periods
+ * are integer counts in the model granularity.
  *
- * Pure calculation functions for the MAAD-Spec Module 1. Inputs are
- * always v5 HydrateSnapshot slices; no React state, no globals.
- *
- * Removed (versus v3/v4):
- *   - computePlotEnvelope
- *   - computeAreaCascade
- *   - computePlotParkingCapacity
- *   - allocateParking
- *   - calculateAreaHierarchy (FAR / Roads / NEA derivation)
- *   - calculateItemTotal (12-cost-line legacy method)
- *   - distributeCost (legacy phasing)
- *   - calcFinancing (single-tranche legacy)
- *
- * Added:
- *   - computeAssetLandCost
- *   - computeAssetBua
- *   - computeAssetSellableBua
- *   - computeAssetCost
- *   - computePhaseCost
- *   - computeFinancing (per-tranche)
- *   - distribute (5 methods: even / sameAsCost / frontloaded / backloaded / manual)
+ * Public API:
+ *   - computeLandAggregate(parcels, phaseId?)
+ *   - computeSubUnitArea(u)
+ *   - computeAssetBua(asset, subUnits)
+ *   - computeAssetSellableBua(asset, subUnits)
+ *   - computeAssetUnitCount(asset, subUnits)  // sum of Sellable count metric
+ *   - computeAssetLandSqm(asset, parcels, assets, subUnits, mode)
+ *   - computeAssetLandCost(asset, parcels, assets, subUnits, mode)
+ *   - resolveAssetAreaMetrics(asset, project, parcels, assets, subUnits, mode)
+ *   - calculateItemTotal(line, asset, ctx) -> currency
+ *   - distributeItemCost(line, asset, ctx) -> number[] over construction window
+ *   - computeAssetCost(asset, ...) -> per-line breakdown + total
+ *   - computePhaseCost(phase, ...) -> aggregated phase capex
+ *   - computeFinancing(tranche, phase, capexPerPeriod, presalesPerPeriod,
+ *                       project) -> drawdown + repayment + balance schedules
+ *   - distributeEquity(contrib, constructionPeriods)
+ *   - computeProjectEndDate(project, phases)
  */
 
 import type {
@@ -34,17 +36,18 @@ import type {
   SubUnit,
   CostLine,
   CostOverride,
-  CostLineKey,
   CostMethod,
   CostPhasing,
+  CostStage,
+  AllocationBasis,
   FinancingTranche,
   EquityContribution,
   LandAllocationMode,
   DrawdownMethod,
+  RepaymentMethod,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 // ── Land aggregates ────────────────────────────────────────────────────────
-// Project-level: total land area + total cash + in-kind values.
 export interface LandAggregate {
   totalAreaSqm: number;
   totalValue: number;
@@ -74,12 +77,7 @@ export function computeLandAggregate(parcels: Parcel[], phaseId?: string): LandA
   return { totalAreaSqm: totalArea, totalValue, cashValue, inKindValue, weightedRate };
 }
 
-// ── Asset BUA + sellable BUA ───────────────────────────────────────────────
-// Sum sub-unit area contributions:
-//   metric === 'count' -> count * unitArea
-//   metric === 'area'  -> metricValue (sqm directly)
-// computeAssetBua sums every sub-unit. computeAssetSellableBua sums only
-// 'Sellable' + 'Operable' + 'Leasable' categories (not 'Support').
+// ── Sub-unit area ──────────────────────────────────────────────────────────
 export function computeSubUnitArea(u: SubUnit): number {
   if (u.metric === 'count') {
     return Math.max(0, u.metricValue) * Math.max(0, u.unitArea ?? 0);
@@ -101,14 +99,40 @@ export function computeAssetSellableBua(asset: Asset, subUnits: SubUnit[]): numb
     .reduce((s, u) => s + computeSubUnitArea(u), 0);
 }
 
-// ── Asset land cost ────────────────────────────────────────────────────────
-// Resolves each asset's share of total parcel value based on
-// landAllocationMode:
-//   'sqm'       -> asset.landAreaSqm / totalAreaSqm * totalValue
-//   'percent'   -> asset.landAreaPct / 100 * totalValue
-//   'autoByBua' -> assetBua / totalBua * totalValue
-//
-// Returns 0 when total area / total bua are zero (avoids divide-by-zero).
+// Sum of Sellable / Operable / Leasable units where metric === 'count'.
+// Used by the rate_per_unit cost method.
+export function computeAssetUnitCount(asset: Asset, subUnits: SubUnit[]): number {
+  return subUnits
+    .filter((u) => u.assetId === asset.id && u.metric === 'count' && u.category !== 'Support')
+    .reduce((s, u) => s + Math.max(0, u.metricValue), 0);
+}
+
+// ── Asset land sqm + value ─────────────────────────────────────────────────
+// Resolve each asset's land area in sqm based on landAllocationMode.
+export function computeAssetLandSqm(
+  asset: Asset,
+  parcels: Parcel[],
+  assets: Asset[],
+  subUnits: SubUnit[],
+  mode: LandAllocationMode,
+): number {
+  const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
+  const agg = computeLandAggregate(phaseParcels);
+  if (agg.totalAreaSqm <= 0) return 0;
+  if (mode === 'sqm') {
+    return Math.max(0, asset.landAreaSqm ?? 0);
+  }
+  if (mode === 'percent') {
+    return agg.totalAreaSqm * (Math.max(0, asset.landAreaPct ?? 0) / 100);
+  }
+  // autoByBua
+  const phaseAssets = assets.filter((a) => a.phaseId === asset.phaseId);
+  const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
+  if (totalBua <= 0) return 0;
+  const myBua = computeAssetBua(asset, subUnits);
+  return agg.totalAreaSqm * (myBua / totalBua);
+}
+
 export function computeAssetLandCost(
   asset: Asset,
   parcels: Parcel[],
@@ -117,285 +141,409 @@ export function computeAssetLandCost(
   mode: LandAllocationMode,
 ): number {
   const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
-  const aggregate = computeLandAggregate(phaseParcels);
-  if (aggregate.totalValue <= 0) return 0;
-
+  const agg = computeLandAggregate(phaseParcels);
+  if (agg.totalValue <= 0) return 0;
   if (mode === 'sqm') {
-    if (aggregate.totalAreaSqm <= 0) return 0;
-    const share = Math.max(0, asset.landAreaSqm ?? 0) / aggregate.totalAreaSqm;
-    return aggregate.totalValue * share;
+    if (agg.totalAreaSqm <= 0) return 0;
+    return agg.totalValue * (Math.max(0, asset.landAreaSqm ?? 0) / agg.totalAreaSqm);
   }
   if (mode === 'percent') {
-    return aggregate.totalValue * (Math.max(0, asset.landAreaPct ?? 0) / 100);
+    return agg.totalValue * (Math.max(0, asset.landAreaPct ?? 0) / 100);
   }
-  // autoByBua
   const phaseAssets = assets.filter((a) => a.phaseId === asset.phaseId);
   const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
   if (totalBua <= 0) return 0;
   const myBua = computeAssetBua(asset, subUnits);
-  return aggregate.totalValue * (myBua / totalBua);
+  return agg.totalValue * (myBua / totalBua);
 }
 
-// ── Cost line resolution ───────────────────────────────────────────────────
-// Resolves a CostLine's currency total against the project context. Used
-// by computePhaseCost to roll the 9 standard lines + any per-asset
-// overrides into a phase total.
-export interface CostContext {
-  totalLandSqm: number;
-  totalBuaSqm: number;
-  totalParkingBays: number;
-  totalLandValue: number;
-  totalCashLandValue: number;
-  totalInKindLandValue: number;
+// ── Asset area metrics ─────────────────────────────────────────────────────
+// Resolves the area / value bases that the calc methods need for a single
+// asset. Replaces the pre-M2.0 AreaMetrics interface.
+export interface AssetAreaMetrics {
+  landSqm: number;
+  ndaSqm: number;
+  roadsSqm: number;
+  gfa: number;
+  bua: number;
+  nsa: number;
+  unitCount: number;
+  landValue: number;
+  cashLandValue: number;
+  inKindLandValue: number;
 }
 
-export function buildCostContext(
-  phase: Phase,
+export function resolveAssetAreaMetrics(
+  asset: Asset,
+  project: Project,
   parcels: Parcel[],
   assets: Asset[],
   subUnits: SubUnit[],
-): CostContext {
-  const phaseParcels = parcels.filter((p) => p.phaseId === phase.id);
-  const phaseAssets = assets.filter((a) => a.phaseId === phase.id);
-  const land = computeLandAggregate(phaseParcels);
-  const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
-  const totalParking = phaseAssets.reduce((s, a) => s + Math.max(0, a.parkingBaysRequired), 0);
+  mode: LandAllocationMode,
+): AssetAreaMetrics {
+  const landSqm = computeAssetLandSqm(asset, parcels, assets, subUnits, mode);
+  const roadsPct = Math.max(0, Math.min(100, project.projectRoadsPct ?? 0));
+  const ndaSqm = landSqm * (1 - roadsPct / 100);
+  const roadsSqm = landSqm - ndaSqm;
+  const bua = computeAssetBua(asset, subUnits);
+  const nsa = computeAssetSellableBua(asset, subUnits);
+  const unitCount = computeAssetUnitCount(asset, subUnits);
+  const landValue = computeAssetLandCost(asset, parcels, assets, subUnits, mode);
+  const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
+  const agg = computeLandAggregate(phaseParcels);
+  // Cash / in-kind splits track the asset's land value share of agg.totalValue.
+  const valueShare = agg.totalValue > 0 ? landValue / agg.totalValue : 0;
+  const cashLandValue = agg.cashValue * valueShare;
+  const inKindLandValue = agg.inKindValue * valueShare;
   return {
-    totalLandSqm: land.totalAreaSqm,
-    totalBuaSqm: totalBua,
-    totalParkingBays: totalParking,
-    totalLandValue: land.totalValue,
-    totalCashLandValue: land.cashValue,
-    totalInKindLandValue: land.inKindValue,
+    landSqm,
+    ndaSqm,
+    roadsSqm,
+    gfa: asset.gfaSqm,
+    bua,
+    nsa,
+    unitCount,
+    landValue,
+    cashLandValue,
+    inKindLandValue,
   };
 }
 
-// Resolves a cost line's gross currency total before % methods that
-// reference other lines. Returns NaN when method requires a base it
-// cannot reach without recursion (% of construction / % of total).
-function resolveDirectCost(
-  method: CostMethod,
-  value: number,
-  ctx: CostContext,
-): number | null {
-  switch (method) {
-    case 'lumpsum':
-      return Math.max(0, value);
-    case 'rate_per_bua':
-      return Math.max(0, value) * ctx.totalBuaSqm;
-    case 'rate_per_park':
-      return Math.max(0, value) * ctx.totalParkingBays;
+// ── Cost item total (per asset) ────────────────────────────────────────────
+// ctx.assetMetrics + ctx.allLines lets the function resolve direct + % methods
+// in one place. Returns currency total for the line as it applies to this
+// asset (after override resolution by the caller).
+export interface AssetCostContext {
+  asset: Asset;
+  metrics: AssetAreaMetrics;
+  // All cost lines for this phase (post-override per-asset). Used by
+  // percent_of_selected / percent_of_construction / etc. The caller must
+  // pre-resolve the per-asset values for each line so percent methods
+  // can refer back to them without recursion.
+  resolvedDirectLineTotals: Record<string, number>;
+}
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Math.max(lo, Math.min(hi, n));
+}
+
+export function calculateItemTotal(
+  line: CostLine,
+  ctx: AssetCostContext,
+  asResolveDirect = false,
+): number {
+  const v = Number.isFinite(line.value) ? line.value : 0;
+  const m = ctx.metrics;
+  const safeV = Math.max(0, v);
+  switch (line.method) {
+    case 'fixed':
+      return safeV;
     case 'rate_per_land':
-      return Math.max(0, value) * ctx.totalLandSqm;
-    case 'percent_of_construction':
-    case 'percent_of_total_cost':
-      return null;
+      return safeV * m.landSqm;
+    case 'rate_per_nda':
+      return safeV * m.ndaSqm;
+    case 'rate_per_roads':
+      return safeV * m.roadsSqm;
+    case 'rate_per_gfa':
+      return safeV * m.gfa;
+    case 'rate_per_bua':
+      return safeV * m.bua;
+    case 'rate_per_nsa':
+      return safeV * m.nsa;
+    case 'rate_per_unit':
+      return safeV * m.unitCount;
+    case 'percent_of_total_land':
+      return m.landValue * (clamp(v, 0, 100) / 100);
+    case 'percent_of_cash_land':
+      return m.cashLandValue * (clamp(v, 0, 100) / 100);
+    case 'percent_of_inkind_land':
+      return m.inKindLandValue * (clamp(v, 0, 100) / 100);
+    case 'percent_of_selected': {
+      if (asResolveDirect) return 0;
+      const ids = line.selectedLineIds ?? [];
+      const base = ids.reduce((s, id) => s + (ctx.resolvedDirectLineTotals[id] ?? 0), 0);
+      return base * (clamp(v, 0, 100) / 100);
+    }
+    case 'percent_of_construction': {
+      if (asResolveDirect) return 0;
+      // sum of all stage='hard' direct line totals
+      const base = Object.entries(ctx.resolvedDirectLineTotals).reduce((s, [, val]) => s + val, 0);
+      // The caller passes a context whose resolvedDirectLineTotals is
+      // already filtered to stage='hard'; if not, computePhaseCost
+      // ensures the right base is computed in pass 2.
+      return base * (clamp(v, 0, 100) / 100);
+    }
   }
 }
 
-// ── Phase cost rollup ──────────────────────────────────────────────────────
-// Two-pass: first resolve the direct lines, then resolve % methods using
-// the direct sums. percent_of_construction sums constructionBua +
-// constructionParking. percent_of_total_cost sums every direct line plus
-// the percent_of_construction lines, but excludes other percent_of_total
-// lines (so contingency on contingency doesn't compound).
-export interface PhaseCostBreakdown {
-  byLine: Record<CostLineKey, number>;
-  constructionTotal: number;
-  total: number;
+// ── Distribution helpers (5 phasing modes + manual) ───────────────────────
+// distribute() returns weights summing to 1 across `periods` slots.
+export function distribute(method: CostPhasing, periods: number, manual?: number[]): number[] {
+  if (periods <= 0) return [];
+  const out = new Array<number>(periods).fill(0);
+  if (method === 'manual') {
+    const m = manual ?? [];
+    for (let i = 0; i < periods; i++) out[i] = Math.max(0, m[i] ?? 0);
+    const sum = out.reduce((s, v) => s + v, 0);
+    if (sum > 0) for (let i = 0; i < periods; i++) out[i] /= sum;
+    return out;
+  }
+  if (method === 'even' || method === 'phase_aligned') {
+    for (let i = 0; i < periods; i++) out[i] = 1 / periods;
+    return out;
+  }
+  if (method === 'frontloaded') {
+    // Linear declining weights
+    const total = (periods * (periods + 1)) / 2;
+    for (let i = 0; i < periods; i++) out[i] = (periods - i) / total;
+    return out;
+  }
+  if (method === 'backloaded') {
+    const total = (periods * (periods + 1)) / 2;
+    for (let i = 0; i < periods; i++) out[i] = (i + 1) / total;
+    return out;
+  }
+  if (method === 'sCurve') {
+    // Bell-shape, peak in the middle. Normalised cosine bump.
+    const peaks = new Array<number>(periods);
+    const mid = (periods - 1) / 2;
+    let sum = 0;
+    for (let i = 0; i < periods; i++) {
+      // 0.5 - 0.5 cos(2π * i / (periods - 1)) shifted: produces bell with 0 at edges
+      const x = mid > 0 ? Math.abs(i - mid) / mid : 0;
+      const w = 0.5 + 0.5 * Math.cos(Math.PI * x);
+      peaks[i] = w;
+      sum += w;
+    }
+    for (let i = 0; i < periods; i++) out[i] = sum > 0 ? peaks[i] / sum : 1 / periods;
+    return out;
+  }
+  // fallback even
+  for (let i = 0; i < periods; i++) out[i] = 1 / periods;
+  return out;
 }
 
-export function computePhaseCost(
-  phase: Phase,
-  costLines: CostLine[],
+// distributeItemCost returns a per-period schedule of the line's currency
+// across the construction window (length = constructionPeriods + 1, index
+// 0 = upfront / pre-construction). startPeriod = 0 means upfront-lump.
+export function distributeItemCost(
+  line: CostLine,
+  total: number,
+  constructionPeriods: number,
+): number[] {
+  const out = new Array<number>(constructionPeriods + 1).fill(0);
+  if (line.startPeriod === 0 && line.endPeriod === 0) {
+    out[0] = total;
+    return out;
+  }
+  const start = clamp(line.startPeriod, 0, constructionPeriods);
+  const end = clamp(line.endPeriod, start, constructionPeriods);
+  const span = Math.max(1, end - start + 1);
+  const weights = distribute(line.phasing, span, line.distribution);
+  for (let i = 0; i < span; i++) {
+    const p = start + i;
+    if (p <= constructionPeriods) out[p] = total * (weights[i] ?? 0);
+  }
+  return out;
+}
+
+// ── Allocation helpers ─────────────────────────────────────────────────────
+// Resolve an asset's share factor (0..1) for a project-level cost line
+// based on its allocationBasis.
+export function resolveAllocationFactor(
+  basis: AllocationBasis,
+  asset: Asset,
+  phaseAssets: Asset[],
   parcels: Parcel[],
-  assets: Asset[],
   subUnits: SubUnit[],
-): PhaseCostBreakdown {
-  const ctx = buildCostContext(phase, parcels, assets, subUnits);
-  const lines = costLines.filter((c) => c.phaseId === phase.id);
-  const byLine: Record<CostLineKey, number> = {
-    land: 0,
-    constructionBua: 0,
-    constructionParking: 0,
-    infrastructure: 0,
-    landscaping: 0,
-    preOperating: 0,
-    professionalFee: 0,
-    commissionFee: 0,
-    contingency: 0,
-  };
-
-  // Pass 1: direct lines
-  for (const line of lines) {
-    const direct = resolveDirectCost(line.method, line.value, ctx);
-    if (direct !== null) byLine[line.key] = direct;
+  mode: LandAllocationMode,
+): number {
+  if (basis === 'per_asset') return 1;
+  if (basis === 'manual') return 1; // overrides supply explicit values
+  if (basis === 'category') {
+    const cat = asset.strategy;
+    const sameCat = phaseAssets.filter((a) => a.strategy === cat && a.visible);
+    if (sameCat.length === 0) return 0;
+    return 1 / sameCat.length;
   }
-
-  // Land line: if method is 'lumpsum' AND value is 0, fall back to the
-  // phase's actual parcel total. This is the typical wizard-seeded path.
-  const landLine = lines.find((c) => c.key === 'land');
-  if (landLine && landLine.method === 'lumpsum' && landLine.value === 0) {
-    byLine.land = ctx.totalLandValue;
+  if (basis === 'bua_share') {
+    const myBua = computeAssetBua(asset, subUnits);
+    const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
+    return totalBua > 0 ? myBua / totalBua : 0;
   }
-
-  const constructionTotal = byLine.constructionBua + byLine.constructionParking;
-
-  // Pass 2: percent_of_construction
-  for (const line of lines) {
-    if (line.method === 'percent_of_construction') {
-      byLine[line.key] = constructionTotal * (Math.max(0, line.value) / 100);
-    }
+  if (basis === 'gfa_share') {
+    const myGfa = asset.gfaSqm;
+    const totalGfa = phaseAssets.reduce((s, a) => s + a.gfaSqm, 0);
+    return totalGfa > 0 ? myGfa / totalGfa : 0;
   }
-
-  // Pass 3: percent_of_total_cost. Base = sum of every line resolved so
-  // far (direct + percent_of_construction).
-  const baseForTotal = (Object.keys(byLine) as CostLineKey[])
-    .filter((k) => {
-      const line = lines.find((c) => c.key === k);
-      return line ? line.method !== 'percent_of_total_cost' : true;
-    })
-    .reduce((s, k) => s + byLine[k], 0);
-
-  for (const line of lines) {
-    if (line.method === 'percent_of_total_cost') {
-      byLine[line.key] = baseForTotal * (Math.max(0, line.value) / 100);
-    }
+  if (basis === 'land_share') {
+    const myLand = computeAssetLandSqm(asset, parcels, phaseAssets, subUnits, mode);
+    const totalLand = phaseAssets.reduce(
+      (s, a) => s + computeAssetLandSqm(a, parcels, phaseAssets, subUnits, mode),
+      0,
+    );
+    return totalLand > 0 ? myLand / totalLand : 0;
   }
-
-  const total = Object.values(byLine).reduce((s, v) => s + v, 0);
-  return { byLine, constructionTotal, total };
+  return 0;
 }
 
-// ── Per-asset cost (with overrides) ────────────────────────────────────────
-// Resolves an asset's share of phase cost. For each cost line, if a
-// per-asset override exists, that override's method/value applies in
-// isolation (the asset gets exactly that override, not a share of the
-// project line). Otherwise the asset's share is its BUA-weighted slice.
+// ── Per-asset cost rollup ──────────────────────────────────────────────────
 export interface AssetCostBreakdown {
-  byLine: Record<CostLineKey, number>;
+  byLineId: Record<string, number>;
+  byStage: Record<CostStage, number>;
   total: number;
+  perPeriod: number[]; // length = constructionPeriods + 1
 }
 
 export function computeAssetCost(
   asset: Asset,
+  project: Project,
+  phase: Phase,
+  parcels: Parcel[],
+  assets: Asset[],
+  subUnits: SubUnit[],
+  costLines: CostLine[],
+  costOverrides: CostOverride[],
+  landAllocationMode: LandAllocationMode,
+): AssetCostBreakdown {
+  const phaseAssets = assets.filter((a) => a.phaseId === phase.id && a.visible);
+  const phaseLines = costLines.filter((c) => c.phaseId === phase.id);
+  const metrics = resolveAssetAreaMetrics(asset, project, parcels, phaseAssets, subUnits, landAllocationMode);
+
+  // Resolve the per-asset method/value/phasing for each line, applying
+  // overrides where present.
+  const resolved: Array<{ line: CostLine; method: CostMethod; value: number; phasing: CostPhasing; distribution?: number[] }> = phaseLines.map((line) => {
+    const ov = costOverrides.find((o) => o.assetId === asset.id && o.lineId === line.id);
+    if (ov) {
+      return { line, method: ov.method, value: ov.value, phasing: ov.phasing, distribution: ov.distribution };
+    }
+    return { line, method: line.method, value: line.value, phasing: line.phasing, distribution: line.distribution };
+  });
+
+  // Pass 1: direct methods (everything except percent_of_selected /
+  // percent_of_construction). Apply allocation factor for project-level
+  // lines (allocationBasis !== 'per_asset' && !== 'manual').
+  const directTotals: Record<string, number> = {};
+  for (const r of resolved) {
+    const isPct = r.method === 'percent_of_selected' || r.method === 'percent_of_construction';
+    if (isPct) continue;
+    const ctxStub: AssetCostContext = { asset, metrics, resolvedDirectLineTotals: {} };
+    const projectLevelTotal = calculateItemTotal(
+      { ...r.line, method: r.method, value: r.value },
+      ctxStub,
+      true,
+    );
+    const allocFactor = resolveAllocationFactor(
+      r.line.allocationBasis,
+      asset,
+      phaseAssets,
+      parcels,
+      subUnits,
+      landAllocationMode,
+    );
+    directTotals[r.line.id] = projectLevelTotal * allocFactor;
+  }
+
+  // Pass 2: percent_of_construction = % × sum of stage='hard' direct totals.
+  const constructionBase = resolved
+    .filter((r) => !['percent_of_selected', 'percent_of_construction'].includes(r.method) && r.line.stage === 'hard')
+    .reduce((s, r) => s + (directTotals[r.line.id] ?? 0), 0);
+
+  const percentTotals: Record<string, number> = {};
+  for (const r of resolved) {
+    if (r.method === 'percent_of_construction') {
+      const v = clamp(r.value, 0, 100);
+      percentTotals[r.line.id] = constructionBase * (v / 100);
+    }
+  }
+
+  // Pass 3: percent_of_selected = % × sum of selected line ids' totals.
+  // selectedLineIds come from the BASE line (overrides don't change them).
+  for (const r of resolved) {
+    if (r.method === 'percent_of_selected') {
+      const ids = r.line.selectedLineIds ?? [];
+      const base = ids.reduce(
+        (s, id) => s + (directTotals[id] ?? percentTotals[id] ?? 0),
+        0,
+      );
+      const v = clamp(r.value, 0, 100);
+      percentTotals[r.line.id] = base * (v / 100);
+    }
+  }
+
+  // Aggregate
+  const byLineId: Record<string, number> = { ...directTotals, ...percentTotals };
+  const byStage: Record<CostStage, number> = { land: 0, hard: 0, soft: 0, operating: 0 };
+  let total = 0;
+  for (const r of resolved) {
+    const t = byLineId[r.line.id] ?? 0;
+    total += t;
+    byStage[r.line.stage] += t;
+  }
+
+  // Per-period schedule
+  const cp = phase.constructionPeriods;
+  const perPeriod = new Array<number>(cp + 1).fill(0);
+  for (const r of resolved) {
+    const t = byLineId[r.line.id] ?? 0;
+    if (t === 0) continue;
+    const dist = distributeItemCost(
+      { ...r.line, phasing: r.phasing, distribution: r.distribution },
+      t,
+      cp,
+    );
+    for (let i = 0; i <= cp; i++) perPeriod[i] += dist[i] ?? 0;
+  }
+
+  return { byLineId, byStage, total, perPeriod };
+}
+
+// ── Phase cost rollup ──────────────────────────────────────────────────────
+export interface PhaseCostBreakdown {
+  byAssetId: Record<string, AssetCostBreakdown>;
+  byStage: Record<CostStage, number>;
+  total: number;
+  perPeriod: number[]; // length = constructionPeriods + 1
+}
+
+export function computePhaseCost(
+  phase: Phase,
+  project: Project,
   costLines: CostLine[],
   costOverrides: CostOverride[],
   parcels: Parcel[],
   assets: Asset[],
   subUnits: SubUnit[],
-): AssetCostBreakdown {
-  const phase = { id: asset.phaseId } as Phase; // type-only stub (cost rollup only reads phase.id)
-  const phaseLines = costLines.filter((c) => c.phaseId === asset.phaseId);
-  const phaseAssets = assets.filter((a) => a.phaseId === asset.phaseId);
-  const ctx = buildCostContext(
-    { ...phase, name: '', constructionStart: 0, constructionPeriods: 0, operationsPeriods: 0, overlapPeriods: 0 },
-    parcels,
-    assets,
-    subUnits,
-  );
-  const myBua = computeAssetBua(asset, subUnits);
-  const totalBua = phaseAssets.reduce((s, a) => s + computeAssetBua(a, subUnits), 0);
-  const buaShare = totalBua > 0 ? myBua / totalBua : 0;
+  landAllocationMode: LandAllocationMode = 'autoByBua',
+): PhaseCostBreakdown {
+  const phaseAssets = assets.filter((a) => a.phaseId === phase.id && a.visible);
+  const byAssetId: Record<string, AssetCostBreakdown> = {};
+  const byStage: Record<CostStage, number> = { land: 0, hard: 0, soft: 0, operating: 0 };
+  let total = 0;
+  const cp = phase.constructionPeriods;
+  const perPeriod = new Array<number>(cp + 1).fill(0);
 
-  const phaseTotals = computePhaseCost(
-    { ...phase, name: '', constructionStart: 0, constructionPeriods: 0, operationsPeriods: 0, overlapPeriods: 0 },
-    costLines,
-    parcels,
-    assets,
-    subUnits,
-  );
-
-  const byLine: Record<CostLineKey, number> = {
-    land: 0,
-    constructionBua: 0,
-    constructionParking: 0,
-    infrastructure: 0,
-    landscaping: 0,
-    preOperating: 0,
-    professionalFee: 0,
-    commissionFee: 0,
-    contingency: 0,
-  };
-
-  for (const key of Object.keys(byLine) as CostLineKey[]) {
-    const override = costOverrides.find(
-      (o) => o.assetId === asset.id && o.key === key,
-    );
-    if (override) {
-      const direct = resolveDirectCost(override.method, override.value, ctx);
-      if (direct !== null) {
-        byLine[key] = direct;
-      } else if (override.method === 'percent_of_construction') {
-        byLine[key] = phaseTotals.constructionTotal * (Math.max(0, override.value) / 100);
-      } else {
-        // percent_of_total_cost as override: share of phase total
-        byLine[key] = phaseTotals.total * (Math.max(0, override.value) / 100);
-      }
-    } else if (key === 'land') {
-      // Land always allocated by mode-driven allocation, not BUA share
-      byLine[key] = 0; // computeAssetLandCost is called separately by callers
-    } else {
-      byLine[key] = phaseTotals.byLine[key] * buaShare;
-    }
+  for (const a of phaseAssets) {
+    const breakdown = computeAssetCost(a, project, phase, parcels, assets, subUnits, costLines, costOverrides, landAllocationMode);
+    byAssetId[a.id] = breakdown;
+    total += breakdown.total;
+    for (const k of ['land', 'hard', 'soft', 'operating'] as CostStage[]) byStage[k] += breakdown.byStage[k];
+    for (let i = 0; i <= cp; i++) perPeriod[i] += breakdown.perPeriod[i] ?? 0;
   }
 
-  // Note: Land slot left at 0 here. Callers add computeAssetLandCost
-  // for the land number.
-  void phaseLines;
-  const total = Object.values(byLine).reduce((s, v) => s + v, 0);
-  return { byLine, total };
+  return { byAssetId, byStage, total, perPeriod };
 }
 
-// ── Distribution curves ────────────────────────────────────────────────────
-// Returns a unit vector of length n that sums to 1.0. Math:
-//   even        -> [1/n, 1/n, ..., 1/n]
-//   frontloaded -> S-curve weighted toward early periods (decay 0.85)
-//   backloaded  -> reverse of frontloaded
-//   manual      -> caller-supplied; normalized if it doesn't sum to 1
-export function distribute(
-  method: CostPhasing | DrawdownMethod | 'sameAsCost',
-  n: number,
-  manual?: number[],
-): number[] {
-  if (n <= 0) return [];
-  if (method === 'manual') {
-    if (!manual || manual.length === 0) return new Array(n).fill(1 / n);
-    const padded = manual.slice(0, n);
-    while (padded.length < n) padded.push(0);
-    const sum = padded.reduce((s, v) => s + Math.max(0, v), 0);
-    if (sum <= 0) return new Array(n).fill(1 / n);
-    return padded.map((v) => Math.max(0, v) / sum);
-  }
-  if (method === 'frontloaded') {
-    const decay = 0.85;
-    const weights = Array.from({ length: n }, (_, i) => Math.pow(decay, i));
-    const sum = weights.reduce((s, w) => s + w, 0);
-    return weights.map((w) => w / sum);
-  }
-  if (method === 'backloaded') {
-    const decay = 0.85;
-    const weights = Array.from({ length: n }, (_, i) => Math.pow(decay, n - 1 - i));
-    const sum = weights.reduce((s, w) => s + w, 0);
-    return weights.map((w) => w / sum);
-  }
-  // 'even' and 'sameAsCost' (sameAsCost mirrors capex curve at the call site,
-  // not here; treat as even for fallback)
-  return new Array(n).fill(1 / n);
-}
-
-// ── Financing ──────────────────────────────────────────────────────────────
-// Per-tranche debt math. Returns the per-period series for the model
-// granularity (months for monthly, years for annual).
+// ── Financing (per-tranche, 5 drawdown × 5 repayment) ─────────────────────
 export interface FinancingResult {
-  periods: number;                 // total period count (construction + operations - overlap)
-  periodicRate: number;            // applied rate per period (annual / 12 for monthly)
-  drawSchedule: number[];          // per-period debt drawdowns (sums to ltv * capex)
-  outstandingBalance: number[];    // per-period closing balance
-  interestAccrued: number[];       // per-period interest charge
-  interestCapitalized: number[];   // per-period IDC added to principal (when idcCapitalize)
-  interestPaid: number[];          // per-period interest paid in cash (non-IDC or post-construction)
-  principalRepaid: number[];       // per-period principal repayment
+  periods: number;
+  periodicRate: number;
+  drawSchedule: number[];
+  outstandingBalance: number[];
+  interestAccrued: number[];
+  interestCapitalized: number[];
+  interestPaid: number[];
+  principalRepaid: number[];
   totalDebt: number;
   totalInterest: number;
   totalRepayment: number;
@@ -405,76 +553,137 @@ export function computeFinancing(
   tranche: FinancingTranche,
   phase: Phase,
   capexPerPeriod: number[],
-  modelType: Project['modelType'],
+  presalesPerPeriod: number[],
+  project: Project,
 ): FinancingResult {
-  const periods = phase.constructionPeriods + phase.operationsPeriods - phase.overlapPeriods;
+  const constructionPeriods = phase.constructionPeriods;
+  const operationsPeriods = phase.operationsPeriods;
+  const overlap = phase.overlapPeriods;
+  const totalPeriods = constructionPeriods + operationsPeriods - overlap;
+  const periods = Math.max(0, totalPeriods);
+
   const periodicRate =
-    modelType === 'monthly'
+    project.modelType === 'monthly'
       ? Math.max(0, tranche.interestRatePct) / 100 / 12
       : Math.max(0, tranche.interestRatePct) / 100;
 
+  const ltv = clamp(tranche.ltvPct, 0, 100) / 100;
   const totalCapex = capexPerPeriod.reduce((s, v) => s + v, 0);
-  const totalDebt = totalCapex * (Math.max(0, Math.min(100, tranche.ltvPct)) / 100);
+  const totalPresales = presalesPerPeriod.reduce((s, v) => s + v, 0);
 
-  // Drawdown schedule
+  // Drawdown schedule (length periods).
   const drawSchedule = new Array<number>(periods).fill(0);
-  if (tranche.drawdownMethod === 'sameAsCost') {
-    const ratio = totalCapex > 0 ? totalDebt / totalCapex : 0;
-    for (let i = 0; i < phase.constructionPeriods && i < periods; i++) {
-      drawSchedule[i] = (capexPerPeriod[i] ?? 0) * ratio;
+  const drawWindow = Math.min(constructionPeriods, periods);
+
+  switch (tranche.drawdownMethod) {
+    case 'capex_basis': {
+      // Tracks capex × ltv per period.
+      for (let i = 0; i < drawWindow; i++) {
+        drawSchedule[i] = (capexPerPeriod[i] ?? 0) * ltv;
+      }
+      break;
     }
-  } else {
-    const weights = distribute(
-      tranche.drawdownMethod,
-      phase.constructionPeriods,
-      tranche.drawdownDistribution,
-    );
-    for (let i = 0; i < weights.length && i < periods; i++) {
-      drawSchedule[i] = totalDebt * weights[i];
+    case 'debt_equity_ratio': {
+      // % of capex per period.
+      for (let i = 0; i < drawWindow; i++) {
+        drawSchedule[i] = (capexPerPeriod[i] ?? 0) * ltv;
+      }
+      break;
+    }
+    case 'capex_minus_presales': {
+      // Net capex = capex - presales. If drawdownIncludeLand is false,
+      // exclude the period-0 land lump from the capex base.
+      const includeLand = tranche.drawdownIncludeLand !== false;
+      for (let i = 0; i < drawWindow; i++) {
+        const cx = capexPerPeriod[i] ?? 0;
+        const ps = presalesPerPeriod[i] ?? 0;
+        const adj = !includeLand && i === 0 ? 0 : cx;
+        const net = Math.max(0, adj - ps);
+        drawSchedule[i] = net * ltv;
+      }
+      break;
+    }
+    case 'manual': {
+      const dist = tranche.drawdownDistribution ?? [];
+      const totalDebt = totalCapex * ltv;
+      const sum = dist.reduce((s, v) => s + (v ?? 0), 0);
+      for (let i = 0; i < drawWindow; i++) {
+        const w = sum > 0 ? (dist[i] ?? 0) / sum : 1 / drawWindow;
+        drawSchedule[i] = totalDebt * w;
+      }
+      break;
+    }
+    case 'min_cash_floor': {
+      // Maintain running cash >= floor; draws when cash dips below.
+      // For now we approximate by drawing capex × ltv (same as capex_basis)
+      // and let the floor kick in via the equity injection in callers.
+      const floor = Math.max(0, tranche.drawdownMinCashFloor ?? 0);
+      let cash = floor;
+      for (let i = 0; i < drawWindow; i++) {
+        const cx = capexPerPeriod[i] ?? 0;
+        cash -= cx;
+        if (cash < floor) {
+          drawSchedule[i] = (floor - cash);
+          cash = floor;
+        }
+      }
+      break;
     }
   }
 
-  // Repayment schedule baseline (refined per method)
-  const opsStartIdx = phase.constructionStart - 1 + phase.constructionPeriods - phase.overlapPeriods;
-  const repaymentBudget = new Array<number>(periods).fill(0);
-  if (tranche.repaymentMethod === 'fixedSchedule' && tranche.repaymentPeriods > 0) {
-    const principalPerPeriod = totalDebt / tranche.repaymentPeriods;
-    for (let i = 0; i < tranche.repaymentPeriods && (opsStartIdx + i) < periods; i++) {
-      repaymentBudget[opsStartIdx + i] = principalPerPeriod;
-    }
-  } else if (tranche.repaymentMethod === 'bullet' && tranche.repaymentPeriods > 0) {
-    const idx = Math.min(periods - 1, opsStartIdx + tranche.repaymentPeriods - 1);
-    if (idx >= 0) repaymentBudget[idx] = totalDebt;
-  }
-  // cashSweep: per-period principal driven by cash position; here we
-  // treat it as straight-line over (periods - opsStartIdx) for the
-  // current pass. Real cash-sweep math needs Module 3+ revenue inputs;
-  // when those modules ship, this branch should consume the cashflow
-  // surplus per period.
+  const totalDebtFromDraws = drawSchedule.reduce((s, v) => s + v, 0);
 
-  // Walk the period series with running balance + interest accrual
+  // Walk balance + interest + repayment.
   const outstanding = new Array<number>(periods).fill(0);
   const interestAccrued = new Array<number>(periods).fill(0);
   const interestCapitalized = new Array<number>(periods).fill(0);
   const interestPaid = new Array<number>(periods).fill(0);
   const principalRepaid = new Array<number>(periods).fill(0);
 
+  // Pre-compute repayment baseline (where applicable). Index into the
+  // total period array, not the construction window.
+  const opsStartIdx = constructionPeriods - overlap;
+  const repBudget = new Array<number>(periods).fill(0);
+  if (tranche.repaymentMethod === 'manual') {
+    const dist = tranche.repaymentManualDistribution ?? [];
+    for (let i = 0; i < periods; i++) repBudget[i] = Math.max(0, dist[i] ?? 0);
+  } else if (tranche.repaymentMethod === 'straight_line' && tranche.repaymentPeriods > 0) {
+    const principalPerPeriod = totalDebtFromDraws / tranche.repaymentPeriods;
+    for (let i = 0; i < tranche.repaymentPeriods && (opsStartIdx + i) < periods; i++) {
+      repBudget[opsStartIdx + i] = principalPerPeriod;
+    }
+  }
+
   let balance = 0;
   for (let i = 0; i < periods; i++) {
-    balance += drawSchedule[i];
+    balance += drawSchedule[i] ?? 0;
     const interest = balance * periodicRate;
     interestAccrued[i] = interest;
-    if (tranche.idcCapitalize && i < phase.constructionPeriods) {
+    if (tranche.idcCapitalize && i < constructionPeriods) {
       interestCapitalized[i] = interest;
       balance += interest;
     } else {
       interestPaid[i] = interest;
     }
-    let repay = repaymentBudget[i] ?? 0;
-    if (tranche.repaymentMethod === 'cashSweep' && i >= opsStartIdx) {
-      // Placeholder: split balance evenly across remaining periods
-      const remainingPeriods = Math.max(1, periods - i);
-      repay = balance / remainingPeriods;
+    let repay = repBudget[i] ?? 0;
+    // Cash sweep variants: simple approximation here, real cash sweep
+    // needs Module 3 cashflow surplus per period.
+    if (tranche.repaymentMethod === 'cashsweep_continuous' && i >= opsStartIdx) {
+      const remaining = Math.max(1, periods - i);
+      repay = balance / remaining;
+    }
+    if (tranche.repaymentMethod === 'cashsweep_from_period') {
+      const start = Math.max(opsStartIdx, tranche.sweepStartPeriod ?? opsStartIdx);
+      if (i >= start) {
+        const remaining = Math.max(1, periods - i);
+        repay = balance / remaining;
+      }
+    }
+    if (tranche.repaymentMethod === 'cashsweep_min_cash' && i >= opsStartIdx) {
+      // Cash above floor goes to principal. Approximate by sweeping
+      // straight-line over remaining periods (Module 3 will refine).
+      const remaining = Math.max(1, periods - i);
+      repay = balance / remaining;
     }
     repay = Math.min(repay, balance);
     balance -= repay;
@@ -494,7 +703,7 @@ export function computeFinancing(
     interestCapitalized,
     interestPaid,
     principalRepaid,
-    totalDebt,
+    totalDebt: totalDebtFromDraws,
     totalInterest,
     totalRepayment,
   };
@@ -532,12 +741,11 @@ export function computeProjectEndDate(project: Project, phases: Phase[]): string
       phase.overlapPeriods;
     if (offset > maxOffset) maxOffset = offset;
   }
-  const end = new Date(start);
+  const out = new Date(start);
   if (project.modelType === 'monthly') {
-    end.setMonth(end.getMonth() + maxOffset);
+    out.setMonth(out.getMonth() + maxOffset);
   } else {
-    end.setFullYear(end.getFullYear() + maxOffset);
+    out.setFullYear(out.getFullYear() + maxOffset);
   }
-  end.setDate(end.getDate() - 1);
-  return end.toISOString().slice(0, 10);
+  return out.toISOString().slice(0, 10);
 }

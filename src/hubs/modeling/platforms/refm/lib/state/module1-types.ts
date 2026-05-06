@@ -94,7 +94,12 @@ export interface Project {
   modelType: ModelGranularity;
   startDate: string;         // ISO 'YYYY-MM-DD'
   status: ProjectStatus;
-  location: string;          // free-text city / country (display only)
+  location: string;          // free-text city (display only)
+  // M2.0c additions: drive conditional cost lines (e.g. RETT for KSA)
+  // and the rate_per_nda / rate_per_roads cost methods. Both default
+  // to undefined / 0 so existing v5 snapshots keep working.
+  country?: string;          // free-text country, used by requiresCountry filter
+  projectRoadsPct?: number;  // 0..100, fraction of land used for roads
 }
 
 // ── Phase ──────────────────────────────────────────────────────────────────
@@ -193,101 +198,145 @@ export interface Asset {
   parkingBaysRequired: number;
 }
 
-// ── Cost line ──────────────────────────────────────────────────────────────
-// MAAD's 9 standard cost lines, fixed identity (id is one of the
-// COST_LINE_KEYS constants). Per-asset overrides live in costOverrides
-// keyed by `${assetId}.${costLineKey}` (see HydrateSnapshot below).
+// ── Cost line (v6: open-ended catalog) ─────────────────────────────────────
+// M2.0c bumps from 9 fixed lines to a 12-default open-ended catalog so the
+// pre-M2.0 cost engine functionality can be restored. Each line carries:
 //
-// method:
-//   'lumpsum'        -> value is total currency amount
-//   'rate_per_bua'   -> value is currency per BUA sqm (multiplied by total BUA)
-//   'rate_per_park'  -> value is currency per parking bay (parking line only)
-//   'rate_per_land'  -> value is currency per land sqm (land/infra/landscape)
-//   'percent_of_construction' -> value is % of summed Construction lines
-//   'percent_of_total_cost'   -> value is % of summed all-other-lines
+//   id             open string id (`'land-cash'`, `'site-prep'`, `'custom-1'`)
+//   name           free-text display name
+//   method         one of 12 calculation methods (see CostMethod)
+//   value          rate or percent or fixed amount, depending on method
+//   stage          land / hard / soft / operating
+//   scope          direct / indirect / allocated
+//   allocationBasis  per-asset / bua-share / gfa-share / land-share / category / manual
+//   startPeriod    inclusive period index (0 = upfront / period 0)
+//   endPeriod      inclusive period index in the construction window
+//   phasing        even / frontloaded / backloaded / sCurve / manual / phase-aligned
+//   distribution[] manual phasing weights (sum to 1), length = endPeriod-startPeriod+1
+//   selectedLineIds[] for percent_of_selected, the ids whose totals are summed as base
+//   isLocked       seed lines like Land Cash that the user cannot delete
+//   requiresCountry optional gate: line only renders when project.country matches
 //
-// phasing:
-//   'even'           -> spread across construction window evenly
-//   'frontloaded'    -> S-curve weighted toward early periods
-//   'backloaded'     -> S-curve weighted toward late periods
-//   'manual'         -> distribution[] supplies per-period weights (sum = 1)
-export type CostLineKey =
-  | 'land'
-  | 'constructionBua'
-  | 'constructionParking'
-  | 'infrastructure'
-  | 'landscaping'
-  | 'preOperating'
-  | 'professionalFee'
-  | 'commissionFee'
-  | 'contingency';
-
-export const COST_LINE_KEYS: readonly CostLineKey[] = [
-  'land',
-  'constructionBua',
-  'constructionParking',
-  'infrastructure',
-  'landscaping',
-  'preOperating',
-  'professionalFee',
-  'commissionFee',
-  'contingency',
-] as const;
-
-export const COST_LINE_LABELS: Record<CostLineKey, string> = {
-  land:                 'Land',
-  constructionBua:      'Construction (BUA)',
-  constructionParking:  'Construction (Parking)',
-  infrastructure:       'Infrastructure',
-  landscaping:          'Landscaping',
-  preOperating:         'Pre-operating',
-  professionalFee:      'Professional fee',
-  commissionFee:        'Commission fee',
-  contingency:          'Contingency',
-};
-
+// Per-asset overrides live in costOverrides keyed by `${assetId}.${lineId}`.
+// Override carries the same method/value/phasing fields; everything else
+// (stage, scope, allocationBasis) inherits from the base line.
 export type CostMethod =
-  | 'lumpsum'
-  | 'rate_per_bua'
-  | 'rate_per_park'
-  | 'rate_per_land'
-  | 'percent_of_construction'
-  | 'percent_of_total_cost';
+  | 'fixed'                    // lump sum currency amount
+  | 'rate_per_land'            // value × resolved land area (sqm)
+  | 'rate_per_nda'             // value × net developable area (land × (1 - roads%))
+  | 'rate_per_roads'           // value × roads area
+  | 'rate_per_gfa'             // value × asset.gfaSqm
+  | 'rate_per_bua'             // value × asset.buaSqm
+  | 'rate_per_nsa'             // value × asset.sellableBuaSqm
+  | 'rate_per_unit'            // value × sub-unit count (Sellable category)
+  | 'percent_of_selected'      // value% × sum of selectedLineIds totals
+  | 'percent_of_construction'  // value% × sum of stage='hard' line totals
+  | 'percent_of_total_land'    // value% × parcels total value
+  | 'percent_of_cash_land'     // value% × parcels cash value
+  | 'percent_of_inkind_land';  // value% × parcels in-kind value
 
 export const COST_METHODS: readonly CostMethod[] = [
-  'lumpsum',
-  'rate_per_bua',
-  'rate_per_park',
+  'fixed',
   'rate_per_land',
+  'rate_per_nda',
+  'rate_per_roads',
+  'rate_per_gfa',
+  'rate_per_bua',
+  'rate_per_nsa',
+  'rate_per_unit',
+  'percent_of_selected',
   'percent_of_construction',
-  'percent_of_total_cost',
+  'percent_of_total_land',
+  'percent_of_cash_land',
+  'percent_of_inkind_land',
 ] as const;
 
-export type CostPhasing = 'even' | 'frontloaded' | 'backloaded' | 'manual';
+export const COST_METHOD_LABELS: Record<CostMethod, string> = {
+  fixed:                   'Fixed Amount',
+  rate_per_land:           'Rate × Land Area',
+  rate_per_nda:            'Rate × NDA',
+  rate_per_roads:          'Rate × Roads',
+  rate_per_gfa:            'Rate × GFA',
+  rate_per_bua:            'Rate × BUA',
+  rate_per_nsa:            'Rate × NSA (sellable)',
+  rate_per_unit:           'Rate × Unit Count',
+  percent_of_selected:     '% of Selected Lines',
+  percent_of_construction: '% of Construction',
+  percent_of_total_land:   '% of Total Land Value',
+  percent_of_cash_land:    '% of Cash Land Value',
+  percent_of_inkind_land:  '% of In-Kind Land Value',
+};
+
+export type CostStage = 'land' | 'hard' | 'soft' | 'operating';
+
+export const COST_STAGES: readonly CostStage[] = ['land', 'hard', 'soft', 'operating'] as const;
+
+export const COST_STAGE_LABELS: Record<CostStage, string> = {
+  land:      'Land',
+  hard:      'Hard Cost',
+  soft:      'Soft Cost',
+  operating: 'Operating',
+};
+
+export type CostScope = 'direct' | 'indirect' | 'allocated';
+
+export const COST_SCOPES: readonly CostScope[] = ['direct', 'indirect', 'allocated'] as const;
+
+export type AllocationBasis =
+  | 'per_asset'      // each asset has its own line; values sum
+  | 'bua_share'      // project line allocated by BUA share
+  | 'gfa_share'      // project line allocated by GFA share
+  | 'land_share'     // project line allocated by land share
+  | 'category'       // project line allocated by Sell/Operate/Lease/Hybrid bucket
+  | 'manual';        // user defines per-asset weights (defer to override)
+
+export const ALLOCATION_BASES: readonly AllocationBasis[] = [
+  'per_asset',
+  'bua_share',
+  'gfa_share',
+  'land_share',
+  'category',
+  'manual',
+] as const;
+
+export type CostPhasing =
+  | 'even'           // equal slice per period in [startPeriod, endPeriod]
+  | 'frontloaded'    // S-curve weighted toward early periods
+  | 'backloaded'     // S-curve weighted toward late periods
+  | 'sCurve'         // bell-shape, peak in middle
+  | 'manual'         // distribution[] supplies per-period weights (sum = 1)
+  | 'phase_aligned'; // automatically span phase.constructionStart..end
 
 export const COST_PHASINGS: readonly CostPhasing[] = [
   'even',
   'frontloaded',
   'backloaded',
+  'sCurve',
   'manual',
+  'phase_aligned',
 ] as const;
 
 export interface CostLine {
-  key: CostLineKey;
+  id: string;
   phaseId: string;
+  name: string;
   method: CostMethod;
   value: number;
+  stage: CostStage;
+  scope: CostScope;
+  allocationBasis: AllocationBasis;
+  startPeriod: number;
+  endPeriod: number;
   phasing: CostPhasing;
-  distribution?: number[];   // manual only; length = constructionPeriods, sums to 1
+  distribution?: number[];
+  selectedLineIds?: string[];
+  isLocked?: boolean;
+  requiresCountry?: string;
 }
 
-// Per-asset override keyed by `${assetId}.${costLineKey}`. When present,
-// replaces the project-level CostLine for that asset only. Method + value +
-// phasing are all overridable; distribution rides along when phasing ===
-// 'manual'.
 export interface CostOverride {
   assetId: string;
-  key: CostLineKey;
+  lineId: string;
   method: CostMethod;
   value: number;
   phasing: CostPhasing;
@@ -323,47 +372,89 @@ export interface CostOverride {
 //   sweepStartPeriod: 0 (default) sweeps continuously; positive integer
 //                     defers sweep until that period.
 //   cashFloorPct:     % of monthly cash retained before sweep applies.
+// M2.0c expands the drawdown matrix from 5 modes to 5 distinct
+// economic models pre-M2.0 supported. capex_basis is the legacy
+// 'sameAsCost' renamed; manual stays; debt_equity_ratio is the
+// legacy 'fixed' financingMode + globalDebtPct path; capex_minus_-
+// presales nets pre-sales (Module 2 supplies the schedule when ready
+// in M2.1, today defaults to zero); min_cash_floor watches the
+// running cash position and draws to keep cash >= floor.
 export type DrawdownMethod =
-  | 'sameAsCost'
-  | 'evenOverPhase'
-  | 'frontloaded'
-  | 'backloaded'
-  | 'manual';
+  | 'capex_basis'           // tracks construction capex curve × ltvPct
+  | 'manual'                // distribution[] per period
+  | 'debt_equity_ratio'     // ltvPct of capex per period
+  | 'capex_minus_presales'  // (capex - presales) × ltvPct, with land toggle
+  | 'min_cash_floor';       // draws when running cash < floor
 
 export const DRAWDOWN_METHODS: readonly DrawdownMethod[] = [
-  'sameAsCost',
-  'evenOverPhase',
-  'frontloaded',
-  'backloaded',
+  'capex_basis',
   'manual',
+  'debt_equity_ratio',
+  'capex_minus_presales',
+  'min_cash_floor',
 ] as const;
 
-export type RepaymentMethod = 'fixedSchedule' | 'cashSweep' | 'bullet';
+export const DRAWDOWN_METHOD_LABELS: Record<DrawdownMethod, string> = {
+  capex_basis:          'CapEx Basis (LTV × CapEx)',
+  manual:               'Manual per Period',
+  debt_equity_ratio:    'Debt/Equity Ratio % of CapEx',
+  capex_minus_presales: 'CapEx minus Pre-sales',
+  min_cash_floor:       'Minimum Cash Floor',
+};
+
+// Repayment matrix:
+// 'manual' -> distribution[] per period
+// 'straight_line' -> equal principal per period across repaymentPeriods
+// 'cashsweep_continuous' -> sweeps every period after construction
+// 'cashsweep_from_period' -> sweeps from sweepStartPeriod onward
+// 'cashsweep_min_cash' -> sweeps to keep cash above sweepMinCashFloor
+export type RepaymentMethod =
+  | 'manual'
+  | 'straight_line'
+  | 'cashsweep_continuous'
+  | 'cashsweep_from_period'
+  | 'cashsweep_min_cash';
 
 export const REPAYMENT_METHODS: readonly RepaymentMethod[] = [
-  'fixedSchedule',
-  'cashSweep',
-  'bullet',
+  'manual',
+  'straight_line',
+  'cashsweep_continuous',
+  'cashsweep_from_period',
+  'cashsweep_min_cash',
 ] as const;
+
+export const REPAYMENT_METHOD_LABELS: Record<RepaymentMethod, string> = {
+  manual:                 'Manual per Period',
+  straight_line:          'Straight-line over N',
+  cashsweep_continuous:   'Cash Sweep, Continuous',
+  cashsweep_from_period:  'Cash Sweep, from Period N',
+  cashsweep_min_cash:     'Cash Sweep, Maintain Floor',
+};
 
 export interface FinancingTranche {
   id: string;
   phaseId: string;
+  // M2.0c: optional per-asset financing detail. When set, the tranche
+  // only finances this asset's slice of the phase capex; otherwise it
+  // finances the whole phase pro-rata across visible assets.
+  assetId?: string;
   name: string;
-  // Sizing
-  ltvPct: number;                  // 0..100, share of phase capex funded by debt
-  // Pricing
-  interestRatePct: number;         // annual %, divided by 12 for monthly model
+  ltvPct: number;
+  interestRatePct: number;
   // Drawdown
   drawdownMethod: DrawdownMethod;
-  drawdownDistribution?: number[]; // manual only; length = constructionPeriods
+  drawdownDistribution?: number[];     // manual only
+  drawdownIncludeLand?: boolean;       // capex_minus_presales: include land in net
+  drawdownMinCashFloor?: number;       // min_cash_floor only
   // Repayment
   repaymentMethod: RepaymentMethod;
-  repaymentPeriods: number;        // 0 means tranche stays open until paid via cash sweep / bullet
-  // Cash-sweep only
-  sweepStartPeriod?: number;
-  cashFloorPct?: number;
-  // IDC
+  repaymentPeriods: number;
+  repaymentManualDistribution?: number[]; // manual only
+  sweepStartPeriod?: number;              // cashsweep_from_period
+  sweepMinCashFloor?: number;             // cashsweep_min_cash
+  // IDC capitalization (interest during construction goes to principal,
+  // not paid in cash). When false, interest is expensed during
+  // construction and reduces equity contribution.
   idcCapitalize: boolean;
 }
 
@@ -503,22 +594,103 @@ export function makeDefaultProject(
     startDate: `${yyyy}-${mm}-${dd}`,
     status: 'draft',
     location: '',
+    country: '',
+    projectRoadsPct: 0,
   };
 }
 
-// Default cost lines for a freshly minted phase. Values are the MAAD
-// reference defaults (Saudi mixed-use); UI exposes them all for edit.
-export function makeDefaultCostLines(phaseId: string): CostLine[] {
+// Default cost lines for a freshly minted phase. v6 returns the 12-line
+// pre-M2.0 catalog (plus the locked Land Cash row), all initialised to
+// allocationBasis: 'bua_share' so newly-minted projects see project-level
+// totals split across assets by BUA. Users override per-line + per-asset
+// from the Costs tab UI.
+//
+// constructionPeriods is read so endPeriod can default to the phase
+// duration. If 0 (no phase yet), endPeriod defaults to 24 to match
+// makeDefaultPhase.
+export function makeDefaultCostLines(phaseId: string, constructionPeriods = 24): CostLine[] {
+  const cp = Math.max(1, constructionPeriods);
+  const mid = Math.max(1, Math.floor(cp / 2));
   return [
-    { key: 'land',                 phaseId, method: 'lumpsum',                 value: 0,    phasing: 'even' },
-    { key: 'constructionBua',      phaseId, method: 'rate_per_bua',            value: 4500, phasing: 'frontloaded' },
-    { key: 'constructionParking',  phaseId, method: 'rate_per_park',           value: 60000, phasing: 'frontloaded' },
-    { key: 'infrastructure',       phaseId, method: 'rate_per_land',           value: 350,  phasing: 'frontloaded' },
-    { key: 'landscaping',          phaseId, method: 'rate_per_land',           value: 150,  phasing: 'backloaded' },
-    { key: 'preOperating',         phaseId, method: 'lumpsum',                 value: 0,    phasing: 'backloaded' },
-    { key: 'professionalFee',      phaseId, method: 'percent_of_construction', value: 6,    phasing: 'even' },
-    { key: 'commissionFee',        phaseId, method: 'percent_of_construction', value: 2,    phasing: 'backloaded' },
-    { key: 'contingency',          phaseId, method: 'percent_of_total_cost',   value: 5,    phasing: 'even' },
+    {
+      id: 'land-cash', phaseId, name: 'Land (Cash Portion)',
+      method: 'percent_of_cash_land', value: 100,
+      stage: 'land', scope: 'direct', allocationBasis: 'land_share',
+      startPeriod: 0, endPeriod: 0, phasing: 'even',
+      isLocked: true,
+    },
+    {
+      id: 'site-prep', phaseId, name: 'Site Preparation',
+      method: 'rate_per_land', value: 15,
+      stage: 'hard', scope: 'direct', allocationBasis: 'land_share',
+      startPeriod: 1, endPeriod: Math.min(cp, mid), phasing: 'even',
+    },
+    {
+      id: 'infrastructure', phaseId, name: 'Infrastructure',
+      method: 'rate_per_nda', value: 80,
+      stage: 'hard', scope: 'direct', allocationBasis: 'land_share',
+      startPeriod: 1, endPeriod: Math.min(cp, mid + 1), phasing: 'even',
+    },
+    {
+      id: 'structural', phaseId, name: 'Structural Works',
+      method: 'rate_per_gfa', value: 400,
+      stage: 'hard', scope: 'direct', allocationBasis: 'gfa_share',
+      startPeriod: 1, endPeriod: cp, phasing: 'frontloaded',
+    },
+    {
+      id: 'mep', phaseId, name: 'MEP Works',
+      method: 'rate_per_gfa', value: 150,
+      stage: 'hard', scope: 'direct', allocationBasis: 'gfa_share',
+      startPeriod: Math.max(1, mid - 1), endPeriod: cp, phasing: 'even',
+    },
+    {
+      id: 'finishing', phaseId, name: 'Finishing Works',
+      method: 'rate_per_bua', value: 200,
+      stage: 'hard', scope: 'direct', allocationBasis: 'bua_share',
+      startPeriod: mid, endPeriod: cp, phasing: 'backloaded',
+    },
+    {
+      id: 'professional-fees', phaseId, name: 'Professional Fees',
+      method: 'percent_of_construction', value: 8,
+      stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
+      startPeriod: 1, endPeriod: cp, phasing: 'even',
+    },
+    {
+      id: 'contingency', phaseId, name: 'Contingency',
+      method: 'percent_of_construction', value: 5,
+      stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
+      startPeriod: 1, endPeriod: cp, phasing: 'even',
+    },
+    {
+      id: 'marketing', phaseId, name: 'Marketing & Sales',
+      method: 'percent_of_total_land', value: 2,
+      stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
+      startPeriod: Math.max(1, mid - 1), endPeriod: cp, phasing: 'backloaded',
+    },
+    {
+      id: 'project-management', phaseId, name: 'Project Management',
+      method: 'percent_of_construction', value: 3,
+      stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
+      startPeriod: 1, endPeriod: cp, phasing: 'even',
+    },
+    {
+      id: 'legal', phaseId, name: 'Legal & Admin',
+      method: 'percent_of_total_land', value: 1,
+      stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
+      startPeriod: 1, endPeriod: Math.min(cp, mid), phasing: 'frontloaded',
+    },
+    {
+      id: 'landscaping', phaseId, name: 'Landscaping & External',
+      method: 'rate_per_nda', value: 30,
+      stage: 'hard', scope: 'direct', allocationBasis: 'land_share',
+      startPeriod: mid, endPeriod: cp, phasing: 'backloaded',
+    },
+    {
+      id: 'ffe', phaseId, name: 'FF&E / Interior Design',
+      method: 'rate_per_bua', value: 50,
+      stage: 'hard', scope: 'direct', allocationBasis: 'bua_share',
+      startPeriod: cp, endPeriod: cp, phasing: 'even',
+    },
   ];
 }
 
@@ -532,8 +704,8 @@ export function makeDefaultFinancingTranche(
     name: 'Senior debt',
     ltvPct: 60,
     interestRatePct: 7.5,
-    drawdownMethod: 'sameAsCost',
-    repaymentMethod: 'fixedSchedule',
+    drawdownMethod: 'capex_basis',
+    repaymentMethod: 'straight_line',
     repaymentPeriods: 60,
     idcCapitalize: true,
   };

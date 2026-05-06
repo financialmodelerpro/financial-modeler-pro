@@ -24,13 +24,13 @@ import type { HydrateSnapshot } from '../state/module1-store';
 // ── Snapshot shape version ──────────────────────────────────────────────────
 // Mirrored to refm_projects.schema_version DEFAULT and to
 // refm_project_versions.schema_version DEFAULT.
-// v5 (M2.0) is a hard-cut MAAD-Spec rebuild: project + phases[] +
-// parcels[] + assets[] + subUnits[] + costLines[] + costOverrides[] +
-// financingTranches[] + equityContributions[] + landAllocationMode.
-// Pre-v5 snapshots are NOT migrated; module1-migrate.isPreV5Snapshot
-// returns an explicit "Schema migrated to v5. Please recreate this
+// v6 (M2.0c) extends the cost-line schema from a closed 9-key enum to
+// an open-ended catalog with stage / scope / allocationBasis fields, the
+// 13-method calc engine, and 5×5 financing matrix. Pre-v6 snapshots
+// (including v5) are NOT migrated; module1-migrate.isPreV6Snapshot
+// returns an explicit "Schema migrated to v6. Please recreate this
 // project." error.
-export const SCHEMA_VERSION = 5 as const;
+export const SCHEMA_VERSION = 6 as const;
 
 // ── Status enum (mirrors the SQL CHECK constraint) ──────────────────────────
 export const PROJECT_STATUSES = ['Draft', 'Active', 'IC Review', 'Approved', 'Archived'] as const;

@@ -65,7 +65,7 @@ export default function Dashboard({
   onSelectProject,
   onSelectModule,
 }: DashboardProps): React.JSX.Element {
-  const { project, phases, parcels, assets, costLines, financingTranches, equityContributions } =
+  const { project, phases, parcels, assets, costLines, costOverrides, financingTranches, equityContributions, landAllocationMode } =
     useModule1Store(
       useShallow((s) => ({
         project: s.project,
@@ -74,8 +74,10 @@ export default function Dashboard({
         assets: s.assets,
         subUnits: s.subUnits,
         costLines: s.costLines,
+        costOverrides: s.costOverrides,
         financingTranches: s.financingTranches,
         equityContributions: s.equityContributions,
+        landAllocationMode: s.landAllocationMode,
       })),
     );
   const subUnits = useModule1Store((s) => s.subUnits);
@@ -92,14 +94,14 @@ export default function Dashboard({
   const totalProjectGFA = assets.reduce((s, a) => s + (a.gfaSqm || 0), 0);
 
   const totalCapex = phases.reduce(
-    (s, p) => s + computePhaseCost(p, costLines, parcels, assets, subUnits).total,
+    (s, p) => s + computePhaseCost(p, project, costLines, costOverrides, parcels, assets, subUnits, landAllocationMode).total,
     0,
   );
 
   const totalDebt = financingTranches.reduce((s, t) => {
     const phase = phases.find((p) => p.id === t.phaseId);
     if (!phase) return s;
-    const phaseCapex = computePhaseCost(phase, costLines, parcels, assets, subUnits).total;
+    const phaseCapex = computePhaseCost(phase, project, costLines, costOverrides, parcels, assets, subUnits, landAllocationMode).total;
     return s + phaseCapex * (Math.max(0, Math.min(100, t.ltvPct)) / 100);
   }, 0);
 

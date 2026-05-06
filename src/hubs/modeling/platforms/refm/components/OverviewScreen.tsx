@@ -44,7 +44,7 @@ export default function OverviewScreen({
   setActiveTab,
   can,
 }: OverviewScreenProps): React.JSX.Element {
-  const { project, phases, parcels, assets, costLines } = useModule1Store(
+  const { project, phases, parcels, assets, costLines, costOverrides, landAllocationMode } = useModule1Store(
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
@@ -52,6 +52,8 @@ export default function OverviewScreen({
       assets: s.assets,
       subUnits: s.subUnits,
       costLines: s.costLines,
+      costOverrides: s.costOverrides,
+      landAllocationMode: s.landAllocationMode,
     })),
   );
   const subUnits = useModule1Store((s) => s.subUnits);
@@ -78,7 +80,7 @@ export default function OverviewScreen({
   const totalLandValue = land.totalValue;
   const totalProjectGFA = assets.reduce((s, a) => s + (a.gfaSqm || 0), 0);
   const totalCapex = phases.reduce(
-    (s, p) => s + computePhaseCost(p, costLines, parcels, assets, subUnits).total,
+    (s, p) => s + computePhaseCost(p, project, costLines, costOverrides, parcels, assets, subUnits, landAllocationMode).total,
     0,
   );
 
@@ -260,7 +262,7 @@ export default function OverviewScreen({
             </thead>
             <tbody>
               {phases.map((p) => {
-                const phaseCapex = computePhaseCost(p, costLines, parcels, assets, subUnits).total;
+                const phaseCapex = computePhaseCost(p, project, costLines, costOverrides, parcels, assets, subUnits, landAllocationMode).total;
                 return (
                   <tr
                     key={p.id}

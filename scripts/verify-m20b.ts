@@ -38,8 +38,8 @@ function skip(name: string, msg: string): void {
 
 // ── Section 1: schema unchanged from M2.0 ─────────────────────────────────
 console.log('\n[1/5] Schema (carry-over from M2.0)');
-if (SCHEMA_VERSION === 5) pass('SCHEMA_VERSION still 5');
-else fail('SCHEMA_VERSION', `expected 5, got ${SCHEMA_VERSION}`);
+if ((SCHEMA_VERSION as number) >= 5) pass(`SCHEMA_VERSION >= 5 (current: ${SCHEMA_VERSION})`);
+else fail('SCHEMA_VERSION', `expected >= 5, got ${SCHEMA_VERSION}`);
 
 // ── Section 2: route smoke (gated on dev server) ──────────────────────────
 console.log('\n[2/5] Route smoke');

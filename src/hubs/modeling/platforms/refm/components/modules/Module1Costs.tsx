@@ -1,16 +1,21 @@
 'use client';
 
 /**
- * Module1Costs.tsx (M2.0 Tab 3)
+ * Module1Costs.tsx (v6 schema, M2.0c rebuild)
  *
- * 9 standard cost lines per phase. Each line has method + value +
- * phasing. Per-asset overrides supported but rendered in a collapsible
- * section to keep the default view simple.
- *
- * MAAD-Spec: cost identity is fixed at 9 lines (land, constructionBua,
- * constructionParking, infrastructure, landscaping, preOperating,
- * professionalFee, commissionFee, contingency). Users do NOT add new
- * lines, only adjust method + value + phasing.
+ * Full pre-M2.0 functionality restored:
+ *   - 12 default cost lines + custom user-added lines
+ *   - 13 calculation methods catalog
+ *   - 6 allocation basis modes (per-asset / bua-share / gfa-share /
+ *     land-share / category / manual)
+ *   - 6 phasing modes (even / frontloaded / backloaded / sCurve /
+ *     manual / phase-aligned)
+ *   - 4 cost stages (land / hard / soft / operating)
+ *   - 3 cost scopes (direct / indirect / allocated)
+ *   - Per-asset cost overrides (collapsible per row)
+ *   - Active filter (show/hide stage groups)
+ *   - Conditional drivers (requiresCountry hides line unless project.country matches)
+ *   - Granularity-aware period schedule (annual = N years, monthly = N×12 months)
  */
 
 import React, { useMemo, useState } from 'react';
@@ -18,31 +23,37 @@ import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import {
   type CostLine,
-  type CostLineKey,
   type CostMethod,
   type CostPhasing,
-  type CostOverride,
-  COST_LINE_KEYS,
-  COST_LINE_LABELS,
+  type CostStage,
+  type CostScope,
+  type AllocationBasis,
   COST_METHODS,
+  COST_METHOD_LABELS,
   COST_PHASINGS,
+  COST_STAGES,
+  COST_STAGE_LABELS,
+  COST_SCOPES,
+  ALLOCATION_BASES,
 } from '../../lib/state/module1-types';
 import {
   computePhaseCost,
   computeAssetCost,
-  computeAssetLandCost,
-  buildCostContext,
+  resolveAssetAreaMetrics,
 } from '@/src/core/calculations';
-import InputLabel from '../ui/InputLabel';
+import { formatNumber, formatCurrency } from '@/src/core/formatters';
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
   color: 'var(--color-navy)',
   border: '1px solid var(--color-border)',
   borderRadius: 'var(--radius-sm)',
-  padding: 'var(--sp-1)',
-  fontSize: 'var(--font-body)',
+  padding: '4px 6px',
+  fontSize: '12px',
   width: '100%',
+  boxSizing: 'border-box',
+  fontFamily: 'Inter, sans-serif',
+  fontWeight: 600,
 };
 
 const calcOutputStyle: React.CSSProperties = {
@@ -50,508 +61,513 @@ const calcOutputStyle: React.CSSProperties = {
   color: 'var(--color-heading)',
   border: '1px solid var(--color-border)',
   borderRadius: 'var(--radius-sm)',
-  padding: 'var(--sp-1)',
-  fontSize: 'var(--font-body)',
+  padding: '4px 6px',
+  fontSize: '12px',
+  fontWeight: 600,
 };
 
 const sectionCardStyle: React.CSSProperties = {
   background: 'var(--color-surface)',
   border: '1px solid var(--color-border)',
   borderRadius: 'var(--radius)',
-  padding: 'var(--sp-3)',
-  marginBottom: 'var(--sp-3)',
-};
-
-const tableHeaderStyle: React.CSSProperties = {
-  background: 'var(--color-navy)',
-  color: 'var(--color-on-primary-navy)',
-  textAlign: 'left',
-  padding: 'var(--sp-1)',
-  fontSize: 'var(--font-micro)',
-  fontWeight: 'var(--fw-bold)',
-  textTransform: 'uppercase',
-};
-
-const tableHeaderLabelStyle: React.CSSProperties = {
-  color: 'var(--color-on-primary-navy)',
-  fontWeight: 'var(--fw-bold)',
-};
-
-const fmt = (n: number, digits = 0): string =>
-  Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: digits }) : 'n/a';
-
-const METHOD_LABELS: Record<CostMethod, string> = {
-  lumpsum: 'Lump sum',
-  rate_per_bua: 'Rate per BUA',
-  rate_per_park: 'Rate per parking bay',
-  rate_per_land: 'Rate per land sqm',
-  percent_of_construction: '% of Construction',
-  percent_of_total_cost: '% of Total Cost',
+  padding: 'var(--sp-2)',
+  marginBottom: 'var(--sp-2)',
 };
 
 const PHASING_LABELS: Record<CostPhasing, string> = {
-  even: 'Even',
-  frontloaded: 'Frontloaded',
-  backloaded: 'Backloaded',
-  manual: 'Manual',
+  even:          'Even',
+  frontloaded:   'Front-loaded',
+  backloaded:    'Back-loaded',
+  sCurve:        'S-curve',
+  manual:        'Manual %',
+  phase_aligned: 'Phase-aligned',
 };
+
+const STAGE_BG: Record<CostStage, string> = {
+  land:      'color-mix(in srgb, var(--color-navy) 12%, transparent)',
+  hard:      'color-mix(in srgb, var(--color-success) 12%, transparent)',
+  soft:      'color-mix(in srgb, var(--color-accent-warm) 12%, transparent)',
+  operating: 'color-mix(in srgb, var(--color-grey-mid) 12%, transparent)',
+};
+
+function getPeriodLabel(idx: number, projectStart: string, modelType: 'monthly' | 'annual'): string {
+  if (idx === 0) return 'P0';
+  if (modelType === 'annual') return `Y${idx}`;
+  const d = new Date(projectStart);
+  if (Number.isNaN(d.getTime())) return `M${idx}`;
+  d.setMonth(d.getMonth() + (idx - 1));
+  return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+}
+
+interface CostRowProps {
+  line: CostLine;
+  asset: { id: string; name: string };
+  total: number;
+  perPeriod: number[];
+  allLines: CostLine[];
+  onUpdate: (patch: Partial<CostLine>) => void;
+  onRemove: () => void;
+  isLocked: boolean;
+}
+
+function CostRow({ line, asset, total, perPeriod, allLines, onUpdate, onRemove, isLocked }: CostRowProps): React.JSX.Element {
+  void asset;
+  void perPeriod;
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  const isPercentSelected = line.method === 'percent_of_selected';
+  const isManual = line.phasing === 'manual';
+  const span = Math.max(1, line.endPeriod - line.startPeriod + 1);
+  const manualValues = useMemo(() => {
+    const arr = line.distribution ?? [];
+    const out = new Array<number>(span);
+    for (let i = 0; i < span; i++) out[i] = arr[i] ?? 100 / span;
+    return out;
+  }, [line.distribution, span]);
+
+  const updateManualValue = (idx: number, val: number): void => {
+    const next = manualValues.slice();
+    next[idx] = val;
+    onUpdate({ distribution: next });
+  };
+
+  return (
+    <>
+      <tr
+        data-testid={`cost-row-${line.id}`}
+        style={{ background: STAGE_BG[line.stage] }}
+      >
+        <td style={{ padding: '4px', minWidth: 160 }}>
+          <input
+            type="text"
+            value={line.name}
+            onChange={(e) => onUpdate({ name: e.target.value })}
+            disabled={isLocked}
+            style={inputStyle}
+          />
+        </td>
+        <td style={{ padding: '4px', minWidth: 90 }}>
+          <select
+            value={line.stage}
+            onChange={(e) => onUpdate({ stage: e.target.value as CostStage })}
+            disabled={isLocked}
+            style={{ ...inputStyle, fontSize: 11 }}
+            data-testid={`cost-${line.id}-stage`}
+          >
+            {COST_STAGES.map((s) => (
+              <option key={s} value={s}>{COST_STAGE_LABELS[s]}</option>
+            ))}
+          </select>
+          <select
+            value={line.scope}
+            onChange={(e) => onUpdate({ scope: e.target.value as CostScope })}
+            style={{ ...inputStyle, fontSize: 10, marginTop: 2 }}
+            data-testid={`cost-${line.id}-scope`}
+          >
+            {COST_SCOPES.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </td>
+        <td style={{ padding: '4px', minWidth: 160 }}>
+          <select
+            value={line.method}
+            onChange={(e) => onUpdate({ method: e.target.value as CostMethod })}
+            style={{ ...inputStyle, fontSize: 11 }}
+            data-testid={`cost-${line.id}-method`}
+          >
+            {COST_METHODS.map((m) => (
+              <option key={m} value={m}>{COST_METHOD_LABELS[m]}</option>
+            ))}
+          </select>
+          <select
+            value={line.allocationBasis}
+            onChange={(e) => onUpdate({ allocationBasis: e.target.value as AllocationBasis })}
+            style={{ ...inputStyle, fontSize: 10, marginTop: 2 }}
+            data-testid={`cost-${line.id}-allocation`}
+          >
+            {ALLOCATION_BASES.map((b) => (
+              <option key={b} value={b}>{b}</option>
+            ))}
+          </select>
+        </td>
+        <td style={{ padding: '4px', minWidth: 90 }}>
+          <input
+            type="number"
+            value={line.value}
+            onChange={(e) => onUpdate({ value: parseFloat(e.target.value) || 0 })}
+            style={inputStyle}
+            data-testid={`cost-${line.id}-value`}
+          />
+        </td>
+        <td style={{ padding: '4px', width: 60 }}>
+          <input
+            type="number"
+            min={0}
+            value={line.startPeriod}
+            onChange={(e) => onUpdate({ startPeriod: parseInt(e.target.value) || 0 })}
+            style={inputStyle}
+            data-testid={`cost-${line.id}-start`}
+          />
+        </td>
+        <td style={{ padding: '4px', width: 60 }}>
+          <input
+            type="number"
+            min={0}
+            value={line.endPeriod}
+            onChange={(e) => onUpdate({ endPeriod: parseInt(e.target.value) || 0 })}
+            style={inputStyle}
+            data-testid={`cost-${line.id}-end`}
+          />
+        </td>
+        <td style={{ padding: '4px', minWidth: 110 }}>
+          <select
+            value={line.phasing}
+            onChange={(e) => onUpdate({ phasing: e.target.value as CostPhasing })}
+            style={{ ...inputStyle, fontSize: 11 }}
+            data-testid={`cost-${line.id}-phasing`}
+          >
+            {COST_PHASINGS.map((p) => (
+              <option key={p} value={p}>{PHASING_LABELS[p]}</option>
+            ))}
+          </select>
+        </td>
+        <td style={{ padding: '4px', minWidth: 100, textAlign: 'right' }}>
+          <div style={calcOutputStyle} data-testid={`cost-${line.id}-total`}>
+            {formatNumber(total)}
+          </div>
+        </td>
+        <td style={{ padding: '4px', width: 70, textAlign: 'right' }}>
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            style={{ ...inputStyle, background: 'transparent', cursor: 'pointer', fontSize: 10 }}
+            data-testid={`cost-${line.id}-advanced`}
+          >
+            {showAdvanced ? '▼' : '▶'}
+          </button>
+          {!isLocked && (
+            <button
+              type="button"
+              onClick={onRemove}
+              style={{ ...inputStyle, background: 'transparent', cursor: 'pointer', fontSize: 10, marginTop: 2, color: 'var(--color-negative)' }}
+              data-testid={`cost-${line.id}-remove`}
+            >
+              ✕
+            </button>
+          )}
+        </td>
+      </tr>
+
+      {showAdvanced && (
+        <tr style={{ background: 'var(--color-grey-pale)' }}>
+          <td colSpan={9} style={{ padding: '8px 12px' }}>
+            {isPercentSelected && (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Selected Lines (base for %)
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {allLines.filter((l) => l.id !== line.id).map((l) => {
+                    const sel = (line.selectedLineIds ?? []).includes(l.id);
+                    return (
+                      <label key={l.id} style={{ fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        <input
+                          type="checkbox"
+                          checked={sel}
+                          onChange={(e) => {
+                            const ids = new Set(line.selectedLineIds ?? []);
+                            if (e.target.checked) ids.add(l.id);
+                            else ids.delete(l.id);
+                            onUpdate({ selectedLineIds: Array.from(ids) });
+                          }}
+                          data-testid={`cost-${line.id}-select-${l.id}`}
+                        />
+                        {l.name}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {isManual && (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Manual phasing % per period (sum auto-normalises)
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {manualValues.map((v, idx) => (
+                    <div key={idx} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                      <span style={{ fontSize: 9, color: 'var(--color-meta)' }}>P{line.startPeriod + idx}</span>
+                      <input
+                        type="number"
+                        value={v}
+                        onChange={(e) => updateManualValue(idx, parseFloat(e.target.value) || 0)}
+                        style={{ ...inputStyle, width: 60, fontSize: 10 }}
+                        data-testid={`cost-${line.id}-manual-${idx}`}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>
+              Conditional driver:{' '}
+              <input
+                type="text"
+                value={line.requiresCountry ?? ''}
+                placeholder="Country code (optional)"
+                onChange={(e) => onUpdate({ requiresCountry: e.target.value || undefined })}
+                style={{ ...inputStyle, width: 180, fontSize: 10, display: 'inline-block', marginLeft: 4 }}
+                data-testid={`cost-${line.id}-requires-country`}
+              />
+            </div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
 
 export default function Module1Costs(): React.JSX.Element {
   const {
-    project,
-    phases,
-    activePhaseId,
-    setActivePhaseId,
-    parcels,
-    assets,
-    subUnits,
+    project, phases, parcels, assets, subUnits,
+    costLines, costOverrides,
     landAllocationMode,
-    costLines,
-    costOverrides,
-    updateCostLine,
-    setCostOverride,
-    removeCostOverride,
-  } = useModule1Store(
-    useShallow((s) => ({
-      project: s.project,
-      phases: s.phases,
-      activePhaseId: s.activePhaseId,
-      setActivePhaseId: s.setActivePhaseId,
-      parcels: s.parcels,
-      assets: s.assets,
-      subUnits: s.subUnits,
-      landAllocationMode: s.landAllocationMode,
-      costLines: s.costLines,
-      costOverrides: s.costOverrides,
-      updateCostLine: s.updateCostLine,
-      setCostOverride: s.setCostOverride,
-      removeCostOverride: s.removeCostOverride,
-    })),
-  );
-  const [showOverrides, setShowOverrides] = useState(false);
+    activePhaseId,
+  } = useModule1Store(useShallow((s) => ({
+    project: s.project,
+    phases: s.phases,
+    parcels: s.parcels,
+    assets: s.assets,
+    subUnits: s.subUnits,
+    costLines: s.costLines,
+    costOverrides: s.costOverrides,
+    landAllocationMode: s.landAllocationMode,
+    activePhaseId: s.activePhaseId,
+  })));
 
-  const activePhase = phases.find((p) => p.id === activePhaseId) ?? phases[0];
-  const phaseId = activePhase?.id ?? phases[0]?.id ?? '';
+  const setActivePhaseId = useModule1Store((s) => s.setActivePhaseId);
+  const addCostLine = useModule1Store((s) => s.addCostLine);
+  const updateCostLine = useModule1Store((s) => s.updateCostLine);
+  const removeCostLine = useModule1Store((s) => s.removeCostLine);
+
+  const [stageFilter, setStageFilter] = useState<CostStage | 'all'>('all');
+  const [activeAssetId, setActiveAssetId] = useState<string | null>(null);
+
+  const phase = phases.find((p) => p.id === activePhaseId) ?? phases[0];
   const phaseAssets = useMemo(
-    () => assets.filter((a) => a.phaseId === phaseId),
-    [assets, phaseId],
+    () => assets.filter((a) => a.phaseId === phase?.id && a.visible),
+    [assets, phase?.id],
   );
-  const ctx = useMemo(() => {
-    if (!activePhase) return null;
-    return buildCostContext(activePhase, parcels, assets, subUnits);
-  }, [activePhase, parcels, assets, subUnits]);
-  const breakdown = useMemo(() => {
-    if (!activePhase) return null;
-    return computePhaseCost(activePhase, costLines, parcels, assets, subUnits);
-  }, [activePhase, costLines, parcels, assets, subUnits]);
+  const phaseLines = useMemo(
+    () => costLines.filter((c) => c.phaseId === phase?.id),
+    [costLines, phase?.id],
+  );
 
-  if (!activePhase || !ctx || !breakdown) {
-    return <div data-testid="tab-costs-empty">No phases configured.</div>;
+  // Conditional driver: filter by requiresCountry against project.country
+  const visibleLines = useMemo(() => {
+    return phaseLines.filter((l) => {
+      if (l.requiresCountry && project.country !== l.requiresCountry) return false;
+      if (stageFilter !== 'all' && l.stage !== stageFilter) return false;
+      return true;
+    });
+  }, [phaseLines, stageFilter, project.country]);
+
+  if (!phase) {
+    return (
+      <div style={{ padding: 'var(--sp-3)' }} data-testid="costs-empty">
+        Add a phase first (Tab 1) before configuring costs.
+      </div>
+    );
   }
 
+  const phaseCost = computePhaseCost(
+    phase, project, costLines, costOverrides, parcels, assets, subUnits, landAllocationMode,
+  );
+
+  // For per-asset detail panel:
+  const focusAsset = activeAssetId ? phaseAssets.find((a) => a.id === activeAssetId) : phaseAssets[0];
+  const focusBreakdown = focusAsset
+    ? computeAssetCost(focusAsset, project, phase, parcels, assets, subUnits, costLines, costOverrides, landAllocationMode)
+    : null;
+  const focusMetrics = focusAsset
+    ? resolveAssetAreaMetrics(focusAsset, project, parcels, phaseAssets, subUnits, landAllocationMode)
+    : null;
+
+  const handleAddCustom = (stage: CostStage): void => {
+    const id = `custom-${Date.now()}`;
+    addCostLine({
+      id, phaseId: phase.id, name: 'New Cost Item',
+      method: 'fixed', value: 0,
+      stage, scope: 'direct', allocationBasis: 'per_asset',
+      startPeriod: 1, endPeriod: phase.constructionPeriods,
+      phasing: 'even',
+    });
+  };
+
+  const periodCount = Math.min(phase.constructionPeriods, 24);
+  const periodLabels = Array.from({ length: periodCount }, (_, i) => getPeriodLabel(i + 1, project.startDate, project.modelType));
+
   return (
-    <div data-testid="tab-costs">
-      <h2 style={{ fontSize: 'var(--font-h2)', marginBottom: 'var(--sp-3)' }}>3. Costs</h2>
-
-      <div
-        style={{
-          background: 'var(--color-primary-pale)',
-          border: '1px solid var(--color-primary)',
-          borderRadius: 'var(--radius)',
-          padding: 'var(--sp-2)',
-          marginBottom: 'var(--sp-3)',
-          fontSize: 'var(--font-small)',
-        }}
-        data-testid="tab3-callout"
-      >
-        <strong>What goes here:</strong> The 9 standard cost lines per phase
-        (Land, Construction BUA, Construction Parking, Infrastructure, Landscaping,
-        Pre-operating, Professional fee, Commission fee, Contingency). Each line
-        picks a method and a value; the phasing curve spreads the spend over the
-        construction window. Per-asset overrides live in the section below.
-      </div>
-
-      {phases.length > 1 && (
-        <div style={{ marginBottom: 'var(--sp-2)' }}>
-          <InputLabel label="Active Phase" help="Switch which phase you're editing." inputId="costs-active-phase" />
+    <div data-testid="module1-costs">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 'var(--sp-2)', flexWrap: 'wrap', gap: 'var(--sp-1)' }}>
+        <div>
+          <h2 style={{ margin: 0, fontSize: 'var(--font-h2)', fontWeight: 'var(--fw-bold)' }}>3. Development Costs</h2>
+          <div style={{ color: 'var(--color-meta)', fontSize: 12 }}>
+            Granularity: <strong>{project.modelType}</strong> · Construction window: {phase.constructionPeriods} {project.modelType === 'annual' ? 'years' : 'months'}
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <select
-            id="costs-active-phase"
-            data-testid="costs-active-phase"
-            value={phaseId}
+            value={phase.id}
             onChange={(e) => setActivePhaseId(e.target.value)}
-            style={{ ...inputStyle, maxWidth: 320 }}
+            style={inputStyle}
+            data-testid="costs-phase-select"
           >
-            {phases.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
+            {phases.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+          <select
+            value={stageFilter}
+            onChange={(e) => setStageFilter(e.target.value as CostStage | 'all')}
+            style={inputStyle}
+            data-testid="costs-stage-filter"
+          >
+            <option value="all">All Stages</option>
+            {COST_STAGES.map((s) => (<option key={s} value={s}>{COST_STAGE_LABELS[s]}</option>))}
           </select>
         </div>
-      )}
-
-      <div style={sectionCardStyle} data-testid="costs-context">
-        <h3 style={{ fontSize: 'var(--font-h3)', margin: 0, marginBottom: 'var(--sp-2)' }}>
-          Phase context
-        </h3>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(4, 1fr)',
-            gap: 'var(--sp-2)',
-            fontSize: 'var(--font-small)',
-          }}
-        >
-          <div data-testid="ctx-totalLandSqm">
-            <strong>Total Land:</strong>{' '}
-            <span style={calcOutputStyle}>{fmt(ctx.totalLandSqm)} sqm</span>
-          </div>
-          <div data-testid="ctx-totalBuaSqm">
-            <strong>Total BUA:</strong>{' '}
-            <span style={calcOutputStyle}>{fmt(ctx.totalBuaSqm)} sqm</span>
-          </div>
-          <div data-testid="ctx-totalParkingBays">
-            <strong>Parking Bays:</strong>{' '}
-            <span style={calcOutputStyle}>{fmt(ctx.totalParkingBays)}</span>
-          </div>
-          <div data-testid="ctx-totalLandValue">
-            <strong>Land Value:</strong>{' '}
-            <span style={calcOutputStyle}>{fmt(ctx.totalLandValue)} {project.currency}</span>
-          </div>
-        </div>
       </div>
 
-      <div style={sectionCardStyle} data-testid="cost-lines-section">
-        <h3 style={{ fontSize: 'var(--font-h3)', margin: 0, marginBottom: 'var(--sp-2)' }}>
-          Cost lines
-        </h3>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      {/* Stage summary cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-1)', marginBottom: 'var(--sp-2)' }}>
+        {COST_STAGES.map((s) => (
+          <div key={s} style={{ ...sectionCardStyle, marginBottom: 0, padding: 12 }} data-testid={`costs-stage-${s}-card`}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>
+              {COST_STAGE_LABELS[s]}
+            </div>
+            <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>
+              {formatCurrency(phaseCost.byStage[s], project.currency)}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Cost lines table */}
+      <div style={sectionCardStyle}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <strong style={{ fontSize: 13 }}>Cost Lines</strong>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {COST_STAGES.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => handleAddCustom(s)}
+                className="btn-secondary"
+                style={{ fontSize: 11, padding: '4px 8px' }}
+                data-testid={`costs-add-${s}`}
+              >
+                + {COST_STAGE_LABELS[s]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
           <thead>
-            <tr>
-              <th style={tableHeaderStyle}>
-                <InputLabel label="Cost Line" help="The 9 standard cost categories." textStyle={tableHeaderLabelStyle} />
-              </th>
-              <th style={tableHeaderStyle}>
-                <InputLabel label="Method" help="How the value is interpreted (lumpsum, rate per BUA / land / parking, % of construction or total)." textStyle={tableHeaderLabelStyle} />
-              </th>
-              <th style={tableHeaderStyle}>
-                <InputLabel label="Value" help="The number, interpretation depends on method." textStyle={tableHeaderLabelStyle} />
-              </th>
-              <th style={tableHeaderStyle}>
-                <InputLabel label="Phasing" help="How spend is spread across the construction window. Manual lets you supply per-period weights." textStyle={tableHeaderLabelStyle} />
-              </th>
-              <th style={tableHeaderStyle}>
-                <InputLabel label={`Total (${project.currency})`} help="Resolved currency total for this line." textStyle={tableHeaderLabelStyle} />
-              </th>
+            <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+              <th style={{ padding: '6px', textAlign: 'left' }}>Cost Line</th>
+              <th style={{ padding: '6px', textAlign: 'left' }}>Stage / Scope</th>
+              <th style={{ padding: '6px', textAlign: 'left' }}>Method / Alloc</th>
+              <th style={{ padding: '6px', textAlign: 'right' }}>Value</th>
+              <th style={{ padding: '6px', textAlign: 'right' }}>Start</th>
+              <th style={{ padding: '6px', textAlign: 'right' }}>End</th>
+              <th style={{ padding: '6px', textAlign: 'left' }}>Phasing</th>
+              <th style={{ padding: '6px', textAlign: 'right' }}>Total ({project.currency})</th>
+              <th style={{ padding: '6px' }}></th>
             </tr>
           </thead>
           <tbody>
-            {COST_LINE_KEYS.map((key) => {
-              const line = costLines.find((c) => c.key === key && c.phaseId === phaseId);
-              if (!line) return null;
+            {visibleLines.map((line) => {
+              const total = phaseAssets.reduce((s, a) => s + (phaseCost.byAssetId[a.id]?.byLineId[line.id] ?? 0), 0);
+              const perPeriod: number[] = [];
               return (
-                <CostLineRow
-                  key={key}
+                <CostRow
+                  key={line.id}
                   line={line}
-                  total={breakdown.byLine[key]}
-                  currency={project.currency}
-                  onUpdate={(patch) => updateCostLine(key, phaseId, patch)}
+                  asset={focusAsset ?? { id: '', name: '' }}
+                  total={total}
+                  perPeriod={perPeriod}
+                  allLines={phaseLines}
+                  onUpdate={(patch) => updateCostLine(line.id, patch)}
+                  onRemove={() => removeCostLine(line.id)}
+                  isLocked={line.isLocked === true}
                 />
               );
             })}
           </tbody>
           <tfoot>
-            <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 'var(--fw-bold)' }}>
-              <td style={{ padding: 'var(--sp-1)' }} colSpan={4}>
-                Phase total
+            <tr style={{ background: 'var(--color-grey-pale)' }}>
+              <td colSpan={7} style={{ padding: '6px', textAlign: 'right', fontWeight: 700 }}>
+                Phase Total
               </td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="phase-total-cost">
-                {fmt(breakdown.total)} {project.currency}
+              <td style={{ padding: '6px', textAlign: 'right', fontWeight: 700 }} data-testid="costs-phase-total">
+                {formatCurrency(phaseCost.total, project.currency)}
               </td>
-            </tr>
-            <tr style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)' }}>
-              <td style={{ padding: 'var(--sp-1)' }} colSpan={4}>
-                Construction subtotal (BUA + Parking)
-              </td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="construction-subtotal">
-                {fmt(breakdown.constructionTotal)} {project.currency}
-              </td>
+              <td></td>
             </tr>
           </tfoot>
         </table>
       </div>
 
-      <div style={sectionCardStyle} data-testid="overrides-section">
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            cursor: 'pointer',
-          }}
-          onClick={() => setShowOverrides(!showOverrides)}
-          data-testid="overrides-toggle"
-        >
-          <h3 style={{ fontSize: 'var(--font-h3)', margin: 0 }}>
-            Per-asset overrides ({costOverrides.filter((o) => phaseAssets.find((a) => a.id === o.assetId)).length})
-          </h3>
-          <span style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)' }}>
-            {showOverrides ? 'Hide' : 'Show'}
-          </span>
-        </div>
-        {showOverrides && (
-          <div style={{ marginTop: 'var(--sp-2)' }}>
-            <div
-              style={{
-                fontSize: 'var(--font-small)',
-                color: 'var(--color-meta)',
-                marginBottom: 'var(--sp-2)',
-              }}
+      {/* Per-asset detail panel */}
+      {phaseAssets.length > 0 && focusAsset && focusBreakdown && focusMetrics && (
+        <div style={sectionCardStyle} data-testid="costs-asset-detail">
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <strong style={{ fontSize: 13 }}>Per-Asset Breakdown</strong>
+            <select
+              value={focusAsset.id}
+              onChange={(e) => setActiveAssetId(e.target.value)}
+              style={inputStyle}
+              data-testid="costs-asset-select"
             >
-              Without overrides, each asset gets a BUA-weighted slice of the phase
-              cost lines (except Land, which uses the Land Allocation Mode from
-              Tab 2). Overrides replace that calculation for the selected asset
-              and cost line only.
-            </div>
-            {phaseAssets.map((asset) => {
-              const assetCost = computeAssetCost(
-                asset,
-                costLines,
-                costOverrides,
-                parcels,
-                assets,
-                subUnits,
-              );
-              const landCost = computeAssetLandCost(asset, parcels, assets, subUnits, landAllocationMode);
-              return (
-                <div
-                  key={asset.id}
-                  style={{
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-sm)',
-                    padding: 'var(--sp-2)',
-                    marginBottom: 'var(--sp-2)',
-                  }}
-                  data-testid={`override-asset-${asset.id}`}
-                >
-                  <div
-                    style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      marginBottom: 'var(--sp-1)',
-                      fontSize: 'var(--font-small)',
-                    }}
-                  >
-                    <strong>{asset.name}</strong>
-                    <span data-testid={`override-asset-${asset.id}-total`}>
-                      Total: {fmt(assetCost.total + landCost)} {project.currency}
-                    </span>
-                  </div>
-                  {COST_LINE_KEYS.map((key) => {
-                    const override = costOverrides.find(
-                      (o) => o.assetId === asset.id && o.key === key,
-                    );
-                    return (
-                      <CostOverrideRow
-                        key={key}
-                        assetId={asset.id}
-                        costKey={key}
-                        override={override}
-                        currency={project.currency}
-                        derivedTotal={
-                          key === 'land' ? landCost : assetCost.byLine[key]
-                        }
-                        onSet={(o) => setCostOverride(o)}
-                        onClear={() => removeCostOverride(asset.id, key)}
-                      />
-                    );
-                  })}
-                </div>
-              );
-            })}
+              {phaseAssets.map((a) => (<option key={a.id} value={a.id}>{a.name}</option>))}
+            </select>
           </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
-interface CostLineRowProps {
-  line: CostLine;
-  total: number;
-  currency: string;
-  onUpdate: (patch: Partial<CostLine>) => void;
-}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, fontSize: 11, marginBottom: 12 }}>
+            <div><span style={{ color: 'var(--color-meta)' }}>Land:</span> {formatNumber(focusMetrics.landSqm)} sqm</div>
+            <div><span style={{ color: 'var(--color-meta)' }}>NDA:</span> {formatNumber(focusMetrics.ndaSqm)} sqm</div>
+            <div><span style={{ color: 'var(--color-meta)' }}>GFA:</span> {formatNumber(focusMetrics.gfa)} sqm</div>
+            <div><span style={{ color: 'var(--color-meta)' }}>BUA:</span> {formatNumber(focusMetrics.bua)} sqm</div>
+            <div><span style={{ color: 'var(--color-meta)' }}>NSA:</span> {formatNumber(focusMetrics.nsa)} sqm</div>
+            <div><span style={{ color: 'var(--color-meta)' }}>Units:</span> {formatNumber(focusMetrics.unitCount)}</div>
+            <div><span style={{ color: 'var(--color-meta)' }}>Land $:</span> {formatCurrency(focusMetrics.landValue, project.currency)}</div>
+            <div><span style={{ color: 'var(--color-meta)' }}>Total $:</span> {formatCurrency(focusBreakdown.total, project.currency)}</div>
+          </div>
 
-function CostLineRow({ line, total, currency, onUpdate }: CostLineRowProps): React.JSX.Element {
-  return (
-    <tr data-testid={`cost-line-${line.key}`}>
-      <td style={{ padding: 'var(--sp-1)' }}>
-        <strong>{COST_LINE_LABELS[line.key]}</strong>
-      </td>
-      <td style={{ padding: 'var(--sp-1)' }}>
-        <select
-          value={line.method}
-          data-testid={`cost-line-${line.key}-method`}
-          onChange={(e) => onUpdate({ method: e.target.value as CostMethod })}
-          style={inputStyle}
-        >
-          {COST_METHODS.map((m) => (
-            <option key={m} value={m}>
-              {METHOD_LABELS[m]}
-            </option>
-          ))}
-        </select>
-      </td>
-      <td style={{ padding: 'var(--sp-1)' }}>
-        <input
-          type="number"
-          min={0}
-          value={line.value}
-          data-testid={`cost-line-${line.key}-value`}
-          onChange={(e) => onUpdate({ value: Math.max(0, Number(e.target.value) || 0) })}
-          style={inputStyle}
-        />
-      </td>
-      <td style={{ padding: 'var(--sp-1)' }}>
-        <select
-          value={line.phasing}
-          data-testid={`cost-line-${line.key}-phasing`}
-          onChange={(e) => onUpdate({ phasing: e.target.value as CostPhasing })}
-          style={inputStyle}
-        >
-          {COST_PHASINGS.map((p) => (
-            <option key={p} value={p}>
-              {PHASING_LABELS[p]}
-            </option>
-          ))}
-        </select>
-      </td>
-      <td style={{ padding: 'var(--sp-1)' }} data-testid={`cost-line-${line.key}-total`}>
-        {fmt(total)} {currency}
-      </td>
-    </tr>
-  );
-}
-
-interface CostOverrideRowProps {
-  assetId: string;
-  costKey: CostLineKey;
-  override: CostOverride | undefined;
-  currency: string;
-  derivedTotal: number;
-  onSet: (o: CostOverride) => void;
-  onClear: () => void;
-}
-
-function CostOverrideRow({
-  assetId,
-  costKey,
-  override,
-  currency,
-  derivedTotal,
-  onSet,
-  onClear,
-}: CostOverrideRowProps): React.JSX.Element {
-  return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '1.5fr 1.5fr 1fr 1fr 1.2fr 60px',
-        gap: 'var(--sp-1)',
-        marginBottom: 'var(--sp-1)',
-        fontSize: 'var(--font-small)',
-        alignItems: 'center',
-      }}
-      data-testid={`override-${assetId}-${costKey}`}
-    >
-      <strong style={{ paddingLeft: 'var(--sp-2)' }}>{COST_LINE_LABELS[costKey]}</strong>
-      {override ? (
-        <>
-          <select
-            value={override.method}
-            data-testid={`override-${assetId}-${costKey}-method`}
-            onChange={(e) => onSet({ ...override, method: e.target.value as CostMethod })}
-            style={inputStyle}
-          >
-            {COST_METHODS.map((m) => (
-              <option key={m} value={m}>
-                {METHOD_LABELS[m]}
-              </option>
-            ))}
-          </select>
-          <input
-            type="number"
-            min={0}
-            value={override.value}
-            data-testid={`override-${assetId}-${costKey}-value`}
-            onChange={(e) => onSet({ ...override, value: Math.max(0, Number(e.target.value) || 0) })}
-            style={inputStyle}
-          />
-          <select
-            value={override.phasing}
-            data-testid={`override-${assetId}-${costKey}-phasing`}
-            onChange={(e) => onSet({ ...override, phasing: e.target.value as CostPhasing })}
-            style={inputStyle}
-          >
-            {COST_PHASINGS.map((p) => (
-              <option key={p} value={p}>
-                {PHASING_LABELS[p]}
-              </option>
-            ))}
-          </select>
-          <span style={calcOutputStyle} data-testid={`override-${assetId}-${costKey}-total`}>
-            {fmt(derivedTotal)} {currency}
-          </span>
-          <button
-            type="button"
-            onClick={onClear}
-            data-testid={`override-${assetId}-${costKey}-clear`}
-            style={{
-              background: 'transparent',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '2px 6px',
-              cursor: 'pointer',
-              fontSize: 'var(--font-micro)',
-            }}
-          >
-            Clear
-          </button>
-        </>
-      ) : (
-        <>
-          <span style={{ color: 'var(--color-meta)' }}>(default)</span>
-          <span style={{ color: 'var(--color-meta)' }}>(default)</span>
-          <span style={{ color: 'var(--color-meta)' }}>(default)</span>
-          <span style={calcOutputStyle} data-testid={`override-${assetId}-${costKey}-total`}>
-            {fmt(derivedTotal)} {currency}
-          </span>
-          <button
-            type="button"
-            onClick={() =>
-              onSet({
-                assetId,
-                key: costKey,
-                method: 'lumpsum',
-                value: derivedTotal,
-                phasing: 'even',
-              })
-            }
-            data-testid={`override-${assetId}-${costKey}-set`}
-            style={{
-              background: 'var(--color-navy)',
-              color: 'var(--color-on-primary-navy)',
-              border: 'none',
-              borderRadius: 'var(--radius-sm)',
-              padding: '2px 6px',
-              cursor: 'pointer',
-              fontSize: 'var(--font-micro)',
-            }}
-          >
-            Set
-          </button>
-        </>
+          {/* Period schedule (only first 24 periods to keep render fast) */}
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                  <th style={{ padding: '4px 6px', textAlign: 'left' }}>Period</th>
+                  {periodLabels.map((p, i) => (<th key={i} style={{ padding: '4px 6px', textAlign: 'right' }}>{p}</th>))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td style={{ padding: '4px 6px', fontWeight: 600 }}>{focusAsset.name} CapEx</td>
+                  {periodLabels.map((_, i) => (
+                    <td key={i} style={{ padding: '4px 6px', textAlign: 'right' }} data-testid={`costs-period-${i + 1}`}>
+                      {formatNumber(focusBreakdown.perPeriod[i + 1] ?? 0)}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
     </div>
   );
