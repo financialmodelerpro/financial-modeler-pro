@@ -128,13 +128,26 @@ const STAGE_BG: Record<CostStage, string> = {
   operating: 'color-mix(in srgb, var(--color-grey-mid) 12%, transparent)',
 };
 
+// M2.0g Addendum 2 (2026-05-06): period labels reflect modelType +
+// projectStart. Annual: "Dec 25" (end-of-year). Monthly: "Mar 25".
+// idx=0 means pre-project (Y0). Inputs always annual on v8 so this
+// function is mostly used by the schedule columns that render at
+// outputGranularity granularity (annual default; quarterly + monthly
+// transformed at display time).
 function getPeriodLabel(idx: number, projectStart: string, modelType: 'monthly' | 'annual'): string {
-  if (idx === 0) return 'P0';
-  if (modelType === 'annual') return `Y${idx}`;
+  if (idx === 0) return 'Y0';
   const d = new Date(projectStart);
-  if (Number.isNaN(d.getTime())) return `M${idx}`;
-  d.setMonth(d.getMonth() + (idx - 1));
-  return d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+  if (Number.isNaN(d.getTime())) return modelType === 'annual' ? `Y${idx}` : `M${idx}`;
+  if (modelType === 'annual') {
+    // End-of-year of the period: startYear + idx - 1.
+    const year = d.getUTCFullYear() + idx - 1;
+    return `Dec ${String(year).slice(-2)}`;
+  }
+  // monthly: project start month + (idx - 1).
+  const startMonthIdx = d.getUTCFullYear() * 12 + d.getUTCMonth();
+  const targetMonthIdx = startMonthIdx + (idx - 1);
+  const targetDate = new Date(Date.UTC(Math.floor(targetMonthIdx / 12), targetMonthIdx % 12, 1));
+  return targetDate.toLocaleDateString('en-US', { month: 'short', year: '2-digit', timeZone: 'UTC' });
 }
 
 // Accounting destination string per strategy. Shown as hover tooltip on
@@ -318,18 +331,24 @@ interface CostRowProps {
   onRemoveLine: () => void;
   currency: string;
   scale: DisplayScale;
+  // M2.0g Addendum 2: caller supplies a period -> label resolver so
+  // Start / End columns display "Dec 25" alongside the integer input.
+  periodLabel: (idx: number) => string;
 }
 
 function CostRow({
   asset, line, override, total, isLocked,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
-  currency, scale,
+  currency, scale, periodLabel,
 }: CostRowProps): React.JSX.Element {
   // M2.0g Fix 6: Stage label still drives the row background + summary
   // tables, but the Direct/Indirect label is dropped (per-asset cost
   // segregation makes everything direct by definition).
   const stage = deriveCostStage(line);
   const isCustom = line.targetAssetId === asset.id;
+  // M2.0g Addendum 2: resolved period labels for the row's start / end.
+  const periodStartLabel = periodLabel(line.startPeriod);
+  const periodEndLabel   = periodLabel(line.endPeriod);
   const isProjectWide = !line.targetAssetId;
   // Effective values: override wins per-asset, line provides default
   const effMethod = override?.method ?? line.method;
@@ -427,7 +446,7 @@ function CostRow({
           data-testid={`cost-${asset.id}-${line.id}-value`}
         />
       </td>
-      <td style={{ padding: '4px', width: 60 }}>
+      <td style={{ padding: '4px', width: 70 }}>
         <input
           type="number"
           min={0}
@@ -437,8 +456,11 @@ function CostRow({
           style={inputStyle}
           data-testid={`cost-${asset.id}-${line.id}-start`}
         />
+        <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-start-label`}>
+          {periodStartLabel}
+        </div>
       </td>
-      <td style={{ padding: '4px', width: 60 }}>
+      <td style={{ padding: '4px', width: 70 }}>
         <input
           type="number"
           min={0}
@@ -448,6 +470,9 @@ function CostRow({
           style={inputStyle}
           data-testid={`cost-${asset.id}-${line.id}-end`}
         />
+        <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, textAlign: 'center' }} data-testid={`cost-${asset.id}-${line.id}-end-label`}>
+          {periodEndLabel}
+        </div>
       </td>
       <td style={{ padding: '4px', minWidth: 110 }}>
         <select
@@ -520,6 +545,7 @@ interface AssetCostSectionProps {
   breakdown: AssetCostBreakdown;
   currency: string;
   scale: DisplayScale;
+  periodLabel: (idx: number) => string;
   onUpdateLine: (lineId: string, patch: Partial<CostLine>) => void;
   onUpdateOverride: (override: CostOverride) => void;
   onRemoveOverride: (assetId: string, lineId: string) => void;
@@ -528,7 +554,7 @@ interface AssetCostSectionProps {
 }
 
 function AssetCostSection({
-  asset, lines, costOverrides, breakdown, currency, scale,
+  asset, lines, costOverrides, breakdown, currency, scale, periodLabel,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   onAddCustom,
 }: AssetCostSectionProps): React.JSX.Element {
@@ -598,6 +624,7 @@ function AssetCostSection({
                     isLocked={line.isLocked === true}
                     currency={currency}
                     scale={scale}
+                    periodLabel={periodLabel}
                     onUpdateLine={(patch) => onUpdateLine(line.id, patch)}
                     onUpdateOverride={onUpdateOverride}
                     onRemoveOverride={() => onRemoveOverride(asset.id, line.id)}
@@ -902,6 +929,10 @@ export default function Module1Costs(): React.JSX.Element {
   const [popupAssetId, setPopupAssetId] = useState<string | null>(null);
   // M2.0g: project-wide display scale.
   const scale: DisplayScale = project.displayScale ?? 'full';
+  // M2.0g Addendum 2: period -> "Dec 25" label resolver, supplied to
+  // every AssetCostSection so cost line Start / End columns show a
+  // human-readable date alongside the integer input.
+  const periodLabelFn = (idx: number): string => getPeriodLabel(idx, project.startDate, project.modelType);
 
   const currentPhase = phases.find((p) => p.id === activePhaseId) ?? phases[0];
   if (!currentPhase) {
@@ -1036,6 +1067,7 @@ export default function Module1Costs(): React.JSX.Element {
                   breakdown={breakdown}
                   currency={project.currency}
                   scale={scale}
+                  periodLabel={periodLabelFn}
                   onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
                   onUpdateOverride={setCostOverride}
                   onRemoveOverride={removeCostOverride}
