@@ -32,7 +32,7 @@ import {
   EQUITY_TIMINGS,
   makeDefaultFinancingTranche,
 } from '../../lib/state/module1-types';
-import { computePhaseCost, computeFinancing } from '@/src/core/calculations';
+import { computePhaseCost, computeFinancing, resolveAssetAreaMetrics } from '@/src/core/calculations';
 import { formatNumber, formatCurrency } from '@/src/core/formatters';
 
 const inputStyle: React.CSSProperties = {
@@ -375,7 +375,17 @@ export default function Module1Financing(): React.JSX.Element {
     const r = computeFinancing(t, phase, capexPerPeriod, presalesPerPeriod, project);
     return s + r.totalInterest;
   }, 0);
-  const totalEquity = phaseEquity.reduce((s, e) => s + (e.amount || 0), 0);
+  const totalCashEquity = phaseEquity.reduce((s, e) => s + (e.amount || 0), 0);
+  // M2.0d Fix 8: in-kind equity = sum of in-kind land value across this
+  // phase's visible assets (allocation already resolved per landAllocationMode).
+  // Each asset's inKindLandValue tracks its share of parcels.inKindValue
+  // and is the equity-in-kind contribution that funds its capex without
+  // a cash outflow.
+  const totalInKindEquity = phaseAssets.reduce((s, a) => {
+    const m = resolveAssetAreaMetrics(a, project, parcels, phaseAssets, subUnits, landAllocationMode);
+    return s + Math.max(0, m.inKindLandValue);
+  }, 0);
+  const totalEquity = totalCashEquity + totalInKindEquity;
 
   const handleAddTranche = (): void => {
     const id = `tranche-${Date.now()}`;
@@ -414,7 +424,7 @@ export default function Module1Financing(): React.JSX.Element {
         </select>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-1)', marginBottom: 'var(--sp-2)' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--sp-1)', marginBottom: 'var(--sp-2)' }}>
         <div style={{ ...sectionCardStyle, marginBottom: 0, padding: 12 }} data-testid="financing-summary-capex">
           <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Phase CapEx</div>
           <div style={{ fontSize: 16, fontWeight: 700 }}>{formatCurrency(phaseCost.total, project.currency)}</div>
@@ -423,14 +433,28 @@ export default function Module1Financing(): React.JSX.Element {
           <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Total Debt</div>
           <div style={{ fontSize: 16, fontWeight: 700 }}>{formatCurrency(totalDebtAcrossTranches, project.currency)}</div>
         </div>
-        <div style={{ ...sectionCardStyle, marginBottom: 0, padding: 12 }} data-testid="financing-summary-equity">
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Total Equity</div>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>{formatCurrency(totalEquity, project.currency)}</div>
+        <div style={{ ...sectionCardStyle, marginBottom: 0, padding: 12 }} data-testid="financing-summary-cash-equity">
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Cash Equity</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>{formatCurrency(totalCashEquity, project.currency)}</div>
+          <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>Manual contributions</div>
+        </div>
+        <div style={{ ...sectionCardStyle, marginBottom: 0, padding: 12 }} data-testid="financing-summary-inkind-equity">
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>In-Kind Equity</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>{formatCurrency(totalInKindEquity, project.currency)}</div>
+          <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>Auto from in-kind land</div>
         </div>
         <div style={{ ...sectionCardStyle, marginBottom: 0, padding: 12 }} data-testid="financing-summary-interest">
           <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Total Interest</div>
           <div style={{ fontSize: 16, fontWeight: 700 }}>{formatCurrency(totalInterestAcross, project.currency)}</div>
         </div>
+      </div>
+      <div style={{ ...sectionCardStyle, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} data-testid="financing-equity-summary">
+        <strong style={{ fontSize: 12, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>
+          Equity Summary, Cash + In-Kind
+        </strong>
+        <strong style={{ fontSize: 14 }} data-testid="financing-equity-summary-total">
+          {formatCurrency(totalEquity, project.currency)}
+        </strong>
       </div>
 
       <div style={{ marginBottom: 'var(--sp-2)' }}>
