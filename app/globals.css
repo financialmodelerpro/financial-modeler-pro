@@ -1074,10 +1074,15 @@ thead th:first-child { border-radius: 0; }
     background: rgba(255,255,255,0.06); color: white;
 }
 .sb-pv-collapsed-pill:hover { background: rgba(255,255,255,0.14); }
-/* Refinement 4 & 9: Fixed layout - main-content only scrolls */
-.main-content { flex: 1; overflow-y: auto; overflow-x: hidden; min-width: 0; margin-left: 240px; transition: margin-left 0.2s ease; height: calc(100vh - 40px); }
-.main-content.sidebar-collapsed { margin-left: 52px; }
-/* Refinement 7: Content padding via token */
+/* M2.0d (2026-05-06): main-content participates in the .app-shell flex row.
+   Sidebar is the flex sibling, not a position:fixed overlay, so the prior
+   margin-left:240px stacked on top of the flex layout and clipped page
+   titles ("Dashboard", "Projects", "Overview") at the left edge. The
+   manual height: calc(100vh - 40px) was redundant once .app-shell got
+   flex:1; min-height:0. Both removed. Sidebar collapse no longer needs
+   to drive a margin shim because the flex sibling resizes naturally. */
+.main-content { flex: 1; overflow-y: auto; overflow-x: hidden; min-width: 0; }
+/* Content padding via token */
 .content-body { padding: var(--sp-3); }
 
 /* ════════════════════════════════════════════════════
