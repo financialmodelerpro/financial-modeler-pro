@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-06 (M2.0f Module 1 structural fixes on v7 schema)**
+**Last updated: 2026-05-06 (M2.0g Module 1 display + reconciliation + Costs restructure on v8 schema)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -231,7 +231,8 @@ npx tsx scripts/verify-m20b.ts                  # M2.0b shell restoration (51 pa
 npx tsx scripts/verify-m20c.ts                  # M2.0c full Dev Costs + Financing on v6 (looser SCHEMA_VERSION + COST_METHODS asserts after M2.0d)
 npx tsx scripts/verify-m20d.ts                  # M2.0d Costs polish + v7 (71 pass / 0 fail / 2 skip without dev server)
 npx tsx scripts/verify-m20e.ts                  # M2.0e wizard + Tab 2 (58 pass / 0 fail / 2 skip without dev server)
-npx tsx scripts/verify-m20f.ts                  # M2.0f structural fixes (62 pass / 0 fail / 2 skip without dev server) <- canonical green
+npx tsx scripts/verify-m20f.ts                  # M2.0f structural fixes (61 pass / 0 fail / 2 skip without dev server)
+npx tsx scripts/verify-m20g.ts                  # M2.0g display + reconciliation + Costs restructure (68 pass / 0 fail / 2 skip without dev server) <- canonical green
 
 # Playwright e2e specs (M2.0 v5/v6/v7 contract)
 npx playwright test tests/e2e/m20-full-flow.spec.ts        # 2 specs: 3-step wizard create + 4-tab landing + 8 light/dark tab screenshots
@@ -240,6 +241,7 @@ npx playwright test tests/e2e/m20c-costs-financing.spec.ts # SKIPPED (frozen v6 
 npx playwright test tests/e2e/m20d-costs-polish.spec.ts    # 7 specs: layout (no sidebar bleed) + Tab 2 Sell+Manage agreement + Tab 3 per-asset segregation + custom cost popup + 3 capex summary tables + Tab 4 in-kind equity tile + granularity + light/dark screenshots
 npx playwright test tests/e2e/m20e-wizard-tab2.spec.ts     # 6 specs: wizard Step 2 unit suffix + Phase Start Date column + Step 3 simplified + Tab 2 phase grouping + asset Phase/Status dropdowns + sub-unit Rate Unit column + light/dark screenshots
 npx playwright test tests/e2e/m20f-structural-fixes.spec.ts # 4 specs: shell page header visibility (Fix 1) + wizard 14 project types (Fix 3) + Tab 1 date columns (Fix 4 + 5) + Tab 2 parcel dropdown + Parking sub-unit + derived BUA (Fix 2 + 6)
+npx playwright test tests/e2e/m20g-display-recon-costs.spec.ts # 5 specs: Wizard Display Scale + Reporting Granularity (Fix 3 + Addendum 3) + Costs sub-tabs + 4 summary tables (Fix 7) + land reconciliation block (Fix 2) + asset Support/Parking + BUA reconciliation (Fix 4 + 5) + Manual % phasing (Addendum 1)
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -257,9 +259,168 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 **Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
 (`npx playwright install chromium`).
 
-### Module 1 status (2026-05-06, **M2.0f Module 1 structural fixes**)
+### Module 1 status (2026-05-06, **M2.0g Module 1 display + reconciliation + Costs restructure**)
 
-**M2.0f (current, ships):** Closes the 6 structural issues Ahmad
+**M2.0g (current, ships):** Closes the 7 display + reconciliation +
+Cost-tab issues Ahmad eyeballed in M2.0f, plus 3 addendum items
+(Manual % phasing UI restoration, period labels, structural shift
+to annual-only inputs + multi-granularity outputs). Schema bumps
+to v8 (modelType becomes outputGranularity; v7 monthly snapshots
+migrate by aggregating periods 12 -> 1). 11 commits:
+
+- **/1 (Fix 3, Display Scale)**: Project gains optional
+  `displayScale: 'full' | 'thousands' | 'millions'`. New
+  `formatScaled` / `formatScaledCurrency` helpers in
+  `core/formatters` use accounting format throughout (thousand
+  separators, 2 decimals, negatives in parens, zero -> 0.00, suffix
+  ' K' / ' M' on scaled views). Wizard Step 1 grows a Display Scale
+  radio + an instruction line above the Basics grid. Module1Costs
+  threads scale through AssetCostSection / CostRow / SummaryTables;
+  Module1Assets currency cells follow the same pattern.
+- **/2 (Fix 6, drop Direct/Indirect labels)**: per-asset cost
+  segregation makes every cost direct by definition; the
+  M2.0d-era 'direct' / 'indirect' subtitle on each cost row was
+  misleading. CostRow drops the deriveCostScope import + scope
+  display + tooltip mention. Stage label (Land / Hard / Soft /
+  Operating) stays since it drives the row background tint +
+  summary tables.
+- **/3 (Fix 1, period end-of-period dates)**: New `periodEndDate`
+  helper returns the LAST DAY of a period span (start + N periods)
+  - 1 day. For Jan 1 starts: Dec 31 of last year (annual) or last
+  day of last month (monthly). `computePhaseTimeline` uses
+  periodEndDate for constructionEnd / operationsEnd so MAAD-shape
+  (start 2025-01-01, 4 yr construction + 10 yr operations) reads
+  constructionEnd = 2028-12-31, operationsStart = 2029-01-01,
+  operationsEnd = 2038-12-31. computeProjectEndDate delegates to
+  computePhaseTimeline for the same end-of-period treatment.
+- **/4 (Fix 4 + 5, asset Support/Parking + BUA reconciliation)**:
+  Asset gains 3 optional fields: `buaTotal`, `supportArea`,
+  `parkingArea`. Tab 2 asset card areas row replaces the M2.0f
+  5-column derived display with a 6-column input row: GFA / Asset
+  BUA Total / Sellable BUA (derived) / Support Area / Parking Area
+  / Parking Bays. Sub-units describe revenue-generating units
+  only; Support and Parking are entered at the asset level. New
+  BUA Reconciliation block under the areas row shows itemized
+  breakdown: sub-unit (Sellable / Operable / Leasable / Support)
+  rows + asset-level Support + asset-level Parking, then derived
+  total + entered total + match/mismatch line. SubUnitCategory
+  drops 'Parking' (M2.0f-only); migrateM20gParkingSubUnits folds
+  legacy Parking sub-unit areas into asset.parkingArea per asset.
+  CostMethod gains 3 new options: rate_x_support_area,
+  rate_x_parking_area, rate_x_specific_subunit (with
+  line.subUnitId reference). resolveAssetAreaMetrics exposes
+  supportArea / parkingArea so the new methods can be applied.
+- **/5 (Fix 2, land allocation parcel default + reconciliation)**:
+  Asset card Parcel dropdown now defaults to the FIRST phase
+  parcel. Two sentinels join the dropdown bottom: '(Weighted
+  Average across parcels)' and '(Custom Rate)'. Custom Rate
+  reveals a customRate input. Schema gains
+  `AssetLandAllocation.customRate`. PARCEL_WEIGHTED_AVG and
+  PARCEL_CUSTOM_RATE sentinels exported. computeAssetLand-
+  Breakdown handles the 2 sentinels: weighted-avg uses
+  computeLandAggregate.weightedRate × sqm; custom-rate uses
+  asset.landAllocation.customRate × sqm. New
+  computeLandReconciliation returns parcelsTotalSqm /
+  parcelsTotalValue vs assetsAllocatedSqm / assetsAllocatedValue
+  with match / short / over status. Module1Assets renders the
+  reconciliation block at top of Tab 2 (between Land Parcels and
+  Land Allocation Mode) with color-coded banner.
+- **/6 (Addendum 3, v8 schema bump)**: Schema bumps to v8.
+  Project gains `outputGranularity: 'annual' | 'quarterly' |
+  'monthly'` alongside modelType (modelType forced to 'annual' on
+  new projects). Inputs are always entered ANNUALLY; output
+  granularity drives the reporting / display view. Migration v7
+  -> v8: when source modelType === 'monthly', aggregate phase
+  periods 12 -> 1 (rounded UP) and switch modelType to 'annual';
+  outputGranularity defaults to source modelType. SCHEMA_VERSION
+  export updated to 8. isV8Snapshot, NewV8Snapshot added. Wizard
+  Step 1 replaces 'Model Granularity' with 'Reporting
+  Granularity' + helper text. Wizard Step 2 + Tab 1 column
+  headers always show '(years)'.
+- **/7 (Addendum 2, period labels Y0/Dec 25)**: Module1Costs
+  getPeriodLabel rewrites: idx=0 -> 'Y0', annual -> 'Dec YY'
+  (end-of-year), monthly -> 'Mar 25' (month/year). Replaces the
+  pre-M2.0g 'Y1' / 'M1' plain integer convention. CostRow grows
+  a periodLabel prop + small caption under Start / End integer
+  inputs showing the resolved date. AssetCostSection threads the
+  resolver down. Project-level periodLabelFn pulls
+  project.startDate + project.modelType once.
+- **/8 (Addendum 1, Manual % phasing restore)**: CostRow renders
+  expanded sub-row when effective phasing === 'manual'. Sub-row
+  spans all 8 columns, shows one number input per period in
+  [line.startPeriod, line.endPeriod] (default 0), each labeled
+  with the period's resolved date underneath. Sum indicator
+  color-coded (green when within 0.5% of 100, amber otherwise).
+  Auto-normalize button scales values to sum 100 (falls back to
+  even spread when all 0). Distribution writes to override.
+  distribution for project-wide lines or line.distribution for
+  asset-targeted custom lines. constructionPeriods threaded from
+  main component -> AssetCostSection -> CostRow.
+- **/9 (Fix 7, Costs sub-tabs + 4 summary tables)**: Module1Costs
+  grows internal sub-tab toggle: Inputs (per-asset cost line
+  tables, editable surface) and Results (4 read-only capex
+  summary tables). Summary tables rewritten:
+  * Table 1 (Capex by Period): per-cost-line breakdown. Asset
+    rows + per-line nested rows + period columns. Total in 2nd
+    position.
+  * Table 2 (Capex by Stage): TRANSPOSED. Stage rows × Year
+    columns. Total in 2nd column.
+  * Table 3 (Capex Summary by Treatment): existing layout but
+    Total Capex column moved to 2nd position.
+  * Table 4 (NEW) - Capex by Cost Type per Asset: matrix Asset
+    rows × [Land Cash, Land In-Kind, Hard, Soft, Operating]
+    cols with Total in 2nd.
+  Header pattern: every summary table uses [Description] [Total]
+  [Period/Stage/Type cols...] so the user can scan totals without
+  scrolling right. costLines threaded into SummaryTables.
+- **/10 (verifier + Playwright)**: scripts/verify-m20g.ts (68
+  pass / 0 fail / 2 skip without authenticated dev server) +
+  tests/e2e/m20g-display-recon-costs.spec.ts (5 specs).
+  Snapshot baseline 47.8 KB sha 22923b5275a7 (v8). M2.0d / M2.0e
+  / M2.0f all stay green via the loosen-prior-verifier precedent
+  established in M2.0f.
+- **/11 (docs sweep, this commit)**: CLAUDE.md M2.0g closure
+  block + scripts table updated to point at verify-m20g
+  canonical green + m20g-display-recon-costs.spec.ts entry.
+  M2.0f re-titled "foundation for M2.0g".
+
+**M2.0g pattern decisions for downstream phases:**
+- **Annual-only inputs is the canonical convention from v8 forward.**
+  M2.1 Revenue cohorts, OpEx schedules, financing drawdowns,
+  repayments are all entered annually. Display layer applies
+  output granularity transformation (quarterly = annual / 4 with
+  phasing curve, monthly = annual / 12) at render time.
+- **Display scale is project-wide.** M2.1 + downstream modules
+  must read project.displayScale and use formatScaled /
+  formatScaledCurrency for currency cells. Integer counts (sqm,
+  parking bays, sub-unit count) bypass scale via formatInteger.
+- **End-of-period dates everywhere.** Use periodEndDate /
+  computePhaseTimeline; never display "Jan 1 of next year" as
+  the end of a period.
+- **Sub-tab Inputs / Results pattern is canonical for editable +
+  read-only views.** M2.1 Revenue + M3 Cashflow ship with the
+  same sub-tab structure: Inputs editable on top, Results
+  rendered below with the same Total-in-2nd-column convention.
+- **Asset-level inputs supersede sub-unit detail when single-
+  number entry is sufficient.** Support and Parking moved to
+  asset-level in M2.0g; if M2.1 needs project-wide costs (master
+  plan, common roads), they get an asset-level sibling input
+  rather than a Project sub-unit category.
+- **Manual % phasing pattern.** Per-period inputs with sum
+  indicator + auto-normalize button. Distribution stored on
+  override.distribution (project-wide line) or line.distribution
+  (asset-targeted). M2.1 Revenue cohort phasing follows the same
+  shape (annual cohort entries with optional Manual % per-year
+  override).
+- **Land reconciliation pattern.** Project-wide reconciliation
+  block at top of Tab 2 contrasts parcels total vs assets
+  allocated. M2.1 Revenue + M2.0g Costs both expose similar
+  reconciliation lines (sub-unit revenue vs asset BUA;
+  per-period drawdown vs financing total).
+
+### Module 1 status (M2.0f, 2026-05-06, foundation for M2.0g)
+
+**M2.0f:** Closes the 6 structural issues Ahmad
 flagged after eyeballing M2.0d + M2.0e together (header clipping,
 multi-parcel rates, project-type catalog, phase startDate
 persistence, project end off-by-one, sub-unit BUA double-entry).
