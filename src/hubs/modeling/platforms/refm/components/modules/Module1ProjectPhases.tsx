@@ -17,10 +17,11 @@ import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import {
   type Phase,
+  type Project,
   type ModelGranularity,
   type ProjectStatus,
 } from '../../lib/state/module1-types';
-import { computeProjectEndDate } from '@/src/core/calculations';
+import { computeProjectEndDate, computePhaseTimeline, computeProjectTimeline } from '@/src/core/calculations';
 import InputLabel from '../ui/InputLabel';
 
 const inputStyle: React.CSSProperties = {
@@ -76,6 +77,23 @@ export default function Module1ProjectPhases(): React.JSX.Element {
     [project, phases],
   );
 
+  // M2.0f Fix 5: timeline drives the "Project End" caption inclusive of
+  // year (endYear is end-of-last-period, no +1 offset).
+  const projectTimeline = useMemo(
+    () => computeProjectTimeline(project, phases),
+    [project, phases],
+  );
+
+  // M2.0f Fix 4: when adding a new phase, default startDate to the prior
+  // phase's constructionEnd so the next phase visually picks up where
+  // the prior one stopped (matches wizard Step 2 behaviour).
+  const computeNextPhaseStartDate = (): string => {
+    const last = phases[phases.length - 1];
+    if (!last) return project.startDate;
+    const tl = computePhaseTimeline(last, project);
+    return tl.constructionEnd;
+  };
+
   const handleAddPhase = (): void => {
     const id = `phase_${Date.now()}`;
     const lastPhase = phases[phases.length - 1];
@@ -89,6 +107,7 @@ export default function Module1ProjectPhases(): React.JSX.Element {
       constructionPeriods: 24,
       operationsPeriods: 60,
       overlapPeriods: 0,
+      startDate: computeNextPhaseStartDate(),
     });
   };
 
@@ -235,7 +254,7 @@ export default function Module1ProjectPhases(): React.JSX.Element {
           }}
           data-testid="project-end-formula"
         >
-          Project End = {project.startDate} + max phase duration = <strong>{projectEndDate}</strong>
+          Project End = {project.startDate} + max phase duration = <strong>{projectEndDate}</strong> (end year <strong data-testid="project-end-year">{projectTimeline.endYear}</strong>, total <strong>{projectTimeline.totalPeriods}</strong> {project.modelType === 'monthly' ? 'months' : 'years'})
         </div>
       </div>
 
@@ -269,19 +288,25 @@ export default function Module1ProjectPhases(): React.JSX.Element {
                 <InputLabel label="Phase Name" help="Free-text label." textStyle={tableHeaderLabelStyle} />
               </th>
               <th style={tableHeaderStyle}>
-                <InputLabel label="Construction Start" help="Period number when construction begins (1-indexed)." textStyle={tableHeaderLabelStyle} />
+                <InputLabel label="Phase Start Date" help="ISO date (YYYY-MM-DD). Authoritative timing source. Wizard Step 2 captures this; editing it here cascades to all downstream calcs (cost phasing, financing, project end)." textStyle={tableHeaderLabelStyle} />
               </th>
               <th style={tableHeaderStyle}>
-                <InputLabel label="Construction Periods" help="How many periods the build phase spans." textStyle={tableHeaderLabelStyle} />
+                <InputLabel label={`Construction (${project.modelType === 'monthly' ? 'months' : 'years'})`} help="How many periods the build phase spans." textStyle={tableHeaderLabelStyle} />
               </th>
               <th style={tableHeaderStyle}>
-                <InputLabel label="Operations Periods" help="How long the asset operates / generates revenue after delivery." textStyle={tableHeaderLabelStyle} />
+                <InputLabel label={`Operations (${project.modelType === 'monthly' ? 'months' : 'years'})`} help="How long the asset operates / generates revenue after delivery." textStyle={tableHeaderLabelStyle} />
               </th>
               <th style={tableHeaderStyle}>
-                <InputLabel label="Overlap" help="Periods where operations begin before construction ends (e.g. tower 1 opens during tower 2 build)." textStyle={tableHeaderLabelStyle} />
+                <InputLabel label={`Overlap (${project.modelType === 'monthly' ? 'months' : 'years'})`} help="Periods where operations begin before construction ends (e.g. tower 1 opens during tower 2 build)." textStyle={tableHeaderLabelStyle} />
               </th>
               <th style={tableHeaderStyle}>
-                <InputLabel label="Operations Start" help="Auto-derived = Construction Start + Construction Periods - Overlap." textStyle={tableHeaderLabelStyle} />
+                <InputLabel label="Construction End" help="Auto-derived = Phase Start Date + Construction Periods." textStyle={tableHeaderLabelStyle} />
+              </th>
+              <th style={tableHeaderStyle}>
+                <InputLabel label="Operations Start" help="Auto-derived = Construction End - Overlap Periods." textStyle={tableHeaderLabelStyle} />
+              </th>
+              <th style={tableHeaderStyle}>
+                <InputLabel label="Operations End" help="Auto-derived = Operations Start + Operations Periods. Also the phase's contribution to Project End." textStyle={tableHeaderLabelStyle} />
               </th>
               <th style={tableHeaderStyle}></th>
             </tr>
@@ -291,6 +316,7 @@ export default function Module1ProjectPhases(): React.JSX.Element {
               <PhaseRow
                 key={phase.id}
                 phase={phase}
+                project={project}
                 onUpdate={(patch) => updatePhase(phase.id, patch)}
                 onRemove={() => removePhase(phase.id)}
                 canRemove={phases.length > 1}
@@ -305,13 +331,36 @@ export default function Module1ProjectPhases(): React.JSX.Element {
 
 interface PhaseRowProps {
   phase: Phase;
+  project: Project;
   onUpdate: (patch: Partial<Phase>) => void;
   onRemove: () => void;
   canRemove: boolean;
 }
 
-function PhaseRow({ phase, onUpdate, onRemove, canRemove }: PhaseRowProps): React.JSX.Element {
-  const opsStart = phase.constructionStart + phase.constructionPeriods - phase.overlapPeriods;
+const calcOutputStyle: React.CSSProperties = {
+  padding: 'var(--sp-1)',
+  background: 'var(--color-grey-pale)',
+  color: 'var(--color-heading)',
+  border: '1px solid var(--color-border)',
+  borderRadius: 'var(--radius-sm)',
+  fontSize: 'var(--font-small)',
+  display: 'inline-block',
+  minWidth: 92,
+};
+
+function PhaseRow({ phase, project, onUpdate, onRemove, canRemove }: PhaseRowProps): React.JSX.Element {
+  // M2.0f Fix 4: phase start date is the authoritative timing field.
+  // Computed end dates derive via computePhaseTimeline so editing
+  // start date here cascades to construction end / operations
+  // start / operations end and downstream calcs.
+  const tl = computePhaseTimeline(phase, project);
+  // M2.0f Fix 4: when blank, default to project.startDate so legacy v7
+  // snapshots without phase.startDate render a usable date instead of
+  // empty. The user can edit; saving writes the value back.
+  const startDateValue = phase.startDate && phase.startDate.length === 10
+    ? phase.startDate
+    : project.startDate;
+
   return (
     <tr data-testid={`phase-row-${phase.id}`}>
       <td style={{ padding: 'var(--sp-1)' }}>
@@ -325,11 +374,10 @@ function PhaseRow({ phase, onUpdate, onRemove, canRemove }: PhaseRowProps): Reac
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
         <input
-          type="number"
-          min={1}
-          value={phase.constructionStart}
-          data-testid={`phase-${phase.id}-constructionStart`}
-          onChange={(e) => onUpdate({ constructionStart: Math.max(1, Number(e.target.value) || 1) })}
+          type="date"
+          value={startDateValue}
+          data-testid={`phase-${phase.id}-startDate`}
+          onChange={(e) => onUpdate({ startDate: e.target.value })}
           style={inputStyle}
         />
       </td>
@@ -368,11 +416,20 @@ function PhaseRow({ phase, onUpdate, onRemove, canRemove }: PhaseRowProps): Reac
           style={inputStyle}
         />
       </td>
-      <td
-        style={{ padding: 'var(--sp-1)', color: 'var(--color-heading)' }}
-        data-testid={`phase-${phase.id}-operationsStart`}
-      >
-        {opsStart}
+      <td style={{ padding: 'var(--sp-1)' }}>
+        <span style={calcOutputStyle} data-testid={`phase-${phase.id}-constructionEnd`}>
+          {tl.constructionEnd}
+        </span>
+      </td>
+      <td style={{ padding: 'var(--sp-1)' }}>
+        <span style={calcOutputStyle} data-testid={`phase-${phase.id}-operationsStart`}>
+          {tl.operationsStart}
+        </span>
+      </td>
+      <td style={{ padding: 'var(--sp-1)' }}>
+        <span style={calcOutputStyle} data-testid={`phase-${phase.id}-operationsEnd`}>
+          {tl.operationsEnd}
+        </span>
       </td>
       <td style={{ padding: 'var(--sp-1)', textAlign: 'right' }}>
         {canRemove && (

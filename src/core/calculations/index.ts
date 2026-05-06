@@ -951,31 +951,75 @@ export function computePhaseTimeline(phase: Phase, project: Project): PhaseTimel
 
 // Project-wide timeline = min(phase.constructionStart) -> max(phase.operationsEnd).
 // "span" returned in the project's modelType units for caption use.
+//
+// M2.0f Fix 5 (2026-05-06): adds explicit `startDate` / `endDate` /
+// `endYear` / `totalPeriods` fields. The pre-M2.0f shape exposed
+// `start` / `end` / `spanPeriods` only; callers wanting the inclusive
+// "Project End = 2039" caption had to compute getFullYear() themselves
+// (and a few callers happened to add +1 turning 2039 into 2040). Now
+// endYear is the single source of truth: getFullYear() with no offset.
+// Legacy fields kept as aliases so M2.0e callers / verifiers continue
+// to compile.
 export interface ProjectTimeline {
+  /** M2.0f: ISO date of the earliest phase start. */
+  startDate: string;
+  /** M2.0f: ISO date of the latest phase operations end. */
+  endDate: string;
+  /** M2.0f: endDate.getFullYear() with NO +1 offset. Display caption. */
+  endYear: number;
+  /** M2.0f: total span in modelType units (rename of spanPeriods). */
+  totalPeriods: number;
+
+  // ── Legacy aliases (kept stable for M2.0e callers) ────────────────
+  /** Legacy alias for startDate. */
   start: string;
+  /** Legacy alias for endDate. */
   end: string;
-  spanPeriods: number; // in modelType units (years for annual, months for monthly)
+  /** Legacy alias for totalPeriods. */
+  spanPeriods: number;
 }
 
 export function computeProjectTimeline(project: Project, phases: Phase[]): ProjectTimeline {
   if (phases.length === 0) {
-    return { start: project.startDate, end: project.startDate, spanPeriods: 0 };
+    return {
+      startDate: project.startDate,
+      endDate:   project.startDate,
+      endYear:   new Date(project.startDate).getFullYear() || 0,
+      totalPeriods: 0,
+      start:        project.startDate,
+      end:          project.startDate,
+      spanPeriods:  0,
+    };
   }
   const tls = phases.map((p) => computePhaseTimeline(p, project));
   const startMs = Math.min(...tls.map((t) => new Date(t.constructionStart).getTime()));
-  const endMs = Math.max(...tls.map((t) => new Date(t.operationsEnd).getTime()));
-  const start = new Date(startMs).toISOString().slice(0, 10);
-  const end = new Date(endMs).toISOString().slice(0, 10);
-  // Span in modelType units (approximate; for monthly = months between).
-  const startD = new Date(start);
-  const endD = new Date(end);
-  let spanPeriods = 0;
+  const endMs   = Math.max(...tls.map((t) => new Date(t.operationsEnd).getTime()));
+  const startDate = new Date(startMs).toISOString().slice(0, 10);
+  const endDate   = new Date(endMs).toISOString().slice(0, 10);
+  // Total span in modelType units.
+  const startD = new Date(startDate);
+  const endD   = new Date(endDate);
+  let totalPeriods = 0;
   if (project.modelType === 'monthly') {
-    spanPeriods = (endD.getFullYear() - startD.getFullYear()) * 12 + (endD.getMonth() - startD.getMonth());
+    totalPeriods = (endD.getFullYear() - startD.getFullYear()) * 12 + (endD.getMonth() - startD.getMonth());
   } else {
-    spanPeriods = endD.getFullYear() - startD.getFullYear();
+    totalPeriods = endD.getFullYear() - startD.getFullYear();
   }
-  return { start, end, spanPeriods: Math.max(0, spanPeriods) };
+  totalPeriods = Math.max(0, totalPeriods);
+  // M2.0f Fix 5: endYear comes straight from endDate.getFullYear() with
+  // no +1 / no rounding. For phase startDate=2025-01-01, construction=4,
+  // operations=10, overlap=0 the chain produces endDate=2039-01-01 and
+  // endYear=2039 (the inclusive "Project End" caption MAAD expects).
+  const endYear = endD.getFullYear() || 0;
+  return {
+    startDate,
+    endDate,
+    endYear,
+    totalPeriods,
+    start:       startDate,
+    end:         endDate,
+    spanPeriods: totalPeriods,
+  };
 }
 
 // ── Project end date ───────────────────────────────────────────────────────
