@@ -1065,14 +1065,58 @@ function addPeriods(isoDate: string, n: number, modelType: Project['modelType'])
   return d.toISOString().slice(0, 10);
 }
 
+// M2.0g Fix 1 (2026-05-06): end-of-period date helper. Returns the
+// LAST DAY of the period span: (start + periods periods) - 1 day.
+// For Jan 1 starts this gives Dec 31 of the last year (annual) or
+// the last day of the last month (monthly), matching standard
+// accounting end-of-period convention. For mid-year starts the
+// result is exactly 1 day before the next period would begin.
+//
+// Examples:
+//   periodEndDate('2025-01-01', 4, 'annual')   -> '2028-12-31'
+//   periodEndDate('2025-01-01', 48, 'monthly') -> '2028-12-31'
+//   periodEndDate('2027-06-01', 3, 'annual')   -> '2030-05-31'
+export function periodEndDate(startIso: string, periods: number, modelType: Project['modelType']): string {
+  const d = new Date(startIso);
+  if (Number.isNaN(d.getTime())) return startIso;
+  const safe = Math.max(0, periods);
+  if (safe === 0) return startIso;
+  // Step 1: jump forward by periods periods (lands on start of next period).
+  const next = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  if (modelType === 'annual') next.setUTCFullYear(next.getUTCFullYear() + safe);
+  else next.setUTCMonth(next.getUTCMonth() + safe);
+  // Step 2: subtract 1 day to land on the period's last day.
+  next.setUTCDate(next.getUTCDate() - 1);
+  return next.toISOString().slice(0, 10);
+}
+
+// M2.0g Fix 1: operations start = day after construction end. For
+// annual: Jan 1 of (constructionEnd.year + 1). For monthly: 1st of
+// (constructionEnd.month + 1).
+function addOneDay(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
 export function computePhaseTimeline(phase: Phase, project: Project): PhaseTimeline {
   const fallbackOffsetPeriods = Math.max(0, phase.constructionStart - 1);
   const start = phase.startDate && phase.startDate.length === 10
     ? phase.startDate
     : addPeriods(project.startDate, fallbackOffsetPeriods, project.modelType);
-  const constructionEnd = addPeriods(start, Math.max(0, phase.constructionPeriods), project.modelType);
-  const operationsStart = addPeriods(constructionEnd, -Math.max(0, phase.overlapPeriods), project.modelType);
-  const operationsEnd   = addPeriods(operationsStart, Math.max(0, phase.operationsPeriods), project.modelType);
+  // M2.0g Fix 1: end dates use periodEndDate (Dec 31 / last day of
+  // month) instead of addPeriods which gave start-of-next-period.
+  const constructionEnd = periodEndDate(start, Math.max(0, phase.constructionPeriods), project.modelType);
+  // Operations start = day after construction end, minus overlap periods.
+  // overlapPeriods=0 -> ops starts day after construction end.
+  // overlapPeriods=N -> ops starts N periods earlier than (day after
+  // construction end), which lands on the (N-th-from-end) period start.
+  const opsStartAfterConstruction = addOneDay(constructionEnd);
+  const operationsStart = phase.overlapPeriods > 0
+    ? addPeriods(opsStartAfterConstruction, -phase.overlapPeriods, project.modelType)
+    : opsStartAfterConstruction;
+  const operationsEnd = periodEndDate(operationsStart, Math.max(0, phase.operationsPeriods), project.modelType);
   return { constructionStart: start, constructionEnd, operationsStart, operationsEnd };
 }
 
@@ -1150,24 +1194,18 @@ export function computeProjectTimeline(project: Project, phases: Phase[]): Proje
 }
 
 // ── Project end date ───────────────────────────────────────────────────────
+// M2.0g Fix 1 (2026-05-06): delegates to computePhaseTimeline so the
+// end-of-period convention (Dec 31 of last year, last day of last
+// month) flows through to the project-end caption. Pre-M2.0g this
+// returned a "start of next period" date (e.g. 2040-01-01) that
+// confused MAAD-shape readers. Now MAAD shape (start 2025-01-01, 4
+// + 10 = 14 yrs) returns 2038-12-31.
 export function computeProjectEndDate(project: Project, phases: Phase[]): string {
   if (phases.length === 0) return project.startDate;
-  const start = new Date(project.startDate);
-  if (Number.isNaN(start.getTime())) return project.startDate;
-  let maxOffset = 0;
+  let endIso = project.startDate;
   for (const phase of phases) {
-    const offset =
-      (phase.constructionStart - 1) +
-      phase.constructionPeriods +
-      phase.operationsPeriods -
-      phase.overlapPeriods;
-    if (offset > maxOffset) maxOffset = offset;
+    const tl = computePhaseTimeline(phase, project);
+    if (tl.operationsEnd > endIso) endIso = tl.operationsEnd;
   }
-  const out = new Date(start);
-  if (project.modelType === 'monthly') {
-    out.setMonth(out.getMonth() + maxOffset);
-  } else {
-    out.setFullYear(out.getFullYear() + maxOffset);
-  }
-  return out.toISOString().slice(0, 10);
+  return endIso;
 }

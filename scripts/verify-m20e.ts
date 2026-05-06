@@ -132,7 +132,7 @@ try {
 
 try {
   const out = execSync('npx tsx scripts/module1-v5-diff.ts', { encoding: 'utf8', timeout: 30000 });
-  if (out.includes('OK: bit-identical')) pass('module1-v5-diff bit-identical (47.8 KB sha256 824ef8e1706d)');
+  if (out.includes('OK: bit-identical')) pass('module1-v5-diff bit-identical (47.8 KB sha256 f30d5d219e57 post-M2.0g/1)');
   else fail('module1-v5-diff', out.slice(0, 200));
 } catch (e) {
   const msg = e instanceof Error ? e.message : String(e);
@@ -148,10 +148,14 @@ const phaseAnnualWithDate: Phase = { id: 'p1', name: 'P1', constructionStart: 1,
 const tlA = computePhaseTimeline(phaseAnnualWithDate, annualProj);
 if (tlA.constructionStart === '2027-06-01') pass('computePhaseTimeline annual respects per-phase startDate');
 else fail('phase startDate respected', `expected 2027-06-01, got ${tlA.constructionStart}`);
-if (tlA.constructionEnd === '2030-06-01') pass(`computePhaseTimeline annual constructionEnd = startDate + 3y (${tlA.constructionEnd})`);
-else fail('annual constructionEnd', `expected 2030-06-01, got ${tlA.constructionEnd}`);
-if (tlA.operationsEnd === '2035-06-01') pass(`computePhaseTimeline annual operationsEnd = constructionEnd + 5y (${tlA.operationsEnd})`);
-else fail('annual operationsEnd', `expected 2035-06-01, got ${tlA.operationsEnd}`);
+// M2.0g Fix 1: end-of-period dates. 2027-06-01 + 3 yrs end-of-period =
+// (2030-06-01) - 1 day = 2030-05-31. operationsStart = day after =
+// 2030-06-01. operationsEnd = 2030-06-01 + 5 yrs end-of-period =
+// 2035-05-31.
+if (tlA.constructionEnd === '2030-05-31') pass(`computePhaseTimeline annual constructionEnd = startDate + 3y - 1day (${tlA.constructionEnd})`);
+else fail('annual constructionEnd', `expected 2030-05-31, got ${tlA.constructionEnd}`);
+if (tlA.operationsEnd === '2035-05-31') pass(`computePhaseTimeline annual operationsEnd = end-of-period (${tlA.operationsEnd})`);
+else fail('annual operationsEnd', `expected 2035-05-31, got ${tlA.operationsEnd}`);
 
 // computePhaseTimeline monthly
 const monthlyProj: Project = { ...annualProj, modelType: 'monthly' };
@@ -159,9 +163,12 @@ const phaseMonthly: Phase = { id: 'p2', name: 'P2', constructionStart: 1, constr
 const tlM = computePhaseTimeline(phaseMonthly, monthlyProj);
 if (tlM.constructionStart === '2026-01-01') pass('computePhaseTimeline monthly respects per-phase startDate');
 else fail('monthly startDate', tlM.constructionStart);
-if (tlM.constructionEnd === '2028-01-01') pass(`computePhaseTimeline monthly constructionEnd = +24m (${tlM.constructionEnd})`);
-else fail('monthly constructionEnd', `expected 2028-01-01, got ${tlM.constructionEnd}`);
-if (tlM.operationsStart === '2027-07-01') pass(`computePhaseTimeline monthly operationsStart = constructionEnd - overlap 6m (${tlM.operationsStart})`);
+// M2.0g Fix 1: monthly end-of-period. 2026-01-01 + 24 months =
+// 2028-01-01 - 1 day = 2027-12-31. operationsStart = day after
+// constructionEnd minus overlap 6m: (2028-01-01) - 6m = 2027-07-01.
+if (tlM.constructionEnd === '2027-12-31') pass(`computePhaseTimeline monthly constructionEnd = +24m - 1day (${tlM.constructionEnd})`);
+else fail('monthly constructionEnd', `expected 2027-12-31, got ${tlM.constructionEnd}`);
+if (tlM.operationsStart === '2027-07-01') pass(`computePhaseTimeline monthly operationsStart = constructionEnd+1day - overlap 6m (${tlM.operationsStart})`);
 else fail('monthly operationsStart', `expected 2027-07-01, got ${tlM.operationsStart}`);
 
 // Fallback when phase.startDate is undefined: project.startDate + (constructionStart - 1) periods
@@ -178,8 +185,12 @@ const phases3: Phase[] = [
 const projTL = computeProjectTimeline(annualProj, phases3);
 if (projTL.start === '2026-01-01') pass('computeProjectTimeline.start = min phase startDate');
 else fail('project timeline start', `expected 2026-01-01, got ${projTL.start}`);
-if (projTL.end === '2034-01-01') pass(`computeProjectTimeline.end = max phase operationsEnd (${projTL.end})`);
-else fail('project timeline end', `expected 2034-01-01, got ${projTL.end}`);
+// M2.0g Fix 1: end-of-period. Phase 2 startDate=2027-01-01,
+// constructionPeriods=2, operationsPeriods=5. constructionEnd =
+// 2028-12-31, operationsStart = 2029-01-01, operationsEnd =
+// 2033-12-31.
+if (projTL.end === '2033-12-31') pass(`computeProjectTimeline.end = max phase operationsEnd end-of-period (${projTL.end})`);
+else fail('project timeline end', `expected 2033-12-31, got ${projTL.end}`);
 
 // ── Section 4: source-file markers ───────────────────────────────────────
 console.log('\n[4/5] Source-file markers (M2.0e)');

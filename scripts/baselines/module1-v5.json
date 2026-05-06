@@ -7,7 +7,8 @@
       "startDate": "2026-01-01",
       "status": "draft",
       "location": "Riyadh",
-      "projectType": "Mixed-Use"
+      "projectType": "Mixed-Use",
+      "displayScale": "full"
     },
     "phases": [
       {
@@ -480,7 +481,7 @@
       "inKindValue": 22400000,
       "weightedRate": 533.3333333333334
     },
-    "projectEnd": "2034-01-01",
+    "projectEnd": "2033-06-30",
     "perAsset": [
       {
         "id": "asset_1",

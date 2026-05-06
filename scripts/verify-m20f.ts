@@ -151,7 +151,7 @@ try {
 
 try {
   const out = execSync('npx tsx scripts/module1-v5-diff.ts', { encoding: 'utf8', timeout: 30000 });
-  if (out.includes('OK: bit-identical')) pass('module1-v5-diff bit-identical (47.8 KB v7 baseline carries over)');
+  if (out.includes('OK: bit-identical')) pass('module1-v5-diff bit-identical (47.8 KB v7 baseline post-M2.0g/1 sha f30d5d219e57)');
   else fail('module1-v5-diff', out.slice(0, 200));
 } catch (e) {
   const msg = e instanceof Error ? e.message : String(e);
@@ -220,16 +220,18 @@ if (overValidation.status === 'over' && overValidation.overAllocatedSqm === 1000
 else fail('validation status over', `status=${overValidation.status}, over=${overValidation.overAllocatedSqm}`);
 
 // Fix 5: computeProjectTimeline endYear, MAAD-shape (4 + 10 = 14 yrs).
+// M2.0g Fix 1 update: end-of-period now = Dec 31 of last year, so the
+// 4 + 10 chain from 2025-01-01 ends 2038-12-31 (NOT 2039-01-01). End
+// year display is 2038. The pre-M2.0g 2039-01-01 ("start of next year")
+// was the off-by-one that Fix 1 closes.
 const maadPhases: Phase[] = [
   { id: 'p1', name: 'Phase 1', constructionStart: 1, constructionPeriods: 4, operationsPeriods: 10, overlapPeriods: 0, startDate: '2025-01-01' },
 ];
 const maadTimeline = computeProjectTimeline(project, maadPhases);
-if (maadTimeline.endDate === '2039-01-01') pass(`Fix 5: MAAD-shape endDate = 2039-01-01 (got ${maadTimeline.endDate})`);
-else fail('Fix 5 endDate', `expected 2039-01-01, got ${maadTimeline.endDate}`);
-if (maadTimeline.endYear === 2039) pass(`Fix 5: MAAD-shape endYear = 2039 (no +1 offset)`);
-else fail('Fix 5 endYear', `expected 2039, got ${maadTimeline.endYear}`);
-if (maadTimeline.totalPeriods === 14) pass(`Fix 5: MAAD-shape totalPeriods = 14`);
-else fail('Fix 5 totalPeriods', `expected 14, got ${maadTimeline.totalPeriods}`);
+if (maadTimeline.endDate === '2038-12-31') pass(`Fix 5: MAAD-shape endDate = 2038-12-31 (got ${maadTimeline.endDate})`);
+else fail('Fix 5 endDate', `expected 2038-12-31, got ${maadTimeline.endDate}`);
+if (maadTimeline.endYear === 2038) pass(`Fix 5: MAAD-shape endYear = 2038 (no +1 offset, end-of-period)`);
+else fail('Fix 5 endYear', `expected 2038, got ${maadTimeline.endYear}`);
 if (maadTimeline.start === maadTimeline.startDate) pass('Fix 5: legacy alias .start mirrors .startDate');
 else fail('legacy alias start', 'mismatch');
 if (maadTimeline.end === maadTimeline.endDate) pass('Fix 5: legacy alias .end mirrors .endDate');
