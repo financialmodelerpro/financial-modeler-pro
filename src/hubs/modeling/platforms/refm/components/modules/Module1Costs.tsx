@@ -55,7 +55,6 @@ import {
   computeCashFlowImpact,
   resolveUsefulLifeYears,
   deriveCostStage,
-  deriveCostScope,
   type AssetCostBreakdown,
 } from '@/src/core/calculations';
 import { formatScaled, formatScaledCurrency } from '@/src/core/formatters';
@@ -326,8 +325,10 @@ function CostRow({
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   currency, scale,
 }: CostRowProps): React.JSX.Element {
+  // M2.0g Fix 6: Stage label still drives the row background + summary
+  // tables, but the Direct/Indirect label is dropped (per-asset cost
+  // segregation makes everything direct by definition).
   const stage = deriveCostStage(line);
-  const scope = deriveCostScope(line);
   const isCustom = line.targetAssetId === asset.id;
   const isProjectWide = !line.targetAssetId;
   // Effective values: override wins per-asset, line provides default
@@ -378,8 +379,8 @@ function CostRow({
     if (override) onRemoveOverride();
   };
 
-  // Stage tooltip text
-  const stageTooltip = `Stage: ${COST_STAGE_LABELS[stage]} (auto). Scope: ${scope} (auto).`;
+  // Stage tooltip text (M2.0g Fix 6: scope label removed)
+  const stageTooltip = `Stage: ${COST_STAGE_LABELS[stage]} (auto-derived).`;
 
   return (
     <tr
@@ -400,8 +401,7 @@ function CostRow({
           data-testid={`cost-${asset.id}-${line.id}-name`}
         />
         <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>
-          {COST_STAGE_LABELS[stage]} · {scope}
-          {isCustom ? ' · custom' : ''}
+          {COST_STAGE_LABELS[stage]}{isCustom ? ' · custom' : ''}
         </div>
       </td>
       <td style={{ padding: '4px', minWidth: 160 }}>
