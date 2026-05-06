@@ -1,47 +1,70 @@
 'use client';
 
 /**
- * Module1Assets.tsx (M2.0 Tab 2)
+ * Module1Assets.tsx (v7 schema, M2.0e rebuild)
  *
- * Land Parcels block at top + landAllocationMode toggle, then Asset
- * cards with strategy + areas + sub-unit nested editor.
+ * Tab 2 becomes the canonical asset entry surface. Wizard Step 3 only
+ * captures Project.projectType; all asset detail (areas, sub-units,
+ * pricing, parking, status, useful life, management agreement) lives
+ * here.
  *
- * MAAD-Spec: assets carry GFA / BUA / sellable BUA + parking bays as
- * direct inputs. No FAR / coverage / cascade math. Sub-units describe
- * the inventory beneath each asset (units, keys, sqm) with their
- * pricing.
+ * Layout:
+ *   1. Land Parcels block (unchanged from M2.0d)
+ *   2. Land Allocation Mode (unchanged)
+ *   3. Assets section, grouped per phase:
+ *      - Phase header (name + start date + asset count + add button)
+ *      - One AssetCard per asset under that phase (collapsible)
+ *      - Empty-state suggestion when phase has no assets
+ *   4. Global totals (BUA / Sellable / Operable / Leasable / Land Cost)
+ *
+ * Asset card carries: Name + Phase dropdown (reassign) + Strategy +
+ * Type (filtered by Project.projectType) + Status (planned / construction
+ * / operational) + Visible toggle + Delete. Conditional sub-forms below
+ * the header: Management Agreement (Sell + Manage) and Useful Life
+ * (Operate / Lease). Then Land allocation row + Area inputs + Sub-units
+ * table (Type / Category / Area / Unit Size / Count / Rate / Rate Unit)
+ * + Asset card footer (BUA reconciliation + Land Cost + Capex preview).
  */
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import {
   type Asset,
   type AssetStrategy,
+  type AssetStatus,
   type ManagementAgreement,
   type Parcel,
   type SubUnit,
   type SubUnitCategory,
   type SubUnitMetric,
   type LandAllocationMode,
+  type Phase,
+  type Project,
   ASSET_STRATEGIES,
+  ASSET_STATUSES,
+  ASSET_STATUS_LABELS,
+  ASSET_TYPES_BY_PROJECT_TYPE,
   ASSET_TYPES_BY_STRATEGY,
+  SUGGESTED_CATEGORIES_BY_PROJECT_TYPE,
   DEFAULT_OPERATIONS_BY_STRATEGY,
   DEFAULT_MANAGEMENT_AGREEMENT,
   DEFAULT_USEFUL_LIFE_YEARS,
   SUB_UNIT_CATEGORIES,
   LAND_ALLOCATION_MODES,
 } from '../../lib/state/module1-types';
-import { resolveUsefulLifeYears } from '@/src/core/calculations';
 import {
   computeAssetBua,
   computeAssetSellableBua,
   computeAssetLandCost,
   computeLandAggregate,
   computeSubUnitArea,
+  computePhaseTimeline,
+  resolveUsefulLifeYears,
 } from '@/src/core/calculations';
 import InputLabel from '../ui/InputLabel';
 
+// ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
   color: 'var(--color-navy)',
@@ -84,12 +107,25 @@ const tableHeaderLabelStyle: React.CSSProperties = {
   fontWeight: 'var(--fw-bold)',
 };
 
+const phaseHeaderStyle: React.CSSProperties = {
+  background: 'var(--color-navy)',
+  color: 'var(--color-on-primary-navy)',
+  padding: 'var(--sp-2) var(--sp-3)',
+  borderRadius: 'var(--radius-sm)',
+  marginBottom: 'var(--sp-2)',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  cursor: 'pointer',
+};
+
 const fmt = (n: number, digits = 0): string =>
   Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: digits }) : 'n/a';
 
-// M2.0d: long-form strategy labels for the dropdown. The stored enum
-// stays the short slug (Sell / Operate / Lease / Sell + Manage); the
-// label only changes display text so users see the accounting intent.
+const fmtCurrency = (n: number, currency: string): string =>
+  `${fmt(n)} ${currency}`;
+
+// M2.0e: long-form strategy labels for the dropdown.
 const STRATEGY_LABELS: Record<AssetStrategy, string> = {
   'Sell':          'Sell, build and sell units (residential apartments)',
   'Operate':       'Operate (Own), build, retain, operate (hotel ownership)',
@@ -97,12 +133,50 @@ const STRATEGY_LABELS: Record<AssetStrategy, string> = {
   'Sell + Manage': 'Sell + Manage, sell to investors, manage via agreement (Tower pattern)',
 };
 
+// Status pill color.
+function statusBadgeStyle(status: AssetStatus): React.CSSProperties {
+  const base: React.CSSProperties = {
+    padding: '2px 8px',
+    borderRadius: 12,
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  };
+  switch (status) {
+    case 'planned':
+      return { ...base, background: 'color-mix(in srgb, var(--color-grey-mid) 18%, transparent)', color: 'var(--color-grey-mid)' };
+    case 'construction':
+      return { ...base, background: 'color-mix(in srgb, var(--color-accent-warm) 22%, transparent)', color: 'var(--color-heading)' };
+    case 'operational':
+      return { ...base, background: 'color-mix(in srgb, var(--color-success) 22%, transparent)', color: 'var(--color-success)' };
+  }
+}
+
+// Rate Unit derivation for sub-unit table column: combo of category +
+// metric tells us what the "Rate" column means.
+function rateUnitLabel(category: SubUnitCategory, metric: SubUnitMetric): string {
+  if (category === 'Support') return '';
+  if (category === 'Sellable') return metric === 'count' ? 'per unit' : 'per sqm';
+  if (category === 'Operable') return metric === 'count' ? 'per room/night' : 'per sqm/year';
+  if (category === 'Leasable') return metric === 'count' ? 'per unit/year' : 'per sqm/year';
+  return '';
+}
+
+// Type catalog for the asset Type dropdown. Project.projectType wins
+// when set; otherwise falls back to strategy-keyed catalog.
+function resolveTypeCatalog(asset: Asset, project: Project): readonly string[] {
+  if (project.projectType && ASSET_TYPES_BY_PROJECT_TYPE[project.projectType]) {
+    return ASSET_TYPES_BY_PROJECT_TYPE[project.projectType];
+  }
+  return ASSET_TYPES_BY_STRATEGY[asset.strategy];
+}
+
+// ── Module1Assets root ────────────────────────────────────────────────────
 export default function Module1Assets(): React.JSX.Element {
   const {
     project,
     phases,
-    activePhaseId,
-    setActivePhaseId,
     parcels,
     addParcel,
     updateParcel,
@@ -118,8 +192,6 @@ export default function Module1Assets(): React.JSX.Element {
     useShallow((s) => ({
       project: s.project,
       phases: s.phases,
-      activePhaseId: s.activePhaseId,
-      setActivePhaseId: s.setActivePhaseId,
       parcels: s.parcels,
       addParcel: s.addParcel,
       updateParcel: s.updateParcel,
@@ -134,24 +206,48 @@ export default function Module1Assets(): React.JSX.Element {
     })),
   );
 
-  const activePhase = phases.find((p) => p.id === activePhaseId) ?? phases[0];
-  const phaseId = activePhase?.id ?? phases[0]?.id ?? '';
-  const phaseParcels = useMemo(
-    () => parcels.filter((p) => p.phaseId === phaseId),
-    [parcels, phaseId],
-  );
-  const phaseAssets = useMemo(
-    () => assets.filter((a) => a.phaseId === phaseId),
-    [assets, phaseId],
-  );
-  const aggregate = useMemo(() => computeLandAggregate(phaseParcels), [phaseParcels]);
+  // Aggregate land across all phases (M2.0e: parcels can spread across
+  // phases). Land allocation mode applies project-wide.
+  const aggregate = useMemo(() => computeLandAggregate(parcels), [parcels]);
+
+  // Build per-phase asset groups, sorted by startDate / constructionStart
+  const phaseGroups = useMemo(() => {
+    return [...phases]
+      .sort((a, b) => {
+        const aDate = a.startDate ?? `period-${a.constructionStart}`;
+        const bDate = b.startDate ?? `period-${b.constructionStart}`;
+        return aDate < bDate ? -1 : aDate > bDate ? 1 : 0;
+      })
+      .map((p) => ({
+        phase: p,
+        timeline: computePhaseTimeline(p, project),
+        phaseAssets: assets.filter((a) => a.phaseId === p.id),
+      }));
+  }, [phases, assets, project]);
+
+  // Global totals computed across all visible assets (post-strategy
+  // category rollup).
+  const globals = useMemo(() => {
+    let totalBua = 0, sellable = 0, operable = 0, leasable = 0;
+    for (const a of assets.filter((x) => x.visible)) {
+      totalBua += computeAssetBua(a, subUnits);
+      const aSubUnits = subUnits.filter((u) => u.assetId === a.id);
+      for (const u of aSubUnits) {
+        const area = computeSubUnitArea(u);
+        if (u.category === 'Sellable') sellable += area;
+        else if (u.category === 'Operable') operable += area;
+        else if (u.category === 'Leasable') leasable += area;
+      }
+    }
+    return { totalBua, sellable, operable, leasable };
+  }, [assets, subUnits]);
 
   const handleAddParcel = (): void => {
-    if (!phaseId) return;
+    if (!phases[0]) return;
     addParcel({
       id: `parcel_${Date.now()}`,
-      phaseId,
-      name: `Land ${phaseParcels.length + 1}`,
+      phaseId: phases[0].id,
+      name: `Land ${parcels.length + 1}`,
       area: 50000,
       rate: 500,
       cashPct: 60,
@@ -159,20 +255,20 @@ export default function Module1Assets(): React.JSX.Element {
     });
   };
 
-  const handleAddAsset = (): void => {
-    if (!phaseId) return;
-    const id = `asset_${Date.now()}`;
+  const handleAddAssetToPhase = (phaseId: string): void => {
+    const phaseAssetCount = assets.filter((a) => a.phaseId === phaseId).length;
     addAsset({
-      id,
+      id: `asset_${Date.now()}`,
       phaseId,
-      name: `Asset ${phaseAssets.length + 1}`,
-      type: 'High-end Apartments',
+      name: `Asset ${phaseAssetCount + 1}`,
+      type: project.projectType ? (ASSET_TYPES_BY_PROJECT_TYPE[project.projectType][0] ?? '') : 'High-end Apartments',
       strategy: 'Sell',
       visible: true,
       gfaSqm: 0,
       buaSqm: 0,
       sellableBuaSqm: 0,
       parkingBaysRequired: 0,
+      status: 'planned',
     });
   };
 
@@ -193,40 +289,16 @@ export default function Module1Assets(): React.JSX.Element {
         }}
         data-testid="tab2-callout"
       >
-        <strong>What goes here:</strong> Land parcels for this phase, then the
-        revenue-producing assets (apartments, hotel, retail) and the inventory
-        sub-units beneath each. Land allocation across assets is driven by the
-        mode below: enter sqm directly, percent splits, or auto-derive from BUA.
+        <strong>What goes here:</strong> Land parcels, then per-phase asset
+        cards (areas, sub-units, status, useful life). Asset Type dropdown
+        is filtered by your project type (
+        <strong>{project.projectType ?? 'Mixed-Use'}</strong>); pick a
+        narrower type in Step 3 of Create Project to narrow the catalog.
       </div>
 
-      {phases.length > 1 && (
-        <div style={{ marginBottom: 'var(--sp-2)' }}>
-          <InputLabel label="Active Phase" help="Switch which phase you're editing." inputId="active-phase" />
-          <select
-            id="active-phase"
-            data-testid="active-phase"
-            value={phaseId}
-            onChange={(e) => setActivePhaseId(e.target.value)}
-            style={{ ...inputStyle, maxWidth: 320 }}
-          >
-            {phases.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
-
+      {/* Land Parcels block (unchanged) */}
       <div style={sectionCardStyle} data-testid="parcels-section">
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 'var(--sp-2)',
-          }}
-        >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-2)' }}>
           <h3 style={{ fontSize: 'var(--font-h3)', margin: 0 }}>Land Parcels</h3>
           <button
             type="button"
@@ -241,86 +313,47 @@ export default function Module1Assets(): React.JSX.Element {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr>
-              <th style={tableHeaderStyle}>
-                <InputLabel label="Parcel Name" help="Free-text label." textStyle={tableHeaderLabelStyle} />
-              </th>
-              <th style={tableHeaderStyle}>
-                <InputLabel label={`Area (sqm)`} help="Land area for this parcel." textStyle={tableHeaderLabelStyle} />
-              </th>
-              <th style={tableHeaderStyle}>
-                <InputLabel label={`Rate (per sqm, ${project.currency})`} help="Acquisition cost per sqm." textStyle={tableHeaderLabelStyle} />
-              </th>
-              <th style={tableHeaderStyle}>
-                <InputLabel label="Cash %" help="Share paid in cash. Cash + In-kind = 100." textStyle={tableHeaderLabelStyle} />
-              </th>
-              <th style={tableHeaderStyle}>
-                <InputLabel label="In-Kind %" help="Share paid in-kind (e.g. revenue share to landowner)." textStyle={tableHeaderLabelStyle} />
-              </th>
-              <th style={tableHeaderStyle}>
-                <InputLabel label={`Total Value (${project.currency})`} help="Auto = Area x Rate." textStyle={tableHeaderLabelStyle} />
-              </th>
+              <th style={tableHeaderStyle}><InputLabel label="Parcel Name" help="Free-text label." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label="Area (sqm)" help="Land area for this parcel." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label={`Rate (per sqm, ${project.currency})`} help="Acquisition cost per sqm." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label="Cash %" help="Share paid in cash. Cash + In-kind = 100." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label="In-Kind %" help="Share paid in-kind (equity from landowner)." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label={`Total Value (${project.currency})`} help="Auto = Area x Rate." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}></th>
             </tr>
           </thead>
           <tbody>
-            {phaseParcels.map((parcel) => (
+            {parcels.map((parcel) => (
               <ParcelRow
                 key={parcel.id}
                 parcel={parcel}
                 onUpdate={(patch) => updateParcel(parcel.id, patch)}
                 onRemove={() => removeParcel(parcel.id)}
-                canRemove={phaseParcels.length > 1}
+                canRemove={parcels.length > 1}
               />
             ))}
           </tbody>
           <tfoot>
             <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 'var(--fw-bold)' }}>
               <td style={{ padding: 'var(--sp-1)' }}>Totals</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-area">
-                {fmt(aggregate.totalAreaSqm)} sqm
-              </td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-weighted-rate">
-                {fmt(aggregate.weightedRate, 2)} {project.currency}/sqm
-              </td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-cash-value">
-                {fmt(aggregate.cashValue)}
-              </td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-inkind-value">
-                {fmt(aggregate.inKindValue)}
-              </td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-value">
-                {fmt(aggregate.totalValue)} {project.currency}
-              </td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-area">{fmt(aggregate.totalAreaSqm)} sqm</td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-weighted-rate">{fmt(aggregate.weightedRate, 2)} {project.currency}/sqm</td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-cash-value">{fmt(aggregate.cashValue)}</td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-inkind-value">{fmt(aggregate.inKindValue)}</td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-value">{fmt(aggregate.totalValue)} {project.currency}</td>
               <td></td>
             </tr>
           </tfoot>
         </table>
       </div>
 
+      {/* Land Allocation Mode (unchanged) */}
       <div style={sectionCardStyle} data-testid="land-allocation-section">
-        <h3 style={{ fontSize: 'var(--font-h3)', margin: 0, marginBottom: 'var(--sp-2)' }}>
-          Land Allocation Mode
-        </h3>
+        <h3 style={{ fontSize: 'var(--font-h3)', margin: 0, marginBottom: 'var(--sp-2)' }}>Land Allocation Mode</h3>
         <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
           {LAND_ALLOCATION_MODES.map((mode) => (
-            <label
-              key={mode}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: 6,
-                cursor: 'pointer',
-                fontSize: 'var(--font-small)',
-              }}
-              data-testid={`land-mode-${mode}`}
-            >
-              <input
-                type="radio"
-                name="land-allocation-mode"
-                value={mode}
-                checked={landAllocationMode === mode}
-                onChange={() => setLandAllocationMode(mode)}
-              />
+            <label key={mode} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 'var(--font-small)' }} data-testid={`land-mode-${mode}`}>
+              <input type="radio" name="land-allocation-mode" value={mode} checked={landAllocationMode === mode} onChange={() => setLandAllocationMode(mode)} />
               {mode === 'sqm' && 'A. Direct sqm per asset'}
               {mode === 'percent' && 'B. Percent split per asset'}
               {mode === 'autoByBua' && 'C. Auto, weight by BUA'}
@@ -329,57 +362,56 @@ export default function Module1Assets(): React.JSX.Element {
         </div>
       </div>
 
-      <div style={sectionCardStyle} data-testid="assets-section">
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 'var(--sp-2)',
-          }}
-        >
-          <h3 style={{ fontSize: 'var(--font-h3)', margin: 0 }}>Assets</h3>
-          <button
-            type="button"
-            onClick={handleAddAsset}
-            data-testid="add-asset"
-            className="btn-primary"
-            style={{ padding: 'var(--sp-1) var(--sp-2)', fontSize: 'var(--font-small)' }}
-          >
-            + Add Asset
-          </button>
-        </div>
-        {phaseAssets.length === 0 && (
-          <div
-            style={{
-              padding: 'var(--sp-3)',
-              textAlign: 'center',
-              color: 'var(--color-meta)',
-              fontSize: 'var(--font-small)',
-            }}
-            data-testid="assets-empty-state"
-          >
-            No assets yet. Click <strong>+ Add Asset</strong> to begin.
+      {/* Per-phase asset sections */}
+      {phaseGroups.map(({ phase, timeline, phaseAssets }) => (
+        <PhaseAssetSection
+          key={phase.id}
+          phase={phase}
+          phaseTimeline={timeline}
+          phaseAssets={phaseAssets}
+          allAssets={assets}
+          allPhases={phases}
+          parcels={parcels}
+          subUnits={subUnits}
+          project={project}
+          landAllocationMode={landAllocationMode}
+          onUpdateAsset={updateAsset}
+          onRemoveAsset={removeAsset}
+          onAddAsset={() => handleAddAssetToPhase(phase.id)}
+        />
+      ))}
+
+      {/* Global totals */}
+      <div style={{ ...sectionCardStyle, background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }} data-testid="assets-globals">
+        <h3 style={{ fontSize: 'var(--font-h3)', margin: 0, marginBottom: 'var(--sp-2)', color: 'var(--color-on-primary-navy)' }}>Project Totals</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--sp-2)', fontSize: 'var(--font-small)' }}>
+          <div>
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total BUA</div>
+            <strong style={{ fontSize: 16 }} data-testid="globals-total-bua">{fmt(globals.totalBua)} sqm</strong>
           </div>
-        )}
-        {phaseAssets.map((asset) => (
-          <AssetCard
-            key={asset.id}
-            asset={asset}
-            assets={assets}
-            parcels={parcels}
-            subUnits={subUnits}
-            currency={project.currency}
-            landAllocationMode={landAllocationMode}
-            onUpdate={(patch) => updateAsset(asset.id, patch)}
-            onRemove={() => removeAsset(asset.id)}
-          />
-        ))}
+          <div>
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sellable</div>
+            <strong style={{ fontSize: 16 }} data-testid="globals-sellable">{fmt(globals.sellable)} sqm</strong>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Operable</div>
+            <strong style={{ fontSize: 16 }} data-testid="globals-operable">{fmt(globals.operable)} sqm</strong>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Leasable</div>
+            <strong style={{ fontSize: 16 }} data-testid="globals-leasable">{fmt(globals.leasable)} sqm</strong>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Land Cost</div>
+            <strong style={{ fontSize: 16 }} data-testid="globals-land-cost">{fmtCurrency(aggregate.totalValue, project.currency)}</strong>
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
+// ── Parcel row ─────────────────────────────────────────────────────────────
 interface ParcelRowProps {
   parcel: Parcel;
   onUpdate: (patch: Partial<Parcel>) => void;
@@ -392,40 +424,17 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove }: ParcelRowProps): R
   return (
     <tr data-testid={`parcel-row-${parcel.id}`}>
       <td style={{ padding: 'var(--sp-1)' }}>
-        <input
-          type="text"
-          value={parcel.name}
-          data-testid={`parcel-${parcel.id}-name`}
-          onChange={(e) => onUpdate({ name: e.target.value })}
-          style={inputStyle}
-        />
+        <input type="text" value={parcel.name} data-testid={`parcel-${parcel.id}-name`} onChange={(e) => onUpdate({ name: e.target.value })} style={inputStyle} />
+      </td>
+      <td style={{ padding: 'var(--sp-1)' }}>
+        <input type="number" min={0} value={parcel.area} data-testid={`parcel-${parcel.id}-area`} onChange={(e) => onUpdate({ area: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+      </td>
+      <td style={{ padding: 'var(--sp-1)' }}>
+        <input type="number" min={0} value={parcel.rate} data-testid={`parcel-${parcel.id}-rate`} onChange={(e) => onUpdate({ rate: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
         <input
-          type="number"
-          min={0}
-          value={parcel.area}
-          data-testid={`parcel-${parcel.id}-area`}
-          onChange={(e) => onUpdate({ area: Math.max(0, Number(e.target.value) || 0) })}
-          style={inputStyle}
-        />
-      </td>
-      <td style={{ padding: 'var(--sp-1)' }}>
-        <input
-          type="number"
-          min={0}
-          value={parcel.rate}
-          data-testid={`parcel-${parcel.id}-rate`}
-          onChange={(e) => onUpdate({ rate: Math.max(0, Number(e.target.value) || 0) })}
-          style={inputStyle}
-        />
-      </td>
-      <td style={{ padding: 'var(--sp-1)' }}>
-        <input
-          type="number"
-          min={0}
-          max={100}
-          value={parcel.cashPct}
+          type="number" min={0} max={100} value={parcel.cashPct}
           data-testid={`parcel-${parcel.id}-cashPct`}
           onChange={(e) => {
             const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
@@ -436,10 +445,7 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove }: ParcelRowProps): R
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
         <input
-          type="number"
-          min={0}
-          max={100}
-          value={parcel.inKindPct}
+          type="number" min={0} max={100} value={parcel.inKindPct}
           data-testid={`parcel-${parcel.id}-inKindPct`}
           onChange={(e) => {
             const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
@@ -448,55 +454,130 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove }: ParcelRowProps): R
           style={inputStyle}
         />
       </td>
-      <td
-        style={{ padding: 'var(--sp-1)', color: 'var(--color-heading)' }}
-        data-testid={`parcel-${parcel.id}-total`}
-      >
-        {fmt(total)}
-      </td>
+      <td style={{ padding: 'var(--sp-1)', color: 'var(--color-heading)' }} data-testid={`parcel-${parcel.id}-total`}>{fmt(total)}</td>
       <td style={{ padding: 'var(--sp-1)', textAlign: 'right' }}>
         {canRemove && (
-          <button
-            type="button"
-            onClick={onRemove}
-            data-testid={`parcel-${parcel.id}-remove`}
-            style={{
-              background: 'transparent',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '2px 8px',
-              cursor: 'pointer',
-              fontSize: 'var(--font-micro)',
-            }}
-          >
-            Remove
-          </button>
+          <button type="button" onClick={onRemove} data-testid={`parcel-${parcel.id}-remove`} style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}>Remove</button>
         )}
       </td>
     </tr>
   );
 }
 
-interface AssetCardProps {
-  asset: Asset;
-  assets: Asset[];
+// ── PhaseAssetSection ──────────────────────────────────────────────────────
+interface PhaseAssetSectionProps {
+  phase: Phase;
+  phaseTimeline: { constructionStart: string; constructionEnd: string; operationsStart: string; operationsEnd: string };
+  phaseAssets: Asset[];
+  allAssets: Asset[];
+  allPhases: Phase[];
   parcels: Parcel[];
   subUnits: SubUnit[];
-  currency: string;
+  project: Project;
+  landAllocationMode: LandAllocationMode;
+  onUpdateAsset: (id: string, patch: Partial<Asset>) => void;
+  onRemoveAsset: (id: string) => void;
+  onAddAsset: () => void;
+}
+
+function PhaseAssetSection({
+  phase, phaseTimeline, phaseAssets, allAssets, allPhases, parcels, subUnits, project,
+  landAllocationMode, onUpdateAsset, onRemoveAsset, onAddAsset,
+}: PhaseAssetSectionProps): React.JSX.Element {
+  const [collapsed, setCollapsed] = useState(false);
+  const suggestions = SUGGESTED_CATEGORIES_BY_PROJECT_TYPE[project.projectType ?? 'Mixed-Use'] ?? [];
+
+  return (
+    <div data-testid={`phase-section-${phase.id}`} style={{ marginBottom: 'var(--sp-3)' }}>
+      <div style={phaseHeaderStyle} onClick={() => setCollapsed(!collapsed)}>
+        <div>
+          <strong style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            {phase.name}
+          </strong>
+          <span style={{ marginLeft: 12, fontSize: 11, opacity: 0.85 }} data-testid={`phase-section-${phase.id}-timeline`}>
+            {phaseTimeline.constructionStart} to {phaseTimeline.operationsEnd} ({phase.constructionPeriods}p construction + {phase.operationsPeriods}p operations)
+          </span>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <span style={{ fontSize: 11, opacity: 0.85 }} data-testid={`phase-section-${phase.id}-asset-count`}>
+            {phaseAssets.length} asset{phaseAssets.length === 1 ? '' : 's'}
+          </span>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onAddAsset(); }}
+            data-testid={`phase-section-${phase.id}-add-asset`}
+            style={{
+              background: 'var(--color-on-primary-navy)',
+              color: 'var(--color-navy)',
+              border: 'none',
+              borderRadius: 'var(--radius-sm)',
+              padding: '4px 10px',
+              cursor: 'pointer',
+              fontSize: 11,
+              fontWeight: 700,
+            }}
+          >
+            + Add Asset
+          </button>
+          <span style={{ fontSize: 14, opacity: 0.85 }}>{collapsed ? '▶' : '▼'}</span>
+        </div>
+      </div>
+
+      {!collapsed && (
+        <>
+          {phaseAssets.length === 0 && (
+            <div
+              style={{
+                ...sectionCardStyle,
+                textAlign: 'center',
+                color: 'var(--color-meta)',
+                fontSize: 'var(--font-small)',
+              }}
+              data-testid={`phase-section-${phase.id}-empty`}
+            >
+              No assets yet in {phase.name}. {suggestions.length > 0 && (
+                <>
+                  Suggested for <strong>{project.projectType ?? 'Mixed-Use'}</strong>: {suggestions.join(', ')}.
+                </>
+              )}
+            </div>
+          )}
+          {phaseAssets.map((asset) => (
+            <AssetCard
+              key={asset.id}
+              asset={asset}
+              allAssets={allAssets}
+              allPhases={allPhases}
+              parcels={parcels}
+              subUnits={subUnits}
+              project={project}
+              landAllocationMode={landAllocationMode}
+              onUpdate={(patch) => onUpdateAsset(asset.id, patch)}
+              onRemove={() => onRemoveAsset(asset.id)}
+            />
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── AssetCard ──────────────────────────────────────────────────────────────
+interface AssetCardProps {
+  asset: Asset;
+  allAssets: Asset[];
+  allPhases: Phase[];
+  parcels: Parcel[];
+  subUnits: SubUnit[];
+  project: Project;
   landAllocationMode: LandAllocationMode;
   onUpdate: (patch: Partial<Asset>) => void;
   onRemove: () => void;
 }
 
 function AssetCard({
-  asset,
-  assets,
-  parcels,
-  subUnits,
-  currency,
-  landAllocationMode,
-  onUpdate,
-  onRemove,
+  asset, allAssets, allPhases, parcels, subUnits, project,
+  landAllocationMode, onUpdate, onRemove,
 }: AssetCardProps): React.JSX.Element {
   const { addSubUnit, updateSubUnit, removeSubUnit } = useModule1Store(
     useShallow((s) => ({
@@ -505,19 +586,25 @@ function AssetCard({
       removeSubUnit: s.removeSubUnit,
     })),
   );
+  const [collapsed, setCollapsed] = useState(false);
   const assetSubUnits = subUnits.filter((u) => u.assetId === asset.id);
   const derivedBua = computeAssetBua(asset, subUnits);
   const derivedSellable = computeAssetSellableBua(asset, subUnits);
-  const landCost = computeAssetLandCost(asset, parcels, assets, subUnits, landAllocationMode);
+  const landCost = computeAssetLandCost(asset, parcels, allAssets, subUnits, landAllocationMode);
+  const subUnitBuaSum = assetSubUnits.reduce((s, u) => s + computeSubUnitArea(u), 0);
   const efficiency = derivedBua > 0 ? (derivedSellable / derivedBua) * 100 : 0;
+  // Reconciliation: asset.buaSqm typed value vs sub-unit area sum.
+  const reconciles = asset.buaSqm === 0 || Math.abs(asset.buaSqm - subUnitBuaSum) < 1;
+  const reconcileDiff = asset.buaSqm - subUnitBuaSum;
 
   const handleAddSubUnit = (): void => {
     const ops = DEFAULT_OPERATIONS_BY_STRATEGY[asset.strategy];
+    const category = asset.strategy === 'Lease' ? 'Leasable' : asset.strategy === 'Operate' ? 'Operable' : 'Sellable';
     addSubUnit({
       id: `subunit_${Date.now()}`,
       assetId: asset.id,
       name: 'Sub-unit',
-      category: asset.strategy === 'Lease' ? 'Leasable' : asset.strategy === 'Operate' ? 'Operable' : 'Sellable',
+      category,
       metric: asset.strategy === 'Lease' ? 'area' : 'count',
       metricValue: asset.strategy === 'Lease' ? 1000 : 50,
       unitArea: asset.strategy === 'Lease' ? undefined : 100,
@@ -527,12 +614,14 @@ function AssetCard({
     });
   };
 
-  const typeOptions = ASSET_TYPES_BY_STRATEGY[asset.strategy];
+  const typeOptions = resolveTypeCatalog(asset, project);
+  const status = asset.status ?? 'planned';
 
   return (
     <div
       style={{
         border: '1px solid var(--color-border)',
+        borderLeft: '4px solid var(--color-navy)',
         borderRadius: 'var(--radius)',
         padding: 'var(--sp-2)',
         marginBottom: 'var(--sp-2)',
@@ -540,289 +629,215 @@ function AssetCard({
       }}
       data-testid={`asset-card-${asset.id}`}
     >
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: 'var(--sp-2)',
-          marginBottom: 'var(--sp-2)',
-        }}
-      >
-        <div>
-          <InputLabel label="Asset Name" help="Free-text label." inputId={`asset-${asset.id}-name`} />
-          <input
-            id={`asset-${asset.id}-name`}
-            data-testid={`asset-${asset.id}-name`}
-            type="text"
-            value={asset.name}
-            onChange={(e) => onUpdate({ name: e.target.value })}
-            style={inputStyle}
-          />
+      {/* Header row */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-2)', cursor: 'pointer' }} onClick={() => setCollapsed(!collapsed)}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <strong style={{ fontSize: 14 }}>{asset.name || `(unnamed asset)`}</strong>
+          <span style={statusBadgeStyle(status)} data-testid={`asset-card-${asset.id}-status-pill`}>
+            {ASSET_STATUS_LABELS[status]}
+          </span>
+          <span style={{ fontSize: 11, color: 'var(--color-meta)' }}>{asset.strategy} · {asset.type || 'no type'}</span>
         </div>
-        <div>
-          <InputLabel label="Strategy" help="Sell (units) / Operate (own and run) / Lease (own and rent) / Sell + Manage (sell to investors, manage via agreement)." inputId={`asset-${asset.id}-strategy`} />
-          <select
-            id={`asset-${asset.id}-strategy`}
-            data-testid={`asset-${asset.id}-strategy`}
-            value={asset.strategy}
-            onChange={(e) => onUpdate({ strategy: e.target.value as AssetStrategy })}
-            style={inputStyle}
-          >
-            {ASSET_STRATEGIES.map((s) => (
-              <option key={s} value={s}>
-                {STRATEGY_LABELS[s]}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <InputLabel label="Type" help="Asset type. Picks from a strategy-specific list; free-text any other type." inputId={`asset-${asset.id}-type`} />
-          <input
-            id={`asset-${asset.id}-type`}
-            data-testid={`asset-${asset.id}-type`}
-            type="text"
-            list={`asset-types-${asset.id}`}
-            value={asset.type}
-            onChange={(e) => onUpdate({ type: e.target.value })}
-            style={inputStyle}
-          />
-          <datalist id={`asset-types-${asset.id}`}>
-            {typeOptions.map((t) => (
-              <option key={t} value={t} />
-            ))}
-          </datalist>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--sp-1)' }}>
-          <label style={{ fontSize: 'var(--font-small)', display: 'inline-flex', gap: 6 }}>
-            <input
-              type="checkbox"
-              checked={asset.visible}
-              data-testid={`asset-${asset.id}-visible`}
-              onChange={(e) => onUpdate({ visible: e.target.checked })}
-            />
-            Visible
-          </label>
-          <button
-            type="button"
-            onClick={onRemove}
-            data-testid={`asset-${asset.id}-remove`}
-            style={{
-              marginLeft: 'auto',
-              background: 'transparent',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '2px 8px',
-              cursor: 'pointer',
-              fontSize: 'var(--font-micro)',
-            }}
-          >
-            Remove
-          </button>
-        </div>
+        <span style={{ fontSize: 14, color: 'var(--color-meta)' }}>{collapsed ? '▶' : '▼'}</span>
       </div>
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: 'var(--sp-2)',
-          marginBottom: 'var(--sp-2)',
-        }}
-      >
-        {landAllocationMode === 'sqm' && (
-          <div>
-            <InputLabel
-              label="Land Area (sqm)"
-              help="Direct sqm assigned to this asset from the parcel pool."
-              inputId={`asset-${asset.id}-landAreaSqm`}
-            />
-            <input
-              id={`asset-${asset.id}-landAreaSqm`}
-              data-testid={`asset-${asset.id}-landAreaSqm`}
-              type="number"
-              min={0}
-              value={asset.landAreaSqm ?? 0}
-              onChange={(e) => onUpdate({ landAreaSqm: Math.max(0, Number(e.target.value) || 0) })}
-              style={inputStyle}
-            />
+      {!collapsed && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr) auto', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+            <div>
+              <InputLabel label="Asset Name" help="Free-text label." inputId={`asset-${asset.id}-name`} />
+              <input id={`asset-${asset.id}-name`} data-testid={`asset-${asset.id}-name`} type="text" value={asset.name} onChange={(e) => onUpdate({ name: e.target.value })} style={inputStyle} />
+            </div>
+            <div>
+              <InputLabel label="Phase" help="Reassign this asset to another phase. The asset visually moves to that phase's section." inputId={`asset-${asset.id}-phase`} />
+              <select
+                id={`asset-${asset.id}-phase`}
+                data-testid={`asset-${asset.id}-phase`}
+                value={asset.phaseId}
+                onChange={(e) => onUpdate({ phaseId: e.target.value })}
+                style={inputStyle}
+              >
+                {allPhases.map((p) => (<option key={p.id} value={p.id}>{p.name}</option>))}
+              </select>
+            </div>
+            <div>
+              <InputLabel label="Strategy" help="Sell / Operate / Lease / Sell + Manage. Drives Tab 3 cost classification + future revenue logic." inputId={`asset-${asset.id}-strategy`} />
+              <select
+                id={`asset-${asset.id}-strategy`}
+                data-testid={`asset-${asset.id}-strategy`}
+                value={asset.strategy}
+                onChange={(e) => onUpdate({ strategy: e.target.value as AssetStrategy })}
+                style={inputStyle}
+              >
+                {ASSET_STRATEGIES.map((s) => (<option key={s} value={s}>{STRATEGY_LABELS[s]}</option>))}
+              </select>
+            </div>
+            <div>
+              <InputLabel label="Type" help={`Asset type. Catalog filtered by Project Type (${project.projectType ?? 'Mixed-Use'}). Free-text any other type.`} inputId={`asset-${asset.id}-type`} />
+              <input id={`asset-${asset.id}-type`} data-testid={`asset-${asset.id}-type`} type="text" list={`asset-types-${asset.id}`} value={asset.type} onChange={(e) => onUpdate({ type: e.target.value })} style={inputStyle} />
+              <datalist id={`asset-types-${asset.id}`}>
+                {typeOptions.map((t) => (<option key={t} value={t} />))}
+              </datalist>
+            </div>
+            <div>
+              <InputLabel label="Status" help="Lifecycle status. Planned, Construction, Operational." inputId={`asset-${asset.id}-status`} />
+              <select id={`asset-${asset.id}-status`} data-testid={`asset-${asset.id}-status`} value={status} onChange={(e) => onUpdate({ status: e.target.value as AssetStatus })} style={inputStyle}>
+                {ASSET_STATUSES.map((s) => (<option key={s} value={s}>{ASSET_STATUS_LABELS[s]}</option>))}
+              </select>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--sp-1)' }}>
+              <label style={{ fontSize: 'var(--font-small)', display: 'inline-flex', gap: 6, alignItems: 'center' }}>
+                <input type="checkbox" checked={asset.visible} data-testid={`asset-${asset.id}-visible`} onChange={(e) => onUpdate({ visible: e.target.checked })} />
+                Visible
+              </label>
+              <button
+                type="button"
+                onClick={onRemove}
+                data-testid={`asset-${asset.id}-remove`}
+                style={{ background: 'transparent', border: '1px solid var(--color-negative)', color: 'var(--color-negative)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}
+              >
+                Delete
+              </button>
+            </div>
           </div>
-        )}
-        {landAllocationMode === 'percent' && (
-          <div>
-            <InputLabel
-              label="Land Allocation (%)"
-              help="Share of total land value attributed to this asset (sum of all asset % must = 100)."
-              inputId={`asset-${asset.id}-landAreaPct`}
-            />
-            <input
-              id={`asset-${asset.id}-landAreaPct`}
-              data-testid={`asset-${asset.id}-landAreaPct`}
-              type="number"
-              min={0}
-              max={100}
-              value={asset.landAreaPct ?? 0}
-              onChange={(e) => onUpdate({ landAreaPct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
-              style={inputStyle}
-            />
+
+          {asset.strategy === 'Sell + Manage' && (
+            <ManagementAgreementForm asset={asset} onUpdate={onUpdate} />
+          )}
+          {(asset.strategy === 'Operate' || asset.strategy === 'Lease') && (
+            <UsefulLifeForm asset={asset} onUpdate={onUpdate} />
+          )}
+
+          {/* Land + areas row */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}>
+            {landAllocationMode === 'sqm' && (
+              <div>
+                <InputLabel label="Land Area (sqm)" help="Direct sqm assigned to this asset from the parcel pool." inputId={`asset-${asset.id}-landAreaSqm`} />
+                <input id={`asset-${asset.id}-landAreaSqm`} data-testid={`asset-${asset.id}-landAreaSqm`} type="number" min={0} value={asset.landAreaSqm ?? 0} onChange={(e) => onUpdate({ landAreaSqm: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+              </div>
+            )}
+            {landAllocationMode === 'percent' && (
+              <div>
+                <InputLabel label="Land Allocation (%)" help="Share of total land value attributed to this asset." inputId={`asset-${asset.id}-landAreaPct`} />
+                <input id={`asset-${asset.id}-landAreaPct`} data-testid={`asset-${asset.id}-landAreaPct`} type="number" min={0} max={100} value={asset.landAreaPct ?? 0} onChange={(e) => onUpdate({ landAreaPct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} style={inputStyle} />
+              </div>
+            )}
+            {landAllocationMode === 'autoByBua' && (
+              <div>
+                <InputLabel label="Land (auto by BUA)" help="Auto-allocated land share = this asset's BUA / total project BUA." inputId={`asset-${asset.id}-land-auto`} />
+                <div style={calcOutputStyle} data-testid={`asset-${asset.id}-land-auto`}>{fmt(landCost)} {project.currency}</div>
+              </div>
+            )}
+            <div>
+              <InputLabel label="GFA (sqm)" help="Gross Floor Area." inputId={`asset-${asset.id}-gfaSqm`} />
+              <input id={`asset-${asset.id}-gfaSqm`} data-testid={`asset-${asset.id}-gfaSqm`} type="number" min={0} value={asset.gfaSqm} onChange={(e) => onUpdate({ gfaSqm: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+            </div>
+            <div>
+              <InputLabel label="BUA (sqm)" help="Built-Up Area. Auto-derived from sub-units when 0." inputId={`asset-${asset.id}-buaSqm`} />
+              <input id={`asset-${asset.id}-buaSqm`} data-testid={`asset-${asset.id}-buaSqm`} type="number" min={0} value={asset.buaSqm} onChange={(e) => onUpdate({ buaSqm: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} placeholder={asset.buaSqm === 0 ? `auto = ${fmt(derivedBua)}` : undefined} />
+            </div>
+            <div>
+              <InputLabel label="Sellable BUA (sqm)" help="Sellable / leasable / operable area." inputId={`asset-${asset.id}-sellableBuaSqm`} />
+              <input id={`asset-${asset.id}-sellableBuaSqm`} data-testid={`asset-${asset.id}-sellableBuaSqm`} type="number" min={0} value={asset.sellableBuaSqm} onChange={(e) => onUpdate({ sellableBuaSqm: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} placeholder={asset.sellableBuaSqm === 0 ? `auto = ${fmt(derivedSellable)}` : undefined} />
+            </div>
+            <div>
+              <InputLabel label="Parking Bays" help="Total parking bay count fed to construction-parking cost line." inputId={`asset-${asset.id}-parkingBaysRequired`} />
+              <input id={`asset-${asset.id}-parkingBaysRequired`} data-testid={`asset-${asset.id}-parkingBaysRequired`} type="number" min={0} value={asset.parkingBaysRequired} onChange={(e) => onUpdate({ parkingBaysRequired: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+            </div>
           </div>
-        )}
-        <div>
-          <InputLabel label="GFA (sqm)" help="Gross Floor Area. Total enclosed area, before MEP / BoH deductions." inputId={`asset-${asset.id}-gfaSqm`} />
-          <input
-            id={`asset-${asset.id}-gfaSqm`}
-            data-testid={`asset-${asset.id}-gfaSqm`}
-            type="number"
-            min={0}
-            value={asset.gfaSqm}
-            onChange={(e) => onUpdate({ gfaSqm: Math.max(0, Number(e.target.value) || 0) })}
-            style={inputStyle}
-          />
-        </div>
-        <div>
-          <InputLabel
-            label="BUA (sqm)"
-            help="Built-Up Area. Net of MEP / BoH. Auto-derived from sub-units when 0."
-            inputId={`asset-${asset.id}-buaSqm`}
-          />
-          <input
-            id={`asset-${asset.id}-buaSqm`}
-            data-testid={`asset-${asset.id}-buaSqm`}
-            type="number"
-            min={0}
-            value={asset.buaSqm}
-            onChange={(e) => onUpdate({ buaSqm: Math.max(0, Number(e.target.value) || 0) })}
-            style={inputStyle}
-            placeholder={asset.buaSqm === 0 ? `auto = ${fmt(derivedBua)}` : undefined}
-          />
-        </div>
-        <div>
-          <InputLabel
-            label="Sellable BUA (sqm)"
-            help="Sellable / leasable / operable area within BUA. Auto-derived from non-Support sub-units when 0."
-            inputId={`asset-${asset.id}-sellableBuaSqm`}
-          />
-          <input
-            id={`asset-${asset.id}-sellableBuaSqm`}
-            data-testid={`asset-${asset.id}-sellableBuaSqm`}
-            type="number"
-            min={0}
-            value={asset.sellableBuaSqm}
-            onChange={(e) => onUpdate({ sellableBuaSqm: Math.max(0, Number(e.target.value) || 0) })}
-            style={inputStyle}
-            placeholder={asset.sellableBuaSqm === 0 ? `auto = ${fmt(derivedSellable)}` : undefined}
-          />
-        </div>
-        <div>
-          <InputLabel
-            label="Parking Bays Required"
-            help="Total parking bay count fed to the parking-cost line. No allocator math."
-            inputId={`asset-${asset.id}-parkingBaysRequired`}
-          />
-          <input
-            id={`asset-${asset.id}-parkingBaysRequired`}
-            data-testid={`asset-${asset.id}-parkingBaysRequired`}
-            type="number"
-            min={0}
-            value={asset.parkingBaysRequired}
-            onChange={(e) => onUpdate({ parkingBaysRequired: Math.max(0, Number(e.target.value) || 0) })}
-            style={inputStyle}
-          />
-        </div>
-      </div>
 
-      {asset.strategy === 'Sell + Manage' && (
-        <ManagementAgreementForm
-          asset={asset}
-          onUpdate={onUpdate}
-        />
-      )}
+          {/* Sub-unit table */}
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 'var(--sp-2)', marginTop: 'var(--sp-2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-1)' }}>
+              <strong style={{ fontSize: 'var(--font-small)' }}>Sub-units</strong>
+              <button
+                type="button"
+                onClick={handleAddSubUnit}
+                data-testid={`asset-${asset.id}-add-subunit`}
+                style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', border: 'none', borderRadius: 'var(--radius-sm)', padding: '2px 10px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}
+              >
+                + Sub-unit
+              </button>
+            </div>
+            {assetSubUnits.length === 0 ? (
+              <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', padding: 'var(--sp-1)' }}>
+                No sub-units yet. Add at least one so revenue (Module 2) can attach.
+              </div>
+            ) : (
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                <thead>
+                  <tr style={{ background: 'var(--color-grey-pale)' }}>
+                    <th style={{ padding: '4px 6px', textAlign: 'left' }}>Type</th>
+                    <th style={{ padding: '4px 6px', textAlign: 'left' }}>Category</th>
+                    <th style={{ padding: '4px 6px', textAlign: 'left' }}>Metric</th>
+                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>Area (sqm)</th>
+                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>Unit Size (sqm)</th>
+                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>Count</th>
+                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>Rate</th>
+                    <th style={{ padding: '4px 6px', textAlign: 'left' }}>Rate Unit</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {assetSubUnits.map((u) => (
+                    <SubUnitRow
+                      key={u.id}
+                      subUnit={u}
+                      currency={project.currency}
+                      onUpdate={(patch) => updateSubUnit(u.id, patch)}
+                      onRemove={() => removeSubUnit(u.id)}
+                    />
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
 
-      {(asset.strategy === 'Operate' || asset.strategy === 'Lease') && (
-        <UsefulLifeForm
-          asset={asset}
-          onUpdate={onUpdate}
-        />
-      )}
-
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, 1fr)',
-          gap: 'var(--sp-2)',
-          marginBottom: 'var(--sp-2)',
-          fontSize: 'var(--font-small)',
-        }}
-      >
-        <div data-testid={`asset-${asset.id}-derived-bua`}>
-          <strong>BUA (live):</strong>{' '}
-          <span style={calcOutputStyle}>{fmt(derivedBua)} sqm</span>
-        </div>
-        <div data-testid={`asset-${asset.id}-derived-sellable`}>
-          <strong>Sellable BUA (live):</strong>{' '}
-          <span style={calcOutputStyle}>{fmt(derivedSellable)} sqm</span>
-        </div>
-        <div data-testid={`asset-${asset.id}-efficiency`}>
-          <strong>Efficiency:</strong>{' '}
-          <span style={calcOutputStyle}>{fmt(efficiency, 1)}%</span>
-        </div>
-        <div data-testid={`asset-${asset.id}-land-cost`}>
-          <strong>Land Cost:</strong>{' '}
-          <span style={calcOutputStyle}>{fmt(landCost)} {currency}</span>
-        </div>
-      </div>
-
-      <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 'var(--sp-2)' }}>
-        <div
-          style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            marginBottom: 'var(--sp-1)',
-          }}
-        >
-          <strong style={{ fontSize: 'var(--font-small)' }}>Sub-units</strong>
-          <button
-            type="button"
-            onClick={handleAddSubUnit}
-            data-testid={`asset-${asset.id}-add-subunit`}
-            style={{
-              background: 'var(--color-navy)',
-              color: 'var(--color-on-primary-navy)',
-              border: 'none',
-              borderRadius: 'var(--radius-sm)',
-              padding: '2px 8px',
-              cursor: 'pointer',
-              fontSize: 'var(--font-micro)',
-            }}
-          >
-            + Sub-unit
-          </button>
-        </div>
-        {assetSubUnits.length === 0 && (
+          {/* Asset card footer */}
           <div
             style={{
+              marginTop: 'var(--sp-2)',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(4, 1fr)',
+              gap: 'var(--sp-2)',
               fontSize: 'var(--font-small)',
-              color: 'var(--color-meta)',
-              padding: 'var(--sp-1)',
+              padding: 'var(--sp-1) 0',
+              borderTop: '1px solid var(--color-border)',
             }}
+            data-testid={`asset-card-${asset.id}-footer`}
           >
-            No sub-units yet. Add at least one so revenue (Module 2) can attach.
+            <div data-testid={`asset-${asset.id}-derived-bua`}>
+              <span style={{ color: 'var(--color-meta)' }}>BUA total: </span>
+              <strong>{fmt(derivedBua)} sqm</strong>
+            </div>
+            <div data-testid={`asset-${asset.id}-subunit-bua`}>
+              <span style={{ color: 'var(--color-meta)' }}>Sub-unit BUA: </span>
+              <strong>{fmt(subUnitBuaSum)} sqm</strong>
+            </div>
+            <div data-testid={`asset-${asset.id}-reconciliation`}>
+              {reconciles ? (
+                <span style={{ color: 'var(--color-success)' }}>✓ matches</span>
+              ) : (
+                <span style={{ color: 'var(--color-accent-warm)' }}>
+                  ⚠ mismatch by {fmt(Math.abs(reconcileDiff))} sqm
+                </span>
+              )}
+              {derivedBua > 0 && (
+                <span style={{ color: 'var(--color-meta)', marginLeft: 6 }}>· efficiency {fmt(efficiency, 1)}%</span>
+              )}
+            </div>
+            <div data-testid={`asset-${asset.id}-land-cost`}>
+              <span style={{ color: 'var(--color-meta)' }}>Land cost: </span>
+              <strong>{fmtCurrency(landCost, project.currency)}</strong>
+            </div>
           </div>
-        )}
-        {assetSubUnits.map((subUnit) => (
-          <SubUnitRow
-            key={subUnit.id}
-            subUnit={subUnit}
-            currency={currency}
-            onUpdate={(patch) => updateSubUnit(subUnit.id, patch)}
-            onRemove={() => removeSubUnit(subUnit.id)}
-          />
-        ))}
-      </div>
+        </>
+      )}
     </div>
   );
 }
 
+// ── Sub-unit row (M2.0e: renamed columns) ─────────────────────────────────
 interface SubUnitRowProps {
   subUnit: SubUnit;
   currency: string;
@@ -832,111 +847,55 @@ interface SubUnitRowProps {
 
 function SubUnitRow({ subUnit, currency, onUpdate, onRemove }: SubUnitRowProps): React.JSX.Element {
   const totalArea = computeSubUnitArea(subUnit);
+  const isCount = subUnit.metric === 'count';
+  const rateUnit = rateUnitLabel(subUnit.category, subUnit.metric);
   return (
-    <div
-      style={{
-        display: 'grid',
-        gridTemplateColumns: '1.2fr 1fr 1fr 1fr 1fr 1fr 1fr 1fr 60px',
-        gap: 'var(--sp-1)',
-        marginBottom: 'var(--sp-1)',
-        alignItems: 'center',
-        fontSize: 'var(--font-small)',
-      }}
-      data-testid={`subunit-row-${subUnit.id}`}
-    >
-      <input
-        type="text"
-        value={subUnit.name}
-        data-testid={`subunit-${subUnit.id}-name`}
-        onChange={(e) => onUpdate({ name: e.target.value })}
-        style={inputStyle}
-        placeholder="Name"
-      />
-      <select
-        value={subUnit.category}
-        data-testid={`subunit-${subUnit.id}-category`}
-        onChange={(e) => onUpdate({ category: e.target.value as SubUnitCategory })}
-        style={inputStyle}
-      >
-        {SUB_UNIT_CATEGORIES.map((c) => (
-          <option key={c} value={c}>
-            {c}
-          </option>
-        ))}
-      </select>
-      <select
-        value={subUnit.metric}
-        data-testid={`subunit-${subUnit.id}-metric`}
-        onChange={(e) => onUpdate({ metric: e.target.value as SubUnitMetric })}
-        style={inputStyle}
-      >
-        <option value="count">count</option>
-        <option value="area">area</option>
-      </select>
-      <input
-        type="number"
-        min={0}
-        value={subUnit.metricValue}
-        data-testid={`subunit-${subUnit.id}-metricValue`}
-        onChange={(e) => onUpdate({ metricValue: Math.max(0, Number(e.target.value) || 0) })}
-        style={inputStyle}
-        placeholder={subUnit.metric === 'count' ? 'count' : 'sqm'}
-      />
-      <input
-        type="number"
-        min={0}
-        value={subUnit.unitArea ?? 0}
-        data-testid={`subunit-${subUnit.id}-unitArea`}
-        onChange={(e) => onUpdate({ unitArea: Math.max(0, Number(e.target.value) || 0) })}
-        style={inputStyle}
-        placeholder="sqm/unit"
-        disabled={subUnit.metric === 'area'}
-      />
-      <input
-        type="number"
-        min={0}
-        value={subUnit.unitPrice}
-        data-testid={`subunit-${subUnit.id}-unitPrice`}
-        onChange={(e) => onUpdate({ unitPrice: Math.max(0, Number(e.target.value) || 0) })}
-        style={inputStyle}
-        placeholder="price"
-      />
-      <input
-        type="number"
-        min={0}
-        max={100}
-        value={subUnit.occupancyPct ?? 0}
-        data-testid={`subunit-${subUnit.id}-occupancyPct`}
-        onChange={(e) => onUpdate({ occupancyPct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
-        style={inputStyle}
-        placeholder="occ %"
-      />
-      <span
-        style={{ ...calcOutputStyle, fontSize: 'var(--font-small)' }}
-        data-testid={`subunit-${subUnit.id}-totalArea`}
-      >
-        {fmt(totalArea)} {currency === '' ? '' : ''}sqm
-      </span>
-      <button
-        type="button"
-        onClick={onRemove}
-        data-testid={`subunit-${subUnit.id}-remove`}
-        style={{
-          background: 'transparent',
-          border: '1px solid var(--color-border)',
-          borderRadius: 'var(--radius-sm)',
-          padding: '2px 6px',
-          cursor: 'pointer',
-          fontSize: 'var(--font-micro)',
-        }}
-      >
-        x
-      </button>
-    </div>
+    <tr data-testid={`subunit-row-${subUnit.id}`}>
+      <td style={{ padding: '4px 6px' }}>
+        <input type="text" value={subUnit.name} data-testid={`subunit-${subUnit.id}-name`} onChange={(e) => onUpdate({ name: e.target.value })} style={{ ...inputStyle, fontSize: 11 }} placeholder="1BR, Hotel Twin..." />
+      </td>
+      <td style={{ padding: '4px 6px' }}>
+        <select value={subUnit.category} data-testid={`subunit-${subUnit.id}-category`} onChange={(e) => onUpdate({ category: e.target.value as SubUnitCategory })} style={{ ...inputStyle, fontSize: 11 }}>
+          {SUB_UNIT_CATEGORIES.map((c) => (<option key={c} value={c}>{c}</option>))}
+        </select>
+      </td>
+      <td style={{ padding: '4px 6px' }}>
+        <select value={subUnit.metric} data-testid={`subunit-${subUnit.id}-metric`} onChange={(e) => onUpdate({ metric: e.target.value as SubUnitMetric })} style={{ ...inputStyle, fontSize: 11 }}>
+          <option value="count">count</option>
+          <option value="area">area</option>
+        </select>
+      </td>
+      <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+        {isCount ? (
+          <span style={{ ...calcOutputStyle, fontSize: 11 }} data-testid={`subunit-${subUnit.id}-area-derived`}>{fmt(totalArea)}</span>
+        ) : (
+          <input type="number" min={0} value={subUnit.metricValue} data-testid={`subunit-${subUnit.id}-area-input`} onChange={(e) => onUpdate({ metricValue: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} />
+        )}
+      </td>
+      <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+        <input type="number" min={0} value={subUnit.unitArea ?? 0} data-testid={`subunit-${subUnit.id}-unitArea`} onChange={(e) => onUpdate({ unitArea: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} disabled={!isCount} />
+      </td>
+      <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+        {isCount ? (
+          <input type="number" min={0} value={subUnit.metricValue} data-testid={`subunit-${subUnit.id}-count`} onChange={(e) => onUpdate({ metricValue: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} />
+        ) : (
+          <span style={{ ...calcOutputStyle, fontSize: 11 }}>n/a</span>
+        )}
+      </td>
+      <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+        <input type="number" min={0} value={subUnit.unitPrice} data-testid={`subunit-${subUnit.id}-rate`} onChange={(e) => onUpdate({ unitPrice: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} />
+      </td>
+      <td style={{ padding: '4px 6px', fontSize: 10, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-rate-unit`}>
+        {rateUnit ? `${currency} ${rateUnit}` : ''}
+      </td>
+      <td style={{ padding: '4px 6px' }}>
+        <button type="button" onClick={onRemove} data-testid={`subunit-${subUnit.id}-remove`} style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 6px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}>x</button>
+      </td>
+    </tr>
   );
 }
 
-// ── M2.0d: Management Agreement form (Sell + Manage strategy only) ────────
+// ── ManagementAgreementForm (M2.0d) ───────────────────────────────────────
 interface ManagementAgreementFormProps {
   asset: Asset;
   onUpdate: (patch: Partial<Asset>) => void;
@@ -958,94 +917,30 @@ function ManagementAgreementForm({ asset, onUpdate }: ManagementAgreementFormPro
       }}
       data-testid={`asset-${asset.id}-mgmt-agreement`}
     >
-      <strong style={{ fontSize: 'var(--font-small)', display: 'block', marginBottom: 'var(--sp-1)' }}>
-        Management Agreement, Sell + Manage
-      </strong>
+      <strong style={{ fontSize: 'var(--font-small)', display: 'block', marginBottom: 'var(--sp-1)' }}>Management Agreement, Sell + Manage</strong>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)' }}>
         <div>
-          <InputLabel
-            label="Management Fee %"
-            help="Share of operating revenue accruing to the developer post-handover. Default 30%."
-            inputId={`asset-${asset.id}-mgmt-fee`}
-          />
-          <input
-            id={`asset-${asset.id}-mgmt-fee`}
-            data-testid={`asset-${asset.id}-mgmt-fee`}
-            type="number"
-            min={0}
-            max={100}
-            value={ag.managementFeePct}
-            onChange={(e) => {
-              const v = Math.max(0, Math.min(100, Number(e.target.value) || 0));
-              // Auto-adjust owner share to 100 - fee unless user already
-              // typed a non-defaulting value.
-              const ownerAuto = 100 - v;
-              setAg({ managementFeePct: v, ownerRevenueSharePct: ownerAuto });
-            }}
-            style={inputStyle}
-          />
+          <InputLabel label="Management Fee %" help="Share of operating revenue accruing to the developer post-handover." inputId={`asset-${asset.id}-mgmt-fee`} />
+          <input id={`asset-${asset.id}-mgmt-fee`} data-testid={`asset-${asset.id}-mgmt-fee`} type="number" min={0} max={100} value={ag.managementFeePct} onChange={(e) => { const v = Math.max(0, Math.min(100, Number(e.target.value) || 0)); setAg({ managementFeePct: v, ownerRevenueSharePct: 100 - v }); }} style={inputStyle} />
         </div>
         <div>
-          <InputLabel
-            label="Owner Share %"
-            help="Share to unit owners. Auto = 100 minus fee. Editable when atypical."
-            inputId={`asset-${asset.id}-mgmt-owner-share`}
-          />
-          <input
-            id={`asset-${asset.id}-mgmt-owner-share`}
-            data-testid={`asset-${asset.id}-mgmt-owner-share`}
-            type="number"
-            min={0}
-            max={100}
-            value={ag.ownerRevenueSharePct}
-            onChange={(e) => setAg({ ownerRevenueSharePct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
-            style={inputStyle}
-          />
+          <InputLabel label="Owner Share %" help="Share to unit owners. Auto = 100 minus fee." inputId={`asset-${asset.id}-mgmt-owner-share`} />
+          <input id={`asset-${asset.id}-mgmt-owner-share`} data-testid={`asset-${asset.id}-mgmt-owner-share`} type="number" min={0} max={100} value={ag.ownerRevenueSharePct} onChange={(e) => setAg({ ownerRevenueSharePct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} style={inputStyle} />
         </div>
         <div>
-          <InputLabel
-            label="Start Period"
-            help="Optional. When the management fee revenue starts. Defaults to handover (sales schedule end) when blank."
-            inputId={`asset-${asset.id}-mgmt-start`}
-          />
-          <input
-            id={`asset-${asset.id}-mgmt-start`}
-            data-testid={`asset-${asset.id}-mgmt-start`}
-            type="number"
-            min={0}
-            value={ag.agreementStartPeriod ?? 0}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              setAg({ agreementStartPeriod: v > 0 ? v : undefined });
-            }}
-            style={inputStyle}
-          />
+          <InputLabel label="Start Period" help="Optional. Default = handover (sales schedule end)." inputId={`asset-${asset.id}-mgmt-start`} />
+          <input id={`asset-${asset.id}-mgmt-start`} data-testid={`asset-${asset.id}-mgmt-start`} type="number" min={0} value={ag.agreementStartPeriod ?? 0} onChange={(e) => { const v = Number(e.target.value); setAg({ agreementStartPeriod: v > 0 ? v : undefined }); }} style={inputStyle} />
         </div>
         <div>
-          <InputLabel
-            label="Duration (periods)"
-            help="Optional. Blank = perpetual. In project granularity (years for annual, months for monthly)."
-            inputId={`asset-${asset.id}-mgmt-duration`}
-          />
-          <input
-            id={`asset-${asset.id}-mgmt-duration`}
-            data-testid={`asset-${asset.id}-mgmt-duration`}
-            type="number"
-            min={0}
-            value={ag.agreementDurationPeriods ?? 0}
-            onChange={(e) => {
-              const v = Number(e.target.value);
-              setAg({ agreementDurationPeriods: v > 0 ? v : undefined });
-            }}
-            style={inputStyle}
-          />
+          <InputLabel label="Duration (periods)" help="Optional. Blank = perpetual." inputId={`asset-${asset.id}-mgmt-duration`} />
+          <input id={`asset-${asset.id}-mgmt-duration`} data-testid={`asset-${asset.id}-mgmt-duration`} type="number" min={0} value={ag.agreementDurationPeriods ?? 0} onChange={(e) => { const v = Number(e.target.value); setAg({ agreementDurationPeriods: v > 0 ? v : undefined }); }} style={inputStyle} />
         </div>
       </div>
     </div>
   );
 }
 
-// ── M2.0d: Useful Life form (Operate / Lease strategies only) ─────────────
+// ── UsefulLifeForm (M2.0d) ────────────────────────────────────────────────
 interface UsefulLifeFormProps {
   asset: Asset;
   onUpdate: (patch: Partial<Asset>) => void;
@@ -1073,30 +968,11 @@ function UsefulLifeForm({ asset, onUpdate }: UsefulLifeFormProps): React.JSX.Ele
       data-testid={`asset-${asset.id}-useful-life`}
     >
       <div>
-        <InputLabel
-          label="Useful Life (years)"
-          help="Depreciation horizon for Operate / Lease assets. Blank uses category default. Land never depreciates regardless."
-          inputId={`asset-${asset.id}-useful-life-input`}
-        />
-        <input
-          id={`asset-${asset.id}-useful-life-input`}
-          data-testid={`asset-${asset.id}-useful-life-input`}
-          type="number"
-          min={0}
-          value={asset.usefulLifeYears ?? 0}
-          onChange={(e) => {
-            const v = Number(e.target.value);
-            onUpdate({ usefulLifeYears: v > 0 ? v : undefined });
-          }}
-          placeholder={`default ${fallback}`}
-          style={inputStyle}
-        />
+        <InputLabel label="Useful Life (years)" help="Depreciation horizon. Blank = category default. Land never depreciates." inputId={`asset-${asset.id}-useful-life-input`} />
+        <input id={`asset-${asset.id}-useful-life-input`} data-testid={`asset-${asset.id}-useful-life-input`} type="number" min={0} value={asset.usefulLifeYears ?? 0} onChange={(e) => { const v = Number(e.target.value); onUpdate({ usefulLifeYears: v > 0 ? v : undefined }); }} placeholder={`default ${fallback}`} style={inputStyle} />
       </div>
       <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)' }}>
-        <strong>Resolved:</strong> {resolved} years
-        {!explicit && (
-          <span style={{ display: 'block', marginTop: 2 }}>(category default)</span>
-        )}
+        <strong>Resolved:</strong> {resolved} years{!explicit && (<span style={{ display: 'block', marginTop: 2 }}>(category default)</span>)}
       </div>
     </div>
   );
