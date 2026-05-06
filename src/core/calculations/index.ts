@@ -912,6 +912,72 @@ export function computeCashFlowImpact(
   };
 }
 
+// ── M2.0e: Per-phase timeline ─────────────────────────────────────────────
+// When phase.startDate is set (M2.0e wizard captures it per phase),
+// computePhaseTimeline returns concrete construction / operations dates
+// derived from the phase's own start. When unset (legacy snapshots),
+// falls back to project.startDate + (constructionStart - 1) periods so
+// the project-level seed continues to seed phase 1's first day.
+//
+// Period unit follows project.modelType: 'monthly' = +N months, 'annual'
+// = +N years. operationsStart precedes the phase's constructionEnd by
+// overlapPeriods so that, e.g., Tower A can begin selling while Tower B
+// is still under construction.
+export interface PhaseTimeline {
+  constructionStart: string;  // ISO date (phase's own startDate or fallback)
+  constructionEnd:   string;
+  operationsStart:   string;
+  operationsEnd:     string;
+}
+
+function addPeriods(isoDate: string, n: number, modelType: Project['modelType']): string {
+  const d = new Date(isoDate);
+  if (Number.isNaN(d.getTime())) return isoDate;
+  if (modelType === 'monthly') d.setMonth(d.getMonth() + n);
+  else d.setFullYear(d.getFullYear() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+export function computePhaseTimeline(phase: Phase, project: Project): PhaseTimeline {
+  const fallbackOffsetPeriods = Math.max(0, phase.constructionStart - 1);
+  const start = phase.startDate && phase.startDate.length === 10
+    ? phase.startDate
+    : addPeriods(project.startDate, fallbackOffsetPeriods, project.modelType);
+  const constructionEnd = addPeriods(start, Math.max(0, phase.constructionPeriods), project.modelType);
+  const operationsStart = addPeriods(constructionEnd, -Math.max(0, phase.overlapPeriods), project.modelType);
+  const operationsEnd   = addPeriods(operationsStart, Math.max(0, phase.operationsPeriods), project.modelType);
+  return { constructionStart: start, constructionEnd, operationsStart, operationsEnd };
+}
+
+// Project-wide timeline = min(phase.constructionStart) -> max(phase.operationsEnd).
+// "span" returned in the project's modelType units for caption use.
+export interface ProjectTimeline {
+  start: string;
+  end: string;
+  spanPeriods: number; // in modelType units (years for annual, months for monthly)
+}
+
+export function computeProjectTimeline(project: Project, phases: Phase[]): ProjectTimeline {
+  if (phases.length === 0) {
+    return { start: project.startDate, end: project.startDate, spanPeriods: 0 };
+  }
+  const tls = phases.map((p) => computePhaseTimeline(p, project));
+  const startMs = Math.min(...tls.map((t) => new Date(t.constructionStart).getTime()));
+  const endMs = Math.max(...tls.map((t) => new Date(t.operationsEnd).getTime()));
+  const start = new Date(startMs).toISOString().slice(0, 10);
+  const end = new Date(endMs).toISOString().slice(0, 10);
+  // Span in modelType units (approximate; for monthly = months between).
+  const startD = new Date(start);
+  const endD = new Date(end);
+  let spanPeriods = 0;
+  if (project.modelType === 'monthly') {
+    spanPeriods = (endD.getFullYear() - startD.getFullYear()) * 12 + (endD.getMonth() - startD.getMonth());
+  } else {
+    spanPeriods = endD.getFullYear() - startD.getFullYear();
+  }
+  return { start, end, spanPeriods: Math.max(0, spanPeriods) };
+}
+
 // ── Project end date ───────────────────────────────────────────────────────
 export function computeProjectEndDate(project: Project, phases: Phase[]): string {
   if (phases.length === 0) return project.startDate;

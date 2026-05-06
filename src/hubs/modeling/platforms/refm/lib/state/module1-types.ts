@@ -1,6 +1,18 @@
 /**
  * module1-types.ts (v7 schema)
  *
+ * Phase M2.0e (2026-05-06): wizard simplification + Tab 2 full asset
+ * entry. Schema gains three additive optional fields (no SCHEMA_VERSION
+ * bump; v7 snapshots without these fields stay valid):
+ *   - Phase.startDate?: ISO date. When set, takes precedence over the
+ *     constructionStart period offset for phase timing display +
+ *     computePhaseTimeline. Wizard Step 2 captures this per phase.
+ *   - Asset.status?: 'planned' | 'construction' | 'operational'.
+ *     Tab 2 status pill; defaults to 'planned' on add.
+ *   - Project.projectType?: 'Residential' | 'Hospitality' | 'Retail'
+ *     | 'Office' | 'Mixed-Use' | 'Custom'. Wizard Step 3 captures it;
+ *     Tab 2 type-catalog dropdown filters by it.
+ *
  * Phase M2.0d (2026-05-06): bumps to v7 to absorb the M2.0d Costs polish:
  *   - AssetStrategy.Hybrid renamed to 'Sell + Manage' (MAAD Tower 01
  *     pattern: build, sell to investors, retain operating rights via
@@ -145,6 +157,20 @@ export const LAND_ALLOCATION_MODES: readonly LandAllocationMode[] = [
 export type ModelGranularity = 'monthly' | 'annual';
 export type ProjectStatus     = 'draft' | 'active' | 'archived';
 
+// M2.0e: closed-enum project type that drives Tab 2's asset-type catalog.
+// Mixed-Use exposes every type from every category; Custom = free-text
+// fallback (still shows the full bank as suggestions).
+export type ProjectType = 'Residential' | 'Hospitality' | 'Retail' | 'Office' | 'Mixed-Use' | 'Custom';
+
+export const PROJECT_TYPES: readonly ProjectType[] = [
+  'Residential',
+  'Hospitality',
+  'Retail',
+  'Office',
+  'Mixed-Use',
+  'Custom',
+] as const;
+
 export interface Project {
   name: string;
   currency: string;          // ISO code (e.g. 'SAR', 'USD', 'AED')
@@ -157,6 +183,10 @@ export interface Project {
   // to undefined / 0 so existing v5 snapshots keep working.
   country?: string;          // free-text country, used by requiresCountry filter
   projectRoadsPct?: number;  // 0..100, fraction of land used for roads
+  // M2.0e: project type drives Tab 2's asset-type catalog filter and
+  // the empty-state asset suggestions per phase. Captured in Wizard
+  // Step 3.
+  projectType?: ProjectType;
 }
 
 // ── Phase ──────────────────────────────────────────────────────────────────
@@ -175,6 +205,13 @@ export interface Phase {
   constructionPeriods: number;
   operationsPeriods: number;
   overlapPeriods: number;
+  // M2.0e: optional ISO date (YYYY-MM-DD). When present, computePhase-
+  // Timeline derives concrete construction / operations dates from this
+  // instead of treating constructionStart as an offset from project.
+  // startDate. Wizard Step 2 captures this per phase; legacy snapshots
+  // without it fall back to project.startDate + (constructionStart - 1)
+  // periods.
+  startDate?: string;
 }
 
 // ── Parcel (land) ──────────────────────────────────────────────────────────
@@ -238,6 +275,21 @@ export interface SubUnit {
 //
 // parkingBaysRequired: integer count, fed straight to the cost engine.
 // No allocator, no surface/vertical/basement split, just a number.
+// M2.0e: lifecycle status for Tab 2 status pill. Sales / revenue logic
+// reads this to gate which streams are active per period (an asset in
+// 'planned' has no revenue regardless of strategy; 'construction' has
+// pre-sale cohort revenue for Sell strategy; 'operational' has full
+// revenue for Operate / Lease / post-handover Sell+Manage).
+export type AssetStatus = 'planned' | 'construction' | 'operational';
+
+export const ASSET_STATUSES: readonly AssetStatus[] = ['planned', 'construction', 'operational'] as const;
+
+export const ASSET_STATUS_LABELS: Record<AssetStatus, string> = {
+  planned:      'Planned',
+  construction: 'Construction',
+  operational:  'Operational',
+};
+
 export interface Asset {
   id: string;
   phaseId: string;
@@ -262,6 +314,11 @@ export interface Asset {
   // compute time so the user can leave it blank).
   managementAgreement?: ManagementAgreement;
   usefulLifeYears?: number;
+  // M2.0e: lifecycle status pill (planned / construction / operational).
+  // Defaults to 'planned' on first add. Module 2 Revenue gates revenue
+  // streams off this; today the calc engine ignores it (visible flag
+  // still controls inclusion in cost rollups).
+  status?: AssetStatus;
 }
 
 // ── Cost line (v6: open-ended catalog) ─────────────────────────────────────
@@ -567,6 +624,79 @@ export interface EquityContribution {
   distribution?: number[];    // manual only; length = constructionPeriods
 }
 
+// ── M2.0e: Asset type bank by project type ────────────────────────────────
+// Tab 2's asset Type dropdown filters by Project.projectType, falling
+// back to ASSET_TYPES_BY_STRATEGY for legacy / Custom projects. Mixed-Use
+// surfaces the union; Custom returns the same union with the implicit
+// understanding the user types free-form. Each entry is a display label;
+// the stored Asset.type is the same string (no separate id).
+export const ASSET_TYPES_BY_PROJECT_TYPE: Record<ProjectType, readonly string[]> = {
+  Residential: [
+    'High-end Apartments',
+    'Mid-tier Apartments',
+    'Affordable Housing',
+    'Branded Suites',
+    'Villas',
+    'Townhouses',
+  ],
+  Hospitality: [
+    'Hotel 5-star',
+    'Hotel 4-star',
+    'Hotel 3-star',
+    'Branded Residences',
+    'Serviced Apartments',
+    'Resort',
+  ],
+  Retail: [
+    'Retail Mall',
+    'Strip Retail',
+    'F&B',
+    'Department Store',
+    'Showroom',
+  ],
+  Office: [
+    'Office Tower (Grade A)',
+    'Office Tower (Grade B)',
+    'Co-working',
+    'Business Park',
+  ],
+  'Mixed-Use': [
+    'High-end Apartments',
+    'Branded Residences',
+    'Hotel 5-star',
+    'Hotel 4-star',
+    'Serviced Apartments',
+    'Retail Mall',
+    'F&B',
+    'Office Tower (Grade A)',
+    'Co-working',
+    'Branded Suites',
+    'Townhouses',
+  ],
+  Custom: [
+    'High-end Apartments',
+    'Hotel 5-star',
+    'Retail Mall',
+    'Office Tower (Grade A)',
+    'Branded Residences',
+    'Serviced Apartments',
+    'Co-working',
+    'Townhouses',
+  ],
+};
+
+// Empty-state suggestions Tab 2 prints under each phase header when the
+// phase has no assets yet, e.g. "Suggested for Mixed-Use: Residential,
+// Hospitality, Retail". One-line nudge, not auto-creation.
+export const SUGGESTED_CATEGORIES_BY_PROJECT_TYPE: Record<ProjectType, readonly string[]> = {
+  Residential: ['Residential'],
+  Hospitality: ['Hospitality'],
+  Retail:      ['Retail'],
+  Office:      ['Office'],
+  'Mixed-Use': ['Residential', 'Hospitality', 'Retail'],
+  Custom:      ['any combination'],
+};
+
 // ── Asset type bank ────────────────────────────────────────────────────────
 // Reference list of asset types per strategy. UI offers these as auto-
 // complete suggestions; user can free-text any other type.
@@ -684,6 +814,7 @@ export function makeDefaultProject(
     location: '',
     country: '',
     projectRoadsPct: 0,
+    projectType: 'Mixed-Use',
   };
 }
 
