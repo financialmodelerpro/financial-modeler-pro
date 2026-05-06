@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-06 (M2.0c restores full Dev Costs + Financing on v6 schema)**
+**Last updated: 2026-05-06 (M2.0d Costs polish + accounting rules + layout fix on v7 schema)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -221,19 +221,21 @@ npm run type-check   # tsc --noEmit, must be zero errors
 npm run build        # next build --webpack (avoids MAX_PATH on Windows/OneDrive)
 npm run verify       # type-check + lint + build
 
-# Module 1 v5 (M2.0) regression-guard snapshot diff (single baseline,
+# Module 1 v7 (M2.0d) regression-guard snapshot diff (single baseline,
 # replaces the 3 retired ones)
-npx tsx scripts/module1-v5-diff.ts              # MAAD-Spec v5, 30.8 KB baseline (sha256 0424dde6fb19)
+npx tsx scripts/module1-v5-diff.ts              # M2.0d v7, 47.6 KB baseline (sha256 7418013202fc)
 
 # Per-phase verifier (5 sections: schema/types / calc / state / source markers / Playwright UI)
 npx tsx scripts/verify-m20.ts                   # M2.0 MAAD-Spec rebuild (42 pass / 0 fail / 1 skip without dev server)
 npx tsx scripts/verify-m20b.ts                  # M2.0b shell restoration (51 pass / 0 fail / 2 skip without dev server / unauth)
-npx tsx scripts/verify-m20c.ts                  # M2.0c full Dev Costs + Financing on v6 (54 pass / 0 fail / 2 skip without authenticated dev server)
+npx tsx scripts/verify-m20c.ts                  # M2.0c full Dev Costs + Financing on v6 (looser SCHEMA_VERSION + COST_METHODS asserts after M2.0d)
+npx tsx scripts/verify-m20d.ts                  # M2.0d Costs polish + v7 (71 pass / 0 fail / 2 skip without dev server) <- canonical green
 
-# Playwright e2e specs (M2.0 v5/v6 contract)
+# Playwright e2e specs (M2.0 v5/v6/v7 contract)
 npx playwright test tests/e2e/m20-full-flow.spec.ts        # 2 specs: 3-step wizard create + 4-tab landing (no Land/Build Program/Hierarchy) + 8 light/dark tab screenshots; live-recompute spec asserts editing GFA in Tab 2 updates Tab 3 phase total
 npx playwright test tests/e2e/m20b-shell.spec.ts           # 4 specs: brand topbar/sidebar/dashboard chrome + dark-mode body attribute toggle + 3-modal open-close + light/dark screenshots
-npx playwright test tests/e2e/m20c-costs-financing.spec.ts # 5 specs: sidebar non-overlay layout + 13-method cost catalog + 6 phasing modes + 5×5 financing matrix + IDC toggle + granularity-aware schedule labels + light/dark screenshots
+npx playwright test tests/e2e/m20c-costs-financing.spec.ts # SKIPPED (frozen v6 contract; superseded by m20d-costs-polish.spec.ts)
+npx playwright test tests/e2e/m20d-costs-polish.spec.ts    # 7 specs: layout (no sidebar bleed) + Tab 2 Sell+Manage agreement + Tab 3 per-asset segregation + custom cost popup + 3 capex summary tables + Tab 4 in-kind equity tile + granularity + light/dark screenshots
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -251,8 +253,159 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 **Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
 (`npx playwright install chromium`).
 
-### Module 1 status (2026-05-06, **M2.0c restores full Dev Costs + Financing on v6**)
-**M2.0c (current, ships):** Dev Costs + Financing functionality
+### Module 1 status (2026-05-06, **M2.0d Costs polish + accounting rules**)
+
+**M2.0d (current, ships):** Closes the 8 testing-feedback items
+Ahmad raised on M2.0c. Schema bumps to v7 (pre-v7 hard-cut continues
+the precedent v5 -> v6 set). 9 commits:
+
+- **/1 (layout)**: globals.css `.main-content` drops `margin-left:240px`
+  + `transition` + `height: calc(100vh - 40px)`. The M2.0b shell put
+  Topbar + .app-shell as a flex column with Sidebar + main-content as
+  flex siblings, so the margin shim doubled the offset and clipped
+  page titles ("Dashboard", "Projects", "Overview") at the left edge.
+  Removed the dead `.main-content.sidebar-collapsed` companion (no
+  callers grep-confirmed). Single rule now: `.main-content { flex: 1;
+  overflow-y: auto; overflow-x: hidden; min-width: 0; }`.
+- **/2 (schema v7)**: AssetStrategy 'Hybrid' renamed 'Sell + Manage'
+  (MAAD Tower 01 pattern, build + sell to investors + retain operating
+  rights via management contract). Asset gains optional
+  managementAgreement: { managementFeePct, ownerRevenueSharePct,
+  agreementStartPeriod?, agreementDurationPeriods? } and
+  usefulLifeYears? (depreciation horizon for Operate / Lease).
+  CostMethod gains 'rate_per_parking_bay' (value × asset.parkingBays).
+  AssetAreaMetrics gains parkingBays. CostLine gains optional
+  targetAssetId (custom lines tagged at one asset; project-wide lines
+  stay untagged) and disabled (per-line on/off). CostOverride gains
+  disabled (per-asset on/off). makeDefaultCostLines replaces the v6
+  12-line catalog with the M2.0d 9-line standard (10 internal rows:
+  land-cash + land-inkind locked, then construction-bua,
+  construction-parking, infrastructure, landscaping, pre-operating,
+  professional-fee, commission, contingency). STANDARD_COST_LINE_IDS
+  exports the stable id list. SCHEMA_VERSION = 7. migrate.ts:
+  isV7Snapshot + isPreV7Snapshot (v6 'Hybrid' + v6 catalog ids
+  ('site-prep' / 'structural' / 'mep' / 'finishing' / 'professional-
+  fees' plural / 'marketing' / 'project-management' / 'legal' /
+  'ffe') flag pre-v7 with the canonical "Schema migrated to v7.
+  Please recreate this project." error). Backward-compat aliases
+  isV5Snapshot / isV6Snapshot resolve to v7 implementations.
+- **/3 (calc engine)**: Five new pure helpers in @core/calculations:
+  deriveCostStage(line) returns 'land' | 'hard' | 'soft' | 'operating'
+  by stable id (custom lines fall back to line.stage); deriveCostScope
+  returns 'direct' | 'indirect' from allocationBasis; resolveUseful-
+  LifeYears reads asset.usefulLifeYears with category fallback per
+  DEFAULT_USEFUL_LIFE_YEARS (residential 30 / hospitality 20 / retail
+  25 / default 25); classifyAssetCapex(asset, capexBasis, landTotal)
+  returns { COGS, FixedAssets, Depreciation } per strategy (Sell +
+  Sell+Manage -> COGS=basis with no depreciation; Operate + Lease ->
+  FixedAssets=basis with annual depreciation = (basis - landTotal) /
+  usefulLifeYears, land never depreciates regardless); compute-
+  CashFlowImpact(capexBasis, landInKindPortion) returns { cashOutflow:
+  basis - inKindLand, equityInKind: inKindLand } so cash flow
+  excludes the equity-in-kind portion. computeAssetCost respects the
+  new disabled fields (zeros the row, keeps it in resolved[] for
+  stage tracking) and filters out targetAssetId-tagged lines that
+  belong to other assets.
+- **/4 (Tab 2 Sell+Manage UI)**: Module1Assets STRATEGY_LABELS map
+  renders long-form labels ("Sell + Manage, sell to investors, manage
+  via agreement (Tower pattern)" etc.); enum value stays the short
+  slug. Conditional sub-forms below the asset card: Management-
+  AgreementForm (4 fields: management fee %, owner share % auto =
+  100 - fee, agreement start period optional, duration periods
+  optional) renders only when strategy === 'Sell + Manage';
+  UsefulLifeForm (writeable usefulLifeYears + live "Resolved: N
+  years (category default)" readout) renders only when strategy is
+  Operate or Lease; Sell + Sell+Manage hide the useful-life surface.
+- **/5 (Costs tab rewrite)**: Module1Costs end-to-end rewrite.
+  Layout: top bar (phase selector + stage filter) -> 4-tile stage
+  summary -> per-phase header (PHASE 1 . N assets) -> per-asset
+  collapsible AssetCostSection (default expanded) with asset name +
+  strategy badge + accounting destination string ("This will
+  capitalise to {asset}, expensed as COGS when units sell" / "as
+  Fixed Asset, depreciated over {N} years (land never depreciates)"
+  / "no depreciation (developer does not own units post-sale)") ->
+  9-row cost table per asset (name editable, method dropdown of 14
+  methods, value, start, end, phasing dropdown of 6, total chip,
+  ON/OFF toggle) -> "+ Add Custom Cost" button per section -> 3
+  capex summary tables (Capex by Period: rows assets + project
+  total, cols Y1..Y_n or M1..M_n by granularity, capped at 24 cols;
+  Capex by Stage: rows periods + total, cols Land / Hard / Soft /
+  Operating / Total; Capex Summary by Treatment: rows assets, cols
+  Land Cash / Land In-Kind / Hard / Soft / Operating / Total Capex /
+  Cash Flow Impact, where Cash Flow Impact uses computeCashFlowImpact
+  to subtract in-kind land from cash outflow) -> Project Total
+  navy footer. Stage / Scope dropdowns REMOVED from row UI (Fix 2);
+  shown as a small subscript label + a hover title attribute on the
+  row. Custom Cost Popup (CustomCostPopup component) opens on +Add:
+  user picks Stage (Land / Hard / Soft / Operating) + Method + Value
+  + Phasing; save creates a CostLine with targetAssetId = current
+  asset, allocationBasis = 'per_asset'. Override write rules:
+  editing method/value/phasing on a project-wide line in an asset
+  section creates a costOverride keyed by (assetId, lineId);
+  per-asset "reset" button drops the override. Custom lines write
+  directly to the line.
+- **/6 (Tab 4 equity in-kind)**: Module1Financing tile bar grew
+  from 4 -> 5 tiles: Phase CapEx, Total Debt, Cash Equity, In-Kind
+  Equity, Total Interest. New Equity Summary card below the tiles
+  shows the combined Cash + In-Kind total. In-kind equity computed
+  via resolveAssetAreaMetrics on each phaseAsset (sum of in-kind
+  land value across the phase, allocation already resolved per
+  landAllocationMode).
+- **/7 (snapshot baseline regen)**: scripts/baselines/module1-v5.json
+  47.6 KB sha256 7418013202fc (down from M2.0c 49.6 KB sha256
+  15ed6f865342). Drift sources: 12-line v6 catalog -> 9-line M2.0d
+  catalog with different rates (construction-bua at 4500/sqm BUA
+  vs the old structural+mep+finishing stack); 'Hybrid' fixture asset
+  flipped to 'Sell + Manage'.
+- **/8 (verifier)**: scripts/verify-m20d.ts (71 pass / 0 fail / 2
+  skip without authenticated dev server). 5 sections: schema (16
+  assertions), routes + baseline diff, calc unit tests (10
+  assertions covering deriveCostStage / deriveCostScope /
+  classifyAssetCapex per strategy / computeCashFlowImpact /
+  resolveUsefulLifeYears), 39 source-file markers (layout fix +
+  schema v7 + migrate v7 + 9 calc helpers + Module1Assets 4 markers
+  + Module1Costs 8 markers + Module1Financing 3 markers), em-dash
+  sweep across 7 files, Playwright spec presence + run gate.
+- **/9 (Playwright + frozen M2.0c spec)**: tests/e2e/m20d-costs-
+  polish.spec.ts (7 specs): layout + Tab 2 Sell+Manage agreement +
+  Tab 3 per-asset segregation + custom popup + 3 summary tables +
+  Tab 4 in-kind equity + granularity + 6 light/dark screenshots
+  into tests/screenshots/M2.0d/. The M2.0c spec is .skip()'d (no
+  longer matches the per-asset segregated layout); intentional
+  frozen artifact.
+
+**M2.0d pattern decisions for downstream phases:**
+- Stage / Scope are calc-engine-derived for the standard 9 ids;
+  Module 2 Revenue should follow the same pattern (revenue line ids
+  -> revenue stage / scope derive helpers).
+- Capex capitalisation rule (every cost line capitalises into asset
+  basis; strategy determines accounting destination via classify-
+  AssetCapex) is the v7 contract. Module 5 Statements consumes
+  classifyAssetCapex's output unchanged.
+- Land in-kind treatment: computeCashFlowImpact subtracts in-kind
+  land from cash outflow; the in-kind portion lands in Tab 4
+  Financing's In-Kind Equity tile and the Capex Summary by Treatment
+  table's Cash Flow Impact column. Module 5 cashflow consumes
+  computeCashFlowImpact directly.
+- Per-asset cost segregation (per-phase header -> per-asset
+  collapsible section -> per-line override) is the canonical Costs
+  UX. Module 2 Revenue should adopt the same shape (per-asset
+  Revenue sections under each phase).
+- Custom cost popup (user-picked stage at create time) is the
+  pattern for any user-extensible catalog. Selected stage/method/
+  phasing live on the line; subsequent edits use the same row.
+- Sell + Manage strategy: developer's recurring management fee
+  accrues post-handover via Asset.managementAgreement. Module 2
+  Revenue must read the agreement to compute developer's fee
+  revenue (managementFeePct × operating revenue) over
+  agreementDurationPeriods (or perpetual when blank), starting at
+  agreementStartPeriod (or handover when blank).
+- Hard-cut continues at every schema bump: pre-v7 snapshots flag
+  with explicit error rather than silent coercion. v6 -> v7 sets
+  the precedent; future schema changes follow the same policy.
+
+### Module 1 status (M2.0c, 2026-05-06, restores Dev Costs + Financing on v6)
+**M2.0c (foundation for M2.0d):** Dev Costs + Financing functionality
 fully restored to pre-M2.0 capability with all data binding adapted
 to v5/v6 schema. Schema bumps from v5 to v6 to absorb the open-ended
 cost-line catalog and 5×5 financing matrix. Three issues from
