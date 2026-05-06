@@ -101,7 +101,7 @@ const FIXTURE: WizardDraft = {
     },
     {
       name: 'Branded Residences',
-      strategy: 'Hybrid',
+      strategy: 'Sell + Manage',
       type: 'Branded Residences',
       gfaSqm: 0,
       buaSqm: 0,

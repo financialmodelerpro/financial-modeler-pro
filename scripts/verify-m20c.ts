@@ -72,11 +72,18 @@ function skip(name: string, msg: string): void {
 // ── Section 1: schema ─────────────────────────────────────────────────────
 console.log('\n[1/5] Schema + types');
 
-if (SCHEMA_VERSION === 6) pass('SCHEMA_VERSION === 6');
-else fail('SCHEMA_VERSION', `expected 6, got ${SCHEMA_VERSION}`);
+// M2.0d (2026-05-06) bumped SCHEMA_VERSION to 7. v6 was the M2.0c baseline;
+// the current file remains useful as a regression for the v6 contract that
+// stayed put (cost methods, phasings, allocation bases). The strict 6
+// assertion is loosened to >= 6 so the verifier still exercises that
+// chain without lying about the live schema.
+if (SCHEMA_VERSION >= 6) pass(`SCHEMA_VERSION >= 6 (current: ${SCHEMA_VERSION})`);
+else fail('SCHEMA_VERSION', `expected >= 6, got ${SCHEMA_VERSION}`);
 
-if (COST_METHODS.length === 13) pass('13 cost methods');
-else fail('cost methods', `expected 13, got ${COST_METHODS.length}`);
+// M2.0d added rate_per_parking_bay -> 14 methods. Either is acceptable
+// for this verifier's purpose (both v6 and v7 have at least 13).
+if (COST_METHODS.length >= 13) pass(`>= 13 cost methods (current: ${COST_METHODS.length})`);
+else fail('cost methods', `expected >= 13, got ${COST_METHODS.length}`);
 
 if (COST_PHASINGS.length === 6) pass('6 phasing modes');
 else fail('phasing modes', `expected 6, got ${COST_PHASINGS.length}`);
@@ -169,6 +176,7 @@ const ctx: AssetCostContext = {
   metrics: {
     landSqm: 5000, ndaSqm: 4500, roadsSqm: 500,
     gfa: 10000, bua: 8000, nsa: 6000, unitCount: 50,
+    parkingBays: 100,
     landValue: 2500000, cashLandValue: 1500000, inKindLandValue: 1000000,
   },
   resolvedDirectLineTotals: {},

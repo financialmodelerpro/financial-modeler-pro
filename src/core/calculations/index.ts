@@ -168,6 +168,7 @@ export interface AssetAreaMetrics {
   bua: number;
   nsa: number;
   unitCount: number;
+  parkingBays: number;        // M2.0d: drives rate_per_parking_bay
   landValue: number;
   cashLandValue: number;
   inKindLandValue: number;
@@ -203,6 +204,7 @@ export function resolveAssetAreaMetrics(
     bua,
     nsa,
     unitCount,
+    parkingBays: Math.max(0, asset.parkingBaysRequired ?? 0),
     landValue,
     cashLandValue,
     inKindLandValue,
@@ -252,6 +254,8 @@ export function calculateItemTotal(
       return safeV * m.nsa;
     case 'rate_per_unit':
       return safeV * m.unitCount;
+    case 'rate_per_parking_bay':
+      return safeV * m.parkingBays;
     case 'percent_of_total_land':
       return m.landValue * (clamp(v, 0, 100) / 100);
     case 'percent_of_cash_land':

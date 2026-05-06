@@ -1,5 +1,25 @@
 /**
- * module1-types.ts (v5 schema)
+ * module1-types.ts (v7 schema)
+ *
+ * Phase M2.0d (2026-05-06): bumps to v7 to absorb the M2.0d Costs polish:
+ *   - AssetStrategy.Hybrid renamed to 'Sell + Manage' (MAAD Tower 01
+ *     pattern: build, sell to investors, retain operating rights via
+ *     management agreement).
+ *   - Asset.managementAgreement added (management fee % + owner revenue
+ *     share % + optional agreement start/duration).
+ *   - Asset.usefulLifeYears added (depreciation horizon for Operate /
+ *     Lease assets; ignored on Sell / Sell + Manage). Category defaults
+ *     in DEFAULT_USEFUL_LIFE_YEARS.
+ *   - makeDefaultCostLines returns the M2.0d standard 9-line catalog
+ *     (Land, Construction BUA, Construction Parking, Infrastructure,
+ *     Landscaping, Pre-operating, Professional Fee, Commission,
+ *     Contingency). Names editable by user, ids stay so derivation
+ *     rules can target them.
+ *   - CostMethod gains 'rate_per_parking_bay' (value × asset.parkingBays).
+ *   - Stage / Scope are now AUTO-DERIVED in calc engine for the standard
+ *     9 lines via deriveCostStage / deriveCostScope; the CostLine.stage
+ *     field stays writeable so custom user lines can carry a user-picked
+ *     stage at create time.
  *
  * Phase M2.0 (2026-05-06): complete rebuild to MAAD-Spec.
  *
@@ -36,19 +56,56 @@
 
 // ── Strategy enum ──────────────────────────────────────────────────────────
 // MAAD vocabulary: how an asset earns money over its life.
-//   'Sell'     -> develop and sell on completion (residential, villas)
-//   'Operate'  -> develop and run as a going concern (hotel, serviced)
-//   'Lease'    -> develop and lease to tenants (retail, office)
-//   'Hybrid'   -> sell-then-operate (e.g. branded residences sold first
-//                 then operated under a hospitality flag)
-export type AssetStrategy = 'Sell' | 'Operate' | 'Lease' | 'Hybrid';
+//   'Sell'         -> develop and sell on completion (residential, villas)
+//   'Operate'      -> develop and run as a going concern (hotel, serviced)
+//   'Lease'        -> develop and lease to tenants (retail, office)
+//   'Sell + Manage'-> develop, sell units to investors, retain operating
+//                     rights via a management agreement (MAAD Tower 01
+//                     pattern, branded residences with management contract).
+//                     Capex still flows through COGS at unit sale (developer
+//                     does NOT own the asset post-sale, no Fixed Assets, no
+//                     depreciation), but managementFeePct of operating
+//                     revenue accrues to the developer post-handover.
+//
+// M2.0d (2026-05-06): renamed 'Hybrid' to 'Sell + Manage' to make the
+// accounting treatment unambiguous. Pre-v7 snapshots are hard-cut by
+// migrate.ts; this is not a silent rename.
+export type AssetStrategy = 'Sell' | 'Operate' | 'Lease' | 'Sell + Manage';
 
 export const ASSET_STRATEGIES: readonly AssetStrategy[] = [
   'Sell',
   'Operate',
   'Lease',
-  'Hybrid',
+  'Sell + Manage',
 ] as const;
+
+// ── Management agreement ──────────────────────────────────────────────────
+// Only consumed when asset.strategy === 'Sell + Manage'. Module 2 (Revenue)
+// will read this to compute developer's recurring fee post-handover.
+export interface ManagementAgreement {
+  managementFeePct: number;      // % of operating revenue accruing to developer
+  ownerRevenueSharePct: number;  // % to unit owners (auto = 100 - managementFeePct, editable)
+  agreementStartPeriod?: number; // optional, default = handover (sales schedule end)
+  agreementDurationPeriods?: number; // optional, undefined = perpetual
+}
+
+export const DEFAULT_MANAGEMENT_AGREEMENT: ManagementAgreement = {
+  managementFeePct: 30,
+  ownerRevenueSharePct: 70,
+};
+
+// ── Useful life defaults (depreciation horizon, in YEARS) ─────────────────
+// Read by classifyAssetCapex when asset.strategy === 'Operate' or 'Lease'.
+// Sell + Sell + Manage don't depreciate (capex becomes COGS at sale).
+// Land NEVER depreciates regardless of strategy; the calc engine subtracts
+// landValue from the depreciation base.
+export const DEFAULT_USEFUL_LIFE_YEARS = {
+  residential: 30,
+  hospitality: 20,
+  retail:      25,
+  office:      25,
+  default:     25,
+} as const;
 
 // ── Sub-unit categories ────────────────────────────────────────────────────
 // Drives metric semantics + which Module 2 revenue stream it feeds.
@@ -144,10 +201,11 @@ export interface Parcel {
 // BUA contribution: count * unitArea.
 //
 // unitPrice: meaning depends on parent asset strategy:
-//   Sell    -> sale price per unit (or per sqm for area metrics)
-//   Operate -> ADR (per key per day) or per-key annual revenue
-//   Lease   -> rent per sqm per year
-//   Hybrid  -> sale price per unit (operate phase priced separately)
+//   Sell          -> sale price per unit (or per sqm for area metrics)
+//   Operate       -> ADR (per key per day) or per-key annual revenue
+//   Lease         -> rent per sqm per year
+//   Sell + Manage -> sale price per unit (post-handover management fee
+//                    accrues to developer via Asset.managementAgreement)
 export interface SubUnit {
   id: string;
   assetId: string;
@@ -196,6 +254,14 @@ export interface Asset {
   sellableBuaSqm: number;        // saleable / leasable area within bua
   // Parking
   parkingBaysRequired: number;
+  // M2.0d: capitalization + depreciation rules
+  // managementAgreement: only consumed when strategy === 'Sell + Manage'.
+  // usefulLifeYears: depreciation horizon for Operate / Lease assets;
+  // defaults via DEFAULT_USEFUL_LIFE_YEARS keyed by category guess from
+  // strategy + type when undefined (calc engine resolves the default at
+  // compute time so the user can leave it blank).
+  managementAgreement?: ManagementAgreement;
+  usefulLifeYears?: number;
 }
 
 // ── Cost line (v6: open-ended catalog) ─────────────────────────────────────
@@ -229,6 +295,7 @@ export type CostMethod =
   | 'rate_per_bua'             // value × asset.buaSqm
   | 'rate_per_nsa'             // value × asset.sellableBuaSqm
   | 'rate_per_unit'            // value × sub-unit count (Sellable category)
+  | 'rate_per_parking_bay'     // value × asset.parkingBaysRequired (M2.0d)
   | 'percent_of_selected'      // value% × sum of selectedLineIds totals
   | 'percent_of_construction'  // value% × sum of stage='hard' line totals
   | 'percent_of_total_land'    // value% × parcels total value
@@ -244,6 +311,7 @@ export const COST_METHODS: readonly CostMethod[] = [
   'rate_per_bua',
   'rate_per_nsa',
   'rate_per_unit',
+  'rate_per_parking_bay',
   'percent_of_selected',
   'percent_of_construction',
   'percent_of_total_land',
@@ -256,10 +324,11 @@ export const COST_METHOD_LABELS: Record<CostMethod, string> = {
   rate_per_land:           'Rate × Land Area',
   rate_per_nda:            'Rate × NDA',
   rate_per_roads:          'Rate × Roads',
-  rate_per_gfa:            'Rate × GFA',
+  rate_per_gfa:             'Rate × GFA',
   rate_per_bua:            'Rate × BUA',
   rate_per_nsa:            'Rate × NSA (sellable)',
   rate_per_unit:           'Rate × Unit Count',
+  rate_per_parking_bay:    'Rate × Parking Bays',
   percent_of_selected:     '% of Selected Lines',
   percent_of_construction: '% of Construction',
   percent_of_total_land:   '% of Total Land Value',
@@ -287,7 +356,7 @@ export type AllocationBasis =
   | 'bua_share'      // project line allocated by BUA share
   | 'gfa_share'      // project line allocated by GFA share
   | 'land_share'     // project line allocated by land share
-  | 'category'       // project line allocated by Sell/Operate/Lease/Hybrid bucket
+  | 'category'       // project line allocated by Sell / Operate / Lease / Sell + Manage bucket
   | 'manual';        // user defines per-asset weights (defer to override)
 
 export const ALLOCATION_BASES: readonly AllocationBasis[] = [
@@ -516,26 +585,32 @@ export const ASSET_TYPES_BY_STRATEGY: Record<AssetStrategy, readonly string[]> =
     'Data Center',
     'Mixed Retail / F&B',
   ],
-  Hybrid: [
+  'Sell + Manage': [
     'Branded Residences',
     'Mixed-Use Tower',
     'Lifestyle Cluster',
+    'Branded Apartments (managed)',
   ],
 };
 
 // ── Default occupancy + operating margin per strategy (Module 2 seed) ──────
 // Used to pre-fill SubUnit.occupancyPct / operatingMargin when the user
 // adds a sub-unit. Operate uses hospitality industry typicals; Lease uses
-// stabilised retail typicals; Sell + Hybrid leave them undefined (no
-// recurring revenue concept during the sell phase).
+// stabilised retail typicals; Sell leaves them undefined (no recurring
+// revenue during the sell phase). Sell + Manage gets an Operate-style
+// seed because the management fee accrues against the operator's running
+// occupancy + margin post-handover.
 export const DEFAULT_OPERATIONS_BY_STRATEGY: Record<AssetStrategy, {
   occupancyPct?: number;
   operatingMargin?: number;
 }> = {
-  Sell:    {},
-  Operate: { occupancyPct: 65, operatingMargin: 35 },
-  Lease:   { occupancyPct: 92, operatingMargin: 80 },
-  Hybrid:  {},
+  Sell:            {},
+  Operate:         { occupancyPct: 65, operatingMargin: 35 },
+  Lease:           { occupancyPct: 92, operatingMargin: 80 },
+  // Sell + Manage post-handover behaves like the operating partner's
+  // hospitality / serviced-apartment block, hence the same operate-style
+  // seed.
+  'Sell + Manage': { occupancyPct: 65, operatingMargin: 30 },
 };
 
 // ── Canonical default ids ──────────────────────────────────────────────────
@@ -599,97 +674,110 @@ export function makeDefaultProject(
   };
 }
 
-// Default cost lines for a freshly minted phase. v6 returns the 12-line
-// pre-M2.0 catalog (plus the locked Land Cash row), all initialised to
-// allocationBasis: 'bua_share' so newly-minted projects see project-level
-// totals split across assets by BUA. Users override per-line + per-asset
-// from the Costs tab UI.
+// ── M2.0d: standard 9-line cost catalog ───────────────────────────────────
+// User-facing list (tracked by stable internal id; user can rename freely).
+// Stage / scope are auto-derived from the id (deriveCostStage in calc
+// engine); the value here is just the seed so the field is non-undefined.
 //
+// 9 user-facing lines, 10 internal rows. Land splits into Land (Cash)
+// and Land (In-Kind) at the storage layer because they have distinct cash
+// flow + in-kind equity treatments (Fix 8). The Costs tab UI groups them
+// as a single "Land" row by default; the underlying override surface
+// stays per-internal-id so rates tracking the parcel split stay sane.
+export const STANDARD_COST_LINE_IDS = [
+  'land-cash',
+  'land-inkind',
+  'construction-bua',
+  'construction-parking',
+  'infrastructure',
+  'landscaping',
+  'pre-operating',
+  'professional-fee',
+  'commission',
+  'contingency',
+] as const;
+export type StandardCostLineId = typeof STANDARD_COST_LINE_IDS[number];
+
 // constructionPeriods is read so endPeriod can default to the phase
 // duration. If 0 (no phase yet), endPeriod defaults to 24 to match
 // makeDefaultPhase.
 export function makeDefaultCostLines(phaseId: string, constructionPeriods = 24): CostLine[] {
   const cp = Math.max(1, constructionPeriods);
-  const mid = Math.max(1, Math.floor(cp / 2));
   return [
+    // ── Land (cash + in-kind, both locked: derive from parcels) ─────────
     {
-      id: 'land-cash', phaseId, name: 'Land (Cash Portion)',
+      id: 'land-cash', phaseId, name: 'Land (Cash)',
       method: 'percent_of_cash_land', value: 100,
       stage: 'land', scope: 'direct', allocationBasis: 'land_share',
       startPeriod: 0, endPeriod: 0, phasing: 'even',
       isLocked: true,
     },
     {
-      id: 'site-prep', phaseId, name: 'Site Preparation',
-      method: 'rate_per_land', value: 15,
-      stage: 'hard', scope: 'direct', allocationBasis: 'land_share',
-      startPeriod: 1, endPeriod: Math.min(cp, mid), phasing: 'even',
+      id: 'land-inkind', phaseId, name: 'Land (In-Kind)',
+      method: 'percent_of_inkind_land', value: 100,
+      stage: 'land', scope: 'direct', allocationBasis: 'land_share',
+      startPeriod: 0, endPeriod: 0, phasing: 'even',
+      isLocked: true,
     },
+    // ── Construction (BUA + Parking) ────────────────────────────────────
+    {
+      id: 'construction-bua', phaseId, name: 'Construction (BUA)',
+      method: 'rate_per_bua', value: 4500,
+      stage: 'hard', scope: 'direct', allocationBasis: 'bua_share',
+      startPeriod: 1, endPeriod: cp, phasing: 'sCurve',
+    },
+    {
+      id: 'construction-parking', phaseId, name: 'Construction (Parking)',
+      method: 'rate_per_parking_bay', value: 25000,
+      stage: 'hard', scope: 'direct', allocationBasis: 'per_asset',
+      startPeriod: 1, endPeriod: cp, phasing: 'sCurve',
+    },
+    // ── Infrastructure / Landscaping ────────────────────────────────────
     {
       id: 'infrastructure', phaseId, name: 'Infrastructure',
-      method: 'rate_per_nda', value: 80,
+      method: 'rate_per_nda', value: 250,
       stage: 'hard', scope: 'direct', allocationBasis: 'land_share',
-      startPeriod: 1, endPeriod: Math.min(cp, mid + 1), phasing: 'even',
-    },
-    {
-      id: 'structural', phaseId, name: 'Structural Works',
-      method: 'rate_per_gfa', value: 400,
-      stage: 'hard', scope: 'direct', allocationBasis: 'gfa_share',
       startPeriod: 1, endPeriod: cp, phasing: 'frontloaded',
     },
     {
-      id: 'mep', phaseId, name: 'MEP Works',
-      method: 'rate_per_gfa', value: 150,
-      stage: 'hard', scope: 'direct', allocationBasis: 'gfa_share',
-      startPeriod: Math.max(1, mid - 1), endPeriod: cp, phasing: 'even',
+      id: 'landscaping', phaseId, name: 'Landscaping',
+      method: 'rate_per_nda', value: 75,
+      stage: 'hard', scope: 'direct', allocationBasis: 'land_share',
+      startPeriod: Math.max(1, Math.floor(cp / 2)), endPeriod: cp, phasing: 'backloaded',
     },
+    // ── Pre-operating (% of Construction + Infra + Landscaping) ─────────
     {
-      id: 'finishing', phaseId, name: 'Finishing Works',
-      method: 'rate_per_bua', value: 200,
-      stage: 'hard', scope: 'direct', allocationBasis: 'bua_share',
-      startPeriod: mid, endPeriod: cp, phasing: 'backloaded',
+      id: 'pre-operating', phaseId, name: 'Pre-operating',
+      method: 'percent_of_selected', value: 3,
+      stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
+      startPeriod: Math.max(1, cp - 6), endPeriod: cp, phasing: 'backloaded',
+      selectedLineIds: ['construction-bua', 'construction-parking', 'infrastructure', 'landscaping'],
     },
+    // ── Professional Fee (% of Construction BUA + Parking) ──────────────
     {
-      id: 'professional-fees', phaseId, name: 'Professional Fees',
-      method: 'percent_of_construction', value: 8,
+      id: 'professional-fee', phaseId, name: 'Professional Fee',
+      method: 'percent_of_selected', value: 6,
       stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
       startPeriod: 1, endPeriod: cp, phasing: 'even',
+      selectedLineIds: ['construction-bua', 'construction-parking'],
     },
+    // ── Commission (% of Revenue) ───────────────────────────────────────
+    // Sell + Sell+Manage only; calc engine zeroes out for non-Sell strategies.
+    // Revenue source ships in Module 2.1; for now value × 0 (revenue stub) = 0.
+    {
+      id: 'commission', phaseId, name: 'Commission',
+      method: 'percent_of_selected', value: 4,
+      stage: 'soft', scope: 'indirect', allocationBasis: 'per_asset',
+      startPeriod: Math.max(1, Math.floor(cp / 2)), endPeriod: cp, phasing: 'backloaded',
+      selectedLineIds: [],
+    },
+    // ── Contingency (% of Construction BUA + Parking) ───────────────────
     {
       id: 'contingency', phaseId, name: 'Contingency',
-      method: 'percent_of_construction', value: 5,
+      method: 'percent_of_selected', value: 5,
       stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
       startPeriod: 1, endPeriod: cp, phasing: 'even',
-    },
-    {
-      id: 'marketing', phaseId, name: 'Marketing & Sales',
-      method: 'percent_of_total_land', value: 2,
-      stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
-      startPeriod: Math.max(1, mid - 1), endPeriod: cp, phasing: 'backloaded',
-    },
-    {
-      id: 'project-management', phaseId, name: 'Project Management',
-      method: 'percent_of_construction', value: 3,
-      stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
-      startPeriod: 1, endPeriod: cp, phasing: 'even',
-    },
-    {
-      id: 'legal', phaseId, name: 'Legal & Admin',
-      method: 'percent_of_total_land', value: 1,
-      stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
-      startPeriod: 1, endPeriod: Math.min(cp, mid), phasing: 'frontloaded',
-    },
-    {
-      id: 'landscaping', phaseId, name: 'Landscaping & External',
-      method: 'rate_per_nda', value: 30,
-      stage: 'hard', scope: 'direct', allocationBasis: 'land_share',
-      startPeriod: mid, endPeriod: cp, phasing: 'backloaded',
-    },
-    {
-      id: 'ffe', phaseId, name: 'FF&E / Interior Design',
-      method: 'rate_per_bua', value: 50,
-      stage: 'hard', scope: 'direct', allocationBasis: 'bua_share',
-      startPeriod: cp, endPeriod: cp, phasing: 'even',
+      selectedLineIds: ['construction-bua', 'construction-parking'],
     },
   ];
 }

@@ -546,7 +546,7 @@ function AssetCard({
           />
         </div>
         <div>
-          <InputLabel label="Strategy" help="Sell / Operate / Lease / Hybrid (Sell-then-Operate)." inputId={`asset-${asset.id}-strategy`} />
+          <InputLabel label="Strategy" help="Sell (units) / Operate (own and run) / Lease (own and rent) / Sell + Manage (sell to investors, manage via agreement)." inputId={`asset-${asset.id}-strategy`} />
           <select
             id={`asset-${asset.id}-strategy`}
             data-testid={`asset-${asset.id}-strategy`}
