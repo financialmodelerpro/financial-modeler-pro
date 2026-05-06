@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-06 (M2.0b restores brand-styled shell on top of v5 schema)**
+**Last updated: 2026-05-06 (M2.0c restores full Dev Costs + Financing on v6 schema)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -226,10 +226,12 @@ npx tsx scripts/module1-v5-diff.ts              # MAAD-Spec v5, 30.8 KB baseline
 # Per-phase verifier (5 sections: schema/types / calc / state / source markers / Playwright UI)
 npx tsx scripts/verify-m20.ts                   # M2.0 MAAD-Spec rebuild (42 pass / 0 fail / 1 skip without dev server)
 npx tsx scripts/verify-m20b.ts                  # M2.0b shell restoration (51 pass / 0 fail / 2 skip without dev server / unauth)
+npx tsx scripts/verify-m20c.ts                  # M2.0c full Dev Costs + Financing on v6 (54 pass / 0 fail / 2 skip without authenticated dev server)
 
-# Playwright e2e specs (M2.0 v5 contract)
+# Playwright e2e specs (M2.0 v5/v6 contract)
 npx playwright test tests/e2e/m20-full-flow.spec.ts        # 2 specs: 3-step wizard create + 4-tab landing (no Land/Build Program/Hierarchy) + 8 light/dark tab screenshots; live-recompute spec asserts editing GFA in Tab 2 updates Tab 3 phase total
 npx playwright test tests/e2e/m20b-shell.spec.ts           # 4 specs: brand topbar/sidebar/dashboard chrome + dark-mode body attribute toggle + 3-modal open-close + light/dark screenshots
+npx playwright test tests/e2e/m20c-costs-financing.spec.ts # 5 specs: sidebar non-overlay layout + 13-method cost catalog + 6 phasing modes + 5×5 financing matrix + IDC toggle + granularity-aware schedule labels + light/dark screenshots
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -247,8 +249,121 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 **Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
 (`npx playwright install chromium`).
 
-### Module 1 status (2026-05-06, **M2.0b restores brand-styled shell on top of v5**)
-**M2.0b (current, ships):** the v5 hard-cut M2.0 rebuild stripped the
+### Module 1 status (2026-05-06, **M2.0c restores full Dev Costs + Financing on v6**)
+**M2.0c (current, ships):** Dev Costs + Financing functionality
+fully restored to pre-M2.0 capability with all data binding adapted
+to v5/v6 schema. Schema bumps from v5 to v6 to absorb the open-ended
+cost-line catalog and 5×5 financing matrix. Three issues from
+M2.0 + M2.0b addressed across 4 commits:
+
+- **/1 (sidebar layout)**: globals.css `.sidebar` drops
+  `position: fixed; top: 40px; left: 0` (a hangover from the
+  pre-M2.0 layout that had a separate 40px fixed topbar). The
+  M2.0b shell has Topbar + .app-shell as a flex column, so the
+  sidebar needs to participate in the .app-shell flex row, not
+  overlay content. New rules: `.app-shell { display: flex;
+  flex: 1; min-height: 0; overflow: hidden; }`, `.sidebar
+  { position: relative; height: 100%; flex-shrink: 0; }`.
+  Visible regression that prompted this fix: Asset & Sub-units
+  tab Area input was clipped at the left edge in M2.0b/4.
+- **/2 (v6 schema + calc + UI)**: Schema bumps to v6:
+  CostMethod expands from 6 closed enums to 13 open methods
+  (fixed, rate_per_land, rate_per_nda, rate_per_roads,
+  rate_per_gfa, rate_per_bua, rate_per_nsa, rate_per_unit,
+  percent_of_selected, percent_of_construction, percent_of_-
+  total_land, percent_of_cash_land, percent_of_inkind_land);
+  CostLine becomes open-ended (id string, stage, scope,
+  allocationBasis, startPeriod, endPeriod, phasing,
+  distribution, selectedLineIds, isLocked, requiresCountry);
+  CostOverride keys on lineId; DrawdownMethod expands to 5
+  (capex_basis, manual, debt_equity_ratio, capex_minus_-
+  presales, min_cash_floor); RepaymentMethod expands to 5
+  (manual, straight_line, cashsweep_continuous, cashsweep_-
+  from_period, cashsweep_min_cash); FinancingTranche grows
+  optional assetId for per-asset financing detail; Project
+  grows country + projectRoadsPct. 12-default cost catalog
+  seeds (Land Cash locked + Site Prep + Infrastructure +
+  Structural + MEP + Finishing + Professional Fees +
+  Contingency + Marketing + Project Management + Legal +
+  Landscaping + FF&E). Calc engine rewrite: resolveAsset-
+  AreaMetrics maps v5 Asset/Parcel/Project to the metric
+  bases the 13 cost methods consume (NDA = land × (1 -
+  roads%), NSA = sellable BUA, unit count = sub-units where
+  category != Support and metric === count); calculateItem-
+  Total dispatches across the 13 methods; distribute returns
+  6 phasing curves (even/frontloaded/backloaded/sCurve/
+  manual/phase_aligned); resolveAllocationFactor returns
+  per-asset share for the 6 allocation bases; computeAsset-
+  Cost runs three passes (direct, percent_of_construction
+  base = sum of stage='hard' direct, percent_of_selected
+  base = sum of selectedLineIds); computePhaseCost
+  aggregates per-asset and returns per-period capex curve at
+  the model granularity; computeFinancing handles 5 drawdown
+  × 5 repayment with IDC capitalization (annual rate /
+  modelType=monthly?12:1 for periodicRate). Module1Costs UI
+  rewrite: 4-stage summary tiles + phase selector + stage
+  filter + cost-row table (stage/scope/method/allocation/
+  value/start/end/phasing/total) + advanced row reveal for
+  selectedLineIds checkboxes + manual phasing % per period
+  + conditional driver requiresCountry + per-asset detail
+  panel with metric tiles + per-period schedule. Module1-
+  Financing UI rewrite: 4-summary tiles (CapEx/Debt/Equity/
+  Interest) + per-tranche cards with LTV/Interest/Repay-
+  Periods/Per-Asset selector + drawdown method dropdown
+  with conditional sub-fields (drawdownIncludeLand for
+  capex_minus_presales, drawdownMinCashFloor for min_cash_-
+  floor) + repayment method dropdown with conditional sub-
+  fields (sweepStartPeriod for cashsweep_from_period,
+  sweepMinCashFloor for cashsweep_min_cash) + IDC toggle +
+  per-tranche schedule table (Drawdown / Interest /
+  Principal Repaid / Outstanding Balance) at model
+  granularity + equity contributions section.
+- **/3 (snapshot baseline regen)**: scripts/baselines/module1-
+  v5.json grows from 30.8 KB sha256 0424dde6fb19 to 49.6 KB
+  sha256 15ed6f865342. Future v6 calc-engine drift fails
+  the diff with the canonical refresh hint.
+- **/4 (verifier + Playwright + docs)**: scripts/verify-m20c.ts
+  with 51 source-file markers + em-dash sweep + 13-method calc
+  spot-checks + annual/monthly granularity assertions (54 pass /
+  0 fail / 2 skip without authenticated dev server). tests/e2e/
+  m20c-costs-financing.spec.ts with 5 specs: sidebar
+  non-overlay layout, 13-method cost catalog dropdown
+  options, 6 phasing modes, 5×5 financing matrix dropdown
+  options, IDC toggle + per-asset selector, granularity-aware
+  schedule labels (Y1/Y2 in annual mode), light/dark screenshots.
+
+What stays from M2.0 + M2.0b: v5/v6 schema foundation (Project
++ Phase + Asset + SubUnit + Parcel hierarchy), Tab 1 + Tab 2,
+ProjectWizard 3-step, brand-styled shell (Topbar, Sidebar,
+Dashboard, Modals), hard-cut migration policy.
+
+**Pre-v6 snapshots (v5 included):** module1-migrate.isPre-
+V6Snapshot detects v5 by costLine.key field and flags with
+hard-cut "Schema migrated to v6. Please recreate this project."
+error. Backward-compat aliases isV5Snapshot / isPreV5Snapshot
+still resolve to the v6 implementations.
+
+**M2.0c pattern decisions for downstream phases:**
+- CostLine is open-ended (id: string) instead of a closed enum.
+  Custom user lines + seed lines coexist; isLocked flag protects
+  seed rows like Land Cash.
+- AssetAreaMetrics is the canonical input shape for cost
+  methods. Module 2 (revenue) should add RevenueMetrics in the
+  same pattern (sellable area / unit count / occupancy hours)
+  rather than re-deriving from Asset directly.
+- Granularity is a model-wide concept (project.modelType) that
+  flows through Phase.constructionPeriods (an integer count in
+  the granularity unit). The calc engine is granularity-agnostic;
+  display layers handle Y1/Y2 vs Mar 25/Apr 25 labels.
+- 5×5 financing matrix is the v6 contract. Module 3 (cash flow)
+  should refine cash-sweep variants to consume real per-period
+  cash surplus instead of the M2.0c straight-line approximation.
+- Hard-cut continues at every schema bump: pre-vN snapshots flag
+  with explicit error rather than silent coercion. v5 → v6 sets
+  the precedent; future schema changes follow the same policy.
+
+### Module 1 status (M2.0b, 2026-05-06, brand-styled shell on v5)
+**M2.0b (foundation for M2.0c):** the v5 hard-cut M2.0 rebuild stripped the
 FMP brand identity (navy gradient topbar, gold logo, FAST sidebar,
 KPI dashboard, branded modals, dark-mode toggle) and replaced it
 with slim placeholder components. M2.0b restores all of that against
