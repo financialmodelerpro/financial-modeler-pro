@@ -19,14 +19,13 @@ import type { HydrateSnapshot } from '../state/module1-store';
 import {
   type ModelGranularity,
   type Project,
+  type ProjectType,
   type Phase,
   type Parcel,
   type Asset,
   type SubUnit,
   type FinancingTranche,
   type LandAllocationMode,
-  type AssetStrategy,
-  DEFAULT_OPERATIONS_BY_STRATEGY,
   makeDefaultCostLines,
   makeDefaultFinancingTranche,
 } from '../state/module1-types';
@@ -51,22 +50,10 @@ export interface WizardDraftParcel {
   inKindPct: number;
 }
 
-export interface WizardDraftAsset {
-  name: string;
-  strategy: AssetStrategy;
-  type: string;
-  gfaSqm: number;
-  buaSqm: number;
-  sellableBuaSqm: number;
-  parkingBaysRequired: number;
-  // Seed sub-unit shape (single sub-unit per asset on create; user
-  // adds more in Tab 2)
-  subUnitName: string;
-  subUnitMetric: 'count' | 'area';
-  subUnitMetricValue: number;
-  subUnitUnitArea?: number;
-  subUnitUnitPrice: number;
-}
+// M2.0e: WizardDraftAsset retired. Step 3 captures only project type;
+// asset detail entry moves to Tab 2 (Module1Assets) with full phase
+// context visible. The wizard outputs an empty assets[] / subUnits[]
+// in the snapshot; users add assets in Tab 2 explicitly.
 
 export interface WizardDraft {
   // Step 1
@@ -79,8 +66,8 @@ export interface WizardDraft {
   phases: WizardDraftPhase[];
   parcels: WizardDraftParcel[];
   landAllocationMode: LandAllocationMode;
-  // Step 3
-  assets: WizardDraftAsset[];
+  // Step 3 (M2.0e: project type only; asset detail moved to Tab 2)
+  projectType: ProjectType;
 }
 
 export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
@@ -92,6 +79,7 @@ export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
     startDate: draft.startDate,
     status: 'draft',
     location: draft.location,
+    projectType: draft.projectType,
   };
 
   // Phases. M2.0e: each phase carries its own startDate from the wizard.
@@ -149,40 +137,11 @@ export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
     });
   }
 
-  // Assets + sub-units (one seed sub-unit per asset)
+  // M2.0e: assets + sub-units start empty. Tab 2 is the canonical asset
+  // entry surface. Phase headers in Tab 2 print project-type-aware
+  // suggestions until the user adds assets explicitly.
   const assets: Asset[] = [];
   const subUnits: SubUnit[] = [];
-  draft.assets.forEach((wa, idx) => {
-    const id = `asset_${idx + 1}`;
-    assets.push({
-      id,
-      phaseId: firstPhaseId,
-      name: wa.name || `Asset ${idx + 1}`,
-      type: wa.type,
-      strategy: wa.strategy,
-      visible: true,
-      gfaSqm: Math.max(0, wa.gfaSqm),
-      buaSqm: Math.max(0, wa.buaSqm),
-      sellableBuaSqm: Math.max(0, wa.sellableBuaSqm),
-      parkingBaysRequired: Math.max(0, wa.parkingBaysRequired),
-    });
-    const ops = DEFAULT_OPERATIONS_BY_STRATEGY[wa.strategy];
-    const category =
-      wa.strategy === 'Lease' ? 'Leasable' :
-      wa.strategy === 'Operate' ? 'Operable' : 'Sellable';
-    subUnits.push({
-      id: `subunit_${idx + 1}`,
-      assetId: id,
-      name: wa.subUnitName || 'Sub-unit',
-      category,
-      metric: wa.subUnitMetric,
-      metricValue: Math.max(0, wa.subUnitMetricValue),
-      unitArea: wa.subUnitUnitArea,
-      unitPrice: Math.max(0, wa.subUnitUnitPrice),
-      occupancyPct: ops.occupancyPct,
-      operatingMargin: ops.operatingMargin,
-    });
-  });
 
   // Default cost lines for every phase
   const costLines = phases.flatMap((p) => makeDefaultCostLines(p.id));
@@ -208,34 +167,22 @@ export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
 
 // ── Default draft factory (used by the wizard's initial state) ─────────────
 export function makeDefaultWizardDraft(): WizardDraft {
+  const today = new Date().toISOString().slice(0, 10);
   return {
     projectName: 'New Project',
     currency: 'SAR',
     modelType: 'annual',
-    startDate: new Date().toISOString().slice(0, 10),
+    startDate: today,
     location: '',
     phases: [
-      { name: 'Phase 1', startDate: new Date().toISOString().slice(0, 10), constructionPeriods: 3, operationsPeriods: 5, overlapPeriods: 0 },
+      { name: 'Phase 1', startDate: today, constructionPeriods: 3, operationsPeriods: 5, overlapPeriods: 0 },
     ],
     parcels: [
       { name: 'Land 1', area: 100000, rate: 500, cashPct: 60, inKindPct: 40 },
     ],
     landAllocationMode: 'autoByBua',
-    assets: [
-      {
-        name: 'Residential',
-        strategy: 'Sell',
-        type: 'High-end Apartments',
-        gfaSqm: 0,
-        buaSqm: 0,
-        sellableBuaSqm: 0,
-        parkingBaysRequired: 0,
-        subUnitName: '2BR',
-        subUnitMetric: 'count',
-        subUnitMetricValue: 100,
-        subUnitUnitArea: 120,
-        subUnitUnitPrice: 1500000,
-      },
-    ],
+    // M2.0e: project type defaults to Mixed-Use so Tab 2's catalog
+    // shows the broadest selection until the user picks a narrower one.
+    projectType: 'Mixed-Use',
   };
 }

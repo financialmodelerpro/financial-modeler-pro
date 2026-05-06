@@ -56,67 +56,47 @@ const FIXTURE: WizardDraft = {
     { name: 'Parcel B', area: 40000, rate: 400, cashPct: 50, inKindPct: 50 },
   ],
   landAllocationMode: 'autoByBua',
-  assets: [
-    {
-      name: 'Apartments',
-      strategy: 'Sell',
-      type: 'High-end Apartments',
-      gfaSqm: 0,
-      buaSqm: 0,
-      sellableBuaSqm: 0,
-      parkingBaysRequired: 200,
-      subUnitName: '2BR',
-      subUnitMetric: 'count',
-      subUnitMetricValue: 120,
-      subUnitUnitArea: 110,
-      subUnitUnitPrice: 1500000,
-    },
-    {
-      name: 'Hotel',
-      strategy: 'Operate',
-      type: 'Hotel 5-star',
-      gfaSqm: 0,
-      buaSqm: 0,
-      sellableBuaSqm: 0,
-      parkingBaysRequired: 80,
-      subUnitName: 'Hotel Key',
-      subUnitMetric: 'count',
-      subUnitMetricValue: 220,
-      subUnitUnitArea: 45,
-      subUnitUnitPrice: 850,
-    },
-    {
-      name: 'Retail',
-      strategy: 'Lease',
-      type: 'Retail',
-      gfaSqm: 0,
-      buaSqm: 0,
-      sellableBuaSqm: 0,
-      parkingBaysRequired: 60,
-      subUnitName: 'GLA',
-      subUnitMetric: 'area',
-      subUnitMetricValue: 5500,
-      subUnitUnitArea: undefined,
-      subUnitUnitPrice: 1200,
-    },
-    {
-      name: 'Branded Residences',
-      strategy: 'Sell + Manage',
-      type: 'Branded Residences',
-      gfaSqm: 0,
-      buaSqm: 0,
-      sellableBuaSqm: 0,
-      parkingBaysRequired: 30,
-      subUnitName: 'Penthouse',
-      subUnitMetric: 'count',
-      subUnitMetricValue: 20,
-      subUnitUnitArea: 220,
-      subUnitUnitPrice: 5000000,
-    },
-  ],
+  projectType: 'Mixed-Use',
 };
 
+// M2.0e: wizard now mints an empty assets[] / subUnits[] snapshot. The
+// fixture injects the same 4-asset shape post-build to keep the
+// regression diff meaningful (per-asset cost rollups + Sell + Manage).
+// This mirrors the live flow where Tab 2 is the asset entry surface.
 const snapshot = buildWizardSnapshot(FIXTURE);
+const firstPhaseId = snapshot.phases[0].id;
+snapshot.assets = [
+  {
+    id: 'asset_1', phaseId: firstPhaseId, name: 'Apartments', type: 'High-end Apartments',
+    strategy: 'Sell', visible: true,
+    gfaSqm: 0, buaSqm: 0, sellableBuaSqm: 0, parkingBaysRequired: 200,
+    status: 'planned',
+  },
+  {
+    id: 'asset_2', phaseId: firstPhaseId, name: 'Hotel', type: 'Hotel 5-star',
+    strategy: 'Operate', visible: true,
+    gfaSqm: 0, buaSqm: 0, sellableBuaSqm: 0, parkingBaysRequired: 80,
+    status: 'planned',
+  },
+  {
+    id: 'asset_3', phaseId: firstPhaseId, name: 'Retail', type: 'Retail Mall',
+    strategy: 'Lease', visible: true,
+    gfaSqm: 0, buaSqm: 0, sellableBuaSqm: 0, parkingBaysRequired: 60,
+    status: 'planned',
+  },
+  {
+    id: 'asset_4', phaseId: firstPhaseId, name: 'Branded Residences', type: 'Branded Residences',
+    strategy: 'Sell + Manage', visible: true,
+    gfaSqm: 0, buaSqm: 0, sellableBuaSqm: 0, parkingBaysRequired: 30,
+    status: 'planned',
+  },
+];
+snapshot.subUnits = [
+  { id: 'subunit_1', assetId: 'asset_1', name: '2BR', category: 'Sellable', metric: 'count', metricValue: 120, unitArea: 110, unitPrice: 1500000 },
+  { id: 'subunit_2', assetId: 'asset_2', name: 'Hotel Key', category: 'Operable', metric: 'count', metricValue: 220, unitArea: 45, unitPrice: 850, occupancyPct: 65, operatingMargin: 35 },
+  { id: 'subunit_3', assetId: 'asset_3', name: 'GLA', category: 'Leasable', metric: 'area', metricValue: 5500, unitPrice: 1200, occupancyPct: 92, operatingMargin: 80 },
+  { id: 'subunit_4', assetId: 'asset_4', name: 'Penthouse', category: 'Sellable', metric: 'count', metricValue: 20, unitArea: 220, unitPrice: 5000000 },
+];
 
 // ── Derived ───────────────────────────────────────────────────────────────
 const land = computeLandAggregate(snapshot.parcels);

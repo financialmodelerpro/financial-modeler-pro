@@ -107,38 +107,31 @@ const fixtureDraft: WizardDraft = {
   phases: [{ name: 'Phase 1', startDate: '2026-01-01', constructionPeriods: 24, operationsPeriods: 60, overlapPeriods: 0 }],
   parcels: [{ name: 'Parcel A', area: 100000, rate: 500, cashPct: 60, inKindPct: 40 }],
   landAllocationMode: 'autoByBua',
-  assets: [
-    {
-      name: 'Apartments',
-      strategy: 'Sell',
-      type: 'High-end Apartments',
-      gfaSqm: 0,
-      buaSqm: 0,
-      sellableBuaSqm: 0,
-      parkingBaysRequired: 200,
-      subUnitName: '2BR',
-      subUnitMetric: 'count',
-      subUnitMetricValue: 100,
-      subUnitUnitArea: 120,
-      subUnitUnitPrice: 1500000,
-    },
-    {
-      name: 'Hotel',
-      strategy: 'Operate',
-      type: 'Hotel 5-star',
-      gfaSqm: 0,
-      buaSqm: 0,
-      sellableBuaSqm: 0,
-      parkingBaysRequired: 80,
-      subUnitName: 'Hotel Key',
-      subUnitMetric: 'count',
-      subUnitMetricValue: 200,
-      subUnitUnitArea: 50,
-      subUnitUnitPrice: 800,
-    },
-  ],
+  projectType: 'Mixed-Use',
 };
+// M2.0e: wizard now mints empty assets[]/subUnits[]; the verifier
+// injects two assets post-build to keep the calc-engine assertions
+// (computeAssetBua / computeAssetLandCost / computePhaseCost) intact.
 const snapshot: HydrateSnapshot = buildWizardSnapshot(fixtureDraft);
+const phaseId = snapshot.phases[0].id;
+snapshot.assets = [
+  {
+    id: 'asset_1', phaseId, name: 'Apartments', type: 'High-end Apartments',
+    strategy: 'Sell', visible: true,
+    gfaSqm: 0, buaSqm: 0, sellableBuaSqm: 0, parkingBaysRequired: 200,
+    status: 'planned',
+  },
+  {
+    id: 'asset_2', phaseId, name: 'Hotel', type: 'Hotel 5-star',
+    strategy: 'Operate', visible: true,
+    gfaSqm: 0, buaSqm: 0, sellableBuaSqm: 0, parkingBaysRequired: 80,
+    status: 'planned',
+  },
+];
+snapshot.subUnits = [
+  { id: 'subunit_1', assetId: 'asset_1', name: '2BR', category: 'Sellable', metric: 'count', metricValue: 100, unitArea: 120, unitPrice: 1500000 },
+  { id: 'subunit_2', assetId: 'asset_2', name: 'Hotel Key', category: 'Operable', metric: 'count', metricValue: 200, unitArea: 50, unitPrice: 800, occupancyPct: 65, operatingMargin: 35 },
+];
 
 const aBua = computeAssetBua(snapshot.assets[0], snapshot.subUnits);
 if (Math.abs(aBua - 100 * 120) < 0.01) pass('computeAssetBua: 100 units * 120 sqm = 12,000 sqm');

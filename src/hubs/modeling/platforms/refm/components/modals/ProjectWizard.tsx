@@ -24,15 +24,14 @@ import {
   type WizardDraft,
   type WizardDraftPhase,
   type WizardDraftParcel,
-  type WizardDraftAsset,
   makeDefaultWizardDraft,
 } from '../../lib/wizard/buildWizardSnapshot';
 import {
-  type AssetStrategy,
   type LandAllocationMode,
   type ModelGranularity,
-  ASSET_STRATEGIES,
-  ASSET_TYPES_BY_STRATEGY,
+  type ProjectType,
+  PROJECT_TYPES,
+  SUGGESTED_CATEGORIES_BY_PROJECT_TYPE,
   LAND_ALLOCATION_MODES,
 } from '../../lib/state/module1-types';
 
@@ -91,11 +90,15 @@ export default function ProjectWizard({
 
   const step1Valid = draft.projectName.trim() !== '' && draft.currency.trim() !== '';
   const step2Valid =
-    draft.phases.every((p) => p.constructionPeriods > 0 && p.operationsPeriods >= 0) &&
+    draft.phases.every((p) => p.constructionPeriods > 0 && p.operationsPeriods >= 0 && p.startDate.length === 10) &&
     draft.parcels.every(
       (p) => p.area > 0 && p.rate > 0 && Math.abs(p.cashPct + p.inKindPct - 100) < 0.1,
     );
-  const step3Valid = draft.assets.length > 0;
+  // M2.0e: Step 3 simplified to a single project-type pick. PROJECT_TYPES
+  // closed enum guarantees draft.projectType is always one of the valid
+  // slots; the gate just confirms a selection exists (always true after
+  // makeDefaultWizardDraft).
+  const step3Valid = PROJECT_TYPES.includes(draft.projectType);
 
   const content = (
     <div
@@ -177,7 +180,7 @@ export default function ProjectWizard({
             >
               {s === 1 && '1. Basics'}
               {s === 2 && '2. Phases & Land'}
-              {s === 3 && '3. Assets'}
+              {s === 3 && '3. Project Type'}
             </div>
           ))}
         </div>
@@ -585,6 +588,12 @@ function Step2({
   );
 }
 
+// M2.0e: Step 3 collapses from full asset detail entry into a single
+// project-type pick. The user picks once; Tab 2 (Module1Assets) is the
+// canonical asset entry surface and uses ASSET_TYPES_BY_PROJECT_TYPE
+// to filter the type catalog. No assets are auto-created; phase
+// headers in Tab 2 print SUGGESTED_CATEGORIES_BY_PROJECT_TYPE so the
+// user has direction without surprise content.
 function Step3({
   draft,
   onUpdate,
@@ -592,239 +601,81 @@ function Step3({
   draft: WizardDraft;
   onUpdate: (patch: Partial<WizardDraft>) => void;
 }): React.JSX.Element {
-  const update = (idx: number, patch: Partial<WizardDraftAsset>): void => {
-    onUpdate({ assets: draft.assets.map((a, i) => (i === idx ? { ...a, ...patch } : a)) });
-  };
-  const add = (): void => {
-    onUpdate({
-      assets: [
-        ...draft.assets,
-        {
-          name: `Asset ${draft.assets.length + 1}`,
-          strategy: 'Sell',
-          type: 'High-end Apartments',
-          gfaSqm: 0,
-          buaSqm: 0,
-          sellableBuaSqm: 0,
-          parkingBaysRequired: 0,
-          subUnitName: 'Sub-unit',
-          subUnitMetric: 'count',
-          subUnitMetricValue: 50,
-          subUnitUnitArea: 100,
-          subUnitUnitPrice: 1000000,
-        },
-      ],
-    });
-  };
-  const remove = (idx: number): void => {
-    if (draft.assets.length <= 1) return;
-    onUpdate({ assets: draft.assets.filter((_, i) => i !== idx) });
-  };
-
+  const suggestions = SUGGESTED_CATEGORIES_BY_PROJECT_TYPE[draft.projectType] ?? [];
   return (
     <div data-testid="wizard-step-3-content">
-      {draft.assets.map((a, idx) => (
+      <div
+        style={{
+          background: 'var(--color-primary-pale)',
+          border: '1px solid var(--color-primary)',
+          borderRadius: 'var(--radius)',
+          padding: 'var(--sp-2)',
+          marginBottom: 'var(--sp-3)',
+          fontSize: 'var(--font-small)',
+        }}
+        data-testid="wiz-step3-callout"
+      >
+        <strong>What goes here:</strong> Pick a project type. The Tab 2
+        asset entry surface uses this to filter the asset Type catalog
+        and to print empty-state suggestions per phase. Asset detail
+        (areas, sub-units, parking, pricing) lives in Tab 2 after
+        create, not here.
+      </div>
+
+      <h3 style={{ margin: 0, marginBottom: 'var(--sp-2)' }}>Project Type</h3>
+      <div
+        data-testid="wiz-project-type-options"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: 'var(--sp-2)',
+          marginBottom: 'var(--sp-3)',
+        }}
+      >
+        {PROJECT_TYPES.map((t) => (
+          <label
+            key={t}
+            data-testid={`wiz-project-type-${t}`}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--sp-1)',
+              padding: 'var(--sp-2)',
+              border: `1px solid ${draft.projectType === t ? 'var(--color-navy)' : 'var(--color-border)'}`,
+              borderRadius: 'var(--radius)',
+              cursor: 'pointer',
+              background: draft.projectType === t ? 'var(--color-navy-pale)' : 'transparent',
+              fontWeight: draft.projectType === t ? 700 : 500,
+            }}
+          >
+            <input
+              type="radio"
+              name="wiz-project-type"
+              value={t}
+              checked={draft.projectType === t}
+              onChange={() => onUpdate({ projectType: t as ProjectType })}
+            />
+            <span>{t}</span>
+          </label>
+        ))}
+      </div>
+
+      {suggestions.length > 0 && (
         <div
-          key={idx}
-          data-testid={`wiz-asset-row-${idx}`}
+          data-testid="wiz-project-type-suggestions"
           style={{
+            background: 'var(--color-grey-pale)',
             border: '1px solid var(--color-border)',
             borderRadius: 'var(--radius-sm)',
             padding: 'var(--sp-2)',
-            marginBottom: 'var(--sp-2)',
+            fontSize: 'var(--font-small)',
+            color: 'var(--color-meta)',
           }}
         >
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 'var(--sp-2)',
-              marginBottom: 'var(--sp-2)',
-            }}
-          >
-            <div>
-              <label style={labelStyle}>Name</label>
-              <input
-                type="text"
-                data-testid={`wiz-asset-${idx}-name`}
-                value={a.name}
-                onChange={(e) => update(idx, { name: e.target.value })}
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Strategy</label>
-              <select
-                data-testid={`wiz-asset-${idx}-strategy`}
-                value={a.strategy}
-                onChange={(e) => update(idx, { strategy: e.target.value as AssetStrategy, type: ASSET_TYPES_BY_STRATEGY[e.target.value as AssetStrategy][0] })}
-                style={inputStyle}
-              >
-                {ASSET_STRATEGIES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label style={labelStyle}>Type</label>
-              <input
-                type="text"
-                list={`wiz-asset-types-${idx}`}
-                data-testid={`wiz-asset-${idx}-type`}
-                value={a.type}
-                onChange={(e) => update(idx, { type: e.target.value })}
-                style={inputStyle}
-              />
-              <datalist id={`wiz-asset-types-${idx}`}>
-                {ASSET_TYPES_BY_STRATEGY[a.strategy].map((t) => (
-                  <option key={t} value={t} />
-                ))}
-              </datalist>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'flex-end' }}>
-              {draft.assets.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => remove(idx)}
-                  data-testid={`wiz-asset-${idx}-remove`}
-                  style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 4, padding: '2px 8px', cursor: 'pointer' }}
-                >
-                  Remove
-                </button>
-              )}
-            </div>
-          </div>
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 'var(--sp-2)',
-            }}
-          >
-            <div>
-              <label style={labelStyle}>GFA (sqm)</label>
-              <input
-                type="number"
-                min={0}
-                data-testid={`wiz-asset-${idx}-gfaSqm`}
-                value={a.gfaSqm}
-                onChange={(e) => update(idx, { gfaSqm: Math.max(0, Number(e.target.value) || 0) })}
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>BUA (sqm)</label>
-              <input
-                type="number"
-                min={0}
-                data-testid={`wiz-asset-${idx}-buaSqm`}
-                value={a.buaSqm}
-                onChange={(e) => update(idx, { buaSqm: Math.max(0, Number(e.target.value) || 0) })}
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Sellable BUA (sqm)</label>
-              <input
-                type="number"
-                min={0}
-                data-testid={`wiz-asset-${idx}-sellableBuaSqm`}
-                value={a.sellableBuaSqm}
-                onChange={(e) => update(idx, { sellableBuaSqm: Math.max(0, Number(e.target.value) || 0) })}
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Parking Bays</label>
-              <input
-                type="number"
-                min={0}
-                data-testid={`wiz-asset-${idx}-parkingBaysRequired`}
-                value={a.parkingBaysRequired}
-                onChange={(e) => update(idx, { parkingBaysRequired: Math.max(0, Number(e.target.value) || 0) })}
-                style={inputStyle}
-              />
-            </div>
-          </div>
-          <div
-            style={{
-              marginTop: 'var(--sp-2)',
-              borderTop: '1px solid var(--color-border)',
-              paddingTop: 'var(--sp-2)',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(5, 1fr)',
-              gap: 'var(--sp-2)',
-            }}
-          >
-            <div>
-              <label style={labelStyle}>Sub-unit Name</label>
-              <input
-                type="text"
-                data-testid={`wiz-asset-${idx}-subUnitName`}
-                value={a.subUnitName}
-                onChange={(e) => update(idx, { subUnitName: e.target.value })}
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Metric</label>
-              <select
-                data-testid={`wiz-asset-${idx}-subUnitMetric`}
-                value={a.subUnitMetric}
-                onChange={(e) => update(idx, { subUnitMetric: e.target.value as 'count' | 'area' })}
-                style={inputStyle}
-              >
-                <option value="count">count</option>
-                <option value="area">area</option>
-              </select>
-            </div>
-            <div>
-              <label style={labelStyle}>Value</label>
-              <input
-                type="number"
-                min={0}
-                data-testid={`wiz-asset-${idx}-subUnitMetricValue`}
-                value={a.subUnitMetricValue}
-                onChange={(e) => update(idx, { subUnitMetricValue: Math.max(0, Number(e.target.value) || 0) })}
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>sqm/unit</label>
-              <input
-                type="number"
-                min={0}
-                data-testid={`wiz-asset-${idx}-subUnitUnitArea`}
-                value={a.subUnitUnitArea ?? 0}
-                onChange={(e) => update(idx, { subUnitUnitArea: Math.max(0, Number(e.target.value) || 0) })}
-                style={inputStyle}
-                disabled={a.subUnitMetric === 'area'}
-              />
-            </div>
-            <div>
-              <label style={labelStyle}>Unit Price</label>
-              <input
-                type="number"
-                min={0}
-                data-testid={`wiz-asset-${idx}-subUnitUnitPrice`}
-                value={a.subUnitUnitPrice}
-                onChange={(e) => update(idx, { subUnitUnitPrice: Math.max(0, Number(e.target.value) || 0) })}
-                style={inputStyle}
-              />
-            </div>
-          </div>
+          <strong>Tab 2 will suggest:</strong>{' '}
+          {suggestions.join(', ')}
         </div>
-      ))}
-      <button
-        type="button"
-        onClick={add}
-        data-testid="wiz-add-asset"
-        style={{ padding: 'var(--sp-1) var(--sp-2)', background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
-      >
-        + Add Asset
-      </button>
+      )}
     </div>
   );
 }
