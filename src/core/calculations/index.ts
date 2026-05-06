@@ -432,17 +432,25 @@ export function computeAssetCost(
   landAllocationMode: LandAllocationMode,
 ): AssetCostBreakdown {
   const phaseAssets = assets.filter((a) => a.phaseId === phase.id && a.visible);
-  const phaseLines = costLines.filter((c) => c.phaseId === phase.id);
+  // M2.0d: filter targeted custom lines so each asset only sees its own
+  // (untagged lines = project-wide and apply to all assets).
+  const phaseLines = costLines.filter(
+    (c) => c.phaseId === phase.id &&
+      (c.targetAssetId === undefined || c.targetAssetId === asset.id),
+  );
   const metrics = resolveAssetAreaMetrics(asset, project, parcels, phaseAssets, subUnits, landAllocationMode);
 
   // Resolve the per-asset method/value/phasing for each line, applying
-  // overrides where present.
-  const resolved: Array<{ line: CostLine; method: CostMethod; value: number; phasing: CostPhasing; distribution?: number[] }> = phaseLines.map((line) => {
+  // overrides where present. M2.0d: line.disabled OR override.disabled
+  // zeros the row out (kept in resolved[] for stage / phase indexing
+  // but the value is forced to 0).
+  const resolved: Array<{ line: CostLine; method: CostMethod; value: number; phasing: CostPhasing; distribution?: number[]; disabled: boolean }> = phaseLines.map((line) => {
     const ov = costOverrides.find((o) => o.assetId === asset.id && o.lineId === line.id);
+    const disabled = line.disabled === true || ov?.disabled === true;
     if (ov) {
-      return { line, method: ov.method, value: ov.value, phasing: ov.phasing, distribution: ov.distribution };
+      return { line, method: ov.method, value: disabled ? 0 : ov.value, phasing: ov.phasing, distribution: ov.distribution, disabled };
     }
-    return { line, method: line.method, value: line.value, phasing: line.phasing, distribution: line.distribution };
+    return { line, method: line.method, value: disabled ? 0 : line.value, phasing: line.phasing, distribution: line.distribution, disabled };
   });
 
   // Pass 1: direct methods (everything except percent_of_selected /

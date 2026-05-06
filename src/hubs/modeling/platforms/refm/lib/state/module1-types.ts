@@ -401,6 +401,15 @@ export interface CostLine {
   selectedLineIds?: string[];
   isLocked?: boolean;
   requiresCountry?: string;
+  // M2.0d: per-line toggle (UI on/off). When true the line contributes 0
+  // to all assets' rollups regardless of method / value.
+  disabled?: boolean;
+  // M2.0d: when set, the line is a CUSTOM line targeted at exactly one
+  // asset (via "+ Add Custom Cost" in that asset's per-asset section).
+  // The Costs tab UI hides target-tagged lines from other assets'
+  // sections. When undefined, the line is project-wide (the standard 9
+  // catalog and any future user-added project-level lines).
+  targetAssetId?: string;
 }
 
 export interface CostOverride {
@@ -410,6 +419,10 @@ export interface CostOverride {
   value: number;
   phasing: CostPhasing;
   distribution?: number[];
+  // M2.0d: per-asset on/off toggle. When true this asset zeros out the
+  // line regardless of value or method. Independent of CostLine.disabled
+  // (which zeros out the line for ALL assets).
+  disabled?: boolean;
 }
 
 // ── Financing tranche ──────────────────────────────────────────────────────
