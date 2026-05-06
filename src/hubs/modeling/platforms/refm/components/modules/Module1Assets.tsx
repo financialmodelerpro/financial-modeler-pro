@@ -63,6 +63,7 @@ import {
   resolveUsefulLifeYears,
   validateLandAllocation,
 } from '@/src/core/calculations';
+import { formatScaledCurrency } from '@/src/core/formatters';
 import InputLabel from '../ui/InputLabel';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
@@ -120,11 +121,16 @@ const phaseHeaderStyle: React.CSSProperties = {
   cursor: 'pointer',
 };
 
+// M2.0g: integer/area helper (full numbers, no scale). Used for sqm,
+// counts, percent values that shouldn't be K/M-scaled.
 const fmt = (n: number, digits = 0): string =>
   Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: digits }) : 'n/a';
 
-const fmtCurrency = (n: number, currency: string): string =>
-  `${fmt(n)} ${currency}`;
+// Currency totals use formatScaledCurrency so they respect the project-
+// wide displayScale (full / thousands / millions). Defaults to 'full'
+// when scale is undefined.
+const fmtCurrency = (n: number, currency: string, scale: import('../../lib/state/module1-types').DisplayScale = 'full'): string =>
+  formatScaledCurrency(n, currency, scale);
 
 // M2.0e: long-form strategy labels for the dropdown.
 const STRATEGY_LABELS: Record<AssetStrategy, string> = {
@@ -442,7 +448,7 @@ export default function Module1Assets(): React.JSX.Element {
           </div>
           <div>
             <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Land Cost</div>
-            <strong style={{ fontSize: 16 }} data-testid="globals-land-cost">{fmtCurrency(aggregate.totalValue, project.currency)}</strong>
+            <strong style={{ fontSize: 16 }} data-testid="globals-land-cost">{fmtCurrency(aggregate.totalValue, project.currency, project.displayScale ?? 'full')}</strong>
           </div>
         </div>
       </div>
@@ -879,7 +885,7 @@ function AssetCard({
                   );
                 })}
                 <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', marginTop: 'var(--sp-1)' }} data-testid={`asset-${asset.id}-multi-parcel-total`}>
-                  Total: <strong>{fmt(landBreakdown.landSqm)} sqm</strong> · weighted rate <strong>{fmt(landBreakdown.rate)} {project.currency}/sqm</strong> · cost <strong>{fmt(landCost)} {project.currency}</strong>
+                  Total: <strong>{fmt(landBreakdown.landSqm)} sqm</strong> · weighted rate <strong>{fmt(landBreakdown.rate)} {project.currency}/sqm</strong> · cost <strong>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full')}</strong>
                 </div>
               </div>
             ) : (
@@ -925,7 +931,7 @@ function AssetCard({
                 )}
                 <div>
                   <InputLabel label="Land Cost" help="Resolved land area x parcel rate." inputId={`asset-${asset.id}-land-cost-display`} />
-                  <div style={calcOutputStyle} data-testid={`asset-${asset.id}-land-cost-display`}>{fmt(landCost)} {project.currency}</div>
+                  <div style={calcOutputStyle} data-testid={`asset-${asset.id}-land-cost-display`}>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full')}</div>
                 </div>
               </div>
             )}
@@ -1042,7 +1048,7 @@ function AssetCard({
             </div>
             <div data-testid={`asset-${asset.id}-land-cost`}>
               <span style={{ color: 'var(--color-meta)' }}>Land cost: </span>
-              <strong>{fmtCurrency(landCost, project.currency)}</strong>
+              <strong>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full')}</strong>
             </div>
           </div>
         </>

@@ -20,6 +20,7 @@ import {
   type ModelGranularity,
   type Project,
   type ProjectType,
+  type DisplayScale,
   type Phase,
   type Parcel,
   type Asset,
@@ -62,6 +63,8 @@ export interface WizardDraft {
   modelType: ModelGranularity;
   startDate: string;
   location: string;
+  // M2.0g: display scale captured in Wizard Step 1.
+  displayScale: DisplayScale;
   // Step 2
   phases: WizardDraftPhase[];
   parcels: WizardDraftParcel[];
@@ -80,6 +83,7 @@ export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
     status: 'draft',
     location: draft.location,
     projectType: draft.projectType,
+    displayScale: draft.displayScale,
   };
 
   // Phases. M2.0e: each phase carries its own startDate from the wizard.
@@ -184,5 +188,7 @@ export function makeDefaultWizardDraft(): WizardDraft {
     // M2.0e: project type defaults to Mixed-Use so Tab 2's catalog
     // shows the broadest selection until the user picks a narrower one.
     projectType: 'Mixed-Use',
+    // M2.0g: full numbers default; user can opt into K / M scale.
+    displayScale: 'full',
   };
 }

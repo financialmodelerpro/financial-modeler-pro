@@ -40,6 +40,7 @@ import {
   type CostPhasing,
   type CostStage,
   type CostOverride,
+  type DisplayScale,
   COST_METHODS,
   COST_METHOD_LABELS,
   COST_PHASINGS,
@@ -57,7 +58,7 @@ import {
   deriveCostScope,
   type AssetCostBreakdown,
 } from '@/src/core/calculations';
-import { formatNumber, formatCurrency } from '@/src/core/formatters';
+import { formatScaled, formatScaledCurrency } from '@/src/core/formatters';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -317,12 +318,13 @@ interface CostRowProps {
   onRemoveOverride: () => void;
   onRemoveLine: () => void;
   currency: string;
+  scale: DisplayScale;
 }
 
 function CostRow({
   asset, line, override, total, isLocked,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
-  currency,
+  currency, scale,
 }: CostRowProps): React.JSX.Element {
   const stage = deriveCostStage(line);
   const scope = deriveCostScope(line);
@@ -462,7 +464,7 @@ function CostRow({
       </td>
       <td style={{ padding: '4px', minWidth: 110, textAlign: 'right' }}>
         <div style={calcOutputStyle} data-testid={`cost-${asset.id}-${line.id}-total`}>
-          {formatNumber(total)}
+          {formatScaled(total, scale)}
         </div>
         <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>{currency}</div>
       </td>
@@ -517,6 +519,7 @@ interface AssetCostSectionProps {
   costOverrides: CostOverride[];
   breakdown: AssetCostBreakdown;
   currency: string;
+  scale: DisplayScale;
   onUpdateLine: (lineId: string, patch: Partial<CostLine>) => void;
   onUpdateOverride: (override: CostOverride) => void;
   onRemoveOverride: (assetId: string, lineId: string) => void;
@@ -525,7 +528,7 @@ interface AssetCostSectionProps {
 }
 
 function AssetCostSection({
-  asset, lines, costOverrides, breakdown, currency,
+  asset, lines, costOverrides, breakdown, currency, scale,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   onAddCustom,
 }: AssetCostSectionProps): React.JSX.Element {
@@ -561,7 +564,7 @@ function AssetCostSection({
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 12, color: 'var(--color-meta)' }}>Subtotal</span>
           <strong style={{ fontSize: 14 }} data-testid={`asset-section-${asset.id}-subtotal`}>
-            {formatCurrency(subtotal, currency)}
+            {formatScaledCurrency(subtotal, currency, scale)}
           </strong>
           <span style={{ fontSize: 14, color: 'var(--color-meta)' }}>{collapsed ? '▶' : '▼'}</span>
         </div>
@@ -594,6 +597,7 @@ function AssetCostSection({
                     total={total}
                     isLocked={line.isLocked === true}
                     currency={currency}
+                    scale={scale}
                     onUpdateLine={(patch) => onUpdateLine(line.id, patch)}
                     onUpdateOverride={onUpdateOverride}
                     onRemoveOverride={() => onRemoveOverride(asset.id, line.id)}
@@ -608,7 +612,7 @@ function AssetCostSection({
                   Asset Subtotal
                 </td>
                 <td style={{ padding: '6px', textAlign: 'right', fontWeight: 700 }} data-testid={`asset-section-${asset.id}-tfoot-subtotal`}>
-                  {formatCurrency(subtotal, currency)}
+                  {formatScaledCurrency(subtotal, currency, scale)}
                 </td>
                 <td></td>
               </tr>
@@ -637,7 +641,7 @@ interface SummaryTablesProps {
   perPhaseBreakdowns: Array<{ phaseId: string; cp: number; assetTotals: Record<string, AssetCostBreakdown> }>;
   parcelsByPhase: Map<string, { cashLandValue: number; inKindLandValue: number }>;
   metricsByAsset: Map<string, { cashLandValue: number; inKindLandValue: number; landValue: number }>;
-  project: { currency: string; startDate: string; modelType: 'monthly' | 'annual' };
+  project: { currency: string; startDate: string; modelType: 'monthly' | 'annual'; displayScale: DisplayScale };
   totalConstructionPeriods: number;
 }
 
@@ -645,6 +649,8 @@ function SummaryTables({
   phaseAssets, perPhaseBreakdowns, metricsByAsset,
   project, totalConstructionPeriods,
 }: SummaryTablesProps): React.JSX.Element {
+  const scale = project.displayScale;
+  const fmt = (v: number): string => formatScaled(v, scale);
   // Capex by Period: rows = assets + total, cols = period 1..N (cap at 24 for layout)
   const periodCount = Math.min(totalConstructionPeriods, 24);
   const periodLabels = Array.from({ length: periodCount }, (_, i) => getPeriodLabel(i + 1, project.startDate, project.modelType));
@@ -761,14 +767,14 @@ function SummaryTables({
               {periodTable.map((r) => (
                 <tr key={r.id}>
                   <td style={cellName}>{r.name}</td>
-                  {r.row.map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-${r.id}-${i + 1}`}>{formatNumber(v)}</td>))}
+                  {r.row.map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-${r.id}-${i + 1}`}>{fmt(v)}</td>))}
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
                 <td style={cellName}>Project Total</td>
-                {periodTotals.map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-total-${i + 1}`}>{formatNumber(v)}</td>))}
+                {periodTotals.map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-total-${i + 1}`}>{fmt(v)}</td>))}
               </tr>
             </tfoot>
           </table>
@@ -793,22 +799,22 @@ function SummaryTables({
             {stageTable.map((r, i) => (
               <tr key={i}>
                 <td style={cellName}>{r.period}</td>
-                <td style={cellNum} data-testid={`capex-stage-${i + 1}-land`}>{formatNumber(r.land)}</td>
-                <td style={cellNum} data-testid={`capex-stage-${i + 1}-hard`}>{formatNumber(r.hard)}</td>
-                <td style={cellNum} data-testid={`capex-stage-${i + 1}-soft`}>{formatNumber(r.soft)}</td>
-                <td style={cellNum} data-testid={`capex-stage-${i + 1}-operating`}>{formatNumber(r.operating)}</td>
-                <td style={cellNum}>{formatNumber(r.total)}</td>
+                <td style={cellNum} data-testid={`capex-stage-${i + 1}-land`}>{fmt(r.land)}</td>
+                <td style={cellNum} data-testid={`capex-stage-${i + 1}-hard`}>{fmt(r.hard)}</td>
+                <td style={cellNum} data-testid={`capex-stage-${i + 1}-soft`}>{fmt(r.soft)}</td>
+                <td style={cellNum} data-testid={`capex-stage-${i + 1}-operating`}>{fmt(r.operating)}</td>
+                <td style={cellNum}>{fmt(r.total)}</td>
               </tr>
             ))}
           </tbody>
           <tfoot>
             <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
               <td style={cellName}>Total</td>
-              <td style={cellNum} data-testid="capex-stage-total-land">{formatNumber(stageTotals.land)}</td>
-              <td style={cellNum} data-testid="capex-stage-total-hard">{formatNumber(stageTotals.hard)}</td>
-              <td style={cellNum} data-testid="capex-stage-total-soft">{formatNumber(stageTotals.soft)}</td>
-              <td style={cellNum} data-testid="capex-stage-total-operating">{formatNumber(stageTotals.operating)}</td>
-              <td style={cellNum} data-testid="capex-stage-total-total">{formatNumber(stageTotals.total)}</td>
+              <td style={cellNum} data-testid="capex-stage-total-land">{fmt(stageTotals.land)}</td>
+              <td style={cellNum} data-testid="capex-stage-total-hard">{fmt(stageTotals.hard)}</td>
+              <td style={cellNum} data-testid="capex-stage-total-soft">{fmt(stageTotals.soft)}</td>
+              <td style={cellNum} data-testid="capex-stage-total-operating">{fmt(stageTotals.operating)}</td>
+              <td style={cellNum} data-testid="capex-stage-total-total">{fmt(stageTotals.total)}</td>
             </tr>
           </tfoot>
         </table>
@@ -837,26 +843,26 @@ function SummaryTables({
                 <tr key={r.id} data-testid={`capex-treatment-${r.id}`}>
                   <td style={cellName}>{r.name}</td>
                   <td style={cellNum}>{r.strategy}</td>
-                  <td style={cellNum}>{formatNumber(r.landCash)}</td>
-                  <td style={cellNum}>{formatNumber(r.landInKind)}</td>
-                  <td style={cellNum}>{formatNumber(r.hard)}</td>
-                  <td style={cellNum}>{formatNumber(r.soft)}</td>
-                  <td style={cellNum}>{formatNumber(r.operating)}</td>
-                  <td style={cellNum}>{formatNumber(r.total)}</td>
-                  <td style={cellNum} data-testid={`capex-treatment-${r.id}-cash-flow`}>{formatNumber(r.cashOutflow)}</td>
+                  <td style={cellNum}>{fmt(r.landCash)}</td>
+                  <td style={cellNum}>{fmt(r.landInKind)}</td>
+                  <td style={cellNum}>{fmt(r.hard)}</td>
+                  <td style={cellNum}>{fmt(r.soft)}</td>
+                  <td style={cellNum}>{fmt(r.operating)}</td>
+                  <td style={cellNum}>{fmt(r.total)}</td>
+                  <td style={cellNum} data-testid={`capex-treatment-${r.id}-cash-flow`}>{fmt(r.cashOutflow)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
                 <td style={cellName} colSpan={2}>Project Total</td>
-                <td style={cellNum} data-testid="capex-treatment-total-land-cash">{formatNumber(treatTotals.landCash)}</td>
-                <td style={cellNum} data-testid="capex-treatment-total-land-inkind">{formatNumber(treatTotals.landInKind)}</td>
-                <td style={cellNum}>{formatNumber(treatTotals.hard)}</td>
-                <td style={cellNum}>{formatNumber(treatTotals.soft)}</td>
-                <td style={cellNum}>{formatNumber(treatTotals.operating)}</td>
-                <td style={cellNum} data-testid="capex-treatment-total-capex">{formatNumber(treatTotals.total)}</td>
-                <td style={cellNum} data-testid="capex-treatment-total-cash-flow">{formatNumber(treatTotals.cashOutflow)}</td>
+                <td style={cellNum} data-testid="capex-treatment-total-land-cash">{fmt(treatTotals.landCash)}</td>
+                <td style={cellNum} data-testid="capex-treatment-total-land-inkind">{fmt(treatTotals.landInKind)}</td>
+                <td style={cellNum}>{fmt(treatTotals.hard)}</td>
+                <td style={cellNum}>{fmt(treatTotals.soft)}</td>
+                <td style={cellNum}>{fmt(treatTotals.operating)}</td>
+                <td style={cellNum} data-testid="capex-treatment-total-capex">{fmt(treatTotals.total)}</td>
+                <td style={cellNum} data-testid="capex-treatment-total-cash-flow">{fmt(treatTotals.cashOutflow)}</td>
               </tr>
             </tfoot>
           </table>
@@ -894,6 +900,8 @@ export default function Module1Costs(): React.JSX.Element {
 
   const [stageFilter, setStageFilter] = useState<CostStage | 'all'>('all');
   const [popupAssetId, setPopupAssetId] = useState<string | null>(null);
+  // M2.0g: project-wide display scale.
+  const scale: DisplayScale = project.displayScale ?? 'full';
 
   const currentPhase = phases.find((p) => p.id === activePhaseId) ?? phases[0];
   if (!currentPhase) {
@@ -1004,7 +1012,7 @@ export default function Module1Costs(): React.JSX.Element {
               {COST_STAGE_LABELS[s]}
             </div>
             <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>
-              {formatCurrency(stageTotals[s], project.currency)}
+              {formatScaledCurrency(stageTotals[s], project.currency, scale)}
             </div>
           </div>
         ))}
@@ -1027,6 +1035,7 @@ export default function Module1Costs(): React.JSX.Element {
                   costOverrides={costOverrides}
                   breakdown={breakdown}
                   currency={project.currency}
+                  scale={scale}
                   onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
                   onUpdateOverride={setCostOverride}
                   onRemoveOverride={removeCostOverride}
@@ -1052,7 +1061,7 @@ export default function Module1Costs(): React.JSX.Element {
           perPhaseBreakdowns={perPhaseBreakdowns}
           parcelsByPhase={new Map()}
           metricsByAsset={metricsByAsset}
-          project={{ currency: project.currency, startDate: project.startDate, modelType: project.modelType }}
+          project={{ currency: project.currency, startDate: project.startDate, modelType: project.modelType, displayScale: scale }}
           totalConstructionPeriods={totalConstructionPeriods}
         />
       )}
@@ -1071,7 +1080,7 @@ export default function Module1Costs(): React.JSX.Element {
         data-testid="costs-project-total"
       >
         <strong style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Project Total</strong>
-        <strong style={{ fontSize: 18 }}>{formatCurrency(projectTotal, project.currency)}</strong>
+        <strong style={{ fontSize: 18 }}>{formatScaledCurrency(projectTotal, project.currency, scale)}</strong>
       </div>
 
       {popupAssetId && (

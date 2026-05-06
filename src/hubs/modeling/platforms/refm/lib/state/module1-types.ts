@@ -163,6 +163,19 @@ export const LAND_ALLOCATION_MODES: readonly LandAllocationMode[] = [
 export type ModelGranularity = 'monthly' | 'annual';
 export type ProjectStatus     = 'draft' | 'active' | 'archived';
 
+// M2.0g (2026-05-06): project-level display scale. Storage stays full
+// value (e.g. 98,450 SAR/sqm); only the display layer divides for
+// thousands / millions readability. Wizard Step 1 captures it.
+export type DisplayScale = 'full' | 'thousands' | 'millions';
+
+export const DISPLAY_SCALES: readonly DisplayScale[] = ['full', 'thousands', 'millions'] as const;
+
+export const DISPLAY_SCALE_LABELS: Record<DisplayScale, string> = {
+  full:      'Full numbers (1,234,567)',
+  thousands: 'Thousands (1,234.57 K)',
+  millions:  'Millions (1.23 M)',
+};
+
 // M2.0e: closed-enum project type that drives Tab 2's asset-type catalog.
 // Mixed-Use exposes every type from every category; Custom = free-text
 // fallback (still shows the full bank as suggestions).
@@ -221,6 +234,9 @@ export interface Project {
   // the empty-state asset suggestions per phase. Captured in Wizard
   // Step 3.
   projectType?: ProjectType;
+  // M2.0g (2026-05-06): display scale. Optional; defaults to 'full'
+  // when undefined so v7 snapshots keep working unchanged.
+  displayScale?: DisplayScale;
 }
 
 // ── Phase ──────────────────────────────────────────────────────────────────
@@ -954,6 +970,7 @@ export function makeDefaultProject(
     country: '',
     projectRoadsPct: 0,
     projectType: 'Mixed-Use',
+    displayScale: 'full',
   };
 }
 

@@ -30,9 +30,12 @@ import {
   type LandAllocationMode,
   type ModelGranularity,
   type ProjectType,
+  type DisplayScale,
   PROJECT_TYPES,
   SUGGESTED_CATEGORIES_BY_PROJECT_TYPE,
   LAND_ALLOCATION_MODES,
+  DISPLAY_SCALES,
+  DISPLAY_SCALE_LABELS,
 } from '../../lib/state/module1-types';
 
 export type { WizardDraft } from '../../lib/wizard/buildWizardSnapshot';
@@ -254,6 +257,22 @@ function Step1({
     <div data-testid="wizard-step-1-content">
       <div
         style={{
+          background: 'var(--color-grey-pale)',
+          border: '1px solid var(--color-border)',
+          borderRadius: 'var(--radius-sm)',
+          padding: 'var(--sp-2)',
+          marginBottom: 'var(--sp-2)',
+          fontSize: 'var(--font-small)',
+          color: 'var(--color-meta)',
+        }}
+        data-testid="wiz-step1-instruction"
+      >
+        Enter all values as full numbers (e.g. 98,450 not 98.45). Pick a
+        Display Scale below to view results in thousands or millions; the
+        underlying storage stays full value either way.
+      </div>
+      <div
+        style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(2, 1fr)',
           gap: 'var(--sp-2)',
@@ -316,6 +335,23 @@ function Step1({
             style={inputStyle}
             placeholder="Riyadh, Saudi Arabia"
           />
+        </div>
+        <div style={{ gridColumn: '1 / span 2' }} data-testid="wiz-displayScale-block">
+          <label style={labelStyle}>Display Scale</label>
+          <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+            {DISPLAY_SCALES.map((s) => (
+              <label key={s} data-testid={`wiz-displayScale-${s}`} style={{ display: 'inline-flex', gap: 6, alignItems: 'center', cursor: 'pointer', fontSize: 'var(--font-small)' }}>
+                <input
+                  type="radio"
+                  name="wiz-displayScale"
+                  value={s}
+                  checked={draft.displayScale === s}
+                  onChange={() => onUpdate({ displayScale: s as DisplayScale })}
+                />
+                {DISPLAY_SCALE_LABELS[s]}
+              </label>
+            ))}
+          </div>
         </div>
       </div>
     </div>

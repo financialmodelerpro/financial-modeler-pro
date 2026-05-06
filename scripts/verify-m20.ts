@@ -108,6 +108,7 @@ const fixtureDraft: WizardDraft = {
   parcels: [{ name: 'Parcel A', area: 100000, rate: 500, cashPct: 60, inKindPct: 40 }],
   landAllocationMode: 'autoByBua',
   projectType: 'Mixed-Use',
+  displayScale: 'full',
 };
 // M2.0e: wizard now mints empty assets[]/subUnits[]; the verifier
 // injects two assets post-build to keep the calc-engine assertions
