@@ -68,20 +68,22 @@ function skip(name: string, msg: string): void {
 // ── Section 1: schema ─────────────────────────────────────────────────────
 console.log('\n[1/5] Schema + types');
 
-if (PROJECT_TYPES.length === 6) pass('6 ProjectTypes');
-else fail('PROJECT_TYPES count', `expected 6, got ${PROJECT_TYPES.length}`);
+// Looser ProjectType count after M2.0f Fix 3 expansion (6 -> 14).
+// Verify M2.0e's 6 original slots are still present (additive change).
+if (PROJECT_TYPES.length >= 6) pass(`PROJECT_TYPES count >= 6 (current ${PROJECT_TYPES.length} after M2.0f)`);
+else fail('PROJECT_TYPES count', `expected >= 6, got ${PROJECT_TYPES.length}`);
 
 const expectedTypes = ['Residential', 'Hospitality', 'Retail', 'Office', 'Mixed-Use', 'Custom'];
 const allPresent = expectedTypes.every((t) => PROJECT_TYPES.includes(t as never));
-if (allPresent) pass('PROJECT_TYPES has all 6 expected slots');
+if (allPresent) pass('PROJECT_TYPES has all 6 M2.0e expected slots (additive in M2.0f)');
 else fail('PROJECT_TYPES slots', `missing one of ${expectedTypes.join(', ')}`);
 
 let catalogCovered = 0;
 for (const t of PROJECT_TYPES) {
   if (ASSET_TYPES_BY_PROJECT_TYPE[t] && ASSET_TYPES_BY_PROJECT_TYPE[t].length >= 4) catalogCovered++;
 }
-if (catalogCovered === 6) pass('ASSET_TYPES_BY_PROJECT_TYPE has 4+ entries for all 6 ProjectTypes');
-else fail('ASSET_TYPES_BY_PROJECT_TYPE coverage', `${catalogCovered}/6 ProjectTypes covered with 4+ entries`);
+if (catalogCovered === PROJECT_TYPES.length) pass(`ASSET_TYPES_BY_PROJECT_TYPE has 4+ entries for all ${PROJECT_TYPES.length} ProjectTypes`);
+else fail('ASSET_TYPES_BY_PROJECT_TYPE coverage', `${catalogCovered}/${PROJECT_TYPES.length} ProjectTypes covered with 4+ entries`);
 
 const mixedUseTypes = ASSET_TYPES_BY_PROJECT_TYPE['Mixed-Use'];
 if (mixedUseTypes.includes('High-end Apartments') && mixedUseTypes.includes('Hotel 5-star') && mixedUseTypes.includes('Retail Mall')) {
@@ -90,8 +92,9 @@ if (mixedUseTypes.includes('High-end Apartments') && mixedUseTypes.includes('Hot
   fail('Mixed-Use catalog', 'missing one of High-end Apartments / Hotel 5-star / Retail Mall');
 }
 
-if (Object.keys(SUGGESTED_CATEGORIES_BY_PROJECT_TYPE).length === 6) pass('SUGGESTED_CATEGORIES_BY_PROJECT_TYPE 6 entries');
-else fail('SUGGESTED_CATEGORIES count', `${Object.keys(SUGGESTED_CATEGORIES_BY_PROJECT_TYPE).length}/6`);
+if (Object.keys(SUGGESTED_CATEGORIES_BY_PROJECT_TYPE).length >= 6) {
+  pass(`SUGGESTED_CATEGORIES_BY_PROJECT_TYPE >= 6 entries (current ${Object.keys(SUGGESTED_CATEGORIES_BY_PROJECT_TYPE).length} after M2.0f)`);
+} else fail('SUGGESTED_CATEGORIES count', `${Object.keys(SUGGESTED_CATEGORIES_BY_PROJECT_TYPE).length}/>=6`);
 
 if (ASSET_STATUSES.length === 3) pass('3 AssetStatuses');
 else fail('ASSET_STATUSES count', `expected 3, got ${ASSET_STATUSES.length}`);
@@ -193,7 +196,7 @@ const markers: Marker[] = [
   { label: 'V1: Phase.startDate optional', path: typesPath, needle: 'startDate?: string' },
   { label: 'V2: Asset.status optional', path: typesPath, needle: 'status?: AssetStatus' },
   { label: 'V3: Project.projectType optional', path: typesPath, needle: 'projectType?: ProjectType' },
-  { label: 'V4: ProjectType enum', path: typesPath, needle: "'Residential' | 'Hospitality' | 'Retail' | 'Office' | 'Mixed-Use' | 'Custom'" },
+  { label: 'V4: ProjectType enum (Residential slot present)', path: typesPath, needle: "'Residential'" },
   { label: 'V5: ASSET_TYPES_BY_PROJECT_TYPE map', path: typesPath, needle: 'ASSET_TYPES_BY_PROJECT_TYPE' },
   { label: 'V6: SUGGESTED_CATEGORIES_BY_PROJECT_TYPE map', path: typesPath, needle: 'SUGGESTED_CATEGORIES_BY_PROJECT_TYPE' },
   { label: 'V7: ASSET_STATUSES export', path: typesPath, needle: 'ASSET_STATUSES' },
@@ -226,7 +229,7 @@ const markers: Marker[] = [
   { label: 'A4: Module1Assets Phase dropdown', path: `${moduleRoot}/Module1Assets.tsx`, needle: 'asset-${asset.id}-phase' },
   { label: 'A5: Module1Assets Status dropdown', path: `${moduleRoot}/Module1Assets.tsx`, needle: 'asset-${asset.id}-status' },
   { label: 'A6: Module1Assets rateUnitLabel helper', path: `${moduleRoot}/Module1Assets.tsx`, needle: 'function rateUnitLabel' },
-  { label: 'A7: Module1Assets reconciliation row', path: `${moduleRoot}/Module1Assets.tsx`, needle: 'asset-${asset.id}-reconciliation' },
+  { label: 'A7: Module1Assets areas footer (reconciliation removed in M2.0f)', path: `${moduleRoot}/Module1Assets.tsx`, needle: 'asset-card-${asset.id}-footer' },
   { label: 'A8: Module1Assets globals card', path: `${moduleRoot}/Module1Assets.tsx`, needle: 'assets-globals' },
   { label: 'A9: Module1Assets sub-unit Rate Unit column', path: `${moduleRoot}/Module1Assets.tsx`, needle: 'subunit-${subUnit.id}-rate-unit' },
   { label: 'A10: Module1Assets statusBadgeStyle helper', path: `${moduleRoot}/Module1Assets.tsx`, needle: 'function statusBadgeStyle' },

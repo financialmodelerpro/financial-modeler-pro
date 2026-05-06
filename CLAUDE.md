@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-06 (M2.0e wizard simplification + Tab 2 full asset entry on v7 schema)**
+**Last updated: 2026-05-06 (M2.0f Module 1 structural fixes on v7 schema)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -230,7 +230,8 @@ npx tsx scripts/verify-m20.ts                   # M2.0 MAAD-Spec rebuild (fixtur
 npx tsx scripts/verify-m20b.ts                  # M2.0b shell restoration (51 pass / 0 fail / 2 skip without dev server / unauth)
 npx tsx scripts/verify-m20c.ts                  # M2.0c full Dev Costs + Financing on v6 (looser SCHEMA_VERSION + COST_METHODS asserts after M2.0d)
 npx tsx scripts/verify-m20d.ts                  # M2.0d Costs polish + v7 (71 pass / 0 fail / 2 skip without dev server)
-npx tsx scripts/verify-m20e.ts                  # M2.0e wizard + Tab 2 (58 pass / 0 fail / 2 skip without dev server) <- canonical green
+npx tsx scripts/verify-m20e.ts                  # M2.0e wizard + Tab 2 (58 pass / 0 fail / 2 skip without dev server)
+npx tsx scripts/verify-m20f.ts                  # M2.0f structural fixes (62 pass / 0 fail / 2 skip without dev server) <- canonical green
 
 # Playwright e2e specs (M2.0 v5/v6/v7 contract)
 npx playwright test tests/e2e/m20-full-flow.spec.ts        # 2 specs: 3-step wizard create + 4-tab landing + 8 light/dark tab screenshots
@@ -238,6 +239,7 @@ npx playwright test tests/e2e/m20b-shell.spec.ts           # 4 specs: brand topb
 npx playwright test tests/e2e/m20c-costs-financing.spec.ts # SKIPPED (frozen v6 contract; superseded by m20d-costs-polish.spec.ts)
 npx playwright test tests/e2e/m20d-costs-polish.spec.ts    # 7 specs: layout (no sidebar bleed) + Tab 2 Sell+Manage agreement + Tab 3 per-asset segregation + custom cost popup + 3 capex summary tables + Tab 4 in-kind equity tile + granularity + light/dark screenshots
 npx playwright test tests/e2e/m20e-wizard-tab2.spec.ts     # 6 specs: wizard Step 2 unit suffix + Phase Start Date column + Step 3 simplified + Tab 2 phase grouping + asset Phase/Status dropdowns + sub-unit Rate Unit column + light/dark screenshots
+npx playwright test tests/e2e/m20f-structural-fixes.spec.ts # 4 specs: shell page header visibility (Fix 1) + wizard 14 project types (Fix 3) + Tab 1 date columns (Fix 4 + 5) + Tab 2 parcel dropdown + Parking sub-unit + derived BUA (Fix 2 + 6)
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -255,9 +257,119 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 **Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
 (`npx playwright install chromium`).
 
-### Module 1 status (2026-05-06, **M2.0e wizard simplification + Tab 2 full asset entry**)
+### Module 1 status (2026-05-06, **M2.0f Module 1 structural fixes**)
 
-**M2.0e (current, ships):** Wizard simplification + Tab 2 becomes the
+**M2.0f (current, ships):** Closes the 6 structural issues Ahmad
+flagged after eyeballing M2.0d + M2.0e together (header clipping,
+multi-parcel rates, project-type catalog, phase startDate
+persistence, project end off-by-one, sub-unit BUA double-entry).
+Additive schema (no SCHEMA_VERSION bump, v7 stays). 5 commits +
+docs sweep:
+
+- **/1 (Fix 1, layout)**: globals.css `.pm-toolbar` switches from
+  `position: fixed` to `position: sticky; top: 0`. The fixed
+  toolbar pulled itself out of the outer flex column flow, which
+  meant the column never reserved its 40px row, so Dashboard /
+  Projects / Overview h1 text rendered behind the toolbar (the
+  M2.0d Fix 1 closed this for the Module 1 tabs but the shell
+  pages still clipped). Sticky keeps the toolbar's row reserved
+  AND keeps it pinned to the top during scroll. Also drops
+  `.module-view`'s redundant `padding: 0 sp-3 sp-3` (main element
+  already pads sp-3 on all 4 sides), eliminating the double-stack
+  that pushed headings further into the sidebar gutter.
+- **/2 (Fix 3, project type catalog)**: `PROJECT_TYPES` expanded
+  from 6 to 14 entries (Industrial, Data Center, Education,
+  Healthcare, Marina, Hospitality + Branded Residences, Senior
+  Living, Self-Storage added). Each new type carries its own
+  `ASSET_TYPES_BY_PROJECT_TYPE` catalog. Existing types' catalogs
+  also expanded (Compounds for Residential, Boutique Hotel for
+  Hospitality, Anchor Tenant + Outlet for Retail, Corporate HQ
+  for Office). The Wizard Step 3 grid (Module1Assets type
+  dropdown) auto-renders the new entries.
+- **/3 (Fix 4 + 5, Phase Start Date + endYear)**: Tab 1 Project &
+  Phases gets a Phase Start Date column (replaces the ambient
+  Construction Start period number) plus three read-only computed
+  columns (Construction End / Operations Start / Operations End)
+  derived via `computePhaseTimeline`. Editing `phase.startDate`
+  here cascades to all downstream calcs (cost phasing, financing,
+  project end). `ProjectTimeline` interface gains `endYear: number`
+  (`getFullYear()` with no +1 offset) + `totalPeriods: number`
+  alongside the existing `start` / `end` / `spanPeriods` legacy
+  aliases. The Tab 1 'Project End' caption now prints the
+  inclusive end year + total span. MAAD-shape input
+  (`phase.startDate=2025-01-01`, construction=4, operations=10,
+  overlap=0) reads `endYear: 2039` (not 2040).
+- **/4 (Fix 2 + 6, multi-parcel + sub-unit BUA)**: Two new schema
+  shapes on Asset: `landAllocation: { parcelId?, sqm?, pct?,
+  multiParcelSplits? }` (M2.0f Fix 2) and a new SubUnitCategory
+  `'Parking'` (M2.0f Fix 6). Calc engine adds
+  `computeAssetLandBreakdown` (returns landSqm + landValue + rate
+  + per-parcel splits[]) and `validateLandAllocation` (over- /
+  under-allocation banner). Cash / in-kind splits track each
+  source parcel's own cashPct / inKindPct when explicit
+  multi-parcel splits are in use. `computeAssetBua` /
+  `computeAssetSellableBua` now treat sub-units as the source of
+  truth and only fall back to `asset.buaSqm` when the asset has
+  no sub-units yet. Module1Assets asset card grows: a Land
+  Allocation block with a Parcel dropdown + Add Parcel Allocation
+  button (multi-parcel), a derived Areas row (BUA / Sellable /
+  Support / Parking auto-computed) with a single optional GFA
+  manual input, and a project-wide allocation banner that flags
+  over- or under-allocated mode-A land. Reconciliation row
+  removed (no double-entry to reconcile). Globals card grows from
+  5 -> 7 columns (adds Support + Parking).
+- **/5 (verifier + Playwright)**: scripts/verify-m20f.ts
+  (62 pass / 0 fail / 2 skip without authenticated dev server).
+  Sections: schema (14 ProjectTypes + Parking sub-unit category +
+  Asset.landAllocation roundtrip), routes + baseline (47.8 KB
+  v7 carries over, fixture exercises no multi-parcel inputs),
+  calc engine (single-parcel land cost x parcel rate, multi-
+  parcel splits sum, validateLandAllocation under/over,
+  MAAD endYear=2039, sub-unit-derived BUA + Sellable),
+  35 source-file markers across 5 surfaces + em-dash sweep,
+  Playwright presence/run gate. tests/e2e/m20f-structural-
+  fixes.spec.ts adds 4 specs: shell page header visibility
+  (Fix 1) + wizard 14 project types (Fix 3) + Tab 1 date
+  columns + endYear caption (Fix 4 + 5) + Tab 2 parcel dropdown
+  + Parking sub-unit + derived BUA (Fix 2 + 6). Light/dark
+  screenshots into tests/screenshots/M2.0f/.
+- **/6 (docs sweep, this commit)**: CLAUDE.md M2.0f closure
+  block, scripts table updated to point at verify-m20f canonical
+  green + m20f-structural-fixes.spec.ts entry, M2.0e status
+  re-titled "foundation for M2.0f".
+
+**M2.0f pattern decisions for downstream phases:**
+- Multi-parcel land allocation is the canonical pattern when
+  parcels in a phase have distinct rates. Module 2.1 Revenue must
+  read `Asset.landAllocation` if it ever needs to compute per-
+  parcel land disposition (Sell strategy with phased land
+  release); the cost engine already consumes computeAssetLand-
+  Breakdown end-to-end, so revenue follows the same shape.
+- Sub-unit BUA is the source of truth from M2.0f forward. M2.1
+  Revenue + M5 Statements must derive total BUA / Sellable BUA
+  per asset via computeAssetBua / computeAssetSellableBua, NOT
+  from `asset.buaSqm` directly. The legacy hand-typed fields stay
+  on the schema for v7 snapshots that pre-date sub-units, but
+  they are last-resort fallbacks.
+- Phase startDate is the authoritative timing source. Tab 1 +
+  Tab 2 both read computePhaseTimeline. M5 Statements + M3
+  Cashflow consume the same helper for column header dates.
+- Parking is a discrete sub-unit category. M2.1 Revenue must
+  treat Parking as cost-only (no revenue stream); construction
+  cost still applies via the construction-parking line. Future
+  parking revenue (parking lot operations) ships as a separate
+  Operate-strategy asset, not as a Parking sub-unit.
+- ProjectTimeline.endYear is the inclusive project-end caption.
+  Module 5 cover sheet + Excel export use it directly.
+  Display layers must NOT add +1 to convert to "calendar years
+  inclusive" since endYear already represents that.
+- Project type catalog expansion is additive. Future asset types
+  (e.g. Build-to-Rent multifamily) plug into the matching
+  ProjectType's catalog without bumping schema version.
+
+### Module 1 status (M2.0e, 2026-05-06, foundation for M2.0f)
+
+**M2.0e:** Wizard simplification + Tab 2 becomes the
 canonical asset entry surface. Closes the 6 testing-feedback items
 Ahmad raised after M2.0d (wizard column units, Phase Start Date,
 Step 3 too detailed, Tab 2 needs phase grouping + sub-unit table +
