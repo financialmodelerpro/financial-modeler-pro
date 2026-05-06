@@ -433,7 +433,15 @@ tbody tr:hover td:first-child { background-color: var(--color-row-hover) !import
     z-index: auto !important;
 }
 
-/* Project Manager Toolbar */
+/* Project Manager Toolbar
+   M2.0f Fix 1 (2026-05-06): position changed from `fixed` to `sticky`.
+   The pre-M2.0f rule pulled the toolbar out of flow, which meant the
+   outer flex column (RealEstatePlatform's `flexDirection: column`)
+   didn't reserve its 40px row, so Dashboard / Projects / Overview h1
+   text rendered behind the toolbar (left clipping + sidebar bleed at
+   the top of content). With sticky, the toolbar takes its row in the
+   flex column AND stays pinned to the top of the page during scroll,
+   so the sidebar + main flow naturally start below it. */
 .pm-toolbar {
     background: var(--color-primary-deep);
     border-bottom: 1px solid var(--color-primary);
@@ -442,8 +450,8 @@ tbody tr:hover td:first-child { background-color: var(--color-row-hover) !import
     display: flex;
     align-items: center;
     gap: var(--sp-1);
-    position: fixed;
-    top: 0; left: 0; right: 0;
+    position: sticky;
+    top: 0;
     z-index: 200;
     flex-shrink: 0;
 }
@@ -794,9 +802,15 @@ textarea[disabled] {
 @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
 .tab-content { animation: fadeIn 0.2s ease forwards; }
 
-/* Refinement 7: Module transitions - subtle opacity fade only */
+/* Refinement 7: Module transitions - subtle opacity fade only.
+   M2.0f Fix 1 (2026-05-06): drop the inherited sp-3 horizontal +
+   bottom padding. The wrapping <main> in RealEstatePlatform already
+   pads sp-3 on all 4 sides, so module-view's own padding double-
+   stacked with main's and pushed Dashboard / Projects / Overview
+   headings further into the sidebar gutter. Now main is the single
+   padding owner; module-view only carries the fade animation. */
 @keyframes moduleFade { from{opacity:0} to{opacity:1} }
-.module-view { animation: moduleFade 0.15s ease forwards; padding: 0 var(--sp-3) var(--sp-3); }
+.module-view { animation: moduleFade 0.15s ease forwards; }
 
 /* Refinement 6: Content area padding via token */
 /* content-padded: use .module-view for token-based content padding */
