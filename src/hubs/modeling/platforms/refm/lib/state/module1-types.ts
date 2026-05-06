@@ -160,7 +160,27 @@ export type ProjectStatus     = 'draft' | 'active' | 'archived';
 // M2.0e: closed-enum project type that drives Tab 2's asset-type catalog.
 // Mixed-Use exposes every type from every category; Custom = free-text
 // fallback (still shows the full bank as suggestions).
-export type ProjectType = 'Residential' | 'Hospitality' | 'Retail' | 'Office' | 'Mixed-Use' | 'Custom';
+//
+// M2.0f Fix 3 (2026-05-06): catalog expanded from 6 -> 14 entries
+// restoring the pre-M2.0 breadth (Industrial, Data Center, Education,
+// Healthcare, Marina, Hospitality + Branded Residences, Senior Living,
+// Self-Storage). Each new type carries its own asset-type catalog
+// below in ASSET_TYPES_BY_PROJECT_TYPE.
+export type ProjectType =
+  | 'Residential'
+  | 'Hospitality'
+  | 'Retail'
+  | 'Office'
+  | 'Mixed-Use'
+  | 'Industrial'
+  | 'Data Center'
+  | 'Education'
+  | 'Healthcare'
+  | 'Marina'
+  | 'Hospitality + Branded Residences'
+  | 'Senior Living'
+  | 'Self-Storage'
+  | 'Custom';
 
 export const PROJECT_TYPES: readonly ProjectType[] = [
   'Residential',
@@ -168,6 +188,14 @@ export const PROJECT_TYPES: readonly ProjectType[] = [
   'Retail',
   'Office',
   'Mixed-Use',
+  'Industrial',
+  'Data Center',
+  'Education',
+  'Healthcare',
+  'Marina',
+  'Hospitality + Branded Residences',
+  'Senior Living',
+  'Self-Storage',
   'Custom',
 ] as const;
 
@@ -638,6 +666,7 @@ export const ASSET_TYPES_BY_PROJECT_TYPE: Record<ProjectType, readonly string[]>
     'Branded Suites',
     'Villas',
     'Townhouses',
+    'Compounds',
   ],
   Hospitality: [
     'Hotel 5-star',
@@ -646,6 +675,7 @@ export const ASSET_TYPES_BY_PROJECT_TYPE: Record<ProjectType, readonly string[]>
     'Branded Residences',
     'Serviced Apartments',
     'Resort',
+    'Boutique Hotel',
   ],
   Retail: [
     'Retail Mall',
@@ -653,12 +683,67 @@ export const ASSET_TYPES_BY_PROJECT_TYPE: Record<ProjectType, readonly string[]>
     'F&B',
     'Department Store',
     'Showroom',
+    'Anchor Tenant',
+    'Outlet',
   ],
   Office: [
     'Office Tower (Grade A)',
     'Office Tower (Grade B)',
     'Co-working',
     'Business Park',
+    'Corporate HQ',
+  ],
+  Industrial: [
+    'Warehouse',
+    'Logistics Center',
+    'Light Industrial',
+    'Cold Storage',
+    'Distribution Hub',
+  ],
+  'Data Center': [
+    'Hyperscale',
+    'Edge Data Center',
+    'Co-location',
+    'Cloud Region',
+  ],
+  Education: [
+    'University Campus',
+    'Private School (K-12)',
+    'Vocational Institute',
+    'Training Center',
+  ],
+  Healthcare: [
+    'Hospital (Multi-specialty)',
+    'Specialty Clinic',
+    'Medical Office Building',
+    'Diagnostic Center',
+    'Pharmacy Hub',
+  ],
+  Marina: [
+    'Yacht Berths',
+    'Waterfront F&B',
+    'Marina Retail',
+    'Boat Maintenance Facility',
+  ],
+  'Hospitality + Branded Residences': [
+    'Hotel 5-star',
+    'Hotel 4-star',
+    'Branded Residences',
+    'Serviced Apartments',
+    'Resort',
+    'Branded Suites',
+  ],
+  'Senior Living': [
+    'Assisted Living',
+    'Memory Care',
+    'Independent Living',
+    'Nursing Home',
+  ],
+  'Self-Storage': [
+    'Climate-controlled',
+    'Standard',
+    'Mobile Storage',
+    'Drive-up Units',
   ],
   'Mixed-Use': [
     'High-end Apartments',
@@ -689,12 +774,20 @@ export const ASSET_TYPES_BY_PROJECT_TYPE: Record<ProjectType, readonly string[]>
 // phase has no assets yet, e.g. "Suggested for Mixed-Use: Residential,
 // Hospitality, Retail". One-line nudge, not auto-creation.
 export const SUGGESTED_CATEGORIES_BY_PROJECT_TYPE: Record<ProjectType, readonly string[]> = {
-  Residential: ['Residential'],
-  Hospitality: ['Hospitality'],
-  Retail:      ['Retail'],
-  Office:      ['Office'],
-  'Mixed-Use': ['Residential', 'Hospitality', 'Retail'],
-  Custom:      ['any combination'],
+  Residential:                          ['Residential'],
+  Hospitality:                          ['Hospitality'],
+  Retail:                               ['Retail'],
+  Office:                               ['Office'],
+  Industrial:                           ['Warehouse', 'Logistics'],
+  'Data Center':                        ['Hyperscale', 'Co-location'],
+  Education:                            ['Campus', 'School'],
+  Healthcare:                           ['Hospital', 'Clinic'],
+  Marina:                               ['Berths', 'Waterfront F&B'],
+  'Hospitality + Branded Residences':   ['Hotel', 'Branded Residences'],
+  'Senior Living':                      ['Assisted Living', 'Independent Living'],
+  'Self-Storage':                       ['Climate-controlled', 'Standard'],
+  'Mixed-Use':                          ['Residential', 'Hospitality', 'Retail'],
+  Custom:                               ['any combination'],
 };
 
 // ── Asset type bank ────────────────────────────────────────────────────────
