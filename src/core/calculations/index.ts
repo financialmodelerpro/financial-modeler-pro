@@ -1,5 +1,23 @@
 /**
- * src/core/calculations/index.ts (v6 schema)
+ * src/core/calculations/index.ts (v7 schema)
+ *
+ * Phase M2.0d (2026-05-06): adds the M2.0d Costs polish helpers:
+ *   - deriveCostStage(line) -> 'land' | 'hard' | 'soft' | 'operating'
+ *     by id (the M2.0d standard 9-line catalog uses stable ids; custom
+ *     user lines retain their user-picked stage).
+ *   - deriveCostScope(line) -> 'direct' | 'indirect' | 'allocated'
+ *     by allocationBasis ('per_asset' / 'manual' = direct, everything
+ *     else = indirect).
+ *   - classifyAssetCapex(asset, capexBasis, landTotal, usefulLife):
+ *     splits per-asset capex into accounting destinations per strategy
+ *     (COGS / FixedAssets / Depreciation per period). Land excluded
+ *     from depreciation base regardless of strategy.
+ *   - computeCashFlowImpact(asset, capexBasis, landInKindPortion):
+ *     splits capex into cash outflow vs in-kind equity contribution.
+ *     Land in-kind portion is excluded from cash outflow and added to
+ *     equityInKind.
+ *   - resolveUsefulLifeYears(asset): reads asset.usefulLifeYears or
+ *     falls back to DEFAULT_USEFUL_LIFE_YEARS keyed by strategy.
  *
  * Phase M2.0c (2026-05-06): rewrite for the v6 cost-line catalog (12+
  * open lines) and 5×5 financing matrix. The pre-M2.0 cost engine
@@ -33,12 +51,14 @@ import type {
   Phase,
   Parcel,
   Asset,
+  AssetStrategy,
   SubUnit,
   CostLine,
   CostOverride,
   CostMethod,
   CostPhasing,
   CostStage,
+  CostScope,
   AllocationBasis,
   FinancingTranche,
   EquityContribution,
@@ -46,6 +66,7 @@ import type {
   DrawdownMethod,
   RepaymentMethod,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import { DEFAULT_USEFUL_LIFE_YEARS } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 // ── Land aggregates ────────────────────────────────────────────────────────
 export interface LandAggregate {
@@ -729,6 +750,158 @@ export function distributeEquity(
     contrib.distribution,
   );
   return weights.map((w) => w * contrib.amount);
+}
+
+// ── M2.0d: Stage / Scope auto-derivation ──────────────────────────────────
+// The M2.0d Costs UI hides Stage + Scope dropdowns from the standard 9-line
+// catalog (the user's request: "Stage and Scope shouldn't be user input,
+// should be rule-derived"). Custom user-added lines retain a user-picked
+// stage at create time (the popup form requires it). These helpers are
+// the single source of truth so the UI tooltips and the calc engine agree.
+
+const STANDARD_STAGE_BY_ID: Record<string, CostStage> = {
+  'land-cash':            'land',
+  'land-inkind':          'land',
+  'construction-bua':     'hard',
+  'construction-parking': 'hard',
+  'infrastructure':       'hard',
+  'landscaping':          'hard',
+  'pre-operating':        'operating',
+  'professional-fee':     'soft',
+  'commission':           'soft',
+  'contingency':          'soft',
+};
+
+export function deriveCostStage(line: CostLine): CostStage {
+  // Standard line -> id-derived. Custom line -> user-picked stage on
+  // the line (set when the popup added it). Fallback: stored stage.
+  return STANDARD_STAGE_BY_ID[line.id] ?? line.stage;
+}
+
+export function deriveCostScope(line: CostLine): CostScope {
+  // Per-asset allocations are direct to that asset. Project-level
+  // allocations (bua_share, gfa_share, land_share, category) are
+  // indirect (allocated across assets). Manual is treated as direct
+  // because the user supplies explicit per-asset values.
+  if (line.allocationBasis === 'per_asset' || line.allocationBasis === 'manual') {
+    return 'direct';
+  }
+  return 'indirect';
+}
+
+// ── M2.0d: Useful life resolution ─────────────────────────────────────────
+// Asset.usefulLifeYears is optional; when undefined, fall back by strategy.
+// Sell + Sell + Manage technically don't depreciate (the asset is sold), but
+// returning a sane number lets callers compute a hypothetical schedule for
+// what-if analysis without divide-by-zero hazards.
+export function resolveUsefulLifeYears(asset: Asset): number {
+  if (asset.usefulLifeYears && asset.usefulLifeYears > 0) return asset.usefulLifeYears;
+  switch (asset.strategy) {
+    case 'Operate':       return DEFAULT_USEFUL_LIFE_YEARS.hospitality;
+    case 'Lease':         return DEFAULT_USEFUL_LIFE_YEARS.retail;
+    case 'Sell':          return DEFAULT_USEFUL_LIFE_YEARS.residential;
+    case 'Sell + Manage': return DEFAULT_USEFUL_LIFE_YEARS.residential;
+    default:              return DEFAULT_USEFUL_LIFE_YEARS.default;
+  }
+}
+
+// ── M2.0d: Capex classification by accounting treatment ───────────────────
+// All cost lines (Land, Construction BUA, Construction Parking, Infrastructure,
+// Landscaping, Pre-operating, Professional Fee, Commission, Contingency,
+// custom) get CAPITALIZED into the asset's total cost basis. None are
+// expensed during construction.
+//
+// Strategy determines where the capitalized basis lands:
+//   - Sell:          COGS at unit sale (proportional to sellable BUA sold)
+//   - Operate:       Fixed Assets, depreciated over usefulLifeYears
+//   - Lease:         Fixed Assets, depreciated over usefulLifeYears
+//   - Sell + Manage: COGS at unit sale (developer doesn't own units
+//                    post-sale; no Fixed Assets, no depreciation)
+//
+// Land is NEVER depreciated regardless of strategy, so the depreciation
+// base subtracts landTotal even when the rest of the basis depreciates.
+//
+// Module 5 (Statements) consumes this. Module 2 (Revenue) decides the
+// pace at which Sell-strategy COGS recognises against unit sales.
+export interface AssetCapexClassification {
+  strategy: AssetStrategy;
+  capexBasis: number;       // total capitalized basis = sum of all cost lines
+  cogs: number;             // COGS-eligible portion (Sell + Sell+Manage)
+  fixedAssets: number;      // Fixed Assets portion (Operate + Lease)
+  depreciationBase: number; // capex minus landTotal (for Operate / Lease)
+  annualDepreciation: number; // depreciationBase / usefulLifeYears
+  usefulLifeYears: number;
+  landTotal: number;        // pass-through, not deducted from basis
+}
+
+export function classifyAssetCapex(
+  asset: Asset,
+  capexBasis: number,
+  landTotal: number,
+): AssetCapexClassification {
+  const usefulLifeYears = resolveUsefulLifeYears(asset);
+  const safeLand = Math.max(0, landTotal);
+  const safeBasis = Math.max(0, capexBasis);
+  const isSellish = asset.strategy === 'Sell' || asset.strategy === 'Sell + Manage';
+  if (isSellish) {
+    return {
+      strategy: asset.strategy,
+      capexBasis: safeBasis,
+      cogs: safeBasis,
+      fixedAssets: 0,
+      depreciationBase: 0,
+      annualDepreciation: 0,
+      usefulLifeYears,
+      landTotal: safeLand,
+    };
+  }
+  // Operate / Lease: capitalize into Fixed Assets, depreciate non-land.
+  const depreciationBase = Math.max(0, safeBasis - safeLand);
+  const annualDepreciation = usefulLifeYears > 0 ? depreciationBase / usefulLifeYears : 0;
+  return {
+    strategy: asset.strategy,
+    capexBasis: safeBasis,
+    cogs: 0,
+    fixedAssets: safeBasis,
+    depreciationBase,
+    annualDepreciation,
+    usefulLifeYears,
+    landTotal: safeLand,
+  };
+}
+
+// ── M2.0d: Cash flow impact (in-kind equity segregation) ───────────────────
+// Land in-kind portion is part of the capex basis (the asset's total cost
+// basis still includes the in-kind land), but it does NOT consume cash.
+// Instead, it shows up as Equity-In-Kind contribution in Tab 4 Financing.
+//
+// For each asset:
+//   capexBasis             = total capitalized basis (from computeAssetCost)
+//   landInKindPortion      = asset's slice of parcels.inKindValue (from
+//                            resolveAssetAreaMetrics.inKindLandValue)
+//   cashOutflow            = capexBasis - landInKindPortion  (Cash Flow line)
+//   equityInKind           = landInKindPortion              (Equity-in-kind)
+//
+// Module 5 (Cash Flow + Statements) reads this. The total "Equity (cash +
+// in-kind)" line in Tab 4 Financing summary aggregates equityInKind across
+// every asset.
+export interface AssetCashFlowImpact {
+  capexBasis: number;
+  cashOutflow: number;
+  equityInKind: number;
+}
+
+export function computeCashFlowImpact(
+  capexBasis: number,
+  landInKindPortion: number,
+): AssetCashFlowImpact {
+  const safeBasis = Math.max(0, capexBasis);
+  const safeInKind = Math.max(0, Math.min(landInKindPortion, safeBasis));
+  return {
+    capexBasis: safeBasis,
+    cashOutflow: Math.max(0, safeBasis - safeInKind),
+    equityInKind: safeInKind,
+  };
 }
 
 // ── Project end date ───────────────────────────────────────────────────────
