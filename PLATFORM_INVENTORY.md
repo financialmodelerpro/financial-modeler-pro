@@ -1,5 +1,7 @@
 # Platform Inventory
 
+> **Status: HISTORICAL.** This is the pre-restructure diagnostic that drove `RESTRUCTURE_PLAN.md`. The restructure shipped 2026-04-29; the file paths and cross-hub violations described here are the BEFORE state. Use it to understand why the current tree looks the way it does, not as a guide to the live codebase. For the current layout, see `ARCHITECTURE.md`.
+>
 > Read-only diagnostic snapshot for restructure planning. Generated 2026-04-28.
 > Sources: live filesystem, git status, plus the four CLAUDE-*.md companion docs.
 > Discrepancies between code and docs are flagged inline.

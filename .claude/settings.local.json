@@ -160,7 +160,14 @@
       "Bash(awk -F: '{s+=$2} END {print s+0}')",
       "Bash(tee /tmp/m112-dev.log)",
       "Bash(echo \"exit=$?\")",
-      "Bash(echo \"===EXIT $?===\")"
+      "Bash(echo \"===EXIT $?===\")",
+      "Bash(xargs -I {} wc -l \"{}\")",
+      "Bash(tail -n +2 .claude_history_block.tmp.md)",
+      "Bash(head -506 CLAUDE.md)",
+      "Bash(tail -n +1412 CLAUDE.md)",
+      "Bash(cat .claude_head.tmp.md)",
+      "Bash(cat .claude_tail.tmp.md)",
+      "Bash(mv CLAUDE.md.new CLAUDE.md)"
     ]
   }
 }

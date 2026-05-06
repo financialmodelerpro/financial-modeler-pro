@@ -1,5 +1,7 @@
 # Folder Restructure Plan
 
+> **Status: COMPLETE.** All 8 phases executed 2026-04-28 → 2026-04-29 and shipped to main. This document is preserved as a reference for the rationale (allow-graph entries, why each phase was scoped that way, deferred follow-ups). The current source tree is the realized output of this plan; consult `ARCHITECTURE.md` for the day-to-day boundary rules.
+>
 > Phase 1 deliverable. Read PLATFORM_INVENTORY.md first; this document depends on it.
 > Generated 2026-04-28. Single Next.js deployment, internal reorganization for future portability.
 > Training Hub is LIVE with 30+ active students; every phase is independently revertable.

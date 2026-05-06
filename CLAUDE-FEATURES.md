@@ -405,3 +405,916 @@ Final-exam pass is the trigger. The old daily `/api/cron/certificates` route was
 ### Validation
 - LinkedIn URL: must match `linkedin.com/in/` pattern
 - Video URL: must match `loom.com` or `youtube.com` or `youtu.be`
+
+---
+
+# Module 1 (REFM) Phase History (frozen pre-M2.0)
+
+> Historical narrative of the v3 / v4 Module 1 evolution from M1.R (2026-04 cost-engine + Zustand restoration) through M1.13d (2026-05-06 EquationRow Build Program). M2.0 (2026-05-06) hard-cut the schema to v5 and replaced this entire surface; see CLAUDE.md for current Module 1 status (M2.0 / M2.0b / M2.0c on the v5/v6 schema).
+>
+> For deeper history (commit-level v3 → v4 evolution), run `git log -- 'src/hubs/modeling/platforms/refm/lib/state/module1-types.ts'`.
+
+For history, see CLAUDE-FEATURES.md and `git log -- 'src/hubs/modeling/platforms/refm/lib/state/module1-types.ts'` for the v3/v4 evolution. The text below is the M1.13b closure note retained as historical reference; M2.0 supersedes it.
+
+### Module 1 status (legacy, M1.13b dissolves the calc panels into inline formulas)
+**All sub-phases shipped:** M1.R (cost engine + Zustand restoration) → M1.5 (multi-asset
++ multi-phase + storage v3 bump) → M1.5b (UX polish + Quick Setup wizard inside Hierarchy)
+→ M1.6 (Supabase persistence + version history) → M1.7 (Area Program tab + plots / zones
+/ sub-units / parking allocator) → M1.8 (Smart Project Creation Wizard with progressive
+disclosure + Master Holding hidden by default) → M1.9 (UX redesign: wizard captures
+country + project timeline upfront; Schedule and Land tabs strip duplicate inputs;
+numbered 1→6 tab sequence with Schedule first; wizard-created projects land on Schedule
+for validation) → M1.9b (Hierarchy tab dissolved + nested under Schedule + Build Program;
+D7/D8 disambiguation labels; What-goes-here callouts on all 5 tabs) → M1.10 (setup-
+completeness fixes: plot defaults inside FAR ceiling on first paint, platform-layer
+category-sum allocation derivation, wizard Step 2 fits 1080p, Land vs Plot reconciliation
+row, modal-step Plot + Parcel setup wizards) → M1.10b (Plot Setup polish: Plot+Parcel
+wizards portal to document.body + center in viewport, inline Plot form reconciled with
+the wizard at 15 writable fields, accessible InputLabel + ⓘ tooltip primitive with
+plain-English help wired into every input across all 5 Module 1 tabs) → M1.11
+(holistic re-audit + 22 coordinated fixes: ProjectWizard portal mount, semantic Project
+Timeline Visual with multi-phase awareness, dead setters removed from Module1Area +
+Module1Timeline, asset Strategy + Zone tooltips on Build Program, parcel state-path
+unified to Zustand setLand, shared parcelFieldHelp + assetStrategyHelp modules, Dev
+Costs phase-scope explainer + cost row tooltips, Financing per-line Debt % tooltip,
+em-dash sweep across the whole repo with new writing rule prohibiting reintroduction)
+→ M1.12 (Land tab dissolved + tab consolidation 5→4: Land Parcels capture moved
+upfront into ProjectWizard Step 2 with default 100k @ 500 single-row seed and inline
+add/remove + live totals; Build Program grows a Land Parcels block at the top of the
+tab with the same CRUD surface plus the Setup Wizard CTA; Site Parameters Project
+Roads % / Project FAR / Non-Enclosed Area % no longer have a UI surface and live only
+on the per-Plot card under Build Program; Module 1 table headers gain the FAST
+contrast convention via tableHeaderLabelStyle / parcelHeaderLabelStyle (white-on-navy
+InputLabel) so column titles stay legible in light + dark mode)
+→ M1.13 (Module 1 self-explanatory: a new FormulaCaption primitive renders a small
+italic "= <expression> = <values> = <result>" line adjacent to every derived
+output across all 4 tabs, with live values substituted into the plain-English
+formula on every input edit)
+→ **M1.13b** (eliminate the separate "Computed Envelope" + "Cascade Preview" +
+"Timeline Summary" panels; restructure Build Program inputs into 8 ordered
+sections with formula captions sitting directly under the input row that completes
+each formula. Plot Envelope -> Podium -> Typical Tower -> Floors check -> Public
+Area Split -> Parking surface -> Parking vertical -> Parking basement; cascade
+chain renders inline beneath the cascade inputs as a stack of 8 formula captions;
+Schedule timeline summary panel dissolved into 3 inline captions next to the
+Granularity / Project Start / Overlap inputs; Financing Debt Summary card rolled
+up to a clean reckoning without duplicate formula lines. Playwright proximity
+spec asserts every formula caption sits within 200 vertical pixels of its driving
+input).
+→ **M1.13c** (step-by-step verifiable calculation flow: every input
+followed by a VerifiedResult primitive that visually binds three
+elements into one verification unit, the formula expression in plain
+English, the substituted values with proper math operators (× ÷),
+and the result chip with units. Validation states tint the result
+chip ('warn' amber, 'error' red) and surface an issue callout when
+the value is invalid. Wired across all 4 tabs: Build Program flips
+to error when utilization > 100% of Max GFA, when cascade MEP+BoH+
+Other > 100% of GFA, or when parking allocator deficit > 0; Schedule
+flips to error when Construction + Operations - Overlap <= 0 (warn
+when overlap exceeds either window); Dev Costs flips to warn when
+the rate / percent base resolves to 0; Financing flips to warn at
+LTV = 0% (all-equity), to error at LTV >= 100%, and to warn when
+Repayment Periods exceeds Operations window. Playwright spec asserts
+the over-FAR push (Max FAR=1, Typical Floors=20, Typical Coverage=
+60%) flips Total Built GFA chip ok → error in place, then resetting
+to sane values flips back to ok).
+→ **M1.13d** (Build Program adopts the EquationRow 3-box layout per
+user feedback that the M1.13c VerifiedResult was still too dense:
+every plot envelope step + every cascade step now reads left-to-
+right as one math equation, [field] op [field] = [result chip].
+Inputs are editable yellow boxes; derived values (Footprint, Public
+Area, etc.) render as read-only dashed boxes when they feed
+downstream rows so the user sees the calc chain visually. 14 plot
+envelope rows + 8 cascade rows + 1 parking allocator row per plot,
+each with section headers acting as subtle dividers (Plot Envelope,
+Podium, Typical Tower, Floors Check, Public Area Split, Parking
+surface / vertical / basement). Validation states preserved on
+result chips, ok green-pale, warn amber, error red, with issue
+callout rendered as sibling below the row. Three-input rows
+supported (Typical GFA = Plot × Coverage × Floors, parking allocator
+total = Surface + Vertical + Basement) so any equation up to 3
+input fields fits in one visual row). **Module 1 ships production-
+ready after M1.13d; next phase is M2.0 (revenue, opex, deferred
+calc-engine refinements including the per-plot derive of project-
+level FAR / Roads / NEA still read by calculateAreaHierarchy from
+stored snapshot fields).**
+
+**M1.10 setup-completeness series (8 commits, 2026-05-05 → 2026-05-06, all snapshot diffs bit-identical):**
+- `d295dc8` 2/8: tune plot defaults so fresh plots stay inside FAR ceiling.
+  podiumFloors 2→1, typicalFloors 10→6, typicalCoveragePct 40→30. Math:
+  (60·1 + 30·6) / (3·100) = 80% utilisation (was 173.3%). No calc engine
+  change, only `DEFAULT_PLOT_*` constants. Snapshot fixtures all pin
+  these values explicitly so baselines unaffected. (M1.10/1 pin commit
+  unnecessary, every fixture with plot data already pins.)
+- `e9305d4` 3/8: platform-layer category-sum allocation derivation.
+  RealEstatePlatform's `resAsset / hospAsset / retAsset` no longer use
+  `assetById.get(LEGACY_ASSET_IDS.X)` (which missed wizard-minted ids
+  like `wizardasset_1/2/3`). Replaced with `firstByCategory` resolver
+  walking `assets[]` in array order matching on category (Sell ↔
+  residential, Operate ↔ hospitality, Lease ↔ retail). `residentialPercent`
+  / `hospitalityPercent` / `retailPercent` now sum allocationPct across
+  every asset in the bucket. Cost setters + filters route through the
+  resolved id so the cost-seeder effect picks up wizard-minted assets.
+  Snapshot fixtures have one asset per category with id matching the
+  legacy literal so resolution is unambiguous either way.
+- `6419b3a` 4/8: wizard Step 2 fits 1080p without scroll. Section gap
+  shrunk sp-3 → sp-2; MH descriptive paragraph compressed to a one-
+  liner; Phases (Q2) + Plots (Q3) collapsed into a 2-column grid row.
+  Estimated content-height reduction ~120-140px.
+- `d47c268` 5/8: Land vs Plot reconciliation row + relabels.
+  `landParcels[]` (financial, what you own) and `Plot[]` (physical ,
+  what you build on) stay independent arrays but Build Program now
+  surfaces a reconciliation row showing Parcel total · Plot total ·
+  ✓ matches / ⚠ diverges. Tolerance 1 sqm. Land tab heading renamed
+  "Land Parcels (financial, what you own)"; Build Program "Plot Area"
+  input renamed "Plot Buildable Area" so the financial-vs-physical
+  distinction is visible in both surfaces.
+- `9f48b76` 6/8: Build Program per-plot setup wizard
+  (`PlotSetupWizard.tsx`). 4-step modal walk, Envelope (FAR + coverage)
+  → Floors (podium + typical + typicalCoverage with live envelope
+  preview showing utilisation %) → Parking (3 bay sizes + basement
+  count + efficiency) → Assets (checkbox list of existing assets to
+  re-bind to this plot via plotId updates). Local draft + Set of
+  assigned asset ids; nothing leaks to the store until Save & Close.
+  Cancel discards. Mounted from each PlotEditor card via "🪄 Setup
+  wizard" button. Form view stays primary.
+- `89667ab` 7/8: Land tab parcel setup wizard
+  (`ParcelSetupWizard.tsx`). 2-step modal walk, build parcel list
+  with "+ Add another parcel" pattern → review with totals → Save &
+  Close commits via `setLand({ landParcels: next })`. Seeded from
+  existing parcels so it reads as edit-not-restart. Mounted from the
+  Land Parcels card via "🪄 Setup wizard" button. Form view stays
+  primary.
+- `8f383c8` 8/8 (verifier): scripts/verify-m110.ts. 5-section verifier
+  with section 4 covering all 5 fixes. Result: 25 pass / 0 fail / 1
+  skip with dev server up.
+- `cfbb4f2` 9/8 (Playwright + screenshots): tests/e2e/m110-flow.spec.ts.
+  3 specs: (1) wizard Mixed-Use lands clean (no 0% allocation badge,
+  no Over FAR badge, reconciliation row visible), (2) PlotSetupWizard
+  4-step walkthrough, (3) ParcelSetupWizard 2-step walkthrough +
+  screenshots into tests/screenshots/M1.10/.
+
+**M1.10b Plot Setup polish series (8 commits, all snapshot diffs bit-identical):**
+- `57a8fc0` 1/8: Plot+Parcel wizards render via React `createPortal` to
+  `document.body` (z-index 9999) instead of inline JSX nested in the
+  Build Program / Land tab content. Pre-fix the modal inherited an
+  ancestor's containing-block (transform/will-change on the platform
+  shell), so `position: fixed` resolved relative to that ancestor and
+  the wizard rendered below the viewport when scrolled. Portal mounts
+  break out of the layout tree. SSR guard: `if (typeof document ===
+  'undefined') return null;` so server render stays safe.
+- `719542c` 2/8: reconcile inline Plot form vs Plot Setup Wizard
+  fields. Both surfaces now expose all 15 writable Plot fields with
+  identical labels: Plot Buildable Area, Max FAR, Podium Coverage,
+  Total Floors, Podium Floors, Typical Floors, Typical Coverage,
+  Landscape, Hardscape, Surface Bay, Vertical Bay, Basement Bay,
+  Basement Count, Basement Efficiency, Vertical Parking Floors. Label
+  drift fixed ("Coverage" → "Podium Coverage", "Basements" → "Basement
+  Count", "Basement Eff." → "Basement Efficiency"). PlotDraft type
+  extended with verticalParkingFloors so the wizard captures every
+  field the inline form does.
+- `b8918c8` 3/8: reusable `<InputLabel label help inputId textStyle />`
+  primitive at `src/hubs/modeling/platforms/refm/components/ui/
+  InputLabel.tsx`. Renders uppercase label + ⓘ help button. Hover or
+  keyboard focus reveals an absolutely-positioned tooltip; Escape +
+  click-outside dismiss. ARIA: `aria-describedby` (wired conditionally
+  while open), `aria-expanded`, `role="tooltip"` on the bubble.
+  `pointerEvents: 'none'` on the bubble so it never steals clicks
+  back. No external tooltip library, Radix would have been heavier
+  than this 154-line primitive justifies.
+- `0bf9e7b` 4/8: wire InputLabel into Schedule + Land tabs. Schedule:
+  Model Granularity, Project Start Date, Project Construction, Project
+  Operations, Project Overlap. Land: Land Parcels table headers (Parcel
+  Name / Area / Rate / Cash % / In-Kind %) via a data-driven map, plus
+  Site Parameters (Project Roads, Project FAR, Non-Enclosed Area %).
+  Help copy is plain-English and explains the modeling consequence
+  (e.g. "Years vs Months, controls how every cashflow is bucketed").
+- `6b32ee8` 5/8: wire InputLabel into Build Program + Plot/Parcel
+  wizards. Plot help copy lives at `src/hubs/modeling/platforms/refm/
+  lib/copy/plotFieldHelp.ts` as a `Record<string, string>` keyed by
+  the 15 writable field names, so the inline form, the wizard, and any
+  future surface share one source of truth. Parcel wizard uses an
+  in-file `PARCEL_HELP` map (5 keys). All `<label>` elements in both
+  surfaces now render via `<InputLabel>`.
+- `b80b617` 6/8: wire InputLabel into Dev Costs + Financing. Dev Costs:
+  Alloc Basis + Input Mode (with `textStyle` override for the smaller
+  inline labels). Financing: Financing Mode, Debt % of CapEx (LTV),
+  Interest Rate, Capitalize Interest During Construction (restructured
+  from `<label>` wrapper to inline checkbox + InputLabel sibling so the
+  ⓘ icon doesn't break the label/checkbox click target), Repayment
+  Method, Repayment Period.
+- `ddfb638` 7/8 (verifier): scripts/verify-m110b.ts. 5-section verifier
+  with section 4 covering all three M1.10b fixes. Section 4b detects
+  the 15th field (verticalParkingFloors) via `.field` accessor in
+  Module1AreaProgram since it lives in a standalone JSX block rather
+  than the quoted-key numField path. Result: 18 pass / 0 fail / 0 skip
+  with dev server up.
+- `476b109` 8/8 (Playwright + screenshots): tests/e2e/m110b-flow.spec.ts.
+  2 specs: (1) Plot Setup Wizard portal regression guard, scroll to
+  the bottom of Build Program (where a non-portal modal would inherit
+  the parent containing-block and render below the fold), open the
+  wizard, assert bounding box centered in 1440×900 viewport, focus a
+  help icon, assert tooltip becomes visible, press Escape, assert
+  dismissal; (2) inline Plot form references all 15 writable-field
+  labels + light/dark hover-driven tooltip screenshots into
+  tests/screenshots/M1.10b/. Both pass (44.6s).
+
+**M1.11 holistic audit + fix pass (12 commits, 2026-05-06, all snapshot diffs bit-identical):**
+- `92dcc57` 0/12 (audit): docs/MODULE_1_AUDIT_M1.11.md, single comprehensive
+  audit document covering 7 areas (data flow, per-tab UX, visual schedule,
+  Land vs Build Program redundancy, calc reconciliation, first-time flow,
+  M1.5b through M1.10b regression check). 22 issues found (4 critical, 8
+  major, 6 minor, 4 out of scope). One audit finding (C1: Status field
+  silently dropped) was a false positive on verification: `RealEstatePlatform.tsx:1248`
+  already passes `status: draft.status` to `pclient.createProject` so it
+  reaches the project record correctly. Audit commit also added the writing
+  rule "NEVER use em-dashes" to CLAUDE.md.
+- `04699cb` 1/12 (Wizard polish, C2 + M8): ProjectWizard renders via
+  createPortal to document.body with the SSR guard pattern, mirroring the
+  M1.10b/1 fix on Plot/Parcel wizards. step3Valid allocation tolerance
+  bumped from 0.01 to 0.1 so manual entry of equal thirds (33.333 x 3 =
+  99.999 in float math) passes the gate while truly wrong sums are still
+  rejected.
+- `53e13bf` 2/12 (Schedule, C3): Project Timeline Visual rebuild as a
+  dedicated `components/ui/ProjectTimelineVisual.tsx` component. Renders
+  4 boundary date labels (Project start, Operations start, Construction
+  end, Project end) inline on the axis, plus an Overlap window callout
+  when overlap > 0. Multi-phase aware: subscribes to phases via useShallow
+  and renders one bar per phase with phase name + period range header.
+  Date math uses Intl.DateTimeFormat('en-GB') for locale-stable display.
+- `747514a` 3/12 (Land cleanup, M1 + M4 + m1): dead setters removed from
+  Module1Area + Module1Timeline props interfaces. Module1Area writes
+  landParcels via Zustand setLand directly (the prop-drilled
+  setLandParcels wrapper in RealEstatePlatform is gone). New shared
+  `lib/copy/parcelFieldHelp.ts` module exports PARCEL_FIELD_HELP keyed by
+  the 5 Parcel field names; both the inline parcel table on Module1Area
+  and ParcelSetupWizard now import from this single source of truth.
+  Wizard label "Name" canonicalised to "Parcel Name", "Rate (/sqm)" to
+  "Rate (per sqm)", inline "Rate (/{currency} per sqm)" to "Rate (per
+  sqm, {currency})".
+- `ff22059` 4/12 (Build Program, M2): Asset strategy block on the asset
+  card wrapped in InputLabel with plain-English help. New
+  `lib/copy/assetStrategyHelp.ts` module exports ASSET_STRATEGY_HELP with
+  6 keys (primaryStrategy, primaryStrategyPct, secondaryStrategy,
+  secondaryStrategyPct, zone, gfaOverride). Em-dash placeholders in
+  selects replaced (literal `(none)` instead of bare em-dash for blank
+  Secondary strategy, `(no zone)` instead of em-dash plus parenthetical).
+- `347bae3` 5/12 (Dev Costs, M3 + M7a): What-goes-here callout grew a
+  Phase Scope sub-paragraph explaining how the active sub-project context
+  interacts with cost rows; per-row phase override deferred to M2.0
+  (legacy CostItem schema would need migrating to the multi-phase
+  CostLine schema, which touches the calc engine and is out of M1.11
+  scope). Cost row column headers (Cost Name, Stage/Scope, Method/Base,
+  Input Value, Start, End, Phasing) wrapped in InputLabel with plain-
+  English help.
+- `db23508` 6/12 (Financing, M7b): per-line Debt % column header on the
+  Development Costs by Line Item summary table wrapped in InputLabel
+  with help explaining when the override applies (only when Financing
+  Mode is set to per-line). Top-level Financing inputs already covered
+  by M1.10b/6.
+- `208cade` 7/12 (em-dash sweep, pass 1): 200 em-dashes removed from the
+  10 hot-path Module 1 surface files plus the supporting state, lib, and
+  ui modules. Two sed passes per file: ` em-dash ` → `, ` and bare
+  `em-dash` → `,`. Two literal-value contexts where the sweep produced a
+  meaningless comma were caught and fixed (Module1AreaProgram fmt() for
+  non-finite returns "n/a"; Zone areaSharePct placeholder is "auto").
+- `a26d992` 8/12 (em-dash sweep, pass 2): 474 em-dashes removed across
+  148 src + app + scripts + tests files. Same sed rules. Skips js/refm-platform.js
+  (legacy, 242 occurrences) and verify-m*.ts docstrings per audit policy.
+- `9453f99` 9/12 (em-dash sweep, pass 3): 712 em-dashes removed across 13
+  tracked markdown files (CLAUDE.md, CLAUDE-FEATURES.md, CLAUDE-TODO.md,
+  CLAUDE-ROUTES.md, CLAUDE-DB.md, PROJECT_HANDOFF.md, CMS_REFERENCE.md,
+  ARCHITECTURE.md, docs/MODULE_1_CAPABILITIES.md, and others). After this
+  commit the repository carries zero tracked em-dashes outside the
+  exclusion list.
+- `f757fb6` 10/12 (verifier): scripts/verify-m111.ts. 5-section verifier
+  with section 4 covering all 22 audit items via state markers (portal
+  imports, tooltip-help imports, dead-setter absence with stripCommentLines
+  to ignore docstring mentions, em-dash absence sweep). 23 pass / 0 fail
+  / 1 skip without dev server.
+- `0d89e9a` 11/12 (Playwright + screenshots): tests/e2e/m111-full-flow.spec.ts.
+  2 specs: (1) ProjectWizard portal regression guard, scrolls page to
+  bottom and asserts modal bounding box centers in 1440x900 viewport;
+  (2) full first-time flow walks the wizard then 5 tabs, asserts the C3
+  timeline-axis testId surfaces the 4 boundary labels, m1 Parcel field
+  labels are visible, M2 strategy labels are present, M3 Phase scope
+  callout is visible, then captures 10 light + dark tab screenshots into
+  tests/screenshots/M1.11/. Both pass (49.9s).
+- (this commit) 12/12 (docs sweep): CLAUDE.md M1.11 closure note, scripts
+  table entry, Playwright spec entry, Module 1 status header extended
+  with the M1.11 completion line.
+
+**M1.12 Land tab elimination + 4-tab consolidation (6 commits, 2026-05-06,
+all snapshot diffs bit-identical):**
+- `ae7fec6` 1/6 (wizard): ProjectWizard Step 2 grows a Land Parcels
+  capture block. New `WizardDraftParcel` interface + `parcels:
+  WizardDraftParcel[]` field on WizardDraft seeded with one row
+  (`Land 1`, 100,000 sqm, 500 / sqm, 60 / 40 cash split). New
+  `Step2LandParcels` component (~150 lines) renders an inline grid
+  with Parcel Name + Area + Rate + Cash % + In-Kind % columns, a
+  `+ Add Parcel` button, a remove control per row when count > 1, and
+  a totals row showing total area / total value / weighted cash share.
+  Step 2 validation gate extended via `step2ParcelsValid` (every
+  parcel has area > 0, rate > 0, cashPct + inKindPct sum to 100 within
+  tolerance). data-testid markers (`wizard-parcels-section`,
+  `wizard-add-parcel`, `wizard-parcel-row-{id}`,
+  `wizard-parcel-{id}-{field}`, `wizard-parcels-totals`) wired for
+  Playwright. `buildWizardSnapshot` maps `draft.parcels` to
+  `LandParcel[]` and writes `snapshot.landParcels`; per-plot area
+  derives from `totalParcelArea / draft.plotCount` so the wizard
+  preserves the Plot vs Parcel split established in M1.10.
+- `8f99ce2` 2/6 (Build Program): Land Parcels block lifts to the top
+  of the Build Program tab as a full-CRUD section above the
+  reconciliation row. New `LandParcelsBlock` component renders the
+  same 5-column table as the wizard but bound to the Zustand store
+  via `setLand({ landParcels })`. Header row uses the FAST contrast
+  convention via new local `parcelHeaderStyle` (navy bg) +
+  `parcelHeaderLabelStyle` (white text, bold) constants threaded into
+  `<InputLabel textStyle={...}>`. Help copy reuses `PARCEL_FIELD_HELP`
+  from `lib/copy/parcelFieldHelp.ts` (M1.11/3) so Wizard, Build
+  Program, and `ParcelSetupWizard` share one source of truth.
+  ParcelSetupWizard CTA stays as a "🪄 Setup wizard" button on the
+  block.
+- `b056062` 3/6 (tab consolidation): Land tab dissolved entirely.
+  `m1Tabs` reduces from 5 to 4 entries: 1. Schedule, 2. Build Program,
+  3. Dev Costs, 4. Financing. `Module1Area` import + JSX mount removed
+  from `RealEstatePlatform.tsx`; replaced with a docstring marker
+  explaining that the underlying state schema (`landParcels`,
+  `projectFAR`, `projectRoadsPct`, `projectNonEnclosedPct`) is
+  preserved so calc engine signatures + snapshot fixtures stay
+  bit-identical; only the UI surface is gone. Existing snapshots
+  load through `module1-migrate.ts` unchanged. ProjectFAR / Roads % /
+  Non-Enclosed % no longer have any UI surface in M1.12; the per-Plot
+  card under Build Program is the single source of truth users edit.
+  Auto-derive (weighted average from per-plot maxFAR + plot
+  landscape / hardscape coverage) deferred to M2.0 so the calc
+  engine signature does not change inside this phase.
+- `4287623` 4/6 (FAST contrast): Module 1 table-header contrast audit.
+  `Module1Costs.tsx` grows a local `tableHeaderLabelStyle` constant
+  (`color: var(--color-on-primary-navy); fontWeight: var(--fw-bold)`)
+  threaded through 7 InputLabel instances inside `<th>` cells (Cost
+  Name, Stage / Scope, Method / Base, Input Value, Start, End,
+  Phasing). Mirrors the new `parcelHeaderLabelStyle` introduced for
+  Build Program in M1.12/2. Light-mode reads cleanly because the
+  navy bg gives white text the WCAG AA contrast it needs; dark mode
+  unchanged because the convention was already partly in place
+  pre-audit.
+- `2a2b3a7` 5/6 (verifier + Playwright): scripts/verify-m112.ts
+  mirrors the M1.11 5-section template (DB / routes / calc / state /
+  UI). Section 4 markers F1 (m1Tabs has 4 entries with no `'land'`
+  key), F2 (Module1Area is unmounted from RealEstatePlatform), F3
+  (numbered labels renumbered 1→4), P1 (wizard parcel default seed),
+  P2 (Step2LandParcels mounted in ProjectWizard), P3
+  (buildWizardSnapshot writes landParcels), B1 (Build Program
+  LandParcelsBlock mount), B2 (FAST contrast constants present),
+  C1 (Module1Costs tableHeaderLabelStyle present). Result: 21 pass /
+  0 fail / 0 skip with dev server up; 15 pass / 0 fail / 2 skip
+  without dev server. tests/e2e/m112-flow.spec.ts has 2 specs:
+  (1) wizard Step 2 parcel CRUD (default seed, +Add Parcel, edit
+  area / rate / split, remove, live totals), (2) post-create flow
+  asserts the 4-tab row (no Land tab) + Build Program parcel block
+  is the canonical CRUD surface + 8 light/dark tab screenshots into
+  tests/screenshots/M1.12/. Both pass locally (18.7s).
+- (this commit) 6/6 (docs sweep): CLAUDE.md M1.12 series block,
+  scripts table entry, Playwright spec entry, Module 1 status header
+  extended with the M1.12 completion line.
+
+**M1.13 Module 1 self-explanatory inline live formulas (7 commits,
+2026-05-06, all snapshot diffs bit-identical):**
+- `af3d429` 1/7 (primitive): src/hubs/modeling/platforms/refm/components/
+  ui/FormulaCaption.tsx. New shared primitive that renders a single
+  line of small italic meta-color text shaped "= <expression> =
+  <substituted with current values> = <result>". Caller passes the
+  fully formatted text + an optional testId; the primitive just
+  renders it on transparent background under the value chip so the
+  formula visually recedes behind the FAST grey calc-output style.
+  data-formula="true" attribute on every render so Playwright can
+  count captions per tab. Forbids em-dashes by convention (M1.11
+  writing rule).
+- `e87afe1` 2/7 (Build Program): Module1AreaProgram grows formula
+  captions on every derived output. calcRow + CascadeCell + ParkingCell
+  helpers each accept an optional formula prop; the legacy "Computed
+  envelope" panel now renders 10 plain-English formulas (Plot Area *
+  Max FAR for Max GFA, Footprint * Podium Floors for Podium GFA, etc.)
+  with live values substituted. Cascade preview gains 8 captions
+  walking the GFA -> MEP -> Net GFA -> GSA / GLA -> BUA -> TBA -> BoH
+  -> Other Tech chain. Parking summary gains 5 captions showing
+  capacity = area / bay-size for surface / vertical / basement.
+  LandParcelsBlock tfoot sprouts 3 captions for Total Area, Total
+  Value, weighted Cash %. data-testids: computed-envelope-{plotId},
+  cascade-preview-{assetId}, calc-row-{label}, cascade-cell-{label},
+  parking-cell-{label}, parcel-formula-area / -value / -cash.
+- `f35ac44` 3/7 (Schedule): Module1Timeline Timeline Summary panel
+  rebuilt as a 4-cell grid with FormulaCaption rows beneath End,
+  Total Periods, and Type. End formula: Project Start + Total Periods.
+  Total Periods formula: Construction + Operations - Overlap with the
+  three input numbers substituted live. Type formula explains what
+  monthly vs annual granularity means in practice ("1 period = 1
+  month" vs "1 period = 1 year, 12 months per bucket"). data-testids:
+  timeline-summary, timeline-formula-end, timeline-formula-total-
+  periods, timeline-formula-type.
+- `cb2cb2f` 4/7 (Dev Costs): Module1Costs gets a buildCostFormula
+  helper that, given a CostItem + the resolved AreaMetrics, returns
+  the plain-English formula string for the active method (Fixed
+  Amount, Rate * Total Land / NDA / Roads / GFA / BUA, % of Selected
+  Costs, % of Total / Cash / In-Kind Land Value). Each cost row's
+  Total cell now renders the formula caption beneath the value via
+  data-testid="cost-formula-{cost.id}". The asset's Grand Total tfoot
+  cell carries a sum-of-stages caption via data-testid="cost-grand-
+  total-formula-{assetType}". Selected-costs sum is computed live for
+  percent_base rows so users see exactly which dollar base the
+  percentage applied to.
+- `c6a3017` 5/7 (Financing): Module1Financing adds 3 input-side
+  formula captions and rebuilds the Debt Summary card as 5 live-
+  formula rows. Inputs: financing-formula-debt-equity (Debt = LTV *
+  CapEx + Equity = (100 - LTV) * CapEx with both numbers live),
+  financing-formula-periodic-rate (Annual / 12 for monthly or
+  Annual for annual; rendered with the resolved 4-decimal periodic
+  rate), financing-formula-repayment (Principal per Period = Debt /
+  Repayment Periods for Fixed; placeholder for Cash Sweep). Debt
+  Summary: Total CapEx, Debt, Equity, Estimated Interest, All-in
+  Cost of Debt; each value paired with a formula explaining how it
+  derives. data-testid="financing-debt-summary".
+- `afe4f00` 6/7 (verifier + Playwright): scripts/verify-m113.ts
+  mirrors the M1.12 5-section template. Section 4 has 11 markers
+  (F1 primitive, S1 Schedule, B1-B4 Build Program, C1-C2 Dev Costs,
+  P1-P2 Financing, X1 em-dash sweep). Result: 23 pass / 0 fail / 0
+  skip with dev server up; 20 pass / 0 fail / 1 skip without (UI
+  rendering skips on no server). tests/e2e/m113-formulas.spec.ts
+  has 1 spec walking Schedule -> Build Program -> Dev Costs ->
+  Financing, asserting the right testIds on each tab + the live-
+  recompute contract: editing a Plot's Max FAR or Plot Area updates
+  the Max GFA caption inline within 3 seconds (no unmount, no
+  reflow). 8 light + dark screenshots into tests/screenshots/M1.13/.
+  Both pass locally (10.4s).
+- (this commit) 7/7 (docs sweep): CLAUDE.md M1.13 series block,
+  scripts table entry, Playwright spec entry, Module 1 status header
+  extended with the M1.13 completion line.
+
+**M1.13b inline-formula layout (5 commits, 2026-05-06, all snapshot
+diffs bit-identical):**
+- `8aa81b7` 1/5 (Build Program): Module1AreaProgram restructure. The
+  previous 4-column 15-input grid + Computed Envelope panel + Cascade
+  Preview panel are dissolved. Inputs regroup into 8 ordered sections,
+  each with a small uppercase header + thin top border:
+  Plot envelope (Plot Buildable Area + Max FAR -> Max GFA),
+  Podium (Podium Coverage + Podium Floors -> Footprint, Podium GFA,
+  Public Area), Typical tower (Typical Coverage + Typical Floors ->
+  Typical GFA, Total Built GFA + utilization), Floors check (Total
+  Floors with podium+typical sanity check), Public area split
+  (Landscape % + Hardscape % -> Landscape Area, Hardscape Area, Surface
+  Parking), Parking surface (Surface Bay -> Surface Capacity), Parking
+  vertical (Vertical Bay + Vertical Parking Floors -> Vertical
+  Capacity), Parking basement (Basement Bay + Count + Efficiency ->
+  Basement Usable + Basement Capacity). Each cascade output renders as
+  an inline FormulaCaption stack beneath the cascade inputs (no panel
+  wrapper). 14 plot-formula testIds + 8 cascade-formula testIds + 8
+  section testIds wired for Playwright proximity assertions.
+  ParkingSummary kept as a compact roll-up at the bottom of the plot
+  card (its Required vs Allocated math depends on Sub-Units which live
+  outside the plot input grid). Removed legacy calcRow + CascadeCell
+  helpers.
+- `2afb188` 2/5 (Schedule): Module1Timeline dissolves the gray
+  "Timeline Summary (live formulas)" panel. Three inline captions
+  re-anchored: Granularity toggle gets a 1-line caption explaining
+  what monthly vs annual means; Project Start Date input gets the
+  Project End caption (= Start + Total Periods); Project Overlap
+  input gets the Total Periods caption (= Construction + Operations -
+  Overlap). Removed unused calcOutputStyle + labelStyle constants.
+- `365a5a1` 3/5 (Financing): Module1Financing Debt Summary card
+  reverts to a clean 5-row roll-up without FormulaCaption rows
+  inside. The per-input formula captions inline above (debt-equity,
+  periodic-rate, repayment) already explain the math; the summary
+  serves as a reckoning of the resolved values. Card label rolled up
+  from "Debt Summary (live formulas)" back to "Debt Summary".
+- `0e39c4d` 4/5 (verifier + Playwright): scripts/verify-m113b.ts
+  mirrors the M1.13 5-section template; section 4 grows new panel-
+  absence + per-formula testId markers (A1-A6 Build Program, S1-S2
+  Schedule, F1-F2 Financing, X1 em-dash sweep). Result: 23 pass / 0
+  fail / 0 skip with dev server up. tests/e2e/m113b-formulas-inline.
+  spec.ts (1 spec, 14.5s) walks all 4 tabs with two contracts:
+  (1) panel absence, the 3 dissolved panels MUST NOT render; (2)
+  proximity, each driving input is followed by its formula caption
+  within 200 vertical pixels (assertProximate helper computes
+  bounding-box distance). Schedule: Overlap -> Total Periods, Project
+  Start -> Project End. Build Program: Max FAR -> Max GFA, Podium
+  Floors -> Podium GFA, Typical Floors -> Total Built GFA, Hardscape
+  -> Surface Parking, Surface Bay -> Surface Capacity, Vertical
+  Floors -> Vertical Capacity, Basement Efficiency -> Basement
+  Capacity. Live recompute on Max FAR + Plot Area still works (caption
+  text substitutes inline, no unmount). Financing Debt Summary card
+  has zero FormulaCaption rows + label is "Debt Summary" (not "Debt
+  Summary (live formulas)"). 8 light + dark screenshots into
+  tests/screenshots/M1.13b/.
+- (this commit) 5/5 (docs sweep + M1.13 artifact updates): updated
+  scripts/verify-m113.ts B1/B2/S1/P2 markers + tests/e2e/m113-
+  formulas.spec.ts assertions to track the new inline-layout testIds
+  (formula-max-gfa-{id} instead of computed-envelope-{id}; "Debt
+  Summary" instead of "Debt Summary (live formulas)") so M1.13's
+  verifier and spec stay green alongside M1.13b's. CLAUDE.md M1.13b
+  series block, scripts table entry, Playwright spec entry, Module 1
+  status header extended.
+
+**M1.13c step-by-step verifiable calculation flow (8 commits,
+2026-05-06, all snapshot diffs bit-identical):**
+- `7c8d492` 1/8 (primitive): src/hubs/modeling/platforms/refm/components/
+  ui/VerifiedResult.tsx. New shared primitive that renders one
+  verification step visually binding three pieces into one row:
+  the formula expression in plain English, the live substitution
+  with current numbers, and the result chip with units. Validation
+  state ('ok' / 'warn' / 'error') tints the row + chip and surfaces
+  an issue callout to the right when not 'ok'. data-formula="true",
+  data-state, and data-result-chip="true" attributes wired so
+  Playwright + future regression specs can target the shape without
+  reading display text. Display text uses Unicode operators (× ÷)
+  per the M1.13c brief; internal data attributes stay ASCII for
+  selector simplicity. Sits below the input(s) with a 200 vertical
+  px proximity contract carried over from M1.13b.
+- `776b15d` 2/8 (Schedule): Module1Timeline replaces the 3
+  FormulaCaption rows (granularity, project end, total periods)
+  with VerifiedResult verification steps. Overlap step gains a
+  validation derivation: state='warn' when overlapPeriods exceeds
+  Construction or Operations window; state='error' when
+  Construction + Operations - Overlap <= 0 (model would have no
+  periods to run). testIds preserved so M1.13b proximity contract
+  still holds.
+- `d00187d` 3/8 (Build Program): Module1AreaProgram converts every
+  plot envelope formula (Max GFA, Footprint, Podium GFA, Public
+  Area, Typical GFA, Total Built GFA, Floors check, Landscape,
+  Hardscape, Surface Parking, 3 parking capacities, 2 basement
+  outputs) plus all 8 cascade outputs (GFA, MEP, BoH, Other Tech,
+  Net GFA, BUA Excl, TBA, GSA/GLA) plus 3 land-parcel totals into
+  VerifiedResult steps. Math operators upgraded to × and ÷.
+  Validation states wired:
+    * Total Built GFA: state='error' when utilization > 100% of
+      Max GFA. Issue chip names the exact percentage.
+    * Floors check: state='warn' when Podium + Typical does not
+      match Total Floors.
+    * Surface Parking: state='warn' when Landscape + Hardscape >
+      100% of public area.
+    * Cascade Net GFA: state='error' when MEP + BoH + Other Tech
+      > 100% of GFA (cascade over-deducts).
+    * Parking allocator: state='error' when alloc.deficit > 0,
+      with the deficit named in the issue chip.
+  ParkingCell render simplified, the per-cell FormulaCaption is
+  removed in favour of a new bottom-row VerifiedResult on the
+  allocator total. Land parcel totals show per-parcel substitution
+  chains (e.g. "100,000 × 500 + 25,000 × 700 = ...").
+- `6721522` 4/8 (Dev Costs): Module1Costs replaces the cost-row
+  FormulaCaption in the Total cell with VerifiedResult.
+  buildCostFormula refactored into buildCostFormulaParts that
+  returns a structured (formula, substitution, result) tuple so the
+  three pieces wire cleanly into the primitive. Math operators
+  upgraded (Rate × GFA, Rate × NDA, Rate × BUA, ...). Validation
+  state: soft-warn (amber) when the cost method is rate or percent
+  and the resolved base resolves to 0 (rate_gfa with GFA=0,
+  percent_base with selectedSum=0, etc.). Issue chip names which
+  base collapsed so the user can fix the upstream input. Grand
+  Total tfoot row also becomes a VerifiedResult so Σ-of-stages
+  is visible inline.
+- `d628745` 5/8 (Financing): Module1Financing replaces the 3
+  inline FormulaCaption rows (debt-equity, periodic-rate,
+  repayment) with VerifiedResult steps. Math operators upgraded
+  (Debt = LTV × Total CapEx, Periodic Rate = Annual Rate ÷ 12,
+  Principal per Period = Total Debt ÷ Repayment Periods).
+  Validation states:
+    * LTV: state='warn' when LTV = 0% (all-equity sanity flag);
+      state='error' when LTV >= 100%.
+    * Repayment: state='warn' when repaymentPeriods >
+      operationsPeriods (the math clamps to ops window, but the
+      user has typed a value the model silently overrides).
+  Debt Summary card preserved as a clean roll-up per M1.13b's F1
+  contract (no VerifiedResult / FormulaCaption rows inside).
+- `4ba4c90` 6/8 (M1.13b spec operator update + import cleanup):
+  M1.13b spec asserted FormulaCaption text contained 'X * Y ='
+  literals with ASCII *. Updated to '× Y =' so the M1.13b
+  regression test continues to pass alongside the new primitive's
+  Unicode operators. Also dropped the now-unused FormulaCaption
+  import from Module1AreaProgram.tsx (every caller switched to
+  VerifiedResult in M1.13c/3).
+- `d560bb4` 7/8 (verifier + Playwright): scripts/verify-m113c.ts
+  mirrors the standing 5-section template. Section 4 has 17
+  markers across V1 (primitive shape), B1-B5 (Build Program), S1-
+  S3 (Schedule), C1-C4 (Dev Costs), F1-F4 (Financing), X1 (em-
+  dash sweep). Result: 27 pass / 0 fail / 1 skip with dev server
+  up; 24 pass / 0 fail / 2 skip without. tests/e2e/m113c-step-
+  flow.spec.ts (1 spec, 20.6s) walks all 4 tabs and asserts:
+  (1) every VerifiedResult render carries data-formula="true",
+  data-state ∈ {ok, warn, error}, and a data-result-chip child;
+  (2) math operators (× ÷) appear in rendered text not just source;
+  (3) validation flip, push Plot to over-FAR (Max FAR=1, Typical
+  Floors=20, Typical Coverage=60%) and Total Built GFA chip flips
+  ok → error with issue callout visible; reset to sane values and
+  it flips back to ok; (4) live recompute, edit Plot Area to
+  200,000 and Max GFA chip shows "200,000 × 3" inline; (5) Debt
+  Summary card stays a clean roll-up (no data-formula rows
+  inside, M1.13b F1 carryover); (6) proximity contract still
+  holds for the 5 key chain anchor inputs. 9 screenshots into
+  tests/screenshots/M1.13c/ (4 light + 4 dark + 1 over-FAR
+  validation state).
+- (this commit) 8/8 (docs sweep): CLAUDE.md M1.13c series block,
+  scripts table entry, Playwright spec entry, Module 1 status
+  header extended with the M1.13c completion line.
+
+**M1.13d Build Program 3-box equation-row layout (3 commits,
+2026-05-06, all snapshot diffs bit-identical):**
+- `c4dbc01` 1/3 (primitive): src/hubs/modeling/platforms/refm/components/
+  ui/EquationRow.tsx. New shared primitive renders one calculation
+  step as a horizontal row, [field] op [field] = [result chip].
+  Two field kinds: 'input' (editable yellow box, FAST navy-pale bg
+  + navy text, carries canonical input element id) and 'derived'
+  (read-only dashed box, grey-pale bg + meta text, used when a
+  value is computed upstream and feeds the current row). Result
+  chip carries data-result-chip + data-formula + data-state for
+  Playwright targeting; validation tints the chip and surfaces an
+  issue callout below the row when state is 'warn' or 'error'.
+  Operators between fields use Unicode math (× ÷ + -); equals is a
+  literal "=". Up to 3 input fields per row supported (Typical GFA,
+  parking allocator total).
+- `5e53c2e` 2/3 (refactor): Module1AreaProgram PlotEditor renders
+  the entire 14-step plot envelope chain (Max GFA, Footprint,
+  Podium GFA, Public Area, Typical GFA, Total Built GFA, Floors
+  check, Landscape, Hardscape, Surface Parking, 3 parking
+  capacities, 2 basement outputs) and the 8-step asset cascade
+  (GFA, MEP, BoH, Other Tech, Net GFA, BUA Excl, TBA, GSA/GLA) as
+  EquationRow steps. The parking allocator total (Surface +
+  Vertical + Basement = Total Allocated) also adopted; deficit
+  flips to error state. Land parcel totals retained as
+  VerifiedResult (data shape is sum-of-rows not equation chain).
+  Cleanup: numField helper, sectionGridStyle helper,
+  formulaStackStyle helper, and the now-unused VerifiedState
+  type-only import all removed (each render block builds its own
+  EquationField factories inline). testIds preserved end-to-end:
+  every existing formula-* testId carries through to the chip,
+  and new row-* testIds added for the row containers.
+- `afe374b` 3/3 (verifier + Playwright + spec updates):
+  scripts/verify-m113d.ts mirrors the standing 5-section template;
+  section 4 has 9 markers across E1 (primitive shape), B1-B7
+  (Build Program rows / cascade rows / allocator / formula testId
+  preservation / legacy helper removal / validation state wiring),
+  X1 (em-dash sweep). Result: 21 pass / 0 fail / 0 skip with dev
+  server up. tests/e2e/m113d-equation-rows.spec.ts (1 spec, 4.9s)
+  walks the Build Program tab and asserts: layout shape across all
+  15 envelope rows, derived chain visible (Public Area row has 2
+  derived + 0 inputs; Surface Parking has 3 derived + 0 inputs),
+  3-input row works (Typical GFA has 1 derived + 2 inputs),
+  validation flip (over-FAR push flips Total Built chip to error
+  with issue chip; reset flips back to ok), live recompute (Plot
+  Area edit updates Max GFA chip text in place). M1.13b spec
+  updated to assert the new chip-numeric format ('1,000,000' for
+  200,000 × 5) and the proximity helper relaxed to accept both
+  horizontal adjacency (chip side-by-side with input in the same
+  EquationRow) and vertical adjacency (chip below input within
+  200 px). M1.13c spec same proximity update; × ÷ operator
+  assertions moved from chip text to row container text;
+  validation flip uses chip testId for data-state and row testId
+  for issue chip child. All 3 specs pass in parallel (17.6s total).
+
+**M1.13d pattern decisions for downstream phases:**
+- EquationRow is the canonical layout for "input drives a derived
+  value" UX whenever the calculation reads naturally as a math
+  equation (≤ 3 input fields). VerifiedResult remains correct for
+  contexts where the data shape is sum-of-rows, free-form
+  derivation, or single-line summary that does not split cleanly
+  into N input fields × 1 result.
+- Derived field rendering is the missing M1.13c piece. By making
+  upstream-computed values visible as read-only dashed boxes IN
+  THE ROW that consumes them, the user reads the calc chain
+  visually instead of having to remember "which value did this
+  come from". Footprint feeding Podium GFA + Public Area is the
+  prototypical case; same applies to MEP / BoH / Other feeding
+  Net GFA in the cascade.
+- Section headers stay as subtle uppercase dividers (small font,
+  thin top border, var(--color-heading) + meta letter-spacing),
+  not boxed cards. They group related rows but never compete
+  with the rows for attention.
+- testIds split into two layers: row-{name}-{plotId} on the
+  EquationRow container (use for: targeting the issue chip
+  child, assertions about the whole row) and formula-{name}-
+  {plotId} on the chip (use for: data-state checks, text content
+  of the resolved value). The split lets specs check both row-
+  level and chip-level contracts cleanly.
+- Validation issue callouts render as siblings of the row content,
+  not children of the chip. This keeps the chip a single text
+  node (easier to toContainText against) while the issue text
+  reads as a sentence below the row when applicable.
+
+**M1.13c pattern decisions for downstream phases:**
+- VerifiedResult is the canonical primitive for "input drives a
+  derived value" UX in Module 2+ (revenue, opex, returns). The
+  formula + substitution + result-chip triple becomes the unit of
+  verification, so users can sanity-check every derivation in
+  place rather than reading a separate output panel. FormulaCaption
+  is retained for narrow contexts where only the formula text is
+  needed (no result chip), but VerifiedResult is preferred whenever
+  there is a discrete result with units.
+- Validation states should fail loud at the result, not silent at
+  the input. A user who types Max FAR=1 with Typical Floors=20 has
+  not made an input error per se; the cascade has run past the FAR
+  ceiling. Marking the chip 'error' with an issue callout names
+  the consequence rather than the keystroke. Validation derivations
+  live next to where they are surfaced so the developer can audit
+  the rule with the chip's substitution chain.
+- Math operators in display text use Unicode (× ÷ ± ≤ ≥) for
+  readability; internal data attributes and testIds stay ASCII so
+  Playwright selectors work without dealing with Unicode escapes.
+  Operator swap is a display-text-only concern, no impact on
+  calc engine or persistence.
+- Roll-up summary cards (Financing Debt Summary, ParkingSummary)
+  remain valuable for resolved-totals views even when every
+  derivation is visible inline above. The card label stays
+  understated and contains no inline formulas.
+- Live recompute by inline-text substitution remains the contract
+  M1.13c+ exercises. Captions become permanent rendered nodes;
+  only their inline numbers change on input edit.
+
+**M1.13b pattern decisions for downstream phases:**
+- Eliminate calc-output panels in favour of input-anchored formula
+  stacks. Panels that summarise derivations (Computed Envelope,
+  Cascade Preview, Timeline Summary) tend to feel disconnected from
+  the inputs that drive them, especially for first-time users. Inline
+  captions, anchored to the last input that completes each formula,
+  read top-to-bottom with the user's mental model.
+- Section headers are subtle by default (small uppercase + thin top
+  border + `var(--color-heading)`), not boxed cards. They divide the
+  flow without competing with the input/formula pairs for attention.
+- Roll-up summary cards are still useful for resolved-totals views
+  (Financing Debt Summary, ParkingSummary). They should NOT duplicate
+  formula text already shown inline above. The card label stays
+  understated ("Debt Summary", not "Debt Summary (live formulas)").
+- Proximity contract: formula caption sits within 200 vertical pixels
+  of its driving input's bottom edge, anchored after the LAST input
+  that completes the formula. Playwright's assertProximate helper
+  computes bounding-box distance to enforce this.
+
+**M1.13 pattern decisions for downstream phases:**
+- FormulaCaption is the canonical way to surface input -> output
+  relationships in Module 2+ (revenue, opex, returns). Caller-formats-
+  text gives flexibility for different operators (* / + -) and units
+  without expanding the primitive's API surface.
+- Live recompute via inline-text substitution avoids layout reflow.
+  Captions become permanent rendered nodes; only their inline numbers
+  change on input edit. This is the contract Playwright tests in
+  m113-formulas.spec.ts exercise.
+- Plain-English formula text is preferred over LaTeX or pure math
+  notation. M1.13 captions read like a sentence with operators
+  spelled out (e.g., "Plot Area * Max FAR" not "PA x FAR" or
+  "PA \\times FAR"). Operators stick to ASCII (* not x or X).
+
+**M1.12 deferred to M2.0 (calc engine territory, out of scope per
+phase brief):**
+- ProjectFAR / Roads % / Non-Enclosed % auto-derive: today the calc
+  engine reads stored project-level scalars from the snapshot. Plot
+  cards are the only UI surface that edit per-plot maxFAR + landscape
+  / hardscape coverage. M2.0 should derive the project-level scalars
+  via weighted average so the snapshot can drop the redundant fields
+  entirely.
+- Migration sweep on existing user projects: snapshots written before
+  M1.12 still carry the project-level scalars and load fine because
+  the schema is preserved. M2.0 derive will need a one-time recompute
+  + persist pass on live data so historical projects converge with
+  newly created ones.
+
+**M1.11 deferred to M2.0 (calc engine territory, out of scope per audit):**
+- `getSameForAllFactor` division-by-zero guard when all assets are hidden
+  (`src/core/calculations/index.ts:377-385`).
+- `projectNDA` clamp to non-negative when projectRoadsPct > 100
+  (`src/core/calculations/index.ts:156`).
+- Repayment math style: straight-line vs amortization (PMT formula).
+  Document the assumption or switch to amortization in M2.0.
+- Snapshot diff numeric tolerance: byte-for-byte JSON equality is fine
+  today (deterministic pure functions) but introduce tolerance if M2.0
+  changes any arithmetic order.
+- Per-row phaseId scope toggle on Dev Costs: requires migrating from
+  legacy CostItem to multi-phase CostLine schema; calc engine impact.
+- ProjectFAR migration from Land tab to Build Program → Plot (auto-
+  derive from per-plot maxFARs).
+
+**M1.10 deferred (not yet scoped):**
+- ProjectFAR migration from Land to Build Program → Plot (calc still
+  consumes it as a project-level scalar; needs auto-derive from per-
+  plot maxFARs first).
+- Section-pill labels (Inputs / Calculated), calc-vs-input pencil/fx
+  icons next to every field, hover tooltips for the financial
+  vocabulary (Sub-Unit, Strategy, FAR, Cascade), carried over from
+  M1.9b deferred list.
+- Remove unused setters from Module1Area + Module1Timeline prop
+  interfaces (still tagged with eslint-disable so RealEstatePlatform
+  binding doesn't shift).
+
+**M1.9 redesign series (6 commits, 2026-05-04, all snapshot diffs bit-identical):**
+- `591315b` 1/15: ProjectWizard step 1 currency dropdown becomes country dropdown
+  (auto-derives currency); Step 2 grows a Project Timeline section (construction +
+  operations + overlap periods, unit hint follows modelType). buildWizardSnapshot
+  wires the wizard's timing into every minted phase (clamped: overlap ≤ construction;
+  opsStart = construction − overlap + 1). Snapshot.country populated from wizard.
+- `7626120` 2/15: strip Asset Mix + Deduction & Efficiency panels from Module1Area.
+  Both edited the same backing data the Hierarchy tab edits per-asset
+  (residentialPercent = resAsset.allocationPct in RealEstatePlatform.tsx:334), so the
+  duplication confused users about which tab is canonical. Site Parameters card
+  stays (FAR, Roads %, Non-Enclosed % all still calc-input). Added a
+  "Where did Asset Mix go?" explainer pointing to Hierarchy.
+- `93b6f1e` 3/15: strip Project Identity card (project name, type, country / market
+  dropdown, currency input) from Module1Timeline. Tab renamed to "Project Schedule";
+  layout collapses 2-column → 1-column. Subtitle directs users to wizard / Hierarchy
+  for identity fields. Props interface keeps now-unused identity setters with
+  eslint-disable so RealEstatePlatform binding doesn't change in this commit.
+- `382a0c3` 4/15: m1Tabs gains a numeric `step` field; visible labels become
+  "1. Schedule / 2. Land / 3. Build Program / 4. Dev Costs / 5. Financing /
+  6. Hierarchy". Reorder: Schedule moves to position 1, Hierarchy to position 6.
+  handleCreateProjectFromWizard switches `setActiveTab('area-program')` →
+  `setActiveTab('timeline')` so the user lands on Schedule and validates the
+  wizard's capture before drilling further. Manual project creation still lands
+  on Hierarchy (no asset structure yet, so the data tree is the right starting
+  point).
+- `b8b54cc` 5/15: scripts/verify-m19.ts, 5-section per-phase verifier. 16 pass /
+  0 fail / 2 skip without dev server. Section 4 includes a static source-file
+  inspection that asserts JSX-context patterns (`>Project Identity<`, `>Asset Mix<`)
+  are gone, false-positive free, so docstrings referencing the removed surfaces
+  don't trip.
+- `a8b9f34` 6/15: tests/e2e/m19-redesign-flow.spec.ts, 2 Playwright specs.
+  Spec 1 walks wizard with country='United Arab Emirates' (auto-AED) +
+  construction=7/operations=11/overlap=1, asserts Schedule landing tab, numbered
+  tab row, M1.9 strip both tabs, stored snapshot has the wizard timing. Spec 2
+  captures Schedule + Land tab screenshots (light + dark) into
+  tests/screenshots/M1.9/. Both pass locally (2 passed, 22.9s).
+
+**M1.9b polish series (8 commits, 2026-05-04 → 2026-05-05, all snapshot diffs bit-identical):**
+- `abe9917` 1/8: Module1Hierarchy gains optional `sections?: 'all' | 'structure' | 'assets'`
+  prop. `sectionsMode === 'all'` is the legacy default (full render). 'structure' renders
+  Master Holding + Sub-Project + Phase rows and replaces each Phase's Asset/SubUnit subtree
+  with a slim "🧱 N assets · Edit assets in Build Program" stub. 'assets' suppresses MH +
+  the header + the Add-Sub-Project block + first-time empty gate, leaving just the per-Asset
+  + per-Sub-Unit cards. Slice via visibility gates rather than extraction (the component
+  is 2,500 lines; full extraction would have doubled the diff).
+- `6d3b720` 2-3/8: Module1Timeline mounts `<Module1Hierarchy sections="structure" />` in a
+  "🗂️ Project Structure (Master Holding · Sub-Projects · Phases)" section card below the
+  schedule body. Module1AreaProgram mounts `<Module1Hierarchy sections="assets" />` in a
+  "🧱 Asset & Sub-Unit Detail Editor" section card below the plots list.
+- `75908f9` 4/8: dissolve standalone Hierarchy tab. m1Tabs drops to 5 entries (no
+  'hierarchy' key). RealEstatePlatform default `useState('hierarchy')` →
+  `useState('timeline')`; manual `handleCreateProject` `setActiveTab('hierarchy')` →
+  `setActiveTab('timeline')`; `{activeTab === 'hierarchy' && <Module1Hierarchy />}` render
+  branch removed. Wizard- and manual-created projects both land on Schedule (step 1).
+- `0a71c0a` 5/8: D7 + D8 disambiguation labels + What-goes-here callouts on Schedule + Land.
+  Schedule's "Construction / Operations / Overlap" relabelled "Project Construction /
+  Operations / Overlap"; per-Phase overrides now live in the structure tree on the same
+  tab. Land's "Floor Area Ratio (FAR)" → "Project FAR (whole-site ceiling)"; Roads % gets
+  "(of total land)" suffix; Non-Enclosed % gets "(balconies / terraces)" suffix.
+  Primary-tinted callouts at the top of Schedule + Land state canonical scope ("What goes
+  here") + delegated scope ("Not here").
+- `40b6912` 6/8: extend What-goes-here callouts to Build Program + Dev Costs + Financing.
+  Build Program h2 renamed "Area Program" → "Build Program" to match the M1.9 tab label.
+- `813f448` 7/8: scripts/verify-m19b.ts, 5-section per-phase verifier covering Hierarchy
+  dissolution + sections prop + nested mounts + What-goes-here callouts on all 5 tabs +
+  D7/D8 labels. 19 pass / 0 fail / 2 skip without dev server; 29 pass / 0 fail / 1 skip
+  with dev server up.
+- `<m19b/8>` 8/8: tests/e2e/m19b-redesign-flow.spec.ts, 2 Playwright specs. Spec 1 walks
+  wizard, asserts Schedule landing tab + 1→5 tab row (no "6. Hierarchy") + Project
+  Structure card mount + D7 labels visible + What-goes-here callout + D8 label on Land +
+  Build Program h2 + Asset & Sub-Unit Detail Editor mount. Spec 2 captures Schedule + Land
+  + Build Program screenshots (light + dark) into tests/screenshots/M1.9b/. Both pass
+  locally (2 passed, 28.3s).
+
+**M1.9b deferred (true architectural follow-on, separate session):**
+- Merge Project & Schedule even further: dissolve the Schedule tab + the structure tree
+  card into a unified "1. Project & Schedule" surface where the Master Holding /
+  Sub-Project / Phase tree drives the timing inputs (per-Phase section instead of
+  project-level seed). Today the M1.9b mount keeps both surfaces side-by-side which is
+  workable but still leaves project-level + per-phase timing visible at the same time.
+- Section-pill labels (Inputs / Calculated), calc-vs-input pencil/fx icons next to every
+  field, hover tooltips for the financial vocabulary (Sub-Unit, Strategy, FAR, Cascade).
+- Remove unused setters from Module1Area + Module1Timeline prop interfaces (still tagged
+  with eslint-disable so RealEstatePlatform binding doesn't shift).
+- ProjectFAR migration from Land to Build Program → Plot (calc still consumes it as a
+  project-level scalar; needs auto-derive from per-plot maxFARs first).
+
+**Audit (2026-05-04, fix 5):** all 6 Module 1 tabs share a single `useModule1Store`
+(direct subscription for Hierarchy + Area Program; prop-drilled setter wrappers from
+RealEstatePlatform for Timeline / Land & Area / Dev Costs / Financing). No tab keeps a
+private copy of project-level data. Cross-tab edits propagate via the store. The wizard
+writes a complete `HydrateSnapshot` on create, every field a tab reads is covered, with
+`DEFAULT_MODULE1_STATE` standing in for fields the wizard does not capture (country,
+landParcels, projectFAR, costs, financing, those belong to dedicated tabs).
+
+**M1.8 wizard hotfix series (5 commits, 2026-05-03 → 2026-05-04):**
+- `a15fcbc` fix 1/3: pair Model Type + Status on same row in Step 1
+- `e217978` fix 2/3: widen modal from 640px → 1080px
+- `5085958` fix 3/3: skip round-trip re-hydrate after wizard create (added
+  `attachToProjectFromLocalSnapshot` workaround; the underlying recogniser bug was flagged
+  as M2.0/A follow-up at the time)
+- `4721e80` fix 4: stabilise `Module1AreaProgram` `useShallow` selectors, every
+  `useShallow(s => ({ ..., filtered: s.X.filter(...) }))` was producing a fresh array
+  reference per render, tripping React's "getSnapshot should be cached" warning into a
+  Maximum update depth loop once the store had data. Pulled filters out into separate
+  `useModule1Store(s => s.X)` subscriptions + `useMemo` derivations.
+- `66a20f5` fix 5: relax `isNewV3` recogniser in `module1-migrate.ts`, every snapshot
+  the system POSTs (wizard create, legacy create, auto-save) is bare `HydrateSnapshot`
+  with no `version: 3` discriminator. The strict recogniser silently fell through to
+  `DEFAULT_MODULE1_STATE` on every reload, wiping the wizard data. Now shape-based:
+  any payload with `assets[]` + `phases[]` + `costs[]` arrays is treated as v3.
+
+**Snapshot baselines (3, all maintained at every commit):**
+- `module1-snapshot-diff.ts`, legacy single-phase, **17.5 KB**
+- `module1-multiphase-diff.ts`, multi-phase v4, **23.0 KB**
+- `module1-areaprogram-diff.ts`, M1.7 Area Program, **2.8 KB**
