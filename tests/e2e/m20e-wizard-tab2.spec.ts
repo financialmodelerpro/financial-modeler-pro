@@ -26,29 +26,30 @@ const SCREENSHOT_DIR = resolve(__dirname, '..', 'screenshots', 'M2.0e');
 test.describe('M2.0e Wizard simplification + Tab 2 full asset entry', () => {
   test.use({ viewport: { width: 1600, height: 1000 } });
 
-  test('Wizard Step 2: column headers show unit suffix matching modelType', async ({ page }) => {
+  // M2.0g v8 Addendum 3: inputs are always entered annually, so the
+  // dynamic "(years/months)" suffix retires. Column headers always
+  // show "(years)" regardless of the project's outputGranularity.
+  test('Wizard Step 2: column headers always show "(years)" (M2.0g v8 inputs)', async ({ page }) => {
     await page.goto('/refm');
     await expect(page.getByTestId('sidebar-module1')).toBeVisible({ timeout: 15000 });
-    // Open the wizard
     const newProjectBtn = page.getByText(/Create Project|\+ New Project|Create New/i).first();
     if ((await newProjectBtn.count()) > 0) {
       await newProjectBtn.click();
       await expect(page.getByTestId('project-wizard')).toBeVisible();
-
-      // Default modelType = annual -> headers show (years)
       await page.getByTestId('wizard-next').click(); // 1 -> 2
       await expect(page.getByTestId('wiz-phase-header-construction')).toContainText('years');
       await expect(page.getByTestId('wiz-phase-header-operations')).toContainText('years');
       await expect(page.getByTestId('wiz-phase-header-overlap')).toContainText('years');
       await expect(page.getByTestId('wiz-phase-header-startdate')).toBeVisible();
 
-      // Switch back to Step 1, change to monthly, return to Step 2
+      // Switching outputGranularity at Step 1 does NOT change Step 2
+      // labels (inputs always annual).
       await page.getByTestId('wizard-back').click();
-      await page.getByTestId('wiz-modelType').selectOption('monthly');
+      await page.getByTestId('wiz-outputGranularity').selectOption('monthly');
       await page.getByTestId('wizard-next').click();
-      await expect(page.getByTestId('wiz-phase-header-construction')).toContainText('months');
-      await expect(page.getByTestId('wiz-phase-header-operations')).toContainText('months');
-      await expect(page.getByTestId('wiz-phase-header-overlap')).toContainText('months');
+      await expect(page.getByTestId('wiz-phase-header-construction')).toContainText('years');
+      await expect(page.getByTestId('wiz-phase-header-operations')).toContainText('years');
+      await expect(page.getByTestId('wiz-phase-header-overlap')).toContainText('years');
 
       await page.getByTestId('wizard-close').click();
     } else {

@@ -18,6 +18,7 @@
 import type { HydrateSnapshot } from '../state/module1-store';
 import {
   type ModelGranularity,
+  type OutputGranularity,
   type Project,
   type ProjectType,
   type DisplayScale,
@@ -60,7 +61,12 @@ export interface WizardDraft {
   // Step 1
   projectName: string;
   currency: string;
+  // M2.0g v8 (Addendum 3): modelType always 'annual' on new projects.
+  // Kept on the draft for backward-compat reads; UI no longer exposes
+  // a granularity picker here. outputGranularity replaces it as the
+  // user-facing reporting view.
   modelType: ModelGranularity;
+  outputGranularity: OutputGranularity;
   startDate: string;
   location: string;
   // M2.0g: display scale captured in Wizard Step 1.
@@ -78,7 +84,9 @@ export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
   const project: Project = {
     name: draft.projectName,
     currency: draft.currency,
-    modelType: draft.modelType,
+    // M2.0g v8: inputs are always entered annually.
+    modelType: 'annual',
+    outputGranularity: draft.outputGranularity,
     startDate: draft.startDate,
     status: 'draft',
     location: draft.location,
@@ -176,6 +184,7 @@ export function makeDefaultWizardDraft(): WizardDraft {
     projectName: 'New Project',
     currency: 'SAR',
     modelType: 'annual',
+    outputGranularity: 'annual',
     startDate: today,
     location: '',
     phases: [

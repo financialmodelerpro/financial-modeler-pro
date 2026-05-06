@@ -254,7 +254,7 @@ export default function Module1ProjectPhases(): React.JSX.Element {
           }}
           data-testid="project-end-formula"
         >
-          Project End = {project.startDate} + max phase duration = <strong>{projectEndDate}</strong> (end year <strong data-testid="project-end-year">{projectTimeline.endYear}</strong>, total <strong>{projectTimeline.totalPeriods}</strong> {project.modelType === 'monthly' ? 'months' : 'years'})
+          Project End = {project.startDate} + max phase duration = <strong>{projectEndDate}</strong> (end year <strong data-testid="project-end-year">{projectTimeline.endYear}</strong>, total <strong>{projectTimeline.totalPeriods}</strong> {'years'})
         </div>
       </div>
 
@@ -291,13 +291,13 @@ export default function Module1ProjectPhases(): React.JSX.Element {
                 <InputLabel label="Phase Start Date" help="ISO date (YYYY-MM-DD). Authoritative timing source. Wizard Step 2 captures this; editing it here cascades to all downstream calcs (cost phasing, financing, project end)." textStyle={tableHeaderLabelStyle} />
               </th>
               <th style={tableHeaderStyle}>
-                <InputLabel label={`Construction (${project.modelType === 'monthly' ? 'months' : 'years'})`} help="How many periods the build phase spans." textStyle={tableHeaderLabelStyle} />
+                <InputLabel label={`Construction (${'years'})`} help="How many periods the build phase spans." textStyle={tableHeaderLabelStyle} />
               </th>
               <th style={tableHeaderStyle}>
-                <InputLabel label={`Operations (${project.modelType === 'monthly' ? 'months' : 'years'})`} help="How long the asset operates / generates revenue after delivery." textStyle={tableHeaderLabelStyle} />
+                <InputLabel label={`Operations (${'years'})`} help="How long the asset operates / generates revenue after delivery." textStyle={tableHeaderLabelStyle} />
               </th>
               <th style={tableHeaderStyle}>
-                <InputLabel label={`Overlap (${project.modelType === 'monthly' ? 'months' : 'years'})`} help="Periods where operations begin before construction ends (e.g. tower 1 opens during tower 2 build)." textStyle={tableHeaderLabelStyle} />
+                <InputLabel label={`Overlap (${'years'})`} help="Periods where operations begin before construction ends (e.g. tower 1 opens during tower 2 build)." textStyle={tableHeaderLabelStyle} />
               </th>
               <th style={tableHeaderStyle}>
                 <InputLabel label="Construction End" help="Auto-derived = Phase Start Date + Construction Periods." textStyle={tableHeaderLabelStyle} />

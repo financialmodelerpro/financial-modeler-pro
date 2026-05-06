@@ -28,7 +28,7 @@ import {
 } from '../../lib/wizard/buildWizardSnapshot';
 import {
   type LandAllocationMode,
-  type ModelGranularity,
+  type OutputGranularity,
   type ProjectType,
   type DisplayScale,
   PROJECT_TYPES,
@@ -36,6 +36,8 @@ import {
   LAND_ALLOCATION_MODES,
   DISPLAY_SCALES,
   DISPLAY_SCALE_LABELS,
+  OUTPUT_GRANULARITIES,
+  OUTPUT_GRANULARITY_LABELS,
 } from '../../lib/state/module1-types';
 
 export type { WizardDraft } from '../../lib/wizard/buildWizardSnapshot';
@@ -301,17 +303,21 @@ function Step1({
           />
         </div>
         <div>
-          <label style={labelStyle} htmlFor="wiz-modelType">Model Granularity</label>
+          <label style={labelStyle} htmlFor="wiz-outputGranularity">Reporting Granularity</label>
           <select
-            id="wiz-modelType"
-            data-testid="wiz-modelType"
-            value={draft.modelType}
-            onChange={(e) => onUpdate({ modelType: e.target.value as ModelGranularity })}
+            id="wiz-outputGranularity"
+            data-testid="wiz-outputGranularity"
+            value={draft.outputGranularity}
+            onChange={(e) => onUpdate({ outputGranularity: e.target.value as OutputGranularity })}
             style={inputStyle}
           >
-            <option value="annual">Annual</option>
-            <option value="monthly">Monthly</option>
+            {OUTPUT_GRANULARITIES.map((g) => (
+              <option key={g} value={g}>{OUTPUT_GRANULARITY_LABELS[g]}</option>
+            ))}
           </select>
+          <div style={{ fontSize: 'var(--font-meta)', color: 'var(--color-meta)', marginTop: 4 }}>
+            All inputs are entered annually. Choose how you want results displayed.
+          </div>
         </div>
         <div>
           <label style={labelStyle} htmlFor="wiz-startDate">Project Start Date</label>
@@ -370,14 +376,14 @@ function Step2({
   };
   // M2.0e: default a new phase's startDate = previous phase's
   // construction-end date (or project.startDate when first). The next
-  // phase visually picks up where the prior one stopped.
+  // phase visually picks up where the prior one stopped. M2.0g v8:
+  // always year arithmetic since inputs are always annual.
   const computeNextPhaseStartDate = (): string => {
     const prior = draft.phases[draft.phases.length - 1];
     if (!prior || !prior.startDate) return draft.startDate;
     const d = new Date(prior.startDate);
     if (Number.isNaN(d.getTime())) return draft.startDate;
-    if (draft.modelType === 'monthly') d.setMonth(d.getMonth() + Math.max(0, prior.constructionPeriods));
-    else d.setFullYear(d.getFullYear() + Math.max(0, prior.constructionPeriods));
+    d.setFullYear(d.getFullYear() + Math.max(0, prior.constructionPeriods));
     return d.toISOString().slice(0, 10);
   };
   const addPhase = (): void => {
@@ -409,10 +415,10 @@ function Step2({
     onUpdate({ parcels: draft.parcels.filter((_, i) => i !== idx) });
   };
 
-  // M2.0e: unit suffix tracks the project's modelType. "(years)" for
-  // annual, "(months)" for monthly. Reactive so editing modelType in
-  // Step 1 and returning to Step 2 reflects the change immediately.
-  const periodUnit = draft.modelType === 'annual' ? 'years' : 'months';
+  // M2.0g v8 (Addendum 3): inputs always entered in years. The
+  // M2.0e dynamic "(years/months)" suffix retires; period units are
+  // permanently years on inputs.
+  const periodUnit = 'years';
 
   return (
     <div data-testid="wizard-step-2-content">

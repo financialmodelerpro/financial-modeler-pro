@@ -132,7 +132,7 @@ try {
 
 try {
   const out = execSync('npx tsx scripts/module1-v5-diff.ts', { encoding: 'utf8', timeout: 30000 });
-  if (out.includes('OK: bit-identical')) pass('module1-v5-diff bit-identical (47.8 KB sha256 f30d5d219e57 post-M2.0g/1)');
+  if (out.includes('OK: bit-identical')) pass('module1-v5-diff bit-identical (47.8 KB sha256 22923b5275a7 post-M2.0g/1)');
   else fail('module1-v5-diff', out.slice(0, 200));
 } catch (e) {
   const msg = e instanceof Error ? e.message : String(e);
@@ -229,7 +229,7 @@ const markers: Marker[] = [
   { label: 'W2: Wizard Step 3 step label', path: wizardPath, needle: '3. Project Type' },
   { label: 'W3: Wizard Phase Start Date column', path: wizardPath, needle: 'wiz-phase-header-startdate' },
   { label: 'W4: Wizard unit suffix Construction', path: wizardPath, needle: 'wiz-phase-header-construction' },
-  { label: 'W5: Wizard periodUnit reactive', path: wizardPath, needle: "draft.modelType === 'annual' ? 'years' : 'months'" },
+  { label: 'W5: Wizard periodUnit (M2.0g v8: always years)', path: wizardPath, needle: "const periodUnit = 'years';" },
   { label: 'W6: Wizard project type suggestions', path: wizardPath, needle: 'wiz-project-type-suggestions' },
   { label: 'W7: Wizard PROJECT_TYPES import', path: wizardPath, needle: 'PROJECT_TYPES' },
   { label: 'W8: Wizard step3 callout', path: wizardPath, needle: 'wiz-step3-callout' },

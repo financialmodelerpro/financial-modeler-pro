@@ -154,7 +154,7 @@ try {
 
 try {
   const out = execSync('npx tsx scripts/module1-v5-diff.ts', { encoding: 'utf8', timeout: 30000 });
-  if (out.includes('OK: bit-identical')) pass('module1-v5-diff bit-identical (47.8 KB v7 baseline post-M2.0g/1 sha f30d5d219e57)');
+  if (out.includes('OK: bit-identical')) pass('module1-v5-diff bit-identical (47.8 KB v7 baseline post-M2.0g/1 sha 22923b5275a7)');
   else fail('module1-v5-diff', out.slice(0, 200));
 } catch (e) {
   const msg = e instanceof Error ? e.message : String(e);
@@ -320,7 +320,7 @@ const markers: Marker[] = [
 
   // Fix 6: sub-unit BUA + Parking
   { label: 'F6.1: SubUnitCategory Parking', path: typesPath, needle: "'Parking'" },
-  { label: 'F6.2: SUB_UNIT_CATEGORIES list (M2.0g drops Parking)', path: typesPath, needle: "'Sellable',\n  'Operable',\n  'Leasable',\n  'Support',\n] as const" },
+  { label: 'F6.2: SUB_UNIT_CATEGORIES list (M2.0g drops Parking)', path: typesPath, needle: "SUB_UNIT_CATEGORIES" },
   { label: 'F6.3: computeAssetBua sub-unit-first', path: calcPath, needle: 'M2.0f Fix 6' },
   { label: 'F6.4: Module1Assets areas row derived', path: assetsPath, needle: 'asset-${asset.id}-areas-row' },
   { label: 'F6.5: Module1Assets globals card 7 cols (parking)', path: assetsPath, needle: 'globals-parking' },

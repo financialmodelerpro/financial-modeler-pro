@@ -58,6 +58,7 @@ const FIXTURE: WizardDraft = {
   landAllocationMode: 'autoByBua',
   projectType: 'Mixed-Use',
   displayScale: 'full',
+  outputGranularity: 'monthly',
 };
 
 // M2.0e: wizard now mints an empty assets[] / subUnits[] snapshot. The

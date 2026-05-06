@@ -109,6 +109,7 @@ const fixtureDraft: WizardDraft = {
   landAllocationMode: 'autoByBua',
   projectType: 'Mixed-Use',
   displayScale: 'full',
+  outputGranularity: 'monthly',
 };
 // M2.0e: wizard now mints empty assets[]/subUnits[]; the verifier
 // injects two assets post-build to keep the calc-engine assertions

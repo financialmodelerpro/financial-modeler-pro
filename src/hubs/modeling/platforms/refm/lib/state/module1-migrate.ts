@@ -1,5 +1,13 @@
 /**
- * module1-migrate.ts (v7 schema)
+ * module1-migrate.ts (v8 schema)
+ *
+ * Phase M2.0g v8 (Addendum 3, 2026-05-06): bumps to v8. Inputs are
+ * always entered at ANNUAL granularity. v7 monthly snapshots migrate
+ * by aggregating periods 12->1 (constructionPeriods, operationsPeriods,
+ * overlapPeriods all divide by 12, rounded up). Project.modelType
+ * forced to 'annual'; new outputGranularity field defaults to 'annual'
+ * (or 'monthly' if the source v7 snapshot was monthly). v7 annual
+ * snapshots stamp version=8 and gain outputGranularity='annual'.
  *
  * Phase M2.0g (2026-05-06): in-place v7 migration that folds legacy
  * 'Parking' sub-units (M2.0f-only category) into asset.parkingArea
@@ -16,19 +24,34 @@
  * migrated to v7. Please recreate this project." message rather than
  * silently coercing legacy data into a different model.
  *
- * v7 snapshots are recognized by version === 7 OR by the bare-shape
- * fingerprint (assets[] with strategy === 'Sell + Manage' on at least
- * one row, OR an empty fresh snapshot).
+ * v8 snapshots are recognized by version === 8. Runtime accepts v7
+ * shapes by fingerprint (per the original v7 detector) and migrates
+ * them in place.
  */
 
 import type { HydrateSnapshot } from './module1-store';
 import { DEFAULT_MODULE1_STATE } from './module1-store';
 import { computeSubUnitArea } from '@/src/core/calculations';
-import type { SubUnit, Asset } from './module1-types';
+import type { SubUnit, Asset, Project, Phase } from './module1-types';
 
+export const SCHEMA_VERSION = 8;
+
+export interface NewV8Snapshot extends HydrateSnapshot {
+  version: 8;
+  savedAt?: string;
+}
+
+// Backward compat alias - same shape, just version=7. v7 snapshots
+// flow through migrateV7ToV8 to land at v8.
 export interface NewV7Snapshot extends HydrateSnapshot {
   version: 7;
   savedAt?: string;
+}
+
+export function isV8Snapshot(s: unknown): s is NewV8Snapshot {
+  if (!s || typeof s !== 'object') return false;
+  const o = s as { version?: unknown };
+  return o.version === 8;
 }
 
 export function isV7Snapshot(s: unknown): s is NewV7Snapshot {
@@ -43,6 +66,9 @@ export function isV7Snapshot(s: unknown): s is NewV7Snapshot {
     landAllocationMode?: unknown;
   };
   if (o.version === 7) return true;
+  // M2.0g v8: bare-shape fingerprint without explicit version still
+  // counts as v7 (will then migrate to v8 in stripWrapper). v8
+  // snapshots ALWAYS carry version=8.
   if (
     o.version === undefined &&
     typeof o.project === 'object' && o.project !== null &&
@@ -135,12 +161,57 @@ export function isPreV7Snapshot(s: unknown): boolean {
   return false;
 }
 
-const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
-  const out: Partial<NewV7Snapshot> = { ...s };
+const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
+  const out: Partial<NewV8Snapshot> = { ...s };
   delete out.version;
   delete out.savedAt;
   return migrateM20gParkingSubUnits(out as HydrateSnapshot);
 };
+
+const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
+  const out: Partial<NewV7Snapshot> = { ...s };
+  delete out.version;
+  delete out.savedAt;
+  // M2.0g v8: v7 -> v8 migration runs first (aggregate monthly,
+  // stamp outputGranularity), then the M2.0g Parking-subunit fold.
+  return migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot));
+};
+
+// M2.0g v8 (Addendum 3): v7 -> v8 migration. When the source
+// project.modelType === 'monthly', aggregate phase periods 12 -> 1
+// (rounded UP so partial years still count) and switch modelType to
+// 'annual'. outputGranularity defaults to the source modelType so the
+// user keeps their preferred reporting view ('monthly' becomes
+// outputGranularity='monthly'; 'annual' becomes 'annual'). Cost line
+// startPeriod / endPeriod scale 12->1 for monthly sources too.
+function migrateV7ToV8(snap: HydrateSnapshot): HydrateSnapshot {
+  const project = snap.project as Project;
+  const wasMonthly = project.modelType === 'monthly';
+  const outputGranularity = project.outputGranularity ?? (wasMonthly ? 'monthly' : 'annual');
+  if (!wasMonthly) {
+    // Already annual - just stamp outputGranularity if missing.
+    if (project.outputGranularity) return snap;
+    return { ...snap, project: { ...project, outputGranularity } };
+  }
+  const ceilDiv = (n: number): number => Math.max(0, Math.ceil(n / 12));
+  const phases = (snap.phases as Phase[]).map((p) => ({
+    ...p,
+    constructionPeriods: Math.max(1, ceilDiv(p.constructionPeriods)),
+    operationsPeriods:   ceilDiv(p.operationsPeriods),
+    overlapPeriods:      ceilDiv(p.overlapPeriods),
+  }));
+  const costLines = snap.costLines.map((c) => ({
+    ...c,
+    startPeriod: ceilDiv(c.startPeriod),
+    endPeriod:   Math.max(1, ceilDiv(c.endPeriod)),
+  }));
+  return {
+    ...snap,
+    project: { ...project, modelType: 'annual', outputGranularity },
+    phases,
+    costLines,
+  };
+}
 
 // M2.0g (2026-05-06): the M2.0f 'Parking' SubUnitCategory was removed.
 // Any snapshot that still carries Parking sub-units folds their area
@@ -178,6 +249,9 @@ export interface CheckedHydration {
 }
 
 export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydration {
+  if (isV8Snapshot(snapshot)) {
+    return { snapshot: stripV8Wrapper(snapshot), recognized: true };
+  }
   if (isV7Snapshot(snapshot)) {
     return { snapshot: stripWrapper(snapshot), recognized: true };
   }
@@ -185,7 +259,7 @@ export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydra
     return {
       snapshot: { ...DEFAULT_MODULE1_STATE },
       recognized: false,
-      error: 'Schema migrated to v7. Please recreate this project.',
+      error: 'Schema migrated to v8. Please recreate this project.',
     };
   }
   if (typeof console !== 'undefined') {

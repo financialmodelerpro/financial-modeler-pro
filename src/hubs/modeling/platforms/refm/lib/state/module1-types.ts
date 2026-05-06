@@ -161,8 +161,23 @@ export const LAND_ALLOCATION_MODES: readonly LandAllocationMode[] = [
 ] as const;
 
 // ── Project meta ───────────────────────────────────────────────────────────
+// M2.0g v8 (Addendum 3, 2026-05-06): inputs are always entered at
+// ANNUAL granularity. modelType stays on the schema for legacy v7
+// snapshots and as the calc-engine period unit, but new projects
+// always set modelType='annual'. outputGranularity drives the
+// reporting / display view toggle (annual default, quarterly /
+// monthly distribute at render time).
 export type ModelGranularity = 'monthly' | 'annual';
 export type ProjectStatus     = 'draft' | 'active' | 'archived';
+export type OutputGranularity = 'annual' | 'quarterly' | 'monthly';
+
+export const OUTPUT_GRANULARITIES: readonly OutputGranularity[] = ['annual', 'quarterly', 'monthly'] as const;
+
+export const OUTPUT_GRANULARITY_LABELS: Record<OutputGranularity, string> = {
+  annual:    'Annual',
+  quarterly: 'Quarterly',
+  monthly:   'Monthly',
+};
 
 // M2.0g (2026-05-06): project-level display scale. Storage stays full
 // value (e.g. 98,450 SAR/sqm); only the display layer divides for
@@ -238,6 +253,12 @@ export interface Project {
   // M2.0g (2026-05-06): display scale. Optional; defaults to 'full'
   // when undefined so v7 snapshots keep working unchanged.
   displayScale?: DisplayScale;
+  // M2.0g v8 Addendum 3 (2026-05-06): output granularity for reporting
+  // / display. Inputs always entered annually (modelType always
+  // 'annual' on new projects); outputGranularity tells the display
+  // layer how to split annual schedules into quarters / months for
+  // viewing. Optional so v7 snapshots stay valid (default 'annual').
+  outputGranularity?: OutputGranularity;
 }
 
 // ── Phase ──────────────────────────────────────────────────────────────────
@@ -997,7 +1018,9 @@ export function makeDefaultProject(
   return {
     name,
     currency,
-    modelType,
+    // M2.0g v8: modelType always 'annual' on new projects; outputGranularity
+    // controls the reporting view.
+    modelType: 'annual',
     startDate: `${yyyy}-${mm}-${dd}`,
     status: 'draft',
     location: '',
@@ -1005,6 +1028,7 @@ export function makeDefaultProject(
     projectRoadsPct: 0,
     projectType: 'Mixed-Use',
     displayScale: 'full',
+    outputGranularity: 'annual',
   };
 }
 
