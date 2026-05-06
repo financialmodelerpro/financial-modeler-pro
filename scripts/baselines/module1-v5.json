@@ -6,7 +6,8 @@
       "modelType": "monthly",
       "startDate": "2026-01-01",
       "status": "draft",
-      "location": "Riyadh"
+      "location": "Riyadh",
+      "projectType": "Mixed-Use"
     },
     "phases": [
       {
@@ -15,7 +16,8 @@
         "constructionStart": 1,
         "constructionPeriods": 24,
         "operationsPeriods": 60,
-        "overlapPeriods": 0
+        "overlapPeriods": 0,
+        "startDate": "2026-01-01"
       },
       {
         "id": "phase_2",
@@ -23,7 +25,8 @@
         "constructionStart": 25,
         "constructionPeriods": 18,
         "operationsPeriods": 60,
-        "overlapPeriods": 6
+        "overlapPeriods": 6,
+        "startDate": "2027-07-01"
       }
     ],
     "parcels": [
@@ -58,7 +61,8 @@
         "gfaSqm": 0,
         "buaSqm": 0,
         "sellableBuaSqm": 0,
-        "parkingBaysRequired": 200
+        "parkingBaysRequired": 200,
+        "status": "planned"
       },
       {
         "id": "asset_2",
@@ -70,19 +74,21 @@
         "gfaSqm": 0,
         "buaSqm": 0,
         "sellableBuaSqm": 0,
-        "parkingBaysRequired": 80
+        "parkingBaysRequired": 80,
+        "status": "planned"
       },
       {
         "id": "asset_3",
         "phaseId": "phase_1",
         "name": "Retail",
-        "type": "Retail",
+        "type": "Retail Mall",
         "strategy": "Lease",
         "visible": true,
         "gfaSqm": 0,
         "buaSqm": 0,
         "sellableBuaSqm": 0,
-        "parkingBaysRequired": 60
+        "parkingBaysRequired": 60,
+        "status": "planned"
       },
       {
         "id": "asset_4",
@@ -94,7 +100,8 @@
         "gfaSqm": 0,
         "buaSqm": 0,
         "sellableBuaSqm": 0,
-        "parkingBaysRequired": 30
+        "parkingBaysRequired": 30,
+        "status": "planned"
       }
     ],
     "subUnits": [
@@ -139,9 +146,7 @@
         "metric": "count",
         "metricValue": 20,
         "unitArea": 220,
-        "unitPrice": 5000000,
-        "occupancyPct": 65,
-        "operatingMargin": 30
+        "unitPrice": 5000000
       }
     ],
     "costLines": [
