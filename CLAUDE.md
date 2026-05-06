@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-06 (M2.0d Costs polish + accounting rules + layout fix on v7 schema)**
+**Last updated: 2026-05-06 (M2.0e wizard simplification + Tab 2 full asset entry on v7 schema)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -221,21 +221,23 @@ npm run type-check   # tsc --noEmit, must be zero errors
 npm run build        # next build --webpack (avoids MAX_PATH on Windows/OneDrive)
 npm run verify       # type-check + lint + build
 
-# Module 1 v7 (M2.0d) regression-guard snapshot diff (single baseline,
+# Module 1 v7 (M2.0d/M2.0e) regression-guard snapshot diff (single baseline,
 # replaces the 3 retired ones)
-npx tsx scripts/module1-v5-diff.ts              # M2.0d v7, 47.6 KB baseline (sha256 7418013202fc)
+npx tsx scripts/module1-v5-diff.ts              # M2.0e v7, 47.8 KB baseline (sha256 824ef8e1706d)
 
 # Per-phase verifier (5 sections: schema/types / calc / state / source markers / Playwright UI)
-npx tsx scripts/verify-m20.ts                   # M2.0 MAAD-Spec rebuild (42 pass / 0 fail / 1 skip without dev server)
+npx tsx scripts/verify-m20.ts                   # M2.0 MAAD-Spec rebuild (fixture updated for M2.0e startDate + projectType)
 npx tsx scripts/verify-m20b.ts                  # M2.0b shell restoration (51 pass / 0 fail / 2 skip without dev server / unauth)
 npx tsx scripts/verify-m20c.ts                  # M2.0c full Dev Costs + Financing on v6 (looser SCHEMA_VERSION + COST_METHODS asserts after M2.0d)
-npx tsx scripts/verify-m20d.ts                  # M2.0d Costs polish + v7 (71 pass / 0 fail / 2 skip without dev server) <- canonical green
+npx tsx scripts/verify-m20d.ts                  # M2.0d Costs polish + v7 (71 pass / 0 fail / 2 skip without dev server)
+npx tsx scripts/verify-m20e.ts                  # M2.0e wizard + Tab 2 (58 pass / 0 fail / 2 skip without dev server) <- canonical green
 
 # Playwright e2e specs (M2.0 v5/v6/v7 contract)
-npx playwright test tests/e2e/m20-full-flow.spec.ts        # 2 specs: 3-step wizard create + 4-tab landing (no Land/Build Program/Hierarchy) + 8 light/dark tab screenshots; live-recompute spec asserts editing GFA in Tab 2 updates Tab 3 phase total
+npx playwright test tests/e2e/m20-full-flow.spec.ts        # 2 specs: 3-step wizard create + 4-tab landing + 8 light/dark tab screenshots
 npx playwright test tests/e2e/m20b-shell.spec.ts           # 4 specs: brand topbar/sidebar/dashboard chrome + dark-mode body attribute toggle + 3-modal open-close + light/dark screenshots
 npx playwright test tests/e2e/m20c-costs-financing.spec.ts # SKIPPED (frozen v6 contract; superseded by m20d-costs-polish.spec.ts)
 npx playwright test tests/e2e/m20d-costs-polish.spec.ts    # 7 specs: layout (no sidebar bleed) + Tab 2 Sell+Manage agreement + Tab 3 per-asset segregation + custom cost popup + 3 capex summary tables + Tab 4 in-kind equity tile + granularity + light/dark screenshots
+npx playwright test tests/e2e/m20e-wizard-tab2.spec.ts     # 6 specs: wizard Step 2 unit suffix + Phase Start Date column + Step 3 simplified + Tab 2 phase grouping + asset Phase/Status dropdowns + sub-unit Rate Unit column + light/dark screenshots
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -253,9 +255,135 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 **Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
 (`npx playwright install chromium`).
 
-### Module 1 status (2026-05-06, **M2.0d Costs polish + accounting rules**)
+### Module 1 status (2026-05-06, **M2.0e wizard simplification + Tab 2 full asset entry**)
 
-**M2.0d (current, ships):** Closes the 8 testing-feedback items
+**M2.0e (current, ships):** Wizard simplification + Tab 2 becomes the
+canonical asset entry surface. Closes the 6 testing-feedback items
+Ahmad raised after M2.0d (wizard column units, Phase Start Date,
+Step 3 too detailed, Tab 2 needs phase grouping + sub-unit table +
+project-type-aware Type catalog). Additive schema (no SCHEMA_VERSION
+bump, v7 stays); 8 commits:
+
+- **/1 (schema additions)**: Three optional fields on the v7 schema:
+  Phase.startDate?: string (ISO date), Asset.status?: 'planned' |
+  'construction' | 'operational', Project.projectType?: 'Residential'
+  | 'Hospitality' | 'Retail' | 'Office' | 'Mixed-Use' | 'Custom'.
+  Two new closed enums + label maps (PROJECT_TYPES, ASSET_STATUSES,
+  ASSET_STATUS_LABELS). Two new catalogs:
+  ASSET_TYPES_BY_PROJECT_TYPE (Residential 6 / Hospitality 6 / Retail
+  5 / Office 4 / Mixed-Use 11 / Custom 8) and
+  SUGGESTED_CATEGORIES_BY_PROJECT_TYPE (one-line empty-state nudges).
+  makeDefaultProject seeds projectType: 'Mixed-Use'. Two new pure
+  calc helpers: computePhaseTimeline(phase, project) returns
+  { constructionStart, constructionEnd, operationsStart, operationsEnd }
+  as ISO dates (period unit follows project.modelType: monthly = +N
+  months, annual = +N years; overlapPeriods deducted from
+  constructionEnd to derive operationsStart; falls back to
+  project.startDate + (constructionStart - 1) periods when
+  phase.startDate is undefined); computeProjectTimeline returns
+  { start, end, spanPeriods } where start = min phase
+  constructionStart, end = max phase operationsEnd.
+- **/2 (Wizard Step 2)**: WizardDraftPhase.startDate becomes a
+  required field. Step 2 column headers gain unit suffix tracking
+  draft.modelType ("Construction (years)" / "(months)" reactive).
+  New Phase Start Date column inserted before Construction. addPhase
+  auto-defaults next phase startDate = prior.startDate +
+  prior.constructionPeriods (in modelType units), so Phase 2 picks
+  up where Phase 1 ended; first phase defaults to draft.startDate.
+- **/3 (Wizard Step 3 simplified)**: WizardDraftAsset interface
+  retired. WizardDraft.assets[] removed. WizardDraft.projectType
+  added (single ProjectType pick). buildWizardSnapshot outputs empty
+  assets[] / subUnits[] (Tab 2 is the canonical asset entry surface
+  going forward). Step 3 collapses from a 4-input + 1-sub-unit-row
+  per asset card grid into a single 6-radio project-type pick + a
+  "Tab 2 will suggest" preview reading
+  SUGGESTED_CATEGORIES_BY_PROJECT_TYPE. Stepper label "3. Assets" ->
+  "3. Project Type". step3Valid loosened to PROJECT_TYPES.includes.
+- **/4 (Tab 2 rewrite)**: Module1Assets full rewrite. Land Parcels
+  block + Land Allocation Mode block stay at top (unchanged).
+  Per-phase asset sections replace the flat "Assets" list: each
+  PhaseAssetSection header carries phase name + computePhaseTimeline
+  (constructionStart to operationsEnd, period counts) + asset count
+  + a "+ Add Asset" button. Empty-state prints
+  SUGGESTED_CATEGORIES_BY_PROJECT_TYPE. AssetCard rebuilt with
+  header row (name + Phase dropdown reassign + Strategy + Type
+  catalog filtered via resolveTypeCatalog + Status pill + Visible +
+  Delete), conditional ManagementAgreementForm (Sell + Manage),
+  conditional UsefulLifeForm (Operate / Lease), land allocation row
+  (mode A/B/C), 5 area inputs (GFA / BUA / Sellable BUA / Parking
+  Bays), sub-unit table with M2.0e column shape (Type / Category /
+  Metric / Area / Unit Size / Count / Rate / Rate Unit), card
+  footer with BUA reconciliation (matches / mismatch by N sqm) +
+  efficiency % + land cost. Status badge color: planned = grey,
+  construction = warm amber, operational = green-success. Rate Unit
+  derives from category + metric (per unit / per sqm / per
+  room/night / per sqm/year / per unit/year). Global totals card
+  (navy) at bottom shows Total BUA / Sellable / Operable / Leasable
+  / Land Cost.
+- **/5 (snapshot baseline regen)**: scripts/baselines/module1-v5.json
+  47.8 KB sha256 824ef8e1706d (up from M2.0d 47.6 KB sha256
+  7418013202fc). Drift sources: phase.startDate populated on both
+  phases, project.projectType: 'Mixed-Use', Asset.status: 'planned'
+  on all 4 assets, Asset 3 type 'Retail' -> 'Retail Mall' to match
+  the new Mixed-Use catalog.
+- **/6 (verifier)**: scripts/verify-m20e.ts (58 pass / 0 fail / 2
+  skip without authenticated dev server). 5 sections: schema (10
+  assertions), routes + baseline diff (47.8 KB sha 824ef8e1706d),
+  calc (9 assertions covering computePhaseTimeline annual + monthly
+  + fallback + computeProjectTimeline min/max), 35 source-file
+  markers, em-dash sweep across 5 files, Playwright presence + run
+  gate.
+- **/7 (Playwright)**: tests/e2e/m20e-wizard-tab2.spec.ts (6 specs):
+  wizard Step 2 unit suffix reactive to modelType + Phase Start
+  Date column + auto-default for Phase 2; wizard Step 3 simplified
+  (6 radios + step3 callout + suggestions box; M2.0c-era asset
+  detail inputs gone via toHaveCount 0); Tab 2 phase grouping +
+  globals card; Asset card Phase/Status dropdowns + Rate Unit
+  column + reconciliation row; light/dark screenshots into
+  tests/screenshots/M2.0e/.
+- **/8 (docs sweep, this commit)**: CLAUDE.md M2.0e closure block,
+  scripts table updated to point at v7 baseline 47.8 KB + verify-
+  m20e canonical green + m20e-wizard-tab2.spec.ts entry, M2.0d
+  status re-titled "foundation for M2.0e".
+
+**M2.0e pattern decisions for downstream phases:**
+- Wizard captures only project shape (basics + phases + land + project
+  type); detail entry lives in dedicated tabs. M2.1 Revenue Tab follows
+  the same pattern: wizard does NOT seed revenue lines; the Revenue
+  Tab seeds defaults per asset based on category + strategy.
+- Per-phase startDate is the authoritative timing source going forward.
+  Module 5 Statements + Module 3 Cashflow consume computePhaseTimeline
+  for concrete date display. Legacy snapshots without startDate fall
+  back to the project.startDate-driven offset model so existing
+  projects stay compatible.
+- Sub-unit category + metric drive the "Rate Unit" presentation
+  (Sellable + count = "per unit", Operable + count = "per room/night",
+  Leasable + area = "per sqm/year", etc.). M2.1 Revenue must wire each
+  rate-unit combination to a revenue stream:
+  * Sellable + count: cohort sale revenue (units × unitPrice over
+    sales schedule)
+  * Sellable + area: cohort sale revenue (sqm × unitPrice over sales
+    schedule)
+  * Operable + count: hospitality revenue (keys × ADR × occupancy ×
+    days)
+  * Operable + area: hospitality revenue per sqm/year (rare; serviced
+    apt model)
+  * Leasable + area: rent (sqm × rent × occupancy)
+  * Leasable + count: rent per unit/year
+  * Support: no revenue stream (back-of-house)
+- Asset.status drives revenue gating in M2.1: 'planned' = no revenue
+  this period, 'construction' = pre-sale cohort revenue only (Sell +
+  Sell+Manage), 'operational' = full revenue per strategy.
+- Project type seeds the Type catalog filter in Tab 2 but NEVER
+  auto-creates assets. Empty-state suggestions are nudges, not data
+  changes. Same pattern applies to future seeds.
+- Status pill color convention: planned = grey, construction = warm
+  amber, operational = green-success. Module 5 Statements + Module 3
+  Cashflow should reuse the same color scale for consistency.
+
+### Module 1 status (M2.0d, 2026-05-06, foundation for M2.0e)
+
+**M2.0d:** Closes the 8 testing-feedback items
 Ahmad raised on M2.0c. Schema bumps to v7 (pre-v7 hard-cut continues
 the precedent v5 -> v6 set). 9 commits:
 
