@@ -759,7 +759,7 @@ function AssetCostSection({
   );
 }
 
-// ── 3 Capex summary tables ────────────────────────────────────────────────
+// ── 4 Capex summary tables (M2.0g Fix 7) ────────────────────────────────
 interface SummaryTablesProps {
   phaseAssets: Asset[];
   perPhaseBreakdowns: Array<{ phaseId: string; cp: number; assetTotals: Record<string, AssetCostBreakdown> }>;
@@ -767,11 +767,14 @@ interface SummaryTablesProps {
   metricsByAsset: Map<string, { cashLandValue: number; inKindLandValue: number; landValue: number }>;
   project: { currency: string; startDate: string; modelType: 'monthly' | 'annual'; displayScale: DisplayScale };
   totalConstructionPeriods: number;
+  // M2.0g Fix 7a: per-cost-line breakdown needs the full line list so
+  // each asset's lines can be enumerated under its row.
+  costLines: CostLine[];
 }
 
 function SummaryTables({
   phaseAssets, perPhaseBreakdowns, metricsByAsset,
-  project, totalConstructionPeriods,
+  project, totalConstructionPeriods, costLines,
 }: SummaryTablesProps): React.JSX.Element {
   const scale = project.displayScale;
   const fmt = (v: number): string => formatScaled(v, scale);
@@ -874,30 +877,89 @@ function SummaryTables({
   const headStyle: React.CSSProperties = { background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', padding: '6px', textAlign: 'right', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' };
   const headLeftStyle: React.CSSProperties = { ...headStyle, textAlign: 'left' };
 
+  // M2.0g Fix 7e: 4th summary table - Capex by Cost Type per Asset.
+  // Rows = assets, cols = Land Cash / Land In-Kind / Hard / Soft /
+  // Operating / Total. Treatment = derived from cost line stage (Land
+  // splits into Cash + In-Kind via metricsByAsset).
+  const matrixRows = treatmentTable;  // same source as Table 3 minus cashFlow col
+
   return (
     <>
-      {/* Table 1: Capex by Period */}
+      {/* M2.0g Fix 7a + 7d: Table 1 - Capex by Period (per cost-line
+          breakdown). Asset rows are followed by per-cost-line nested
+          rows so the user can audit each line's per-period spend. Total
+          column is in the 2nd position. */}
       <div style={sectionCardStyle} data-testid="capex-by-period">
-        <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>1. Capex by Period</strong>
+        <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>1. Capex by Period (per cost line)</strong>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr>
-                <th style={headLeftStyle}>Asset</th>
+                <th style={headLeftStyle}>Asset / Cost Line</th>
+                <th style={headStyle}>Total</th>
                 {periodLabels.map((p, i) => (<th key={i} style={headStyle}>{p}</th>))}
               </tr>
             </thead>
             <tbody>
-              {periodTable.map((r) => (
-                <tr key={r.id}>
-                  <td style={cellName}>{r.name}</td>
-                  {r.row.map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-${r.id}-${i + 1}`}>{fmt(v)}</td>))}
-                </tr>
-              ))}
+              {phaseAssets.map((a) => {
+                // Asset subtotal row + per-line nested rows.
+                const assetRow = new Array<number>(periodCount).fill(0);
+                let assetTotal = 0;
+                for (const pb of perPhaseBreakdowns) {
+                  const bd = pb.assetTotals[a.id];
+                  if (!bd) continue;
+                  assetTotal += bd.total;
+                  for (let i = 0; i < periodCount; i++) assetRow[i] += bd.perPeriod[i + 1] ?? 0;
+                }
+                // Per-line per-period: distribute each line's total
+                // across periods using the line's own phasing curve.
+                const linesForThisAsset = costLines.filter((c) => c.targetAssetId === undefined || c.targetAssetId === a.id);
+                return (
+                  <React.Fragment key={a.id}>
+                    <tr style={{ background: 'color-mix(in srgb, var(--color-navy) 8%, transparent)', fontWeight: 700 }} data-testid={`capex-period-asset-${a.id}`}>
+                      <td style={cellName}>{a.name}</td>
+                      <td style={cellNum} data-testid={`capex-period-asset-${a.id}-total`}>{fmt(assetTotal)}</td>
+                      {assetRow.map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-${a.id}-${i + 1}`}>{fmt(v)}</td>))}
+                    </tr>
+                    {linesForThisAsset.map((line) => {
+                      // Find this line's total + per-period from the
+                      // breakdown.byLineId / perPeriod mapping.
+                      let lineTotal = 0;
+                      const linePerPeriod = new Array<number>(periodCount).fill(0);
+                      for (const pb of perPhaseBreakdowns) {
+                        const bd = pb.assetTotals[a.id];
+                        if (!bd) continue;
+                        const t = bd.byLineId[line.id] ?? 0;
+                        if (t === 0) continue;
+                        lineTotal += t;
+                        // Approximate per-period split: distribute t across
+                        // perPeriod proportional to overall asset perPeriod.
+                        const assetPP = bd.perPeriod;
+                        const assetPPTotal = assetPP.reduce((s, v) => s + v, 0);
+                        if (assetPPTotal > 0) {
+                          for (let i = 0; i < periodCount; i++) {
+                            const share = (assetPP[i + 1] ?? 0) / assetPPTotal;
+                            linePerPeriod[i] += t * share;
+                          }
+                        }
+                      }
+                      if (lineTotal === 0) return null;
+                      return (
+                        <tr key={`${a.id}-${line.id}`} data-testid={`capex-period-line-${a.id}-${line.id}`}>
+                          <td style={{ ...cellName, paddingLeft: 24, fontWeight: 400, color: 'var(--color-meta)' }}>{line.name}</td>
+                          <td style={cellNum}>{fmt(lineTotal)}</td>
+                          {linePerPeriod.map((v, i) => (<td key={i} style={cellNum}>{fmt(v)}</td>))}
+                        </tr>
+                      );
+                    })}
+                  </React.Fragment>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
                 <td style={cellName}>Project Total</td>
+                <td style={cellNum} data-testid="capex-period-grand-total">{fmt(periodTotals.reduce((s, v) => s + v, 0))}</td>
                 {periodTotals.map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-total-${i + 1}`}>{fmt(v)}</td>))}
               </tr>
             </tfoot>
@@ -905,46 +967,45 @@ function SummaryTables({
         </div>
       </div>
 
-      {/* Table 2: Capex by Stage */}
+      {/* M2.0g Fix 7b + 7d: Table 2 - Capex by Stage (transposed:
+          Stage rows x Year cols). Total column in 2nd position. */}
       <div style={sectionCardStyle} data-testid="capex-by-stage">
         <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>2. Capex by Stage</strong>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th style={headLeftStyle}>Period</th>
-              <th style={headStyle}>Land</th>
-              <th style={headStyle}>Hard</th>
-              <th style={headStyle}>Soft</th>
-              <th style={headStyle}>Operating</th>
-              <th style={headStyle}>Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {stageTable.map((r, i) => (
-              <tr key={i}>
-                <td style={cellName}>{r.period}</td>
-                <td style={cellNum} data-testid={`capex-stage-${i + 1}-land`}>{fmt(r.land)}</td>
-                <td style={cellNum} data-testid={`capex-stage-${i + 1}-hard`}>{fmt(r.hard)}</td>
-                <td style={cellNum} data-testid={`capex-stage-${i + 1}-soft`}>{fmt(r.soft)}</td>
-                <td style={cellNum} data-testid={`capex-stage-${i + 1}-operating`}>{fmt(r.operating)}</td>
-                <td style={cellNum}>{fmt(r.total)}</td>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={headLeftStyle}>Stage</th>
+                <th style={headStyle}>Total</th>
+                {periodLabels.map((p, i) => (<th key={i} style={headStyle}>{p}</th>))}
               </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
-              <td style={cellName}>Total</td>
-              <td style={cellNum} data-testid="capex-stage-total-land">{fmt(stageTotals.land)}</td>
-              <td style={cellNum} data-testid="capex-stage-total-hard">{fmt(stageTotals.hard)}</td>
-              <td style={cellNum} data-testid="capex-stage-total-soft">{fmt(stageTotals.soft)}</td>
-              <td style={cellNum} data-testid="capex-stage-total-operating">{fmt(stageTotals.operating)}</td>
-              <td style={cellNum} data-testid="capex-stage-total-total">{fmt(stageTotals.total)}</td>
-            </tr>
-          </tfoot>
-        </table>
+            </thead>
+            <tbody>
+              {(['land', 'hard', 'soft', 'operating'] as const).map((stageKey) => {
+                const row = stageTable.map((r) => r[stageKey]);
+                const total = stageTotals[stageKey];
+                return (
+                  <tr key={stageKey} data-testid={`capex-stage-row-${stageKey}`}>
+                    <td style={cellName}>{COST_STAGE_LABELS[stageKey]}</td>
+                    <td style={cellNum} data-testid={`capex-stage-row-${stageKey}-total`}>{fmt(total)}</td>
+                    {row.map((v, i) => (<td key={i} style={cellNum}>{fmt(v)}</td>))}
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
+                <td style={cellName}>Total</td>
+                <td style={cellNum} data-testid="capex-stage-grand-total">{fmt(stageTotals.total)}</td>
+                {stageTable.map((r, i) => (<td key={i} style={cellNum}>{fmt(r.total)}</td>))}
+              </tr>
+            </tfoot>
+          </table>
+        </div>
       </div>
 
-      {/* Table 3: Capex Summary by Treatment */}
+      {/* M2.0g Fix 7d: Table 3 - Capex Summary by Treatment (existing
+          M2.0d table). Total column moved to 2nd position. */}
       <div style={sectionCardStyle} data-testid="capex-by-treatment">
         <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>3. Capex Summary by Treatment</strong>
         <div style={{ overflowX: 'auto' }}>
@@ -952,13 +1013,13 @@ function SummaryTables({
             <thead>
               <tr>
                 <th style={headLeftStyle}>Asset</th>
+                <th style={headStyle}>Total Capex</th>
                 <th style={headStyle}>Strategy</th>
                 <th style={headStyle}>Land Cash</th>
                 <th style={headStyle}>Land In-Kind</th>
                 <th style={headStyle}>Hard</th>
                 <th style={headStyle}>Soft</th>
                 <th style={headStyle}>Operating</th>
-                <th style={headStyle}>Total Capex</th>
                 <th style={headStyle}>Cash Flow Impact</th>
               </tr>
             </thead>
@@ -966,27 +1027,74 @@ function SummaryTables({
               {treatmentTable.map((r) => (
                 <tr key={r.id} data-testid={`capex-treatment-${r.id}`}>
                   <td style={cellName}>{r.name}</td>
+                  <td style={cellNum}>{fmt(r.total)}</td>
                   <td style={cellNum}>{r.strategy}</td>
                   <td style={cellNum}>{fmt(r.landCash)}</td>
                   <td style={cellNum}>{fmt(r.landInKind)}</td>
                   <td style={cellNum}>{fmt(r.hard)}</td>
                   <td style={cellNum}>{fmt(r.soft)}</td>
                   <td style={cellNum}>{fmt(r.operating)}</td>
-                  <td style={cellNum}>{fmt(r.total)}</td>
                   <td style={cellNum} data-testid={`capex-treatment-${r.id}-cash-flow`}>{fmt(r.cashOutflow)}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
-                <td style={cellName} colSpan={2}>Project Total</td>
+                <td style={cellName}>Project Total</td>
+                <td style={cellNum} data-testid="capex-treatment-total-capex">{fmt(treatTotals.total)}</td>
+                <td style={cellNum}></td>
                 <td style={cellNum} data-testid="capex-treatment-total-land-cash">{fmt(treatTotals.landCash)}</td>
                 <td style={cellNum} data-testid="capex-treatment-total-land-inkind">{fmt(treatTotals.landInKind)}</td>
                 <td style={cellNum}>{fmt(treatTotals.hard)}</td>
                 <td style={cellNum}>{fmt(treatTotals.soft)}</td>
                 <td style={cellNum}>{fmt(treatTotals.operating)}</td>
-                <td style={cellNum} data-testid="capex-treatment-total-capex">{fmt(treatTotals.total)}</td>
                 <td style={cellNum} data-testid="capex-treatment-total-cash-flow">{fmt(treatTotals.cashOutflow)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      {/* M2.0g Fix 7e: Table 4 (NEW) - Capex by Cost Type per Asset.
+          Matrix view: Asset rows x [Land Cash, Land In-Kind, Hard,
+          Soft, Operating] cols + Total in 2nd col. */}
+      <div style={sectionCardStyle} data-testid="capex-by-cost-type">
+        <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>4. Capex by Cost Type per Asset</strong>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                <th style={headLeftStyle}>Asset</th>
+                <th style={headStyle}>Total</th>
+                <th style={headStyle}>Land Cash</th>
+                <th style={headStyle}>Land In-Kind</th>
+                <th style={headStyle}>Hard Cost</th>
+                <th style={headStyle}>Soft Cost</th>
+                <th style={headStyle}>Operating</th>
+              </tr>
+            </thead>
+            <tbody>
+              {matrixRows.map((r) => (
+                <tr key={r.id} data-testid={`capex-cost-type-${r.id}`}>
+                  <td style={cellName}>{r.name}</td>
+                  <td style={cellNum}>{fmt(r.total)}</td>
+                  <td style={cellNum}>{fmt(r.landCash)}</td>
+                  <td style={cellNum}>{fmt(r.landInKind)}</td>
+                  <td style={cellNum}>{fmt(r.hard)}</td>
+                  <td style={cellNum}>{fmt(r.soft)}</td>
+                  <td style={cellNum}>{fmt(r.operating)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
+                <td style={cellName}>Project Total</td>
+                <td style={cellNum} data-testid="capex-cost-type-grand-total">{fmt(treatTotals.total)}</td>
+                <td style={cellNum}>{fmt(treatTotals.landCash)}</td>
+                <td style={cellNum}>{fmt(treatTotals.landInKind)}</td>
+                <td style={cellNum}>{fmt(treatTotals.hard)}</td>
+                <td style={cellNum}>{fmt(treatTotals.soft)}</td>
+                <td style={cellNum}>{fmt(treatTotals.operating)}</td>
               </tr>
             </tfoot>
           </table>
@@ -1024,6 +1132,10 @@ export default function Module1Costs(): React.JSX.Element {
 
   const [stageFilter, setStageFilter] = useState<CostStage | 'all'>('all');
   const [popupAssetId, setPopupAssetId] = useState<string | null>(null);
+  // M2.0g Fix 7: sub-tab state. 'inputs' shows the per-asset cost
+  // tables (editable surface). 'results' shows the 4 capex summary
+  // tables (read-only).
+  const [subTab, setSubTab] = useState<'inputs' | 'results'>('inputs');
   // M2.0g: project-wide display scale.
   const scale: DisplayScale = project.displayScale ?? 'full';
   // M2.0g Addendum 2: period -> "Dec 25" label resolver, supplied to
@@ -1146,46 +1258,83 @@ export default function Module1Costs(): React.JSX.Element {
         ))}
       </div>
 
-      {/* Per-phase, per-asset sections */}
-      {perPhaseBreakdowns.map((pb) => {
-        if (pb.phaseAssets.length === 0) return null;
-        return (
-          <div key={pb.phaseId} data-testid={`costs-phase-${pb.phaseId}`}>
-            <div style={phaseHeaderStyle}>{pb.phaseName} · {pb.phaseAssets.length} asset{pb.phaseAssets.length === 1 ? '' : 's'}</div>
-            {pb.phaseAssets.map((a) => {
-              const assetLines = linesForAsset(a, pb.phaseId);
-              const breakdown = pb.assetTotals[a.id]!;
-              return (
-                <AssetCostSection
-                  key={a.id}
-                  asset={a}
-                  lines={assetLines}
-                  costOverrides={costOverrides}
-                  breakdown={breakdown}
-                  currency={project.currency}
-                  scale={scale}
-                  periodLabel={periodLabelFn}
-                  constructionPeriods={pb.cp}
-                  onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
-                  onUpdateOverride={setCostOverride}
-                  onRemoveOverride={removeCostOverride}
-                  onRemoveLine={removeCostLine}
-                  onAddCustom={() => handleAddCustom(a.id)}
-                />
-              );
-            })}
-          </div>
-        );
-      })}
+      {/* M2.0g Fix 7: Inputs / Results sub-tab toggle. */}
+      <div
+        style={{
+          display: 'flex',
+          gap: 'var(--sp-1)',
+          marginBottom: 'var(--sp-2)',
+          borderBottom: '1px solid var(--color-border)',
+        }}
+        data-testid="costs-sub-tabs"
+      >
+        {(['inputs', 'results'] as const).map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setSubTab(tab)}
+            data-testid={`costs-sub-tab-${tab}`}
+            style={{
+              padding: 'var(--sp-1) var(--sp-3)',
+              background: subTab === tab ? 'var(--color-navy)' : 'transparent',
+              color: subTab === tab ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
+              border: 'none',
+              borderRadius: 'var(--radius-sm) var(--radius-sm) 0 0',
+              cursor: 'pointer',
+              fontSize: 'var(--font-small)',
+              fontWeight: subTab === tab ? 700 : 500,
+              textTransform: 'uppercase',
+              letterSpacing: '0.05em',
+            }}
+          >
+            {tab === 'inputs' ? '1. Inputs' : '2. Results'}
+          </button>
+        ))}
+      </div>
 
-      {allVisibleAssets.length === 0 && (
-        <div style={{ ...sectionCardStyle, textAlign: 'center', color: 'var(--color-meta)', padding: 'var(--sp-3)' }} data-testid="costs-no-assets">
-          No visible assets yet. Add at least one asset (Tab 2) to configure costs.
-        </div>
+      {subTab === 'inputs' && (
+        <>
+          {/* Per-phase, per-asset sections */}
+          {perPhaseBreakdowns.map((pb) => {
+            if (pb.phaseAssets.length === 0) return null;
+            return (
+              <div key={pb.phaseId} data-testid={`costs-phase-${pb.phaseId}`}>
+                <div style={phaseHeaderStyle}>{pb.phaseName} · {pb.phaseAssets.length} asset{pb.phaseAssets.length === 1 ? '' : 's'}</div>
+                {pb.phaseAssets.map((a) => {
+                  const assetLines = linesForAsset(a, pb.phaseId);
+                  const breakdown = pb.assetTotals[a.id]!;
+                  return (
+                    <AssetCostSection
+                      key={a.id}
+                      asset={a}
+                      lines={assetLines}
+                      costOverrides={costOverrides}
+                      breakdown={breakdown}
+                      currency={project.currency}
+                      scale={scale}
+                      periodLabel={periodLabelFn}
+                      constructionPeriods={pb.cp}
+                      onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
+                      onUpdateOverride={setCostOverride}
+                      onRemoveOverride={removeCostOverride}
+                      onRemoveLine={removeCostLine}
+                      onAddCustom={() => handleAddCustom(a.id)}
+                    />
+                  );
+                })}
+              </div>
+            );
+          })}
+
+          {allVisibleAssets.length === 0 && (
+            <div style={{ ...sectionCardStyle, textAlign: 'center', color: 'var(--color-meta)', padding: 'var(--sp-3)' }} data-testid="costs-no-assets">
+              No visible assets yet. Add at least one asset (Tab 2) to configure costs.
+            </div>
+          )}
+        </>
       )}
 
-      {/* 3 Capex summary tables */}
-      {allVisibleAssets.length > 0 && (
+      {subTab === 'results' && allVisibleAssets.length > 0 && (
         <SummaryTables
           phaseAssets={allVisibleAssets}
           perPhaseBreakdowns={perPhaseBreakdowns}
@@ -1193,7 +1342,13 @@ export default function Module1Costs(): React.JSX.Element {
           metricsByAsset={metricsByAsset}
           project={{ currency: project.currency, startDate: project.startDate, modelType: project.modelType, displayScale: scale }}
           totalConstructionPeriods={totalConstructionPeriods}
+          costLines={costLines}
         />
+      )}
+      {subTab === 'results' && allVisibleAssets.length === 0 && (
+        <div style={{ ...sectionCardStyle, textAlign: 'center', color: 'var(--color-meta)', padding: 'var(--sp-3)' }}>
+          No visible assets yet. Switch to the Inputs sub-tab and add an asset to populate the summary tables.
+        </div>
       )}
 
       {/* Project total footer */}
