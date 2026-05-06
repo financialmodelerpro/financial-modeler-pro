@@ -126,19 +126,20 @@ export const DEFAULT_USEFUL_LIFE_YEARS = {
 //   'Leasable' -> retail/office NOI (rent per sqm x occupancy)
 //   'Support'  -> non-revenue (back-of-house, MEP); appears in area
 //                 roll-ups but not in revenue streams
-//   'Parking'  -> non-revenue (M2.0f Fix 6); contributes to construction
-//                 cost (BUA x parking rate) but no revenue stream. Splits
-//                 from Support so MAAD pattern (Parking as a discrete
-//                 sub-unit category, not a generic Support row) is
-//                 representable.
-export type SubUnitCategory = 'Sellable' | 'Operable' | 'Leasable' | 'Support' | 'Parking';
+//
+// M2.0g Fix 4 (2026-05-06): the M2.0f 'Parking' category is removed.
+// Parking moves to an asset-level input (asset.parkingArea) so users
+// no longer have to break it into a sub-unit when it's a single
+// catch-all area. Sub-units now describe REVENUE-generating units only
+// (apartments, hotel keys, retail GLA). module1-migrate folds any
+// legacy 'Parking' sub-unit area into asset.parkingArea.
+export type SubUnitCategory = 'Sellable' | 'Operable' | 'Leasable' | 'Support';
 
 export const SUB_UNIT_CATEGORIES: readonly SubUnitCategory[] = [
   'Sellable',
   'Operable',
   'Leasable',
   'Support',
-  'Parking',
 ] as const;
 
 // ── Sub-unit metric semantics ──────────────────────────────────────────────
@@ -394,6 +395,14 @@ export interface Asset {
   gfaSqm: number;                // gross floor area
   buaSqm: number;                // built-up area (subset of gfa, after MEP/BoH)
   sellableBuaSqm: number;        // saleable / leasable area within bua
+  // M2.0g Fix 4 (2026-05-06): asset-level total BUA + Support + Parking
+  // inputs. User enters total BUA at asset level as a check, and
+  // Support / Parking as asset-level inputs (no longer sub-units).
+  // computeAssetAreaTotals reconciles: Sub-units (revenue) + Support +
+  // Parking should equal asset.buaTotal.
+  buaTotal?: number;
+  supportArea?: number;
+  parkingArea?: number;
   // Parking
   parkingBaysRequired: number;
   // M2.0d: capitalization + depreciation rules
@@ -439,10 +448,14 @@ export type CostMethod =
   | 'rate_per_nda'             // value × net developable area (land × (1 - roads%))
   | 'rate_per_roads'           // value × roads area
   | 'rate_per_gfa'             // value × asset.gfaSqm
-  | 'rate_per_bua'             // value × asset.buaSqm
+  | 'rate_per_bua'             // value × asset.buaSqm OR derived BUA total
   | 'rate_per_nsa'             // value × asset.sellableBuaSqm
   | 'rate_per_unit'            // value × sub-unit count (Sellable category)
   | 'rate_per_parking_bay'     // value × asset.parkingBaysRequired (M2.0d)
+  // M2.0g Fix 4 additions (2026-05-06):
+  | 'rate_x_support_area'      // value × asset.supportArea (asset-level)
+  | 'rate_x_parking_area'      // value × asset.parkingArea (asset-level)
+  | 'rate_x_specific_subunit'  // value × area of a specific sub-unit (line.subUnitId)
   | 'percent_of_selected'      // value% × sum of selectedLineIds totals
   | 'percent_of_construction'  // value% × sum of stage='hard' line totals
   | 'percent_of_total_land'    // value% × parcels total value
@@ -459,6 +472,9 @@ export const COST_METHODS: readonly CostMethod[] = [
   'rate_per_nsa',
   'rate_per_unit',
   'rate_per_parking_bay',
+  'rate_x_support_area',
+  'rate_x_parking_area',
+  'rate_x_specific_subunit',
   'percent_of_selected',
   'percent_of_construction',
   'percent_of_total_land',
@@ -471,11 +487,14 @@ export const COST_METHOD_LABELS: Record<CostMethod, string> = {
   rate_per_land:           'Rate × Land Area',
   rate_per_nda:            'Rate × NDA',
   rate_per_roads:          'Rate × Roads',
-  rate_per_gfa:             'Rate × GFA',
-  rate_per_bua:            'Rate × BUA',
-  rate_per_nsa:            'Rate × NSA (sellable)',
+  rate_per_gfa:            'Rate × GFA',
+  rate_per_bua:            'Rate × BUA Total',
+  rate_per_nsa:            'Rate × Sellable BUA',
   rate_per_unit:           'Rate × Unit Count',
   rate_per_parking_bay:    'Rate × Parking Bays',
+  rate_x_support_area:     'Rate × Support Area',
+  rate_x_parking_area:     'Rate × Parking Area',
+  rate_x_specific_subunit: 'Rate × Specific Sub-unit',
   percent_of_selected:     '% of Selected Lines',
   percent_of_construction: '% of Construction',
   percent_of_total_land:   '% of Total Land Value',
@@ -557,6 +576,11 @@ export interface CostLine {
   // sections. When undefined, the line is project-wide (the standard 9
   // catalog and any future user-added project-level lines).
   targetAssetId?: string;
+  // M2.0g Fix 4 (2026-05-06): only consumed when method =
+  // 'rate_x_specific_subunit'. Identifies the sub-unit whose area the
+  // rate multiplies against (e.g. construction rate for hotel keys vs
+  // branded suites differs).
+  subUnitId?: string;
 }
 
 export interface CostOverride {

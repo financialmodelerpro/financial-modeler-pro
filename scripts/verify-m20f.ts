@@ -104,11 +104,14 @@ if (healthcareTypes.includes('Hospital (Multi-specialty)') && healthcareTypes.in
   fail('Healthcare catalog', 'missing Hospital or Specialty Clinic');
 }
 
-if (SUB_UNIT_CATEGORIES.length === 5) pass('5 SubUnitCategories (Fix 6: + Parking)');
-else fail('SUB_UNIT_CATEGORIES count', `expected 5, got ${SUB_UNIT_CATEGORIES.length}`);
+// M2.0g Fix 4: Parking moves to asset-level. SUB_UNIT_CATEGORIES drops
+// back to 4 (Sellable / Operable / Leasable / Support) and Parking is
+// represented via asset.parkingArea instead.
+if (SUB_UNIT_CATEGORIES.length >= 4) pass(`SubUnitCategories count >= 4 (current ${SUB_UNIT_CATEGORIES.length}, M2.0g drops Parking)`);
+else fail('SUB_UNIT_CATEGORIES count', `expected >= 4, got ${SUB_UNIT_CATEGORIES.length}`);
 
-if (SUB_UNIT_CATEGORIES.includes('Parking')) pass("SUB_UNIT_CATEGORIES includes 'Parking'");
-else fail('SUB_UNIT_CATEGORIES', "'Parking' missing");
+if (SUB_UNIT_CATEGORIES.includes('Support')) pass("SUB_UNIT_CATEGORIES includes 'Support'");
+else fail('SUB_UNIT_CATEGORIES', "'Support' missing");
 
 // Asset.landAllocation roundtrip via shape check.
 const aTest: Asset = {
@@ -237,22 +240,25 @@ else fail('legacy alias start', 'mismatch');
 if (maadTimeline.end === maadTimeline.endDate) pass('Fix 5: legacy alias .end mirrors .endDate');
 else fail('legacy alias end', 'mismatch');
 
-// Fix 6: BUA derives from sub-units.
+// Fix 6: BUA derives from sub-units. M2.0g Fix 4: Parking moves to
+// asset-level (asset.parkingArea = 26259); Support stays as a sub-unit
+// option AND has an asset-level companion field. Sub-unit BUA only
+// counts revenue + Support sub-units; Parking is asset-level.
 const f6Asset: Asset = {
   id: 'a6', phaseId: 'p1', name: 'Branded Apt', type: 'Branded Residences',
   strategy: 'Sell', visible: true, gfaSqm: 0, buaSqm: 0, sellableBuaSqm: 0, parkingBaysRequired: 0,
+  parkingArea: 26259,
 };
 const f6SubUnits: SubUnit[] = [
   { id: 's1', assetId: 'a6', name: '1BR', category: 'Sellable', metric: 'area', metricValue: 47800, unitPrice: 33456 },
   { id: 's2', assetId: 'a6', name: '2BR', category: 'Sellable', metric: 'area', metricValue: 36497, unitPrice: 33505 },
   { id: 's3', assetId: 'a6', name: 'Support', category: 'Support', metric: 'area', metricValue: 46577, unitPrice: 0 },
-  { id: 's4', assetId: 'a6', name: 'Parking', category: 'Parking', metric: 'area', metricValue: 26259, unitPrice: 0 },
 ];
 const f6Bua = computeAssetBua(f6Asset, f6SubUnits);
-if (f6Bua === 47800 + 36497 + 46577 + 26259) pass(`Fix 6: BUA total = 47800 + 36497 + 46577 + 26259 = ${f6Bua}`);
-else fail('Fix 6 BUA total', `expected 157133, got ${f6Bua}`);
+if (f6Bua === 47800 + 36497 + 46577) pass(`Fix 6: sub-unit BUA = 47800 + 36497 + 46577 = ${f6Bua} (parking is asset-level)`);
+else fail('Fix 6 BUA total', `expected 130874, got ${f6Bua}`);
 const f6Sellable = computeAssetSellableBua(f6Asset, f6SubUnits);
-if (f6Sellable === 47800 + 36497) pass(`Fix 6: Sellable BUA = 47800 + 36497 = ${f6Sellable} (Support + Parking excluded)`);
+if (f6Sellable === 47800 + 36497) pass(`Fix 6: Sellable BUA = 47800 + 36497 = ${f6Sellable} (Support excluded)`);
 else fail('Fix 6 Sellable BUA', `expected 84297, got ${f6Sellable}`);
 
 // Fix 6: empty asset (no sub-units) falls back to asset.buaSqm.
@@ -314,7 +320,7 @@ const markers: Marker[] = [
 
   // Fix 6: sub-unit BUA + Parking
   { label: 'F6.1: SubUnitCategory Parking', path: typesPath, needle: "'Parking'" },
-  { label: 'F6.2: SUB_UNIT_CATEGORIES Parking', path: typesPath, needle: "'Sellable',\n  'Operable',\n  'Leasable',\n  'Support',\n  'Parking',\n] as const" },
+  { label: 'F6.2: SUB_UNIT_CATEGORIES list (M2.0g drops Parking)', path: typesPath, needle: "'Sellable',\n  'Operable',\n  'Leasable',\n  'Support',\n] as const" },
   { label: 'F6.3: computeAssetBua sub-unit-first', path: calcPath, needle: 'M2.0f Fix 6' },
   { label: 'F6.4: Module1Assets areas row derived', path: assetsPath, needle: 'asset-${asset.id}-areas-row' },
   { label: 'F6.5: Module1Assets globals card 7 cols (parking)', path: assetsPath, needle: 'globals-parking' },

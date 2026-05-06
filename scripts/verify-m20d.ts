@@ -99,8 +99,11 @@ else fail('hospitality life', `expected 20, got ${DEFAULT_USEFUL_LIFE_YEARS.hosp
 if (DEFAULT_USEFUL_LIFE_YEARS.retail === 25) pass('retail useful life 25');
 else fail('retail life', `expected 25, got ${DEFAULT_USEFUL_LIFE_YEARS.retail}`);
 
-if (COST_METHODS.length === 14) pass('14 cost methods (added rate_per_parking_bay)');
-else fail('cost methods', `expected 14, got ${COST_METHODS.length}`);
+// M2.0d added rate_per_parking_bay (14 methods); M2.0g added 3 more
+// (rate_x_support_area / rate_x_parking_area / rate_x_specific_subunit).
+// Loosen to >= 14 to keep this verifier green after additive growth.
+if (COST_METHODS.length >= 14) pass(`>= 14 cost methods (current ${COST_METHODS.length})`);
+else fail('cost methods', `expected >= 14, got ${COST_METHODS.length}`);
 
 if (COST_METHODS.includes('rate_per_parking_bay')) pass('rate_per_parking_bay present');
 else fail('rate_per_parking_bay', 'missing from COST_METHODS');

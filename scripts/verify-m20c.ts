@@ -177,6 +177,7 @@ const ctx: AssetCostContext = {
     landSqm: 5000, ndaSqm: 4500, roadsSqm: 500,
     gfa: 10000, bua: 8000, nsa: 6000, unitCount: 50,
     parkingBays: 100,
+    supportArea: 0, parkingArea: 0,
     landValue: 2500000, cashLandValue: 1500000, inKindLandValue: 1000000,
   },
   resolvedDirectLineTotals: {},

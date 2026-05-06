@@ -122,7 +122,7 @@ export function computeAssetBua(asset: Asset, subUnits: SubUnit[]): number {
 
 export function computeAssetSellableBua(asset: Asset, subUnits: SubUnit[]): number {
   const phaseSubUnits = subUnits.filter(
-    (u) => u.assetId === asset.id && u.category !== 'Support' && u.category !== 'Parking',
+    (u) => u.assetId === asset.id && u.category !== 'Support',
   );
   if (phaseSubUnits.length === 0) return Math.max(0, asset.sellableBuaSqm ?? 0);
   return phaseSubUnits.reduce((s, u) => s + computeSubUnitArea(u), 0);
@@ -297,13 +297,68 @@ export interface AssetAreaMetrics {
   ndaSqm: number;
   roadsSqm: number;
   gfa: number;
-  bua: number;
+  bua: number;                 // M2.0g Fix 4: prefers asset.buaTotal when set,
+                               // else sub-unit sum + supportArea + parkingArea
   nsa: number;
   unitCount: number;
-  parkingBays: number;        // M2.0d: drives rate_per_parking_bay
+  parkingBays: number;         // M2.0d: drives rate_per_parking_bay
+  // M2.0g Fix 4 additions:
+  supportArea: number;         // asset.supportArea (asset-level input)
+  parkingArea: number;         // asset.parkingArea (asset-level input)
   landValue: number;
   cashLandValue: number;
   inKindLandValue: number;
+}
+
+// M2.0g Fix 4 (2026-05-06): asset BUA + sub-unit reconciliation.
+// Sub-units describe REVENUE-generating units; Support + Parking are
+// asset-level inputs. The reconciliation block contrasts the user-
+// entered asset.buaTotal against (sub-units + support + parking) so
+// the user can verify their inputs without double-entry pressure.
+export interface AssetAreaTotals {
+  buaTotal: number;            // resolved BUA (asset.buaTotal if set, else derived)
+  sellableBua: number;         // sub-units category=Sellable
+  operableBua: number;         // sub-units category=Operable
+  leasableBua: number;         // sub-units category=Leasable
+  subUnitsRevenue: number;     // sellable + operable + leasable
+  subUnitsSupport: number;     // sub-units category=Support
+  supportArea: number;         // asset.supportArea
+  parkingArea: number;         // asset.parkingArea
+  derivedTotal: number;        // subUnitsRevenue + subUnitsSupport + supportArea + parkingArea
+  enteredTotal: number;        // asset.buaTotal (0 if not set)
+  matches: boolean;            // |derived - entered| < 1 sqm OR enteredTotal === 0
+  mismatchSqm: number;         // entered - derived
+}
+
+export function computeAssetAreaTotals(asset: Asset, subUnits: SubUnit[]): AssetAreaTotals {
+  const my = subUnits.filter((u) => u.assetId === asset.id);
+  const sellableBua = my.filter((u) => u.category === 'Sellable').reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const operableBua = my.filter((u) => u.category === 'Operable').reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const leasableBua = my.filter((u) => u.category === 'Leasable').reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const subUnitsSupport = my.filter((u) => u.category === 'Support').reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const subUnitsRevenue = sellableBua + operableBua + leasableBua;
+  const supportArea = Math.max(0, asset.supportArea ?? 0);
+  const parkingArea = Math.max(0, asset.parkingArea ?? 0);
+  const derivedTotal = subUnitsRevenue + subUnitsSupport + supportArea + parkingArea;
+  const enteredTotal = Math.max(0, asset.buaTotal ?? 0);
+  // Resolved BUA: explicit asset.buaTotal wins; otherwise derived sum.
+  const buaTotal = enteredTotal > 0 ? enteredTotal : derivedTotal;
+  const mismatchSqm = enteredTotal > 0 ? enteredTotal - derivedTotal : 0;
+  const matches = enteredTotal === 0 || Math.abs(mismatchSqm) < 1;
+  return {
+    buaTotal,
+    sellableBua,
+    operableBua,
+    leasableBua,
+    subUnitsRevenue,
+    subUnitsSupport,
+    supportArea,
+    parkingArea,
+    derivedTotal,
+    enteredTotal,
+    matches,
+    mismatchSqm,
+  };
 }
 
 export function resolveAssetAreaMetrics(
@@ -323,8 +378,12 @@ export function resolveAssetAreaMetrics(
   const roadsPct = Math.max(0, Math.min(100, project.projectRoadsPct ?? 0));
   const ndaSqm = landSqm * (1 - roadsPct / 100);
   const roadsSqm = landSqm - ndaSqm;
-  const bua = computeAssetBua(asset, subUnits);
-  const nsa = computeAssetSellableBua(asset, subUnits);
+  // M2.0g Fix 4: BUA pulls from computeAssetAreaTotals which prefers
+  // asset.buaTotal when set, else derives from sub-units + support +
+  // parking. NSA = revenue sub-units only.
+  const totals = computeAssetAreaTotals(asset, subUnits);
+  const bua = totals.buaTotal;
+  const nsa = totals.subUnitsRevenue;
   const unitCount = computeAssetUnitCount(asset, subUnits);
   const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
 
@@ -353,6 +412,8 @@ export function resolveAssetAreaMetrics(
     nsa,
     unitCount,
     parkingBays: Math.max(0, asset.parkingBaysRequired ?? 0),
+    supportArea: totals.supportArea,
+    parkingArea: totals.parkingArea,
     landValue,
     cashLandValue,
     inKindLandValue,
@@ -366,6 +427,9 @@ export function resolveAssetAreaMetrics(
 export interface AssetCostContext {
   asset: Asset;
   metrics: AssetAreaMetrics;
+  // M2.0g Fix 4: sub-units list so 'rate_x_specific_subunit' can look
+  // up the area of a specific sub-unit by id.
+  subUnits?: SubUnit[];
   // All cost lines for this phase (post-override per-asset). Used by
   // percent_of_selected / percent_of_construction / etc. The caller must
   // pre-resolve the per-asset values for each line so percent methods
@@ -404,6 +468,15 @@ export function calculateItemTotal(
       return safeV * m.unitCount;
     case 'rate_per_parking_bay':
       return safeV * m.parkingBays;
+    case 'rate_x_support_area':
+      return safeV * m.supportArea;
+    case 'rate_x_parking_area':
+      return safeV * m.parkingArea;
+    case 'rate_x_specific_subunit': {
+      const target = (ctx.subUnits ?? []).find((u) => u.id === line.subUnitId);
+      if (!target) return 0;
+      return safeV * computeSubUnitArea(target);
+    }
     case 'percent_of_total_land':
       return m.landValue * (clamp(v, 0, 100) / 100);
     case 'percent_of_cash_land':
@@ -587,7 +660,7 @@ export function computeAssetCost(
   for (const r of resolved) {
     const isPct = r.method === 'percent_of_selected' || r.method === 'percent_of_construction';
     if (isPct) continue;
-    const ctxStub: AssetCostContext = { asset, metrics, resolvedDirectLineTotals: {} };
+    const ctxStub: AssetCostContext = { asset, metrics, subUnits, resolvedDirectLineTotals: {} };
     const projectLevelTotal = calculateItemTotal(
       { ...r.line, method: r.method, value: r.value },
       ctxStub,

@@ -1,6 +1,12 @@
 /**
  * module1-migrate.ts (v7 schema)
  *
+ * Phase M2.0g (2026-05-06): in-place v7 migration that folds legacy
+ * 'Parking' sub-units (M2.0f-only category) into asset.parkingArea
+ * and drops the sub-unit. Schema stays v7 because the additive
+ * Asset.buaTotal / supportArea / parkingArea fields don't break v7
+ * snapshots that were written without them.
+ *
  * Phase M2.0d (2026-05-06): bumps schema to v7 to absorb the M2.0d Costs
  * polish (AssetStrategy 'Hybrid' renamed 'Sell + Manage', Asset gains
  * managementAgreement + usefulLifeYears, default cost catalog goes from
@@ -17,6 +23,8 @@
 
 import type { HydrateSnapshot } from './module1-store';
 import { DEFAULT_MODULE1_STATE } from './module1-store';
+import { computeSubUnitArea } from '@/src/core/calculations';
+import type { SubUnit, Asset } from './module1-types';
 
 export interface NewV7Snapshot extends HydrateSnapshot {
   version: 7;
@@ -131,8 +139,37 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   const out: Partial<NewV7Snapshot> = { ...s };
   delete out.version;
   delete out.savedAt;
-  return out as HydrateSnapshot;
+  return migrateM20gParkingSubUnits(out as HydrateSnapshot);
 };
+
+// M2.0g (2026-05-06): the M2.0f 'Parking' SubUnitCategory was removed.
+// Any snapshot that still carries Parking sub-units folds their area
+// sum into asset.parkingArea (per asset) and drops the sub-unit row.
+// Idempotent: running on a snapshot that has no Parking sub-units
+// returns it unchanged.
+function migrateM20gParkingSubUnits(snap: HydrateSnapshot): HydrateSnapshot {
+  const subUnits = snap.subUnits as SubUnit[] | undefined;
+  if (!Array.isArray(subUnits) || subUnits.length === 0) return snap;
+  const parkingAreaByAsset = new Map<string, number>();
+  let hasParkingSubUnits = false;
+  for (const u of subUnits) {
+    // Cast safely: M2.0f had 'Parking'; M2.0g removes it. Detect by
+    // string equality regardless of TS type.
+    if ((u.category as unknown as string) === 'Parking') {
+      hasParkingSubUnits = true;
+      const area = computeSubUnitArea(u);
+      parkingAreaByAsset.set(u.assetId, (parkingAreaByAsset.get(u.assetId) ?? 0) + area);
+    }
+  }
+  if (!hasParkingSubUnits) return snap;
+  const filteredSubUnits = subUnits.filter((u) => (u.category as unknown as string) !== 'Parking');
+  const assets = (snap.assets as Asset[]).map((a) => {
+    const folded = parkingAreaByAsset.get(a.id);
+    if (folded === undefined) return a;
+    return { ...a, parkingArea: Math.max(0, (a.parkingArea ?? 0) + folded) };
+  });
+  return { ...snap, subUnits: filteredSubUnits, assets };
+}
 
 export interface CheckedHydration {
   snapshot: HydrateSnapshot;
