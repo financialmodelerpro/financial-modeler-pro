@@ -1645,6 +1645,57 @@ export function formatPeriodLabel(
   return `${months[d.getUTCMonth()]} ${yy}`;
 }
 
+// ── M2.0i Fix 10: Operational phase opening balances + run-rate ───────────
+// When phase.status === 'operational', period 0 (Y0) carries the sunk
+// costs from before the reporting start. computePhaseHistorical returns
+// the opening balances that Module 5 will seed into the cash flow +
+// balance sheet at the project's first reported period.
+export interface PhaseHistoricalOpeningBalances {
+  cashOutflow: number;      // historicalCapexTotal already spent (sunk)
+  equityIn: number;         // historicalEquityContributed
+  debtDrawn: number;        // historicalDebtDrawn
+  debtOutstanding: number;  // currentDebtOutstanding (after historical repayments)
+  fixedAssetsNbv: number;   // netBookValueFixedAssets (post-depreciation NBV)
+  accumulatedDepreciation: number;
+}
+
+export function computePhaseHistorical(phase: Phase): PhaseHistoricalOpeningBalances | null {
+  if (phase.status !== 'operational') return null;
+  const b = phase.historicalBaseline;
+  if (!b) return null;
+  return {
+    cashOutflow:             Math.max(0, b.historicalCapexTotal),
+    equityIn:                Math.max(0, b.historicalEquityContributed),
+    debtDrawn:               Math.max(0, b.historicalDebtDrawn),
+    debtOutstanding:         Math.max(0, b.currentDebtOutstanding),
+    fixedAssetsNbv:          Math.max(0, b.netBookValueFixedAssets),
+    accumulatedDepreciation: Math.max(0, b.cumulativeDepreciationCharged),
+  };
+}
+
+// computeOperationalRunRate: roll forward the last-12-months revenue
+// and opex from the historical baseline to a target reporting period
+// using simple compound growth. Defaults: 3% revenue growth, 2% opex
+// growth (the spec calls them "overridable per asset"; today we apply
+// the same rate uniformly, callers can pass overrides).
+export interface OperationalRunRatePoint {
+  period: number;           // 0-indexed reporting period
+  revenue: number;
+  opex: number;
+}
+
+export function computeOperationalRunRate(
+  baseline: { last12MonthsRevenue: number; last12MonthsOpex: number },
+  period: number,
+  revenueGrowthPct = 3,
+  opexGrowthPct    = 2,
+): OperationalRunRatePoint {
+  const safePeriod = Math.max(0, period);
+  const revenue = Math.max(0, baseline.last12MonthsRevenue) * Math.pow(1 + revenueGrowthPct / 100, safePeriod);
+  const opex    = Math.max(0, baseline.last12MonthsOpex)    * Math.pow(1 + opexGrowthPct    / 100, safePeriod);
+  return { period: safePeriod, revenue, opex };
+}
+
 // Generate N period labels starting from a project start date, at the
 // chosen granularity. Used by Module1Costs Results sub-tab + Module1-
 // Financing schedules to render column headers.

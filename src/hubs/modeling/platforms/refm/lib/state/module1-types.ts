@@ -290,6 +290,41 @@ export interface Project {
 // All assets, parcels, costLines, financingTranches, and
 // equityContributions are PER-PHASE. operationsStart is derived in the UI:
 //   operationsStart = constructionStart + constructionPeriods - overlapPeriods
+// M2.0i Fix 10 (2026-05-07): phase status drives operational-phase
+// treatment. 'operational' phases reveal a Historical Baseline section
+// in Tab 1 with sunk-cost / opening-balance inputs that flow into the
+// future Module 5 cash flow + balance sheet.
+export type PhaseStatus = 'planning' | 'construction' | 'operational';
+
+export const PHASE_STATUSES: readonly PhaseStatus[] = ['planning', 'construction', 'operational'] as const;
+
+export const PHASE_STATUS_LABELS: Record<PhaseStatus, string> = {
+  planning:     'Planning',
+  construction: 'Construction',
+  operational:  'Operational',
+};
+
+// M2.0i Fix 10 (2026-05-07): historical baseline for operational phases.
+// All fields entered in project currency at the project's reporting
+// start (period 0 / Y0). Module 5 Statements (when it ships) will read
+// these to seed opening balances on the cash flow + balance sheet.
+export interface PhaseHistoricalBaseline {
+  // Sunk costs and prior cumulative
+  historicalCapexTotal: number;
+  historicalEquityContributed: number;
+  historicalDebtDrawn: number;
+  currentDebtOutstanding: number;
+  cumulativeDepreciationCharged: number;
+  netBookValueFixedAssets: number;
+  // Run-rate operating baseline
+  last12MonthsRevenue: number;
+  last12MonthsOpex: number;
+  // Optional category-specific run-rate inputs.
+  currentOccupancy?: number;       // % (hospitality / lease)
+  currentAdr?: number;             // SAR per key per night (hospitality)
+  currentRentRate?: number;        // SAR per sqm per year (lease)
+}
+
 export interface Phase {
   id: string;
   name: string;
@@ -304,6 +339,13 @@ export interface Phase {
   // without it fall back to project.startDate + (constructionStart - 1)
   // periods.
   startDate?: string;
+  // M2.0i Fix 10 (2026-05-07): phase lifecycle status. Optional;
+  // defaults to 'planning' when undefined. When set to 'operational',
+  // Tab 1 reveals a Historical Baseline section.
+  status?: PhaseStatus;
+  // M2.0i Fix 10: opening balances + run-rate baseline. Only populated
+  // when status === 'operational' (Tab 1 hides the inputs otherwise).
+  historicalBaseline?: PhaseHistoricalBaseline;
 }
 
 // ── Parcel (land) ──────────────────────────────────────────────────────────
@@ -481,6 +523,12 @@ export interface Asset {
   // streams off this; today the calc engine ignores it (visible flag
   // still controls inclusion in cost rollups).
   status?: AssetStatus;
+  // M2.0i Fix 10 (2026-05-07): per-asset historical baseline (only
+  // consumed when asset.status === 'operational'). Mirrors the phase-
+  // level shape but scoped to a single asset within an otherwise mixed
+  // phase (e.g. Phase 1 has Hotel operational + Apt-Tower-3 still in
+  // construction, each carries its own baseline).
+  historicalBaseline?: PhaseHistoricalBaseline;
 }
 
 // ── Cost line (v6: open-ended catalog) ─────────────────────────────────────

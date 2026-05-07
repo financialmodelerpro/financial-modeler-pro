@@ -17,12 +17,16 @@ import { useShallow } from 'zustand/react/shallow';
 import { useModule1Store } from '../../lib/state/module1-store';
 import {
   type Phase,
+  type PhaseHistoricalBaseline,
+  type PhaseStatus,
   type Project,
   type ProjectStatus,
   type DisplayScale,
   type DisplayDecimals,
   DISPLAY_SCALES,
   DISPLAY_DECIMALS,
+  PHASE_STATUSES,
+  PHASE_STATUS_LABELS,
 } from '../../lib/state/module1-types';
 import { computeProjectEndDate, computePhaseTimeline, computeProjectTimeline } from '@/src/core/calculations';
 import { currencyHeaderLine } from '@/src/core/formatters';
@@ -355,6 +359,9 @@ export default function Module1ProjectPhases(): React.JSX.Element {
               <th style={tableHeaderStyle}>
                 <InputLabel label="Operations End" help="Auto-derived = Operations Start + Operations Periods. Also the phase's contribution to Project End." textStyle={tableHeaderLabelStyle} />
               </th>
+              <th style={tableHeaderStyle}>
+                <InputLabel label="Status" help="Planning / Construction / Operational. When Operational, a Historical Baseline section appears beneath the row for sunk costs + opening balances." textStyle={tableHeaderLabelStyle} />
+              </th>
               <th style={tableHeaderStyle}></th>
             </tr>
           </thead>
@@ -408,7 +415,30 @@ function PhaseRow({ phase, project, onUpdate, onRemove, canRemove }: PhaseRowPro
     ? phase.startDate
     : project.startDate;
 
+  // M2.0i Fix 10: phase status drives the Historical Baseline reveal.
+  const status: PhaseStatus = phase.status ?? 'planning';
+  const isOperational = status === 'operational';
+
+  // Default historical baseline when user toggles to Operational and
+  // hasn't filled the form yet. All zeros so nothing accidentally
+  // affects downstream calcs until the user enters real numbers.
+  const baseline: PhaseHistoricalBaseline = phase.historicalBaseline ?? {
+    historicalCapexTotal: 0,
+    historicalEquityContributed: 0,
+    historicalDebtDrawn: 0,
+    currentDebtOutstanding: 0,
+    cumulativeDepreciationCharged: 0,
+    netBookValueFixedAssets: 0,
+    last12MonthsRevenue: 0,
+    last12MonthsOpex: 0,
+  };
+
+  const setBaseline = (patch: Partial<PhaseHistoricalBaseline>): void => {
+    onUpdate({ historicalBaseline: { ...baseline, ...patch } });
+  };
+
   return (
+    <React.Fragment>
     <tr data-testid={`phase-row-${phase.id}`}>
       <td style={{ padding: 'var(--sp-1)' }}>
         <input
@@ -478,6 +508,18 @@ function PhaseRow({ phase, project, onUpdate, onRemove, canRemove }: PhaseRowPro
           {tl.operationsEnd}
         </span>
       </td>
+      <td style={{ padding: 'var(--sp-1)' }}>
+        <select
+          value={status}
+          data-testid={`phase-${phase.id}-status`}
+          onChange={(e) => onUpdate({ status: e.target.value as PhaseStatus })}
+          style={inputStyle}
+        >
+          {PHASE_STATUSES.map((s) => (
+            <option key={s} value={s}>{PHASE_STATUS_LABELS[s]}</option>
+          ))}
+        </select>
+      </td>
       <td style={{ padding: 'var(--sp-1)', textAlign: 'right' }}>
         {canRemove && (
           <button
@@ -498,5 +540,69 @@ function PhaseRow({ phase, project, onUpdate, onRemove, canRemove }: PhaseRowPro
         )}
       </td>
     </tr>
+    {/* M2.0i Fix 10: Historical Baseline section. Only renders when
+        phase.status === 'operational'. Spans the table width as a
+        nested grid; data preserved in the schema even when status
+        toggles back to non-operational, in case user re-toggles. */}
+    {isOperational && (
+      <tr data-testid={`phase-${phase.id}-historical-baseline`}>
+        <td colSpan={10} style={{ padding: 'var(--sp-2)', background: 'color-mix(in srgb, var(--color-navy) 6%, transparent)', borderBottom: '1px solid var(--color-border)' }}>
+          <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', display: 'block', marginBottom: 'var(--sp-1)' }}>
+            Historical Baseline (operational phase)
+          </strong>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)', fontSize: 11 }}>
+            <div style={{ gridColumn: '1 / span 3', color: 'var(--color-meta)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sunk costs + prior cumulative</div>
+            <div>
+              <InputLabel label="Historical Capex Total" help="Total capex spent before reporting start (sunk cost)." inputId={`phase-${phase.id}-hist-capex`} />
+              <input id={`phase-${phase.id}-hist-capex`} data-testid={`phase-${phase.id}-hist-capex`} type="number" min={0} value={baseline.historicalCapexTotal} onChange={(e) => setBaseline({ historicalCapexTotal: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+            </div>
+            <div>
+              <InputLabel label="Historical Equity Contributed" help="Equity already invested before reporting start." inputId={`phase-${phase.id}-hist-equity`} />
+              <input id={`phase-${phase.id}-hist-equity`} data-testid={`phase-${phase.id}-hist-equity`} type="number" min={0} value={baseline.historicalEquityContributed} onChange={(e) => setBaseline({ historicalEquityContributed: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+            </div>
+            <div>
+              <InputLabel label="Historical Debt Drawn" help="Total debt drawn before reporting start." inputId={`phase-${phase.id}-hist-debt-drawn`} />
+              <input id={`phase-${phase.id}-hist-debt-drawn`} data-testid={`phase-${phase.id}-hist-debt-drawn`} type="number" min={0} value={baseline.historicalDebtDrawn} onChange={(e) => setBaseline({ historicalDebtDrawn: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+            </div>
+            <div>
+              <InputLabel label="Current Debt Outstanding" help="Outstanding balance after historical repayments." inputId={`phase-${phase.id}-hist-debt-out`} />
+              <input id={`phase-${phase.id}-hist-debt-out`} data-testid={`phase-${phase.id}-hist-debt-out`} type="number" min={0} value={baseline.currentDebtOutstanding} onChange={(e) => setBaseline({ currentDebtOutstanding: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+            </div>
+            <div>
+              <InputLabel label="Cumulative Depreciation" help="Depreciation already charged on existing fixed assets." inputId={`phase-${phase.id}-hist-depr`} />
+              <input id={`phase-${phase.id}-hist-depr`} data-testid={`phase-${phase.id}-hist-depr`} type="number" min={0} value={baseline.cumulativeDepreciationCharged} onChange={(e) => setBaseline({ cumulativeDepreciationCharged: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+            </div>
+            <div>
+              <InputLabel label="Net Book Value (Fixed Assets)" help="NBV of existing fixed assets at reporting start." inputId={`phase-${phase.id}-hist-nbv`} />
+              <input id={`phase-${phase.id}-hist-nbv`} data-testid={`phase-${phase.id}-hist-nbv`} type="number" min={0} value={baseline.netBookValueFixedAssets} onChange={(e) => setBaseline({ netBookValueFixedAssets: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)', fontSize: 11 }}>
+            <div style={{ gridColumn: '1 / span 3', color: 'var(--color-meta)', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Current operating run-rate (last 12 months)</div>
+            <div>
+              <InputLabel label="Last 12 Months Revenue" help="Trailing 12-month revenue at reporting start." inputId={`phase-${phase.id}-hist-revenue`} />
+              <input id={`phase-${phase.id}-hist-revenue`} data-testid={`phase-${phase.id}-hist-revenue`} type="number" min={0} value={baseline.last12MonthsRevenue} onChange={(e) => setBaseline({ last12MonthsRevenue: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+            </div>
+            <div>
+              <InputLabel label="Last 12 Months Opex" help="Trailing 12-month operating expenses at reporting start." inputId={`phase-${phase.id}-hist-opex`} />
+              <input id={`phase-${phase.id}-hist-opex`} data-testid={`phase-${phase.id}-hist-opex`} type="number" min={0} value={baseline.last12MonthsOpex} onChange={(e) => setBaseline({ last12MonthsOpex: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+            </div>
+            <div>
+              <InputLabel label="Current Occupancy %" help="Current occupancy rate (hospitality / lease, optional)." inputId={`phase-${phase.id}-hist-occ`} />
+              <input id={`phase-${phase.id}-hist-occ`} data-testid={`phase-${phase.id}-hist-occ`} type="number" min={0} max={100} value={baseline.currentOccupancy ?? 0} onChange={(e) => { const v = Number(e.target.value); setBaseline({ currentOccupancy: v > 0 ? Math.min(100, v) : undefined }); }} style={inputStyle} />
+            </div>
+            <div>
+              <InputLabel label="Current ADR" help="Average Daily Rate per key per night (hospitality, optional)." inputId={`phase-${phase.id}-hist-adr`} />
+              <input id={`phase-${phase.id}-hist-adr`} data-testid={`phase-${phase.id}-hist-adr`} type="number" min={0} value={baseline.currentAdr ?? 0} onChange={(e) => { const v = Number(e.target.value); setBaseline({ currentAdr: v > 0 ? v : undefined }); }} style={inputStyle} />
+            </div>
+            <div>
+              <InputLabel label="Current Rent Rate" help="Per sqm per year rent rate (lease, optional)." inputId={`phase-${phase.id}-hist-rent`} />
+              <input id={`phase-${phase.id}-hist-rent`} data-testid={`phase-${phase.id}-hist-rent`} type="number" min={0} value={baseline.currentRentRate ?? 0} onChange={(e) => { const v = Number(e.target.value); setBaseline({ currentRentRate: v > 0 ? v : undefined }); }} style={inputStyle} />
+            </div>
+          </div>
+        </td>
+      </tr>
+    )}
+    </React.Fragment>
   );
 }
