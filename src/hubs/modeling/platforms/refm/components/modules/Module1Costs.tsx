@@ -41,6 +41,7 @@ import {
   type CostStage,
   type CostOverride,
   type DisplayScale,
+  type DisplayDecimals,
   type OutputGranularity,
   type SubUnit,
   COST_METHODS,
@@ -340,6 +341,9 @@ interface CostRowProps {
   onRemoveLine: () => void;
   currency: string;
   scale: DisplayScale;
+  // M2.0i Fix 3 (2026-05-07): project-level displayDecimals. All
+  // formatScaled calls in the row consume both scale + decimals.
+  decimals: DisplayDecimals;
   // M2.0g Addendum 2: caller supplies a period -> label resolver so
   // Start / End columns display "Dec 25" alongside the integer input.
   periodLabel: (idx: number) => string;
@@ -354,7 +358,7 @@ interface CostRowProps {
 function CostRow({
   asset, line, override, total, isLocked,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
-  currency, scale, periodLabel, constructionPeriods, subUnits,
+  currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
 }: CostRowProps): React.JSX.Element {
   // M2.0g Fix 6: Stage label still drives the row background + summary
   // tables, but the Direct/Indirect label is dropped (per-asset cost
@@ -561,7 +565,7 @@ function CostRow({
       </td>
       <td style={{ padding: '4px', minWidth: 110, textAlign: 'right' }}>
         <div style={calcOutputStyle} data-testid={`cost-${asset.id}-${line.id}-total`}>
-          {formatScaled(total, scale)}
+          {formatScaled(total, scale, decimals)}
         </div>
       </td>
       <td style={{ padding: '4px', width: 90, textAlign: 'right' }}>
@@ -708,7 +712,7 @@ function CostRow({
                       />
                     </td>
                     <td style={{ padding: '4px 8px', textAlign: 'right' }} data-testid={`cost-${asset.id}-${line.id}-per-subunit-${r.key}-total`}>
-                      {formatScaled(r.total, scale)}
+                      {formatScaled(r.total, scale, decimals)}
                     </td>
                   </tr>
                 ))}
@@ -724,7 +728,7 @@ function CostRow({
                 <tr style={{ background: 'color-mix(in srgb, var(--color-navy) 8%, transparent)', fontWeight: 700 }}>
                   <td colSpan={3} style={{ padding: '4px 8px', textAlign: 'right' }}>Sub-row total</td>
                   <td style={{ padding: '4px 8px', textAlign: 'right' }} data-testid={`cost-${asset.id}-${line.id}-per-subunit-total`}>
-                    {formatScaled(breakdown.totalCost, scale)}
+                    {formatScaled(breakdown.totalCost, scale, decimals)}
                   </td>
                 </tr>
               </tfoot>
@@ -745,6 +749,7 @@ interface AssetCostSectionProps {
   breakdown: AssetCostBreakdown;
   currency: string;
   scale: DisplayScale;
+  decimals: DisplayDecimals;
   periodLabel: (idx: number) => string;
   constructionPeriods: number;
   subUnits: SubUnit[];
@@ -756,7 +761,7 @@ interface AssetCostSectionProps {
 }
 
 function AssetCostSection({
-  asset, lines, costOverrides, breakdown, currency, scale, periodLabel, constructionPeriods, subUnits,
+  asset, lines, costOverrides, breakdown, currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   onAddCustom,
 }: AssetCostSectionProps): React.JSX.Element {
@@ -792,7 +797,7 @@ function AssetCostSection({
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 12, color: 'var(--color-meta)' }}>Subtotal</span>
           <strong style={{ fontSize: 14 }} data-testid={`asset-section-${asset.id}-subtotal`}>
-            {formatScaled(subtotal, scale)}
+            {formatScaled(subtotal, scale, decimals)}
           </strong>
           <span style={{ fontSize: 14, color: 'var(--color-meta)' }}>{collapsed ? '▶' : '▼'}</span>
         </div>
@@ -826,6 +831,7 @@ function AssetCostSection({
                     isLocked={line.isLocked === true}
                     currency={currency}
                     scale={scale}
+                    decimals={decimals}
                     periodLabel={periodLabel}
                     constructionPeriods={constructionPeriods}
                     subUnits={subUnits}
@@ -843,7 +849,7 @@ function AssetCostSection({
                   Asset Subtotal
                 </td>
                 <td style={{ padding: '6px', textAlign: 'right', fontWeight: 700 }} data-testid={`asset-section-${asset.id}-tfoot-subtotal`}>
-                  {formatScaled(subtotal, scale)}
+                  {formatScaled(subtotal, scale, decimals)}
                 </td>
                 <td></td>
               </tr>
@@ -872,7 +878,7 @@ interface SummaryTablesProps {
   perPhaseBreakdowns: Array<{ phaseId: string; cp: number; assetTotals: Record<string, AssetCostBreakdown> }>;
   parcelsByPhase: Map<string, { cashLandValue: number; inKindLandValue: number }>;
   metricsByAsset: Map<string, { cashLandValue: number; inKindLandValue: number; landValue: number }>;
-  project: { currency: string; startDate: string; modelType: 'monthly' | 'annual'; displayScale: DisplayScale };
+  project: { currency: string; startDate: string; modelType: 'monthly' | 'annual'; displayScale: DisplayScale; displayDecimals: DisplayDecimals };
   totalConstructionPeriods: number;
   // M2.0g Fix 7a: per-cost-line breakdown needs the full line list so
   // each asset's lines can be enumerated under its row.
@@ -887,7 +893,8 @@ function SummaryTables({
   project, totalConstructionPeriods, costLines, granularity,
 }: SummaryTablesProps): React.JSX.Element {
   const scale = project.displayScale;
-  const fmt = (v: number): string => formatScaled(v, scale);
+  const decimals = project.displayDecimals ?? 2;
+  const fmt = (v: number): string => formatScaled(v, scale, decimals);
   // M2.0h Fix 6: at annual granularity, 1 column per construction year
   // (capped at 24 for layout). At quarterly: 4× columns. Monthly: 12×.
   const annualPeriodCount = Math.min(totalConstructionPeriods, 24);
@@ -1283,8 +1290,9 @@ export default function Module1Costs(): React.JSX.Element {
   const setGranularity = (g: OutputGranularity): void => {
     setProject({ outputGranularity: g });
   };
-  // M2.0g: project-wide display scale.
+  // M2.0g: project-wide display scale + M2.0i decimals.
   const scale: DisplayScale = project.displayScale ?? 'full';
+  const decimals: DisplayDecimals = project.displayDecimals ?? 2;
   // M2.0g Addendum 2: period -> "Dec 25" label resolver, supplied to
   // every AssetCostSection so cost line Start / End columns show a
   // human-readable date alongside the integer input.
@@ -1407,7 +1415,7 @@ export default function Module1Costs(): React.JSX.Element {
               {COST_STAGE_LABELS[s]}
             </div>
             <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>
-              {formatScaled(stageTotals[s], scale)}
+              {formatScaled(stageTotals[s], scale, decimals)}
             </div>
           </div>
         ))}
@@ -1467,6 +1475,7 @@ export default function Module1Costs(): React.JSX.Element {
                       breakdown={breakdown}
                       currency={project.currency}
                       scale={scale}
+                      decimals={decimals}
                       periodLabel={periodLabelFn}
                       constructionPeriods={pb.cp}
                       subUnits={subUnits}
@@ -1523,7 +1532,7 @@ export default function Module1Costs(): React.JSX.Element {
             perPhaseBreakdowns={perPhaseBreakdowns}
             parcelsByPhase={new Map()}
             metricsByAsset={metricsByAsset}
-            project={{ currency: project.currency, startDate: project.startDate, modelType: project.modelType, displayScale: scale }}
+            project={{ currency: project.currency, startDate: project.startDate, modelType: project.modelType, displayScale: scale, displayDecimals: decimals }}
             totalConstructionPeriods={totalConstructionPeriods}
             costLines={costLines}
             granularity={granularity}
@@ -1550,7 +1559,7 @@ export default function Module1Costs(): React.JSX.Element {
         data-testid="costs-project-total"
       >
         <strong style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Project Total</strong>
-        <strong style={{ fontSize: 18 }}>{formatScaled(projectTotal, scale)}</strong>
+        <strong style={{ fontSize: 18 }}>{formatScaled(projectTotal, scale, decimals)}</strong>
       </div>
 
       {popupAssetId && (

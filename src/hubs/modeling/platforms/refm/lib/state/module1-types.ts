@@ -192,6 +192,15 @@ export const DISPLAY_SCALE_LABELS: Record<DisplayScale, string> = {
   millions:  'Millions (1.23 M)',
 };
 
+// M2.0i Fix 3 (2026-05-07): companion to displayScale. Decimal places
+// in the formatted output. Defaults to 2 (matches M2.0g formatScaled
+// behaviour). 0..3 are the user-pickable options. Tab 1 Display
+// Settings panel exposes both controls together; format helpers
+// (formatScaled / formatNumber / formatScaledCurrency) consume both.
+export type DisplayDecimals = 0 | 1 | 2 | 3;
+
+export const DISPLAY_DECIMALS: readonly DisplayDecimals[] = [0, 1, 2, 3] as const;
+
 // M2.0e: closed-enum project type that drives Tab 2's asset-type catalog.
 // Mixed-Use exposes every type from every category; Custom = free-text
 // fallback (still shows the full bank as suggestions).
@@ -253,6 +262,10 @@ export interface Project {
   // M2.0g (2026-05-06): display scale. Optional; defaults to 'full'
   // when undefined so v7 snapshots keep working unchanged.
   displayScale?: DisplayScale;
+  // M2.0i Fix 3 (2026-05-07): decimal places for formatted numbers.
+  // Optional; defaults to 2 when undefined. 0/1/2/3 are the only user-
+  // pickable options.
+  displayDecimals?: DisplayDecimals;
   // M2.0g v8 Addendum 3 (2026-05-06): output granularity for reporting
   // / display. Inputs always entered annually (modelType always
   // 'annual' on new projects); outputGranularity tells the display
@@ -1064,6 +1077,7 @@ export function makeDefaultProject(
     projectRoadsPct: 0,
     projectType: 'Mixed-Use',
     displayScale: 'full',
+    displayDecimals: 2,
     outputGranularity: 'annual',
   };
 }

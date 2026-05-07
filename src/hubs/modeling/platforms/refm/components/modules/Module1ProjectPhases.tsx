@@ -19,6 +19,10 @@ import {
   type Phase,
   type Project,
   type ProjectStatus,
+  type DisplayScale,
+  type DisplayDecimals,
+  DISPLAY_SCALES,
+  DISPLAY_DECIMALS,
 } from '../../lib/state/module1-types';
 import { computeProjectEndDate, computePhaseTimeline, computeProjectTimeline } from '@/src/core/calculations';
 import { currencyHeaderLine } from '@/src/core/formatters';
@@ -137,9 +141,58 @@ export default function Module1ProjectPhases(): React.JSX.Element {
         }}
         data-testid="tab1-callout"
       >
-        <strong>What goes here:</strong> Project identity (name, currency, granularity,
+        <strong>What goes here:</strong> Project identity (name, currency,
         location, status) plus the construction and operations timing for every phase.
         Land, assets, costs, and financing all hang off a phase, so set up phases first.
+      </div>
+
+      {/* M2.0i Fix 3 (2026-05-07): Display Settings panel. Project-wide
+          number formatting controls (scale + decimal places) feed every
+          formatted cell across all tabs / dashboard / overview. */}
+      <div style={sectionCardStyle} data-testid="display-settings">
+        <h3 style={{ fontSize: 'var(--font-h3)', margin: 0, marginBottom: 'var(--sp-2)' }}>Display Settings</h3>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--sp-3)' }}>
+          <div>
+            <InputLabel
+              label="Scale"
+              help="Storage stays full value; only the display layer divides by 1,000 (Thousands) or 1,000,000 (Millions)."
+            />
+            <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+              {DISPLAY_SCALES.map((s) => (
+                <label key={s} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 'var(--font-small)' }} data-testid={`display-scale-${s}`}>
+                  <input
+                    type="radio"
+                    name="display-scale"
+                    value={s}
+                    checked={(project.displayScale ?? 'full') === s}
+                    onChange={() => setProject({ displayScale: s as DisplayScale })}
+                  />
+                  {s === 'full' ? 'Full Numbers' : s === 'thousands' ? "Thousands ('000)" : 'Millions (M)'}
+                </label>
+              ))}
+            </div>
+          </div>
+          <div>
+            <InputLabel
+              label="Decimals"
+              help="Decimal places shown after the thousand separators. 0 = round integer; 2 = standard accounting; 3 = extra precision."
+            />
+            <div style={{ display: 'flex', gap: 'var(--sp-2)' }}>
+              {DISPLAY_DECIMALS.map((d) => (
+                <label key={d} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 'var(--font-small)' }} data-testid={`display-decimals-${d}`}>
+                  <input
+                    type="radio"
+                    name="display-decimals"
+                    value={d}
+                    checked={(project.displayDecimals ?? 2) === d}
+                    onChange={() => setProject({ displayDecimals: d as DisplayDecimals })}
+                  />
+                  {d}
+                </label>
+              ))}
+            </div>
+          </div>
+        </div>
       </div>
 
       <div style={sectionCardStyle} data-testid="project-meta">

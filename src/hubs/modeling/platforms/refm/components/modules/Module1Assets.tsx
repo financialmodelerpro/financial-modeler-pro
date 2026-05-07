@@ -131,18 +131,24 @@ const phaseHeaderStyle: React.CSSProperties = {
 const fmt = (n: number, digits = 0): string =>
   Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: digits }) : 'n/a';
 
-// M2.0h Fix 2 (2026-05-07): in-cell currency formatting drops the
-// trailing currency code; the per-tab header line tells the user what
-// unit (and scale) every number is rendered at. Cells render pure
-// numbers via formatScaled. Tooltips / labels that NEED a currency code
-// (e.g. parcel rate "/sqm") keep using formatScaledCurrency directly.
-// The legacy fmtCurrency signature stays so existing callers compile;
-// the third parameter is preserved.
-const fmtCurrency = (n: number, _currency: string, scale: import('../../lib/state/module1-types').DisplayScale = 'full'): string =>
-  formatScaled(n, scale);
-// Retained for callers that explicitly want the suffix (e.g. tooltips).
-const fmtCurrencyWithCode = (n: number, currency: string, scale: import('../../lib/state/module1-types').DisplayScale = 'full'): string =>
-  formatScaledCurrency(n, currency, scale);
+// M2.0h Fix 2 (2026-05-07) + M2.0i Fix 3 (2026-05-07): in-cell currency
+// formatting drops the trailing currency code; the per-tab header line
+// tells the user what unit (and scale) every number is rendered at.
+// Cells render pure numbers via formatScaled. The 4th parameter
+// `decimals` was added in M2.0i so the project-wide displayDecimals
+// preference flows end-to-end.
+const fmtCurrency = (
+  n: number,
+  _currency: string,
+  scale: import('../../lib/state/module1-types').DisplayScale = 'full',
+  decimals: import('../../lib/state/module1-types').DisplayDecimals = 2,
+): string => formatScaled(n, scale, decimals);
+const fmtCurrencyWithCode = (
+  n: number,
+  currency: string,
+  scale: import('../../lib/state/module1-types').DisplayScale = 'full',
+  decimals: import('../../lib/state/module1-types').DisplayDecimals = 2,
+): string => formatScaledCurrency(n, currency, scale, decimals);
 
 // M2.0e: long-form strategy labels for the dropdown.
 const STRATEGY_LABELS: Record<AssetStrategy, string> = {
@@ -465,11 +471,11 @@ export default function Module1Assets(): React.JSX.Element {
               )}
               <div>
                 <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total parcels value</div>
-                <div data-testid="land-reconciliation-parcels-value"><strong>{fmtCurrency(landReconciliation.parcelsTotalValue, project.currency, project.displayScale ?? 'full')}</strong></div>
+                <div data-testid="land-reconciliation-parcels-value"><strong>{fmtCurrency(landReconciliation.parcelsTotalValue, project.currency, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</strong></div>
               </div>
               <div>
                 <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Asset land cost</div>
-                <div data-testid="land-reconciliation-allocated-value"><strong>{fmtCurrency(landReconciliation.assetsAllocatedValue, project.currency, project.displayScale ?? 'full')}</strong></div>
+                <div data-testid="land-reconciliation-allocated-value"><strong>{fmtCurrency(landReconciliation.assetsAllocatedValue, project.currency, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</strong></div>
               </div>
               <div></div>
             </div>
@@ -550,7 +556,7 @@ export default function Module1Assets(): React.JSX.Element {
           </div>
           <div>
             <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Land Cost</div>
-            <strong style={{ fontSize: 16 }} data-testid="globals-land-cost">{fmtCurrency(aggregate.totalValue, project.currency, project.displayScale ?? 'full')}</strong>
+            <strong style={{ fontSize: 16 }} data-testid="globals-land-cost">{fmtCurrency(aggregate.totalValue, project.currency, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</strong>
           </div>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--sp-2)', fontSize: 'var(--font-small)' }}>
@@ -1047,7 +1053,7 @@ function AssetCard({
                   );
                 })}
                 <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', marginTop: 'var(--sp-1)' }} data-testid={`asset-${asset.id}-multi-parcel-total`}>
-                  Total: <strong>{fmt(landBreakdown.landSqm)} sqm</strong> · weighted rate <strong>{fmt(landBreakdown.rate)} {project.currency}/sqm</strong> · cost <strong>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full')}</strong>
+                  Total: <strong>{fmt(landBreakdown.landSqm)} sqm</strong> · weighted rate <strong>{fmt(landBreakdown.rate)} {project.currency}/sqm</strong> · cost <strong>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</strong>
                 </div>
               </div>
             ) : (
@@ -1101,7 +1107,7 @@ function AssetCard({
                 )}
                 <div>
                   <InputLabel label="Land Cost" help="Resolved land area x parcel rate." inputId={`asset-${asset.id}-land-cost-display`} />
-                  <div style={calcOutputStyle} data-testid={`asset-${asset.id}-land-cost-display`}>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full')}</div>
+                  <div style={calcOutputStyle} data-testid={`asset-${asset.id}-land-cost-display`}>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</div>
                 </div>
               </div>
             )}
@@ -1227,7 +1233,7 @@ function AssetCard({
                 {fmt(landBreakdown.landSqm)} sqm
               </div>
               <div style={{ color: 'var(--color-meta)' }}>Land cost:</div>
-              <div style={{ textAlign: 'right', color: 'var(--color-meta)' }} data-testid={`asset-${asset.id}-recon-land-cost`}>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full')}</div>
+              <div style={{ textAlign: 'right', color: 'var(--color-meta)' }} data-testid={`asset-${asset.id}-recon-land-cost`}>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</div>
             </div>
           </div>
 
@@ -1309,7 +1315,7 @@ function AssetCard({
                 </div>
                 <div data-testid={`asset-${asset.id}-land-cost`}>
                   <span style={{ color: 'var(--color-meta)' }}>Land cost: </span>
-                  <strong>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full')}</strong>
+                  <strong>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</strong>
                 </div>
               </div>
             );

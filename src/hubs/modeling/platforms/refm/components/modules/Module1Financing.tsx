@@ -33,7 +33,8 @@ import {
   makeDefaultFinancingTranche,
 } from '../../lib/state/module1-types';
 import { computePhaseCost, computeFinancing, resolveAssetAreaMetrics } from '@/src/core/calculations';
-import { currencyHeaderLine, formatNumber } from '@/src/core/formatters';
+import { currencyHeaderLine, formatScaled, type DisplayDecimals as DisplayDecimalsT } from '@/src/core/formatters';
+import type { DisplayScale } from '../../lib/state/module1-types';
 
 const inputStyle: React.CSSProperties = {
   background: 'var(--color-navy-pale)',
@@ -81,15 +82,19 @@ interface TrancheCardProps {
   capexPerPeriod: number[];
   presalesPerPeriod: number[];
   project: Parameters<typeof computeFinancing>[4];
+  // M2.0i Fix 3: project-wide formatting prefs threaded into the card.
+  scale: DisplayScale;
+  decimals: DisplayDecimalsT;
   onUpdate: (patch: Partial<FinancingTranche>) => void;
   onRemove: () => void;
   assets: Array<{ id: string; name: string }>;
 }
 
 function TrancheCard({
-  tranche, phase, capexPerPeriod, presalesPerPeriod, project,
+  tranche, phase, capexPerPeriod, presalesPerPeriod, project, scale, decimals,
   onUpdate, onRemove, assets,
 }: TrancheCardProps): React.JSX.Element {
+  const fmt = (n: number): string => formatScaled(n, scale, decimals);
   const result = useMemo(
     () => computeFinancing(tranche, phase, capexPerPeriod, presalesPerPeriod, project),
     [tranche, phase, capexPerPeriod, presalesPerPeriod, project],
@@ -253,19 +258,19 @@ function TrancheCard({
         <div style={calcOutputStyle}>
           <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>Total Debt</div>
           <div style={{ fontSize: 14, fontWeight: 700 }} data-testid={`tranche-${tranche.id}-total-debt`}>
-            {formatNumber(result.totalDebt)}
+            {fmt(result.totalDebt)}
           </div>
         </div>
         <div style={calcOutputStyle}>
           <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>Total Interest</div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>
-            {formatNumber(result.totalInterest)}
+            {fmt(result.totalInterest)}
           </div>
         </div>
         <div style={calcOutputStyle}>
           <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>Total Repayment</div>
           <div style={{ fontSize: 14, fontWeight: 700 }}>
-            {formatNumber(result.totalRepayment)}
+            {fmt(result.totalRepayment)}
           </div>
         </div>
         <div style={calcOutputStyle}>
@@ -289,19 +294,19 @@ function TrancheCard({
           <tbody>
             <tr>
               <td style={{ padding: '4px 6px', fontWeight: 600 }}>Drawdown</td>
-              {draws.map((v, i) => (<td key={i} style={{ padding: '4px 6px', textAlign: 'right' }} data-testid={`tranche-${tranche.id}-draw-${i + 1}`}>{formatNumber(v)}</td>))}
+              {draws.map((v, i) => (<td key={i} style={{ padding: '4px 6px', textAlign: 'right' }} data-testid={`tranche-${tranche.id}-draw-${i + 1}`}>{fmt(v)}</td>))}
             </tr>
             <tr>
               <td style={{ padding: '4px 6px', fontWeight: 600 }}>Interest</td>
-              {interest.map((v, i) => (<td key={i} style={{ padding: '4px 6px', textAlign: 'right' }}>{formatNumber(v)}</td>))}
+              {interest.map((v, i) => (<td key={i} style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(v)}</td>))}
             </tr>
             <tr>
               <td style={{ padding: '4px 6px', fontWeight: 600 }}>Principal Repaid</td>
-              {principal.map((v, i) => (<td key={i} style={{ padding: '4px 6px', textAlign: 'right' }}>{formatNumber(v)}</td>))}
+              {principal.map((v, i) => (<td key={i} style={{ padding: '4px 6px', textAlign: 'right' }}>{fmt(v)}</td>))}
             </tr>
             <tr>
               <td style={{ padding: '4px 6px', fontWeight: 600 }}>Outstanding Balance</td>
-              {balances.map((v, i) => (<td key={i} style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 700 }} data-testid={`tranche-${tranche.id}-balance-${i + 1}`}>{formatNumber(v)}</td>))}
+              {balances.map((v, i) => (<td key={i} style={{ padding: '4px 6px', textAlign: 'right', fontWeight: 700 }} data-testid={`tranche-${tranche.id}-balance-${i + 1}`}>{fmt(v)}</td>))}
             </tr>
           </tbody>
         </table>
@@ -394,6 +399,11 @@ export default function Module1Financing(): React.JSX.Element {
     addFinancingTranche(t);
   };
 
+  // M2.0i Fix 3 (2026-05-07): project-wide formatting prefs.
+  const scale: DisplayScale = project.displayScale ?? 'full';
+  const decimals: DisplayDecimalsT = project.displayDecimals ?? 2;
+  const fmt = (n: number): string => formatScaled(n, scale, decimals);
+
   const handleAddEquity = (): void => {
     const c: EquityContribution = {
       id: `equity-${Date.now()}`,
@@ -434,25 +444,25 @@ export default function Module1Financing(): React.JSX.Element {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--sp-1)', marginBottom: 'var(--sp-2)' }}>
         <div style={{ ...sectionCardStyle, marginBottom: 0, padding: 12 }} data-testid="financing-summary-capex">
           <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Phase CapEx</div>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>{formatNumber(phaseCost.total)}</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(phaseCost.total)}</div>
         </div>
         <div style={{ ...sectionCardStyle, marginBottom: 0, padding: 12 }} data-testid="financing-summary-debt">
           <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Total Debt</div>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>{formatNumber(totalDebtAcrossTranches)}</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(totalDebtAcrossTranches)}</div>
         </div>
         <div style={{ ...sectionCardStyle, marginBottom: 0, padding: 12 }} data-testid="financing-summary-cash-equity">
           <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Cash Equity</div>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>{formatNumber(totalCashEquity)}</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(totalCashEquity)}</div>
           <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>Manual contributions</div>
         </div>
         <div style={{ ...sectionCardStyle, marginBottom: 0, padding: 12 }} data-testid="financing-summary-inkind-equity">
           <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>In-Kind Equity</div>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>{formatNumber(totalInKindEquity)}</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(totalInKindEquity)}</div>
           <div style={{ fontSize: 9, color: 'var(--color-meta)' }}>Auto from in-kind land</div>
         </div>
         <div style={{ ...sectionCardStyle, marginBottom: 0, padding: 12 }} data-testid="financing-summary-interest">
           <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Total Interest</div>
-          <div style={{ fontSize: 16, fontWeight: 700 }}>{formatNumber(totalInterestAcross)}</div>
+          <div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(totalInterestAcross)}</div>
         </div>
       </div>
       <div style={{ ...sectionCardStyle, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }} data-testid="financing-equity-summary">
@@ -460,7 +470,7 @@ export default function Module1Financing(): React.JSX.Element {
           Equity Summary, Cash + In-Kind
         </strong>
         <strong style={{ fontSize: 14 }} data-testid="financing-equity-summary-total">
-          {formatNumber(totalEquity)}
+          {fmt(totalEquity)}
         </strong>
       </div>
 
@@ -484,6 +494,8 @@ export default function Module1Financing(): React.JSX.Element {
             capexPerPeriod={capexPerPeriod}
             presalesPerPeriod={presalesPerPeriod}
             project={project}
+            scale={scale}
+            decimals={decimals}
             onUpdate={(patch) => updateFinancingTranche(t.id, patch)}
             onRemove={() => removeFinancingTranche(t.id)}
             assets={phaseAssets.map((a) => ({ id: a.id, name: a.name }))}

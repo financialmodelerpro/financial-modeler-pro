@@ -16,7 +16,7 @@
 import React from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { PermissionMap } from '@/src/core/types/settings.types';
-import { currencyHeaderLine, formatCurrency, formatNumber } from '@/src/core/formatters';
+import { currencyHeaderLine, formatScaled, formatNumber } from '@/src/core/formatters';
 import { computeLandAggregate, computePhaseCost } from '@/src/core/calculations';
 import type { StorageShape } from './RealEstatePlatform';
 import { useModule1Store } from '../lib/state/module1-store';
@@ -86,6 +86,10 @@ export default function OverviewScreen({
 
   const versions = Object.entries(proj.versions || {});
   const currency = project.currency;
+  // M2.0i Fix 3 (2026-05-07): respect project displayScale + displayDecimals.
+  const scale = project.displayScale ?? 'full';
+  const decimals = project.displayDecimals ?? 2;
+  const fmtMoney = (n: number): string => formatScaled(n, scale, decimals);
 
   const quickLinks = [
     { icon: '📅', label: '1. Project & Phases', tab: 'project-phases', desc: 'Project meta and per-phase timing' },
@@ -176,9 +180,9 @@ export default function OverviewScreen({
         data-testid="overview-kpi-grid"
       >
         {[
-          { label: 'Land Value', value: formatCurrency(totalLandValue, currency), color: 'var(--color-green-dark)' },
+          { label: 'Land Value', value: fmtMoney(totalLandValue), color: 'var(--color-green-dark)' },
           { label: 'Total GFA', value: `${formatNumber(totalProjectGFA)} sqm`, color: 'var(--color-accent-warm)' },
-          { label: 'Total CapEx', value: formatCurrency(totalCapex, currency), color: 'var(--color-navy)' },
+          { label: 'Total CapEx', value: fmtMoney(totalCapex), color: 'var(--color-navy)' },
           { label: 'Versions', value: String(versions.length), color: 'var(--color-grey-mid)' },
         ].map((kpi, i) => (
           <div key={i} className="kpi-card" data-testid={`overview-kpi-${i}`}>
@@ -282,7 +286,7 @@ export default function OverviewScreen({
                     <td style={{ padding: 'var(--sp-1)' }}>{p.overlapPeriods}</td>
                     <td style={{ padding: 'var(--sp-1)' }}>{assets.filter((a) => a.phaseId === p.id).length}</td>
                     <td style={{ padding: 'var(--sp-1)', textAlign: 'right' }}>
-                      {formatCurrency(phaseCapex, currency)}
+                      {fmtMoney(phaseCapex)}
                     </td>
                   </tr>
                 );

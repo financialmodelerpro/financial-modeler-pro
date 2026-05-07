@@ -16,7 +16,7 @@
 
 import React from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { currencyHeaderLine, formatCurrency, formatNumber } from '@/src/core/formatters';
+import { currencyHeaderLine, formatScaled, formatNumber } from '@/src/core/formatters';
 import {
   computeLandAggregate,
   computePhaseCost,
@@ -86,6 +86,10 @@ export default function Dashboard({
   const totalProjects = projects.length;
   const periodLabel = project.modelType === 'monthly' ? 'mo' : 'yr';
   const currency = project.currency;
+  // M2.0i Fix 3 (2026-05-07): tile values respect project displayScale + displayDecimals.
+  const scale = project.displayScale ?? 'full';
+  const decimals = project.displayDecimals ?? 2;
+  const fmtMoney = (n: number): string => formatScaled(n, scale, decimals);
 
   const landAgg = computeLandAggregate(parcels);
   const totalLandArea = landAgg.totalAreaSqm;
@@ -122,7 +126,7 @@ export default function Dashboard({
     },
     {
       label: 'Land Value',
-      value: totalLandValue > 0 ? formatCurrency(totalLandValue, currency) : 'n/a',
+      value: totalLandValue > 0 ? fmtMoney(totalLandValue) : 'n/a',
       sub: 'Total land acquisition cost',
       color: 'var(--color-green-dark)',
     },
@@ -134,8 +138,8 @@ export default function Dashboard({
     },
     {
       label: 'Total CapEx',
-      value: totalCapex > 0 ? formatCurrency(totalCapex, currency) : 'n/a',
-      sub: `${formatCurrency(totalDebt, currency)} debt, ${formatCurrency(totalEquity, currency)} equity`,
+      value: totalCapex > 0 ? fmtMoney(totalCapex) : 'n/a',
+      sub: `${fmtMoney(totalDebt)} debt, ${fmtMoney(totalEquity)} equity`,
       color: 'var(--color-navy)',
     },
     {

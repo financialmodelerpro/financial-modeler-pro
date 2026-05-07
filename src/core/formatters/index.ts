@@ -11,6 +11,10 @@
 
 export type DisplayScale = 'full' | 'thousands' | 'millions';
 
+// M2.0i Fix 3 (2026-05-07): companion type for project-level
+// displayDecimals. Format helpers default to 2 when omitted.
+export type DisplayDecimals = 0 | 1 | 2 | 3;
+
 const SCALE_DIVISOR: Record<DisplayScale, number> = {
   full: 1,
   thousands: 1_000,
@@ -131,4 +135,20 @@ export function currencyHeaderLine(currency: string, scale: DisplayScale): strin
   if (scale === 'thousands') return `All figures in ${currency} '000`;
   if (scale === 'millions') return `All figures in ${currency} M`;
   return `All figures in ${currency}`;
+}
+
+// M2.0i Fix 3 (2026-05-07): convenience helper that pulls both
+// displayScale and displayDecimals from a project-shaped object and
+// returns a formatter function. Lets each component declare a single
+// `const fmt = makeProjectFormatter(project);` and then call `fmt(n)`
+// without repeating the scale/decimals plumbing.
+export interface ProjectFormatPrefs {
+  displayScale?: DisplayScale;
+  displayDecimals?: DisplayDecimals;
+}
+
+export function makeProjectFormatter(prefs: ProjectFormatPrefs): (n: number | null | undefined) => string {
+  const scale = prefs.displayScale ?? 'full';
+  const decimals = prefs.displayDecimals ?? 2;
+  return (n) => formatScaled(n, scale, decimals);
 }
