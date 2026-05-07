@@ -58,9 +58,11 @@ import {
   PARCEL_CUSTOM_RATE,
 } from '../../lib/state/module1-types';
 import {
+  computeAssetAreaHierarchy,
   computeAssetLandBreakdown,
   computeLandAggregate,
   computeLandReconciliation,
+  computeParcelNda,
   computeSubUnitArea,
   computePhaseTimeline,
   resolveUsefulLifeYears,
@@ -249,28 +251,23 @@ export default function Module1Assets(): React.JSX.Element {
       }));
   }, [phases, assets, project]);
 
-  // Global totals computed across all visible assets. M2.0g Fix 4:
-  // Parking is asset-level (asset.parkingArea); Support BUA combines
-  // sub-unit Support + asset.supportArea.
+  // M2.0h Fix 3: project-wide totals reflect the three-tier
+  // hierarchy. nsa / bua / gfa aggregate from each visible asset's
+  // computeAssetAreaHierarchy.
   const globals = useMemo(() => {
-    let totalBua = 0, sellable = 0, operable = 0, leasable = 0, support = 0, parking = 0;
+    let nsa = 0, bua = 0, gfa = 0, sellable = 0, operable = 0, leasable = 0, support = 0, parking = 0;
     for (const a of assets.filter((x) => x.visible)) {
-      const aSubUnits = subUnits.filter((u) => u.assetId === a.id);
-      for (const u of aSubUnits) {
-        const area = computeSubUnitArea(u);
-        if (u.category === 'Sellable') { sellable += area; totalBua += area; }
-        else if (u.category === 'Operable') { operable += area; totalBua += area; }
-        else if (u.category === 'Leasable') { leasable += area; totalBua += area; }
-        else if (u.category === 'Support') { support += area; totalBua += area; }
-      }
-      // Asset-level Support + Parking inputs.
-      const aSupport = Math.max(0, a.supportArea ?? 0);
-      const aParking = Math.max(0, a.parkingArea ?? 0);
-      support += aSupport;
-      parking += aParking;
-      totalBua += aSupport + aParking;
+      const hier = computeAssetAreaHierarchy(a, subUnits);
+      nsa += hier.nsa;
+      bua += hier.bua;
+      gfa += a.gfaSqm > 0 ? a.gfaSqm : hier.gfa;
+      sellable += hier.breakdown.sellableArea;
+      operable += hier.breakdown.operableArea;
+      leasable += hier.breakdown.leasableArea;
+      support += hier.breakdown.supportArea;
+      parking += hier.breakdown.parkingArea;
     }
-    return { totalBua, sellable, operable, leasable, support, parking };
+    return { nsa, bua, gfa, sellable, operable, leasable, support, parking };
   }, [assets, subUnits]);
 
   const handleAddParcel = (): void => {
@@ -496,37 +493,47 @@ export default function Module1Assets(): React.JSX.Element {
         />
       ))}
 
-      {/* Global totals */}
+      {/* Global totals (M2.0h Fix 3: three-tier hierarchy) */}
       <div style={{ ...sectionCardStyle, background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }} data-testid="assets-globals">
         <h3 style={{ fontSize: 'var(--font-h3)', margin: 0, marginBottom: 'var(--sp-2)', color: 'var(--color-on-primary-navy)' }}>Project Totals</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 'var(--sp-2)', fontSize: 'var(--font-small)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)', fontSize: 'var(--font-small)', marginBottom: 'var(--sp-2)' }}>
           <div>
-            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total BUA</div>
-            <strong style={{ fontSize: 16 }} data-testid="globals-total-bua">{fmt(globals.totalBua)} sqm</strong>
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>NSA</div>
+            <strong style={{ fontSize: 16 }} data-testid="globals-nsa">{fmt(globals.nsa)} sqm</strong>
           </div>
           <div>
-            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sellable</div>
-            <strong style={{ fontSize: 16 }} data-testid="globals-sellable">{fmt(globals.sellable)} sqm</strong>
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>BUA</div>
+            <strong style={{ fontSize: 16 }} data-testid="globals-bua">{fmt(globals.bua)} sqm</strong>
           </div>
           <div>
-            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Operable</div>
-            <strong style={{ fontSize: 16 }} data-testid="globals-operable">{fmt(globals.operable)} sqm</strong>
-          </div>
-          <div>
-            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Leasable</div>
-            <strong style={{ fontSize: 16 }} data-testid="globals-leasable">{fmt(globals.leasable)} sqm</strong>
-          </div>
-          <div>
-            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Support</div>
-            <strong style={{ fontSize: 16 }} data-testid="globals-support">{fmt(globals.support)} sqm</strong>
-          </div>
-          <div>
-            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Parking</div>
-            <strong style={{ fontSize: 16 }} data-testid="globals-parking">{fmt(globals.parking)} sqm</strong>
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>GFA</div>
+            <strong style={{ fontSize: 16 }} data-testid="globals-gfa">{fmt(globals.gfa)} sqm</strong>
           </div>
           <div>
             <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Land Cost</div>
             <strong style={{ fontSize: 16 }} data-testid="globals-land-cost">{fmtCurrency(aggregate.totalValue, project.currency, project.displayScale ?? 'full')}</strong>
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 'var(--sp-2)', fontSize: 'var(--font-small)' }}>
+          <div>
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sellable</div>
+            <strong style={{ fontSize: 14 }} data-testid="globals-sellable">{fmt(globals.sellable)} sqm</strong>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Operable</div>
+            <strong style={{ fontSize: 14 }} data-testid="globals-operable">{fmt(globals.operable)} sqm</strong>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Leasable</div>
+            <strong style={{ fontSize: 14 }} data-testid="globals-leasable">{fmt(globals.leasable)} sqm</strong>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Support</div>
+            <strong style={{ fontSize: 14 }} data-testid="globals-support">{fmt(globals.support)} sqm</strong>
+          </div>
+          <div>
+            <div style={{ fontSize: 10, opacity: 0.7, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Parking</div>
+            <strong style={{ fontSize: 14 }} data-testid="globals-parking">{fmt(globals.parking)} sqm</strong>
           </div>
         </div>
       </div>
@@ -1027,50 +1034,72 @@ function AssetCard({
             )}
           </div>
 
-          {/* M2.0g Fix 4: Areas row carries asset-level inputs for Asset
-              BUA Total + Support Area + Parking Area, plus derived
-              Sellable / GFA. Sub-units describe revenue-generating units
-              only; Support and Parking are entered at the asset level
-              (the user can still add Support sub-units for finer
-              breakdown, those add to the asset-level Support figure
-              via supportTotal below).
-              The reconciliation block underneath itemizes how derived
-              total compares to entered total. */}
+          {/* M2.0h Fix 3 (2026-05-07): three-tier area hierarchy.
+              The M2.0g "Asset BUA Total" hand-typed input is removed
+              (BUA derives now). Asset card shows:
+                Inputs:  Support Area + Parking Area + Parking Bays + GFA (optional override)
+                Derived: NSA / BUA / GFA chips with the hierarchy formulas
+              Sub-units provide NSA; Support is asset-level + sub-unit Support;
+              Parking is asset-level only. */}
           <div
-            style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}
+            style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}
             data-testid={`asset-${asset.id}-areas-row`}
           >
             <div>
-              <InputLabel label="GFA (sqm)" help="Gross Floor Area. Optional manual entry; defaults to BUA Total when 0." inputId={`asset-${asset.id}-gfaSqm`} />
-              <input id={`asset-${asset.id}-gfaSqm`} data-testid={`asset-${asset.id}-gfaSqm`} type="number" min={0} value={asset.gfaSqm} onChange={(e) => onUpdate({ gfaSqm: Math.max(0, Number(e.target.value) || 0) })} placeholder={`auto = ${fmt(derivedBua)}`} style={inputStyle} />
-            </div>
-            <div>
-              <InputLabel label="Asset BUA Total (sqm)" help="User-entered total BUA for this asset. Reconciles against (Sub-units + Support + Parking) below. Leave 0 to skip the reconciliation check." inputId={`asset-${asset.id}-buaTotal`} />
-              <input id={`asset-${asset.id}-buaTotal`} data-testid={`asset-${asset.id}-buaTotal`} type="number" min={0} value={asset.buaTotal ?? 0} onChange={(e) => onUpdate({ buaTotal: Math.max(0, Number(e.target.value) || 0) })} placeholder={`derived = ${fmt(derivedBua + parkingSum + Math.max(0, asset.supportArea ?? 0))}`} style={inputStyle} />
-            </div>
-            <div>
-              <InputLabel label="Sellable BUA" help="Sum of sub-unit areas with category Sellable + Operable + Leasable. Read-only." inputId={`asset-${asset.id}-sellableBuaSqm-display`} />
-              <div style={calcOutputStyle} data-testid={`asset-${asset.id}-sellableBuaSqm`}>{fmt(derivedSellable)}</div>
-            </div>
-            <div>
-              <InputLabel label="Support Area (sqm)" help="Asset-level Support / back-of-house area. User-entered. Combined with any Support sub-units when reconciling." inputId={`asset-${asset.id}-supportArea`} />
+              <InputLabel label="Support Area (sqm)" help="Asset-level Support / back-of-house area. Combined with any Support sub-units to derive BUA = NSA + Support." inputId={`asset-${asset.id}-supportArea`} />
               <input id={`asset-${asset.id}-supportArea`} data-testid={`asset-${asset.id}-supportArea`} type="number" min={0} value={asset.supportArea ?? 0} onChange={(e) => onUpdate({ supportArea: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
             </div>
             <div>
-              <InputLabel label="Parking Area (sqm)" help="Asset-level Parking area. Cost only, no revenue." inputId={`asset-${asset.id}-parkingArea`} />
+              <InputLabel label="Parking Area (sqm)" help="Asset-level Parking area. GFA = BUA + Parking. Cost-only, no revenue." inputId={`asset-${asset.id}-parkingArea`} />
               <input id={`asset-${asset.id}-parkingArea`} data-testid={`asset-${asset.id}-parkingArea`} type="number" min={0} value={asset.parkingArea ?? 0} onChange={(e) => onUpdate({ parkingArea: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
             </div>
             <div>
               <InputLabel label="Parking Bays" help="Total parking bay count fed to the construction-parking cost line." inputId={`asset-${asset.id}-parkingBaysRequired`} />
               <input id={`asset-${asset.id}-parkingBaysRequired`} data-testid={`asset-${asset.id}-parkingBaysRequired`} type="number" min={0} value={asset.parkingBaysRequired} onChange={(e) => onUpdate({ parkingBaysRequired: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
             </div>
+            <div>
+              <InputLabel label="GFA Override (sqm)" help="Optional GFA override. Leave 0 to use derived BUA + Parking." inputId={`asset-${asset.id}-gfaSqm`} />
+              <input id={`asset-${asset.id}-gfaSqm`} data-testid={`asset-${asset.id}-gfaSqm`} type="number" min={0} value={asset.gfaSqm} onChange={(e) => onUpdate({ gfaSqm: Math.max(0, Number(e.target.value) || 0) })} placeholder={`auto = derived`} style={inputStyle} />
+            </div>
           </div>
 
-          {/* M2.0g Fix 5: BUA reconciliation block (itemized breakdown).
-              Shows sub-unit revenue rows (Sellable / Operable /
-              Leasable), then Support sub-units, then asset-level Support
-              + Parking, then a derived total. Compares to
-              asset.buaTotal when set. */}
+          {/* M2.0h Fix 3: NSA / BUA / GFA hierarchy chips. Read-only
+              derived from sub-units + asset-level Support + Parking. */}
+          {(() => {
+            const hier = computeAssetAreaHierarchy(asset, subUnits);
+            const gfaDisplay = asset.gfaSqm > 0 ? asset.gfaSqm : hier.gfa;
+            return (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(3, 1fr)',
+                  gap: 'var(--sp-2)',
+                  marginBottom: 'var(--sp-2)',
+                }}
+                data-testid={`asset-${asset.id}-area-hierarchy`}
+              >
+                <div style={{ ...calcOutputStyle, padding: 'var(--sp-2)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>NSA (Net Sellable)</div>
+                  <strong style={{ fontSize: 16 }} data-testid={`asset-${asset.id}-nsa`}>{fmt(hier.nsa)} sqm</strong>
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>sum of revenue sub-units</div>
+                </div>
+                <div style={{ ...calcOutputStyle, padding: 'var(--sp-2)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>BUA (Built-Up)</div>
+                  <strong style={{ fontSize: 16 }} data-testid={`asset-${asset.id}-bua`}>{fmt(hier.bua)} sqm</strong>
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>NSA + Support ({fmt(hier.breakdown.supportArea)})</div>
+                </div>
+                <div style={{ ...calcOutputStyle, padding: 'var(--sp-2)' }}>
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>GFA (Gross Floor)</div>
+                  <strong style={{ fontSize: 16 }} data-testid={`asset-${asset.id}-gfa`}>{fmt(gfaDisplay)} sqm</strong>
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)' }}>BUA + Parking ({fmt(hier.breakdown.parkingArea)})</div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {/* M2.0h Fix 3 (2026-05-07): Area Reconciliation block.
+              Itemizes the three-tier hierarchy. Per-row click is
+              decorative; future surfaces may scroll to source field. */}
           <div
             style={{
               border: '1px solid var(--color-border)',
@@ -1080,35 +1109,52 @@ function AssetCard({
               marginBottom: 'var(--sp-2)',
               fontSize: 11,
             }}
-            data-testid={`asset-${asset.id}-bua-reconciliation`}
+            data-testid={`asset-${asset.id}-area-reconciliation`}
           >
-            <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>BUA Reconciliation</strong>
+            <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Area Reconciliation</strong>
             <div style={{ marginTop: 6, display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 4 }}>
-              {sellableSum > 0 && (<><div>Sub-units (Sellable):</div><div style={{ textAlign: 'right' }}>{fmt(sellableSum)} sqm</div></>)}
-              {operableSum > 0 && (<><div>Sub-units (Operable):</div><div style={{ textAlign: 'right' }}>{fmt(operableSum)} sqm</div></>)}
-              {leasableSum > 0 && (<><div>Sub-units (Leasable):</div><div style={{ textAlign: 'right' }}>{fmt(leasableSum)} sqm</div></>)}
-              {supportSum > 0 && (<><div>Sub-units (Support):</div><div style={{ textAlign: 'right' }}>{fmt(supportSum)} sqm</div></>)}
-              {(asset.supportArea ?? 0) > 0 && (<><div>Asset Support Area:</div><div style={{ textAlign: 'right' }}>{fmt(Math.max(0, asset.supportArea ?? 0))} sqm</div></>)}
-              {(asset.parkingArea ?? 0) > 0 && (<><div>Asset Parking Area:</div><div style={{ textAlign: 'right' }}>{fmt(parkingSum)} sqm</div></>)}
-              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, fontWeight: 700 }}>Derived Total</div>
-              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, textAlign: 'right', fontWeight: 700 }} data-testid={`asset-${asset.id}-bua-derived-total`}>
-                {fmt(derivedSellable + supportSum + Math.max(0, asset.supportArea ?? 0) + parkingSum)} sqm
+              <div style={{ gridColumn: '1 / span 2', color: 'var(--color-meta)', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em', marginTop: 2 }}>
+                Sub-units (revenue-generating):
               </div>
-              {(asset.buaTotal ?? 0) > 0 && (
+              {assetSubUnits.filter((u) => u.category !== 'Support').map((u) => (
+                <React.Fragment key={u.id}>
+                  <div style={{ paddingLeft: 12 }}>{u.name || 'Sub-unit'} ({u.category}):</div>
+                  <div style={{ textAlign: 'right' }}>{fmt(computeSubUnitArea(u))} sqm</div>
+                </React.Fragment>
+              ))}
+              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, paddingLeft: 12, fontWeight: 700 }}>NSA (Net Sellable)</div>
+              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, textAlign: 'right', fontWeight: 700 }} data-testid={`asset-${asset.id}-recon-nsa`}>{fmt(derivedSellable)} sqm</div>
+
+              {(supportSum > 0 || (asset.supportArea ?? 0) > 0) && (
                 <>
-                  <div>Asset BUA Total (entered)</div>
-                  <div style={{ textAlign: 'right' }} data-testid={`asset-${asset.id}-bua-entered-total`}>{fmt(Math.max(0, asset.buaTotal ?? 0))} sqm</div>
-                  {(() => {
-                    const derived = derivedSellable + supportSum + Math.max(0, asset.supportArea ?? 0) + parkingSum;
-                    const entered = Math.max(0, asset.buaTotal ?? 0);
-                    const diff = entered - derived;
-                    if (Math.abs(diff) < 1) {
-                      return <div style={{ gridColumn: '1 / span 2', color: 'var(--color-success)', fontWeight: 700 }} data-testid={`asset-${asset.id}-bua-match`}>matches (within 1 sqm)</div>;
-                    }
-                    return <div style={{ gridColumn: '1 / span 2', color: 'var(--color-accent-warm)', fontWeight: 700 }} data-testid={`asset-${asset.id}-bua-mismatch`}>mismatch by {fmt(Math.abs(diff))} sqm{diff > 0 ? ' (entered exceeds derived)' : ' (derived exceeds entered)'}</div>;
-                  })()}
+                  <div style={{ paddingTop: 4 }}>Sub-unit Support:</div>
+                  <div style={{ paddingTop: 4, textAlign: 'right' }}>{fmt(supportSum)} sqm</div>
+                  <div>Asset Support Area:</div>
+                  <div style={{ textAlign: 'right' }}>{fmt(Math.max(0, asset.supportArea ?? 0))} sqm</div>
                 </>
               )}
+              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, fontWeight: 700 }}>BUA (NSA + Support)</div>
+              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, textAlign: 'right', fontWeight: 700 }} data-testid={`asset-${asset.id}-recon-bua`}>
+                {fmt(derivedSellable + supportSum + Math.max(0, asset.supportArea ?? 0))} sqm
+              </div>
+
+              {parkingSum > 0 && (
+                <>
+                  <div style={{ paddingTop: 4 }}>Asset Parking Area:</div>
+                  <div style={{ paddingTop: 4, textAlign: 'right' }}>{fmt(parkingSum)} sqm</div>
+                </>
+              )}
+              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, fontWeight: 700 }}>GFA (BUA + Parking)</div>
+              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, textAlign: 'right', fontWeight: 700 }} data-testid={`asset-${asset.id}-recon-gfa`}>
+                {fmt(derivedSellable + supportSum + Math.max(0, asset.supportArea ?? 0) + parkingSum)} sqm
+              </div>
+
+              <div style={{ marginTop: 6, paddingTop: 4, borderTop: '1px solid var(--color-border)', color: 'var(--color-meta)' }}>Land allocation:</div>
+              <div style={{ marginTop: 6, paddingTop: 4, borderTop: '1px solid var(--color-border)', textAlign: 'right', color: 'var(--color-meta)' }}>
+                {fmt(landBreakdown.landSqm)} sqm
+              </div>
+              <div style={{ color: 'var(--color-meta)' }}>Land cost:</div>
+              <div style={{ textAlign: 'right', color: 'var(--color-meta)' }} data-testid={`asset-${asset.id}-recon-land-cost`}>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full')}</div>
             </div>
           </div>
 
@@ -1159,38 +1205,42 @@ function AssetCard({
             )}
           </div>
 
-          {/* M2.0f Fix 6: footer condenses to "Areas + cost summary".
-              Reconciliation row removed (asset BUA is now the sub-unit
-              sum, so there is nothing to reconcile against). */}
-          <div
-            style={{
-              marginTop: 'var(--sp-2)',
-              display: 'grid',
-              gridTemplateColumns: 'repeat(4, 1fr)',
-              gap: 'var(--sp-2)',
-              fontSize: 'var(--font-small)',
-              padding: 'var(--sp-1) 0',
-              borderTop: '1px solid var(--color-border)',
-            }}
-            data-testid={`asset-card-${asset.id}-footer`}
-          >
-            <div data-testid={`asset-${asset.id}-derived-bua`}>
-              <span style={{ color: 'var(--color-meta)' }}>BUA total: </span>
-              <strong>{fmt(derivedBua)} sqm</strong>
-            </div>
-            <div data-testid={`asset-${asset.id}-derived-sellable`}>
-              <span style={{ color: 'var(--color-meta)' }}>Sellable: </span>
-              <strong>{fmt(derivedSellable)} sqm</strong>
-            </div>
-            <div data-testid={`asset-${asset.id}-efficiency`}>
-              <span style={{ color: 'var(--color-meta)' }}>Efficiency: </span>
-              <strong>{derivedBua > 0 ? `${fmt(efficiency, 1)}%` : 'n/a'}</strong>
-            </div>
-            <div data-testid={`asset-${asset.id}-land-cost`}>
-              <span style={{ color: 'var(--color-meta)' }}>Land cost: </span>
-              <strong>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full')}</strong>
-            </div>
-          </div>
+          {/* M2.0h Fix 3: footer summary uses the three-tier hierarchy. */}
+          {(() => {
+            const hier = computeAssetAreaHierarchy(asset, subUnits);
+            const eff = hier.bua > 0 ? (hier.nsa / hier.bua) * 100 : 0;
+            return (
+              <div
+                style={{
+                  marginTop: 'var(--sp-2)',
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(4, 1fr)',
+                  gap: 'var(--sp-2)',
+                  fontSize: 'var(--font-small)',
+                  padding: 'var(--sp-1) 0',
+                  borderTop: '1px solid var(--color-border)',
+                }}
+                data-testid={`asset-card-${asset.id}-footer`}
+              >
+                <div data-testid={`asset-${asset.id}-derived-bua`}>
+                  <span style={{ color: 'var(--color-meta)' }}>BUA: </span>
+                  <strong>{fmt(hier.bua)} sqm</strong>
+                </div>
+                <div data-testid={`asset-${asset.id}-derived-sellable`}>
+                  <span style={{ color: 'var(--color-meta)' }}>NSA: </span>
+                  <strong>{fmt(hier.nsa)} sqm</strong>
+                </div>
+                <div data-testid={`asset-${asset.id}-efficiency`}>
+                  <span style={{ color: 'var(--color-meta)' }}>Efficiency: </span>
+                  <strong>{hier.bua > 0 ? `${fmt(eff, 1)}%` : 'n/a'}</strong>
+                </div>
+                <div data-testid={`asset-${asset.id}-land-cost`}>
+                  <span style={{ color: 'var(--color-meta)' }}>Land cost: </span>
+                  <strong>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full')}</strong>
+                </div>
+              </div>
+            );
+          })()}
         </>
       )}
     </div>
