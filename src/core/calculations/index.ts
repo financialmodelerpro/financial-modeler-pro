@@ -65,8 +65,13 @@ import type {
   LandAllocationMode,
   DrawdownMethod,
   RepaymentMethod,
+  OutputGranularity,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
-import { DEFAULT_USEFUL_LIFE_YEARS } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
+import {
+  DEFAULT_USEFUL_LIFE_YEARS,
+  PER_SUBUNIT_RATE_KEY_SUPPORT,
+  PER_SUBUNIT_RATE_KEY_PARKING,
+} from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 // ── Land aggregates ────────────────────────────────────────────────────────
 export interface LandAggregate {
@@ -353,16 +358,20 @@ export function validateLandAllocation(
 // asset. Replaces the pre-M2.0 AreaMetrics interface.
 export interface AssetAreaMetrics {
   landSqm: number;
-  ndaSqm: number;
+  ndaSqm: number;              // M2.0h Fix 4: parcel-level NDA aware
   roadsSqm: number;
+  // M2.0h Fix 3: three-tier hierarchy. NSA ⊂ BUA ⊂ GFA where
+  //   nsa = sub-units (Sellable + Operable + Leasable)
+  //   bua = nsa + Support (sub-unit Support + asset.supportArea)
+  //   gfa = bua + Parking (asset.parkingArea)
   gfa: number;
-  bua: number;                 // M2.0g Fix 4: prefers asset.buaTotal when set,
-                               // else sub-unit sum + supportArea + parkingArea
+  bua: number;
   nsa: number;
   unitCount: number;
   parkingBays: number;         // M2.0d: drives rate_per_parking_bay
-  // M2.0g Fix 4 additions:
-  supportArea: number;         // asset.supportArea (asset-level input)
+  // M2.0g Fix 4 additions: kept for cost methods that target a specific
+  // tier (rate_x_support_area / rate_x_parking_area).
+  supportArea: number;         // sub-unit Support + asset.supportArea
   parkingArea: number;         // asset.parkingArea (asset-level input)
   landValue: number;
   cashLandValue: number;
@@ -420,6 +429,88 @@ export function computeAssetAreaTotals(asset: Asset, subUnits: SubUnit[]): Asset
   };
 }
 
+// ── M2.0h Fix 3: three-tier area hierarchy ─────────────────────────────────
+// Real estate convention from Ahmad's M2.0h brief:
+//   NSA (Net Sellable) ⊂ BUA (Built-Up) ⊂ GFA (Gross Floor)
+//   NSA = sum of revenue sub-units (Sellable + Operable + Leasable)
+//   BUA = NSA + Support (sub-unit Support + asset.supportArea)
+//   GFA = BUA + Parking (asset.parkingArea)
+//
+// This supersedes the M2.0g convention where BUA included Parking;
+// from v8 onward Parking is GFA-only. computeAssetAreaTotals.buaTotal
+// (which also included Parking) is preserved for the M2.0g
+// reconciliation block but new hierarchy callers should consume
+// computeAssetAreaHierarchy.
+export interface AssetAreaHierarchy {
+  nsa: number;
+  bua: number;
+  gfa: number;
+  breakdown: {
+    sellableArea: number;
+    operableArea: number;
+    leasableArea: number;
+    supportArea: number;   // sub-unit Support + asset.supportArea
+    parkingArea: number;   // asset.parkingArea
+  };
+}
+
+export function computeAssetAreaHierarchy(asset: Asset, subUnits: SubUnit[]): AssetAreaHierarchy {
+  const my = subUnits.filter((u) => u.assetId === asset.id);
+  const sellableArea = my.filter((u) => u.category === 'Sellable').reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const operableArea = my.filter((u) => u.category === 'Operable').reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const leasableArea = my.filter((u) => u.category === 'Leasable').reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const subUnitSupport = my.filter((u) => u.category === 'Support').reduce((s, u) => s + computeSubUnitArea(u), 0);
+  const supportArea = subUnitSupport + Math.max(0, asset.supportArea ?? 0);
+  const parkingArea = Math.max(0, asset.parkingArea ?? 0);
+  const nsa = sellableArea + operableArea + leasableArea;
+  const bua = nsa + supportArea;
+  const gfa = bua + parkingArea;
+  return {
+    nsa,
+    bua,
+    gfa,
+    breakdown: { sellableArea, operableArea, leasableArea, supportArea, parkingArea },
+  };
+}
+
+// ── M2.0h Fix 4: parcel NDA derivation ─────────────────────────────────────
+// When the parcel has hasNdaDeduction === true, NDA = area × (1 - roads%
+// - parks%); otherwise NDA = area. effectiveNdaRate = totalCost / NDA so
+// the full parcel cost flows to assets even when NDA < area (the per-sqm
+// rate that multiplies against the developable area is inflated).
+export interface ParcelNda {
+  area: number;
+  roadsArea: number;
+  parksArea: number;
+  nda: number;
+  totalCost: number;
+  effectiveNdaRate: number;
+}
+
+export function computeParcelNda(parcel: Parcel): ParcelNda {
+  const area = Math.max(0, parcel.area);
+  const rate = Math.max(0, parcel.rate);
+  const totalCost = area * rate;
+  if (parcel.hasNdaDeduction === true) {
+    const roadsPct = Math.max(0, Math.min(100, parcel.roadsPct ?? 0));
+    const parksPct = Math.max(0, Math.min(100, parcel.parksPct ?? 0));
+    const totalDeductPct = Math.min(100, roadsPct + parksPct);
+    const roadsArea = area * (roadsPct / 100);
+    const parksArea = area * (parksPct / 100);
+    const nda = area * (1 - totalDeductPct / 100);
+    const effectiveNdaRate = nda > 0 ? totalCost / nda : 0;
+    return { area, roadsArea, parksArea, nda, totalCost, effectiveNdaRate };
+  }
+  return {
+    area,
+    roadsArea: 0,
+    parksArea: 0,
+    nda: area,
+    totalCost,
+    effectiveNdaRate: rate,
+  };
+}
+
 export function resolveAssetAreaMetrics(
   asset: Asset,
   project: Project,
@@ -434,17 +525,63 @@ export function resolveAssetAreaMetrics(
   const breakdown = computeAssetLandBreakdown(asset, parcels, assets, subUnits, mode);
   const landSqm = breakdown.landSqm;
   const landValue = breakdown.landValue;
-  const roadsPct = Math.max(0, Math.min(100, project.projectRoadsPct ?? 0));
-  const ndaSqm = landSqm * (1 - roadsPct / 100);
-  const roadsSqm = landSqm - ndaSqm;
-  // M2.0g Fix 4: BUA pulls from computeAssetAreaTotals which prefers
-  // asset.buaTotal when set, else derives from sub-units + support +
-  // parking. NSA = revenue sub-units only.
-  const totals = computeAssetAreaTotals(asset, subUnits);
-  const bua = totals.buaTotal;
-  const nsa = totals.subUnitsRevenue;
-  const unitCount = computeAssetUnitCount(asset, subUnits);
+  // M2.0h Fix 4 (2026-05-07): NDA derives per-parcel via computeParcelNda
+  // when the parcel has the NDA toggle set. Land allocation references
+  // NDA (developable sqm) not gross parcel area; the per-asset effective
+  // share follows the parcel-level inflation. project.projectRoadsPct
+  // remains a project-wide knob for legacy snapshots that use the
+  // rate_per_nda / rate_per_roads cost methods without per-parcel NDA.
+  // When per-parcel NDA is set, m.ndaSqm reflects the parcel-derived
+  // value; otherwise we fall back to the project-wide roads%.
   const phaseParcels = parcels.filter((p) => p.phaseId === asset.phaseId);
+  let assetNda = landSqm;
+  let assetRoads = 0;
+  const anyParcelHasNda = phaseParcels.some((p) => p.hasNdaDeduction === true);
+  if (anyParcelHasNda && breakdown.splits.length > 0) {
+    // Multi-parcel splits: derive NDA per slice using each parcel's own
+    // toggle. Asset's NDA = sum(slice.sqm × parcel.ndaFactor).
+    assetNda = 0;
+    for (const split of breakdown.splits) {
+      const parcel = phaseParcels.find((p) => p.id === split.parcelId);
+      if (!parcel) { assetNda += split.sqm; continue; }
+      const pn = computeParcelNda(parcel);
+      const ndaFactor = pn.area > 0 ? pn.nda / pn.area : 1;
+      assetNda += split.sqm * ndaFactor;
+    }
+    assetRoads = landSqm - assetNda;
+  } else if (anyParcelHasNda) {
+    // Single parcel allocation: derive from the resolved single parcel
+    // (or the asset's first phaseParcel as best-effort fallback).
+    const single = breakdown.splits[0]
+      ? phaseParcels.find((p) => p.id === breakdown.splits[0].parcelId)
+      : phaseParcels.find((p) => p.id === asset.landAllocation?.parcelId) ?? phaseParcels[0];
+    if (single && single.hasNdaDeduction) {
+      const pn = computeParcelNda(single);
+      const ndaFactor = pn.area > 0 ? pn.nda / pn.area : 1;
+      assetNda = landSqm * ndaFactor;
+      assetRoads = landSqm - assetNda;
+    } else {
+      const roadsPct = Math.max(0, Math.min(100, project.projectRoadsPct ?? 0));
+      assetNda = landSqm * (1 - roadsPct / 100);
+      assetRoads = landSqm - assetNda;
+    }
+  } else {
+    const roadsPct = Math.max(0, Math.min(100, project.projectRoadsPct ?? 0));
+    assetNda = landSqm * (1 - roadsPct / 100);
+    assetRoads = landSqm - assetNda;
+  }
+  const ndaSqm = assetNda;
+  const roadsSqm = assetRoads;
+  // M2.0h Fix 3 (2026-05-07): BUA / NSA / GFA from the three-tier
+  // hierarchy. NSA = revenue sub-units only; BUA = NSA + Support;
+  // GFA = BUA + Parking. Replaces the M2.0g convention where BUA
+  // included Parking. asset.gfaSqm input still wins when > 0; when
+  // blank, GFA derives from the hierarchy.
+  const hierarchy = computeAssetAreaHierarchy(asset, subUnits);
+  const bua = hierarchy.bua;
+  const nsa = hierarchy.nsa;
+  const gfa = asset.gfaSqm > 0 ? asset.gfaSqm : hierarchy.gfa;
+  const unitCount = computeAssetUnitCount(asset, subUnits);
 
   let cashLandValue = 0;
   let inKindLandValue = 0;
@@ -466,13 +603,13 @@ export function resolveAssetAreaMetrics(
     landSqm,
     ndaSqm,
     roadsSqm,
-    gfa: asset.gfaSqm > 0 ? asset.gfaSqm : bua,  // M2.0f Fix 6: GFA falls back to BUA when blank
+    gfa,
     bua,
     nsa,
     unitCount,
     parkingBays: Math.max(0, asset.parkingBaysRequired ?? 0),
-    supportArea: totals.supportArea,
-    parkingArea: totals.parkingArea,
+    supportArea: hierarchy.breakdown.supportArea,
+    parkingArea: hierarchy.breakdown.parkingArea,
     landValue,
     cashLandValue,
     inKindLandValue,
@@ -535,6 +672,34 @@ export function calculateItemTotal(
       const target = (ctx.subUnits ?? []).find((u) => u.id === line.subUnitId);
       if (!target) return 0;
       return safeV * computeSubUnitArea(target);
+    }
+    case 'per_sub_unit_custom_rates': {
+      // M2.0h Fix 5: sum of (sub-unit area × per-sub-unit rate) across
+      // all revenue + Support sub-units PLUS the asset-level Support
+      // and Parking rows. Missing rates fall back to line.value as
+      // default.
+      const rates = line.perSubUnitRates ?? {};
+      const defaultRate = safeV;
+      const my = (ctx.subUnits ?? []).filter((u) => u.assetId === ctx.asset.id);
+      let total = 0;
+      for (const u of my) {
+        const r = rates[u.id] ?? defaultRate;
+        total += Math.max(0, r) * computeSubUnitArea(u);
+      }
+      // Asset-level Support row (excluded if already covered by Support
+      // sub-units; Support sub-unit areas are kept distinct from
+      // asset.supportArea per the M2.0g schema, so both contribute).
+      const aSupport = Math.max(0, ctx.asset.supportArea ?? 0);
+      if (aSupport > 0) {
+        const r = rates[PER_SUBUNIT_RATE_KEY_SUPPORT] ?? defaultRate;
+        total += Math.max(0, r) * aSupport;
+      }
+      const aParking = Math.max(0, ctx.asset.parkingArea ?? 0);
+      if (aParking > 0) {
+        const r = rates[PER_SUBUNIT_RATE_KEY_PARKING] ?? defaultRate;
+        total += Math.max(0, r) * aParking;
+      }
+      return total;
     }
     case 'percent_of_total_land':
       return m.landValue * (clamp(v, 0, 100) / 100);
@@ -1340,4 +1505,169 @@ export function computeProjectEndDate(project: Project, phases: Phase[]): string
     if (tl.operationsEnd > endIso) endIso = tl.operationsEnd;
   }
   return endIso;
+}
+
+// ── M2.0h Fix 5: Per-sub-unit custom cost rates breakdown ─────────────────
+// Returns the resolved row list (sub-unit + Support + Parking) with each
+// row's area, rate, and total. Used by the Cost row sub-table UI in
+// Module1Costs and by the verifier's MAAD-Spec example assertion.
+export interface CostLinePerSubUnitRow {
+  key: string;          // sub-unit id, or '__support__' / '__parking__'
+  label: string;        // display label
+  category?: string;    // sub-unit category for ordering (Sellable / Operable / Leasable / Support)
+  area: number;
+  rate: number;
+  total: number;
+}
+
+export interface CostLinePerSubUnitBreakdown {
+  rows: CostLinePerSubUnitRow[];
+  totalCost: number;
+}
+
+export function computeCostLinePerSubUnit(
+  line: CostLine,
+  asset: Asset,
+  subUnits: SubUnit[],
+): CostLinePerSubUnitBreakdown {
+  const rates = line.perSubUnitRates ?? {};
+  const defaultRate = Math.max(0, line.value ?? 0);
+  const my = subUnits.filter((u) => u.assetId === asset.id);
+  const rows: CostLinePerSubUnitRow[] = [];
+  // Sub-unit rows (in the order they appear in subUnits).
+  for (const u of my) {
+    const area = computeSubUnitArea(u);
+    if (area <= 0) continue;
+    const rate = Math.max(0, rates[u.id] ?? defaultRate);
+    rows.push({
+      key: u.id,
+      label: `${u.name || 'Sub-unit'} (${u.category})`,
+      category: u.category,
+      area,
+      rate,
+      total: area * rate,
+    });
+  }
+  // Asset-level Support row (separate from any Support sub-unit).
+  const aSupport = Math.max(0, asset.supportArea ?? 0);
+  if (aSupport > 0) {
+    const rate = Math.max(0, rates[PER_SUBUNIT_RATE_KEY_SUPPORT] ?? defaultRate);
+    rows.push({
+      key: PER_SUBUNIT_RATE_KEY_SUPPORT,
+      label: 'Support Area (asset-level)',
+      area: aSupport,
+      rate,
+      total: aSupport * rate,
+    });
+  }
+  // Asset-level Parking row.
+  const aParking = Math.max(0, asset.parkingArea ?? 0);
+  if (aParking > 0) {
+    const rate = Math.max(0, rates[PER_SUBUNIT_RATE_KEY_PARKING] ?? defaultRate);
+    rows.push({
+      key: PER_SUBUNIT_RATE_KEY_PARKING,
+      label: 'Parking Area (asset-level)',
+      area: aParking,
+      rate,
+      total: aParking * rate,
+    });
+  }
+  const totalCost = rows.reduce((s, r) => s + r.total, 0);
+  return { rows, totalCost };
+}
+
+// ── M2.0h Fix 6: Runtime granularity transformation ───────────────────────
+// All inputs in v8 are entered annually. For display, the user can
+// toggle output granularity to quarterly (4× per year) or monthly (12×
+// per year). distributeAnnualToPeriods takes an annual value array (one
+// entry per project year) and a phasing curve, and returns a per-period
+// array at the chosen granularity by applying the same phasing curve at
+// the sub-period level within each year.
+//
+// 'annual' returns the input unchanged (no transform).
+// 'quarterly' returns 4 sub-periods per year using `distribute(phasing, 4)`.
+// 'monthly'   returns 12 sub-periods per year using `distribute(phasing, 12)`.
+//
+// When phasing === 'manual' on annual inputs we cannot guess a per-month
+// curve, so we fall back to 'even' inside each year. The user retains
+// the option to pick S-curve / front-loaded / back-loaded and have the
+// curve applied to the sub-periods.
+export function distributeAnnualToPeriods(
+  annualValues: number[],
+  granularity: OutputGranularity,
+  phasing: CostPhasing = 'even',
+): number[] {
+  if (granularity === 'annual') return [...annualValues];
+  const sub = granularity === 'quarterly' ? 4 : 12;
+  // Manual annual inputs map to even within-year for the sub-periods.
+  const subPhasing: CostPhasing = phasing === 'manual' ? 'even' : phasing;
+  const out: number[] = [];
+  const subWeights = distribute(subPhasing, sub);
+  for (const annual of annualValues) {
+    for (let i = 0; i < sub; i++) {
+      out.push(annual * (subWeights[i] ?? 0));
+    }
+  }
+  return out;
+}
+
+// formatPeriodLabel: column header for a period date at given granularity.
+// 'annual'    -> 'Dec 25'
+// 'quarterly' -> 'Q1 25', 'Q2 25', ...
+// 'monthly'   -> 'Jan 25', 'Feb 25', ...
+//
+// The inputDate is interpreted as the LAST DAY of the period (end-of-
+// period convention from M2.0g Fix 1). For mid-year quarters we map the
+// month back to the quarter index (Mar -> Q1, Jun -> Q2, etc.).
+export function formatPeriodLabel(
+  inputDate: string,
+  granularity: OutputGranularity,
+): string {
+  const d = new Date(inputDate);
+  if (Number.isNaN(d.getTime())) return inputDate;
+  const yy = String(d.getUTCFullYear()).slice(-2);
+  if (granularity === 'annual') return `Dec ${yy}`;
+  if (granularity === 'quarterly') {
+    const qIdx = Math.floor(d.getUTCMonth() / 3) + 1;
+    return `Q${qIdx} ${yy}`;
+  }
+  // monthly
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[d.getUTCMonth()]} ${yy}`;
+}
+
+// Generate N period labels starting from a project start date, at the
+// chosen granularity. Used by Module1Costs Results sub-tab + Module1-
+// Financing schedules to render column headers.
+export function generatePeriodLabels(
+  startIso: string,
+  numAnnualPeriods: number,
+  granularity: OutputGranularity,
+): string[] {
+  const start = new Date(startIso);
+  if (Number.isNaN(start.getTime())) return [];
+  const labels: string[] = [];
+  const startYear = start.getUTCFullYear();
+  if (granularity === 'annual') {
+    for (let y = 0; y < numAnnualPeriods; y++) {
+      labels.push(`Dec ${String((startYear + y) % 100).padStart(2, '0')}`);
+    }
+    return labels;
+  }
+  if (granularity === 'quarterly') {
+    for (let y = 0; y < numAnnualPeriods; y++) {
+      for (let q = 1; q <= 4; q++) {
+        labels.push(`Q${q} ${String((startYear + y) % 100).padStart(2, '0')}`);
+      }
+    }
+    return labels;
+  }
+  // monthly
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  for (let y = 0; y < numAnnualPeriods; y++) {
+    for (let m = 0; m < 12; m++) {
+      labels.push(`${months[m]} ${String((startYear + y) % 100).padStart(2, '0')}`);
+    }
+  }
+  return labels;
 }

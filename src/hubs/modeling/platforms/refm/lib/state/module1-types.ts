@@ -290,6 +290,14 @@ export interface Phase {
 // Project-level land. Multiple parcels supported (mixed cash + in-kind +
 // donated land are common in MAAD models). Allocation across assets is
 // driven by landAllocationMode at the snapshot level.
+//
+// M2.0h Fix 4 (2026-05-07): per-parcel optional NDA (Net Developable
+// Area) deduction. When hasNdaDeduction is true, NDA = area × (1 -
+// roadsPct/100 - parksPct/100); otherwise NDA = area. Asset land
+// allocation references NDA (so when a parcel reserves 15% for roads
+// and parks, the developable sqm fed to assets is 85% × parcel area
+// while the full parcel cost still flows to the assets at an inflated
+// effective NDA rate).
 export interface Parcel {
   id: string;
   phaseId: string;            // parcel is bought/transferred during a phase
@@ -298,6 +306,10 @@ export interface Parcel {
   rate: number;               // currency per sqm
   cashPct: number;            // 0..100; remainder is in-kind
   inKindPct: number;          // 0..100; cashPct + inKindPct must sum to 100
+  // M2.0h Fix 4: optional NDA deduction. Default OFF.
+  hasNdaDeduction?: boolean;
+  roadsPct?: number;          // 0..100; share of area reserved for roads
+  parksPct?: number;          // 0..100; share of area reserved for parks
 }
 
 // ── Sub-unit ───────────────────────────────────────────────────────────────
@@ -487,6 +499,11 @@ export type CostMethod =
   | 'rate_x_support_area'      // value × asset.supportArea (asset-level)
   | 'rate_x_parking_area'      // value × asset.parkingArea (asset-level)
   | 'rate_x_specific_subunit'  // value × area of a specific sub-unit (line.subUnitId)
+  // M2.0h Fix 5 (2026-05-07): per-sub-unit custom rates. line.perSubUnitRates
+  // holds a rate per sub-unit id plus optional special keys '__support__' /
+  // '__parking__' for the asset-level Support and Parking rows. Total =
+  // sum of (area × rate) across all rows.
+  | 'per_sub_unit_custom_rates'
   | 'percent_of_selected'      // value% × sum of selectedLineIds totals
   | 'percent_of_construction'  // value% × sum of stage='hard' line totals
   | 'percent_of_total_land'    // value% × parcels total value
@@ -506,12 +523,19 @@ export const COST_METHODS: readonly CostMethod[] = [
   'rate_x_support_area',
   'rate_x_parking_area',
   'rate_x_specific_subunit',
+  'per_sub_unit_custom_rates',
   'percent_of_selected',
   'percent_of_construction',
   'percent_of_total_land',
   'percent_of_cash_land',
   'percent_of_inkind_land',
 ] as const;
+
+// M2.0h Fix 5: special keys for asset-level Support / Parking rows in
+// the perSubUnitRates dictionary. These do not collide with sub-unit
+// ids (which are guid-style strings).
+export const PER_SUBUNIT_RATE_KEY_SUPPORT = '__support__';
+export const PER_SUBUNIT_RATE_KEY_PARKING = '__parking__';
 
 export const COST_METHOD_LABELS: Record<CostMethod, string> = {
   fixed:                   'Fixed Amount',
@@ -526,6 +550,7 @@ export const COST_METHOD_LABELS: Record<CostMethod, string> = {
   rate_x_support_area:     'Rate × Support Area',
   rate_x_parking_area:     'Rate × Parking Area',
   rate_x_specific_subunit: 'Rate × Specific Sub-unit',
+  per_sub_unit_custom_rates: 'Per sub-unit custom rates',
   percent_of_selected:     '% of Selected Lines',
   percent_of_construction: '% of Construction',
   percent_of_total_land:   '% of Total Land Value',
@@ -612,6 +637,14 @@ export interface CostLine {
   // rate multiplies against (e.g. construction rate for hotel keys vs
   // branded suites differs).
   subUnitId?: string;
+  // M2.0h Fix 5 (2026-05-07): only consumed when method =
+  // 'per_sub_unit_custom_rates'. Maps sub-unit id -> rate (currency
+  // per sqm). Special keys '__support__' / '__parking__' carry rates
+  // for the asset-level Support and Parking rows. When a sub-unit id
+  // is missing, the row falls back to line.value as default rate so
+  // a line that switched into this method without explicit rates
+  // still produces a sensible total.
+  perSubUnitRates?: Record<string, number>;
 }
 
 export interface CostOverride {
@@ -625,6 +658,9 @@ export interface CostOverride {
   // line regardless of value or method. Independent of CostLine.disabled
   // (which zeros out the line for ALL assets).
   disabled?: boolean;
+  // M2.0h Fix 5: per-asset override of perSubUnitRates so each asset
+  // can carry its own rate sheet on top of a project-wide line.
+  perSubUnitRates?: Record<string, number>;
 }
 
 // ── Financing tranche ──────────────────────────────────────────────────────
