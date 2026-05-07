@@ -420,78 +420,17 @@ export default function Module1Assets(): React.JSX.Element {
         </table>
       </div>
 
-      {/* M2.0g Fix 2 + M2.0h Fix 4: Land Reconciliation block.
-          Compares parcels total area, NDA, and value against the sum of
-          asset allocations + values. NDA reservation (M2.0h) is shown
-          as a separate line when any parcel has the toggle on. */}
-      {(() => {
-        const totalParcelsNda = parcels.reduce((s, p) => s + computeParcelNda(p).nda, 0);
-        const totalReservedRoadsParks = landReconciliation.parcelsTotalSqm - totalParcelsNda;
-        const anyNda = parcels.some((p) => p.hasNdaDeduction === true);
-        return (
-          <div
-            style={{
-              ...sectionCardStyle,
-              background: landReconciliation.matches
-                ? 'color-mix(in srgb, var(--color-success) 10%, transparent)'
-                : landReconciliation.overBy > 0
-                  ? 'color-mix(in srgb, var(--color-negative) 10%, transparent)'
-                  : 'color-mix(in srgb, var(--color-accent-warm) 10%, transparent)',
-              border: `1px solid ${landReconciliation.matches
-                ? 'var(--color-success)'
-                : landReconciliation.overBy > 0
-                  ? 'var(--color-negative)'
-                  : 'var(--color-accent-warm)'}`,
-            }}
-            data-testid="land-reconciliation"
-          >
-            <h3 style={{ fontSize: 'var(--font-h3)', margin: 0, marginBottom: 'var(--sp-2)' }}>Land Reconciliation</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 'var(--sp-2)', fontSize: 'var(--font-small)' }}>
-              <div>
-                <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total parcels area</div>
-                <div data-testid="land-reconciliation-parcels-sqm"><strong>{fmt(landReconciliation.parcelsTotalSqm)}</strong> sqm</div>
-              </div>
-              <div>
-                <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Allocated to assets</div>
-                <div data-testid="land-reconciliation-allocated-sqm"><strong>{fmt(landReconciliation.assetsAllocatedSqm)}</strong> sqm</div>
-              </div>
-              <div>
-                <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</div>
-                <div data-testid="land-reconciliation-status">
-                  {landReconciliation.matches && (
-                    <span style={{ color: 'var(--color-success)', fontWeight: 700 }}>matches</span>
-                  )}
-                  {landReconciliation.overBy > 0 && (
-                    <span style={{ color: 'var(--color-negative)', fontWeight: 700 }}>over by {fmt(landReconciliation.overBy)} sqm</span>
-                  )}
-                  {landReconciliation.shortBy > 0 && (
-                    <span style={{ color: 'var(--color-accent-warm)', fontWeight: 700 }}>short by {fmt(landReconciliation.shortBy)} sqm (some land unassigned)</span>
-                  )}
-                </div>
-              </div>
-              {anyNda && (
-                <>
-                  <div>
-                    <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total NDA</div>
-                    <div data-testid="land-reconciliation-total-nda"><strong>{fmt(totalParcelsNda)}</strong> sqm <span style={{ color: 'var(--color-meta)' }}>({fmt(totalReservedRoadsParks)} reserved for roads / parks)</span></div>
-                  </div>
-                  <div></div>
-                  <div></div>
-                </>
-              )}
-              <div>
-                <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total parcels value</div>
-                <div data-testid="land-reconciliation-parcels-value"><strong>{fmtCurrency(landReconciliation.parcelsTotalValue, project.currency, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</strong></div>
-              </div>
-              <div>
-                <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Asset land cost</div>
-                <div data-testid="land-reconciliation-allocated-value"><strong>{fmtCurrency(landReconciliation.assetsAllocatedValue, project.currency, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</strong></div>
-              </div>
-              <div></div>
-            </div>
-          </div>
-        );
-      })()}
+      {/* M2.0g Fix 2 + M2.0h Fix 4 + M2.0i Fix 9: Land Reconciliation
+          block. Collapsed by default (single summary line). Expand
+          reveals the full grid. Auto-expands on mismatch.
+          localStorage persistence keyed on `m20i-land-recon-collapsed`. */}
+      <LandReconciliationBlock
+        landReconciliation={landReconciliation}
+        parcels={parcels}
+        currency={project.currency}
+        scale={project.displayScale ?? 'full'}
+        decimals={project.displayDecimals ?? 2}
+      />
 
       {/* Land Allocation Mode (unchanged) */}
       <div style={sectionCardStyle} data-testid="land-allocation-section">
@@ -1189,67 +1128,23 @@ function AssetCard({
             );
           })()}
 
-          {/* M2.0h Fix 3 (2026-05-07): Area Reconciliation block.
-              Itemizes the three-tier hierarchy. Per-row click is
-              decorative; future surfaces may scroll to source field. */}
-          <div
-            style={{
-              border: '1px solid var(--color-border)',
-              background: 'var(--color-bg)',
-              borderRadius: 'var(--radius-sm)',
-              padding: 'var(--sp-2)',
-              marginBottom: 'var(--sp-2)',
-              fontSize: 11,
-            }}
-            data-testid={`asset-${asset.id}-area-reconciliation`}
-          >
-            <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Area Reconciliation</strong>
-            <div style={{ marginTop: 6, display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 4 }}>
-              <div style={{ gridColumn: '1 / span 2', color: 'var(--color-meta)', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em', marginTop: 2 }}>
-                Sub-units (revenue-generating):
-              </div>
-              {assetSubUnits.filter((u) => u.category !== 'Support').map((u) => (
-                <React.Fragment key={u.id}>
-                  <div style={{ paddingLeft: 12 }}>{u.name || 'Sub-unit'} ({u.category}):</div>
-                  <div style={{ textAlign: 'right' }}>{fmt(computeSubUnitArea(u))} sqm</div>
-                </React.Fragment>
-              ))}
-              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, paddingLeft: 12, fontWeight: 700 }}>NSA (Net Sellable)</div>
-              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, textAlign: 'right', fontWeight: 700 }} data-testid={`asset-${asset.id}-recon-nsa`}>{fmt(derivedSellable)} sqm</div>
-
-              {(supportSum > 0 || (asset.supportArea ?? 0) > 0) && (
-                <>
-                  <div style={{ paddingTop: 4 }}>Sub-unit Support:</div>
-                  <div style={{ paddingTop: 4, textAlign: 'right' }}>{fmt(supportSum)} sqm</div>
-                  <div>Asset Support Area:</div>
-                  <div style={{ textAlign: 'right' }}>{fmt(Math.max(0, asset.supportArea ?? 0))} sqm</div>
-                </>
-              )}
-              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, fontWeight: 700 }}>BUA (NSA + Support)</div>
-              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, textAlign: 'right', fontWeight: 700 }} data-testid={`asset-${asset.id}-recon-bua`}>
-                {fmt(derivedSellable + supportSum + Math.max(0, asset.supportArea ?? 0))} sqm
-              </div>
-
-              {parkingSum > 0 && (
-                <>
-                  <div style={{ paddingTop: 4 }}>Asset Parking Area:</div>
-                  <div style={{ paddingTop: 4, textAlign: 'right' }}>{fmt(parkingSum)} sqm</div>
-                </>
-              )}
-              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, fontWeight: 700 }}>GFA (BUA + Parking)</div>
-              <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, textAlign: 'right', fontWeight: 700 }} data-testid={`asset-${asset.id}-recon-gfa`}>
-                {fmt(derivedSellable + supportSum + Math.max(0, asset.supportArea ?? 0) + parkingSum)} sqm
-              </div>
-
-              <div style={{ marginTop: 6, paddingTop: 4, borderTop: '1px solid var(--color-border)', color: 'var(--color-meta)' }}>Land allocation:</div>
-              <div style={{ marginTop: 6, paddingTop: 4, borderTop: '1px solid var(--color-border)', textAlign: 'right', color: 'var(--color-meta)' }}>
-                {fmt(landBreakdown.landSqm)} sqm
-              </div>
-              <div style={{ color: 'var(--color-meta)' }}>Land cost:</div>
-              <div style={{ textAlign: 'right', color: 'var(--color-meta)' }} data-testid={`asset-${asset.id}-recon-land-cost`}>{fmtCurrency(landCost, project.currency, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</div>
-            </div>
-          </div>
-
+          {/* M2.0h Fix 3 (2026-05-07) + M2.0i Fix 9 (2026-05-07): Area
+              Reconciliation block. Collapsed by default with summary
+              line; expand reveals itemized three-tier breakdown. The
+              user's expand/collapse preference persists in
+              localStorage per project (key 'm20i-asset-recon-{id}'). */}
+          <AssetAreaReconciliationBlock
+            asset={asset}
+            assetSubUnits={assetSubUnits}
+            derivedSellable={derivedSellable}
+            supportSum={supportSum}
+            parkingSum={parkingSum}
+            landSqm={landBreakdown.landSqm}
+            landCost={landCost}
+            currency={project.currency}
+            scale={project.displayScale ?? 'full'}
+            decimals={project.displayDecimals ?? 2}
+          />
           {/* Sub-unit table */}
           <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 'var(--sp-2)', marginTop: 'var(--sp-2)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--sp-1)' }}>
@@ -1506,6 +1401,271 @@ function UsefulLifeForm({ asset, onUpdate }: UsefulLifeFormProps): React.JSX.Ele
       <div style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)' }}>
         <strong>Resolved:</strong> {resolved} years{!explicit && (<span style={{ display: 'block', marginTop: 2 }}>(category default)</span>)}
       </div>
+    </div>
+  );
+}
+
+// ── M2.0i Fix 9: LandReconciliationBlock (compact / expandable) ──────────
+interface LandReconciliationBlockProps {
+  landReconciliation: import('@/src/core/calculations').LandReconciliation;
+  parcels: Parcel[];
+  currency: string;
+  scale: import('../../lib/state/module1-types').DisplayScale;
+  decimals: import('../../lib/state/module1-types').DisplayDecimals;
+}
+
+const RECON_LS_KEY = 'm20i-land-recon-collapsed';
+
+function readCollapsed(): boolean {
+  if (typeof window === 'undefined') return true;
+  try { return window.localStorage.getItem(RECON_LS_KEY) !== 'false'; }
+  catch { return true; }
+}
+
+function writeCollapsed(v: boolean): void {
+  if (typeof window === 'undefined') return;
+  try { window.localStorage.setItem(RECON_LS_KEY, v ? 'true' : 'false'); }
+  catch { /* noop */ }
+}
+
+function LandReconciliationBlock({
+  landReconciliation, parcels, currency, scale, decimals,
+}: LandReconciliationBlockProps): React.JSX.Element {
+  const totalParcelsNda = parcels.reduce((s, p) => s + computeParcelNda(p).nda, 0);
+  const totalReservedRoadsParks = landReconciliation.parcelsTotalSqm - totalParcelsNda;
+  const anyNda = parcels.some((p) => p.hasNdaDeduction === true);
+
+  const hasMismatch = !landReconciliation.matches;
+  const [userCollapsed, setUserCollapsed] = useState<boolean>(readCollapsed);
+  // Auto-expand on mismatch overrides user preference. User can still
+  // collapse manually after; the auto-expand is a one-shot signal.
+  const collapsed = hasMismatch ? false : userCollapsed;
+
+  const toggle = (): void => {
+    const next = !collapsed;
+    setUserCollapsed(next);
+    writeCollapsed(next);
+  };
+
+  const fmtMoney = (n: number): string => fmtCurrency(n, currency, scale, decimals);
+  const accent = landReconciliation.matches
+    ? 'var(--color-success)'
+    : landReconciliation.overBy > 0
+      ? 'var(--color-negative)'
+      : 'var(--color-accent-warm)';
+
+  return (
+    <div
+      style={{
+        ...sectionCardStyle,
+        background: `color-mix(in srgb, ${accent} 10%, transparent)`,
+        border: `1px solid ${accent}`,
+        padding: collapsed ? 'var(--sp-2)' : 'var(--sp-3)',
+      }}
+      data-testid="land-reconciliation"
+    >
+      <div
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', gap: 'var(--sp-2)' }}
+        onClick={toggle}
+        data-testid="land-reconciliation-toggle"
+      >
+        <div style={{ fontSize: 'var(--font-small)', display: 'flex', gap: 8, alignItems: 'baseline' }}>
+          <span style={{ color: accent, fontWeight: 700 }}>{landReconciliation.matches ? '✓' : landReconciliation.overBy > 0 ? '✗' : '⚠'}</span>
+          <strong>Land:</strong>
+          <span data-testid="land-reconciliation-summary">
+            {fmt(landReconciliation.assetsAllocatedSqm)} sqm allocated, {fmtMoney(landReconciliation.assetsAllocatedValue)}
+            {landReconciliation.matches
+              ? ' (matches parcels)'
+              : landReconciliation.overBy > 0
+                ? ` (over by ${fmt(landReconciliation.overBy)} sqm)`
+                : ` (short by ${fmt(landReconciliation.shortBy)} sqm)`}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); toggle(); }}
+          data-testid="land-reconciliation-expand"
+          style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', cursor: 'pointer', fontSize: 11, color: 'var(--color-meta)' }}
+        >
+          {collapsed ? 'expand' : 'collapse'}
+        </button>
+      </div>
+      {!collapsed && (
+        <div style={{ marginTop: 'var(--sp-2)', display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 'var(--sp-2)', fontSize: 'var(--font-small)' }}>
+          <div>
+            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total parcels area</div>
+            <div data-testid="land-reconciliation-parcels-sqm"><strong>{fmt(landReconciliation.parcelsTotalSqm)}</strong> sqm</div>
+          </div>
+          <div>
+            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Allocated to assets</div>
+            <div data-testid="land-reconciliation-allocated-sqm"><strong>{fmt(landReconciliation.assetsAllocatedSqm)}</strong> sqm</div>
+          </div>
+          <div>
+            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</div>
+            <div data-testid="land-reconciliation-status">
+              {landReconciliation.matches && (
+                <span style={{ color: 'var(--color-success)', fontWeight: 700 }}>matches</span>
+              )}
+              {landReconciliation.overBy > 0 && (
+                <span style={{ color: 'var(--color-negative)', fontWeight: 700 }}>over by {fmt(landReconciliation.overBy)} sqm</span>
+              )}
+              {landReconciliation.shortBy > 0 && (
+                <span style={{ color: 'var(--color-accent-warm)', fontWeight: 700 }}>short by {fmt(landReconciliation.shortBy)} sqm (some land unassigned)</span>
+              )}
+            </div>
+          </div>
+          {anyNda && (
+            <>
+              <div>
+                <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total NDA</div>
+                <div data-testid="land-reconciliation-total-nda"><strong>{fmt(totalParcelsNda)}</strong> sqm <span style={{ color: 'var(--color-meta)' }}>({fmt(totalReservedRoadsParks)} reserved for roads / parks)</span></div>
+              </div>
+              <div></div>
+              <div></div>
+            </>
+          )}
+          <div>
+            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total parcels value</div>
+            <div data-testid="land-reconciliation-parcels-value"><strong>{fmtMoney(landReconciliation.parcelsTotalValue)}</strong></div>
+          </div>
+          <div>
+            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Asset land cost</div>
+            <div data-testid="land-reconciliation-allocated-value"><strong>{fmtMoney(landReconciliation.assetsAllocatedValue)}</strong></div>
+          </div>
+          <div></div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── M2.0i Fix 9: AssetAreaReconciliationBlock (compact / expandable) ─────
+interface AssetAreaReconciliationBlockProps {
+  asset: Asset;
+  assetSubUnits: SubUnit[];
+  derivedSellable: number;
+  supportSum: number;
+  parkingSum: number;
+  landSqm: number;
+  landCost: number;
+  currency: string;
+  scale: import('../../lib/state/module1-types').DisplayScale;
+  decimals: import('../../lib/state/module1-types').DisplayDecimals;
+}
+
+const ASSET_RECON_LS_KEY = 'm20i-asset-recon-collapsed';
+
+function readAssetReconCollapsed(): boolean {
+  if (typeof window === 'undefined') return true;
+  try { return window.localStorage.getItem(ASSET_RECON_LS_KEY) !== 'false'; }
+  catch { return true; }
+}
+function writeAssetReconCollapsed(v: boolean): void {
+  if (typeof window === 'undefined') return;
+  try { window.localStorage.setItem(ASSET_RECON_LS_KEY, v ? 'true' : 'false'); }
+  catch { /* noop */ }
+}
+
+function AssetAreaReconciliationBlock({
+  asset, assetSubUnits, derivedSellable, supportSum, parkingSum, landSqm, landCost,
+  currency, scale, decimals,
+}: AssetAreaReconciliationBlockProps): React.JSX.Element {
+  const [userCollapsed, setUserCollapsed] = useState<boolean>(readAssetReconCollapsed);
+  const bua = derivedSellable + supportSum + Math.max(0, asset.supportArea ?? 0);
+  const gfa = bua + parkingSum;
+  // Mismatch detection: when the asset has no sub-units yet (everything 0)
+  // suppress the warning; otherwise flag if NSA > BUA (impossible) or
+  // sanity check (no current rule beyond derived numbers always matching).
+  // We auto-expand when sub-units exist but NSA = 0 (user added support /
+  // parking only without revenue units yet).
+  const noSubUnits = assetSubUnits.filter((u) => u.category !== 'Support').length === 0;
+  const hasSupportOrParking = supportSum > 0 || (asset.supportArea ?? 0) > 0 || parkingSum > 0;
+  const mismatch = !noSubUnits && derivedSellable === 0 && hasSupportOrParking;
+  const collapsed = mismatch ? false : userCollapsed;
+
+  const toggle = (): void => {
+    const next = !collapsed;
+    setUserCollapsed(next);
+    writeAssetReconCollapsed(next);
+  };
+
+  const accent = mismatch ? 'var(--color-accent-warm)' : 'var(--color-success)';
+  const fmtMoney = (n: number): string => fmtCurrency(n, currency, scale, decimals);
+
+  return (
+    <div
+      style={{
+        border: `1px solid ${accent}`,
+        background: `color-mix(in srgb, ${accent} 6%, transparent)`,
+        borderRadius: 'var(--radius-sm)',
+        padding: 'var(--sp-1) var(--sp-2)',
+        marginBottom: 'var(--sp-2)',
+        fontSize: 11,
+      }}
+      data-testid={`asset-${asset.id}-area-reconciliation`}
+    >
+      <div
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer', gap: 'var(--sp-2)' }}
+        onClick={toggle}
+        data-testid={`asset-${asset.id}-area-reconciliation-toggle`}
+      >
+        <div style={{ fontSize: 11, display: 'flex', gap: 8, alignItems: 'baseline' }}>
+          <span style={{ color: accent, fontWeight: 700 }}>{mismatch ? '⚠' : '✓'}</span>
+          <strong>{asset.name || 'Asset'} BUA:</strong>
+          <span data-testid={`asset-${asset.id}-recon-summary`}>
+            {fmt(bua)} sqm (NSA {fmt(derivedSellable)} + Support {fmt(supportSum + Math.max(0, asset.supportArea ?? 0))})
+            {mismatch ? ' · no revenue sub-units yet' : ''}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); toggle(); }}
+          data-testid={`asset-${asset.id}-area-reconciliation-expand`}
+          style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', cursor: 'pointer', fontSize: 10, color: 'var(--color-meta)' }}
+        >
+          {collapsed ? 'expand' : 'collapse'}
+        </button>
+      </div>
+      {!collapsed && (
+        <div style={{ marginTop: 6, display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 4 }}>
+          <div style={{ gridColumn: '1 / span 2', color: 'var(--color-meta)', textTransform: 'uppercase', fontSize: 10, letterSpacing: '0.05em', marginTop: 2 }}>
+            Sub-units (revenue-generating):
+          </div>
+          {assetSubUnits.filter((u) => u.category !== 'Support').map((u) => (
+            <React.Fragment key={u.id}>
+              <div style={{ paddingLeft: 12 }}>{u.name || 'Sub-unit'} ({u.category}):</div>
+              <div style={{ textAlign: 'right' }}>{fmt(computeSubUnitArea(u))} sqm</div>
+            </React.Fragment>
+          ))}
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, paddingLeft: 12, fontWeight: 700 }}>NSA (Net Sellable)</div>
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, textAlign: 'right', fontWeight: 700 }} data-testid={`asset-${asset.id}-recon-nsa`}>{fmt(derivedSellable)} sqm</div>
+
+          {(supportSum > 0 || (asset.supportArea ?? 0) > 0) && (
+            <>
+              <div style={{ paddingTop: 4 }}>Sub-unit Support:</div>
+              <div style={{ paddingTop: 4, textAlign: 'right' }}>{fmt(supportSum)} sqm</div>
+              <div>Asset Support Area:</div>
+              <div style={{ textAlign: 'right' }}>{fmt(Math.max(0, asset.supportArea ?? 0))} sqm</div>
+            </>
+          )}
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, fontWeight: 700 }}>BUA (NSA + Support)</div>
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, textAlign: 'right', fontWeight: 700 }} data-testid={`asset-${asset.id}-recon-bua`}>{fmt(bua)} sqm</div>
+
+          {parkingSum > 0 && (
+            <>
+              <div style={{ paddingTop: 4 }}>Asset Parking Area:</div>
+              <div style={{ paddingTop: 4, textAlign: 'right' }}>{fmt(parkingSum)} sqm</div>
+            </>
+          )}
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, fontWeight: 700 }}>GFA (BUA + Parking)</div>
+          <div style={{ borderTop: '1px solid var(--color-border)', paddingTop: 4, textAlign: 'right', fontWeight: 700 }} data-testid={`asset-${asset.id}-recon-gfa`}>{fmt(gfa)} sqm</div>
+
+          <div style={{ marginTop: 6, paddingTop: 4, borderTop: '1px solid var(--color-border)', color: 'var(--color-meta)' }}>Land allocation:</div>
+          <div style={{ marginTop: 6, paddingTop: 4, borderTop: '1px solid var(--color-border)', textAlign: 'right', color: 'var(--color-meta)' }}>{fmt(landSqm)} sqm</div>
+          <div style={{ color: 'var(--color-meta)' }}>Land cost:</div>
+          <div style={{ textAlign: 'right', color: 'var(--color-meta)' }} data-testid={`asset-${asset.id}-recon-land-cost`}>{fmtMoney(landCost)}</div>
+        </div>
+      )}
     </div>
   );
 }
