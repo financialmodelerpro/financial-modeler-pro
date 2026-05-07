@@ -344,15 +344,20 @@ export default function Module1Assets(): React.JSX.Element {
             + Add Parcel
           </button>
         </div>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }} data-testid="parcels-table">
           <thead>
             <tr>
               <th style={tableHeaderStyle}><InputLabel label="Parcel Name" help="Free-text label." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}><InputLabel label="Area (sqm)" help="Land area for this parcel." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}><InputLabel label={`Rate (per sqm, ${project.currency})`} help="Acquisition cost per sqm." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label="Rate (per sqm)" help="Acquisition cost per sqm." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}><InputLabel label="Cash %" help="Share paid in cash. Cash + In-kind = 100." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}><InputLabel label="In-Kind %" help="Share paid in-kind (equity from landowner)." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}><InputLabel label={`Total Value (${project.currency})`} help="Auto = Area x Rate." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label="NDA?" help="Net Developable Area deduction. Toggle ON to subtract Roads % + Parks % from the parcel's developable area." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label="Roads %" help="Share of parcel area reserved for roads (only when NDA toggle is on)." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label="Parks %" help="Share of parcel area reserved for parks (only when NDA toggle is on)." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label="NDA (sqm)" help="Net developable area = parcel area × (1 - roads% - parks%). When toggle off, equals parcel area." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label="Effective NDA Rate" help="Total parcel cost / NDA. Inflated when roads + parks reserve some of the parcel; equal to parcel rate when NDA toggle off." textStyle={tableHeaderLabelStyle} /></th>
+              <th style={tableHeaderStyle}><InputLabel label="Total Value" help="Auto = Area x Rate." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}></th>
             </tr>
           </thead>
@@ -371,72 +376,91 @@ export default function Module1Assets(): React.JSX.Element {
             <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 'var(--fw-bold)' }}>
               <td style={{ padding: 'var(--sp-1)' }}>Totals</td>
               <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-area">{fmt(aggregate.totalAreaSqm)} sqm</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-weighted-rate">{fmt(aggregate.weightedRate, 2)} {project.currency}/sqm</td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-weighted-rate">{fmt(aggregate.weightedRate, 2)} /sqm</td>
               <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-cash-value">{fmt(aggregate.cashValue)}</td>
               <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-inkind-value">{fmt(aggregate.inKindValue)}</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-value">{fmt(aggregate.totalValue)} {project.currency}</td>
+              <td colSpan={3}></td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-nda">{fmt(parcels.reduce((s, p) => s + computeParcelNda(p).nda, 0))} sqm</td>
+              <td></td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-value">{fmt(aggregate.totalValue)}</td>
               <td></td>
             </tr>
           </tfoot>
         </table>
       </div>
 
-      {/* M2.0g Fix 2: Land Reconciliation block (project-wide).
-          Compares parcels total area + value against the sum of asset
-          allocations + values. Match / under / over states drive a
-          color-coded banner so the user catches mis-allocations
-          before saving. */}
-      <div
-        style={{
-          ...sectionCardStyle,
-          background: landReconciliation.matches
-            ? 'color-mix(in srgb, var(--color-success) 10%, transparent)'
-            : landReconciliation.overBy > 0
-              ? 'color-mix(in srgb, var(--color-negative) 10%, transparent)'
-              : 'color-mix(in srgb, var(--color-accent-warm) 10%, transparent)',
-          border: `1px solid ${landReconciliation.matches
-            ? 'var(--color-success)'
-            : landReconciliation.overBy > 0
-              ? 'var(--color-negative)'
-              : 'var(--color-accent-warm)'}`,
-        }}
-        data-testid="land-reconciliation"
-      >
-        <h3 style={{ fontSize: 'var(--font-h3)', margin: 0, marginBottom: 'var(--sp-2)' }}>Land Reconciliation</h3>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 'var(--sp-2)', fontSize: 'var(--font-small)' }}>
-          <div>
-            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total parcels area</div>
-            <div data-testid="land-reconciliation-parcels-sqm"><strong>{fmt(landReconciliation.parcelsTotalSqm)}</strong> sqm</div>
-          </div>
-          <div>
-            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Allocated to assets</div>
-            <div data-testid="land-reconciliation-allocated-sqm"><strong>{fmt(landReconciliation.assetsAllocatedSqm)}</strong> sqm</div>
-          </div>
-          <div>
-            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</div>
-            <div data-testid="land-reconciliation-status">
-              {landReconciliation.matches && (
-                <span style={{ color: 'var(--color-success)', fontWeight: 700 }}>matches</span>
+      {/* M2.0g Fix 2 + M2.0h Fix 4: Land Reconciliation block.
+          Compares parcels total area, NDA, and value against the sum of
+          asset allocations + values. NDA reservation (M2.0h) is shown
+          as a separate line when any parcel has the toggle on. */}
+      {(() => {
+        const totalParcelsNda = parcels.reduce((s, p) => s + computeParcelNda(p).nda, 0);
+        const totalReservedRoadsParks = landReconciliation.parcelsTotalSqm - totalParcelsNda;
+        const anyNda = parcels.some((p) => p.hasNdaDeduction === true);
+        return (
+          <div
+            style={{
+              ...sectionCardStyle,
+              background: landReconciliation.matches
+                ? 'color-mix(in srgb, var(--color-success) 10%, transparent)'
+                : landReconciliation.overBy > 0
+                  ? 'color-mix(in srgb, var(--color-negative) 10%, transparent)'
+                  : 'color-mix(in srgb, var(--color-accent-warm) 10%, transparent)',
+              border: `1px solid ${landReconciliation.matches
+                ? 'var(--color-success)'
+                : landReconciliation.overBy > 0
+                  ? 'var(--color-negative)'
+                  : 'var(--color-accent-warm)'}`,
+            }}
+            data-testid="land-reconciliation"
+          >
+            <h3 style={{ fontSize: 'var(--font-h3)', margin: 0, marginBottom: 'var(--sp-2)' }}>Land Reconciliation</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 'var(--sp-2)', fontSize: 'var(--font-small)' }}>
+              <div>
+                <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total parcels area</div>
+                <div data-testid="land-reconciliation-parcels-sqm"><strong>{fmt(landReconciliation.parcelsTotalSqm)}</strong> sqm</div>
+              </div>
+              <div>
+                <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Allocated to assets</div>
+                <div data-testid="land-reconciliation-allocated-sqm"><strong>{fmt(landReconciliation.assetsAllocatedSqm)}</strong> sqm</div>
+              </div>
+              <div>
+                <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</div>
+                <div data-testid="land-reconciliation-status">
+                  {landReconciliation.matches && (
+                    <span style={{ color: 'var(--color-success)', fontWeight: 700 }}>matches</span>
+                  )}
+                  {landReconciliation.overBy > 0 && (
+                    <span style={{ color: 'var(--color-negative)', fontWeight: 700 }}>over by {fmt(landReconciliation.overBy)} sqm</span>
+                  )}
+                  {landReconciliation.shortBy > 0 && (
+                    <span style={{ color: 'var(--color-accent-warm)', fontWeight: 700 }}>short by {fmt(landReconciliation.shortBy)} sqm (some land unassigned)</span>
+                  )}
+                </div>
+              </div>
+              {anyNda && (
+                <>
+                  <div>
+                    <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total NDA</div>
+                    <div data-testid="land-reconciliation-total-nda"><strong>{fmt(totalParcelsNda)}</strong> sqm <span style={{ color: 'var(--color-meta)' }}>({fmt(totalReservedRoadsParks)} reserved for roads / parks)</span></div>
+                  </div>
+                  <div></div>
+                  <div></div>
+                </>
               )}
-              {landReconciliation.overBy > 0 && (
-                <span style={{ color: 'var(--color-negative)', fontWeight: 700 }}>over by {fmt(landReconciliation.overBy)} sqm</span>
-              )}
-              {landReconciliation.shortBy > 0 && (
-                <span style={{ color: 'var(--color-accent-warm)', fontWeight: 700 }}>short by {fmt(landReconciliation.shortBy)} sqm (some land unassigned)</span>
-              )}
+              <div>
+                <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total parcels value</div>
+                <div data-testid="land-reconciliation-parcels-value"><strong>{fmtCurrency(landReconciliation.parcelsTotalValue, project.currency, project.displayScale ?? 'full')}</strong></div>
+              </div>
+              <div>
+                <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Asset land cost</div>
+                <div data-testid="land-reconciliation-allocated-value"><strong>{fmtCurrency(landReconciliation.assetsAllocatedValue, project.currency, project.displayScale ?? 'full')}</strong></div>
+              </div>
+              <div></div>
             </div>
           </div>
-          <div>
-            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total parcels value</div>
-            <div data-testid="land-reconciliation-parcels-value"><strong>{fmtCurrency(landReconciliation.parcelsTotalValue, project.currency, project.displayScale ?? 'full')}</strong></div>
-          </div>
-          <div>
-            <div style={{ color: 'var(--color-meta)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Asset land cost</div>
-            <div data-testid="land-reconciliation-allocated-value"><strong>{fmtCurrency(landReconciliation.assetsAllocatedValue, project.currency, project.displayScale ?? 'full')}</strong></div>
-          </div>
-          <div></div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* Land Allocation Mode (unchanged) */}
       <div style={sectionCardStyle} data-testid="land-allocation-section">
@@ -551,6 +575,8 @@ interface ParcelRowProps {
 
 function ParcelRow({ parcel, onUpdate, onRemove, canRemove }: ParcelRowProps): React.JSX.Element {
   const total = parcel.area * parcel.rate;
+  const nda = computeParcelNda(parcel);
+  const ndaOn = parcel.hasNdaDeduction === true;
   return (
     <tr data-testid={`parcel-row-${parcel.id}`}>
       <td style={{ padding: 'var(--sp-1)' }}>
@@ -583,6 +609,38 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove }: ParcelRowProps): R
           }}
           style={inputStyle}
         />
+      </td>
+      <td style={{ padding: 'var(--sp-1)', textAlign: 'center' }}>
+        <input
+          type="checkbox"
+          checked={ndaOn}
+          data-testid={`parcel-${parcel.id}-hasNdaDeduction`}
+          onChange={(e) => onUpdate({ hasNdaDeduction: e.target.checked })}
+        />
+      </td>
+      <td style={{ padding: 'var(--sp-1)' }}>
+        <input
+          type="number" min={0} max={100} value={parcel.roadsPct ?? 0}
+          data-testid={`parcel-${parcel.id}-roadsPct`}
+          onChange={(e) => onUpdate({ roadsPct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
+          style={{ ...inputStyle, opacity: ndaOn ? 1 : 0.4 }}
+          disabled={!ndaOn}
+        />
+      </td>
+      <td style={{ padding: 'var(--sp-1)' }}>
+        <input
+          type="number" min={0} max={100} value={parcel.parksPct ?? 0}
+          data-testid={`parcel-${parcel.id}-parksPct`}
+          onChange={(e) => onUpdate({ parksPct: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
+          style={{ ...inputStyle, opacity: ndaOn ? 1 : 0.4 }}
+          disabled={!ndaOn}
+        />
+      </td>
+      <td style={{ padding: 'var(--sp-1)', color: 'var(--color-heading)' }} data-testid={`parcel-${parcel.id}-nda`}>
+        {fmt(nda.nda)}
+      </td>
+      <td style={{ padding: 'var(--sp-1)', color: 'var(--color-heading)' }} data-testid={`parcel-${parcel.id}-effectiveNdaRate`}>
+        {fmt(nda.effectiveNdaRate, 2)}
       </td>
       <td style={{ padding: 'var(--sp-1)', color: 'var(--color-heading)' }} data-testid={`parcel-${parcel.id}-total`}>{fmt(total)}</td>
       <td style={{ padding: 'var(--sp-1)', textAlign: 'right' }}>
