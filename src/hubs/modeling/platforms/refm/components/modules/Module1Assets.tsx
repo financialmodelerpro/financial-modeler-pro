@@ -69,6 +69,7 @@ import {
   validateLandAllocation,
 } from '@/src/core/calculations';
 import { currencyHeaderLine, formatArea, formatScaled, formatScaledCurrency } from '@/src/core/formatters';
+import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import InputLabel from '../ui/InputLabel';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
@@ -590,9 +591,22 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove, scale, decimals }: P
         <div style={{ fontSize: 10, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`parcel-${parcel.id}-area-fmt`}>{formatArea(parcel.area, decimals)} sqm</div>
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
-        <input type="number" min={0} value={parcel.rate} data-testid={`parcel-${parcel.id}-rate`} onChange={(e) => onUpdate({ rate: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
-        {/* M2.0j Fix 5: rate respects Display Scale + Decimals. */}
-        <div style={{ fontSize: 10, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`parcel-${parcel.id}-rate-fmt`}>{formatScaled(parcel.rate, scale, decimals)}</div>
+        {/* M2.0j Fix 7: accounting format on blur. Raw number on focus.
+            Rate is per sqm; usually small enough we keep scale='full'
+            so 500/sqm doesn't display as 0.50 K. */}
+        <AccountingNumberInput
+          value={parcel.rate}
+          onChange={(n) => onUpdate({ rate: Math.max(0, n) })}
+          scale="full"
+          decimals={decimals}
+          min={0}
+          style={inputStyle}
+          data-testid={`parcel-${parcel.id}-rate`}
+        />
+        {/* M2.0j Fix 5: rate respects Display Scale + Decimals (informational caption when scaled). */}
+        {scale !== 'full' && (
+          <div style={{ fontSize: 10, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`parcel-${parcel.id}-rate-fmt`}>{formatScaled(parcel.rate, scale, decimals)}</div>
+        )}
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
         <input
@@ -1388,7 +1402,16 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals }: SubUnit
         )}
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-        <input type="number" min={0} value={subUnit.unitPrice} data-testid={`subunit-${subUnit.id}-rate`} onChange={(e) => onUpdate({ unitPrice: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} />
+        {/* M2.0j Fix 7: accounting format on blur for the rate / price input. */}
+        <AccountingNumberInput
+          value={subUnit.unitPrice}
+          onChange={(n) => onUpdate({ unitPrice: Math.max(0, n) })}
+          scale="full"
+          decimals={decimals}
+          min={0}
+          style={{ ...inputStyle, fontSize: 11 }}
+          data-testid={`subunit-${subUnit.id}-rate`}
+        />
       </td>
       <td style={{ padding: '4px 6px', fontSize: 10, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-rate-unit`}>
         {rateUnit ? `${currency} ${rateUnit}` : ''}

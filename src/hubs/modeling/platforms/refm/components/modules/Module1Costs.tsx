@@ -66,9 +66,14 @@ import {
   deriveCostStage,
   distributeAnnualToPeriods,
   generatePeriodLabels,
+  costLineCaption,
+  costLineProjectPeriodIndex,
+  computeAssetCostSummaryFromBreakdown,
   type AssetCostBreakdown,
+  type AssetCostSummaryTotals,
 } from '@/src/core/calculations';
 import { currencyHeaderLine, formatScaled, formatScaledCurrency } from '@/src/core/formatters';
+import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -355,12 +360,17 @@ interface CostRowProps {
   // M2.0h Fix 5 (2026-05-07): sub-units for the per-sub-unit custom
   // rates sub-row (rendered when method = 'per_sub_unit_custom_rates').
   subUnits: SubUnit[];
+  // M2.0j Fix 8 (2026-05-07): asset's resolved area metrics for the
+  // inline formula caption beneath the value cell. Required so the
+  // caption can show "x 130,874 sqm BUA = 588,933,000 SAR".
+  metrics: import('@/src/core/calculations').AssetAreaMetrics;
 }
 
 function CostRow({
   asset, line, override, total, isLocked,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
+  metrics,
 }: CostRowProps): React.JSX.Element {
   // M2.0g Fix 6: Stage label still drives the row background + summary
   // tables, but the Direct/Indirect label is dropped (per-asset cost
@@ -497,9 +507,14 @@ function CostRow({
           style={inputStyle}
           data-testid={`cost-${asset.id}-${line.id}-name`}
         />
-        <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>
-          {COST_STAGE_LABELS[stage]}{isCustom ? ' · custom' : ''}
-        </div>
+        {/* M2.0j Fix 13 (2026-05-07): Stage label dropped from cost
+            line UI. Stage info still drives summary tables internally
+            (auto-derived via deriveCostStage); just not displayed in
+            Inputs anymore. The 'custom' marker stays so the user can
+            tell at a glance which lines are theirs vs. seed lines. */}
+        {isCustom && (
+          <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>custom</div>
+        )}
       </td>
       <td style={{ padding: '4px', minWidth: 160 }}>
         <select
@@ -519,14 +534,32 @@ function CostRow({
         </select>
       </td>
       <td style={{ padding: '4px', width: 96 }}>
-        <input
-          type="number"
+        {/* M2.0j Fix 7: accounting format on blur, raw on focus.
+            Percent-method values (% of selected, % of construction, etc.)
+            are NOT scaled to thousands/millions; they stay raw via
+            scale='full'. */}
+        <AccountingNumberInput
           value={effValue}
-          onChange={(e) => writeValue(parseFloat(e.target.value) || 0)}
+          onChange={writeValue}
+          scale={effMethod.startsWith('percent_') ? 'full' : scale}
+          decimals={decimals}
           disabled={isLocked}
           style={inputStyle}
           data-testid={`cost-${asset.id}-${line.id}-value`}
         />
+        {/* M2.0j Fix 8 (2026-05-07): inline formula caption showing the
+            multiplier value AND the result. Helps the user verify math
+            at a glance without leaving Tab 3. Hidden when value is 0
+            and result is 0 (no useful info). */}
+        {(effValue !== 0 || total !== 0) && (
+          <div
+            style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2, lineHeight: 1.3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+            data-testid={`cost-${asset.id}-${line.id}-caption`}
+            title={costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total })}
+          >
+            {costLineCaption({ line, override, asset, metrics, parkingBays: asset.parkingBaysRequired ?? 0, resolvedTotal: total })}
+          </div>
+        )}
       </td>
       <td style={{ padding: '4px', width: 70 }}>
         <input
@@ -764,6 +797,8 @@ interface AssetCostSectionProps {
   periodLabel: (idx: number) => string;
   constructionPeriods: number;
   subUnits: SubUnit[];
+  // M2.0j Fix 8: asset's resolved metrics for cost line caption rendering.
+  metrics: import('@/src/core/calculations').AssetAreaMetrics;
   onUpdateLine: (lineId: string, patch: Partial<CostLine>) => void;
   onUpdateOverride: (override: CostOverride) => void;
   onRemoveOverride: (assetId: string, lineId: string) => void;
@@ -773,6 +808,7 @@ interface AssetCostSectionProps {
 
 function AssetCostSection({
   asset, lines, costOverrides, breakdown, currency, scale, decimals, periodLabel, constructionPeriods, subUnits,
+  metrics,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   onAddCustom,
 }: AssetCostSectionProps): React.JSX.Element {
@@ -846,6 +882,7 @@ function AssetCostSection({
                     periodLabel={periodLabel}
                     constructionPeriods={constructionPeriods}
                     subUnits={subUnits}
+                    metrics={metrics}
                     onUpdateLine={(patch) => onUpdateLine(line.id, patch)}
                     onUpdateOverride={onUpdateOverride}
                     onRemoveOverride={() => onRemoveOverride(asset.id, line.id)}
@@ -1067,6 +1104,8 @@ function SummaryTables({
                   assetTotal += bd.total;
                   for (let i = 0; i < annualPeriodCount; i++) assetRowAnnual[i] += bd.perPeriod[i + 1] ?? 0;
                 }
+                // M2.0j Fix 12: hide zero-value asset rows from Results.
+                if (assetTotal === 0) return null;
                 const assetRow = transformAnnualSeries(assetRowAnnual);
                 // Per-line per-period: distribute each line's total
                 // across periods using the line's own phasing curve.
@@ -1123,139 +1162,13 @@ function SummaryTables({
         </div>
       </div>
 
-      {/* M2.0g Fix 7b + 7d: Table 2 - Capex by Stage (transposed:
-          Stage rows x Year cols). Total column in 2nd position. */}
-      <div style={sectionCardStyle} data-testid="capex-by-stage">
-        <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>2. Capex by Stage</strong>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={headLeftStyle}>Stage</th>
-                <th style={headStyle}>Total</th>
-                {periodLabels.map((p, i) => (<th key={i} style={headStyle}>{p}</th>))}
-              </tr>
-            </thead>
-            <tbody>
-              {(['land', 'hard', 'soft', 'operating'] as const).map((stageKey) => {
-                const row = stageTable.map((r) => r[stageKey]);
-                const total = stageTotals[stageKey];
-                return (
-                  <tr key={stageKey} data-testid={`capex-stage-row-${stageKey}`}>
-                    <td style={cellName}>{COST_STAGE_LABELS[stageKey]}</td>
-                    <td style={cellNum} data-testid={`capex-stage-row-${stageKey}-total`}>{fmt(total)}</td>
-                    {row.map((v, i) => (<td key={i} style={cellNum}>{fmt(v)}</td>))}
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
-                <td style={cellName}>Total</td>
-                <td style={cellNum} data-testid="capex-stage-grand-total">{fmt(stageTotals.total)}</td>
-                {stageTable.map((r, i) => (<td key={i} style={cellNum}>{fmt(r.total)}</td>))}
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>
-
-      {/* M2.0g Fix 7d: Table 3 - Capex Summary by Treatment (existing
-          M2.0d table). Total column moved to 2nd position. */}
-      <div style={sectionCardStyle} data-testid="capex-by-treatment">
-        <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>3. Capex Summary by Treatment</strong>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={headLeftStyle}>Asset</th>
-                <th style={headStyle}>Total Capex</th>
-                <th style={headStyle}>Strategy</th>
-                <th style={headStyle}>Land Cash</th>
-                <th style={headStyle}>Land In-Kind</th>
-                <th style={headStyle}>Hard</th>
-                <th style={headStyle}>Soft</th>
-                <th style={headStyle}>Operating</th>
-                <th style={headStyle}>Cash Flow Impact</th>
-              </tr>
-            </thead>
-            <tbody>
-              {treatmentTable.map((r) => (
-                <tr key={r.id} data-testid={`capex-treatment-${r.id}`}>
-                  <td style={cellName}>{r.name}</td>
-                  <td style={cellNum}>{fmt(r.total)}</td>
-                  <td style={cellNum}>{r.strategy}</td>
-                  <td style={cellNum}>{fmt(r.landCash)}</td>
-                  <td style={cellNum}>{fmt(r.landInKind)}</td>
-                  <td style={cellNum}>{fmt(r.hard)}</td>
-                  <td style={cellNum}>{fmt(r.soft)}</td>
-                  <td style={cellNum}>{fmt(r.operating)}</td>
-                  <td style={cellNum} data-testid={`capex-treatment-${r.id}-cash-flow`}>{fmt(r.cashOutflow)}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
-                <td style={cellName}>Project Total</td>
-                <td style={cellNum} data-testid="capex-treatment-total-capex">{fmt(treatTotals.total)}</td>
-                <td style={cellNum}></td>
-                <td style={cellNum} data-testid="capex-treatment-total-land-cash">{fmt(treatTotals.landCash)}</td>
-                <td style={cellNum} data-testid="capex-treatment-total-land-inkind">{fmt(treatTotals.landInKind)}</td>
-                <td style={cellNum}>{fmt(treatTotals.hard)}</td>
-                <td style={cellNum}>{fmt(treatTotals.soft)}</td>
-                <td style={cellNum}>{fmt(treatTotals.operating)}</td>
-                <td style={cellNum} data-testid="capex-treatment-total-cash-flow">{fmt(treatTotals.cashOutflow)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>
-
-      {/* M2.0g Fix 7e: Table 4 (NEW) - Capex by Cost Type per Asset.
-          Matrix view: Asset rows x [Land Cash, Land In-Kind, Hard,
-          Soft, Operating] cols + Total in 2nd col. */}
-      <div style={sectionCardStyle} data-testid="capex-by-cost-type">
-        <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>4. Capex by Cost Type per Asset</strong>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-            <thead>
-              <tr>
-                <th style={headLeftStyle}>Asset</th>
-                <th style={headStyle}>Total</th>
-                <th style={headStyle}>Land Cash</th>
-                <th style={headStyle}>Land In-Kind</th>
-                <th style={headStyle}>Hard Cost</th>
-                <th style={headStyle}>Soft Cost</th>
-                <th style={headStyle}>Operating</th>
-              </tr>
-            </thead>
-            <tbody>
-              {matrixRows.map((r) => (
-                <tr key={r.id} data-testid={`capex-cost-type-${r.id}`}>
-                  <td style={cellName}>{r.name}</td>
-                  <td style={cellNum}>{fmt(r.total)}</td>
-                  <td style={cellNum}>{fmt(r.landCash)}</td>
-                  <td style={cellNum}>{fmt(r.landInKind)}</td>
-                  <td style={cellNum}>{fmt(r.hard)}</td>
-                  <td style={cellNum}>{fmt(r.soft)}</td>
-                  <td style={cellNum}>{fmt(r.operating)}</td>
-                </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
-                <td style={cellName}>Project Total</td>
-                <td style={cellNum} data-testid="capex-cost-type-grand-total">{fmt(treatTotals.total)}</td>
-                <td style={cellNum}>{fmt(treatTotals.landCash)}</td>
-                <td style={cellNum}>{fmt(treatTotals.landInKind)}</td>
-                <td style={cellNum}>{fmt(treatTotals.hard)}</td>
-                <td style={cellNum}>{fmt(treatTotals.soft)}</td>
-                <td style={cellNum}>{fmt(treatTotals.operating)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>
+      {/* M2.0j Fix 14 + 15 (2026-05-07): Capex by Stage / Capex Summary by
+          Treatment / Capex by Cost Type per Asset tables removed from
+          Tab 3 Results. Stage classification still drives the calc
+          engine internals (auto-derived) but is not displayed as its
+          own summary table. Capex by Period above is the single
+          summary that remains. Asset Cost Summary cards live in the
+          Inputs sub-tab beneath the cost lines (Fix 16). */}
     </>
   );
 }
@@ -1350,12 +1263,14 @@ export default function Module1Costs(): React.JSX.Element {
 
   const projectTotal = stageTotals.land + stageTotals.hard + stageTotals.soft + stageTotals.operating;
 
-  // Per-asset metrics map (for treatment table)
+  // Per-asset metrics map (for treatment table + Fix 8 caption + Fix 16 cards).
+  // M2.0j: store the full AssetAreaMetrics shape so CostRow can render
+  // the inline formula caption (e.g. "x 130,874 sqm BUA = 588M SAR").
   const metricsByAsset = useMemo(() => {
-    const map = new Map<string, { cashLandValue: number; inKindLandValue: number; landValue: number }>();
+    const map = new Map<string, ReturnType<typeof resolveAssetAreaMetrics>>();
     for (const a of allVisibleAssets) {
       const m = resolveAssetAreaMetrics(a, project, parcels, allVisibleAssets, subUnits, landAllocationMode);
-      map.set(a.id, { cashLandValue: m.cashLandValue, inKindLandValue: m.inKindLandValue, landValue: m.landValue });
+      map.set(a.id, m);
     }
     return map;
   }, [allVisibleAssets, project, parcels, subUnits, landAllocationMode]);
@@ -1474,30 +1389,45 @@ export default function Module1Costs(): React.JSX.Element {
             return (
               <div key={pb.phaseId} data-testid={`costs-phase-${pb.phaseId}`}>
                 <div style={phaseHeaderStyle}>{pb.phaseName} · {pb.phaseAssets.length} asset{pb.phaseAssets.length === 1 ? '' : 's'}</div>
-                {pb.phaseAssets.map((a) => {
-                  const assetLines = linesForAsset(a, pb.phaseId);
-                  const breakdown = pb.assetTotals[a.id]!;
-                  return (
-                    <AssetCostSection
-                      key={a.id}
-                      asset={a}
-                      lines={assetLines}
-                      costOverrides={costOverrides}
-                      breakdown={breakdown}
-                      currency={project.currency}
-                      scale={scale}
-                      decimals={decimals}
-                      periodLabel={periodLabelFn}
-                      constructionPeriods={pb.cp}
-                      subUnits={subUnits}
-                      onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
-                      onUpdateOverride={setCostOverride}
-                      onRemoveOverride={removeCostOverride}
-                      onRemoveLine={removeCostLine}
-                      onAddCustom={() => handleAddCustom(a.id)}
-                    />
-                  );
-                })}
+                {(() => {
+                  // M2.0j Fix 10: cost line periods reference PHASE start
+                  // date, not project. periodLabelFn becomes phase-scoped
+                  // here so Y1 on Phase 2 (starts 2026) renders "Dec 2026"
+                  // not "Dec 2025".
+                  const phaseObj = phases.find((ph) => ph.id === pb.phaseId);
+                  const phaseStart = phaseObj?.startDate && phaseObj.startDate.length === 10
+                    ? phaseObj.startDate
+                    : project.startDate;
+                  const phaseScopedPeriodLabel = (idx: number): string =>
+                    getPeriodLabel(idx, phaseStart, project.modelType);
+                  return pb.phaseAssets.map((a) => {
+                    const assetLines = linesForAsset(a, pb.phaseId);
+                    const breakdown = pb.assetTotals[a.id]!;
+                    const assetMetrics = metricsByAsset.get(a.id);
+                    if (!assetMetrics) return null;
+                    return (
+                      <AssetCostSection
+                        key={a.id}
+                        asset={a}
+                        lines={assetLines}
+                        costOverrides={costOverrides}
+                        breakdown={breakdown}
+                        currency={project.currency}
+                        scale={scale}
+                        decimals={decimals}
+                        periodLabel={phaseScopedPeriodLabel}
+                        constructionPeriods={pb.cp}
+                        subUnits={subUnits}
+                        metrics={assetMetrics}
+                        onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
+                        onUpdateOverride={setCostOverride}
+                        onRemoveOverride={removeCostOverride}
+                        onRemoveLine={removeCostLine}
+                        onAddCustom={() => handleAddCustom(a.id)}
+                      />
+                    );
+                  });
+                })()}
               </div>
             );
           })}

@@ -1702,6 +1702,132 @@ export function computeOperationalRunRate(
   return { period: safePeriod, revenue, opex };
 }
 
+// ── M2.0j Fix 8: Cost line caption ────────────────────────────────────────
+// Returns a human-readable formula caption describing how a cost line's
+// total resolves for a given asset. Renders inline below the value
+// input so the user can verify "× 130,874 sqm BUA = 588,933,000 SAR"
+// at a glance without leaving Tab 3.
+export interface CostLineCaptionInput {
+  line: CostLine;
+  override?: { method?: CostMethod; value?: number };
+  asset: Asset;
+  metrics: AssetAreaMetrics;
+  parkingBays: number;
+  resolvedTotal: number;       // already-computed asset's contribution to this line
+  // Optional, for percent_of_selected and per_sub_unit_custom_rates only.
+  selectedTotal?: number;
+  perSubUnitRows?: number;
+}
+
+export function costLineCaption(input: CostLineCaptionInput): string {
+  const { line, override, asset, metrics, parkingBays, resolvedTotal, selectedTotal, perSubUnitRows } = input;
+  const method = override?.method ?? line.method;
+  const value = override?.value ?? line.value;
+  const fmt = (n: number, d = 0): string => Number.isFinite(n) ? n.toLocaleString('en-US', { maximumFractionDigits: d }) : '0';
+  const fmtArea = (n: number): string => fmt(n, 0);
+  const fmtMoney = (n: number): string => fmt(n, 0);
+  const eq = `= ${fmtMoney(resolvedTotal)}`;
+  switch (method) {
+    case 'fixed':
+      return `Fixed = ${fmtMoney(resolvedTotal)}`;
+    case 'rate_per_land':
+      return `${fmt(value, 2)} x ${fmtArea(metrics.landSqm)} sqm Land ${eq}`;
+    case 'rate_per_nda':
+      return `${fmt(value, 2)} x ${fmtArea(metrics.ndaSqm)} sqm NDA ${eq}`;
+    case 'rate_per_roads':
+      return `${fmt(value, 2)} x ${fmtArea(metrics.roadsSqm)} sqm Roads ${eq}`;
+    case 'rate_per_gfa':
+      return `${fmt(value, 2)} x ${fmtArea(metrics.gfa)} sqm GFA ${eq}`;
+    case 'rate_per_bua':
+      return `${fmt(value, 2)} x ${fmtArea(metrics.bua)} sqm BUA ${eq}`;
+    case 'rate_per_nsa':
+      return `${fmt(value, 2)} x ${fmtArea(metrics.nsa)} sqm NSA ${eq}`;
+    case 'rate_per_unit':
+      return `${fmt(value, 2)} x ${fmt(metrics.unitCount)} units ${eq}`;
+    case 'rate_per_parking_bay':
+      return `${fmt(value, 2)} x ${fmt(parkingBays)} parking bays ${eq}`;
+    case 'rate_x_support_area':
+      return `${fmt(value, 2)} x ${fmtArea(asset.supportArea ?? 0)} sqm Support ${eq}`;
+    case 'rate_x_parking_area':
+      return `${fmt(value, 2)} x ${fmtArea(asset.parkingArea ?? 0)} sqm Parking ${eq}`;
+    case 'rate_x_specific_subunit':
+      return `Rate x specific sub-unit ${eq}`;
+    case 'per_sub_unit_custom_rates':
+      return `Sum of ${perSubUnitRows ?? 0} sub-unit rows ${eq}`;
+    case 'percent_of_selected':
+      return `${fmt(value, 2)}% x ${fmtMoney(selectedTotal ?? 0)} (selected lines) ${eq}`;
+    case 'percent_of_construction':
+      return `${fmt(value, 2)}% x construction subtotal ${eq}`;
+    case 'percent_of_total_land':
+      return `${fmt(value, 2)}% x ${fmtMoney(metrics.landValue)} (land value) ${eq}`;
+    case 'percent_of_cash_land':
+      return `${fmt(value, 2)}% x ${fmtMoney(metrics.cashLandValue)} (cash land) ${eq}`;
+    case 'percent_of_inkind_land':
+      return `${fmt(value, 2)}% x ${fmtMoney(metrics.inKindLandValue)} (in-kind land) ${eq}`;
+    default:
+      return `${fmtMoney(resolvedTotal)}`;
+  }
+}
+
+// ── M2.0j Fix 10: Period date alignment to phase start ────────────────────
+// Cost lines on a phase have Start/End periods relative to the PHASE
+// start date, not the project start date. This helper returns the
+// end-of-period date for a given period index measured from the phase's
+// start, used to render the small caption under Start / End cells.
+export function costLinePeriodEndDate(
+  phase: Phase,
+  project: Project,
+  periodIndex: number,
+): string {
+  const phaseStart = phase.startDate && phase.startDate.length === 10
+    ? phase.startDate
+    : project.startDate;
+  return periodEndDate(phaseStart, Math.max(0, periodIndex), project.modelType);
+}
+
+// For project-wide tables (Capex by Period), each cost line on a phase
+// must allocate to the project period that maps to (phaseStartYear -
+// projectStartYear) + lineLocalPeriod. Returns -1 when the date math
+// fails (caller should treat as "drop this allocation").
+export function costLineProjectPeriodIndex(
+  project: Project,
+  phase: Phase,
+  lineLocalPeriod: number,
+): number {
+  const phaseStart = phase.startDate && phase.startDate.length === 10
+    ? phase.startDate
+    : project.startDate;
+  const ps = new Date(phaseStart);
+  const pp = new Date(project.startDate);
+  if (Number.isNaN(ps.getTime()) || Number.isNaN(pp.getTime())) return Math.max(0, lineLocalPeriod);
+  const offset = ps.getUTCFullYear() - pp.getUTCFullYear();
+  return offset + Math.max(0, lineLocalPeriod);
+}
+
+// ── M2.0j Fix 16: Asset cost summary cards ────────────────────────────────
+// Three totals shown beneath the cost lines for the active asset on
+// Tab 3 Inputs. Sums across cost stage classification:
+//   exclLand          = construction + soft + operating (anything stage != 'land')
+//   exclLandInKind    = exclLand + cash-land portion
+//   inclLandInKind    = exclLandInKind + in-kind-land portion (= total basis)
+export interface AssetCostSummaryTotals {
+  exclLand: number;
+  exclLandInKind: number;
+  inclLandInKind: number;
+}
+
+export function computeAssetCostSummaryFromBreakdown(
+  byStage: Record<CostStage, number>,
+  cashLandValue: number,
+  inKindLandValue: number,
+): AssetCostSummaryTotals {
+  const nonLand = (byStage.hard ?? 0) + (byStage.soft ?? 0) + (byStage.operating ?? 0);
+  const exclLand = nonLand;
+  const exclLandInKind = exclLand + Math.max(0, cashLandValue);
+  const inclLandInKind = exclLandInKind + Math.max(0, inKindLandValue);
+  return { exclLand, exclLandInKind, inclLandInKind };
+}
+
 // Generate N period labels starting from a project start date, at the
 // chosen granularity. Used by Module1Costs Results sub-tab + Module1-
 // Financing schedules to render column headers.
