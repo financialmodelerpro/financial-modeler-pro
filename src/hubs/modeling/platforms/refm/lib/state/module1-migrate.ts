@@ -177,6 +177,20 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   return migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot));
 };
 
+// M2.0h Fix 1 (2026-05-07): v7 -> v8 migration detector. Returns true
+// when stripWrapper would actually transform the input (i.e. source
+// modelType was 'monthly' OR outputGranularity was missing). The
+// hydration path uses this to emit a one-time banner so the user knows
+// their project was upgraded in place.
+function snapshotNeedsV8Migration(s: NewV7Snapshot): boolean {
+  if (!s || typeof s !== 'object') return false;
+  const project = (s as { project?: { modelType?: string; outputGranularity?: string } }).project;
+  if (!project) return false;
+  if (project.modelType === 'monthly') return true;
+  if (!project.outputGranularity) return true;
+  return false;
+}
+
 // M2.0g v8 (Addendum 3): v7 -> v8 migration. When the source
 // project.modelType === 'monthly', aggregate phase periods 12 -> 1
 // (rounded UP so partial years still count) and switch modelType to
@@ -246,20 +260,28 @@ export interface CheckedHydration {
   snapshot: HydrateSnapshot;
   recognized: boolean;
   error?: string;
+  // M2.0h Fix 1 (2026-05-07): set when the source snapshot was v7 and
+  // got upgraded to v8 in flight. UI surfaces this once as a banner so
+  // the user knows their project was upgraded in place.
+  migrationNotice?: string;
 }
+
+export const M20H_MIGRATION_NOTICE =
+  "Project upgraded from monthly inputs to annual inputs (M2.0g architecture). Display Scale defaulted to Full Numbers; set in Tab 1 Project Identity if you want thousands or millions view.";
 
 export function hydrationFromAnySnapshotChecked(snapshot: unknown): CheckedHydration {
   if (isV8Snapshot(snapshot)) {
     return { snapshot: stripV8Wrapper(snapshot), recognized: true };
   }
   if (isV7Snapshot(snapshot)) {
-    return { snapshot: stripWrapper(snapshot), recognized: true };
+    const notice = snapshotNeedsV8Migration(snapshot) ? M20H_MIGRATION_NOTICE : undefined;
+    return { snapshot: stripWrapper(snapshot), recognized: true, migrationNotice: notice };
   }
   if (isPreV7Snapshot(snapshot)) {
     return {
       snapshot: { ...DEFAULT_MODULE1_STATE },
       recognized: false,
-      error: 'Schema migrated to v8. Please recreate this project.',
+      error: 'Project schema older than v8. Please contact support to migrate manually.',
     };
   }
   if (typeof console !== 'undefined') {

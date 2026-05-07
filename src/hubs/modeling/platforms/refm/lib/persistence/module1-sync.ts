@@ -37,7 +37,7 @@
  */
 
 import { useModule1Store, type HydrateSnapshot, DEFAULT_MODULE1_STATE } from '../state/module1-store';
-import { hydrationFromAnySnapshot } from '../state/module1-migrate';
+import { hydrationFromAnySnapshot, hydrationFromAnySnapshotChecked } from '../state/module1-migrate';
 import {
   loadProject,
   loadVersion,
@@ -87,6 +87,10 @@ function computeAssetMix(snapshot: HydrateSnapshot): string[] {
 export interface AttachResult {
   loaded:   'server' | 'cache' | 'none';
   error:    string | null;
+  // M2.0h Fix 1 (2026-05-07): set when a v7 -> v8 migration ran during
+  // this attach. UI surfaces it once as a banner; the next save persists
+  // the v8 snapshot so the banner doesn't reappear.
+  migrationNotice?: string;
 }
 
 export async function attachToProject(projectId: string): Promise<AttachResult> {
@@ -99,24 +103,28 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
 
   let loaded: AttachResult['loaded'] = 'none';
   let error:  string | null          = null;
+  let migrationNotice: string | undefined;
 
   // Try server first.
   const serverRes = await loadProject(projectId);
   if (serverRes.data?.version) {
-    const snap = hydrationFromAnySnapshot(serverRes.data.version.snapshot);
-    useModule1Store.getState().hydrate(snap);
-    writeCachedSnapshot(projectId, snap);
-    lastSavedJson = JSON.stringify(snap);
+    const checked = hydrationFromAnySnapshotChecked(serverRes.data.version.snapshot);
+    useModule1Store.getState().hydrate(checked.snapshot);
+    writeCachedSnapshot(projectId, checked.snapshot);
+    lastSavedJson = JSON.stringify(checked.snapshot);
     loaded = 'server';
+    migrationNotice = checked.migrationNotice;
+    if (checked.error) error = checked.error;
   } else {
     // Server miss / network error, fall back to cache.
     error = serverRes.error;
     const cached = readCachedSnapshot(projectId);
     if (cached) {
-      const snap = hydrationFromAnySnapshot(cached.snapshot);
-      useModule1Store.getState().hydrate(snap);
-      lastSavedJson = JSON.stringify(snap);
+      const checked = hydrationFromAnySnapshotChecked(cached.snapshot);
+      useModule1Store.getState().hydrate(checked.snapshot);
+      lastSavedJson = JSON.stringify(checked.snapshot);
       loaded = 'cache';
+      migrationNotice = checked.migrationNotice;
     }
     // If cache also empty: leave the store on whatever it had
     // (likely DEFAULT_MODULE1_STATE). The UI surfaces the error so
@@ -129,7 +137,14 @@ export async function attachToProject(projectId: string): Promise<AttachResult> 
   unsubscribe = useModule1Store.subscribe(scheduleAutoSave);
   isLoading = false;
 
-  return { loaded, error };
+  // M2.0h: when a migration ran, kick a save immediately so the v8
+  // snapshot lands on the server (idempotent; further opens won't
+  // re-emit the banner because the saved snapshot is already v8).
+  if (migrationNotice) {
+    void runAutoSave();
+  }
+
+  return { loaded, error, migrationNotice };
 }
 
 /**

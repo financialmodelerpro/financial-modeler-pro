@@ -203,6 +203,9 @@ export default function RealEstatePlatform(): React.JSX.Element {
   // Save state
   const [hasUnsaved, setHasUnsaved] = useState(false);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  // M2.0h Fix 1 (2026-05-07): one-shot banner shown after a v7 -> v8
+  // migration. Cleared by the user via the dismiss button.
+  const [migrationNotice, setMigrationNotice] = useState<string | null>(null);
 
   // Modal state
   const [projectModalOpen, setProjectModalOpen] = useState(false);
@@ -235,6 +238,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
         setActiveProjectId(cached);
         const attach = await attachSyncToProject(cached);
         if (attach.error) setLoadError(attach.error);
+        if (attach.migrationNotice) setMigrationNotice(attach.migrationNotice);
       }
     })();
     return () => {
@@ -264,6 +268,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
     setHasUnsaved(false);
     const res = await attachSyncToProject(projectId);
     if (res.error) setLoadError(res.error);
+    if (res.migrationNotice) setMigrationNotice(res.migrationNotice);
   }, []);
 
   const handleCreateFromWizard = useCallback(
@@ -535,6 +540,33 @@ export default function RealEstatePlatform(): React.JSX.Element {
                 type="button"
                 onClick={() => setLoadError(null)}
                 style={{ marginLeft: 8, background: 'transparent', border: 'none', cursor: 'pointer' }}
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+          {migrationNotice && (
+            <div
+              role="status"
+              data-testid="m20h-migration-banner"
+              style={{
+                background: 'color-mix(in srgb, var(--color-success) 12%, transparent)',
+                border: '1px solid var(--color-success)',
+                borderRadius: 'var(--radius-sm)',
+                padding: 'var(--sp-2)',
+                marginBottom: 'var(--sp-2)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                gap: 'var(--sp-2)',
+              }}
+            >
+              <span style={{ fontSize: 'var(--font-small)' }}>{migrationNotice}</span>
+              <button
+                type="button"
+                onClick={() => setMigrationNotice(null)}
+                data-testid="m20h-migration-banner-dismiss"
+                style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '4px 10px', cursor: 'pointer', fontSize: 11 }}
               >
                 Dismiss
               </button>
