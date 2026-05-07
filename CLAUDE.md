@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-07 (Phase P-Sync: Platform & Module Admin Sync, three-way source of truth between admin dashboard, REFM workspace sidebar, and public marketing site)**
+**Last updated: 2026-05-07 (Phase M2.0j: Module 1 audit + display fixes - 16 fixes across construction-years zero, asset type optional, scale/decimals propagation, sub-unit bidirectional sync, accounting blur, cost line caption, phasing simplification, phase-aware period dates, granularity remount, Results table cleanup, per-asset selector + 3 summary cards)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -235,7 +235,8 @@ npx tsx scripts/verify-m20f.ts                  # M2.0f structural fixes (61 pas
 npx tsx scripts/verify-m20g.ts                  # M2.0g display + reconciliation + Costs restructure (68 pass / 0 fail / 2 skip without dev server)
 npx tsx scripts/verify-m20h.ts                  # M2.0h area hierarchy + NDA + per-sub-unit + granularity + currency cleanup + migration banner (62 pass / 0 fail / 2 skip without dev server)
 npx tsx scripts/verify-m20i.ts                  # M2.0i final polish: drop modelType input + Display Settings (Scale + Decimals) + Parking Bays drop + units/area metric + strategy short labels + sticky sidebar + compact reconciliation + operational phase baseline (59 pass / 0 fail / 2 skip without dev server)
-npx tsx scripts/verify-psync.ts                 # P-Sync platform/module admin sync: SQL migration + 4 API routes + 9 lib helpers + admin 2-level UI + sidebar dynamic fetch + 3 marketing pages (70 pass / 0 fail / 3 skip without dev server) <- canonical green
+npx tsx scripts/verify-psync.ts                 # P-Sync platform/module admin sync: SQL migration + 4 API routes + 9 lib helpers + admin 2-level UI + sidebar dynamic fetch + 3 marketing pages (70 pass / 0 fail / 3 skip without dev server)
+npx tsx scripts/verify-m20j.ts                  # M2.0j Module 1 audit + display: 16 fixes (cp=0, type optional, header, scale+decimals propagation, sub-unit sync, accounting blur, caption, phasing simplification, period dates, granularity remount, hide zero rows, drop stage label, drop 3 summary tables, per-asset selector + 3 summary cards) (60 pass / 0 fail / 2 skip without dev server) <- canonical green
 
 # Playwright e2e specs (M2.0 v5/v6/v7 contract)
 npx playwright test tests/e2e/m20-full-flow.spec.ts        # 2 specs: 3-step wizard create + 4-tab landing + 8 light/dark tab screenshots
@@ -248,6 +249,7 @@ npx playwright test tests/e2e/m20g-display-recon-costs.spec.ts # 5 specs: Wizard
 npx playwright test tests/e2e/m20h-area-hierarchy-cost-granularity.spec.ts # 6 specs: currency header line (Fix 2) + NSA/BUA/GFA hierarchy chips (Fix 3) + parcel NDA toggle (Fix 4) + per-sub-unit custom rates sub-row (Fix 5) + Tab 3 Results granularity toggle (Fix 6) + dark-mode screenshot
 npx playwright test tests/e2e/m20i-final-polish.spec.ts # 7 specs: no Model Granularity input (Fix 1) + Display Settings panel (Fix 3) + no Parking Bays input (Fix 5) + sub-unit Units/Area labels (Fix 6) + Strategy short labels (Fix 7) + reconciliation compact summary (Fix 9) + operational phase historical baseline (Fix 10) + dark-mode
 npx playwright test tests/e2e/psync-flow.spec.ts # 4 specs: /modeling-hub overview + per-platform modules grid + per-module hero/features/cta + /api/platforms/refm/modules JSON shape
+npx playwright test tests/e2e/m20j-costs-audit.spec.ts # 8 specs: cp=0 (Fix 1) + currency/sqm header (Fix 3) + scale propagation (Fix 5) + sub-unit bidirectional sync (Fix 6) + Even+Manual options only (Fix 9) + caption + no stage label (Fix 8+13) + single Results table (Fix 14+15) + asset selector + summary cards (Fix 16) + dark-mode
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -378,7 +380,176 @@ public marketing page set. 7 commits:
   Service role bypasses for admin writes. No write policies needed
   for anon role.
 
-### Module 1 status (2026-05-07, **M2.0i Module 1 final polish, module locked before M2.1 Revenue**)
+### Module 1 status (2026-05-07, **M2.0j Module 1 audit + display fixes, 16 fixes shipped after M2.0i**)
+
+**M2.0j (current, ships):** 16 audit + display + structural fixes after
+Ahmad eyeballed M2.0i. Delivered across 6 commits. Schema stays at v8;
+phasing value-set narrows but read-side accepts legacy values via
+migrateM20jPhasing.
+
+- **/1 (Fix 1, Construction Years = 0)**: `Phase.constructionPeriods`
+  accepts 0 (operational-from-start phases). Wizard step2Valid +
+  Tab 1 input + ProjectWizard input + buildWizardSnapshot all allow
+  0; min flipped from 1 to 0.  `computePhaseTimeline` returns
+  `operationsStart === phase.startDate` when cp=0 (no addOneDay or
+  overlap math, since there's no construction window to overlap).
+  Tab 1 displays "Operational from start" instead of a misleading
+  construction end date when cp=0.
+
+  **Fix 9, Phasing simplified to Even + Manual %**: User-pickable
+  values reduced from 6 to 2. New `COST_PHASING_OPTIONS` export
+  ['even','manual']; legacy values ('frontloaded' / 'backloaded' /
+  'sCurve' / 'phase_aligned') still accepted on read but folded to
+  'even' on save via `migrateM20jPhasing` (idempotent migration step
+  in stripWrapper / stripV8Wrapper). Calc engine `distribute()`
+  unchanged for read-side compat. UI dropdown shows only Even +
+  Manual %; existing snapshots with legacy values continue to load
+  and display via `PHASING_LABELS` mapping.
+
+- **/2 (Fix 2 + 3 + 4 + 5 partial)**:
+  * **Fix 2, Asset Type optional + editable**: `Asset.type` defaults
+    to '' on add (no longer pre-fills 'High-end Apartments').
+    `resolveTypeCatalog` returns the UNION of all per-category
+    catalogs for Mixed-Use / Custom (so Mixed-Use users see every
+    asset type from every sector). InputLabel now reads "Type
+    (optional)" + placeholder "e.g. Tower, Branded Apartments,
+    Hotel...". Catalog stays a `<datalist>` for autocomplete; user
+    can free-text any value.
+  * **Fix 3, Land Parcel rate column header**: Header now reads
+    `{currency}/sqm` (e.g. "SAR/sqm"). Tooltip on the header explains
+    the rate model. Effective NDA Rate column similarly reads
+    `{currency}/NDA sqm`.
+  * **Fix 4, Display Scale export comment**: Documentation comment
+    in formatter explaining the UI vs. export differences. New
+    `formatScaledForExport` helper (no K/M suffix; preserves scale
+    division + decimals). Reserved for the future Export module.
+  * **Fix 5 partial, Display Scale + Decimals on Land Parcel**:
+    `formatPercent` default decimals flipped from 1 to 2 (percentages
+    always render with 2 decimals regardless of project setting).
+    New `formatArea(num, decimals)` helper (no scale conversion +
+    thousand separators + project decimals). Land Parcel ParcelRow
+    threads `scale + decimals` props; rate / NDA / total cells use
+    `formatScaled` / `formatArea` instead of the local `fmt` helper.
+    Parcels totals row reformats live when user changes display
+    settings.
+
+- **/3 (Fix 6, Sub-unit area/units bidirectional sync)**: `metric=Area`
+  -> Area input editable (= metricValue), Count derives. `metric=Units`
+  -> BOTH Count AND Area editable; Count edit -> metricValue=count;
+  Area edit -> metricValue=area/unitArea (recalcs count). Inline
+  warning "Unit Size required" surfaces under the Unit Size cell when
+  metric=Units AND unitArea=0. Switch behaviour preserves underlying
+  area sqm (no accidental multiplication).
+
+- **/4 (Fixes 7 + 8 + 10 + 12 + 13 + 14+15)**:
+  * **Fix 7, accounting format on blur**: New
+    `AccountingNumberInput` primitive (`components/ui/`). Renders
+    raw `<input type="number">` on focus + accounting-formatted text
+    on blur. Wired into cost line Value, parcel rate, sub-unit
+    unitPrice. Percent-method values stay scale='full' (raw 0..100).
+  * **Fix 8, cost line caption**: New `costLineCaption` helper in
+    `@core/calculations` returns "Rate × BUA Total -> 4,500 ×
+    130,874 sqm BUA = 588,933,000 SAR" caption per method. Cost row
+    renders inline below the value cell. Threads asset metrics
+    through `metricsByAsset` map -> AssetCostSection -> CostRow.
+    Different per method: rate_per_land/nda/roads/gfa/bua/nsa,
+    rate_per_unit, rate_per_parking_bay, rate_x_support_area,
+    rate_x_parking_area, rate_x_specific_subunit, percent_of_*,
+    fixed, per_sub_unit_custom_rates.
+  * **Fix 10, period dates align to phase start**: New
+    `costLinePeriodEndDate` + `costLineProjectPeriodIndex` helpers.
+    Tab 3 cost row periodLabel now phase-scoped (uses
+    phase.startDate when set). Phase 2 (start 2026-01-01) Y1 now
+    displays "Dec 26", not "Dec 25".
+  * **Fix 12, hide zero-value rows in Results**: Capex by Period
+    filters out asset rows with assetTotal=0; per-line filter
+    already existed at the cost-line level.
+  * **Fix 13, drop stage labels under cost line names**: Stage
+    label ("Land · custom") removed from cost line UI. Only
+    'custom' marker stays for custom lines. Stage stays internal
+    (still drives calc engine via deriveCostStage).
+  * **Fix 14 + 15, drop 3 summary tables**: Capex by Stage / Capex
+    Summary by Treatment / Capex by Cost Type per Asset all removed
+    from Tab 3 Results. Capex by Period is the single remaining
+    summary table.
+
+- **/5 (Fixes 11 + 16)**:
+  * **Fix 11, Capex by Period audit + granularity remount**:
+    Capex by Period rows offset perPeriod[] by `(phaseStartYear -
+    projectStartYear)` so Phase 2 (start 2026) Y1 lands in project
+    column "Dec 26", not "Dec 25". perPeriod[0] (upfront) lands at
+    `offset - 1`. SummaryTables receives `phases` prop +
+    `key={`summary-${granularity}`}` to force a clean remount on
+    Annual / Quarterly / Monthly toggle.
+  * **Fix 16, per-asset cost structure**: New asset selector bar
+    at top of Tab 3 Inputs with "All Assets" + per-asset buttons.
+    Selecting one asset filters per-phase sections to that asset
+    only (and updates summary cards accordingly). 3 summary cards
+    beneath cost lines: Excl. Land / Excl. Land In-Kind / Incl.
+    Land In-Kind. Computed via
+    `computeAssetCostSummaryFromBreakdown(byStage, cashLandValue,
+    inKindLandValue)`. Aggregates across all visible assets when
+    "All Assets" picked; single asset otherwise.
+
+- **/6 (verifier + Playwright)**: `scripts/verify-m20j.ts` (60 pass /
+  0 fail / 2 skip without dev server). 5 sections covering schema,
+  baseline diff, calc helpers (caption per method + offset + summary
+  + percent + area + export), 49 source-file markers + em-dash
+  sweep across 10 files, Playwright presence + run gate.
+  `tests/e2e/m20j-costs-audit.spec.ts` (8 specs + dark-mode):
+  cp=0 (Fix 1), currency/sqm header (Fix 3), scale propagation
+  (Fix 5), sub-unit bidirectional sync (Fix 6), Even+Manual options
+  only (Fix 9), caption + no stage label (Fix 8+13), single Results
+  table (Fix 14+15), asset selector + summary cards (Fix 16).
+
+**M2.0j pattern decisions for downstream phases:**
+- **Construction Years = 0 is canonical for operational phases.**
+  M5 Statements + M3 Cashflow must read computePhaseTimeline +
+  recognise `cp=0` as "operational from phase.startDate" (no
+  construction window). Asset.status='operational' on assets in
+  cp=0 phases gets historical baseline treatment (M2.0i Fix 10).
+- **Asset.type is optional from M2.0j forward.** Module 2.1 Revenue
+  + downstream calc must handle `asset.type === ''` as "unspecified"
+  rather than throwing. Useful Life default falls back to category
+  (DEFAULT_USEFUL_LIFE_YEARS) when type is blank.
+- **AccountingNumberInput is the canonical money-input primitive.**
+  All future numeric inputs (revenue cohort prices, OpEx values,
+  financing tranche amounts) use this primitive so the user gets
+  consistent on-blur formatting across every tab.
+- **Cost line caption pattern.** Module 2.1 Revenue rate inputs
+  (sale price, ADR, rent rate) follow the same pattern: an inline
+  caption under the value cell showing `× metric = result`. Add a
+  parallel `revenueLineCaption` helper when wiring Module 2.
+- **Phasing is Even + Manual %.** Two options across all schedules
+  (capex, revenue, opex, financing). Read-side accepts legacy values
+  for v8 snapshots from M2.0g and earlier. Future schedule editors
+  (revenue cohort phasing, financing drawdown phasing) follow the
+  same 2-option dropdown.
+- **Period dates align to PHASE start.** Cost line / revenue / opex
+  / financing schedules all measure from `phase.startDate`. Project-
+  wide rollup tables (Capex by Period equivalent for revenue +
+  opex) offset by `(phaseStartYear - projectStartYear)` to correctly
+  place phase Y1 in project Y2 / Y3.
+- **Granularity toggle re-mounts via key.** When adding new toggles
+  (e.g. M2.1 revenue view granularity, M5 financial statements
+  view), use `key={`summary-${granularity}`}` to force a clean
+  re-render and avoid stale state.
+- **Hide zero rows in Results.** Future revenue / opex / financing
+  Results tables follow the same convention: filter out rows with
+  total=0 from display, keep them in Inputs so user can edit. Saves
+  vertical space + clarity.
+- **Per-asset selector + 3 summary cards is the canonical Inputs
+  layout.** Module 2.1 Revenue Tab follows the same structure: asset
+  selector bar + per-asset section + 3 summary cards (gross revenue
+  / net of management fee / cohort cash collection or similar).
+- **Display Scale + Decimals propagate everywhere via
+  makeProjectFormatter or threaded scale + decimals props.**
+  Percentages always 2 decimals via formatPercent default.
+  Areas (sqm) use formatArea (no scale conversion). Currency cells
+  use formatScaled (scale + decimals). New surfaces follow the
+  same convention.
+
+### Module 1 status (2026-05-07, **M2.0i Module 1 final polish, foundation for M2.0j**)
 
 **M2.0i (current, ships):** Final Module 1 polish closing the 10 issues
 Ahmad raised after M2.0h. Module 1 reads cleanly to a first-time
