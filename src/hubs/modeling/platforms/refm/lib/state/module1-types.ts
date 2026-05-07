@@ -143,9 +143,16 @@ export const SUB_UNIT_CATEGORIES: readonly SubUnitCategory[] = [
 ] as const;
 
 // ── Sub-unit metric semantics ──────────────────────────────────────────────
-// 'count' -> integer inventory units (apartments, hotel keys, parking bays)
-// 'area'  -> sqm of leasable / sellable area (retail GLA, office GLA)
-export type SubUnitMetric = 'count' | 'area';
+// 'units' -> integer inventory units (apartments, hotel keys, leasable bays).
+//            User enters count + unitSize; area derives = count × unitSize.
+// 'area'  -> sqm of leasable / sellable area (retail GLA, office GLA).
+//            User enters total area; count derives if unitSize present.
+//
+// M2.0i Fix 6 (2026-05-07): renamed 'count' to 'units' so the dropdown
+// label and the storage value match. Migration: legacy snapshots with
+// metric='count' coerce to 'units' on hydrate (see module1-migrate
+// migrateM20iCountToUnits).
+export type SubUnitMetric = 'units' | 'area';
 
 // ── Land allocation mode ───────────────────────────────────────────────────
 // How parcel land is split across assets:

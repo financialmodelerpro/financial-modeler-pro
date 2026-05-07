@@ -104,8 +104,16 @@ export function computeLandAggregate(parcels: Parcel[], phaseId?: string): LandA
 }
 
 // ── Sub-unit area ──────────────────────────────────────────────────────────
+// M2.0i Fix 6 (2026-05-07): metric 'units' replaces legacy 'count'.
+// When metric='units': metricValue is the integer count, unitArea is
+// the per-unit floor area, and computed area = count × unitSize.
+// When metric='area': metricValue is the total sqm directly. Legacy
+// snapshots with metric='count' continue to compute via the same
+// formula (the rename only affects the type name + UI label).
 export function computeSubUnitArea(u: SubUnit): number {
-  if (u.metric === 'count') {
+  // Defensive: treat legacy 'count' the same as 'units'.
+  const isUnitMode = u.metric === 'units' || (u.metric as unknown as string) === 'count';
+  if (isUnitMode) {
     return Math.max(0, u.metricValue) * Math.max(0, u.unitArea ?? 0);
   }
   return Math.max(0, u.metricValue);
@@ -133,11 +141,12 @@ export function computeAssetSellableBua(asset: Asset, subUnits: SubUnit[]): numb
   return phaseSubUnits.reduce((s, u) => s + computeSubUnitArea(u), 0);
 }
 
-// Sum of Sellable / Operable / Leasable units where metric === 'count'.
-// Used by the rate_per_unit cost method.
+// Sum of Sellable / Operable / Leasable units where metric === 'units'.
+// Used by the rate_per_unit cost method. M2.0i Fix 6 (2026-05-07):
+// 'units' is the canonical name; legacy 'count' still resolves.
 export function computeAssetUnitCount(asset: Asset, subUnits: SubUnit[]): number {
   return subUnits
-    .filter((u) => u.assetId === asset.id && u.metric === 'count' && u.category !== 'Support')
+    .filter((u) => u.assetId === asset.id && (u.metric === 'units' || (u.metric as unknown as string) === 'count') && u.category !== 'Support')
     .reduce((s, u) => s + Math.max(0, u.metricValue), 0);
 }
 

@@ -94,10 +94,10 @@ snapshot.assets = [
   },
 ];
 snapshot.subUnits = [
-  { id: 'subunit_1', assetId: 'asset_1', name: '2BR', category: 'Sellable', metric: 'count', metricValue: 120, unitArea: 110, unitPrice: 1500000 },
-  { id: 'subunit_2', assetId: 'asset_2', name: 'Hotel Key', category: 'Operable', metric: 'count', metricValue: 220, unitArea: 45, unitPrice: 850, occupancyPct: 65, operatingMargin: 35 },
+  { id: 'subunit_1', assetId: 'asset_1', name: '2BR', category: 'Sellable', metric: 'units', metricValue: 120, unitArea: 110, unitPrice: 1500000 },
+  { id: 'subunit_2', assetId: 'asset_2', name: 'Hotel Key', category: 'Operable', metric: 'units', metricValue: 220, unitArea: 45, unitPrice: 850, occupancyPct: 65, operatingMargin: 35 },
   { id: 'subunit_3', assetId: 'asset_3', name: 'GLA', category: 'Leasable', metric: 'area', metricValue: 5500, unitPrice: 1200, occupancyPct: 92, operatingMargin: 80 },
-  { id: 'subunit_4', assetId: 'asset_4', name: 'Penthouse', category: 'Sellable', metric: 'count', metricValue: 20, unitArea: 220, unitPrice: 5000000 },
+  { id: 'subunit_4', assetId: 'asset_4', name: 'Penthouse', category: 'Sellable', metric: 'units', metricValue: 20, unitArea: 220, unitPrice: 5000000 },
 ];
 
 // ── Derived ───────────────────────────────────────────────────────────────

@@ -193,9 +193,9 @@ function statusBadgeStyle(status: AssetStatus): React.CSSProperties {
 // is now an asset-level field, no longer a sub-unit category.
 function rateUnitLabel(category: SubUnitCategory, metric: SubUnitMetric): string {
   if (category === 'Support') return '';
-  if (category === 'Sellable') return metric === 'count' ? 'per unit' : 'per sqm';
-  if (category === 'Operable') return metric === 'count' ? 'per room/night' : 'per sqm/year';
-  if (category === 'Leasable') return metric === 'count' ? 'per unit/year' : 'per sqm/year';
+  if (category === 'Sellable') return metric === 'units' ? 'per unit' : 'per sqm';
+  if (category === 'Operable') return metric === 'units' ? 'per room/night' : 'per sqm/year';
+  if (category === 'Leasable') return metric === 'units' ? 'per unit/year' : 'per sqm/year';
   return '';
 }
 
@@ -873,7 +873,7 @@ function AssetCard({
       assetId: asset.id,
       name: 'Sub-unit',
       category,
-      metric: asset.strategy === 'Lease' ? 'area' : 'count',
+      metric: asset.strategy === 'Lease' ? 'area' : 'units',
       metricValue: asset.strategy === 'Lease' ? 1000 : 50,
       unitArea: asset.strategy === 'Lease' ? undefined : 100,
       unitPrice: asset.strategy === 'Sell' ? 1000000 : asset.strategy === 'Operate' ? 800 : 1200,
@@ -1347,9 +1347,34 @@ interface SubUnitRowProps {
   onRemove: () => void;
 }
 
+// M2.0i Fix 6 (2026-05-07): metric switch preserves the area sqm.
+// metric='units' -> metricValue is count; area = count × unitArea.
+// metric='area'  -> metricValue is total sqm; count derives = area / unitArea.
+// On switch we re-normalize metricValue so the displayed area stays the
+// same (no accidental multiplication when toggling).
+function switchMetric(
+  subUnit: SubUnit,
+  next: SubUnitMetric,
+): { metric: SubUnitMetric; metricValue: number } {
+  const prev = (subUnit.metric === 'units' || (subUnit.metric as unknown as string) === 'count') ? 'units' : 'area';
+  const unitArea = Math.max(0, subUnit.unitArea ?? 0);
+  const currentArea = prev === 'units' ? subUnit.metricValue * unitArea : subUnit.metricValue;
+  if (next === 'units') {
+    const newCount = unitArea > 0 ? currentArea / unitArea : (prev === 'units' ? subUnit.metricValue : 0);
+    return { metric: 'units', metricValue: newCount };
+  }
+  return { metric: 'area', metricValue: currentArea };
+}
+
 function SubUnitRow({ subUnit, currency, onUpdate, onRemove }: SubUnitRowProps): React.JSX.Element {
-  const totalArea = computeSubUnitArea(subUnit);
-  const isCount = subUnit.metric === 'count';
+  // M2.0i Fix 6: derived semantics. Treat legacy 'count' as 'units'.
+  const isUnits = subUnit.metric === 'units' || (subUnit.metric as unknown as string) === 'count';
+  const unitArea = Math.max(0, subUnit.unitArea ?? 0);
+  // Resolved area + count for the row's display cells.
+  const totalArea = isUnits ? subUnit.metricValue * unitArea : subUnit.metricValue;
+  const count = isUnits
+    ? subUnit.metricValue
+    : (unitArea > 0 ? subUnit.metricValue / unitArea : 0);
   const rateUnit = rateUnitLabel(subUnit.category, subUnit.metric);
   return (
     <tr data-testid={`subunit-row-${subUnit.id}`}>
@@ -1362,26 +1387,31 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove }: SubUnitRowProps):
         </select>
       </td>
       <td style={{ padding: '4px 6px' }}>
-        <select value={subUnit.metric} data-testid={`subunit-${subUnit.id}-metric`} onChange={(e) => onUpdate({ metric: e.target.value as SubUnitMetric })} style={{ ...inputStyle, fontSize: 11 }}>
-          <option value="count">count</option>
-          <option value="area">area</option>
+        <select
+          value={isUnits ? 'units' : 'area'}
+          data-testid={`subunit-${subUnit.id}-metric`}
+          onChange={(e) => onUpdate(switchMetric(subUnit, e.target.value as SubUnitMetric))}
+          style={{ ...inputStyle, fontSize: 11 }}
+        >
+          <option value="units">Units</option>
+          <option value="area">Area</option>
         </select>
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-        {isCount ? (
+        {isUnits ? (
           <span style={{ ...calcOutputStyle, fontSize: 11 }} data-testid={`subunit-${subUnit.id}-area-derived`}>{fmt(totalArea)}</span>
         ) : (
           <input type="number" min={0} value={subUnit.metricValue} data-testid={`subunit-${subUnit.id}-area-input`} onChange={(e) => onUpdate({ metricValue: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} />
         )}
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-        <input type="number" min={0} value={subUnit.unitArea ?? 0} data-testid={`subunit-${subUnit.id}-unitArea`} onChange={(e) => onUpdate({ unitArea: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} disabled={!isCount} />
+        <input type="number" min={0} value={subUnit.unitArea ?? 0} data-testid={`subunit-${subUnit.id}-unitArea`} onChange={(e) => onUpdate({ unitArea: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} />
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-        {isCount ? (
+        {isUnits ? (
           <input type="number" min={0} value={subUnit.metricValue} data-testid={`subunit-${subUnit.id}-count`} onChange={(e) => onUpdate({ metricValue: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} />
         ) : (
-          <span style={{ ...calcOutputStyle, fontSize: 11 }}>n/a</span>
+          <span style={{ ...calcOutputStyle, fontSize: 11 }} data-testid={`subunit-${subUnit.id}-count-derived`}>{unitArea > 0 ? fmt(count) : '—'}</span>
         )}
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>

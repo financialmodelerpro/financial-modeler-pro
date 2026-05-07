@@ -131,8 +131,8 @@ snapshot.assets = [
   },
 ];
 snapshot.subUnits = [
-  { id: 'subunit_1', assetId: 'asset_1', name: '2BR', category: 'Sellable', metric: 'count', metricValue: 100, unitArea: 120, unitPrice: 1500000 },
-  { id: 'subunit_2', assetId: 'asset_2', name: 'Hotel Key', category: 'Operable', metric: 'count', metricValue: 200, unitArea: 50, unitPrice: 800, occupancyPct: 65, operatingMargin: 35 },
+  { id: 'subunit_1', assetId: 'asset_1', name: '2BR', category: 'Sellable', metric: 'units', metricValue: 100, unitArea: 120, unitPrice: 1500000 },
+  { id: 'subunit_2', assetId: 'asset_2', name: 'Hotel Key', category: 'Operable', metric: 'units', metricValue: 200, unitArea: 50, unitPrice: 800, occupancyPct: 65, operatingMargin: 35 },
 ];
 
 const aBua = computeAssetBua(snapshot.assets[0], snapshot.subUnits);
