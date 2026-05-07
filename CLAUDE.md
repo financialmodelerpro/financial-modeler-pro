@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-06 (M2.0g Module 1 display + reconciliation + Costs restructure on v8 schema)**
+**Last updated: 2026-05-07 (M2.0h Module 1 area hierarchy + cost granularity + display cleanup + v8 migration banner)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -232,7 +232,8 @@ npx tsx scripts/verify-m20c.ts                  # M2.0c full Dev Costs + Financi
 npx tsx scripts/verify-m20d.ts                  # M2.0d Costs polish + v7 (71 pass / 0 fail / 2 skip without dev server)
 npx tsx scripts/verify-m20e.ts                  # M2.0e wizard + Tab 2 (58 pass / 0 fail / 2 skip without dev server)
 npx tsx scripts/verify-m20f.ts                  # M2.0f structural fixes (61 pass / 0 fail / 2 skip without dev server)
-npx tsx scripts/verify-m20g.ts                  # M2.0g display + reconciliation + Costs restructure (68 pass / 0 fail / 2 skip without dev server) <- canonical green
+npx tsx scripts/verify-m20g.ts                  # M2.0g display + reconciliation + Costs restructure (68 pass / 0 fail / 2 skip without dev server)
+npx tsx scripts/verify-m20h.ts                  # M2.0h area hierarchy + NDA + per-sub-unit + granularity + currency cleanup + migration banner (62 pass / 0 fail / 2 skip without dev server) <- canonical green
 
 # Playwright e2e specs (M2.0 v5/v6/v7 contract)
 npx playwright test tests/e2e/m20-full-flow.spec.ts        # 2 specs: 3-step wizard create + 4-tab landing + 8 light/dark tab screenshots
@@ -242,6 +243,7 @@ npx playwright test tests/e2e/m20d-costs-polish.spec.ts    # 7 specs: layout (no
 npx playwright test tests/e2e/m20e-wizard-tab2.spec.ts     # 6 specs: wizard Step 2 unit suffix + Phase Start Date column + Step 3 simplified + Tab 2 phase grouping + asset Phase/Status dropdowns + sub-unit Rate Unit column + light/dark screenshots
 npx playwright test tests/e2e/m20f-structural-fixes.spec.ts # 4 specs: shell page header visibility (Fix 1) + wizard 14 project types (Fix 3) + Tab 1 date columns (Fix 4 + 5) + Tab 2 parcel dropdown + Parking sub-unit + derived BUA (Fix 2 + 6)
 npx playwright test tests/e2e/m20g-display-recon-costs.spec.ts # 5 specs: Wizard Display Scale + Reporting Granularity (Fix 3 + Addendum 3) + Costs sub-tabs + 4 summary tables (Fix 7) + land reconciliation block (Fix 2) + asset Support/Parking + BUA reconciliation (Fix 4 + 5) + Manual % phasing (Addendum 1)
+npx playwright test tests/e2e/m20h-area-hierarchy-cost-granularity.spec.ts # 6 specs: currency header line (Fix 2) + NSA/BUA/GFA hierarchy chips (Fix 3) + parcel NDA toggle (Fix 4) + per-sub-unit custom rates sub-row (Fix 5) + Tab 3 Results granularity toggle (Fix 6) + dark-mode screenshot
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -259,7 +261,172 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 **Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
 (`npx playwright install chromium`).
 
-### Module 1 status (2026-05-06, **M2.0g Module 1 display + reconciliation + Costs restructure**)
+### Module 1 status (2026-05-07, **M2.0h Module 1 area hierarchy + cost granularity + display cleanup + migration banner**)
+
+**M2.0h (current, ships):** Closes the 6 structural / display issues
+Ahmad raised after eyeballing M2.0g: existing v7 projects need a
+migration trigger + banner; currency suffix on every cell is noisy;
+area model needs proper NSA / BUA / GFA hierarchy; NDA optional toggle
+at parcel level for jurisdictions reserving roads / parks; construction
+cost rate needs flexibility to per-sub-unit; runtime view granularity
+toggle on Tab 3 Results was deferred from M2.0g and ships now. Schema
+stays at v8 (additive Parcel.hasNdaDeduction / roadsPct / parksPct,
+CostMethod.per_sub_unit_custom_rates, CostLine.perSubUnitRates fields
+do not bump the version). 8 commits:
+
+- **/1 (schema + calc engine)**: Parcel gains `hasNdaDeduction?:
+  boolean`, `roadsPct?: number`, `parksPct?: number` (all optional,
+  default OFF). CostMethod adds `'per_sub_unit_custom_rates'` (17
+  methods total). CostLine + CostOverride gain `perSubUnitRates?:
+  Record<string, number>` keyed on sub-unit id with reserved keys
+  `'__support__'` / `'__parking__'` for asset-level Support and
+  Parking rows. Five new pure helpers in @core/calculations:
+  `computeAssetAreaHierarchy(asset, subUnits)` returns { nsa, bua,
+  gfa, breakdown } where NSA = sum of revenue sub-units (Sellable +
+  Operable + Leasable), BUA = NSA + Support (sub-unit Support +
+  asset.supportArea), GFA = BUA + Parking (asset.parkingArea);
+  `computeParcelNda(parcel)` returns { area, roadsArea, parksArea,
+  nda, totalCost, effectiveNdaRate } with NDA = area when toggle
+  off, area × (1 - roads% - parks%) when on; `computeCostLine-
+  PerSubUnit(line, asset, subUnits)` returns the per-row breakdown
+  for the new method (sub-units + asset-level Support + asset-level
+  Parking, default rate fallback to line.value); `distributeAnnual-
+  ToPeriods(annual[], granularity, phasing)` distributes the v8
+  annual input series into quarterly (4×) or monthly (12×) sub-
+  periods using the line's phasing curve; `formatPeriodLabel(iso,
+  granularity)` returns 'Dec 25' / 'Q1 25' / 'Mar 25' depending on
+  granularity. `resolveAssetAreaMetrics` rewires its `bua` / `gfa` /
+  `nsa` outputs to consume the new hierarchy (M2.0g convention had
+  BUA include Parking; M2.0h moves Parking to GFA-only).
+- **/2 (Tab 2 area hierarchy UI)**: Module1Assets asset card areas
+  row drops the M2.0g "Asset BUA Total" hand-typed input (BUA
+  derives now). New shape: 4 inputs (Support / Parking / Parking
+  Bays / GFA override) followed by 3 chips (NSA / BUA / GFA)
+  showing the resolved hierarchy values + the formulas. Asset card
+  Reconciliation block rewritten to itemize sub-units (with
+  category) leading into NSA, then sub-unit Support + asset Support
+  leading into BUA, then asset Parking leading into GFA, then a
+  Land allocation footer. Project-wide Globals card grows from 5 to
+  3+5 columns: NSA / BUA / GFA prominently in row 1, Sellable /
+  Operable / Leasable / Support / Parking in row 2.
+- **/3 (Tab 2 parcel NDA)**: Module1Assets Land Parcels block
+  expands from 6 to 11 columns: Name / Area / Rate / Cash% /
+  In-Kind% / NDA? toggle / Roads% / Parks% / NDA / Effective NDA
+  Rate / Total Value / Remove. Roads% + Parks% inputs disabled when
+  toggle is OFF. NDA + Effective NDA Rate columns derive via
+  `computeParcelNda`. Land Reconciliation block at top of Tab 2
+  conditionally adds a "Total NDA" line (with reserved sqm
+  callout) when any parcel has the toggle on.
+- **/4 (Tab 3 per-sub-unit + granularity)**: Module1Costs cost
+  row method dropdown gains "Per sub-unit custom rates"; selecting
+  it on a row reveals a sub-row spanning all 8 columns with a
+  per-row table (sub-unit / area / rate input / total) that
+  prefills from line.value as default rate. Tab 3 Results sub-tab
+  grows a runtime granularity toggle (Annual / Quarterly /
+  Monthly) at the top; switching distributes the annual capex
+  series via `distributeAnnualToPeriods` and rerenders all 4
+  summary tables at the new column count using `generatePeriod-
+  Labels` ('Dec 25' / 'Q1 25' / 'Mar 25'). Toggle persists via
+  `project.outputGranularity`.
+- **/5 (currency display cleanup)**: New formatter helper
+  `currencyHeaderLine(currency, scale)` returns "All figures in
+  SAR" / "All figures in SAR '000" / "All figures in SAR M".
+  Module1ProjectPhases / Module1Assets / Module1Costs /
+  Module1Financing / Dashboard / OverviewScreen all render the
+  header line at top with `data-testid="currency-header-line"` (or
+  page-specific testid). In-cell currency suffixes removed:
+  Module1Assets `fmtCurrency` aliased to `formatScaled` (no
+  currency code); Module1Costs cost-row total subscript dropped,
+  stage tile + project total + asset subtotal switch to
+  `formatScaled`; Module1Financing summary tile + tranche schedule
+  swap `formatCurrency` for `formatNumber`. Currency code
+  retained only where it provides unit context (e.g. parcel rate
+  "/sqm" tooltip).
+- **/6 (v7 -> v8 migration banner)**: module1-migrate.ts gains
+  `M20H_MIGRATION_NOTICE` constant + `snapshotNeedsV8Migration`
+  fingerprint. `CheckedHydration.migrationNotice` returned when
+  the source v7 snapshot was monthly OR missing `outputGranularity`.
+  `attachToProject` in module1-sync.ts plumbs the notice into the
+  result (`AttachResult.migrationNotice`) and kicks an immediate
+  save when migration ran (so the v8 shape lands on the server
+  after first open and the banner won't reappear). Real-
+  EstatePlatform shows a dismissable success banner with
+  `data-testid="m20h-migration-banner"` once per project open.
+- **/7 (verifier)**: scripts/verify-m20h.ts (62 pass / 0 fail / 2
+  skip without authenticated dev server). 5 sections: schema
+  (per_sub_unit_custom_rates method, parcel NDA roundtrip,
+  perSubUnitRates roundtrip, M20H_MIGRATION_NOTICE export,
+  currencyHeaderLine outputs); routes + baseline (47.8 KB sha
+  22923b5275a7 unchanged, fixture doesn't exercise NDA / per-sub-
+  unit / parking so bit-identical); calc (MAAD-shape NSA 84,297 /
+  BUA 130,874 / GFA 157,133, NDA toggle on/off effective rate
+  inflation, per-sub-unit MAAD example sums to 860,672,400 SAR,
+  granularity transform sums preserved across S-curve, label
+  formats, v7 monthly migration emits banner notice, v7-annual
+  emits no notice); 35 source-file markers across 12 surface
+  files + em-dash sweep clean; Playwright spec presence + run
+  gate.
+- **/8 (Playwright)**: tests/e2e/m20h-area-hierarchy-cost-
+  granularity.spec.ts (6 specs): currency header line (Fix 2) +
+  NSA/BUA/GFA hierarchy chips with no buaTotal input (Fix 3) +
+  parcel NDA toggle reveals roads/parks/effective rate (Fix 4) +
+  cost line per-sub-unit method expands sub-table (Fix 5) +
+  Results granularity toggle re-renders summary tables (Fix 6) +
+  dark-mode screenshot. Light/dark screenshots into
+  tests/screenshots/M2.0h/. M2.0g verifier marker for the asset
+  reconciliation testid loosened from `bua-reconciliation` to
+  `area-reconciliation` per the standing verifier-loosening
+  precedent.
+
+**M2.0h pattern decisions for downstream phases:**
+- **Three-tier area hierarchy is the canonical convention from v8
+  forward.** NSA ⊂ BUA ⊂ GFA where NSA = revenue sub-units, BUA =
+  NSA + Support, GFA = BUA + Parking. Module 2.1 Revenue must
+  consume `computeAssetAreaHierarchy` for any per-area revenue
+  driver (rent per sqm, sale price per sqm) and never re-derive
+  from Asset.buaSqm directly. Cost methods rate_per_bua /
+  rate_per_nsa / rate_per_gfa target the corresponding tier.
+- **Parcel NDA is parcel-level, not project-level.** Each parcel
+  carries its own toggle + roads / parks split. Project-wide
+  `project.projectRoadsPct` stays for legacy v7 snapshots but new
+  projects should drive NDA at the parcel level. Land allocation
+  references NDA (not gross area); full parcel cost still flows
+  to assets at an inflated effective NDA rate.
+- **Per-sub-unit custom cost rates is the canonical pattern for
+  granular cost differentiation.** When a project has assets with
+  mixed luxury / affordable sub-units OR distinctly priced
+  Support / Parking, the user picks "Per sub-unit custom rates"
+  on the construction cost line and edits a rate per sub-unit
+  row. Total resolves via sum of (area × rate) across rows. M2.1
+  Revenue can adopt the same pattern for sale price / rent rates
+  by introducing a parallel `RevenueLine.perSubUnitRates` field.
+- **Runtime view granularity is project-wide and persists on the
+  project.** `project.outputGranularity` is the single source of
+  truth; the toggle on Tab 3 Results writes to the project so
+  Tab 4 Financing schedules + future Module 5 Statements
+  consume the same setting. Inputs always entered annually;
+  display layer distributes via `distributeAnnualToPeriods`.
+- **Currency code lives in the per-tab header line.** Cells
+  render pure numbers via `formatScaled` (no currency suffix).
+  Tooltips, axis labels, and rate-per-unit displays keep the
+  currency code where it provides unit context. Header line
+  format: `All figures in {currency}` / `... {currency} '000` /
+  `... {currency} M` per project.displayScale.
+- **Migration banner pattern.** When a schema version bump
+  triggers in-place transformation, the migration helper exposes
+  a one-shot notice via `CheckedHydration.migrationNotice`; the
+  persistence layer plumbs it into `AttachResult` and the shell
+  surfaces it as a dismissable banner with explicit testid. The
+  banner is idempotent (saves the migrated payload, so subsequent
+  opens see no notice).
+- **Schema stays at v8.** M2.0h adds optional fields to existing
+  shapes (Parcel NDA, CostLine.perSubUnitRates) without bumping
+  SCHEMA_VERSION. v8 snapshots that pre-date M2.0h continue to
+  load and save without forced migration; the new fields default
+  off / undefined. Future minor M2.0x additions follow the same
+  policy.
+
+### Module 1 status (2026-05-06, **M2.0g Module 1 display + reconciliation + Costs restructure, foundation for M2.0h**)
 
 **M2.0g (current, ships):** Closes the 7 display + reconciliation +
 Cost-tab issues Ahmad eyeballed in M2.0f, plus 3 addendum items
