@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-07 (M2.0h Module 1 area hierarchy + cost granularity + display cleanup + v8 migration banner)**
+**Last updated: 2026-05-07 (M2.0i Module 1 final polish: drop modelType input, Display Settings panel, sticky sidebar, compact reconciliation, operational phase baseline)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -233,7 +233,8 @@ npx tsx scripts/verify-m20d.ts                  # M2.0d Costs polish + v7 (71 pa
 npx tsx scripts/verify-m20e.ts                  # M2.0e wizard + Tab 2 (58 pass / 0 fail / 2 skip without dev server)
 npx tsx scripts/verify-m20f.ts                  # M2.0f structural fixes (61 pass / 0 fail / 2 skip without dev server)
 npx tsx scripts/verify-m20g.ts                  # M2.0g display + reconciliation + Costs restructure (68 pass / 0 fail / 2 skip without dev server)
-npx tsx scripts/verify-m20h.ts                  # M2.0h area hierarchy + NDA + per-sub-unit + granularity + currency cleanup + migration banner (62 pass / 0 fail / 2 skip without dev server) <- canonical green
+npx tsx scripts/verify-m20h.ts                  # M2.0h area hierarchy + NDA + per-sub-unit + granularity + currency cleanup + migration banner (62 pass / 0 fail / 2 skip without dev server)
+npx tsx scripts/verify-m20i.ts                  # M2.0i final polish: drop modelType input + Display Settings (Scale + Decimals) + Parking Bays drop + units/area metric + strategy short labels + sticky sidebar + compact reconciliation + operational phase baseline (59 pass / 0 fail / 2 skip without dev server) <- canonical green
 
 # Playwright e2e specs (M2.0 v5/v6/v7 contract)
 npx playwright test tests/e2e/m20-full-flow.spec.ts        # 2 specs: 3-step wizard create + 4-tab landing + 8 light/dark tab screenshots
@@ -244,6 +245,7 @@ npx playwright test tests/e2e/m20e-wizard-tab2.spec.ts     # 6 specs: wizard Ste
 npx playwright test tests/e2e/m20f-structural-fixes.spec.ts # 4 specs: shell page header visibility (Fix 1) + wizard 14 project types (Fix 3) + Tab 1 date columns (Fix 4 + 5) + Tab 2 parcel dropdown + Parking sub-unit + derived BUA (Fix 2 + 6)
 npx playwright test tests/e2e/m20g-display-recon-costs.spec.ts # 5 specs: Wizard Display Scale + Reporting Granularity (Fix 3 + Addendum 3) + Costs sub-tabs + 4 summary tables (Fix 7) + land reconciliation block (Fix 2) + asset Support/Parking + BUA reconciliation (Fix 4 + 5) + Manual % phasing (Addendum 1)
 npx playwright test tests/e2e/m20h-area-hierarchy-cost-granularity.spec.ts # 6 specs: currency header line (Fix 2) + NSA/BUA/GFA hierarchy chips (Fix 3) + parcel NDA toggle (Fix 4) + per-sub-unit custom rates sub-row (Fix 5) + Tab 3 Results granularity toggle (Fix 6) + dark-mode screenshot
+npx playwright test tests/e2e/m20i-final-polish.spec.ts # 7 specs: no Model Granularity input (Fix 1) + Display Settings panel (Fix 3) + no Parking Bays input (Fix 5) + sub-unit Units/Area labels (Fix 6) + Strategy short labels (Fix 7) + reconciliation compact summary (Fix 9) + operational phase historical baseline (Fix 10) + dark-mode
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -261,7 +263,159 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 **Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
 (`npx playwright install chromium`).
 
-### Module 1 status (2026-05-07, **M2.0h Module 1 area hierarchy + cost granularity + display cleanup + migration banner**)
+### Module 1 status (2026-05-07, **M2.0i Module 1 final polish, module locked before M2.1 Revenue**)
+
+**M2.0i (current, ships):** Final Module 1 polish closing the 10 issues
+Ahmad raised after M2.0h. Module 1 reads cleanly to a first-time
+financial modeler: all inputs annual, all outputs flexible-granularity
+with proper distribution, all formatting correct, operational phases
+handled properly. Schema stays at v8 (additive Project.displayDecimals,
+Phase.status / historicalBaseline, Asset.historicalBaseline; rename
+SubUnitMetric 'count' -> 'units' is type-only, runtime accepts both).
+8 commits:
+
+- **/1 (Fix 1, drop Model Granularity input)**: Tab 1 Project Identity
+  card removes the Model Granularity dropdown. Tab 3 + Tab 4 captions
+  drop the "Granularity: monthly/annual" subline (replaced with
+  "inputs entered annually"). Wizard already shipped Reporting
+  Granularity (output) in M2.0g; no input-side change needed there.
+  modelType stays on schema for legacy compat but is no longer
+  user-facing.
+- **/2 (Fix 3, Display Settings panel)**: New `DisplayDecimals` enum
+  (0/1/2/3) on Project. Tab 1 grows a Display Settings card above
+  Project Identity with Scale (Full/Thousands/Millions) + Decimals
+  radios. `formatScaled(num, scale, decimals)` already accepted
+  `decimals`; M2.0i threads it through every render path. New
+  helper `makeProjectFormatter(prefs)` returns a one-arg formatter
+  pulling both. Threaded through CostRow, AssetCostSection,
+  SummaryTables, TrancheCard, Module1Assets fmtCurrency, Dashboard
+  fmtMoney, OverviewScreen fmtMoney. Header line at top of every
+  tab + dashboard + overview reflects the chosen scale/decimals
+  immediately.
+- **/3 (Fix 5, drop Parking Bays)**: Asset card areas row collapses
+  from 4 to 3 columns (Support / Parking / GFA Override).
+  `Asset.parkingBaysRequired` stays on schema for legacy compat.
+  CostMethod dropdown filters out `'rate_per_parking_bay'` so new
+  lines cannot select it; existing snapshots still compute. Per
+  the spec: parking-bay-driven revenue (e.g. fee per bay/year)
+  models as a Leasable sub-unit going forward.
+- **/4 (Fix 7 + Fix 8)**:
+    - Fix 7 (strategy short labels): `STRATEGY_LABELS` shrinks
+      from full sentences to single-word labels ('Sell' / 'Operate'
+      / 'Lease' / 'Sell + Manage'). New `STRATEGY_TOOLTIPS` map
+      provides the longform explanation as a hover title attribute
+      on each `<option>` and on the `<select>` itself.
+    - Fix 8 (sticky sidebar): RealEstatePlatform outer wrapper
+      switches from `minHeight: 100vh` to `height: 100vh; overflow:
+      hidden`. Combined with the existing `.app-shell { overflow:
+      hidden }` and `<main overflow: auto>`, only the workspace
+      content scrolls; sidebar stays visible during long Tab 3
+      summary tables.
+- **/5 (Fix 6, sub-unit metric area/units)**: Type rename
+  `SubUnitMetric` from `'count' | 'area'` to `'units' | 'area'`.
+  Calc engine (`computeSubUnitArea`, `computeAssetUnitCount`)
+  treats legacy `'count'` as `'units'` on read so v8 snapshots
+  written before M2.0i continue to compute. Module1Assets
+  `SubUnitRow` rewrites: dropdown labels are now "Units" and
+  "Area"; new `switchMetric` helper preserves the underlying
+  area sqm when toggling (478 units × 100 sqm/unit = 47,800 sqm
+  switches to area=47,800 sqm; switching back gives count=478).
+  When metric=Area, count derives = area / unitSize and renders
+  read-only (with '-' fallback when unitSize is 0). Unit Size
+  input is always editable (so derivation works in both modes).
+  Wizard / Tab 2 default sub-unit creation switches from
+  `metric: 'count'` to `metric: 'units'`.
+- **/6 (Fix 9, compact reconciliation)**: New `LandReconciliation-
+  Block` and `AssetAreaReconciliationBlock` components in
+  Module1Assets. Collapsed default state: single summary line
+  with status icon (✓/✗/⚠) + headline ("Land: 16,348 sqm
+  allocated, 1.6B SAR (matches parcels)" / "Tower 01 BUA: 130,874
+  sqm (NSA 84,297 + Support 46,577)"). Click to expand reveals
+  the full itemized grid (M2.0h shape, unchanged content). Auto-
+  expands on mismatch. localStorage persistence: keys
+  'm20i-land-recon-collapsed' and 'm20i-asset-recon-collapsed'
+  carry the user's preference across sessions.
+- **/7 (Fix 10, operational phase historical baseline)**: New
+  `PhaseStatus` type (`planning / construction / operational`)
+  and `PhaseHistoricalBaseline` interface (sunk capex, equity,
+  debt drawn, current outstanding, cumulative depreciation, NBV
+  fixed assets, last-12-months revenue + opex, optional
+  occupancy / ADR / rent rate). Both `Phase` and `Asset` gain
+  optional `historicalBaseline` field. Tab 1 phases table grows
+  a Status column; selecting Operational reveals a 9-column
+  Historical Baseline form spanning the row. Calc engine adds
+  `computePhaseHistorical(phase)` returning opening balances
+  (cash, equity, debt, fixed-assets NBV, accumulated depreciation)
+  and `computeOperationalRunRate(baseline, period, revGrowth%,
+  opexGrowth%)` rolling forward the trailing-12-month revenue +
+  opex with compound growth (defaults 3% / 2%). M5 Statements
+  will consume both.
+- **/8 (verifier + Playwright)**: `scripts/verify-m20i.ts`
+  (59 pass / 0 fail / 2 skip without authenticated dev server).
+  5 sections: schema (DisplayDecimals roundtrip, PhaseStatus
+  enum, baselines roundtrip, units/count fallback); routes +
+  baseline (47.8 KB sha 372768f7ed83 post-rename refresh);
+  calc (distributeAnnualToPeriods sum integrity Even / sCurve /
+  manual fallback, formatScaled scale × decimals matrix,
+  computePhaseHistorical, computeOperationalRunRate growth);
+  35 source-file markers + em-dash sweep clean; Playwright
+  spec presence + run gate. `tests/e2e/m20i-final-polish.spec.ts`
+  (7 specs + dark-mode): no Model Granularity input (Fix 1),
+  Display Settings panel + scale/decimals radios switch
+  formatting (Fix 3), no Parking Bays input (Fix 5), sub-unit
+  Units/Area labels + count-derived render in Area mode (Fix 6),
+  Strategy short label options (Fix 7), Land reconciliation
+  collapsed summary + expand (Fix 9), Operational phase
+  Historical Baseline reveal + capex input (Fix 10).
+
+**M2.0i pattern decisions for downstream phases:**
+- **Inputs are annual; outputs flex.** No more user-visible
+  "model granularity" toggle. Every Module 1 input field
+  represents an annual value. Display layer uses
+  `distributeAnnualToPeriods(annualValues, granularity, phasing)`
+  with sum-integrity guarantee (sub-period values within a year
+  always sum to the annual value). M2.1 Revenue + M3 Cashflow +
+  M5 Statements adopt the same convention.
+- **Display formatting is project-scoped.** `project.displayScale`
+  (full/thousands/millions) + `project.displayDecimals` (0..3)
+  drive every formatted cell. Use `formatScaled(num, scale,
+  decimals)` or `makeProjectFormatter(project)` for any new
+  display surface. Cells render pure numbers (no currency
+  suffix); the per-tab header line (`currencyHeaderLine`) tells
+  the user the scale + currency. Sub-unit areas and sqm counts
+  still bypass scale via `formatInteger`.
+- **Parking is sqm-only at the cost-engine level.** No `parking-
+  BaysRequired` input on the asset card. If revenue from a
+  parking lot needs modeling, add a Leasable sub-unit ("Parking
+  Bay", count, fee/year). Construction cost continues via
+  `rate_x_parking_area` (sqm × rate).
+- **Sub-unit metric is `'units' | 'area'`.** Storage stays one
+  numeric `metricValue`; semantics flip on metric. When
+  switching modes, use `switchMetric()` to preserve the area
+  sqm. Module 2.1 Revenue rate computation looks at metric to
+  pick "per unit" vs "per sqm" pricing.
+- **Strategy labels are short with hover tooltips.** Any new
+  enum-driven dropdown follows the same pattern: short label in
+  the option, longform help text in `title=` attribute. Cleaner
+  scan, info available on demand.
+- **Reconciliation is compact-by-default.** Future reconciliation
+  surfaces (revenue total vs sub-unit sum, debt outstanding vs
+  drawdown - repayment, capex booked vs cash flow) follow the
+  same pattern: single summary line with status icon, expand
+  affordance, auto-expand on mismatch, localStorage persistence.
+- **Phase + Asset status drives lifecycle treatment.**
+  `'operational'` phases reveal Historical Baseline with sunk
+  costs + run-rate baseline. M5 Statements + M3 Cash Flow read
+  `computePhaseHistorical(phase)` for opening balances and
+  `computeOperationalRunRate(baseline, period)` for the future
+  rollforward. Asset.historicalBaseline allows mixed-status
+  phases (e.g. Phase 1 with operating Hotel + under-construction
+  Tower) to track each asset's baseline independently.
+- **Sticky sidebar at the platform shell level.** Outer wrapper
+  uses `height: 100vh; overflow: hidden` + scrollable `<main>`.
+  Standard pattern for any new module shell.
+
+### Module 1 status (2026-05-07, **M2.0h Module 1 area hierarchy + cost granularity + display cleanup + migration banner, foundation for M2.0i**)
 
 **M2.0h (current, ships):** Closes the 6 structural / display issues
 Ahmad raised after eyeballing M2.0g: existing v7 projects need a
