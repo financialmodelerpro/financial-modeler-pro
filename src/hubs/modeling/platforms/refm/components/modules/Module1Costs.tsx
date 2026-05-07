@@ -41,20 +41,29 @@ import {
   type CostStage,
   type CostOverride,
   type DisplayScale,
+  type OutputGranularity,
+  type SubUnit,
   COST_METHODS,
   COST_METHOD_LABELS,
   COST_PHASINGS,
   COST_STAGES,
   COST_STAGE_LABELS,
+  PER_SUBUNIT_RATE_KEY_SUPPORT,
+  PER_SUBUNIT_RATE_KEY_PARKING,
+  OUTPUT_GRANULARITIES,
+  OUTPUT_GRANULARITY_LABELS,
 } from '../../lib/state/module1-types';
 import {
   computePhaseCost,
   computeAssetCost,
+  computeCostLinePerSubUnit,
   resolveAssetAreaMetrics,
   classifyAssetCapex,
   computeCashFlowImpact,
   resolveUsefulLifeYears,
   deriveCostStage,
+  distributeAnnualToPeriods,
+  generatePeriodLabels,
   type AssetCostBreakdown,
 } from '@/src/core/calculations';
 import { formatScaled, formatScaledCurrency } from '@/src/core/formatters';
@@ -337,12 +346,15 @@ interface CostRowProps {
   // M2.0g Addendum 1: phase construction periods so Manual % phasing
   // can render per-period % inputs.
   constructionPeriods: number;
+  // M2.0h Fix 5 (2026-05-07): sub-units for the per-sub-unit custom
+  // rates sub-row (rendered when method = 'per_sub_unit_custom_rates').
+  subUnits: SubUnit[];
 }
 
 function CostRow({
   asset, line, override, total, isLocked,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
-  currency, scale, periodLabel, constructionPeriods,
+  currency, scale, periodLabel, constructionPeriods, subUnits,
 }: CostRowProps): React.JSX.Element {
   // M2.0g Fix 6: Stage label still drives the row background + summary
   // tables, but the Direct/Indirect label is dropped (per-asset cost
@@ -431,6 +443,31 @@ function CostRow({
     writeDistribution(dist.map((v) => (v / total) * 100));
   };
   const distSum = effDistribution.reduce((s, v) => s + (v ?? 0), 0);
+
+  // M2.0h Fix 5 (2026-05-07): per-sub-unit rates editor.
+  // The line/override carries perSubUnitRates: { [subUnitId | __support__ | __parking__]: rate }.
+  // When the user diverges per-asset, we write to the override; for
+  // per-asset (custom) lines, we write to the line directly.
+  const effPerSubUnitRates = override?.perSubUnitRates ?? line.perSubUnitRates ?? {};
+  const writePerSubUnitRates = (next: Record<string, number>): void => {
+    if (isProjectWide) {
+      onUpdateOverride({
+        assetId: asset.id,
+        lineId: line.id,
+        method: effMethod,
+        value: effValue,
+        phasing: effPhasing,
+        distribution: override?.distribution,
+        disabled: override?.disabled,
+        perSubUnitRates: next,
+      });
+    } else {
+      onUpdateLine({ perSubUnitRates: next });
+    }
+  };
+  const updateSubUnitRate = (key: string, rate: number): void => {
+    writePerSubUnitRates({ ...effPerSubUnitRates, [key]: Math.max(0, rate) });
+  };
 
   // Stage tooltip text (M2.0g Fix 6: scope label removed)
   const stageTooltip = `Stage: ${COST_STAGE_LABELS[stage]} (auto-derived).`;
@@ -628,6 +665,75 @@ function CostRow({
         </tr>
       );
     })()}
+    {/* M2.0h Fix 5 (2026-05-07): Per-sub-unit custom rates sub-row.
+        Renders only when effMethod === 'per_sub_unit_custom_rates'.
+        Lists each sub-unit + asset-level Support + asset-level Parking
+        with an editable rate input and a derived total (area × rate). */}
+    {effMethod === 'per_sub_unit_custom_rates' && (() => {
+      const breakdown = computeCostLinePerSubUnit(
+        { ...line, value: effValue, perSubUnitRates: effPerSubUnitRates },
+        asset,
+        subUnits,
+      );
+      return (
+        <tr data-testid={`cost-row-${asset.id}-${line.id}-per-subunit-row`} style={{ background: 'var(--color-grey-pale)' }}>
+          <td colSpan={8} style={{ padding: '8px 12px' }}>
+            <div style={{ marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>Per Sub-unit Custom Rates</strong>
+              <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>(default rate {effValue} from Value column when row blank)</span>
+            </div>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+              <thead>
+                <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
+                  <th style={{ padding: '4px 8px', textAlign: 'left', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Sub-unit</th>
+                  <th style={{ padding: '4px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Area (sqm)</th>
+                  <th style={{ padding: '4px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Rate ({currency}/sqm)</th>
+                  <th style={{ padding: '4px 8px', textAlign: 'right', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {breakdown.rows.map((r) => (
+                  <tr key={r.key} data-testid={`cost-${asset.id}-${line.id}-per-subunit-${r.key}`}>
+                    <td style={{ padding: '4px 8px' }}>{r.label}</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right' }}>{r.area.toLocaleString(undefined, { maximumFractionDigits: 0 })}</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right' }}>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={effPerSubUnitRates[r.key] ?? r.rate}
+                        onChange={(e) => updateSubUnitRate(r.key, parseFloat(e.target.value) || 0)}
+                        disabled={isLocked}
+                        data-testid={`cost-${asset.id}-${line.id}-per-subunit-${r.key}-rate`}
+                        style={{ ...inputStyle, width: 110, textAlign: 'right' }}
+                      />
+                    </td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right' }} data-testid={`cost-${asset.id}-${line.id}-per-subunit-${r.key}-total`}>
+                      {formatScaled(r.total, scale)}
+                    </td>
+                  </tr>
+                ))}
+                {breakdown.rows.length === 0 && (
+                  <tr>
+                    <td colSpan={4} style={{ padding: '8px', color: 'var(--color-meta)', textAlign: 'center', fontStyle: 'italic' }}>
+                      No sub-units / Support / Parking on this asset. Add them in Tab 2.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+              <tfoot>
+                <tr style={{ background: 'color-mix(in srgb, var(--color-navy) 8%, transparent)', fontWeight: 700 }}>
+                  <td colSpan={3} style={{ padding: '4px 8px', textAlign: 'right' }}>Sub-row total</td>
+                  <td style={{ padding: '4px 8px', textAlign: 'right' }} data-testid={`cost-${asset.id}-${line.id}-per-subunit-total`}>
+                    {formatScaled(breakdown.totalCost, scale)}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </td>
+        </tr>
+      );
+    })()}
     </>
   );
 }
@@ -642,6 +748,7 @@ interface AssetCostSectionProps {
   scale: DisplayScale;
   periodLabel: (idx: number) => string;
   constructionPeriods: number;
+  subUnits: SubUnit[];
   onUpdateLine: (lineId: string, patch: Partial<CostLine>) => void;
   onUpdateOverride: (override: CostOverride) => void;
   onRemoveOverride: (assetId: string, lineId: string) => void;
@@ -650,7 +757,7 @@ interface AssetCostSectionProps {
 }
 
 function AssetCostSection({
-  asset, lines, costOverrides, breakdown, currency, scale, periodLabel, constructionPeriods,
+  asset, lines, costOverrides, breakdown, currency, scale, periodLabel, constructionPeriods, subUnits,
   onUpdateLine, onUpdateOverride, onRemoveOverride, onRemoveLine,
   onAddCustom,
 }: AssetCostSectionProps): React.JSX.Element {
@@ -722,6 +829,7 @@ function AssetCostSection({
                     scale={scale}
                     periodLabel={periodLabel}
                     constructionPeriods={constructionPeriods}
+                    subUnits={subUnits}
                     onUpdateLine={(patch) => onUpdateLine(line.id, patch)}
                     onUpdateOverride={onUpdateOverride}
                     onRemoveOverride={() => onRemoveOverride(asset.id, line.id)}
@@ -770,41 +878,59 @@ interface SummaryTablesProps {
   // M2.0g Fix 7a: per-cost-line breakdown needs the full line list so
   // each asset's lines can be enumerated under its row.
   costLines: CostLine[];
+  // M2.0h Fix 6 (2026-05-07): runtime output granularity. Annual inputs
+  // distribute to quarterly (4×) or monthly (12×) using cost line phasing.
+  granularity: OutputGranularity;
 }
 
 function SummaryTables({
   phaseAssets, perPhaseBreakdowns, metricsByAsset,
-  project, totalConstructionPeriods, costLines,
+  project, totalConstructionPeriods, costLines, granularity,
 }: SummaryTablesProps): React.JSX.Element {
   const scale = project.displayScale;
   const fmt = (v: number): string => formatScaled(v, scale);
-  // Capex by Period: rows = assets + total, cols = period 1..N (cap at 24 for layout)
-  const periodCount = Math.min(totalConstructionPeriods, 24);
-  const periodLabels = Array.from({ length: periodCount }, (_, i) => getPeriodLabel(i + 1, project.startDate, project.modelType));
+  // M2.0h Fix 6: at annual granularity, 1 column per construction year
+  // (capped at 24 for layout). At quarterly: 4× columns. Monthly: 12×.
+  const annualPeriodCount = Math.min(totalConstructionPeriods, 24);
+  const subPerYear = granularity === 'annual' ? 1 : granularity === 'quarterly' ? 4 : 12;
+  const periodCount = annualPeriodCount * subPerYear;
+  // Period labels respect granularity: 'Dec 25' / 'Q1 25' / 'Jan 25'.
+  const periodLabels = generatePeriodLabels(project.startDate, annualPeriodCount, granularity);
 
-  // Per-asset per-period: sum across all phase-breakdowns where asset matches
+  // M2.0h Fix 6: per-asset per-period at chosen granularity. Annual
+  // values from the calc engine (one per year) get distributed to
+  // sub-periods using even phasing within each year; the cost-line-
+  // level phasing across years is preserved by the calc engine. The
+  // upfront perPeriod[0] is a Y0 lump that we keep at year 0 first
+  // sub-period.
+  const transformAnnualSeries = (annual: number[]): number[] => {
+    if (granularity === 'annual') return [...annual];
+    // Even-spread within year for now (manual % per-period within year
+    // is deferred to advanced).
+    return distributeAnnualToPeriods(annual, granularity, 'even');
+  };
   const periodTable = phaseAssets.map((a) => {
-    const row = new Array<number>(periodCount).fill(0);
+    const annualRow = new Array<number>(annualPeriodCount).fill(0);
     for (const pb of perPhaseBreakdowns) {
       const bd = pb.assetTotals[a.id];
       if (!bd) continue;
-      for (let i = 0; i < periodCount; i++) {
-        row[i] += bd.perPeriod[i + 1] ?? 0; // +1 because perPeriod[0] is upfront
+      for (let i = 0; i < annualPeriodCount; i++) {
+        annualRow[i] += bd.perPeriod[i + 1] ?? 0; // +1 because perPeriod[0] is upfront
       }
     }
+    const row = transformAnnualSeries(annualRow);
     return { id: a.id, name: a.name, row };
   });
   const periodTotals = new Array<number>(periodCount).fill(0);
   for (const r of periodTable) {
-    for (let i = 0; i < periodCount; i++) periodTotals[i] += r.row[i];
+    for (let i = 0; i < periodCount; i++) periodTotals[i] += r.row[i] ?? 0;
   }
 
-  // Capex by Stage: rows = period (cap 24), cols = land/hard/soft/operating/total
-  // Compute per-asset perPeriod by stage by re-running but here we have only
-  // breakdown.perPeriod (combined) and breakdown.byStage (across all periods).
-  // Approximation: distribute byStage proportionally to perPeriod weights.
-  const stageTable = new Array<{ period: string; land: number; hard: number; soft: number; operating: number; total: number }>();
-  for (let i = 0; i < periodCount; i++) {
+  // Capex by Stage: rows = period (cap 24), cols = land/hard/soft/operating/total.
+  // M2.0h Fix 6: stage rows distributed annually first, then split to
+  // sub-periods per granularity.
+  const annualStageRows: Array<{ land: number; hard: number; soft: number; operating: number }> = [];
+  for (let i = 0; i < annualPeriodCount; i++) {
     let land = 0, hard = 0, soft = 0, operating = 0;
     for (const pb of perPhaseBreakdowns) {
       for (const a of phaseAssets) {
@@ -820,8 +946,20 @@ function SummaryTables({
         operating += bd.byStage.operating * share;
       }
     }
-    stageTable.push({ period: periodLabels[i], land, hard, soft, operating, total: land + hard + soft + operating });
+    annualStageRows.push({ land, hard, soft, operating });
   }
+  const landSeries = transformAnnualSeries(annualStageRows.map((r) => r.land));
+  const hardSeries = transformAnnualSeries(annualStageRows.map((r) => r.hard));
+  const softSeries = transformAnnualSeries(annualStageRows.map((r) => r.soft));
+  const operatingSeries = transformAnnualSeries(annualStageRows.map((r) => r.operating));
+  const stageTable = periodLabels.map((p, idx) => ({
+    period: p,
+    land: landSeries[idx] ?? 0,
+    hard: hardSeries[idx] ?? 0,
+    soft: softSeries[idx] ?? 0,
+    operating: operatingSeries[idx] ?? 0,
+    total: (landSeries[idx] ?? 0) + (hardSeries[idx] ?? 0) + (softSeries[idx] ?? 0) + (operatingSeries[idx] ?? 0),
+  }));
   const stageTotals = stageTable.reduce(
     (acc, r) => ({
       land: acc.land + r.land,
@@ -902,15 +1040,17 @@ function SummaryTables({
             </thead>
             <tbody>
               {phaseAssets.map((a) => {
-                // Asset subtotal row + per-line nested rows.
-                const assetRow = new Array<number>(periodCount).fill(0);
+                // Asset subtotal row + per-line nested rows. M2.0h Fix 6:
+                // annual values transformed to display granularity.
+                const assetRowAnnual = new Array<number>(annualPeriodCount).fill(0);
                 let assetTotal = 0;
                 for (const pb of perPhaseBreakdowns) {
                   const bd = pb.assetTotals[a.id];
                   if (!bd) continue;
                   assetTotal += bd.total;
-                  for (let i = 0; i < periodCount; i++) assetRow[i] += bd.perPeriod[i + 1] ?? 0;
+                  for (let i = 0; i < annualPeriodCount; i++) assetRowAnnual[i] += bd.perPeriod[i + 1] ?? 0;
                 }
+                const assetRow = transformAnnualSeries(assetRowAnnual);
                 // Per-line per-period: distribute each line's total
                 // across periods using the line's own phasing curve.
                 const linesForThisAsset = costLines.filter((c) => c.targetAssetId === undefined || c.targetAssetId === a.id);
@@ -922,10 +1062,8 @@ function SummaryTables({
                       {assetRow.map((v, i) => (<td key={i} style={cellNum} data-testid={`capex-period-${a.id}-${i + 1}`}>{fmt(v)}</td>))}
                     </tr>
                     {linesForThisAsset.map((line) => {
-                      // Find this line's total + per-period from the
-                      // breakdown.byLineId / perPeriod mapping.
                       let lineTotal = 0;
-                      const linePerPeriod = new Array<number>(periodCount).fill(0);
+                      const linePerPeriodAnnual = new Array<number>(annualPeriodCount).fill(0);
                       for (const pb of perPhaseBreakdowns) {
                         const bd = pb.assetTotals[a.id];
                         if (!bd) continue;
@@ -937,13 +1075,14 @@ function SummaryTables({
                         const assetPP = bd.perPeriod;
                         const assetPPTotal = assetPP.reduce((s, v) => s + v, 0);
                         if (assetPPTotal > 0) {
-                          for (let i = 0; i < periodCount; i++) {
+                          for (let i = 0; i < annualPeriodCount; i++) {
                             const share = (assetPP[i + 1] ?? 0) / assetPPTotal;
-                            linePerPeriod[i] += t * share;
+                            linePerPeriodAnnual[i] += t * share;
                           }
                         }
                       }
                       if (lineTotal === 0) return null;
+                      const linePerPeriod = transformAnnualSeries(linePerPeriodAnnual);
                       return (
                         <tr key={`${a.id}-${line.id}`} data-testid={`capex-period-line-${a.id}-${line.id}`}>
                           <td style={{ ...cellName, paddingLeft: 24, fontWeight: 400, color: 'var(--color-meta)' }}>{line.name}</td>
@@ -1124,6 +1263,7 @@ export default function Module1Costs(): React.JSX.Element {
   })));
 
   const setActivePhaseId = useModule1Store((s) => s.setActivePhaseId);
+  const setProject = useModule1Store((s) => s.setProject);
   const addCostLine = useModule1Store((s) => s.addCostLine);
   const updateCostLine = useModule1Store((s) => s.updateCostLine);
   const removeCostLine = useModule1Store((s) => s.removeCostLine);
@@ -1136,6 +1276,14 @@ export default function Module1Costs(): React.JSX.Element {
   // tables (editable surface). 'results' shows the 4 capex summary
   // tables (read-only).
   const [subTab, setSubTab] = useState<'inputs' | 'results'>('inputs');
+  // M2.0h Fix 6: runtime view granularity for Results sub-tab.
+  // Defaults to project.outputGranularity ('annual' on new projects).
+  // User toggles persist via setProject so the next session opens the
+  // same view.
+  const granularity: OutputGranularity = project.outputGranularity ?? 'annual';
+  const setGranularity = (g: OutputGranularity): void => {
+    setProject({ outputGranularity: g });
+  };
   // M2.0g: project-wide display scale.
   const scale: DisplayScale = project.displayScale ?? 'full';
   // M2.0g Addendum 2: period -> "Dec 25" label resolver, supplied to
@@ -1314,6 +1462,7 @@ export default function Module1Costs(): React.JSX.Element {
                       scale={scale}
                       periodLabel={periodLabelFn}
                       constructionPeriods={pb.cp}
+                      subUnits={subUnits}
                       onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
                       onUpdateOverride={setCostOverride}
                       onRemoveOverride={removeCostOverride}
@@ -1335,15 +1484,44 @@ export default function Module1Costs(): React.JSX.Element {
       )}
 
       {subTab === 'results' && allVisibleAssets.length > 0 && (
-        <SummaryTables
-          phaseAssets={allVisibleAssets}
-          perPhaseBreakdowns={perPhaseBreakdowns}
-          parcelsByPhase={new Map()}
-          metricsByAsset={metricsByAsset}
-          project={{ currency: project.currency, startDate: project.startDate, modelType: project.modelType, displayScale: scale }}
-          totalConstructionPeriods={totalConstructionPeriods}
-          costLines={costLines}
-        />
+        <>
+          {/* M2.0h Fix 6 (2026-05-07): runtime view granularity. Annual
+              data on disk, view toggle only. */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--sp-2)',
+              padding: 'var(--sp-1) var(--sp-2)',
+              marginBottom: 'var(--sp-2)',
+              background: 'var(--color-grey-pale)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-sm)',
+            }}
+            data-testid="costs-results-granularity-toggle"
+          >
+            <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>View as:</strong>
+            {OUTPUT_GRANULARITIES.map((g) => (
+              <label key={g} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, cursor: 'pointer', fontSize: 'var(--font-small)' }} data-testid={`costs-granularity-${g}`}>
+                <input type="radio" name="costs-granularity" value={g} checked={granularity === g} onChange={() => setGranularity(g)} />
+                {OUTPUT_GRANULARITY_LABELS[g]}
+              </label>
+            ))}
+            <span style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--color-meta)' }}>
+              Inputs are entered annually; sub-period view distributes via cost line phasing.
+            </span>
+          </div>
+          <SummaryTables
+            phaseAssets={allVisibleAssets}
+            perPhaseBreakdowns={perPhaseBreakdowns}
+            parcelsByPhase={new Map()}
+            metricsByAsset={metricsByAsset}
+            project={{ currency: project.currency, startDate: project.startDate, modelType: project.modelType, displayScale: scale }}
+            totalConstructionPeriods={totalConstructionPeriods}
+            costLines={costLines}
+            granularity={granularity}
+          />
+        </>
       )}
       {subTab === 'results' && allVisibleAssets.length === 0 && (
         <div style={{ ...sectionCardStyle, textAlign: 'center', color: 'var(--color-meta)', padding: 'var(--sp-3)' }}>
