@@ -1306,7 +1306,7 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove }: SubUnitRowProps):
         {isUnits ? (
           <input type="number" min={0} value={subUnit.metricValue} data-testid={`subunit-${subUnit.id}-count`} onChange={(e) => onUpdate({ metricValue: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} />
         ) : (
-          <span style={{ ...calcOutputStyle, fontSize: 11 }} data-testid={`subunit-${subUnit.id}-count-derived`}>{unitArea > 0 ? fmt(count) : '—'}</span>
+          <span style={{ ...calcOutputStyle, fontSize: 11 }} data-testid={`subunit-${subUnit.id}-count-derived`}>{unitArea > 0 ? fmt(count) : '-'}</span>
         )}
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>

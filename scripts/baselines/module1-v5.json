@@ -112,7 +112,7 @@
         "assetId": "asset_1",
         "name": "2BR",
         "category": "Sellable",
-        "metric": "count",
+        "metric": "units",
         "metricValue": 120,
         "unitArea": 110,
         "unitPrice": 1500000
@@ -122,7 +122,7 @@
         "assetId": "asset_2",
         "name": "Hotel Key",
         "category": "Operable",
-        "metric": "count",
+        "metric": "units",
         "metricValue": 220,
         "unitArea": 45,
         "unitPrice": 850,
@@ -145,7 +145,7 @@
         "assetId": "asset_4",
         "name": "Penthouse",
         "category": "Sellable",
-        "metric": "count",
+        "metric": "units",
         "metricValue": 20,
         "unitArea": 220,
         "unitPrice": 5000000
