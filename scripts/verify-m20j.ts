@@ -37,8 +37,8 @@ import {
   costLineProjectPeriodIndex,
   computeAssetCostSummaryFromBreakdown,
   type AssetAreaMetrics,
-  type CostLine,
 } from '../src/core/calculations';
+import type { CostLine } from '../src/hubs/modeling/platforms/refm/lib/state/module1-types';
 import {
   formatScaled,
   formatScaledForExport,
