@@ -289,7 +289,11 @@ const markers: Marker[] = [
   { label: 'M4.4: computeAssetAreaTotals export', path: calcPath, needle: 'export function computeAssetAreaTotals' },
   { label: 'M4.5: Module1Assets asset-level Support input', path: assetsPath, needle: 'asset-${asset.id}-supportArea' },
   { label: 'M4.6: Module1Assets asset-level Parking input', path: assetsPath, needle: 'asset-${asset.id}-parkingArea' },
-  { label: 'M4.7: Module1Assets BUA reconciliation block', path: assetsPath, needle: 'asset-${asset.id}-bua-reconciliation' },
+  // M2.0h Fix 3 (2026-05-07) renamed 'bua-reconciliation' to
+  // 'area-reconciliation' as the block now itemizes the full NSA/BUA/GFA
+  // hierarchy. Loosen the marker accordingly per the standing
+  // verifier-loosening precedent.
+  { label: 'M4.7: Module1Assets area / BUA reconciliation block', path: assetsPath, needle: '-area-reconciliation' },
   // Fix 5: reconciliation breakdown markers (covered by M4.7)
   // Fix 6: Direct/Indirect labels gone
   { label: 'M6.1: Module1Costs deriveCostScope removed', path: costsPath, needle: 'M2.0g Fix 6' },
