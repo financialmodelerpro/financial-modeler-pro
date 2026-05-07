@@ -22,6 +22,7 @@ import {
   type ProjectStatus,
 } from '../../lib/state/module1-types';
 import { computeProjectEndDate, computePhaseTimeline, computeProjectTimeline } from '@/src/core/calculations';
+import { currencyHeaderLine } from '@/src/core/formatters';
 import InputLabel from '../ui/InputLabel';
 
 const inputStyle: React.CSSProperties = {
@@ -113,9 +114,19 @@ export default function Module1ProjectPhases(): React.JSX.Element {
 
   return (
     <div data-testid="tab-project-phases">
-      <h2 style={{ fontSize: 'var(--font-h2)', marginBottom: 'var(--sp-3)' }}>
-        1. Project &amp; Phases
-      </h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-3)', flexWrap: 'wrap', gap: 'var(--sp-1)' }}>
+        <h2 style={{ fontSize: 'var(--font-h2)', margin: 0 }}>
+          1. Project &amp; Phases
+        </h2>
+        {/* M2.0h Fix 2 (2026-05-07): single currency / scale header
+            line per tab. Cells stay free of currency suffix. */}
+        <div
+          style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', fontStyle: 'italic' }}
+          data-testid="currency-header-line"
+        >
+          {currencyHeaderLine(project.currency, project.displayScale ?? 'full')}
+        </div>
+      </div>
 
       <div
         style={{

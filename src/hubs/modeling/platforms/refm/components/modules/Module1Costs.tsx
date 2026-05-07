@@ -66,7 +66,7 @@ import {
   generatePeriodLabels,
   type AssetCostBreakdown,
 } from '@/src/core/calculations';
-import { formatScaled, formatScaledCurrency } from '@/src/core/formatters';
+import { currencyHeaderLine, formatScaled, formatScaledCurrency } from '@/src/core/formatters';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
 const inputStyle: React.CSSProperties = {
@@ -563,7 +563,6 @@ function CostRow({
         <div style={calcOutputStyle} data-testid={`cost-${asset.id}-${line.id}-total`}>
           {formatScaled(total, scale)}
         </div>
-        <div style={{ fontSize: 9, color: 'var(--color-meta)', marginTop: 2 }}>{currency}</div>
       </td>
       <td style={{ padding: '4px', width: 90, textAlign: 'right' }}>
         <label style={{ fontSize: 10, display: 'inline-flex', alignItems: 'center', gap: 4, cursor: isLocked ? 'not-allowed' : 'pointer' }}>
@@ -793,7 +792,7 @@ function AssetCostSection({
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 12, color: 'var(--color-meta)' }}>Subtotal</span>
           <strong style={{ fontSize: 14 }} data-testid={`asset-section-${asset.id}-subtotal`}>
-            {formatScaledCurrency(subtotal, currency, scale)}
+            {formatScaled(subtotal, scale)}
           </strong>
           <span style={{ fontSize: 14, color: 'var(--color-meta)' }}>{collapsed ? '▶' : '▼'}</span>
         </div>
@@ -809,7 +808,7 @@ function AssetCostSection({
                 <th style={{ padding: '6px', textAlign: 'right' }}>Start</th>
                 <th style={{ padding: '6px', textAlign: 'right' }}>End</th>
                 <th style={{ padding: '6px', textAlign: 'left' }}>Phasing</th>
-                <th style={{ padding: '6px', textAlign: 'right' }}>Total ({currency})</th>
+                <th style={{ padding: '6px', textAlign: 'right' }}>Total</th>
                 <th style={{ padding: '6px', textAlign: 'right' }}>Toggle</th>
               </tr>
             </thead>
@@ -844,7 +843,7 @@ function AssetCostSection({
                   Asset Subtotal
                 </td>
                 <td style={{ padding: '6px', textAlign: 'right', fontWeight: 700 }} data-testid={`asset-section-${asset.id}-tfoot-subtotal`}>
-                  {formatScaledCurrency(subtotal, currency, scale)}
+                  {formatScaled(subtotal, scale)}
                 </td>
                 <td></td>
               </tr>
@@ -1370,6 +1369,14 @@ export default function Module1Costs(): React.JSX.Element {
           <div style={{ color: 'var(--color-meta)', fontSize: 12 }}>
             Granularity: <strong>{project.modelType}</strong> · {phases.length} phase{phases.length > 1 ? 's' : ''} · {allVisibleAssets.length} active asset{allVisibleAssets.length === 1 ? '' : 's'}
           </div>
+          {/* M2.0h Fix 2 (2026-05-07): single currency / scale header
+              line per tab. Cells stay free of currency suffix. */}
+          <div
+            style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', fontStyle: 'italic', marginTop: 4 }}
+            data-testid="currency-header-line"
+          >
+            {currencyHeaderLine(project.currency, scale)}
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <select
@@ -1400,7 +1407,7 @@ export default function Module1Costs(): React.JSX.Element {
               {COST_STAGE_LABELS[s]}
             </div>
             <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>
-              {formatScaledCurrency(stageTotals[s], project.currency, scale)}
+              {formatScaled(stageTotals[s], scale)}
             </div>
           </div>
         ))}
@@ -1543,7 +1550,7 @@ export default function Module1Costs(): React.JSX.Element {
         data-testid="costs-project-total"
       >
         <strong style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Project Total</strong>
-        <strong style={{ fontSize: 18 }}>{formatScaledCurrency(projectTotal, project.currency, scale)}</strong>
+        <strong style={{ fontSize: 18 }}>{formatScaled(projectTotal, scale)}</strong>
       </div>
 
       {popupAssetId && (

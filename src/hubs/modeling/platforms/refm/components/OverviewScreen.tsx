@@ -16,7 +16,7 @@
 import React from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { PermissionMap } from '@/src/core/types/settings.types';
-import { formatCurrency, formatNumber } from '@/src/core/formatters';
+import { currencyHeaderLine, formatCurrency, formatNumber } from '@/src/core/formatters';
 import { computeLandAggregate, computePhaseCost } from '@/src/core/calculations';
 import type { StorageShape } from './RealEstatePlatform';
 import { useModule1Store } from '../lib/state/module1-store';
@@ -146,6 +146,13 @@ export default function OverviewScreen({
           <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-body)', marginTop: '6px' }}>
             {proj.status} · {project.modelType} · {proj.location || 'No location set'}
           </p>
+          {/* M2.0h Fix 2 (2026-05-07): currency / scale header line. */}
+          <div
+            style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', fontStyle: 'italic', marginTop: 4 }}
+            data-testid="overview-currency-header"
+          >
+            {currencyHeaderLine(currency, project.displayScale ?? 'full')}
+          </div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           {can('canSave') && (

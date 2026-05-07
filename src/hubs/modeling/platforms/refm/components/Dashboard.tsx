@@ -16,7 +16,7 @@
 
 import React from 'react';
 import { useShallow } from 'zustand/react/shallow';
-import { formatCurrency, formatNumber } from '@/src/core/formatters';
+import { currencyHeaderLine, formatCurrency, formatNumber } from '@/src/core/formatters';
 import {
   computeLandAggregate,
   computePhaseCost,
@@ -169,6 +169,13 @@ export default function Dashboard({
         <p style={{ color: 'var(--color-meta)', fontSize: 'var(--font-body)', marginTop: '6px' }}>
           Portfolio overview, {project.name || 'No active project'} · {project.location || 'No location'}
         </p>
+        {/* M2.0h Fix 2 (2026-05-07): currency / scale header line. */}
+        <div
+          style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', fontStyle: 'italic', marginTop: 4 }}
+          data-testid="dashboard-currency-header"
+        >
+          {currencyHeaderLine(currency, project.displayScale ?? 'full')}
+        </div>
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 'var(--sp-2)' }}>

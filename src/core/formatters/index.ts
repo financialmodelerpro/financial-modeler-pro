@@ -118,3 +118,17 @@ export function formatCurrency(num: number | null | undefined, currency: string)
 export function formatPercent(num: number, decimals = 1): string {
   return `${num.toFixed(decimals)}%`;
 }
+
+// M2.0h Fix 2 (2026-05-07): currency header line text used at the top
+// of every Module 1 tab. Cells stay free of currency suffix to keep the
+// table visually clean; this single line tells the user what unit /
+// scale every number in the tab is rendered at. Format:
+//   full        -> "All figures in SAR"
+//   thousands   -> "All figures in SAR '000"
+//   millions    -> "All figures in SAR M"
+// currency replaces SAR with whatever ISO code is on the project.
+export function currencyHeaderLine(currency: string, scale: DisplayScale): string {
+  if (scale === 'thousands') return `All figures in ${currency} '000`;
+  if (scale === 'millions') return `All figures in ${currency} M`;
+  return `All figures in ${currency}`;
+}

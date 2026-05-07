@@ -68,7 +68,7 @@ import {
   resolveUsefulLifeYears,
   validateLandAllocation,
 } from '@/src/core/calculations';
-import { formatScaledCurrency } from '@/src/core/formatters';
+import { currencyHeaderLine, formatScaled, formatScaledCurrency } from '@/src/core/formatters';
 import InputLabel from '../ui/InputLabel';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
@@ -131,10 +131,17 @@ const phaseHeaderStyle: React.CSSProperties = {
 const fmt = (n: number, digits = 0): string =>
   Number.isFinite(n) ? n.toLocaleString(undefined, { maximumFractionDigits: digits }) : 'n/a';
 
-// Currency totals use formatScaledCurrency so they respect the project-
-// wide displayScale (full / thousands / millions). Defaults to 'full'
-// when scale is undefined.
-const fmtCurrency = (n: number, currency: string, scale: import('../../lib/state/module1-types').DisplayScale = 'full'): string =>
+// M2.0h Fix 2 (2026-05-07): in-cell currency formatting drops the
+// trailing currency code; the per-tab header line tells the user what
+// unit (and scale) every number is rendered at. Cells render pure
+// numbers via formatScaled. Tooltips / labels that NEED a currency code
+// (e.g. parcel rate "/sqm") keep using formatScaledCurrency directly.
+// The legacy fmtCurrency signature stays so existing callers compile;
+// the third parameter is preserved.
+const fmtCurrency = (n: number, _currency: string, scale: import('../../lib/state/module1-types').DisplayScale = 'full'): string =>
+  formatScaled(n, scale);
+// Retained for callers that explicitly want the suffix (e.g. tooltips).
+const fmtCurrencyWithCode = (n: number, currency: string, scale: import('../../lib/state/module1-types').DisplayScale = 'full'): string =>
   formatScaledCurrency(n, currency, scale);
 
 // M2.0e: long-form strategy labels for the dropdown.
@@ -308,9 +315,17 @@ export default function Module1Assets(): React.JSX.Element {
 
   return (
     <div data-testid="tab-assets">
-      <h2 style={{ fontSize: 'var(--font-h2)', marginBottom: 'var(--sp-3)' }}>
-        2. Assets &amp; Sub-units
-      </h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 'var(--sp-3)', flexWrap: 'wrap', gap: 'var(--sp-1)' }}>
+        <h2 style={{ fontSize: 'var(--font-h2)', margin: 0 }}>
+          2. Assets &amp; Sub-units
+        </h2>
+        <div
+          style={{ fontSize: 'var(--font-small)', color: 'var(--color-meta)', fontStyle: 'italic' }}
+          data-testid="currency-header-line"
+        >
+          {currencyHeaderLine(project.currency, project.displayScale ?? 'full')}
+        </div>
+      </div>
 
       <div
         style={{
