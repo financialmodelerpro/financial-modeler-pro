@@ -1227,6 +1227,7 @@ function AssetCard({
                       currency={project.currency}
                       onUpdate={(patch) => updateSubUnit(u.id, patch)}
                       onRemove={() => removeSubUnit(u.id)}
+                      decimals={project.displayDecimals ?? 2}
                     />
                   ))}
                 </tbody>
@@ -1303,8 +1304,22 @@ function switchMetric(
   return { metric: 'area', metricValue: currentArea };
 }
 
-function SubUnitRow({ subUnit, currency, onUpdate, onRemove }: SubUnitRowProps): React.JSX.Element {
-  // M2.0i Fix 6: derived semantics. Treat legacy 'count' as 'units'.
+function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals }: SubUnitRowProps & { decimals: import('../../lib/state/module1-types').DisplayDecimals }): React.JSX.Element {
+  // M2.0j Fix 6 (2026-05-07): full bidirectional sync between count
+  // and area when metric === 'units'. Schema stays the same:
+  // metricValue is the canonical count (when metric=units) OR total
+  // sqm (when metric=area).
+  //
+  // Behaviour:
+  //   metric=area  -> Area input editable (= metricValue). Count derives
+  //                   (metricValue / unitArea) read-only, "-" when
+  //                   unitArea=0.
+  //   metric=units -> Count input editable (= metricValue). Area input
+  //                   ALSO editable; entering area recalcs metricValue
+  //                   = area / unitArea (count). Both stay in sync.
+  //                   When unitArea=0, area edit ignored (we cannot
+  //                   derive a count without a unit size). Inline
+  //                   warning surfaced via aria-invalid + caption.
   const isUnits = subUnit.metric === 'units' || (subUnit.metric as unknown as string) === 'count';
   const unitArea = Math.max(0, subUnit.unitArea ?? 0);
   // Resolved area + count for the row's display cells.
@@ -1313,6 +1328,22 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove }: SubUnitRowProps):
     ? subUnit.metricValue
     : (unitArea > 0 ? subUnit.metricValue / unitArea : 0);
   const rateUnit = rateUnitLabel(subUnit.category, subUnit.metric);
+  // M2.0j Fix 6: validation - metric=units requires unitArea > 0.
+  const unitsButNoSize = isUnits && unitArea === 0 && subUnit.metricValue > 0;
+  // Edit handlers
+  const onEditCount = (next: number): void => {
+    onUpdate({ metricValue: Math.max(0, next) });
+  };
+  const onEditAreaWhenUnits = (next: number): void => {
+    if (unitArea > 0) {
+      const newCount = Math.max(0, next) / unitArea;
+      onUpdate({ metricValue: newCount });
+    }
+    // If unitArea === 0, we cannot derive count; ignore the area edit.
+  };
+  const onEditAreaWhenArea = (next: number): void => {
+    onUpdate({ metricValue: Math.max(0, next) });
+  };
   return (
     <tr data-testid={`subunit-row-${subUnit.id}`}>
       <td style={{ padding: '4px 6px' }}>
@@ -1335,20 +1366,25 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove }: SubUnitRowProps):
         </select>
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
+        {/* M2.0j Fix 6: Area is ALWAYS editable. When metric=units,
+            edits flow back to count = newArea / unitArea. */}
         {isUnits ? (
-          <span style={{ ...calcOutputStyle, fontSize: 11 }} data-testid={`subunit-${subUnit.id}-area-derived`}>{fmt(totalArea)}</span>
+          <input type="number" min={0} value={Number.isFinite(totalArea) ? Number(totalArea.toFixed(2)) : 0} data-testid={`subunit-${subUnit.id}-area-input`} onChange={(e) => onEditAreaWhenUnits(Number(e.target.value) || 0)} disabled={unitArea === 0} title={unitArea === 0 ? 'Unit Size required to edit Area when metric = Units' : undefined} style={{ ...inputStyle, fontSize: 11, opacity: unitArea === 0 ? 0.5 : 1 }} />
         ) : (
-          <input type="number" min={0} value={subUnit.metricValue} data-testid={`subunit-${subUnit.id}-area-input`} onChange={(e) => onUpdate({ metricValue: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} />
+          <input type="number" min={0} value={subUnit.metricValue} data-testid={`subunit-${subUnit.id}-area-input`} onChange={(e) => onEditAreaWhenArea(Number(e.target.value) || 0)} style={{ ...inputStyle, fontSize: 11 }} />
         )}
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-        <input type="number" min={0} value={subUnit.unitArea ?? 0} data-testid={`subunit-${subUnit.id}-unitArea`} onChange={(e) => onUpdate({ unitArea: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} />
+        <input type="number" min={0} value={subUnit.unitArea ?? 0} data-testid={`subunit-${subUnit.id}-unitArea`} onChange={(e) => onUpdate({ unitArea: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} aria-invalid={unitsButNoSize} />
+        {unitsButNoSize && (
+          <div style={{ fontSize: 9, color: 'var(--color-negative)' }} data-testid={`subunit-${subUnit.id}-units-no-size-error`}>Unit Size required</div>
+        )}
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
         {isUnits ? (
-          <input type="number" min={0} value={subUnit.metricValue} data-testid={`subunit-${subUnit.id}-count`} onChange={(e) => onUpdate({ metricValue: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} />
+          <input type="number" min={0} value={Number.isFinite(count) ? Number(count.toFixed(2)) : 0} data-testid={`subunit-${subUnit.id}-count`} onChange={(e) => onEditCount(Number(e.target.value) || 0)} style={{ ...inputStyle, fontSize: 11 }} />
         ) : (
-          <span style={{ ...calcOutputStyle, fontSize: 11 }} data-testid={`subunit-${subUnit.id}-count-derived`}>{unitArea > 0 ? fmt(count) : '-'}</span>
+          <span style={{ ...calcOutputStyle, fontSize: 11 }} data-testid={`subunit-${subUnit.id}-count-derived`}>{unitArea > 0 ? formatArea(count, decimals) : '-'}</span>
         )}
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
