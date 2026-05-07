@@ -507,7 +507,11 @@ function CostRow({
           style={{ ...inputStyle, fontSize: 11 }}
           data-testid={`cost-${asset.id}-${line.id}-method`}
         >
-          {COST_METHODS.map((m) => (
+          {/* M2.0i Fix 5 (2026-05-07): rate_per_parking_bay filtered
+              from the user-selectable list. Existing snapshots that
+              still carry the value continue to compute, but new lines
+              cannot pick it. Use rate_x_parking_area instead. */}
+          {COST_METHODS.filter((m) => m !== 'rate_per_parking_bay').map((m) => (
             <option key={m} value={m}>{COST_METHOD_LABELS[m]}</option>
           ))}
         </select>

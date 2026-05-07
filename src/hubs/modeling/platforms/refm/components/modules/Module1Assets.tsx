@@ -1116,12 +1116,16 @@ function AssetCard({
           {/* M2.0h Fix 3 (2026-05-07): three-tier area hierarchy.
               The M2.0g "Asset BUA Total" hand-typed input is removed
               (BUA derives now). Asset card shows:
-                Inputs:  Support Area + Parking Area + Parking Bays + GFA (optional override)
+                Inputs:  Support Area + Parking Area + GFA (optional override)
                 Derived: NSA / BUA / GFA chips with the hierarchy formulas
               Sub-units provide NSA; Support is asset-level + sub-unit Support;
-              Parking is asset-level only. */}
+              Parking is asset-level only.
+              M2.0i Fix 5 (2026-05-07): Parking Bays count input dropped.
+              Parking Area (sqm) is the canonical cost driver; if a future
+              use case needs a per-bay revenue (parking fee / bay / year),
+              model it as a Leasable sub-unit. */}
           <div
-            style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}
+            style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--sp-2)', marginBottom: 'var(--sp-2)' }}
             data-testid={`asset-${asset.id}-areas-row`}
           >
             <div>
@@ -1131,10 +1135,6 @@ function AssetCard({
             <div>
               <InputLabel label="Parking Area (sqm)" help="Asset-level Parking area. GFA = BUA + Parking. Cost-only, no revenue." inputId={`asset-${asset.id}-parkingArea`} />
               <input id={`asset-${asset.id}-parkingArea`} data-testid={`asset-${asset.id}-parkingArea`} type="number" min={0} value={asset.parkingArea ?? 0} onChange={(e) => onUpdate({ parkingArea: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
-            </div>
-            <div>
-              <InputLabel label="Parking Bays" help="Total parking bay count fed to the construction-parking cost line." inputId={`asset-${asset.id}-parkingBaysRequired`} />
-              <input id={`asset-${asset.id}-parkingBaysRequired`} data-testid={`asset-${asset.id}-parkingBaysRequired`} type="number" min={0} value={asset.parkingBaysRequired} onChange={(e) => onUpdate({ parkingBaysRequired: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
             </div>
             <div>
               <InputLabel label="GFA Override (sqm)" help="Optional GFA override. Leave 0 to use derived BUA + Parking." inputId={`asset-${asset.id}-gfaSqm`} />
