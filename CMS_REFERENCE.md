@@ -2,7 +2,7 @@
 
 > Snapshot of how FMP's admin CMS is wired, intended as a portable spec for mirroring the same patterns on a separate project. **Reference only, no behavioral contract.** Read this together with `CLAUDE-DB.md` (table schemas), `CLAUDE-ROUTES.md` (file map), and `CLAUDE.md` (auth + design rules).
 
-**Snapshot date:** 2026-05-02
+**Snapshot date:** 2026-05-07 (P-Sync added `/admin/platform-modules` two-level UI under Modeling Hub group)
 **Stack:** Next.js 16 App Router · TypeScript strict · Supabase (Postgres + Storage) · NextAuth (admin) · Tailwind 4 + CSS custom properties · `@hello-pangea/dnd` (drag-and-drop) · `@tiptap/react` (rich text)
 
 ---
@@ -35,7 +35,8 @@ The sidebar lives in `src/components/admin/CmsAdminNav.tsx` and is rendered as t
 | | Articles | `/admin/articles` | 📰 |, | `articles` table (rich-text blog posts) |
 | | Testimonials | `/admin/testimonials` | ⭐ |, | `testimonials` table (hub-tagged) |
 | | Media Library | `/admin/media` | 🖼️ |, | Supabase Storage bucket `cms-assets` |
-| **Modeling Hub** | Modules | `/admin/modules` | 🧩 |, | Modeling platform catalog (`src/config/platforms.ts` mirror) |
+| **Modeling Hub** | Modules | `/admin/modules` | 🧩 |, | Modeling platform catalog (`src/config/platforms.ts` mirror, legacy `modules` table = platforms-storage) |
+| | Platform Modules | `/admin/platform-modules` | 🧩 | `/admin/platform-modules/[id]/pages` | Per-platform sub-modules (`platform_modules` + `platform_module_pages`) — three-way source of truth between admin, REFM sidebar, marketing site (P-Sync, 2026-05-07) |
 | | Access Whitelist | `/admin/modeling-access` | 🔑 |, | Per-user platform access |
 | | Users | `/admin/users` | 👥 |, | `users` table, role/email/created |
 | | Pricing | `/admin/pricing` | 💰 |, | `pricing_plans` |

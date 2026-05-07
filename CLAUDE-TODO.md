@@ -4,6 +4,116 @@
 
 ---
 
+## Recently Completed, REFM Module 1 Phase M2.0j Module 1 Audit + Display Fixes (2026-05-07, 8 commits)
+
+Closes M2.0j. Resolves 16 audit + display + structural items Ahmad eyeballed in M2.0i (Issue 17 Financing deferred). Schema stays at v8; phasing value-set narrows from 6 to 2 (`COST_PHASING_OPTIONS = ['even','manual']`) but read-side accepts legacy values via `migrateM20jPhasing` (idempotent fold to 'even' on save).
+
+| # | What changed |
+|---|--------------|
+| M2.0j/1 (Fix 1 + 9) | `Phase.constructionPeriods` accepts 0 (operational-from-start phases); Tab 1 shows "Operational from start" when cp=0. Phasing simplified to Even + Manual % (legacy values still accepted on read, folded to 'even' on save). |
+| M2.0j/2 (Fix 2 + 3 + 4 + 5 partial) | `Asset.type` optional + `resolveTypeCatalog` returns UNION for Mixed-Use / Custom. Land Parcel header `{currency}/sqm`. New `formatScaledForExport` helper for future Export module. `formatPercent` default decimals 1 → 2. New `formatArea` helper. ParcelRow threads scale + decimals. |
+| M2.0j/3 (Fix 6) | Sub-unit area/units bidirectional sync. `metric=units` → both Count + Area editable; `metric=area` → Area editable, Count derives. Switch preserves area sqm. |
+| M2.0j/4 (Fix 7 + 8 + 10 + 12 + 13 + 14+15) | New `AccountingNumberInput` primitive (focus = raw, blur = accounting). New `costLineCaption` helper (rate × metric = result inline under each cost row). `costLinePeriodEndDate` + `costLineProjectPeriodIndex` for phase-scoped period dates (Phase 2 Y1 = "Dec 26", not "Dec 25"). Hide zero rows in Capex by Period. Drop stage labels under cost line names. Drop 3 of 4 summary tables (Capex by Period is the single remaining roll-up). |
+| M2.0j/5 (Fix 11 + 16) | Capex by Period offsets perPeriod[] by `(phaseStartYear - projectStartYear)` so phase Y1 lands in correct project column. SummaryTables remounts on granularity toggle via `key={`summary-${granularity}`}`. Per-asset selector bar at top of Tab 3 Inputs ("All Assets" + per-asset buttons). 3 summary cards beneath: Excl. Land / Excl. Land In-Kind / Incl. Land In-Kind. |
+| M2.0j/6 | NEW `scripts/verify-m20j.ts` (60 pass / 0 fail / 2 skip without dev server, **canonical green**). NEW `tests/e2e/m20j-costs-audit.spec.ts` (8 specs + dark-mode). |
+| M2.0j/7 | Docs sweep: CLAUDE.md M2.0j closure block + verifier table + Playwright entry; M2.0i re-titled "foundation for M2.0j". |
+| M2.0j/8 | TSC fix: import `CostLine` from `module1-types` (it's not exported from `@core/calculations`). Restores Vercel build green. |
+
+**Verification at phase close (all green):**
+- `npm run type-check`: clean
+- `verify-m20j.ts`: 60 pass / 0 fail / 2 skip without dev server
+- Playwright `m20j-costs-audit.spec.ts`: 8 specs + dark-mode
+
+**M2.0j pattern decisions for downstream phases:**
+- `cp=0` is canonical for operational phases (start operating from `phase.startDate`). M5 Statements + M3 Cashflow read `computePhaseTimeline` and recognise cp=0 as "no construction window".
+- `Asset.type` is optional; downstream calc handles `''` as "unspecified" with category-based `DEFAULT_USEFUL_LIFE_YEARS` fallback.
+- `AccountingNumberInput` is the canonical money-input primitive. All future numeric inputs (revenue cohort prices, OpEx values, financing tranche amounts) use it for consistent on-blur formatting.
+- Cost line caption pattern (× metric = result). M2.1 Revenue rate inputs follow the same pattern with a parallel `revenueLineCaption` helper.
+- 2-option phasing (Even + Manual %) extends to all schedules: capex, revenue, opex, financing.
+- Period dates align to PHASE start. Project-wide rollup tables offset by `(phaseStartYear - projectStartYear)`.
+- Granularity toggle re-mounts via `key`. Standard pattern for any new view-granularity surface.
+- Hide zero rows in Results. Editable Inputs always show all rows; read-only Results hide zero-totals.
+- Per-asset selector + 3 summary cards is the canonical Inputs layout for Module 2.1 Revenue Tab.
+- Display Scale + Decimals propagate via `makeProjectFormatter` or threaded `scale + decimals` props. Percentages always 2 decimals via `formatPercent` default. Areas (sqm) bypass scale via `formatArea`. Currency uses `formatScaled`.
+
+---
+
+## Recently Completed, Phase P-Sync Platform & Module Admin Sync (2026-05-07, 7 commits)
+
+Closes the loop between three previously disjoint module/platform listings (the static `MODULES` constant in REFM, the legacy `modules` table in admin, and the hardcoded marketing `PLATFORMS` config). Ships two new Supabase tables, a public API surface, an admin two-level UI, a dynamic REFM sidebar fetch, and a public marketing page set.
+
+| # | What changed |
+|---|--------------|
+| P-Sync/1 | NEW SQL migration `supabase/migrations/p_sync_platform_modules.sql`: `platform_modules` table (per-platform sub-modules + status enum + gating_tier + features jsonb + screenshots jsonb) + `platform_module_pages` table (page_section enum: hero/features/how_it_works/cta/testimonials, content_blocks jsonb). RLS public-read filters status='hidden' / visible=false. Cascade delete on module pages. Idempotent. Seed: 11 REFM modules at M2.0i state + Module 1 page content (4 sections). |
+| P-Sync/2 | NEW `src/shared/cms/platform-modules.ts` (337 lines): TypeScript types + 9 helper functions (`getPlatformModules` / `getPlatformModuleBySlug` / `getPlatformModulePages` / `getPlatformModuleWithPages` for public reads; `adminListPlatformModules` / `adminListPlatformModulePages` / `adminUpsertPlatformModule` / `adminDeletePlatformModule` / `adminUpsertPlatformModulePage` / `adminDeletePlatformModulePage` for admin writes via service-role) + 5 typed content interfaces (HeroContent / FeaturesContent / HowItWorksContent / CtaContent / TestimonialsContent). |
+| P-Sync/3 | NEW API routes: `/api/platforms/[platformSlug]/modules` (GET public + POST admin), `/api/platforms/[platformSlug]/modules/[moduleSlug]` (GET public + PATCH/DELETE admin), `/api/admin/platform-module-pages` (GET + POST admin), `/api/admin/platform-module-pages/[id]` (PATCH + DELETE admin). All admin writes guarded by NextAuth admin role check. Cache-Control: public, s-maxage=300 on public reads. |
+| P-Sync/4 | NEW admin UI: `/admin/platform-modules` Level 1 platform tabs (REFM/BVM/FPA/...) read from /api/admin/modules; Level 2 modules table per active platform with inline create/edit/delete + status cycling + features textarea + slug locked on edit. NEW `/admin/platform-modules/[id]/pages` page-sections editor (one card per section, JSON textarea for content_blocks, per-section visibility, pre-seeded templates). CmsAdminNav grew "Platform Modules" entry. |
+| P-Sync/5 | NEW `src/hubs/modeling/platforms/refm/lib/usePlatformModules.ts`: dynamic sidebar fetch hook. Falls back to `STATIC_SIDEBAR_MODULES` (computed from legacy `MODULES` constant) during inflight or on fetch error so sidebar never renders empty. Sidebar.tsx accepts optional `modules` prop; RealEstatePlatform.tsx passes the dynamic list down. |
+| P-Sync/6 | NEW marketing routes: `/modeling-hub` (overview grid of all platforms), `/modeling-hub/[platformSlug]` (per-platform overview), `/modeling-hub/[platformSlug]/[moduleSlug]` (per-module marketing page rendering hero + features + how_it_works + testimonials + cta sections). Server-rendered with NavbarServer + SharedFooter, ISR revalidate=60s. |
+| P-Sync/7 | NEW `scripts/verify-psync.ts` (70 pass / 0 fail / 3 skip without dev server). NEW `tests/e2e/psync-flow.spec.ts` (4 specs targeting public marketing surface + public API endpoint). |
+
+**P-Sync pattern decisions for downstream phases:**
+- Source of truth lives in Supabase, not in TypeScript constants. M2.1 Revenue + downstream module additions happen via inserts into `platform_modules` (admin UI) instead of editing `MODULES` in modules-config.ts.
+- Three-way sync is intentional. Admin edits flow to workspace sidebar (via /api/platforms/.../modules) and marketing site (via /modeling-hub/...) within ISR window (60s).
+- Page-sections are jsonb, not normalized. Each marketing section's content_blocks holds its own typed shape (HeroContent / FeaturesContent / etc.). Future enhancement could provide structured form per section type.
+- Existing legacy `modules` table stays. It functions as the platforms-storage table even though its name predates the platform/module distinction. Renaming would touch every downstream admin API; the cost-benefit favours the comment-only workaround.
+- RLS public read filters hidden + invisible. Anon role can never read status='hidden' modules or visible=false page sections. Service role bypasses for admin writes.
+
+---
+
+## Recently Completed, REFM Module 1 Phase M2.0i Final Polish (2026-05-07, 8 commits)
+
+Closes M2.0i. Final Module 1 polish closing 10 issues Ahmad raised after M2.0h. Module 1 reads cleanly to a first-time financial modeler: all inputs annual, all outputs flexible-granularity with proper distribution, all formatting correct, operational phases handled properly. Schema stays at v8 (additive `Project.displayDecimals`, `Phase.status` / `historicalBaseline`, `Asset.historicalBaseline`; `SubUnitMetric` rename `'count'` → `'units'` is type-only, runtime accepts both).
+
+| # | What changed |
+|---|--------------|
+| M2.0i/1 (Fix 1) | Drop Model Granularity input from Tab 1 + Tab 3/4 captions. modelType stays on schema for legacy compat but is no longer user-facing. |
+| M2.0i/2 (Fix 3) | New `DisplayDecimals` enum (0/1/2/3) on Project. Tab 1 Display Settings card with Scale + Decimals radios. New `makeProjectFormatter(prefs)` helper. Threaded through every formatted cell. |
+| M2.0i/3 (Fix 5) | Drop Parking Bays input. Asset card areas row collapses 4 → 3 cols. `Asset.parkingBaysRequired` stays on schema for legacy compat; `'rate_per_parking_bay'` filtered out of new-line dropdown. Future parking-bay revenue models as a Leasable sub-unit. |
+| M2.0i/4 (Fix 7 + 8) | Strategy short labels ('Sell' / 'Operate' / 'Lease' / 'Sell + Manage') + STRATEGY_TOOLTIPS hover map. Sticky sidebar via `height: 100vh; overflow: hidden` on platform shell + scrollable `<main>`. |
+| M2.0i/5 (Fix 6) | `SubUnitMetric` rename `'count'` → `'units'` (read-side accepts legacy 'count'). New switchMetric helper preserves area sqm on toggle. Unit Size always editable. |
+| M2.0i/6 (Fix 9) | Compact reconciliation: `LandReconciliationBlock` + `AssetAreaReconciliationBlock` collapsed-by-default with status icon (✓/✗/⚠) + headline. Auto-expand on mismatch. localStorage persistence. |
+| M2.0i/7 (Fix 10) | Operational phase historical baseline. New `PhaseStatus` (planning / construction / operational) + `PhaseHistoricalBaseline` interface (sunk capex, equity, debt drawn, current outstanding, cumulative depreciation, NBV fixed assets, last-12-months revenue + opex). Tab 1 Status column + 9-col baseline form on Operational. New calc helpers: `computePhaseHistorical(phase)` + `computeOperationalRunRate(baseline, period, revGrowth%, opexGrowth%)`. M5 Statements will consume both. |
+| M2.0i/8 | NEW `scripts/verify-m20i.ts` (59 pass / 0 fail / 2 skip without dev server). NEW `tests/e2e/m20i-final-polish.spec.ts` (7 specs + dark-mode). |
+
+**M2.0i pattern decisions for downstream phases:**
+- Inputs are annual; outputs flex via `distributeAnnualToPeriods`.
+- Display formatting is project-scoped via `makeProjectFormatter`.
+- Parking is sqm-only at the cost-engine level; revenue models via Leasable sub-unit.
+- Sub-unit metric is `'units' | 'area'`; storage stays one numeric `metricValue`.
+- Strategy labels short with hover tooltips. Standard for any enum-driven dropdown.
+- Reconciliation compact-by-default with localStorage persistence.
+- Phase + Asset status drives lifecycle treatment (planned / construction / operational).
+- Sticky sidebar at platform shell level.
+
+---
+
+## Recently Completed, REFM Module 1 Phase M2.0h Area Hierarchy + Cost Granularity + Display Cleanup + Migration Banner (2026-05-07, 8 commits)
+
+Closes M2.0h. Closes 6 structural / display issues Ahmad raised after M2.0g: existing v7 projects need migration trigger + banner; currency suffix on every cell is noisy; area model needs proper NSA / BUA / GFA hierarchy; NDA optional toggle at parcel level for jurisdictions reserving roads / parks; construction cost rate needs flexibility to per-sub-unit; runtime view granularity toggle on Tab 3 Results was deferred from M2.0g and ships now. Schema stays at v8 (additive `Parcel.hasNdaDeduction` / `roadsPct` / `parksPct`, `CostMethod.per_sub_unit_custom_rates`, `CostLine.perSubUnitRates`).
+
+| # | What changed |
+|---|--------------|
+| M2.0h/1 | Schema + 5 calc helpers: `computeAssetAreaHierarchy(asset, subUnits)` (NSA / BUA / GFA tiers), `computeParcelNda(parcel)`, `computeCostLinePerSubUnit(line, asset, subUnits)`, `distributeAnnualToPeriods(annual[], granularity, phasing)`, `formatPeriodLabel(iso, granularity)`. resolveAssetAreaMetrics rewires bua/gfa/nsa outputs (BUA includes Support, Parking is GFA-only). |
+| M2.0h/2 | Tab 2 area hierarchy UI: drop M2.0g Asset BUA Total input (BUA derives now). 4 inputs (Support / Parking / Parking Bays / GFA override) + 3 chips (NSA / BUA / GFA). Asset Reconciliation block itemizes sub-units → NSA → BUA → GFA. Globals card grows to 8 cols. |
+| M2.0h/3 | Tab 2 parcel NDA: 11-column parcels block with NDA? toggle + Roads% / Parks% / NDA / Effective NDA Rate columns. Land Reconciliation conditionally adds Total NDA line. |
+| M2.0h/4 | Tab 3 per-sub-unit + granularity: cost row method dropdown adds "Per sub-unit custom rates" with per-row table (sub-unit / area / rate / total). Tab 3 Results gains runtime granularity toggle (Annual / Quarterly / Monthly) re-rendering all 4 summary tables via `distributeAnnualToPeriods`. |
+| M2.0h/5 | Currency display cleanup: `currencyHeaderLine(currency, scale)` returns "All figures in SAR" / "... '000" / "... M". Header line at top of every tab. In-cell currency suffixes removed (cells render pure numbers via formatScaled). |
+| M2.0h/6 | v7 → v8 migration banner: `M20H_MIGRATION_NOTICE` constant + `snapshotNeedsV8Migration` fingerprint. Dismissable banner shown on first open of migrated v7 snapshot. Idempotent (saves migrated payload, banner won't reappear). |
+| M2.0h/7 | NEW `scripts/verify-m20h.ts` (62 pass / 0 fail / 2 skip without dev server). |
+| M2.0h/8 | NEW `tests/e2e/m20h-area-hierarchy-cost-granularity.spec.ts` (6 specs). |
+
+**M2.0h pattern decisions for downstream phases:**
+- Three-tier area hierarchy is the canonical convention from v8 forward. NSA ⊂ BUA ⊂ GFA where NSA = revenue sub-units, BUA = NSA + Support, GFA = BUA + Parking.
+- Parcel NDA is parcel-level, not project-level. Each parcel carries its own toggle + roads / parks split.
+- Per-sub-unit custom cost rates is the canonical pattern for granular cost differentiation.
+- Runtime view granularity is project-wide and persists on the project (`project.outputGranularity`).
+- Currency code lives in the per-tab header line. Cells render pure numbers via `formatScaled`.
+- Migration banner pattern: hand-off via `CheckedHydration.migrationNotice` + `AttachResult.migrationNotice` + dismissable shell banner.
+- Schema stays at v8 with additive optional fields. v8 snapshots that pre-date M2.0h continue to load and save without forced migration.
+
+---
+
 ## Recently Completed, REFM Module 1 Phase M2.0g Display + Reconciliation + Costs Restructure + v8 Schema (2026-05-06, 11 commits)
 
 Closes M2.0g. Resolves the 7 testing-feedback items + 3 addendum items Ahmad raised on M2.0f. Pivotal v7 → v8 schema bump: inputs are entered annually, output granularity (`outputGranularity: 'annual' | 'quarterly' | 'monthly'`) replaces `project.modelType`, phase periods are now always integer YEARS regardless of the eventual statement granularity. Pre-v8 monthly snapshots are migrated by aggregating each phase's `constructionPeriods / operationsPeriods / overlapPeriods` from months to years (×12 → ×1).
