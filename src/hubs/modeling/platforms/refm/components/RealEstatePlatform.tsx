@@ -484,7 +484,12 @@ export default function RealEstatePlatform(): React.JSX.Element {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+    // M2.0i Fix 8 (2026-05-07): outer wrapper height: 100vh (was
+    // minHeight: 100vh) so the page never grows beyond the viewport.
+    // Combined with `.app-shell { overflow: hidden }` and `<main
+    // overflow: auto >`, the sidebar stays put while only the
+    // workspace content scrolls. Standard SaaS pattern.
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
       <Topbar
         projectName={activeProjectData?.name ?? ''}
         activeProjectData={activeProjectData}

@@ -150,12 +150,22 @@ const fmtCurrencyWithCode = (
   decimals: import('../../lib/state/module1-types').DisplayDecimals = 2,
 ): string => formatScaledCurrency(n, currency, scale, decimals);
 
-// M2.0e: long-form strategy labels for the dropdown.
+// M2.0e: short strategy labels for the dropdown (M2.0i Fix 7
+// 2026-05-07: dropped the verbose descriptions; long-form details
+// surface as title-attribute hover tooltips via STRATEGY_TOOLTIPS).
 const STRATEGY_LABELS: Record<AssetStrategy, string> = {
-  'Sell':          'Sell, build and sell units (residential apartments)',
-  'Operate':       'Operate (Own), build, retain, operate (hotel ownership)',
-  'Lease':         'Lease (Own), build, retain, lease (retail ownership)',
-  'Sell + Manage': 'Sell + Manage, sell to investors, manage via agreement (Tower pattern)',
+  'Sell':          'Sell',
+  'Operate':       'Operate',
+  'Lease':         'Lease',
+  'Sell + Manage': 'Sell + Manage',
+};
+
+// M2.0i Fix 7 (2026-05-07): hover tooltip text per strategy.
+const STRATEGY_TOOLTIPS: Record<AssetStrategy, string> = {
+  'Sell':          'Build and sell units to investors (residential apartments, villa compounds).',
+  'Operate':       'Build, retain, and operate (hotel ownership, hospitality).',
+  'Lease':         'Build, retain, and lease (retail mall, office tower).',
+  'Sell + Manage': 'Sell to investors, retain operating rights via management agreement (branded residences with hotel operator).',
 };
 
 // Status pill color.
@@ -926,8 +936,11 @@ function AssetCard({
                 value={asset.strategy}
                 onChange={(e) => onUpdate({ strategy: e.target.value as AssetStrategy })}
                 style={inputStyle}
+                title={STRATEGY_TOOLTIPS[asset.strategy]}
               >
-                {ASSET_STRATEGIES.map((s) => (<option key={s} value={s}>{STRATEGY_LABELS[s]}</option>))}
+                {ASSET_STRATEGIES.map((s) => (
+                  <option key={s} value={s} title={STRATEGY_TOOLTIPS[s]}>{STRATEGY_LABELS[s]}</option>
+                ))}
               </select>
             </div>
             <div>
