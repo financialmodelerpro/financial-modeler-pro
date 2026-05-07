@@ -1,5 +1,5 @@
 # Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-07 (M2.0i Module 1 final polish: drop modelType input, Display Settings panel, sticky sidebar, compact reconciliation, operational phase baseline)**
+**Last updated: 2026-05-07 (Phase P-Sync: Platform & Module Admin Sync, three-way source of truth between admin dashboard, REFM workspace sidebar, and public marketing site)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -234,7 +234,8 @@ npx tsx scripts/verify-m20e.ts                  # M2.0e wizard + Tab 2 (58 pass 
 npx tsx scripts/verify-m20f.ts                  # M2.0f structural fixes (61 pass / 0 fail / 2 skip without dev server)
 npx tsx scripts/verify-m20g.ts                  # M2.0g display + reconciliation + Costs restructure (68 pass / 0 fail / 2 skip without dev server)
 npx tsx scripts/verify-m20h.ts                  # M2.0h area hierarchy + NDA + per-sub-unit + granularity + currency cleanup + migration banner (62 pass / 0 fail / 2 skip without dev server)
-npx tsx scripts/verify-m20i.ts                  # M2.0i final polish: drop modelType input + Display Settings (Scale + Decimals) + Parking Bays drop + units/area metric + strategy short labels + sticky sidebar + compact reconciliation + operational phase baseline (59 pass / 0 fail / 2 skip without dev server) <- canonical green
+npx tsx scripts/verify-m20i.ts                  # M2.0i final polish: drop modelType input + Display Settings (Scale + Decimals) + Parking Bays drop + units/area metric + strategy short labels + sticky sidebar + compact reconciliation + operational phase baseline (59 pass / 0 fail / 2 skip without dev server)
+npx tsx scripts/verify-psync.ts                 # P-Sync platform/module admin sync: SQL migration + 4 API routes + 9 lib helpers + admin 2-level UI + sidebar dynamic fetch + 3 marketing pages (70 pass / 0 fail / 3 skip without dev server) <- canonical green
 
 # Playwright e2e specs (M2.0 v5/v6/v7 contract)
 npx playwright test tests/e2e/m20-full-flow.spec.ts        # 2 specs: 3-step wizard create + 4-tab landing + 8 light/dark tab screenshots
@@ -246,6 +247,7 @@ npx playwright test tests/e2e/m20f-structural-fixes.spec.ts # 4 specs: shell pag
 npx playwright test tests/e2e/m20g-display-recon-costs.spec.ts # 5 specs: Wizard Display Scale + Reporting Granularity (Fix 3 + Addendum 3) + Costs sub-tabs + 4 summary tables (Fix 7) + land reconciliation block (Fix 2) + asset Support/Parking + BUA reconciliation (Fix 4 + 5) + Manual % phasing (Addendum 1)
 npx playwright test tests/e2e/m20h-area-hierarchy-cost-granularity.spec.ts # 6 specs: currency header line (Fix 2) + NSA/BUA/GFA hierarchy chips (Fix 3) + parcel NDA toggle (Fix 4) + per-sub-unit custom rates sub-row (Fix 5) + Tab 3 Results granularity toggle (Fix 6) + dark-mode screenshot
 npx playwright test tests/e2e/m20i-final-polish.spec.ts # 7 specs: no Model Granularity input (Fix 1) + Display Settings panel (Fix 3) + no Parking Bays input (Fix 5) + sub-unit Units/Area labels (Fix 6) + Strategy short labels (Fix 7) + reconciliation compact summary (Fix 9) + operational phase historical baseline (Fix 10) + dark-mode
+npx playwright test tests/e2e/psync-flow.spec.ts # 4 specs: /modeling-hub overview + per-platform modules grid + per-module hero/features/cta + /api/platforms/refm/modules JSON shape
 ```
 
 ### Per-phase verification workflow (M1.7+)
@@ -262,6 +264,119 @@ not installed). Test-user fixture id `00000000-0000-0000-0000-000000000000` with
 
 **Dev dependencies (M1.7)**: `@playwright/test ^1.59.1` + chromium browser
 (`npx playwright install chromium`).
+
+### Phase P-Sync status (2026-05-07, **Platform & Module Admin Sync, three-way source of truth**)
+
+**P-Sync (current, ships):** Closes the loop between three previously
+disjoint module/platform listings (the static `MODULES` constant in REFM,
+the legacy `modules` table in admin, and the hardcoded marketing
+`PLATFORMS` config) by introducing two new Supabase tables, a public API
+surface, an admin two-level UI, a dynamic REFM sidebar fetch, and a
+public marketing page set. 7 commits:
+
+- **/1 (SQL migration)**: `supabase/migrations/p_sync_platform_modules.sql`
+  adds `platform_modules` (per-platform sub-modules with
+  status: live/coming_soon/hidden/pro/enterprise + gating_tier:
+  free/pro/enterprise + features jsonb + screenshots jsonb) and
+  `platform_module_pages` (page_section: hero/features/how_it_works/cta/
+  testimonials, content_blocks jsonb). RLS public-read filters
+  status='hidden' / visible=false; service-role bypasses for admin
+  writes. Cascade delete on module pages. updated_at trigger. Seed
+  data: 11 REFM modules at M2.0i state with descriptions and feature
+  bullets, plus Module 1 page content (hero/features/how_it_works/
+  cta sections). Idempotent (CREATE IF NOT EXISTS, INSERT ON CONFLICT
+  DO NOTHING). Existing `modules` table NOT renamed (treated as
+  platforms-storage; legacy callers continue to work).
+- **/2 (TypeScript types + lib helpers)**: `src/shared/cms/platform-
+  modules.ts` exports PlatformModule + PlatformModulePage interfaces,
+  PlatformModuleStatus + PlatformModuleGatingTier + PlatformModulePage-
+  Section types, 9 helper functions: getPlatformModules /
+  getPlatformModuleBySlug / getPlatformModulePages /
+  getPlatformModuleWithPages (public reads, RLS-safe);
+  adminListPlatformModules / adminListPlatformModulePages /
+  adminUpsertPlatformModule / adminDeletePlatformModule /
+  adminUpsertPlatformModulePage / adminDeletePlatformModulePage
+  (admin writes via service-role); getSectionContent typed extractor.
+  5 typed content interfaces: HeroContent / FeaturesContent /
+  HowItWorksContent / CtaContent / TestimonialsContent.
+- **/3 (API routes)**: 4 endpoints, all guarded with NextAuth admin
+  role check on writes:
+  * `GET /api/platforms/[platformSlug]/modules` (public list, ?include-
+    Hidden=1 admin)
+  * `POST /api/platforms/[platformSlug]/modules` (admin create)
+  * `GET /api/platforms/[platformSlug]/modules/[moduleSlug]` (public
+    single + pages bundle)
+  * `PATCH /api/platforms/[platformSlug]/modules/[moduleSlug]` (admin)
+  * `DELETE /api/platforms/[platformSlug]/modules/[moduleSlug]` (admin,
+    by ?id= or by slug fallback)
+  * `GET /api/admin/platform-module-pages?moduleId=` (admin list)
+  * `POST /api/admin/platform-module-pages` (admin upsert by
+    module_id+page_section)
+  * `PATCH /api/admin/platform-module-pages/[id]` (admin update)
+  * `DELETE /api/admin/platform-module-pages/[id]` (admin delete)
+  Cache-Control: public, s-maxage=300 on public reads.
+- **/4 (Admin 2-level UI)**: `/admin/platform-modules` Level 1 platform
+  tabs (REFM/BVM/FPA/...) read from /api/admin/modules, Level 2 modules
+  table per active platform with inline create/edit/delete + status
+  cycling (live -> coming_soon -> pro -> enterprise -> hidden -> live)
+  + features textarea (one bullet per line) + status pill +
+  display_order + slug locked on edit. Linked from each row to
+  `/admin/platform-modules/[id]/pages` (page-sections editor with one
+  card per section, JSON textarea for content_blocks, per-section
+  visibility toggle, pre-seeded templates so admin doesn't have to
+  remember section shapes). CmsAdminNav grew "Platform Modules" entry
+  under the Modeling Hub group.
+- **/5 (REFM sidebar dynamic fetch)**: `src/hubs/modeling/platforms/
+  refm/lib/usePlatformModules.ts` exposes a custom hook that fetches
+  /api/platforms/refm/modules at mount and converts each row to
+  SidebarNavItem shape (icon_emoji -> icon, short_name -> label,
+  status -> badge + disabled, gating_tier -> requiredPlan). Falls
+  back to STATIC_SIDEBAR_MODULES (computed from the legacy MODULES
+  constant) during inflight or on fetch error so sidebar never
+  renders empty. Sidebar.tsx accepts an optional `modules` prop;
+  RealEstatePlatform.tsx passes the dynamic list down.
+- **/6 (Marketing site pages)**: 3 server-rendered routes:
+  * `/modeling-hub` (overview grid of all platforms reading legacy
+    modules table via getModules)
+  * `/modeling-hub/[platformSlug]` (per-platform overview with
+    modules grid + status pills)
+  * `/modeling-hub/[platformSlug]/[moduleSlug]` (per-module marketing
+    page rendering hero + features + how_it_works + testimonials +
+    cta sections from platform_module_pages)
+  All three use NavbarServer + SharedFooter and pull footer copy from
+  cms_content. revalidate=60s ISR.
+- **/7 (verifier + Playwright + docs sweep)**: `scripts/verify-
+  psync.ts` (70 pass / 0 fail / 3 skip without dev server) covering
+  18 SQL marker checks + 4 route file checks + 20 lib helper
+  checks + 26 source markers + em-dash sweep across 12 new files +
+  Playwright presence/run gate. `tests/e2e/psync-flow.spec.ts` with
+  4 specs targeting the public marketing surface and the public API
+  endpoint.
+
+**P-Sync pattern decisions for downstream phases:**
+- **Source of truth lives in Supabase, not in TypeScript constants.**
+  M2.1 Revenue and downstream module additions happen via inserts
+  into `platform_modules` (admin UI) instead of editing `MODULES` in
+  modules-config.ts. Static constants stay as fallback for sidebar
+  bootstrap and offline dev.
+- **Three-way sync is intentional, not coincidental.** Admin edits
+  flow to the workspace sidebar (via /api/platforms/.../modules) and
+  the marketing site (via /modeling-hub/...) within ISR window
+  (60s). When adding a new platform sub-module, admin updates the
+  row once and all three surfaces pick it up.
+- **Page-sections are jsonb, not normalized.** Each marketing
+  section's content_blocks holds its own typed shape (HeroContent /
+  FeaturesContent / etc.). Admin edits via JSON textarea; future
+  enhancement could provide structured form per section type.
+- **Existing legacy `modules` table stays.** It functions as the
+  platforms-storage table even though its name predates the
+  platform/module distinction. Renaming it would touch every
+  downstream admin API; the cost-benefit favours the comment-only
+  workaround.
+- **RLS public read filters hidden + invisible.** Anon role can never
+  read status='hidden' modules or visible=false page sections.
+  Service role bypasses for admin writes. No write policies needed
+  for anon role.
 
 ### Module 1 status (2026-05-07, **M2.0i Module 1 final polish, module locked before M2.1 Revenue**)
 

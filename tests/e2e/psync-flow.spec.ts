@@ -47,8 +47,10 @@ test.describe('P-Sync marketing surface', () => {
 
   test('3. /modeling-hub/refm/project-setup renders hero + features + cta', async ({ page }) => {
     const res = await page.goto('/modeling-hub/refm/project-setup');
-    if (!res || res.status() === 404) test.skip(true, 'project-setup module not seeded');
-    if (res.status() >= 500) test.skip(true, `module page errored (HTTP ${res.status()})`);
+    if (!res) test.skip(true, '/modeling-hub/refm/project-setup not reachable');
+    const status = res!.status();
+    if (status === 404) test.skip(true, 'project-setup module not seeded');
+    if (status >= 500) test.skip(true, `module page errored (HTTP ${status})`);
 
     await expect(page.getByTestId('module-hero')).toBeVisible({ timeout: 10000 });
 
