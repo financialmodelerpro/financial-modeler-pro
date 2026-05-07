@@ -411,7 +411,7 @@ export default function Module1Financing(): React.JSX.Element {
         <div>
           <h2 style={{ margin: 0, fontSize: 'var(--font-h2)', fontWeight: 'var(--fw-bold)' }}>4. Financing</h2>
           <div style={{ color: 'var(--color-meta)', fontSize: 12 }}>
-            Granularity: <strong>{project.modelType}</strong> · Total span: {phase.constructionPeriods + phase.operationsPeriods - phase.overlapPeriods} {project.modelType === 'annual' ? 'years' : 'months'}
+            Total span: {phase.constructionPeriods + phase.operationsPeriods - phase.overlapPeriods} years · inputs entered annually
           </div>
           {/* M2.0h Fix 2 (2026-05-07): single currency / scale header line per tab. */}
           <div

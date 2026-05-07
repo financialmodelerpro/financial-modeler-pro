@@ -1367,7 +1367,7 @@ export default function Module1Costs(): React.JSX.Element {
         <div>
           <h2 style={{ margin: 0, fontSize: 'var(--font-h2)', fontWeight: 'var(--fw-bold)' }}>3. Development Costs</h2>
           <div style={{ color: 'var(--color-meta)', fontSize: 12 }}>
-            Granularity: <strong>{project.modelType}</strong> · {phases.length} phase{phases.length > 1 ? 's' : ''} · {allVisibleAssets.length} active asset{allVisibleAssets.length === 1 ? '' : 's'}
+            {phases.length} phase{phases.length > 1 ? 's' : ''} · {allVisibleAssets.length} active asset{allVisibleAssets.length === 1 ? '' : 's'} · inputs entered annually
           </div>
           {/* M2.0h Fix 2 (2026-05-07): single currency / scale header
               line per tab. Cells stay free of currency suffix. */}

@@ -18,7 +18,6 @@ import { useModule1Store } from '../../lib/state/module1-store';
 import {
   type Phase,
   type Project,
-  type ModelGranularity,
   type ProjectStatus,
 } from '../../lib/state/module1-types';
 import { computeProjectEndDate, computePhaseTimeline, computeProjectTimeline } from '@/src/core/calculations';
@@ -59,7 +58,6 @@ const tableHeaderLabelStyle: React.CSSProperties = {
 };
 
 const STATUS_OPTIONS: ProjectStatus[] = ['draft', 'active', 'archived'];
-const MODEL_OPTIONS: ModelGranularity[] = ['monthly', 'annual'];
 
 export default function Module1ProjectPhases(): React.JSX.Element {
   const { project, phases, setProject, addPhase, updatePhase, removePhase } = useModule1Store(
@@ -185,26 +183,11 @@ export default function Module1ProjectPhases(): React.JSX.Element {
               style={inputStyle}
             />
           </div>
-          <div>
-            <InputLabel
-              label="Model Granularity"
-              help="Monthly = each period is 1 month. Annual = each period is 1 year (12 months bundled)."
-              inputId="project-modelType"
-            />
-            <select
-              id="project-modelType"
-              data-testid="project-modelType"
-              value={project.modelType}
-              onChange={(e) => setProject({ modelType: e.target.value as ModelGranularity })}
-              style={inputStyle}
-            >
-              {MODEL_OPTIONS.map((m) => (
-                <option key={m} value={m}>
-                  {m === 'monthly' ? 'Monthly' : 'Annual'}
-                </option>
-              ))}
-            </select>
-          </div>
+          {/* M2.0i Fix 1 (2026-05-07): Model Granularity input dropped.
+              All inputs are entered annually (M2.0g architecture); the
+              previous monthly option now lives only as legacy schema
+              compat. Output view granularity (Annual / Quarterly /
+              Monthly) toggles on Tab 3 Costs Results sub-tab. */}
           <div>
             <InputLabel
               label="Project Start Date"
