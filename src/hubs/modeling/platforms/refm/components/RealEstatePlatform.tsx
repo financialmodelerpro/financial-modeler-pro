@@ -52,6 +52,7 @@ import UpgradePrompt from '@/src/shared/components/UpgradePrompt';
 
 import { buildWizardSnapshot } from '../lib/wizard/buildWizardSnapshot';
 import { MODULES } from '../lib/modules-config';
+import { usePlatformModules } from '../lib/usePlatformModules';
 
 // ── StorageShape (consumer contract for ProjectsScreen / Dashboard / Overview) ──
 export interface StorageProject {
@@ -168,6 +169,10 @@ export default function RealEstatePlatform(): React.JSX.Element {
   const [activeTab, setActiveTab] = useState('project-phases');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarSubOpen, setSidebarSubOpen] = useState(true);
+
+  // P-Sync: dynamic platform modules from /api/platforms/refm/modules.
+  // Falls back to static MODULES list while in flight.
+  const { modules: dynamicSidebarModules } = usePlatformModules('refm');
 
   // Subscription / plan gating (currently locked pre-launch)
   const canAccess = (_featureKey: string): boolean => false;
@@ -526,6 +531,7 @@ export default function RealEstatePlatform(): React.JSX.Element {
           onLockedModuleClick={onLockedModuleClick}
           onOpenProjects={() => setProjectModalOpen(true)}
           onOpenRbac={() => setRbacModalOpen(true)}
+          modules={dynamicSidebarModules}
         />
         <main style={{ flex: 1, padding: 'var(--sp-3)', overflow: 'auto' }}>
           {loadError && (

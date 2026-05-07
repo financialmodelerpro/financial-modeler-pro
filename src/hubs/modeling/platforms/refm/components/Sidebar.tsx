@@ -16,7 +16,8 @@
 import React from 'react';
 import type { Role } from '@/src/core/types/settings.types';
 import { ROLE_META } from '@/src/core/state';
-import { sidebarModules, m1Tabs } from './RealEstatePlatform';
+import { sidebarModules as staticSidebarModules, m1Tabs } from './RealEstatePlatform';
+import type { SidebarNavItem } from '../lib/usePlatformModules';
 import PlanBadge from './PlanBadge';
 
 interface SidebarProps {
@@ -38,6 +39,8 @@ interface SidebarProps {
   onLockedModuleClick: (featureKey: string, requiredPlan: 'professional' | 'enterprise') => void;
   onOpenProjects: () => void;
   onOpenRbac: () => void;
+  /** Optional dynamic module list, overrides the static export. */
+  modules?: readonly SidebarNavItem[];
 }
 
 export default function Sidebar({
@@ -59,8 +62,10 @@ export default function Sidebar({
   onLockedModuleClick,
   onOpenProjects,
   onOpenRbac,
+  modules,
 }: SidebarProps): React.JSX.Element {
   const roleMeta = ROLE_META[currentUserRole];
+  const sidebarModules = modules ?? staticSidebarModules;
 
   return (
     <aside className={`sidebar${sidebarCollapsed ? ' collapsed' : ''}`} data-testid="sidebar">
