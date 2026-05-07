@@ -7,6 +7,27 @@
  * 1,000,000 based on the project's displayScale. formatScaled and
  * formatScaledCurrency are the canonical helpers; legacy formatNumber
  * / formatCurrency stay for callers that haven't migrated yet.
+ *
+ * M2.0j Fix 4 + 5 (2026-05-07): export consideration. The "K" / "M"
+ * suffix appended in formatScaled is intentional for the platform UI
+ * (helps the user visually scan magnitudes). For PDF / Excel exports
+ * (handled by a future Export module, not this module), the export
+ * layer should:
+ *   - Render the scale ONCE in a header / sheet caption (e.g.
+ *     "All figures in SAR '000 unless stated"), via currencyHeaderLine.
+ *   - Render individual cells WITHOUT the K / M suffix - just the
+ *     scaled-and-formatted number with thousand separators. Use
+ *     formatScaledForExport (added below) to strip the suffix while
+ *     keeping the scale division + decimal formatting.
+ *
+ * Percentages should always render with 2 decimals regardless of the
+ * project's displayDecimals setting (Fix 5). Use formatPercent and
+ * pass decimals = 2 (the new default).
+ *
+ * Areas (sqm) follow a different convention: they are NEVER scaled by
+ * thousands / millions even when project.displayScale = 'thousands'.
+ * Use formatArea (added below) which formats with thousand separators
+ * + the project's displayDecimals but no K / M suffix.
  */
 
 export type DisplayScale = 'full' | 'thousands' | 'millions';
@@ -119,8 +140,43 @@ export function formatCurrency(num: number | null | undefined, currency: string)
   return `${currency} ${Math.round(num).toLocaleString('en-US')}`;
 }
 
-export function formatPercent(num: number, decimals = 1): string {
-  return `${num.toFixed(decimals)}%`;
+// M2.0j Fix 5 (2026-05-07): percentages always render with 2 decimals
+// regardless of project.displayDecimals. Default flipped from 1 to 2.
+export function formatPercent(num: number, decimals = 2): string {
+  if (num === null || num === undefined || isNaN(num as number)) return '0.00%';
+  return `${(num as number).toFixed(decimals)}%`;
+}
+
+// M2.0j Fix 5 (2026-05-07): area formatter. Areas (sqm) are NEVER scaled
+// by thousands / millions, but they DO follow the project's
+// displayDecimals setting and use thousand separators. Used for parcel
+// area, asset BUA, sub-unit area, etc. Negative values render in
+// parentheses to match accounting convention.
+export function formatArea(num: number | null | undefined, decimals: DisplayDecimals = 2): string {
+  if (num === null || num === undefined || isNaN(num as number)) {
+    return (0).toFixed(decimals);
+  }
+  if (num === 0) return (0).toFixed(decimals);
+  const abs = Math.abs(num as number);
+  const text = abs.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  return (num as number) < 0 ? `(${text})` : text;
+}
+
+// M2.0j Fix 4 (2026-05-07): export-friendly formatter. Same scale
+// division + decimal handling as formatScaled, but WITHOUT the K / M
+// suffix. The export module renders scale once in the sheet header.
+export function formatScaledForExport(num: number | null | undefined, scale: DisplayScale = 'full', decimals?: number): string {
+  if (num === null || num === undefined || isNaN(num as number)) {
+    const d = decimals ?? SCALE_DECIMALS[scale];
+    return (0).toFixed(d);
+  }
+  const divisor = SCALE_DIVISOR[scale];
+  const scaled = (num as number) / divisor;
+  const abs = Math.abs(scaled);
+  const d = decimals ?? SCALE_DECIMALS[scale];
+  const text = abs.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  if (scaled < 0) return `(${text})`;
+  return text;
 }
 
 // M2.0h Fix 2 (2026-05-07): currency header line text used at the top

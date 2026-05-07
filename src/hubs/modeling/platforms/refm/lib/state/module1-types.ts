@@ -483,7 +483,7 @@ export interface Asset {
   id: string;
   phaseId: string;
   name: string;
-  type: string;                  // free-text, chosen from the M2.0 type bank
+  type: string;                  // free-text, optional from M2.0j Fix 2 ('' = unspecified); legacy snapshots set a default
   strategy: AssetStrategy;
   visible: boolean;
   // Land (legacy mirrors; kept for backward compat with v7 snapshots

@@ -68,7 +68,7 @@ import {
   resolveUsefulLifeYears,
   validateLandAllocation,
 } from '@/src/core/calculations';
-import { currencyHeaderLine, formatScaled, formatScaledCurrency } from '@/src/core/formatters';
+import { currencyHeaderLine, formatArea, formatScaled, formatScaledCurrency } from '@/src/core/formatters';
 import InputLabel from '../ui/InputLabel';
 
 // ── Styles ─────────────────────────────────────────────────────────────────
@@ -201,9 +201,28 @@ function rateUnitLabel(category: SubUnitCategory, metric: SubUnitMetric): string
 
 // Type catalog for the asset Type dropdown. Project.projectType wins
 // when set; otherwise falls back to strategy-keyed catalog.
+//
+// M2.0j Fix 2: Mixed-Use and Custom return the UNION of all per-category
+// catalogs (deduped) so users on a Mixed-Use project can pick any asset
+// type from any sector. Specific project types still filter to their
+// own catalog.
 function resolveTypeCatalog(asset: Asset, project: Project): readonly string[] {
-  if (project.projectType && ASSET_TYPES_BY_PROJECT_TYPE[project.projectType]) {
-    return ASSET_TYPES_BY_PROJECT_TYPE[project.projectType];
+  const pt = project.projectType;
+  if (pt === 'Mixed-Use' || pt === 'Custom') {
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const cat of Object.values(ASSET_TYPES_BY_PROJECT_TYPE)) {
+      for (const t of cat) {
+        if (!seen.has(t)) {
+          seen.add(t);
+          out.push(t);
+        }
+      }
+    }
+    return out;
+  }
+  if (pt && ASSET_TYPES_BY_PROJECT_TYPE[pt]) {
+    return ASSET_TYPES_BY_PROJECT_TYPE[pt];
   }
   return ASSET_TYPES_BY_STRATEGY[asset.strategy];
 }
@@ -317,7 +336,9 @@ export default function Module1Assets(): React.JSX.Element {
       id: `asset_${Date.now()}`,
       phaseId,
       name: `Asset ${phaseAssetCount + 1}`,
-      type: project.projectType ? (ASSET_TYPES_BY_PROJECT_TYPE[project.projectType][0] ?? '') : 'High-end Apartments',
+      // M2.0j Fix 2: default to empty string. Type is optional and the
+      // user can leave it blank or pick / type any value.
+      type: '',
       strategy: 'Sell',
       visible: true,
       gfaSqm: 0,
@@ -380,14 +401,16 @@ export default function Module1Assets(): React.JSX.Element {
             <tr>
               <th style={tableHeaderStyle}><InputLabel label="Parcel Name" help="Free-text label." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}><InputLabel label="Area (sqm)" help="Land area for this parcel." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}><InputLabel label="Rate (per sqm)" help="Acquisition cost per sqm." textStyle={tableHeaderLabelStyle} /></th>
+              {/* M2.0j Fix 3: Header is just `{currency}/sqm`. Tooltip explains the rate model. */}
+              <th style={tableHeaderStyle}><InputLabel label={`${project.currency}/sqm`} help="Per-sqm acquisition cost. Total parcel cost = Area x Rate. Asset land cost = asset's allocated sqm x parcel's rate (or weighted average / custom override at the asset level)." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}><InputLabel label="Cash %" help="Share paid in cash. Cash + In-kind = 100." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}><InputLabel label="In-Kind %" help="Share paid in-kind (equity from landowner)." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}><InputLabel label="NDA?" help="Net Developable Area deduction. Toggle ON to subtract Roads % + Parks % from the parcel's developable area." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}><InputLabel label="Roads %" help="Share of parcel area reserved for roads (only when NDA toggle is on)." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}><InputLabel label="Parks %" help="Share of parcel area reserved for parks (only when NDA toggle is on)." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}><InputLabel label="NDA (sqm)" help="Net developable area = parcel area × (1 - roads% - parks%). When toggle off, equals parcel area." textStyle={tableHeaderLabelStyle} /></th>
-              <th style={tableHeaderStyle}><InputLabel label="Effective NDA Rate" help="Total parcel cost / NDA. Inflated when roads + parks reserve some of the parcel; equal to parcel rate when NDA toggle off." textStyle={tableHeaderLabelStyle} /></th>
+              {/* M2.0j Fix 3: Effective NDA rate uses currency unit too. */}
+              <th style={tableHeaderStyle}><InputLabel label={`${project.currency}/NDA sqm`} help="Total parcel cost / NDA. Inflated when roads + parks reserve some of the parcel; equal to parcel rate when NDA toggle off." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}><InputLabel label="Total Value" help="Auto = Area x Rate." textStyle={tableHeaderLabelStyle} /></th>
               <th style={tableHeaderStyle}></th>
             </tr>
@@ -400,20 +423,25 @@ export default function Module1Assets(): React.JSX.Element {
                 onUpdate={(patch) => updateParcel(parcel.id, patch)}
                 onRemove={() => removeParcel(parcel.id)}
                 canRemove={parcels.length > 1}
+                scale={project.displayScale ?? 'full'}
+                decimals={project.displayDecimals ?? 2}
               />
             ))}
           </tbody>
           <tfoot>
+            {/* M2.0j Fix 5: totals row uses formatArea for sqm and
+                formatScaled (project displayScale + displayDecimals) for
+                rate / monetary cells. */}
             <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 'var(--fw-bold)' }}>
               <td style={{ padding: 'var(--sp-1)' }}>Totals</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-area">{fmt(aggregate.totalAreaSqm)} sqm</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-weighted-rate">{fmt(aggregate.weightedRate, 2)} /sqm</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-cash-value">{fmt(aggregate.cashValue)}</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-inkind-value">{fmt(aggregate.inKindValue)}</td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-area">{formatArea(aggregate.totalAreaSqm, project.displayDecimals ?? 2)} sqm</td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-weighted-rate">{formatScaled(aggregate.weightedRate, project.displayScale ?? 'full', project.displayDecimals ?? 2)} /sqm</td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-cash-value">{formatScaled(aggregate.cashValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-inkind-value">{formatScaled(aggregate.inKindValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
               <td colSpan={3}></td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-nda">{fmt(parcels.reduce((s, p) => s + computeParcelNda(p).nda, 0))} sqm</td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-nda">{formatArea(parcels.reduce((s, p) => s + computeParcelNda(p).nda, 0), project.displayDecimals ?? 2)} sqm</td>
               <td></td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-value">{fmt(aggregate.totalValue)}</td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-value">{formatScaled(aggregate.totalValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
               <td></td>
             </tr>
           </tfoot>
@@ -541,9 +569,13 @@ interface ParcelRowProps {
   onUpdate: (patch: Partial<Parcel>) => void;
   onRemove: () => void;
   canRemove: boolean;
+  // M2.0j Fix 5: thread project display preferences so the parcel rate,
+  // NDA, total value cells respect Display Scale + Decimals.
+  scale: import('../../lib/state/module1-types').DisplayScale;
+  decimals: import('../../lib/state/module1-types').DisplayDecimals;
 }
 
-function ParcelRow({ parcel, onUpdate, onRemove, canRemove }: ParcelRowProps): React.JSX.Element {
+function ParcelRow({ parcel, onUpdate, onRemove, canRemove, scale, decimals }: ParcelRowProps): React.JSX.Element {
   const total = parcel.area * parcel.rate;
   const nda = computeParcelNda(parcel);
   const ndaOn = parcel.hasNdaDeduction === true;
@@ -554,9 +586,13 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove }: ParcelRowProps): R
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
         <input type="number" min={0} value={parcel.area} data-testid={`parcel-${parcel.id}-area`} onChange={(e) => onUpdate({ area: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+        {/* M2.0j Fix 5: formatted area readout (project decimals + thousand separator). */}
+        <div style={{ fontSize: 10, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`parcel-${parcel.id}-area-fmt`}>{formatArea(parcel.area, decimals)} sqm</div>
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
         <input type="number" min={0} value={parcel.rate} data-testid={`parcel-${parcel.id}-rate`} onChange={(e) => onUpdate({ rate: Math.max(0, Number(e.target.value) || 0) })} style={inputStyle} />
+        {/* M2.0j Fix 5: rate respects Display Scale + Decimals. */}
+        <div style={{ fontSize: 10, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`parcel-${parcel.id}-rate-fmt`}>{formatScaled(parcel.rate, scale, decimals)}</div>
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
         <input
@@ -606,13 +642,15 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove }: ParcelRowProps): R
           disabled={!ndaOn}
         />
       </td>
+      {/* M2.0j Fix 5: NDA sqm uses formatArea (no scale conversion);
+          rate + total follow project displayScale + displayDecimals. */}
       <td style={{ padding: 'var(--sp-1)', color: 'var(--color-heading)' }} data-testid={`parcel-${parcel.id}-nda`}>
-        {fmt(nda.nda)}
+        {formatArea(nda.nda, decimals)}
       </td>
       <td style={{ padding: 'var(--sp-1)', color: 'var(--color-heading)' }} data-testid={`parcel-${parcel.id}-effectiveNdaRate`}>
-        {fmt(nda.effectiveNdaRate, 2)}
+        {formatScaled(nda.effectiveNdaRate, scale, decimals)}
       </td>
-      <td style={{ padding: 'var(--sp-1)', color: 'var(--color-heading)' }} data-testid={`parcel-${parcel.id}-total`}>{fmt(total)}</td>
+      <td style={{ padding: 'var(--sp-1)', color: 'var(--color-heading)' }} data-testid={`parcel-${parcel.id}-total`}>{formatScaled(total, scale, decimals)}</td>
       <td style={{ padding: 'var(--sp-1)', textAlign: 'right' }}>
         {canRemove && (
           <button type="button" onClick={onRemove} data-testid={`parcel-${parcel.id}-remove`} style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}>Remove</button>
@@ -883,8 +921,12 @@ function AssetCard({
               </select>
             </div>
             <div>
-              <InputLabel label="Type" help={`Asset type. Catalog filtered by Project Type (${project.projectType ?? 'Mixed-Use'}). Free-text any other type.`} inputId={`asset-${asset.id}-type`} />
-              <input id={`asset-${asset.id}-type`} data-testid={`asset-${asset.id}-type`} type="text" list={`asset-types-${asset.id}`} value={asset.type} onChange={(e) => onUpdate({ type: e.target.value })} style={inputStyle} />
+              {/* M2.0j Fix 2: Type is OPTIONAL. Field accepts free text;
+                  datalist suggestions cover the project type's catalog
+                  (Mixed-Use / Custom show the union of every catalog).
+                  Type drives the Useful Life default suggestion only. */}
+              <InputLabel label="Type (optional)" help={`Optional asset type. Suggestions filtered by Project Type (${project.projectType ?? 'Mixed-Use'}); free-text any other value or leave blank. Drives Useful Life default only.`} inputId={`asset-${asset.id}-type`} />
+              <input id={`asset-${asset.id}-type`} data-testid={`asset-${asset.id}-type`} type="text" list={`asset-types-${asset.id}`} value={asset.type ?? ''} placeholder="e.g. Tower, Branded Apartments, Hotel..." onChange={(e) => onUpdate({ type: e.target.value })} style={inputStyle} />
               <datalist id={`asset-types-${asset.id}`}>
                 {typeOptions.map((t) => (<option key={t} value={t} />))}
               </datalist>

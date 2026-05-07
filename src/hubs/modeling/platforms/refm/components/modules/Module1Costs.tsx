@@ -46,6 +46,7 @@ import {
   type SubUnit,
   COST_METHODS,
   COST_METHOD_LABELS,
+  COST_PHASING_OPTIONS,
   COST_PHASINGS,
   COST_STAGES,
   COST_STAGE_LABELS,
@@ -313,7 +314,8 @@ function CustomCostPopup({ phaseId, assetId, constructionPeriods, onClose, onSav
               style={inputStyle}
               data-testid="custom-cost-phasing"
             >
-              {COST_PHASINGS.map((p) => (
+              {/* M2.0j Fix 9: only Even + Manual % offered to user. */}
+              {COST_PHASING_OPTIONS.map((p) => (
                 <option key={p} value={p}>{PHASING_LABELS[p]}</option>
               ))}
             </select>
@@ -562,7 +564,12 @@ function CostRow({
           style={{ ...inputStyle, fontSize: 11 }}
           data-testid={`cost-${asset.id}-${line.id}-phasing`}
         >
-          {COST_PHASINGS.map((p) => (
+          {/* M2.0j Fix 9: dropdown shows only Even + Manual %.  Legacy
+              values (sCurve / front-loaded / back-loaded / phase_aligned)
+              still load + render correctly via PHASING_LABELS but are
+              not user-pickable; opening the dropdown silently normalises
+              to Even on next save (handled by migrateM20jPhasing). */}
+          {COST_PHASING_OPTIONS.map((p) => (
             <option key={p} value={p}>{PHASING_LABELS[p]}</option>
           ))}
         </select>
