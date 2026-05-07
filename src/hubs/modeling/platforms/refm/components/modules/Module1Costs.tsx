@@ -43,11 +43,11 @@ import {
   type DisplayScale,
   type DisplayDecimals,
   type OutputGranularity,
+  type Phase,
   type SubUnit,
   COST_METHODS,
   COST_METHOD_LABELS,
   COST_PHASING_OPTIONS,
-  COST_PHASINGS,
   COST_STAGES,
   COST_STAGE_LABELS,
   PER_SUBUNIT_RATE_KEY_SUPPORT,
@@ -925,7 +925,7 @@ interface SummaryTablesProps {
   phaseAssets: Asset[];
   perPhaseBreakdowns: Array<{ phaseId: string; cp: number; assetTotals: Record<string, AssetCostBreakdown> }>;
   parcelsByPhase: Map<string, { cashLandValue: number; inKindLandValue: number }>;
-  metricsByAsset: Map<string, { cashLandValue: number; inKindLandValue: number; landValue: number }>;
+  metricsByAsset: Map<string, ReturnType<typeof resolveAssetAreaMetrics>>;
   project: { currency: string; startDate: string; modelType: 'monthly' | 'annual'; displayScale: DisplayScale; displayDecimals: DisplayDecimals };
   totalConstructionPeriods: number;
   // M2.0g Fix 7a: per-cost-line breakdown needs the full line list so
@@ -934,11 +934,14 @@ interface SummaryTablesProps {
   // M2.0h Fix 6 (2026-05-07): runtime output granularity. Annual inputs
   // distribute to quarterly (4×) or monthly (12×) using cost line phasing.
   granularity: OutputGranularity;
+  // M2.0j Fix 11 (2026-05-07): phase list for phase-start-aware
+  // period allocation in Capex by Period.
+  phases: Phase[];
 }
 
 function SummaryTables({
   phaseAssets, perPhaseBreakdowns, metricsByAsset,
-  project, totalConstructionPeriods, costLines, granularity,
+  project, totalConstructionPeriods, costLines, granularity, phases,
 }: SummaryTablesProps): React.JSX.Element {
   const scale = project.displayScale;
   const decimals = project.displayDecimals ?? 2;
@@ -1096,13 +1099,39 @@ function SummaryTables({
               {phaseAssets.map((a) => {
                 // Asset subtotal row + per-line nested rows. M2.0h Fix 6:
                 // annual values transformed to display granularity.
+                // M2.0j Fix 11 audit: phase perPeriod[i+1] now offsets
+                // by (phaseStartYear - projectStartYear) so Phase 2
+                // (start 2026) Y1 lands in project column "Dec 26",
+                // not "Dec 25".
+                const projectStartYear = new Date(project.startDate).getUTCFullYear();
                 const assetRowAnnual = new Array<number>(annualPeriodCount).fill(0);
                 let assetTotal = 0;
                 for (const pb of perPhaseBreakdowns) {
                   const bd = pb.assetTotals[a.id];
                   if (!bd) continue;
                   assetTotal += bd.total;
-                  for (let i = 0; i < annualPeriodCount; i++) assetRowAnnual[i] += bd.perPeriod[i + 1] ?? 0;
+                  // Determine phase offset from project start.
+                  const phaseObj = phases.find((p) => p.id === pb.phaseId);
+                  const phaseStartIso = phaseObj?.startDate && phaseObj.startDate.length === 10
+                    ? phaseObj.startDate
+                    : project.startDate;
+                  const phaseStartYear = new Date(phaseStartIso).getUTCFullYear();
+                  const offset = Number.isFinite(phaseStartYear - projectStartYear)
+                    ? Math.max(0, phaseStartYear - projectStartYear)
+                    : 0;
+                  for (let i = 0; i < pb.cp; i++) {
+                    const dest = offset + i;
+                    if (dest >= 0 && dest < annualPeriodCount) {
+                      assetRowAnnual[dest] += bd.perPeriod[i + 1] ?? 0;
+                    }
+                  }
+                  // perPeriod[0] is the upfront (Y0 / land cash) lump.
+                  // For Phase 1 it lands at project Y0, hidden from the
+                  // project-period grid (which starts at Y1). For later
+                  // phases the upfront occurs at the phase's first year.
+                  if (offset > 0 && offset - 1 < annualPeriodCount && offset - 1 >= 0) {
+                    assetRowAnnual[offset - 1] += bd.perPeriod[0] ?? 0;
+                  }
                 }
                 // M2.0j Fix 12: hide zero-value asset rows from Results.
                 if (assetTotal === 0) return null;
@@ -1206,6 +1235,11 @@ export default function Module1Costs(): React.JSX.Element {
   // tables (editable surface). 'results' shows the 4 capex summary
   // tables (read-only).
   const [subTab, setSubTab] = useState<'inputs' | 'results'>('inputs');
+  // M2.0j Fix 16 (2026-05-07): per-asset cost selector. null = "All
+  // Assets" view (default). Picking a specific asset filters the
+  // per-asset sections to just that one and reflects its 3 summary
+  // cards (Excl. Land / Excl. Land In-Kind / Incl. Land In-Kind).
+  const [selectedCostAssetId, setSelectedCostAssetId] = useState<string | null>(null);
   // M2.0h Fix 6: runtime view granularity for Results sub-tab.
   // Defaults to project.outputGranularity ('annual' on new projects).
   // User toggles persist via setProject so the next session opens the
@@ -1383,12 +1417,73 @@ export default function Module1Costs(): React.JSX.Element {
 
       {subTab === 'inputs' && (
         <>
+          {/* M2.0j Fix 16 (2026-05-07): asset selector bar. "All Assets"
+              shows every asset section concatenated; picking a specific
+              asset filters the cost sections + the summary cards below
+              to only that asset. */}
+          {allVisibleAssets.length > 0 && (
+            <div
+              style={{
+                display: 'flex',
+                gap: 'var(--sp-1)',
+                flexWrap: 'wrap',
+                padding: 'var(--sp-1) var(--sp-2)',
+                marginBottom: 'var(--sp-2)',
+                background: 'var(--color-grey-pale)',
+                border: '1px solid var(--color-border)',
+                borderRadius: 'var(--radius-sm)',
+                alignItems: 'center',
+              }}
+              data-testid="costs-asset-selector"
+            >
+              <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', marginRight: 'var(--sp-1)' }}>Show:</strong>
+              <button
+                type="button"
+                onClick={() => setSelectedCostAssetId(null)}
+                data-testid="costs-asset-selector-all"
+                style={{
+                  fontSize: 11, fontWeight: 700, padding: '6px 14px', borderRadius: 6,
+                  border: selectedCostAssetId === null ? 'none' : '1px solid var(--color-border)',
+                  background: selectedCostAssetId === null ? 'var(--color-navy)' : 'var(--color-surface)',
+                  color: selectedCostAssetId === null ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
+                  cursor: 'pointer',
+                }}
+              >
+                All Assets
+              </button>
+              {allVisibleAssets.map((a) => {
+                const isActive = selectedCostAssetId === a.id;
+                return (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => setSelectedCostAssetId(a.id)}
+                    data-testid={`costs-asset-selector-${a.id}`}
+                    style={{
+                      fontSize: 11, fontWeight: 700, padding: '6px 14px', borderRadius: 6,
+                      border: isActive ? 'none' : '1px solid var(--color-border)',
+                      background: isActive ? 'var(--color-navy)' : 'var(--color-surface)',
+                      color: isActive ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {a.name}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* Per-phase, per-asset sections */}
           {perPhaseBreakdowns.map((pb) => {
-            if (pb.phaseAssets.length === 0) return null;
+            // M2.0j Fix 16: filter to selected asset (or show all).
+            const filteredPhaseAssets = selectedCostAssetId
+              ? pb.phaseAssets.filter((a) => a.id === selectedCostAssetId)
+              : pb.phaseAssets;
+            if (filteredPhaseAssets.length === 0) return null;
             return (
               <div key={pb.phaseId} data-testid={`costs-phase-${pb.phaseId}`}>
-                <div style={phaseHeaderStyle}>{pb.phaseName} · {pb.phaseAssets.length} asset{pb.phaseAssets.length === 1 ? '' : 's'}</div>
+                <div style={phaseHeaderStyle}>{pb.phaseName} · {filteredPhaseAssets.length} asset{filteredPhaseAssets.length === 1 ? '' : 's'}</div>
                 {(() => {
                   // M2.0j Fix 10: cost line periods reference PHASE start
                   // date, not project. periodLabelFn becomes phase-scoped
@@ -1400,7 +1495,7 @@ export default function Module1Costs(): React.JSX.Element {
                     : project.startDate;
                   const phaseScopedPeriodLabel = (idx: number): string =>
                     getPeriodLabel(idx, phaseStart, project.modelType);
-                  return pb.phaseAssets.map((a) => {
+                  return filteredPhaseAssets.map((a) => {
                     const assetLines = linesForAsset(a, pb.phaseId);
                     const breakdown = pb.assetTotals[a.id]!;
                     const assetMetrics = metricsByAsset.get(a.id);
@@ -1431,6 +1526,63 @@ export default function Module1Costs(): React.JSX.Element {
               </div>
             );
           })}
+
+          {/* M2.0j Fix 16: 3 summary cards beneath the cost lines. When
+              "All Assets" is selected, cards aggregate across every
+              visible asset; when a single asset is selected, cards
+              reflect just that asset. */}
+          {allVisibleAssets.length > 0 && (() => {
+            const targetAssets = selectedCostAssetId
+              ? allVisibleAssets.filter((a) => a.id === selectedCostAssetId)
+              : allVisibleAssets;
+            const totals = { exclLand: 0, exclLandInKind: 0, inclLandInKind: 0 };
+            for (const a of targetAssets) {
+              const m = metricsByAsset.get(a.id);
+              if (!m) continue;
+              const byStage = { land: 0, hard: 0, soft: 0, operating: 0 } as Record<CostStage, number>;
+              for (const pb of perPhaseBreakdowns) {
+                const bd = pb.assetTotals[a.id];
+                if (!bd) continue;
+                byStage.land += bd.byStage.land;
+                byStage.hard += bd.byStage.hard;
+                byStage.soft += bd.byStage.soft;
+                byStage.operating += bd.byStage.operating;
+              }
+              const t = computeAssetCostSummaryFromBreakdown(byStage, m.cashLandValue, m.inKindLandValue);
+              totals.exclLand += t.exclLand;
+              totals.exclLandInKind += t.exclLandInKind;
+              totals.inclLandInKind += t.inclLandInKind;
+            }
+            const card: React.CSSProperties = {
+              flex: 1, minWidth: 220,
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-sm)',
+              padding: 'var(--sp-2)',
+            };
+            return (
+              <div
+                style={{ display: 'flex', gap: 'var(--sp-2)', marginTop: 'var(--sp-2)', flexWrap: 'wrap' }}
+                data-testid="costs-asset-summary-cards"
+              >
+                <div style={card} data-testid="costs-summary-excl-land">
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Excl. Land</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-heading)', marginTop: 4 }}>{formatScaled(totals.exclLand, scale, decimals)}</div>
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>construction + soft + operating</div>
+                </div>
+                <div style={card} data-testid="costs-summary-excl-land-inkind">
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Excl. Land In-Kind</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-heading)', marginTop: 4 }}>{formatScaled(totals.exclLandInKind, scale, decimals)}</div>
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>above + cash land (developer cash needed)</div>
+                </div>
+                <div style={card} data-testid="costs-summary-incl-land-inkind">
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Incl. Land In-Kind</div>
+                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-heading)', marginTop: 4 }}>{formatScaled(totals.inclLandInKind, scale, decimals)}</div>
+                  <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>above + in-kind land (total cost basis)</div>
+                </div>
+              </div>
+            );
+          })()}
 
           {allVisibleAssets.length === 0 && (
             <div style={{ ...sectionCardStyle, textAlign: 'center', color: 'var(--color-meta)', padding: 'var(--sp-3)' }} data-testid="costs-no-assets">
@@ -1468,7 +1620,10 @@ export default function Module1Costs(): React.JSX.Element {
               Inputs are entered annually; sub-period view distributes via cost line phasing.
             </span>
           </div>
+          {/* M2.0j Fix 11: key forces a remount on granularity change so
+              the per-period table refreshes immediately. */}
           <SummaryTables
+            key={`summary-${granularity}`}
             phaseAssets={allVisibleAssets}
             perPhaseBreakdowns={perPhaseBreakdowns}
             parcelsByPhase={new Map()}
@@ -1477,6 +1632,7 @@ export default function Module1Costs(): React.JSX.Element {
             totalConstructionPeriods={totalConstructionPeriods}
             costLines={costLines}
             granularity={granularity}
+            phases={phases}
           />
         </>
       )}
