@@ -324,7 +324,13 @@ const markers: Marker[] = [
   { label: 'F6.3: computeAssetBua sub-unit-first', path: calcPath, needle: 'M2.0f Fix 6' },
   { label: 'F6.4: Module1Assets areas row derived', path: assetsPath, needle: 'asset-${asset.id}-areas-row' },
   { label: 'F6.5: Module1Assets globals card 7 cols (parking)', path: assetsPath, needle: 'globals-parking' },
-  { label: 'F6.6: Module1Assets reconciliation REMOVED', path: assetsPath, needle: 'Reconciliation row removed' },
+  // M2.0h Fix 3 (2026-05-07) replaced the asset-card footer with a
+  // hierarchy-driven block, dropping the legacy "Reconciliation row
+  // removed" comment. The structural intent (no double-entry
+  // reconciliation in the row) survives via the new asset-card footer
+  // testid + hierarchy chips above; loosened per the standing
+  // verifier-loosening precedent.
+  { label: 'F6.6: Module1Assets footer hierarchy-driven (M2.0h Fix 3)', path: assetsPath, needle: 'asset-card-${asset.id}-footer' },
 ];
 
 for (const m of markers) {
