@@ -165,7 +165,9 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   const out: Partial<NewV8Snapshot> = { ...s };
   delete out.version;
   delete out.savedAt;
-  return migrateM20gParkingSubUnits(out as HydrateSnapshot);
+  // M2.0j Fix 9: also fold any legacy phasing values to 'even' so the
+  // saved shape stays clean.
+  return migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -173,8 +175,9 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   delete out.version;
   delete out.savedAt;
   // M2.0g v8: v7 -> v8 migration runs first (aggregate monthly,
-  // stamp outputGranularity), then the M2.0g Parking-subunit fold.
-  return migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot));
+  // stamp outputGranularity), then the M2.0g Parking-subunit fold,
+  // then the M2.0j phasing fold.
+  return migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot)));
 };
 
 // M2.0h Fix 1 (2026-05-07): v7 -> v8 migration detector. Returns true
@@ -225,6 +228,32 @@ function migrateV7ToV8(snap: HydrateSnapshot): HydrateSnapshot {
     phases,
     costLines,
   };
+}
+
+// M2.0j Fix 9 (2026-05-07): phasing simplified to Even + Manual %. Any
+// cost line carrying a deprecated phasing value ('frontloaded' /
+// 'backloaded' / 'sCurve' / 'phase_aligned') folds to 'even'. The calc
+// engine's distribute() helper still recognises the deprecated values
+// (treats them as even) so this migration is purely for snapshot
+// hygiene; behaviour is bit-identical pre and post.
+function migrateM20jPhasing(snap: HydrateSnapshot): HydrateSnapshot {
+  const DEPRECATED = new Set(['frontloaded', 'backloaded', 'sCurve', 'phase_aligned']);
+  let touched = false;
+  const costLines = snap.costLines.map((c) => {
+    if (DEPRECATED.has(c.phasing as string)) {
+      touched = true;
+      return { ...c, phasing: 'even' as const };
+    }
+    return c;
+  });
+  const costOverrides = snap.costOverrides.map((o) => {
+    if (o.phasing && DEPRECATED.has(o.phasing as string)) {
+      touched = true;
+      return { ...o, phasing: 'even' as const };
+    }
+    return o;
+  });
+  return touched ? { ...snap, costLines, costOverrides } : snap;
 }
 
 // M2.0g (2026-05-06): the M2.0f 'Parking' SubUnitCategory was removed.

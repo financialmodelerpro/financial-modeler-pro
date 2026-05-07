@@ -658,13 +658,25 @@ export const ALLOCATION_BASES: readonly AllocationBasis[] = [
   'manual',
 ] as const;
 
+// M2.0j Fix 9 (2026-05-07): phasing simplified from 6 options to 2.
+// Real users only need Even (default) or Manual % (custom curve). The 4
+// dropped values ('frontloaded' / 'backloaded' / 'sCurve' / 'phase_aligned')
+// are still ACCEPTED on read for legacy snapshots and treated as 'even';
+// the calc engine's distribute() helper continues to recognise them so
+// behaviour is bit-identical (an even spread). UI dropdown shows only
+// 'even' and 'manual'.
 export type CostPhasing =
   | 'even'           // equal slice per period in [startPeriod, endPeriod]
-  | 'frontloaded'    // S-curve weighted toward early periods
-  | 'backloaded'     // S-curve weighted toward late periods
-  | 'sCurve'         // bell-shape, peak in middle
   | 'manual'         // distribution[] supplies per-period weights (sum = 1)
-  | 'phase_aligned'; // automatically span phase.constructionStart..end
+  // Legacy values, accepted on read (treated as 'even') but not user-pickable
+  | 'frontloaded'
+  | 'backloaded'
+  | 'sCurve'
+  | 'phase_aligned';
+
+// User-pickable phasing values (Fix 9). Use this for dropdown rendering;
+// COST_PHASINGS still includes legacy values for read-side compat.
+export const COST_PHASING_OPTIONS: readonly CostPhasing[] = ['even', 'manual'] as const;
 
 export const COST_PHASINGS: readonly CostPhasing[] = [
   'even',
@@ -674,6 +686,13 @@ export const COST_PHASINGS: readonly CostPhasing[] = [
   'manual',
   'phase_aligned',
 ] as const;
+
+// Fix 9: helper used by migrate to fold deprecated phasing values into
+// 'even' on save. Read-side keeps recognising them so older snapshots load.
+export function normalizeCostPhasing(p: CostPhasing | undefined): CostPhasing {
+  if (p === 'frontloaded' || p === 'backloaded' || p === 'sCurve' || p === 'phase_aligned') return 'even';
+  return p ?? 'even';
+}
 
 export interface CostLine {
   id: string;

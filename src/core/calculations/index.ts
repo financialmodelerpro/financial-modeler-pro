@@ -1413,15 +1413,21 @@ export function computePhaseTimeline(phase: Phase, project: Project): PhaseTimel
     : addPeriods(project.startDate, fallbackOffsetPeriods, project.modelType);
   // M2.0g Fix 1: end dates use periodEndDate (Dec 31 / last day of
   // month) instead of addPeriods which gave start-of-next-period.
-  const constructionEnd = periodEndDate(start, Math.max(0, phase.constructionPeriods), project.modelType);
-  // Operations start = day after construction end, minus overlap periods.
-  // overlapPeriods=0 -> ops starts day after construction end.
-  // overlapPeriods=N -> ops starts N periods earlier than (day after
-  // construction end), which lands on the (N-th-from-end) period start.
-  const opsStartAfterConstruction = addOneDay(constructionEnd);
-  const operationsStart = phase.overlapPeriods > 0
-    ? addPeriods(opsStartAfterConstruction, -phase.overlapPeriods, project.modelType)
-    : opsStartAfterConstruction;
+  const cp = Math.max(0, phase.constructionPeriods);
+  const constructionEnd = periodEndDate(start, cp, project.modelType);
+  // M2.0j Fix 1: when constructionPeriods === 0 the phase is operational
+  // from the start; operations begin exactly on phase.startDate (no
+  // addOneDay or overlap math, since there's nothing to overlap).
+  let operationsStart: string;
+  if (cp === 0) {
+    operationsStart = start;
+  } else {
+    // Operations start = day after construction end, minus overlap periods.
+    const opsStartAfterConstruction = addOneDay(constructionEnd);
+    operationsStart = phase.overlapPeriods > 0
+      ? addPeriods(opsStartAfterConstruction, -phase.overlapPeriods, project.modelType)
+      : opsStartAfterConstruction;
+  }
   const operationsEnd = periodEndDate(operationsStart, Math.max(0, phase.operationsPeriods), project.modelType);
   return { constructionStart: start, constructionEnd, operationsStart, operationsEnd };
 }

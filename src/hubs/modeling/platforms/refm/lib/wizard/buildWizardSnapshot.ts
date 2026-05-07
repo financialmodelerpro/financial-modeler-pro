@@ -102,16 +102,18 @@ export function buildWizardSnapshot(draft: WizardDraft): HydrateSnapshot {
   let cursor = 1;
   for (let i = 0; i < draft.phases.length; i++) {
     const wp = draft.phases[i];
+    // M2.0j Fix 1: allow constructionPeriods = 0 (operational phase).
+    const cp = Math.max(0, wp.constructionPeriods);
     phases.push({
       id: `phase_${i + 1}`,
       name: wp.name || `Phase ${i + 1}`,
       constructionStart: cursor,
-      constructionPeriods: Math.max(1, wp.constructionPeriods),
+      constructionPeriods: cp,
       operationsPeriods: Math.max(0, wp.operationsPeriods),
-      overlapPeriods: Math.max(0, Math.min(wp.constructionPeriods, wp.overlapPeriods)),
+      overlapPeriods: Math.max(0, Math.min(cp, wp.overlapPeriods)),
       startDate: wp.startDate && wp.startDate.length === 10 ? wp.startDate : undefined,
     });
-    cursor += Math.max(1, wp.constructionPeriods) - Math.max(0, wp.overlapPeriods);
+    cursor += Math.max(1, cp) - Math.max(0, wp.overlapPeriods);
   }
   if (phases.length === 0) {
     phases.push({

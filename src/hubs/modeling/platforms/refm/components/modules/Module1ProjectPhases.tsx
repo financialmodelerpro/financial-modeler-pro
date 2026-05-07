@@ -459,12 +459,13 @@ function PhaseRow({ phase, project, onUpdate, onRemove, canRemove }: PhaseRowPro
         />
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
+        {/* M2.0j Fix 1: allow 0 construction years (operational phase). */}
         <input
           type="number"
-          min={1}
+          min={0}
           value={phase.constructionPeriods}
           data-testid={`phase-${phase.id}-constructionPeriods`}
-          onChange={(e) => onUpdate({ constructionPeriods: Math.max(1, Number(e.target.value) || 1) })}
+          onChange={(e) => onUpdate({ constructionPeriods: Math.max(0, Number(e.target.value) || 0) })}
           style={inputStyle}
         />
       </td>
@@ -494,8 +495,10 @@ function PhaseRow({ phase, project, onUpdate, onRemove, canRemove }: PhaseRowPro
         />
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
+        {/* M2.0j Fix 1: when constructionPeriods=0 show "Operational from start"
+            instead of a misleading construction end date. */}
         <span style={calcOutputStyle} data-testid={`phase-${phase.id}-constructionEnd`}>
-          {tl.constructionEnd}
+          {phase.constructionPeriods === 0 ? 'Operational from start' : tl.constructionEnd}
         </span>
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>

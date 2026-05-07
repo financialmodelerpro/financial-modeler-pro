@@ -94,8 +94,14 @@ export default function ProjectWizard({
   };
 
   const step1Valid = draft.projectName.trim() !== '' && draft.currency.trim() !== '';
+  // M2.0j Fix 1: constructionPeriods >= 0 allowed; operations must still be >= 1
+  // when construction = 0 (operational phase needs at least 1 op year).
   const step2Valid =
-    draft.phases.every((p) => p.constructionPeriods > 0 && p.operationsPeriods >= 0 && p.startDate.length === 10) &&
+    draft.phases.every((p) =>
+      p.constructionPeriods >= 0 &&
+      p.operationsPeriods >= (p.constructionPeriods === 0 ? 1 : 0) &&
+      p.startDate.length === 10,
+    ) &&
     draft.parcels.every(
       (p) => p.area > 0 && p.rate > 0 && Math.abs(p.cashPct + p.inKindPct - 100) < 0.1,
     );
@@ -458,10 +464,10 @@ function Step2({
               <td style={{ padding: 'var(--sp-1)' }}>
                 <input
                   type="number"
-                  min={1}
+                  min={0}
                   data-testid={`wiz-phase-${idx}-constructionPeriods`}
                   value={p.constructionPeriods}
-                  onChange={(e) => updatePhase(idx, { constructionPeriods: Math.max(1, Number(e.target.value) || 1) })}
+                  onChange={(e) => updatePhase(idx, { constructionPeriods: Math.max(0, Number(e.target.value) || 0) })}
                   style={inputStyle}
                 />
               </td>
