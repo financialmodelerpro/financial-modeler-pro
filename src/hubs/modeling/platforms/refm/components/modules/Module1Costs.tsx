@@ -46,11 +46,17 @@ import {
   type Phase,
   type SubUnit,
   type CostInputMode,
+  type CostCategory,
+  type CostDriver,
   COST_METHODS,
   COST_METHOD_LABELS,
   COST_PHASING_OPTIONS,
   COST_STAGES,
   COST_STAGE_LABELS,
+  COST_CATEGORIES,
+  COST_CATEGORY_LABELS,
+  COST_DRIVERS,
+  COST_DRIVER_LABELS,
   PER_SUBUNIT_RATE_KEY_SUPPORT,
   PER_SUBUNIT_RATE_KEY_PARKING,
   OUTPUT_GRANULARITIES,
@@ -432,6 +438,17 @@ function CostRow({
   const effValue = override?.value ?? line.value;
   const effPhasing = override?.phasing ?? line.phasing;
   const effDisabled = (line.disabled === true) || (override?.disabled === true);
+  // M2.0L Pass 5 (2026-05-11): Category + Driver are master-level only
+  // (per-asset override of category doesn't make sense - an Allocated
+  // pool can't be Direct for one asset and Allocated for others).
+  const effCategory: CostCategory = line.costCategory ?? 'direct';
+  const effDriver: CostDriver = line.costDriver ?? 'bua_share';
+  const writeCategory = (category: CostCategory): void => {
+    onUpdateLine({ costCategory: category });
+  };
+  const writeDriver = (driver: CostDriver): void => {
+    onUpdateLine({ costDriver: driver });
+  };
 
   const writeName = (name: string): void => {
     onUpdateLine({ name });
@@ -578,6 +595,35 @@ function CostRow({
             <option key={m} value={m}>{COST_METHOD_LABELS[m]}</option>
           ))}
         </select>
+        {/* M2.0L Pass 5 (2026-05-11): Category dropdown (Direct / Allocated)
+            stacked under the Method cell. When Allocated, the Driver
+            dropdown surfaces beneath. */}
+        <select
+          value={effCategory}
+          onChange={(e) => writeCategory(e.target.value as CostCategory)}
+          disabled={isLocked}
+          style={{ ...inputStyle, fontSize: 10, marginTop: 4, padding: '2px 4px' }}
+          data-testid={`cost-${asset.id}-${line.id}-category`}
+          title="Direct = asset-specific; Allocated = project pool, split by driver"
+        >
+          {COST_CATEGORIES.map((c) => (
+            <option key={c} value={c}>{COST_CATEGORY_LABELS[c]}</option>
+          ))}
+        </select>
+        {effCategory === 'allocated' && (
+          <select
+            value={effDriver}
+            onChange={(e) => writeDriver(e.target.value as CostDriver)}
+            disabled={isLocked}
+            style={{ ...inputStyle, fontSize: 10, marginTop: 2, padding: '2px 4px' }}
+            data-testid={`cost-${asset.id}-${line.id}-driver`}
+            title="Driver = how the project-wide pool is split across assets"
+          >
+            {COST_DRIVERS.map((d) => (
+              <option key={d} value={d}>{COST_DRIVER_LABELS[d]}</option>
+            ))}
+          </select>
+        )}
       </td>
       <td style={{ padding: '4px', width: 96 }}>
         {/* M2.0L Pass2 Fix 6 (2026-05-11): inputs always render at full
@@ -1984,8 +2030,20 @@ function SameModeCostTable({
                           });
                         };
                         return (
-                          <tr key={line.id} data-testid={`costs-same-replica-${a.id}-row-${line.id}`} data-overridden={isOverridden}>
-                            <td style={{ padding: '4px', textAlign: 'left' }}>{line.name}</td>
+                          <tr key={line.id} data-testid={`costs-same-replica-${a.id}-row-${line.id}`} data-overridden={isOverridden} data-category={line.costCategory ?? 'direct'}>
+                            <td style={{ padding: '4px', textAlign: 'left' }}>
+                              {line.name}
+                              {/* M2.0L Pass 5: category badge in replica */}
+                              {(line.costCategory ?? 'direct') === 'allocated' && (
+                                <span
+                                  style={{ marginLeft: 6, padding: '1px 6px', borderRadius: 8, fontSize: 9, fontWeight: 700, background: 'color-mix(in srgb, var(--color-navy) 12%, transparent)', color: 'var(--color-navy)' }}
+                                  data-testid={`costs-same-replica-${a.id}-row-${line.id}-category-badge`}
+                                  title={`Allocated by ${COST_DRIVER_LABELS[line.costDriver ?? 'bua_share']}`}
+                                >
+                                  Allocated · {COST_DRIVER_LABELS[line.costDriver ?? 'bua_share']}
+                                </span>
+                              )}
+                            </td>
                             <td style={{ padding: '4px', textAlign: 'left', color: 'var(--color-meta)', fontSize: 10 }}>{COST_METHOD_LABELS[effMethod]}</td>
                             <td style={{ padding: '4px', textAlign: 'right' }}>
                               {isOverridden ? (

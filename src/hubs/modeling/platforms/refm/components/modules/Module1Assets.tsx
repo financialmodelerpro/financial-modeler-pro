@@ -1411,7 +1411,12 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, showUnitC
   const onEditAreaWhenArea = (next: number): void => {
     onUpdate({ metricValue: Math.max(0, next) });
   };
+  // M2.0L Pass 5 (2026-05-11): Units-mode derived area moves from the
+  // cell to a caption row that renders BELOW the main row. Computed
+  // here so the caption can mention both Count and Unit Size.
+  const captionRowColspan = showUnitColumns ? 9 : 7;
   return (
+    <>
     <tr data-testid={`subunit-row-${subUnit.id}`}>
       <td style={{ padding: '4px 6px' }}>
         <input type="text" value={subUnit.name} data-testid={`subunit-${subUnit.id}-name`} onChange={(e) => onUpdate({ name: e.target.value })} style={{ ...inputStyle, fontSize: 11 }} placeholder="1BR, Hotel Twin..." />
@@ -1447,20 +1452,16 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, showUnitC
         </select>
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-        {/* M2.0L Fix 3 (2026-05-11): metric drives which cells are visible.
-            Area mode: Area input editable. Unit Size + Count cells hidden
-            (rendered as muted dash).
-            Units mode: Area shown read-only as caption "count x size = sqm";
-            the user does NOT edit Area directly. Unit Size + Count are the
-            editable inputs. */}
+        {/* M2.0L Pass 5 (2026-05-11): Units-mode area readout moves
+            from the cell into a small caption that renders BELOW the
+            row (see <tr> sibling at the bottom of the component).
+            Area-mode keeps the editable input here.
+            M2.0L Fix 3 (2026-05-11): Area mode: input editable. Unit
+            Size + Count cells hidden entirely via {showUnitColumns}.
+            Units mode: cell empty (caption in sibling row carries the
+            derived area). */}
         {isUnits ? (
-          <span
-            style={{ ...calcOutputStyle, fontSize: 11, fontStyle: 'italic' }}
-            data-testid={`subunit-${subUnit.id}-area-readout`}
-            title="Area derives from Count x Unit Size; edit Count or Unit Size to change it"
-          >
-            {unitArea > 0 ? formatArea(totalArea, decimals) : '-'}
-          </span>
+          <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-area-cell-empty`}>—</span>
         ) : (
           <input type="number" min={0} value={subUnit.metricValue} data-testid={`subunit-${subUnit.id}-area-input`} onChange={(e) => onEditAreaWhenArea(Number(e.target.value) || 0)} style={{ ...inputStyle, fontSize: 11 }} />
         )}
@@ -1515,6 +1516,16 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals, showUnitC
         <button type="button" onClick={onRemove} data-testid={`subunit-${subUnit.id}-remove`} style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 6px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}>x</button>
       </td>
     </tr>
+    {isUnits && (
+      <tr data-testid={`subunit-row-${subUnit.id}-caption`}>
+        <td colSpan={captionRowColspan} style={{ padding: '0 6px 6px 6px', fontSize: 10, color: 'var(--color-meta)', fontStyle: 'italic', textAlign: 'right' }}>
+          {unitArea > 0
+            ? `Derived area: ${Number(count.toFixed(2)).toLocaleString('en-US')} units x ${Number(unitArea.toFixed(2)).toLocaleString('en-US')} sqm = ${formatArea(totalArea, decimals)} sqm`
+            : 'Derived area: set Unit Size to compute total area'}
+        </td>
+      </tr>
+    )}
+    </>
   );
 }
 
