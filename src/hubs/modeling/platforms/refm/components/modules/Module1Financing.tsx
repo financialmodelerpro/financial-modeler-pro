@@ -43,8 +43,11 @@ import {
   type ProjectFinancingConfig,
   DRAWDOWN_METHODS,
   DRAWDOWN_METHOD_LABELS,
-  REPAYMENT_METHODS,
+  REPAYMENT_METHODS_USER,
   REPAYMENT_METHOD_LABELS,
+  EQUAL_REPAYMENT_SUB_METHODS,
+  EQUAL_REPAYMENT_SUB_METHOD_LABELS,
+  type EqualRepaymentSubMethod,
   EQUITY_TIMINGS,
   EQUITY_TRANCHE_TYPES,
   EQUITY_TRANCHE_TYPE_LABELS,
@@ -111,6 +114,17 @@ const sectionCardStyle: React.CSSProperties = {
 };
 
 // M2.0M: pill toggle styling shared by view-mode + (future) filter toggles.
+// P2-Fix 5 (2026-05-11): translate legacy stored method to one of the 3
+// user-facing methods at display time. The persistence layer's
+// migrateM20mPass2Financing handles the eventual overwrite; this helper
+// catches the transient case where a snapshot is loaded mid-render.
+function mapLegacyRepayment(m: RepaymentMethod): RepaymentMethod {
+  if (m === 'straight_line' || m === 'equal_periodic_amortization' || m === 'bullet') return 'equal_repayment';
+  if (m === 'cashsweep_continuous' || m === 'cashsweep_from_period' || m === 'cashsweep_min_cash') return 'cash_sweep';
+  if (m === 'manual' || m === 'balloon' || m === 'custom_schedule') return 'year_on_year_pct';
+  return m;
+}
+
 const pillStyle = (active: boolean): React.CSSProperties => ({
   fontSize: 11,
   fontWeight: 700,
@@ -461,46 +475,67 @@ function TrancheCard({
           )}
         </div>
         <div>
+          {/* P2-Fix 5 (2026-05-11): dropdown shows 3 user-facing methods.
+              Legacy values (cashsweep_*, straight_line, bullet, balloon,
+              manual, custom_schedule, equal_periodic_amortization)
+              migrate at hydrate; users never see them in the picker. */}
           <label style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase' }}>Repayment Method</label>
           <select
-            value={tranche.repaymentMethod}
-            onChange={(e) => onUpdate({ repaymentMethod: e.target.value as RepaymentMethod })}
+            value={mapLegacyRepayment(tranche.repaymentMethod)}
+            onChange={(e) => {
+              const m = e.target.value as RepaymentMethod;
+              const patch: Partial<FinancingTranche> = { repaymentMethod: m };
+              if (m === 'equal_repayment' && !tranche.equalRepaymentSubMethod) {
+                patch.equalRepaymentSubMethod = 'equal_total';
+              }
+              if (m === 'cash_sweep' && !tranche.cashSweepConfig) {
+                patch.cashSweepConfig = { startingYear: 1, sweepRatio: 75 };
+              }
+              onUpdate(patch);
+            }}
             style={inputStyle}
             data-testid={`tranche-${tranche.id}-repayment`}
           >
-            {REPAYMENT_METHODS.map((m) => (
+            {REPAYMENT_METHODS_USER.map((m) => (
               <option key={m} value={m}>{REPAYMENT_METHOD_LABELS[m]}</option>
             ))}
           </select>
-          {tranche.repaymentMethod === 'cashsweep_from_period' && (
-            <input
-              type="number" min={0}
-              placeholder="Sweep start period"
-              value={tranche.sweepStartPeriod ?? 0}
-              onChange={(e) => onUpdate({ sweepStartPeriod: parseInt(e.target.value) || 0 })}
+          {mapLegacyRepayment(tranche.repaymentMethod) === 'equal_repayment' && (
+            <select
+              value={tranche.equalRepaymentSubMethod ?? 'equal_total'}
+              onChange={(e) => onUpdate({ equalRepaymentSubMethod: e.target.value as EqualRepaymentSubMethod })}
               style={{ ...inputStyle, marginTop: 4 }}
-              data-testid={`tranche-${tranche.id}-sweep-start`}
-            />
+              data-testid={`tranche-${tranche.id}-equal-sub`}
+            >
+              {EQUAL_REPAYMENT_SUB_METHODS.map((s) => (
+                <option key={s} value={s}>{EQUAL_REPAYMENT_SUB_METHOD_LABELS[s]}</option>
+              ))}
+            </select>
           )}
-          {tranche.repaymentMethod === 'cashsweep_min_cash' && (
-            <input
-              type="number" min={0}
-              placeholder="Min cash floor"
-              value={tranche.sweepMinCashFloor ?? 0}
-              onChange={(e) => onUpdate({ sweepMinCashFloor: parseFloat(e.target.value) || 0 })}
-              style={{ ...inputStyle, marginTop: 4 }}
-              data-testid={`tranche-${tranche.id}-sweep-floor`}
-            />
+          {mapLegacyRepayment(tranche.repaymentMethod) === 'cash_sweep' && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginTop: 4 }} data-testid={`tranche-${tranche.id}-cash-sweep-inputs`}>
+              <input
+                type="number" min={1}
+                placeholder="Starting Year"
+                value={tranche.cashSweepConfig?.startingYear ?? 1}
+                onChange={(e) => onUpdate({ cashSweepConfig: { startingYear: Math.max(1, parseInt(e.target.value) || 1), sweepRatio: tranche.cashSweepConfig?.sweepRatio ?? 75 } })}
+                style={inputStyle}
+                data-testid={`tranche-${tranche.id}-sweep-start-year`}
+              />
+              <input
+                type="number" min={0} max={100}
+                placeholder="Sweep %"
+                value={tranche.cashSweepConfig?.sweepRatio ?? 75}
+                onChange={(e) => onUpdate({ cashSweepConfig: { startingYear: tranche.cashSweepConfig?.startingYear ?? 1, sweepRatio: Math.max(0, Math.min(100, parseFloat(e.target.value) || 0)) } })}
+                style={inputStyle}
+                data-testid={`tranche-${tranche.id}-sweep-ratio`}
+              />
+            </div>
           )}
-          {tranche.repaymentMethod === 'balloon' && (
-            <input
-              type="number" min={0} max={100}
-              placeholder="Balloon % at maturity"
-              value={tranche.balloonPct ?? 30}
-              onChange={(e) => onUpdate({ balloonPct: parseFloat(e.target.value) || 0 })}
-              style={{ ...inputStyle, marginTop: 4 }}
-              data-testid={`tranche-${tranche.id}-balloon-pct`}
-            />
+          {mapLegacyRepayment(tranche.repaymentMethod) === 'year_on_year_pct' && (
+            <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>
+              Configure per-period % via Advanced section (sums to 100).
+            </div>
           )}
         </div>
       </div>
