@@ -1266,74 +1266,17 @@ export default function Module1Financing(): React.JSX.Element {
             ))}
           </div>
 
-          {/* Equity Tranches */}
-          <div style={sectionCardStyle}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <strong style={{ fontSize: 13 }}>Equity Tranches ({phaseEquity.length})</strong>
-              <button type="button" className="btn-secondary" onClick={handleAddEquity} style={{ fontSize: 11, padding: '4px 10px' }} data-testid="financing-add-equity">
-                + Add Equity Tranche
-              </button>
-            </div>
-            {phaseEquity.length === 0 && (
-              <div style={{ color: 'var(--color-meta)', fontSize: 12 }}>No equity contributions defined.</div>
-            )}
-            {phaseEquity.length > 0 && (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-                <thead>
-                  <tr style={{ background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)' }}>
-                    <th style={{ padding: '4px 6px', textAlign: 'left' }}>Name</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'left' }}>Type</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'left' }}>Source</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>Amount</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'left' }}>Timing</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>IRR Hurdle %</th>
-                    <th style={{ padding: '4px 6px', textAlign: 'right' }}>Pref. Return %</th>
-                    <th style={{ padding: '4px 6px' }}></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {phaseEquity.map((e) => {
-                    const isAuto = e.autoDetectedFromCostLine === true;
-                    return (
-                      <tr key={e.id} data-testid={`equity-${e.id}`}>
-                        <td style={{ padding: '4px' }}>
-                          <input type="text" value={e.name} disabled={isAuto} onChange={(ev) => updateEquityContribution(e.id, { name: ev.target.value })} style={{ ...inputStyle, opacity: isAuto ? 0.6 : 1 }} title={isAuto ? 'Auto-synced from Land In-Kind cost line' : undefined} />
-                        </td>
-                        <td style={{ padding: '4px' }}>
-                          <select value={e.type ?? 'cash'} disabled={isAuto} onChange={(ev) => updateEquityContribution(e.id, { type: ev.target.value as EquityTrancheType })} style={inputStyle}>
-                            {EQUITY_TRANCHE_TYPES.map((t) => (<option key={t} value={t}>{EQUITY_TRANCHE_TYPE_LABELS[t]}</option>))}
-                          </select>
-                        </td>
-                        <td style={{ padding: '4px' }}>
-                          <input type="text" value={e.source ?? ''} placeholder="Sponsor / LP / Landowner" onChange={(ev) => updateEquityContribution(e.id, { source: ev.target.value || undefined })} style={inputStyle} />
-                        </td>
-                        <td style={{ padding: '4px' }}>
-                          <input type="number" min={0} value={e.amount} disabled={isAuto} onChange={(ev) => updateEquityContribution(e.id, { amount: parseFloat(ev.target.value) || 0 })} style={{ ...inputStyle, opacity: isAuto ? 0.6 : 1 }} />
-                        </td>
-                        <td style={{ padding: '4px' }}>
-                          <select value={e.timing} onChange={(ev) => updateEquityContribution(e.id, { timing: ev.target.value as EquityContribution['timing'] })} style={inputStyle}>
-                            {EQUITY_TIMINGS.map((t) => (<option key={t} value={t}>{t}</option>))}
-                          </select>
-                        </td>
-                        <td style={{ padding: '4px' }}>
-                          <input type="number" step={0.5} min={0} value={e.irrHurdle ?? 0} onChange={(ev) => updateEquityContribution(e.id, { irrHurdle: parseFloat(ev.target.value) || 0 })} style={{ ...inputStyle, textAlign: 'right' }} />
-                        </td>
-                        <td style={{ padding: '4px' }}>
-                          <input type="number" step={0.5} min={0} value={e.preferredReturn ?? 0} onChange={(ev) => updateEquityContribution(e.id, { preferredReturn: parseFloat(ev.target.value) || 0 })} style={{ ...inputStyle, textAlign: 'right' }} />
-                        </td>
-                        <td style={{ padding: '4px', width: 60 }}>
-                          {!isAuto && (
-                            <button type="button" onClick={() => removeEquityContribution(e.id)} style={{ ...inputStyle, background: 'transparent', cursor: 'pointer', color: 'var(--color-negative)' }}>✕</button>
-                          )}
-                          {isAuto && <span style={{ fontSize: 9, color: 'var(--color-meta)' }}>auto</span>}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-          </div>
+          {/* P3-Fix 7 (2026-05-12): Equity Tranches section dropped.
+              Equity auto-computes from chosen funding method:
+              Total Equity Need = Total Funding x equity%, then Cash
+              Equity = Total Equity - Land In-Kind value (Land In-Kind
+              auto-detects from the Tab 3 Land In-Kind cost line per
+              asset). The Equity Schedule sub-tab renders the cash +
+              in-kind contributions over time. Multi-investor splits
+              (sponsor / JV partner / etc.) are a future feature. The
+              equityContributions[] array stays on schema for
+              back-compat; migration clears its data so the UI never
+              surfaces stale rows. */}
         </>
       )}
 
