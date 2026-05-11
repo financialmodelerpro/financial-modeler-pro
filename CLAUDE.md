@@ -1,5 +1,5 @@
 ﻿# Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-11 (M2.0L ships: cost line duplication fix via phase-scoped ids + Costs UX polish + full Financing build (capital stack, 9/9 drawdown/repayment methods, 3 IDC treatments, 6-table schedules, cross-tab IDC->Costs sync); M2.0j 16-fix detail archived to CLAUDE-FEATURES.md; v8 schema, additive)**
+**Last updated: 2026-05-11 (M2.0L + 4-fix follow-up ships: (1) graceful legacy-snapshot migration with permissive loose-shape detector + LEGACY_MIGRATION_NOTICE banner, (2) Cost Input Mode chooser modal + Same/Individual toggle with override-clear confirm, (3) sub-unit metric UX cleanup (Area mode hides Unit Size+Count; Units mode hides Area input, shows derived caption), (4) cost multiplier asset-area fallback + "no <X> defined yet" caption warning. Schema v8 stays additive: Project.costInputMode optional. M2.0j 16-fix detail archived to CLAUDE-FEATURES.md)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -269,6 +269,59 @@ Full commit-by-commit narrative archived in **CLAUDE-FEATURES.md** if needed.
 - **Page-sections are jsonb, not normalized.** Each marketing section's `content_blocks` holds its own typed shape (`HeroContent` / `FeaturesContent` / `HowItWorksContent` / `CtaContent` / `TestimonialsContent`). Admin edits via JSON textarea.
 - **Legacy `modules` table stays** as platforms-storage despite name predating the platform/module distinction. Rename cost > benefit.
 - **RLS:** anon role never reads `status='hidden'` modules or `visible=false` page sections. Service-role bypasses for admin writes. No write policies needed for anon.
+
+### Module 1 status (2026-05-11, **M2.0L + 4-fix follow-up**)
+
+**M2.0L follow-up (current, ships):** Four targeted fixes layered on
+top of M2.0L. Schema stays v8 additive (`Project.costInputMode?` is
+the only new field).
+
+- **Fix 1, graceful legacy-project migration**:
+  `module1-migrate.ts` adds `isLooseSnapshot()` (accepts any object
+  with `project` field or any data array) and `migrateLegacyToV8()`
+  that backfills every missing optional field per M2.0g/h/i/j/L
+  additions, renames legacy `'Hybrid'` strategy to `'Sell + Manage'`,
+  remaps v6 cost-line ids (`site-prep` / `structural` / `mep` / etc.)
+  to closest v7 standards, then pipes through the full v7→v8 chain
+  (modelType aggregate, Parking sub-unit fold, phasing normalize,
+  M2.0L phase-scoped id dedupe). Replaces the previous hard-error
+  `"Unrecognized project shape. Please recreate this project."` and
+  `"Project schema older than v8"` paths. Banner uses new
+  `LEGACY_MIGRATION_NOTICE` constant: `"Project updated to latest
+  schema, please verify your inputs."` Surfaced once per project
+  open via `CheckedHydration.migrationNotice` (existing pipe).
+
+- **Fix 2, Cost Input Mode (Same / Individual)**:
+  New `Project.costInputMode?: 'same' | 'individual'` field.
+  `CostInputModeModal` opens on first Tab 3 visit when undefined.
+  Toggle button stays at top of Tab 3 (`data-testid="cost-input-mode-toggle"`)
+  for later switches. Same mode renders one `SameModeCostTable` per
+  phase: no asset selector, no per-asset sections, edits route to
+  `CostLine` directly via new `editsGoToLine` prop on `CostRow`.
+  Calc engine still distributes each project-wide line per its
+  `allocationBasis` (bua_share / land_share / per_asset).
+  Individual→Same switch with active overrides surfaces a confirm
+  dialog and then clears every `costOverride` row before flipping
+  the mode. Individual mode = unchanged M2.0L behavior.
+
+- **Fix 3, sub-unit metric UX cleanup**: Tab 2 sub-unit table now
+  hides cells per metric. Area mode renders Unit Size + Count as
+  muted dashes (no accidental cross-derivation). Units mode renders
+  Area as a read-only caption (`subunit-{id}-area-readout`) showing
+  `count × unitArea`; the user edits Count + Unit Size + Rate only.
+  Existing `canSwitchMetric` guard preserved; switching with
+  `unitArea>0` preserves area exactly.
+
+- **Fix 4, cost multiplier asset-area fallback**:
+  `resolveAssetAreaMetrics` in `src/core/calculations/index.ts` now
+  falls back to `asset.buaSqm` / `asset.sellableBuaSqm` when sub-units
+  are empty (was returning 0). `gfa` cascades through
+  `asset.gfaSqm → hierarchy.gfa → bua`. `costLineCaption` emits
+  `"<rate> x - (no <X> defined yet) = 0"` warning when the relevant
+  metric is 0 instead of silently rendering `× 0 sqm BUA`.
+
+Commits (4): `60128b1` (Fix 1) · `db7e578` (Fix 2) · `62b843a` (Fix 3) ·
+`47d6f08` (Fix 4). Type-check clean on every commit.
 
 ### Module 1 status (2026-05-11, **M2.0L Costs diagnose-and-fix + full Financing build**)
 

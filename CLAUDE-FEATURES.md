@@ -1329,6 +1329,10 @@ landParcels, projectFAR, costs, financing, those belong to dedicated tabs).
 
 > Detailed closure blocks for the v5 → v6 → v7 → v8 schema rebuild and the M2.0b → M2.0i polish series. M2.0j is the current live state and remains documented inline in CLAUDE.md. The per-phase "pattern decisions" sections have been consolidated into "Module 1 Conventions" in CLAUDE.md, see there first; the entries below are the original commit-by-commit narrative kept for cold-session reference.
 
+### M2.0L 4-fix follow-up (2026-05-11)
+
+Four fixes layered on M2.0L. Detail lives in CLAUDE.md "Module 1 status (2026-05-11, M2.0L + 4-fix follow-up)" and CLAUDE-TODO.md. Commits: `60128b1` graceful legacy migration via `isLooseSnapshot()` + `migrateLegacyToV8()` + `LEGACY_MIGRATION_NOTICE` banner, `db7e578` Cost Input Mode (Same / Individual) chooser modal + persistent toggle + `SameModeCostTable` + `editsGoToLine` prop on `CostRow`, `62b843a` sub-unit metric UX cleanup (Area mode hides Unit Size + Count; Units mode hides Area input, shows derived caption), `47d6f08` cost multiplier asset-area fallback (`resolveAssetAreaMetrics` falls back to `asset.buaSqm`/`asset.sellableBuaSqm` when sub-units empty) + `costLineCaption` "no `<X>` defined yet" warning chip on missing area / count. Schema stays v8 additive (`Project.costInputMode?` optional). Type-check clean every commit.
+
 ### Module 1 status (2026-05-07, M2.0i Module 1 final polish, foundation for M2.0j)
 
 **M2.0i:** Final Module 1 polish closing the 10 issues

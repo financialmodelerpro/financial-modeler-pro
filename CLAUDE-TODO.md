@@ -4,6 +4,33 @@
 
 ---
 
+## Recently Completed, M2.0L 4-fix follow-up (2026-05-11, 4 commits)
+
+Four targeted fixes layered onto M2.0L. Schema stays v8 additive
+(`Project.costInputMode?` optional; everything else is calc-engine
+or UI-only). Type-check clean on every commit.
+
+| # | Fix | Commit | What changed |
+|---|-----|--------|--------------|
+| 1 | Graceful migration for legacy projects | `60128b1` | `isLooseSnapshot()` + `migrateLegacyToV8()` in `module1-migrate.ts`. Accepts any object with `project` field or any data array; backfills every M2.0g/h/i/j/L additive field with safe defaults; renames legacy `'Hybrid'` -> `'Sell + Manage'`; remaps v6 cost-line ids to closest v7 standards; pipes through the full v7->v8 migration chain. Replaces the two hard-error paths (`"Unrecognized project shape"` and `"Project schema older than v8"`) with the permissive path. New `LEGACY_MIGRATION_NOTICE` banner shown once per project open. |
+| 2 | Cost Input Mode (Same / Individual) | `db7e578` | Adds `Project.costInputMode?: 'same' \| 'individual'` + `CostInputMode` type + labels. `CostInputModeModal` opens on first Tab 3 visit when undefined. `cost-input-mode-toggle` button at top of Tab 3 switches mode. Same mode renders one `SameModeCostTable` per phase (no asset selector, edits route to `CostLine` directly via new `editsGoToLine` prop on `CostRow`). Individual->Same with active overrides confirms before clearing every `costOverride`. |
+| 3 | Sub-unit metric UX cleanup | `62b843a` | Tab 2 sub-unit table now hides cells per metric. Area mode renders Unit Size + Count as muted dashes; Units mode renders Area as a read-only caption (`subunit-{id}-area-readout`) showing `count x unitArea`. `canSwitchMetric` guard + round-trip preservation unchanged. |
+| 4 | Cost multiplier asset-area fallback + caption warning | `47d6f08` | `resolveAssetAreaMetrics` in `src/core/calculations/index.ts` falls back to `asset.buaSqm` / `asset.sellableBuaSqm` when sub-units are empty (was 0). `gfa` cascades `asset.gfaSqm -> hierarchy.gfa -> bua`. `costLineCaption` emits `"<rate> x - (no <X> defined yet) = 0"` for every area / count driven method whose metric is 0 (BUA, NSA, GFA, Land, NDA, Roads, Support, Parking area, Unit count, Parking bays, specific sub-unit, per-sub-unit rates). |
+
+**Deferred from this follow-up:**
+- Verifier + Playwright extension for these 4 fixes (`scripts/verify-m20L-followup.ts` + new spec)
+- "Hide zero rows" pass for the new Same-mode subtotal in tfoot when no assets in phase
+- Same-mode Asset Cost Summary cards (currently only render in Individual mode)
+- Migration banner i18n / per-fix breadcrumb (right now one generic line)
+
+**Pattern decisions captured:**
+- **Permissive migration is the default**, never error on legacy snapshots. Loose-shape match + per-field defaults + named banner.
+- **Project-level mode flags drive sibling-tab divergence** (`costInputMode` is the template; M2.1 Revenue can mirror with a `revenueInputMode`).
+- **`editsGoToLine` prop on per-row components** is the clean way to short-circuit override-write paths when a mode means "edit the parent, not the per-asset child."
+- **Caption "no X defined yet"** is the canonical empty-state pattern for any calculated cell: surface the missing input by name so the user knows what to populate.
+
+---
+
 ## Recently Completed, REFM Module 1 Phase M2.0L Cost Duplication Fix + Full Financing Build (2026-05-11, ~10 commits)
 
 Closes the cost-line duplication bug Ahmad eyeballed after M2.0j, plus expands Tab 4 Financing from a single-tab tranche editor to a full multi-facility platform with capital-stack overview, schedules sub-tab, and cross-tab IDC sync. Schema stays v8 (all additive). Verifier: 74 pass / 0 fail / 2 skip.
