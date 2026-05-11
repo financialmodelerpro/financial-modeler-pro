@@ -2462,87 +2462,85 @@ export interface CostLineCaptionInput {
   perSubUnitRows?: number;
 }
 
+// M2.0M Pass 9 Fix 5 (2026-05-12): caption drops the trailing
+// "= result" part. The Total column already shows the resolved
+// number; the caption only carries the formula (multiplier x metric)
+// or the "no X defined yet" warning. Cleaner display, less duplication.
 export function costLineCaption(input: CostLineCaptionInput): string {
-  const { line, override, asset, metrics, parkingBays, resolvedTotal, selectedTotal, perSubUnitRows } = input;
+  const { line, override, asset, metrics, parkingBays, resolvedTotal: _resolvedTotal, selectedTotal, perSubUnitRows } = input;
+  void _resolvedTotal; // retained on interface for API stability; no longer used in caption.
   const method = override?.method ?? line.method;
   const value = override?.value ?? line.value;
   const fmt = (n: number, d = 0): string => Number.isFinite(n) ? n.toLocaleString('en-US', { maximumFractionDigits: d }) : '0';
   const fmtArea = (n: number): string => fmt(n, 0);
   const fmtMoney = (n: number): string => fmt(n, 0);
-  const eq = `= ${fmtMoney(resolvedTotal)}`;
   // M2.0L Fix 4 (2026-05-11): when the area metric is 0 for an area-
   // driven method, surface a "no X defined yet" warning so the user
   // knows to add sub-units / set the asset-level input rather than
   // wondering why the total is 0.
-  const noArea = (label: string): string => `${fmt(value, 2)} x - (no ${label} defined yet) = 0`;
+  const noArea = (label: string): string => `${fmt(value, 2)} x - (no ${label} defined yet)`;
   switch (method) {
     case 'fixed':
-      return `Fixed = ${fmtMoney(resolvedTotal)}`;
+      return 'Fixed';
     case 'rate_per_land':
-      return metrics.landSqm > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.landSqm)} sqm Land ${eq}` : noArea('Land area');
+      return metrics.landSqm > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.landSqm)} sqm Land` : noArea('Land area');
     case 'rate_per_nda':
-      return metrics.ndaSqm > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.ndaSqm)} sqm NDA ${eq}` : noArea('NDA');
+      return metrics.ndaSqm > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.ndaSqm)} sqm NDA` : noArea('NDA');
     case 'rate_per_roads':
-      return metrics.roadsSqm > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.roadsSqm)} sqm Roads ${eq}` : noArea('Roads area');
+      return metrics.roadsSqm > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.roadsSqm)} sqm Roads` : noArea('Roads area');
     case 'rate_per_gfa':
-      return metrics.gfa > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.gfa)} sqm GFA ${eq}` : noArea('GFA');
+      return metrics.gfa > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.gfa)} sqm GFA` : noArea('GFA');
     case 'rate_per_bua':
-      return metrics.bua > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.bua)} sqm BUA ${eq}` : noArea('BUA');
+      return metrics.bua > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.bua)} sqm BUA` : noArea('BUA');
     case 'rate_per_nsa':
-      return metrics.nsa > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.nsa)} sqm NSA ${eq}` : noArea('NSA');
+      return metrics.nsa > 0 ? `${fmt(value, 2)} x ${fmtArea(metrics.nsa)} sqm NSA` : noArea('NSA');
     case 'rate_per_unit':
-      return metrics.unitCount > 0 ? `${fmt(value, 2)} x ${fmt(metrics.unitCount)} units ${eq}` : noArea('Unit count');
+      return metrics.unitCount > 0 ? `${fmt(value, 2)} x ${fmt(metrics.unitCount)} units` : noArea('Unit count');
     case 'rate_per_parking_bay':
-      return parkingBays > 0 ? `${fmt(value, 2)} x ${fmt(parkingBays)} parking bays ${eq}` : noArea('Parking bays');
+      return parkingBays > 0 ? `${fmt(value, 2)} x ${fmt(parkingBays)} parking bays` : noArea('Parking bays');
     case 'rate_x_support_area': {
-      // M2.0L Pass2 Fix 4 (2026-05-11): prefer metrics.supportArea so
-      // aggregated (Same-mode) renderings work. Falls back to asset.
       const sa = Math.max(0, metrics.supportArea > 0 ? metrics.supportArea : (asset.supportArea ?? 0));
-      return sa > 0 ? `${fmt(value, 2)} x ${fmtArea(sa)} sqm Support ${eq}` : noArea('Support area');
+      return sa > 0 ? `${fmt(value, 2)} x ${fmtArea(sa)} sqm Support` : noArea('Support area');
     }
     case 'rate_x_parking_area': {
       const pa = Math.max(0, metrics.parkingArea > 0 ? metrics.parkingArea : (asset.parkingArea ?? 0));
-      return pa > 0 ? `${fmt(value, 2)} x ${fmtArea(pa)} sqm Parking ${eq}` : noArea('Parking area');
+      return pa > 0 ? `${fmt(value, 2)} x ${fmtArea(pa)} sqm Parking` : noArea('Parking area');
     }
     case 'rate_x_specific_subunit':
-      return resolvedTotal > 0 ? `Rate x specific sub-unit ${eq}` : noArea('selected sub-unit');
+      return _resolvedTotal > 0 ? 'Rate x specific sub-unit' : noArea('selected sub-unit');
     case 'per_sub_unit_custom_rates':
-      return (perSubUnitRows ?? 0) > 0 ? `Sum of ${perSubUnitRows ?? 0} sub-unit rows ${eq}` : noArea('sub-unit rates');
+      return (perSubUnitRows ?? 0) > 0 ? `Sum of ${perSubUnitRows ?? 0} sub-unit rows` : noArea('sub-unit rates');
     case 'percent_of_selected':
-      return `${fmt(value, 2)}% x ${fmtMoney(selectedTotal ?? 0)} (selected lines) ${eq}`;
+      return `${fmt(value, 2)}% x ${fmtMoney(selectedTotal ?? 0)} (selected lines)`;
     case 'percent_of_construction':
-      return `${fmt(value, 2)}% x construction subtotal ${eq}`;
+      return `${fmt(value, 2)}% x construction subtotal`;
     case 'percent_of_total_land':
       if (metrics.landValue <= 0) {
         return metrics.landSqm > 0
           ? noArea('parcel rate')
           : noArea('land allocation');
       }
-      return `${fmt(value, 2)}% x ${fmtMoney(metrics.landValue)} (land value) ${eq}`;
+      return `${fmt(value, 2)}% x ${fmtMoney(metrics.landValue)} (land value)`;
     case 'percent_of_cash_land': {
-      // M2.0M Pass 6 Fix 5 (2026-05-11): show derivation chain so the
-      // user sees WHY the total is what it is. landSqm x effectiveCashRate
-      // (cashLandValue / landSqm) gives an intuitive per-sqm view; when
-      // landSqm=0 or cashLandValue=0 we surface a pointed warning.
       if (metrics.cashLandValue <= 0) {
         if (metrics.landSqm <= 0) return noArea('land allocation to this asset');
         if (metrics.landValue <= 0) return noArea('parcel rate');
-        return `${fmt(value, 2)}% x ${fmtMoney(0)} (cash portion = 0; check parcel cashPct) = 0`;
+        return `${fmt(value, 2)}% x ${fmtMoney(0)} (cash portion = 0; check parcel cashPct)`;
       }
       const effRate = metrics.landSqm > 0 ? metrics.cashLandValue / metrics.landSqm : 0;
-      return `${fmtArea(metrics.landSqm)} sqm x ${fmtMoney(effRate)}/sqm (cash) ${eq}`;
+      return `${fmtArea(metrics.landSqm)} sqm x ${fmtMoney(effRate)}/sqm (cash)`;
     }
     case 'percent_of_inkind_land': {
       if (metrics.inKindLandValue <= 0) {
         if (metrics.landSqm <= 0) return noArea('land allocation to this asset');
         if (metrics.landValue <= 0) return noArea('parcel rate');
-        return `${fmt(value, 2)}% x ${fmtMoney(0)} (in-kind portion = 0; check parcel inKindPct) = 0`;
+        return `${fmt(value, 2)}% x ${fmtMoney(0)} (in-kind portion = 0; check parcel inKindPct)`;
       }
       const effRate = metrics.landSqm > 0 ? metrics.inKindLandValue / metrics.landSqm : 0;
-      return `${fmtArea(metrics.landSqm)} sqm x ${fmtMoney(effRate)}/sqm (in-kind) ${eq}`;
+      return `${fmtArea(metrics.landSqm)} sqm x ${fmtMoney(effRate)}/sqm (in-kind)`;
     }
     default:
-      return `${fmtMoney(resolvedTotal)}`;
+      return '';
   }
 }
 
