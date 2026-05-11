@@ -1,5 +1,5 @@
 ﻿# Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-12 (M2.0M Pass 3 Tab 4 Financing cleanup ships: 10 targeted fixes simplifying the financing surface. Single Asset toggle dropped from Inputs (always Combined); capex hooks audited post Pass 7 (getCapexExclLandInKind reads per-asset cost lines correctly, MAAD-shape fixture sums to BUA x rate); per-facility Debt % + Principal inputs removed (facility principal auto-derives from chosen funding method); new facilitySharePct field for multi-facility split (sums to 100% across facilities); facility scope dropdown re-exposes 3 options (project / phase / asset) with asset picker; per-facility drawdown method dropdown removed (auto-follows funding method); Equal Repayment sub-method dropdown + cash sweep ratio input removed (Equal Repayment defaults to equal_principal; Cash Sweep defaults to 100% above min cash); Equity Tranches section dropped entirely (auto-computes from method + Land In-Kind); 3 Inputs Summary Tables (Total Funding / Total Debt / Total Equity, per-asset rows x per-period cols, Total in 2nd position, Equity Total breaks into Cash + In-Kind sub-rows); Schedules All Phases aggregation (phaseFilter='__all__' walks all facilities project-wide, each computed against its own phase's capex); closing balance math verified (Closing = Opening + Drawdown + IDC Capitalized - Principal Repaid). New financing hooks getCapexSchedule(assetId?) + getLandCashValue(). migrateM20mPass3Financing flips viewMode='single_asset' -> 'combined', clears equityTranches data, defaults missing multi-facility facilitySharePct to even split. M20M_PASS3_NOTICE banner. Verifier verify-m20M-pass3.ts 42/0/0. Schema stays v8 additive.)**
+**Last updated: 2026-05-12 (M2.0 Costs Cleanup Pass 8 ships: 8 targeted fixes. NDA card moves from Tab 1 to Tab 2 (below Land Parcels totals row) with new Project/Per-Asset scope toggle; per-asset Roads%/Parks%/NDA toggle appears on each asset card when scope=asset. Sub-units: per-asset Metric toggle replaces per-row dropdown; Units mode = Area + Unit Size as INPUTS with Count derived; dynamic Count header (Units / Keys / Beds / Bays / Tenants) via countUnitLabel. Tab 3 top-right phase dropdown removed (Phase Filter above asset pills is sole navigation); empty-phase shows helpful message + keeps filter interactive. Cost line table 11 cols -> 9 (Category + Driver columns dropped, costCategory + costDriver deprecated). New cost lines default startPeriod=0, endPeriod=maxCp+1; migration clamps legacy lines whose endPeriod exceeds maxCp+1. PercentOfSelectedPicker colSpan synced to 9 (stale at 11 caused intermittent hidden render). Phase filter drops "All Phases" sentinel; default = first phase with assets. Results sub-tab gains explicit Combined/Single Asset radio toggle + asset picker dropdown; state persists via Project.resultsViewMode + resultsSelectedAssetId. migrateM20costsPass8 idempotent (NDA scope default, asset.subUnitMetric backfill from first sub-unit, endPeriod clamp, resultsViewMode default). M20_PASS8_NOTICE banner. Verifier verify-m20costsCleanup-pass8.ts 41/0/0. Schema stays v8 additive.)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -274,6 +274,101 @@ Full commit-by-commit narrative archived in **CLAUDE-FEATURES.md** if needed.
 - **Page-sections are jsonb, not normalized.** Each marketing section's `content_blocks` holds its own typed shape (`HeroContent` / `FeaturesContent` / `HowItWorksContent` / `CtaContent` / `TestimonialsContent`). Admin edits via JSON textarea.
 - **Legacy `modules` table stays** as platforms-storage despite name predating the platform/module distinction. Rename cost > benefit.
 - **RLS:** anon role never reads `status='hidden'` modules or `visible=false` page sections. Service-role bypasses for admin writes. No write policies needed for anon.
+
+### Module 1 status (2026-05-12, **M2.0 Costs Cleanup Pass 8**)
+
+**M2.0 Pass 8 (current, ships):** 8 targeted Costs cleanup fixes
+following Pass 7 verification. Schema stays v8 additive
+(`projectNdaScope` + `asset.subUnitMetric / assetRoadsPct /
+assetParksPct / assetNdaEnabled` + `resultsViewMode /
+resultsSelectedAssetId` added; `CostLine.costCategory / costDriver`
+and `SubUnit.metric` deprecated on schema).
+
+- **Fix 1, NDA placement + scope toggle**: Tab 1 NDA card removed.
+  Tab 2 Assets & Sub-units card lives below the Land Parcels totals
+  row (light-amber background). New scope toggle (`Project-level` /
+  `Per-Asset`): Project mode shows single Roads % + Parks % inputs +
+  Gross / Net derivation; Per-Asset mode disables project-level
+  inputs and surfaces Apply Roads/Parks + Roads % + Parks % on each
+  asset card. Land COST always stays on gross land; NDA only reduces
+  developable area consumed by `rate_per_nda` / capacity calcs.
+
+- **Fix 2, sub-unit UX (3 sub-fixes)**:
+  - 2a: Units mode = Area + Unit Size as inputs; Count is read-only
+    derived (`Count = Area / Unit Size`). Editing Area back-calcs
+    count; editing Unit Size preserves displayed Area.
+  - 2b: Count header swaps to dynamic label (Units / Keys / Beds /
+    Bays / Tenants) per dominant revenue sub-unit category +
+    strategy + type via `countUnitLabel`.
+  - 2c: `Asset.subUnitMetric` becomes the single source of truth per
+    asset; per-row Metric dropdown column removed; asset-level
+    Area / Units radio toggle above the sub-unit table converts all
+    sub-units when switched (refuses with warning when any row would
+    lose non-zero area via `canSwitchMetric`).
+
+- **Fix 3, top-right phase dropdown**: removed from Tab 3 page header
+  (Phase Filter inside Inputs sub-tab is sole navigation). Empty
+  phase renders a helpful message + keeps Phase Filter active so the
+  user can switch phases.
+
+- **Fix 4, drop Category + Driver**: cost line table 11 cols -> 9
+  (Cost Line / Method / Value / Start / End / Phasing / Total /
+  Toggle / Delete). Pass 5's Direct vs Allocated + driver split
+  dropped from UI per user feedback; every cost line is per-asset
+  (Pass 7 architecture). `CostLine.costCategory` + `costDriver`
+  retained on schema for back-compat; calc engine treats every line
+  as Direct. CostRow sub-rows use `colSpan={9}`; AssetCostSection
+  tfoot Asset Subtotal label spans cols 1-6.
+
+- **Fix 5, Start/End defaults**: new cost lines default
+  `startPeriod=0`, `endPeriod=maxCp+1` where `maxCp = max(phase.constructionPeriods)`.
+  Migration clamps legacy lines whose `endPeriod` exceeds
+  `maxCp + 1` (e.g. legacy snapshot with hardcoded End=24 on a
+  4-period project now lands at 5).
+
+- **Fix 6, %-of-selected picker visibility**: `PercentOfSelectedPicker`
+  sub-row `<td colSpan>` synced from stale 11 (left over from Pass 7's
+  11-col table) to 9 (Pass 8's 9-col table). The picker contents
+  (button + popover + chip strip) were intact from Pass 6 Fix 6;
+  only the wrapping row's column span was wrong, causing the picker
+  to render misaligned and occasionally clipped.
+
+- **Fix 7, Phase filter no "All Phases"**: Tab 3 Phase Filter drops
+  the `'__all__'` sentinel. Default = first phase with at least one
+  visible asset (else first phase). Inputs sub-tab matches Pass 7
+  one-asset-at-a-time semantics; combined-across-phases view stays
+  in Results (P8-Fix 8).
+
+- **Fix 8, Results Combined / Single Asset toggle**: explicit radio
+  toggle at the top of Results sub-tab (replaces the M2.0L filter
+  pill bar). Single Asset surfaces an asset picker dropdown beside
+  the radio. State persists via `Project.resultsViewMode` +
+  `resultsSelectedAssetId` so the view survives reload. `SummaryTables`
+  rekey on view+asset change so the per-period tables refresh
+  immediately. (Deferred per scope: the brief's deep grouping of
+  Combined view's Capex by Period by cost-line type with asset
+  sub-rows would require exposing per-cost-line per-asset per-period
+  data from the calc engine; toggle ships, grouping enhancement
+  deferred.)
+
+- **Migration**: `migrateM20costsPass8` is idempotent; runs in all 3
+  hydrate chains (`stripV8Wrapper` / `stripWrapper` /
+  `migrateLegacyToV8`). Stamps `projectNdaScope='project'` when
+  `projectNdaEnabled=true` and scope undefined; backfills
+  `asset.subUnitMetric` from the first sub-unit's metric; clamps
+  `costLine.endPeriod` to `maxCp+1`; defaults
+  `project.resultsViewMode='combined'`. `M20_PASS8_NOTICE` banner
+  surfaces once on first hydrate. `resolveBanner` prioritizes
+  Pass 8 ahead of Pass 3 / Pass 7.
+
+- **Verifier**: `scripts/verify-m20costsCleanup-pass8.ts` 41 pass /
+  0 fail / 0 skip across 10 sections.
+
+Commits (10): `ae02b6f` (design note) - `31a3712` (Fix 1) -
+`7873107` (Fix 2) - `9cdd579` (Fix 4) - `f69c7bd` (Fix 5) -
+`3ebb9f1` (Fix 6) - `fb3dd91` (Fix 7) - `7831538` (Fix 3) -
+`8bc9c02` (Fix 8) - closure (migration + verifier + CLAUDE.md).
+Type-check clean on every commit.
 
 ### Module 1 status (2026-05-12, **M2.0M Pass 3 Tab 4 Financing cleanup**)
 

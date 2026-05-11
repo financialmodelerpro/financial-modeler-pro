@@ -189,7 +189,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // strip deprecated Project.costInputMode.
   // M2.0L Pass 5: default every CostLine.costCategory to 'direct' when
   // unset.
-  return migrateM20mPass3Financing(
+  return migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -207,7 +207,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  );
+  ));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -219,8 +219,8 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // then the M2.0j phasing fold, then the M2.0L id dedupe, then the
   // M2.0L Pass 4 inheritance migration, then the M2.0L Pass 5
   // category defaulting, then the M2.0M financing wrapper, then the
-  // M2.0M Pass 6 display defaults flip, M2.0M Pass 2 / Pass 7 / Pass 3.
-  return migrateM20mPass3Financing(
+  // M2.0M Pass 6 display defaults flip, M2.0M Pass 2 / Pass 7 / Pass 3 / Pass 8.
+  return migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -238,7 +238,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  );
+  ));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -410,6 +410,91 @@ function migrateM20mPass3Financing(snap: HydrateSnapshot): HydrateSnapshot {
 
 export const M20M_PASS3_NOTICE =
   "Financing simplified, facility ratios now auto-compute from chosen funding method. Equity tranches auto-computed from method and Land In-Kind cost line.";
+
+// M2.0 Pass 8 (2026-05-12): Costs Cleanup Pass 8 migration.
+//   Fix 1: projectNdaScope defaults to 'project' when projectNdaEnabled is on.
+//   Fix 2c: asset.subUnitMetric backfilled from first sub-unit's metric.
+//   Fix 5: clamp cost lines whose endPeriod exceeds maxCp + 1.
+//   Fix 8: project.resultsViewMode defaults to 'combined'.
+// Idempotent.
+function migrateM20costsPass8(snap: HydrateSnapshot): HydrateSnapshot {
+  const project = snap.project as Project;
+  let nextProject = project;
+  const projectPatch: Partial<Project> = {};
+  if (project.projectNdaEnabled === true && project.projectNdaScope === undefined) {
+    projectPatch.projectNdaScope = 'project';
+  }
+  if (project.resultsViewMode === undefined) {
+    projectPatch.resultsViewMode = 'combined';
+  }
+  if (Object.keys(projectPatch).length > 0) {
+    nextProject = { ...project, ...projectPatch };
+  }
+
+  // Fix 2c: stamp asset.subUnitMetric from first sub-unit when missing.
+  const subUnits = (snap.subUnits ?? []) as SubUnit[];
+  const assets = (snap.assets ?? []) as Asset[];
+  const subsByAsset = new Map<string, SubUnit[]>();
+  for (const u of subUnits) {
+    const list = subsByAsset.get(u.assetId);
+    if (list) list.push(u); else subsByAsset.set(u.assetId, [u]);
+  }
+  let assetsTouched = false;
+  const nextAssets = assets.map((a) => {
+    if (a.subUnitMetric !== undefined) return a;
+    const list = subsByAsset.get(a.id) ?? [];
+    if (list.length === 0) return a;
+    const first = list[0];
+    const metric: 'area' | 'units' = (first.metric === 'units' || (first.metric as unknown as string) === 'count')
+      ? 'units' : 'area';
+    assetsTouched = true;
+    return { ...a, subUnitMetric: metric };
+  });
+
+  // Fix 5: clamp endPeriod when it exceeds maxCp + 1.
+  const phases = (snap.phases ?? []) as Phase[];
+  const maxCp = phases.reduce((m, p) => Math.max(m, p.constructionPeriods), 0);
+  const maxAllowedEnd = maxCp + 1;
+  const lines = (snap.costLines ?? []) as CostLine[];
+  let linesTouched = false;
+  const nextLines = lines.map((c) => {
+    if (typeof c.endPeriod === 'number' && c.endPeriod > maxAllowedEnd) {
+      linesTouched = true;
+      return { ...c, endPeriod: maxAllowedEnd };
+    }
+    return c;
+  });
+
+  const projectTouched = Object.keys(projectPatch).length > 0;
+  if (!projectTouched && !assetsTouched && !linesTouched) return snap;
+  return {
+    ...snap,
+    project: nextProject,
+    assets: assetsTouched ? nextAssets : snap.assets,
+    costLines: linesTouched ? nextLines : snap.costLines,
+  };
+}
+
+export const M20_PASS8_NOTICE =
+  "Costs UI refined, sub-unit metric now per-asset and NDA placement updated. Review Tab 2 + Tab 3.";
+
+export function snapshotNeedsPass8Migration(s: unknown): boolean {
+  if (s === null || typeof s !== 'object') return false;
+  const snap = s as Partial<HydrateSnapshot>;
+  const project = snap.project as Project | undefined;
+  if (project?.projectNdaEnabled === true && project.projectNdaScope === undefined) return true;
+  if (project && project.resultsViewMode === undefined) return true;
+  const subUnits = (snap.subUnits as SubUnit[] | undefined) ?? [];
+  const assets = (snap.assets as Asset[] | undefined) ?? [];
+  for (const a of assets) {
+    if (a.subUnitMetric === undefined && subUnits.some((u) => u.assetId === a.id)) return true;
+  }
+  const phases = (snap.phases as Phase[] | undefined) ?? [];
+  const maxCp = phases.reduce((m, p) => Math.max(m, p.constructionPeriods), 0);
+  const lines = (snap.costLines as CostLine[] | undefined) ?? [];
+  if (lines.some((c) => typeof c.endPeriod === 'number' && c.endPeriod > maxCp + 1)) return true;
+  return false;
+}
 
 export function snapshotNeedsPass3Migration(s: unknown): boolean {
   if (s === null || typeof s !== 'object') return false;
@@ -1058,7 +1143,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Parking sub-units, normalise phasing, dedupe phase-scoped ids,
   // apply Pass 4 / Pass 5 / M2.0M wrapper migrations, then Pass 6
   // display defaults.
-  snap = migrateM20mPass3Financing(
+  snap = migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -1076,7 +1161,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
         ),
       ),
     ),
-  );
+  ));
   return snap;
 }
 
@@ -1139,10 +1224,12 @@ function snapshotNeedsM20MMigration(s: unknown): boolean {
   return o.project.financing === undefined;
 }
 
-// Pick the most-recent banner that applies. Pass 3 (financing) is the
-// newest; then Pass 7 (costs); then M20M; then Pass 5; then Pass 4;
-// else the loose / M2.0h v7 -> v8 banner upstream.
+// Pick the most-recent banner that applies. Pass 8 (costs) is the
+// newest; then Pass 3 (financing); then Pass 7 (costs); then M20M;
+// then Pass 5; then Pass 4; else the loose / M2.0h v7 -> v8 banner
+// upstream.
 function resolveBanner(s: unknown): string | undefined {
+  if (snapshotNeedsPass8Migration(s)) return M20_PASS8_NOTICE;
   if (snapshotNeedsPass3Migration(s)) return M20M_PASS3_NOTICE;
   if (snapshotNeedsPass7Migration(s)) return M20COSTS_PASS7_NOTICE;
   if (snapshotNeedsM20MMigration(s)) return M20M_FINANCING_NOTICE;
