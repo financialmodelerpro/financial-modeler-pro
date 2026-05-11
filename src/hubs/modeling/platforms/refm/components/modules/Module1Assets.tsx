@@ -1414,25 +1414,41 @@ function SubUnitRow({ subUnit, currency, onUpdate, onRemove, decimals }: SubUnit
         </select>
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-        {/* M2.0j Fix 6: Area is ALWAYS editable. When metric=units,
-            edits flow back to count = newArea / unitArea. */}
+        {/* M2.0L Fix 3 (2026-05-11): metric drives which cells are visible.
+            Area mode: Area input editable. Unit Size + Count cells hidden
+            (rendered as muted dash).
+            Units mode: Area shown read-only as caption "count x size = sqm";
+            the user does NOT edit Area directly. Unit Size + Count are the
+            editable inputs. */}
         {isUnits ? (
-          <input type="number" min={0} value={Number.isFinite(totalArea) ? Number(totalArea.toFixed(2)) : 0} data-testid={`subunit-${subUnit.id}-area-input`} onChange={(e) => onEditAreaWhenUnits(Number(e.target.value) || 0)} disabled={unitArea === 0} title={unitArea === 0 ? 'Unit Size required to edit Area when metric = Units' : undefined} style={{ ...inputStyle, fontSize: 11, opacity: unitArea === 0 ? 0.5 : 1 }} />
+          <span
+            style={{ ...calcOutputStyle, fontSize: 11, fontStyle: 'italic' }}
+            data-testid={`subunit-${subUnit.id}-area-readout`}
+            title="Area derives from Count x Unit Size; edit Count or Unit Size to change it"
+          >
+            {unitArea > 0 ? formatArea(totalArea, decimals) : '-'}
+          </span>
         ) : (
           <input type="number" min={0} value={subUnit.metricValue} data-testid={`subunit-${subUnit.id}-area-input`} onChange={(e) => onEditAreaWhenArea(Number(e.target.value) || 0)} style={{ ...inputStyle, fontSize: 11 }} />
         )}
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
-        <input type="number" min={0} value={subUnit.unitArea ?? 0} data-testid={`subunit-${subUnit.id}-unitArea`} onChange={(e) => onUpdate({ unitArea: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} aria-invalid={unitsButNoSize} />
-        {unitsButNoSize && (
-          <div style={{ fontSize: 9, color: 'var(--color-negative)' }} data-testid={`subunit-${subUnit.id}-units-no-size-error`}>Unit Size required</div>
+        {isUnits ? (
+          <>
+            <input type="number" min={0} value={subUnit.unitArea ?? 0} data-testid={`subunit-${subUnit.id}-unitArea`} onChange={(e) => onUpdate({ unitArea: Math.max(0, Number(e.target.value) || 0) })} style={{ ...inputStyle, fontSize: 11 }} aria-invalid={unitsButNoSize} />
+            {unitsButNoSize && (
+              <div style={{ fontSize: 9, color: 'var(--color-negative)' }} data-testid={`subunit-${subUnit.id}-units-no-size-error`}>Unit Size required</div>
+            )}
+          </>
+        ) : (
+          <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-unitArea-hidden`}>-</span>
         )}
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
         {isUnits ? (
           <input type="number" min={0} value={Number.isFinite(count) ? Number(count.toFixed(2)) : 0} data-testid={`subunit-${subUnit.id}-count`} onChange={(e) => onEditCount(Number(e.target.value) || 0)} style={{ ...inputStyle, fontSize: 11 }} />
         ) : (
-          <span style={{ ...calcOutputStyle, fontSize: 11 }} data-testid={`subunit-${subUnit.id}-count-derived`}>{unitArea > 0 ? formatArea(count, decimals) : '-'}</span>
+          <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`subunit-${subUnit.id}-count-hidden`}>-</span>
         )}
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right' }}>
