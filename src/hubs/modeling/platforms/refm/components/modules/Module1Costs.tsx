@@ -1487,13 +1487,115 @@ function SummaryTables({
         </div>
       </div>
 
-      {/* M2.0j Fix 14 + 15 (2026-05-07): Capex by Stage / Capex Summary by
-          Treatment / Capex by Cost Type per Asset tables removed from
-          Tab 3 Results. Stage classification still drives the calc
-          engine internals (auto-derived) but is not displayed as its
-          own summary table. Capex by Period above is the single
-          summary that remains. Asset Cost Summary cards live in the
-          Inputs sub-tab beneath the cost lines (Fix 16). */}
+      {/* M2.0L Pass2 Fix 9 (2026-05-11): three CAPEX Summary tables
+          stacked beneath Capex by Period. Each is per-asset row x
+          period column, filtered by land treatment.
+          - Excl All Land: assetPP[i+1] - landTotalPP[i+1]
+          - Excl Land In-Kind: assetPP[i+1] - landInKindPP[i+1]
+          - Incl All Land: assetPP[i+1] (unfiltered)
+          All three share the same Combined / per-asset filter pill bar
+          + granularity toggle + period labels above. */}
+      {(() => {
+        // Helper: build per-asset period series + totals for a given
+        // land filter ('exclAll' | 'exclInKind' | 'inclAll').
+        const buildAssetRow = (asset: Asset, mode: 'exclAll' | 'exclInKind' | 'inclAll'): { row: number[]; total: number } => {
+          const projectStartYear = new Date(project.startDate).getUTCFullYear();
+          const annualRow = new Array<number>(annualPeriodCount).fill(0);
+          let total = 0;
+          for (const pb of perPhaseBreakdowns) {
+            const bd = pb.assetTotals[asset.id];
+            if (!bd) continue;
+            const phaseObj = phases.find((p) => p.id === pb.phaseId);
+            const phaseStartIso = phaseObj?.startDate && phaseObj.startDate.length === 10 ? phaseObj.startDate : project.startDate;
+            const phaseStartYear = new Date(phaseStartIso).getUTCFullYear();
+            const offset = Math.max(0, phaseStartYear - projectStartYear);
+            for (let i = 0; i < pb.cp; i++) {
+              const dest = offset + i;
+              if (dest < 0 || dest >= annualPeriodCount) continue;
+              const tot = bd.perPeriod[i + 1] ?? 0;
+              const landAll = bd.perPeriodLandTotal[i + 1] ?? 0;
+              const landInKind = bd.perPeriodLandInKind[i + 1] ?? 0;
+              const v =
+                mode === 'exclAll' ? tot - landAll
+                : mode === 'exclInKind' ? tot - landInKind
+                : tot;
+              annualRow[dest] += v;
+              total += v;
+            }
+            // Upfront perPeriod[0] follows the same offset rule.
+            if (offset > 0 && offset - 1 < annualPeriodCount && offset - 1 >= 0) {
+              const tot = bd.perPeriod[0] ?? 0;
+              const landAll = bd.perPeriodLandTotal[0] ?? 0;
+              const landInKind = bd.perPeriodLandInKind[0] ?? 0;
+              const v =
+                mode === 'exclAll' ? tot - landAll
+                : mode === 'exclInKind' ? tot - landInKind
+                : tot;
+              annualRow[offset - 1] += v;
+              total += v;
+            }
+          }
+          return { row: transformAnnualSeries(annualRow), total };
+        };
+
+        const renderSummary = (
+          title: string,
+          mode: 'exclAll' | 'exclInKind' | 'inclAll',
+          testidKey: string,
+        ): React.JSX.Element => {
+          const rows = phaseAssets
+            .map((a) => ({ asset: a, ...buildAssetRow(a, mode) }))
+            // Hide zero rows (brief: hide rows with total = 0).
+            .filter((r) => Math.abs(r.total) > 0.5);
+          const projTotal = rows.reduce((s, r) => s + r.total, 0);
+          const periodTotalsLocal = new Array<number>(periodCount).fill(0);
+          for (const r of rows) {
+            for (let i = 0; i < periodCount; i++) periodTotalsLocal[i] += r.row[i] ?? 0;
+          }
+          return (
+            <div style={sectionCardStyle} data-testid={`capex-summary-${testidKey}`}>
+              <h3 style={{ margin: 0, marginBottom: 'var(--sp-1)', fontSize: 14 }}>{title}</h3>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                  <thead>
+                    <tr>
+                      <th style={headLeftStyle}>Asset</th>
+                      <th style={headStyle}>Total</th>
+                      {periodLabels.map((p, i) => (<th key={i} style={headStyle}>{p}</th>))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.length === 0 ? (
+                      <tr><td style={cellName} colSpan={2 + periodCount}>No non-zero values for this view.</td></tr>
+                    ) : rows.map((r) => (
+                      <tr key={r.asset.id} data-testid={`capex-summary-${testidKey}-${r.asset.id}`}>
+                        <td style={cellName}>{r.asset.name}</td>
+                        <td style={cellNum} data-testid={`capex-summary-${testidKey}-${r.asset.id}-total`}>{fmt(r.total)}</td>
+                        {r.row.map((v, i) => (<td key={i} style={cellNum}>{fmt(v)}</td>))}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 700 }}>
+                      <td style={cellName}>Project Total</td>
+                      <td style={cellNum} data-testid={`capex-summary-${testidKey}-grand-total`}>{fmt(projTotal)}</td>
+                      {periodTotalsLocal.map((v, i) => (<td key={i} style={cellNum}>{fmt(v)}</td>))}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          );
+        };
+
+        return (
+          <>
+            {renderSummary('CAPEX Summary - Excluding All Land', 'exclAll', 'excl-all-land')}
+            {renderSummary('CAPEX Summary - Excluding Land In-Kind', 'exclInKind', 'excl-land-inkind')}
+            {renderSummary('CAPEX Summary - Including All Land Incl. In-Kind', 'inclAll', 'incl-all-land')}
+          </>
+        );
+      })()}
     </>
   );
 }

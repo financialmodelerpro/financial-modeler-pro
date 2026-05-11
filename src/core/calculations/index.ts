@@ -902,6 +902,14 @@ export interface AssetCostBreakdown {
   byStage: Record<CostStage, number>;
   total: number;
   perPeriod: number[]; // length = constructionPeriods + 1
+  // M2.0L Pass2 Fix 9 (2026-05-11): per-period land splits powering the
+  // three new CAPEX Summary tables (Excl All Land / Excl Land In-Kind /
+  // Incl All Land). perPeriodLandTotal sums every stage='land' line's
+  // per-period contribution; perPeriodLandInKind sums only the
+  // 'percent_of_inkind_land' method (or any future in-kind-tagged
+  // lines via tagging convention).
+  perPeriodLandTotal: number[];
+  perPeriodLandInKind: number[];
 }
 
 export function computeAssetCost(
@@ -1019,6 +1027,9 @@ export function computeAssetCost(
   // Per-period schedule
   const cp = phase.constructionPeriods;
   const perPeriod = new Array<number>(cp + 1).fill(0);
+  // M2.0L Pass2 Fix 9: per-period land splits.
+  const perPeriodLandTotal = new Array<number>(cp + 1).fill(0);
+  const perPeriodLandInKind = new Array<number>(cp + 1).fill(0);
   for (const r of resolved) {
     const t = byLineId[r.line.id] ?? 0;
     if (t === 0) continue;
@@ -1027,10 +1038,17 @@ export function computeAssetCost(
       t,
       cp,
     );
-    for (let i = 0; i <= cp; i++) perPeriod[i] += dist[i] ?? 0;
+    const isLand = deriveCostStage(r.line) === 'land';
+    const isInKindLand = r.method === 'percent_of_inkind_land';
+    for (let i = 0; i <= cp; i++) {
+      const v = dist[i] ?? 0;
+      perPeriod[i] += v;
+      if (isLand) perPeriodLandTotal[i] += v;
+      if (isInKindLand) perPeriodLandInKind[i] += v;
+    }
   }
 
-  return { byLineId, byStage, total, perPeriod };
+  return { byLineId, byStage, total, perPeriod, perPeriodLandTotal, perPeriodLandInKind };
 }
 
 // ── Phase cost rollup ──────────────────────────────────────────────────────
