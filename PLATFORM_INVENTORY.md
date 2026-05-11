@@ -63,7 +63,7 @@ Storage buckets (Supabase Storage): `certificates`, `badges`, `course-materials`
 | Charts | recharts | ^3.8.0 |
 | DB client | @supabase/supabase-js | ^2.99.1 |
 | Auth | next-auth | ^4.24.13 |
-| Email | resend | ^6.10.0 |
+| Email | @getbrevo/brevo | ^5.0.4 |
 | Forms | react-hook-form / zod / @hookform/resolvers | ^7 / ^4 / ^5 |
 | AI | @anthropic-ai/sdk | ^0.78.0 |
 | PDF | pdf-lib | ^1.17.1 |
@@ -159,7 +159,7 @@ See Section 5. Specifically the `Training Hub` sidebar section: `/admin/training
 - Google Apps Script (roster + RegID + assessment dual-write).
 - Microsoft Graph / Teams (`src/lib/integrations/teamsMeetings.ts`) for live-session calendar event + meeting auto-generation.
 - YouTube Data API v3 for cached comments and embedded player.
-- Resend for student emails.
+- Brevo for student emails (migrated from Resend 2026-05-11, commit `166a8ec`).
 - Anthropic Claude (newsletter rewrite assist).
 
 ### 2C. Modeling Hub (`app.financialmodelerpro.com`)
@@ -285,14 +285,14 @@ Imports check: only `comingSoonGuard.ts` violates the boundary.
 | Database client | `src/lib/shared/supabase.ts` | `getServerClient()` factories |
 | Auth helpers | `src/lib/shared/auth.ts`, `deviceTrust.ts`, `emailConfirmation.ts`, `password.ts` | Modeling Hub + Admin |
 | Training-specific session | `src/lib/training/training-session.ts`, `trainingSessionCookie.ts` | Training Hub only |
-| Email | `src/lib/email/sendEmail.ts` (single + `sendEmailBatch`), `sendTemplatedEmail.ts` (CMS-driven) | All hubs |
+| Email | `src/shared/email/sendEmail.ts` (single + `sendEmailBatch`), `sendTemplatedEmail.ts` (CMS-driven). `sendEmail()` wraps Brevo's `transactionalEmails.sendTransacEmail`; `sendEmailBatch()` is a `Promise.allSettled` loop (one `sendTransacEmail` per item) with binary ok/fail semantics preserved from the prior Resend `batch.send` wrapper. | All hubs |
 | File storage | `src/lib/shared/storage.ts` | Supabase Storage wrapper |
 | API helpers | None centralized; routes use `NextResponse.json()` directly | |
 | URLs | `src/lib/shared/urls.ts` | Currently unreferenced, but ready for adoption |
 
 ### 4D. Email system
 
-#### Templates (`src/lib/email/templates/`)
+#### Templates (`src/shared/email/templates/`)
 
 | Template | Purpose |
 |----------|---------|
@@ -306,7 +306,7 @@ Imports check: only `comingSoonGuard.ts` violates the boundary.
 | `newsletter.ts` | Custom `baseLayoutNewsletter()` with `Structured Modeling. Real-World Finance.` signature |
 | `otpVerification.ts` | OTP container |
 | `passwordReset.ts` | Password reset |
-| `quizResult.ts` | Quiz pass/fail |
+| `quizResult.ts` | Final-exam pass/fail (per-session quiz emails removed 2026-05-11, commit `166a8ec`; per-session results are now dashboard-only) |
 | `registrationConfirmation.ts` | Live-session registration confirmation |
 | `resendRegistrationId.ts` | Email RegID lookup |
 
@@ -316,13 +316,13 @@ All template functions are async; callers must `await`.
 
 | File | Role |
 |------|------|
-| `sender.ts` | `sendCampaign()` central pipeline. Resolves segment, seeds `pending` rows, fires `resend.batch.send([100])`, 200ms stagger, updates per-row status. Single entry for manual + scheduled + auto + retry-failed |
+| `sender.ts` | `sendCampaign()` central pipeline. Resolves segment, seeds `pending` rows, fires `sendEmailBatch([100])` (now a Brevo `Promise.allSettled` loop, one `sendTransacEmail` per item; previously Resend `batch.send`), 200ms stagger, updates per-row status. Single entry for manual + scheduled + auto + retry-failed |
 | `segments.ts` | 7 segments: `all_active`, `active_30_days`, `passed_3sfm`, `passed_bvm`, `never_started`, `has_certificate`, `no_certificate` |
 | `templates.ts` | DB-backed engine (`getTemplate(key)`, `renderForEvent(eventType, vars)`) |
 | `linkWrap.ts` | Rewrites every `<a href>` to `/api/newsletter/click?msg={msg}&campaign=X&url=encoded` |
 | `autoNotify.ts` | Article-publish, live-session-publish, recording-available triggers; calls `renderForEvent` then hands off to `sendCampaign` |
 
-Triggers consumed: `/api/admin/newsletter/send`, `/api/admin/newsletter/test-send`, `/api/cron/newsletter-scheduled` (daily 07:00 UTC), `/api/webhooks/resend` (Svix HMAC-SHA256 manual verification), `/api/newsletter/click` (302 redirector), `/api/newsletter/subscribe` (signup opt-in fire-and-forget), `/api/newsletter/unsubscribe`.
+Triggers consumed: `/api/admin/newsletter/send`, `/api/admin/newsletter/test-send`, `/api/cron/newsletter-scheduled` (daily 07:00 UTC), `/api/webhooks/resend` (Svix HMAC-SHA256 manual verification; **dormant after Brevo migration 2026-05-11 — no events arrive; replacement Brevo webhook is a pending follow-up**), `/api/newsletter/click` (302 redirector), `/api/newsletter/subscribe` (signup opt-in fire-and-forget), `/api/newsletter/unsubscribe`.
 
 Auto-notify is consumed by both Training Hub events (article publish, live-session publish/recording) and is also forward-compatible for Modeling Hub. The pipeline itself is hub-neutral.
 
@@ -375,7 +375,7 @@ Sidebar source: `src/components/admin/CmsAdminNav.tsx` (consumed by 30 admin pag
 | `/admin/training-hub/students` | Student list |
 | `/admin/training-hub/cohorts` + `/[id]` | Cohort management |
 | `/admin/training-hub/assessments` | Assessment results table |
-| `/admin/training-hub/certificates` | Issued certs + safety-net "Eligible but not issued" panel + Email column with Resend |
+| `/admin/training-hub/certificates` | Issued certs + safety-net "Eligible but not issued" panel + Email column with per-row resend button (sends certificateIssuedTemplate via Brevo) |
 | `/admin/training-hub/instructors` | Instructor roster (migration 106) |
 | `/admin/training-hub/live-sessions` + `/email-settings` | Live session CRUD; email-settings is now a 5-line redirect |
 | `/admin/training-hub/course-details` | Per-course detail editor |
@@ -531,7 +531,7 @@ All under `app/api/admin/*` (45+ routes). Notable groups:
 
 ### F. Webhook
 
-- `/api/webhooks/resend` (POST, Svix HMAC-SHA256)
+- `/api/webhooks/resend` (POST, Svix HMAC-SHA256). **Dormant after Brevo migration 2026-05-11** — Resend no longer sends events to this endpoint; the handler still validates Svix signatures but receives nothing. Replacement Brevo webhook integration is a pending follow-up.
 
 ### Hub ownership of routes
 
@@ -746,7 +746,7 @@ This is the only true shared-code violation. Everything else is either hub-inter
 
 Auth + DB: `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 URLs: `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_MAIN_URL`, `NEXT_PUBLIC_LEARN_URL`.
-Email: `RESEND_API_KEY`, `RESEND_WEBHOOK_SECRET`, `EMAIL_FROM_TRAINING`, `EMAIL_FROM_NOREPLY`.
+Email: `BREVO_API_KEY`, `EMAIL_FROM_TRAINING`, `EMAIL_FROM_NOREPLY`. `RESEND_WEBHOOK_SECRET` is retained but vestigial after Brevo migration (2026-05-11, commit `166a8ec`): `/api/webhooks/resend` no longer receives events, `/api/email/send` still uses it as a bearer-token check.
 Captcha: `HCAPTCHA_SECRET_KEY`, `NEXT_PUBLIC_HCAPTCHA_SITE_KEY`.
 AI: `ANTHROPIC_API_KEY`.
 YouTube: `YOUTUBE_API_KEY`, `NEXT_PUBLIC_YOUTUBE_CHANNEL_ID`.
@@ -809,7 +809,7 @@ Migrations 069, 073, 127 are absent on disk. CLAUDE-DB.md does not mention the g
 ### Security considerations
 
 - `/api/cms`, `/api/branding` GET endpoints are public. CLAUDE.md flags both. `cms_content` row that contains `header_settings.logo_url` etc. is intentionally public; nothing sensitive should ever live there.
-- Resend webhook (`/api/webhooks/resend`) verifies Svix HMAC manually using `crypto.createHmac('sha256', ...)` with a 5-minute replay window. Implementation is sound; rotate `RESEND_WEBHOOK_SECRET` if the secret leaks.
+- Resend webhook (`/api/webhooks/resend`) is dormant after the Brevo migration on 2026-05-11 (commit `166a8ec`); it still verifies Svix HMAC manually using `crypto.createHmac('sha256', ...)` with a 5-minute replay window in case it ever fires again. Brevo-webhook integration is a pending follow-up. Rotate `RESEND_WEBHOOK_SECRET` if the secret leaks (also used as a bearer-token check on `/api/email/send`).
 - Admin protection lives in two places: middleware (`src/middleware.ts`) and individual route handlers (manual `getServerSession` checks). Centralize in middleware longer-term to reduce drift risk.
 
 ---
@@ -1051,7 +1051,7 @@ This is the load-bearing checklist. Any restructure proposal that breaks an item
 ### Scheduled tasks that must not be interrupted
 
 - Inline cert issuance in `submit-assessment/route.ts`. Fire-and-forget. Any error path that throws synchronously breaks the student-facing 200. Wrap any new code in the route with try/catch.
-- Newsletter `sendCampaign()` 200ms stagger. The 100/batch chunking is rate-limit-bound; any code path that calls `resend.emails.send` directly outside `sendEmailBatch` risks the 5/sec limit.
+- Newsletter `sendCampaign()` 200ms stagger. The 100/batch chunking is now bound by Brevo's per-second sendTransacEmail rate limit (default 300/sec on paid plans, much more generous than Resend's 5/sec). Any code path that calls `brevo.transactionalEmails.sendTransacEmail` directly outside `sendEmailBatch` should still respect the wrapper for batch tracking and graceful failure capture.
 
 ### Restructure-validation checklist
 

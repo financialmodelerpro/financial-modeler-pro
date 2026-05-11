@@ -214,7 +214,7 @@ Net source-tree state: 0 cross-hub violations on the original 5; one TODO-tracke
 | Live Sessions, student pages | ✅ Complete | Upcoming/recordings sections, detail page, YouTube embed, countdown |
 | Live Sessions, public pages | ✅ Complete | SSR at `/training-sessions`, no auth required, no `live_url` exposed |
 | Session registration/RSVP | ✅ Complete | `session_registrations` table, batch status API, join link 30 min before |
-| Email notifications (live sessions) | ✅ Complete | Announcement/reminder via Resend, targeting all/3SFM/BVM |
+| Email notifications (live sessions) | ✅ Complete | Announcement/reminder via Brevo, targeting all/3SFM/BVM (migrated from Resend 2026-05-11) |
 | Watch tracking (recordings) | ✅ Complete | `session_watch_history` table, 50 points on first watch. Rebuilt 2026-04-28 (migrations 146 + 147), JSONB `watch_intervals` for cross-session accumulation, `completed_via` provenance, manual override path at >=50% + admin force-unlock. See "Watch Tracking Rebuild" row in CLAUDE-FEATURES.md. |
 | File attachments per session | ✅ Complete | Upload to `course-materials` bucket, in-dashboard preview modal |
 | Share Experience / Testimonials | ✅ Complete | 3-tab modal (written, video, social), both hubs, LinkedIn/Loom validation |
@@ -306,7 +306,7 @@ Net source-tree state: 0 cross-hub violations on the original 5; one TODO-tracke
 |---------|--------|-------|
 | Subdomain routing | ✅ Complete | `next.config.ts` rewrites/redirects |
 | Clean auth URLs (/signin, /register) | ✅ Complete | Both subdomains |
-| Email system (Resend) | ✅ Complete | 11 templates, 2 sender addresses |
+| Email system (Brevo) | ✅ Complete | 11 templates, 2 sender addresses. Migrated from Resend on 2026-05-11 (commit `166a8ec`); templates unchanged (sender-agnostic). |
 | Apps Script integration | ✅ Complete | Registration, questions, scores, attendance, reset |
 | AI agents | 🟡 Partial | Market rates + research wired; contextual help is stub only |
 | Design system (CSS tokens) | ✅ Complete | `globals.css`, do not modify |
@@ -379,14 +379,14 @@ The continuation session closed out the entire REFM design-token retrofit. Prior
 | `NEXT_PUBLIC_APP_URL` | `https://app.financialmodelerpro.com` (used in Navbar with `??` fallback) |
 | `NEXT_PUBLIC_MAIN_URL` | `https://financialmodelerpro.com` |
 | `NEXT_PUBLIC_LEARN_URL` | `https://learn.financialmodelerpro.com` (used in Navbar with `??` fallback) |
-| `RESEND_API_KEY` | Resend email service API key |
+| `BREVO_API_KEY` | Brevo email service API key (replaced `RESEND_API_KEY` on 2026-05-11, commit `166a8ec`) |
 | `EMAIL_FROM_TRAINING` | Training hub sender address |
 | `EMAIL_FROM_NOREPLY` | No-reply sender address |
 | `HCAPTCHA_SECRET_KEY` | hCaptcha server-side verification secret |
 | `NEXT_PUBLIC_HCAPTCHA_SITE_KEY` | hCaptcha client-side site key |
 | `CRON_SECRET` | Bearer token for Vercel cron job auth (`/api/cron/session-reminders`, `/api/cron/auto-launch-check`, `/api/cron/newsletter-scheduled`). Certificate cron retired, certificates issue inline on final-exam submit. |
 | `APPS_SCRIPT_URL` | Google Apps Script deployment URL (primary, fallback in DB) |
-| `RESEND_WEBHOOK_SECRET` | Resend webhook signing secret (`whsec_...`) for `/api/webhooks/resend` (newsletter delivery / open / click / bounce / complaint events) |
+| `RESEND_WEBHOOK_SECRET` | **Vestigial after Brevo migration.** Was Resend webhook signing secret for `/api/webhooks/resend` (newsletter delivery / open / click / bounce / complaint). Resend stopped sending events when transactional email moved to Brevo on 2026-05-11; the route + env var still exist but are dormant. Brevo-webhook integration is a pending follow-up. Also reused as a bearer-token check on `/api/email/send`. |
 | `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_CLIENT_SECRET`, `TEAMS_HOST_USER_EMAIL` | Microsoft Graph credentials for live-session Teams meeting auto-generation |
 | `YOUTUBE_API_KEY`, `NEXT_PUBLIC_YOUTUBE_CHANNEL_ID` | YouTube Data API v3 key + channel ID for cached comments + Subscribe button |
 
@@ -397,7 +397,7 @@ The continuation session closed out the entire REFM design-token retrofit. Prior
 | Service | What It Does | Credentials |
 |---------|-------------|-------------|
 | **Supabase** | PostgreSQL database, file storage (5 buckets), auth helper | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_*` |
-| **Resend** | Transactional email delivery (11 templates: confirmation, OTP, certificates, live session notifications, quiz results, etc.) | `RESEND_API_KEY`, `EMAIL_FROM_TRAINING`, `EMAIL_FROM_NOREPLY` |
+| **Brevo** | Transactional email delivery (11 templates: confirmation, OTP, certificates, live session notifications, final-exam result, etc.). Migrated from Resend 2026-05-11 (commit `166a8ec`) via `@getbrevo/brevo` SDK v5; templates unchanged. Per-session quiz result emails were removed in the same commit; students see per-session results on the dashboard. Final-exam result, lockout, certificate, and transactional emails still fire. | `BREVO_API_KEY`, `EMAIL_FROM_TRAINING`, `EMAIL_FROM_NOREPLY` |
 | **Google Apps Script** | Source of truth for student roster, registration IDs, assessment questions, score writing, attendance tracking, attempt resets | `APPS_SCRIPT_URL` env var OR `training_settings.apps_script_url` in Supabase |
 | **hCaptcha** | Bot protection on registration forms (both Training + Modeling hubs) | `HCAPTCHA_SECRET_KEY`, `NEXT_PUBLIC_HCAPTCHA_SITE_KEY` |
 | **Anthropic Claude API** | AI-powered market rates agent + research agent (contextual help is stub) | `ANTHROPIC_API_KEY` |

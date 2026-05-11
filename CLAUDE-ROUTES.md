@@ -265,16 +265,16 @@ app/api/admin/
 │   + cohorts/ + cohorts/[id]/ + communications/ + student-journey/
 │   + student-progress/ + students/
 │   # student-progress: GET ?email&regId returns { progress, watch }. Phase 4 / 2026-04-28 extended to read both certification_watch_history + session_watch_history in parallel and return the watch[] alongside the existing progress payload. Powers the Watch Progress table + Force Unlock buttons in the Progress modal on /admin/training-hub/students.
-│   # communications/route.ts: 2026-04-23 rewrite - POSTs now send via Resend `batch.send` wrapped in baseLayoutBranded (gold CTA button for URL lines, teal inline links, organizer in description). Previously delegated to Apps Script with no brand layout. Per-recipient success/failure written to training_email_log.status. Tokens {name} / {full_name} / {reg_id} / {email} resolved server-side from training_registrations_meta.
+│   # communications/route.ts: 2026-04-23 rewrite - POSTs send via sendEmailBatch (now Brevo, Promise.allSettled loop with binary ok/fail semantics; was Resend `batch.send` until 2026-05-11 commit `166a8ec`) wrapped in baseLayoutBranded (gold CTA button for URL lines, teal inline links, organizer in description). Previously delegated to Apps Script with no brand layout. Per-recipient success/failure written to training_email_log.status. Tokens {name} / {full_name} / {reg_id} / {email} resolved server-side from training_registrations_meta.
 │   # communications dropout groups: common gate (emailConfirmed AND NOT certificateIssued), then neverStarted / stalled (>=1 pass + >=7 days idle) / almostDone (>=65% sessions), no longer uses 80% threshold or distinct-attempt denominator.
 ├── live-playlists/              # CRUD for playlists
 ├── live-sessions/               # GET/POST + PUT banner upload
 ├── live-sessions/[id]/          # PATCH/DELETE
-├── live-sessions/[id]/notify/   # GET: session + recipients[] (for picker modal) + history[], supports ?sendLogId=X to fetch per-recipient log rows (migration 138). POST: send emails via Resend batch API (2026-04-22); seeds announcement_recipient_log rows as 'pending' before the batch fires, UPDATEs each to sent/failed from the response. New POST modes: `recipientEmails: string[]` (explicit picker allowlist / test send), `retrySendLogId: string` (re-attempt failed/bounced rows of a prior dispatch in place). `target: '3sfm'|'bvm'|'all'` now filters via training_enrollments JOIN.
+├── live-sessions/[id]/notify/   # GET: session + recipients[] (for picker modal) + history[], supports ?sendLogId=X to fetch per-recipient log rows (migration 138). POST: send emails via sendEmailBatch (Brevo Promise.allSettled loop since 2026-05-11 commit `166a8ec`; previously Resend `batch.send`); seeds announcement_recipient_log rows as 'pending' before the batch fires, UPDATEs each to sent/failed from the response. `announcement_recipient_log.resend_message_id` column name retained for backwards compatibility, now stores Brevo message ids. New POST modes: `recipientEmails: string[]` (explicit picker allowlist / test send), `retrySendLogId: string` (re-attempt failed/bounced rows of a prior dispatch in place). `target: '3sfm'|'bvm'|'all'` now filters via training_enrollments JOIN.
 ├── live-sessions/[id]/registrations/ # GET/PATCH
 ├── newsletter/subscribers/       # GET: paginated subscriber list with stats
 ├── newsletter/export/           # GET: CSV download
-├── newsletter/send/             # POST 2026-04-27 rebuild: accepts { subject, body, targetHub, segment, scheduledAt? } OR { templateKey, templateVars, ... }. Inserts campaign row; if scheduledAt set → status='scheduled' for the cron to pick up; else fires void sendCampaign() (fire-and-forget batch send via resend.batch.send, 100/batch, 200ms stagger).
+├── newsletter/send/             # POST 2026-04-27 rebuild: accepts { subject, body, targetHub, segment, scheduledAt? } OR { templateKey, templateVars, ... }. Inserts campaign row; if scheduledAt set → status='scheduled' for the cron to pick up; else fires void sendCampaign() (fire-and-forget batch send via sendEmailBatch — Brevo Promise.allSettled loop since 2026-05-11; was resend.batch.send — 100/batch, 200ms stagger).
 ├── newsletter/test-send/        # NEW 2026-04-27. POST: renders subject+body or template, sends one [TEST]-prefixed email to the admin's session email (or supplied toEmail) via newsletter shell. No log row, no batch, no segment query. Powers the "Send to my inbox" Compose button.
 ├── newsletter/templates/        # NEW 2026-04-27 (migration 143). GET: list every newsletter_templates row + per-event-type variable schema. POST: create new template (template_key, name, subject_template, body_html, event_type?, active?).
 ├── newsletter/templates/[key]/  # NEW 2026-04-27. PATCH: update name/subject/body/event_type/active. DELETE: drop template by template_key.
@@ -339,8 +339,8 @@ app/api/
 ├── training/community-links/      # GET: public returns { whatsappGroupUrl, platformWalkthroughUrl } with server-side URL-shape re-validation (migrations 123 + 2026-04-22 training_settings.platform_walkthrough_url key). Empty strings hide their corresponding UI (Join WhatsApp Group sidebar button, Watch Platform Walkthrough hero button).
 ├── newsletter/subscribe/          # POST: hub-segmented subscribe (public, rate-limited). Now also fired fire-and-forget by /training/register + /modeling/register on successful signup when the GDPR opt-in checkbox is checked (default ON).
 ├── newsletter/unsubscribe/        # GET: per-hub unsubscribe via token (HTML response)
-├── newsletter/click/              # NEW 2026-04-27. GET ?msg=<resend_id>&campaign=<id>&url=<encoded>. Public click-tracking redirector. Best-effort UPDATE on newsletter_recipient_log (matched by resend_message_id), then 302 to the decoded url. Always 302s, tracking blip never blocks the user. Rejects non-http(s) URLs. Resend webhook is the canonical click-tracking path; this endpoint is the user-facing redirect.
-├── webhooks/resend/               # NEW 2026-04-27. POST. Resend webhook receiver. Verifies Svix-style signature manually using Node crypto.createHmac('sha256', ...) (no svix dep). Headers svix-id / svix-timestamp / svix-signature checked against RESEND_WEBHOOK_SECRET (whsec_<base64>); 5-minute replay window; multi-signature header support. Routes events: email.delivered → stamp sent_at if null; email.opened → opened_at + status='opened'; email.clicked → clicked_at + status='clicked'; email.bounced → status='bounced' + (on hard bounce) flips subscriber status='bounced'; email.complained → status='complained' + flips subscriber status='unsubscribed'. Unknown types are no-ops.
+├── newsletter/click/              # NEW 2026-04-27. GET ?msg=<message_id>&campaign=<id>&url=<encoded>. Public click-tracking redirector. Best-effort UPDATE on newsletter_recipient_log (matched by resend_message_id, column name unchanged but now holds Brevo message ids post 2026-05-11), then 302 to the decoded url. Always 302s, tracking blip never blocks the user. Rejects non-http(s) URLs. **Note**: the Resend webhook canonical click-tracking path is dormant after the Brevo migration; this endpoint is the only live click-tracking surface until a Brevo webhook is wired.
+├── webhooks/resend/               # 2026-04-27. **Dormant after Brevo migration 2026-05-11 (commit `166a8ec`)** — Resend no longer sends events to this endpoint. Handler kept in place pending Brevo webhook integration. POST. Resend webhook receiver. Verifies Svix-style signature manually using Node crypto.createHmac('sha256', ...) (no svix dep). Headers svix-id / svix-timestamp / svix-signature checked against RESEND_WEBHOOK_SECRET (whsec_<base64>); 5-minute replay window; multi-signature header support. Routes events: email.delivered → stamp sent_at if null; email.opened → opened_at + status='opened'; email.clicked → clicked_at + status='clicked'; email.bounced → status='bounced' + (on hard bounce) flips subscriber status='bounced'; email.complained → status='complained' + flips subscriber status='unsubscribed'. Unknown types are no-ops.
 ├── og/route.tsx                   # GET: Training Hub OG banner (1200x630, CMS hero, logo)
 ├── og/modeling/route.tsx          # GET: Modeling Hub OG banner (1200x630, CMS hero, logo)
 ├── og/main/route.tsx              # GET: Main site OG banner (1200x630, CMS hero, logo)
@@ -407,14 +407,17 @@ src/shared/
 │       ├── OfficeColorPicker.tsx
 │       └── Toaster.tsx
 ├── email/
-│   ├── sendEmail.ts                  # Resend wrapper. sendEmail() + sendEmailBatch() (resend.batch.send, 100/HTTP)
+│   ├── sendEmail.ts                  # Brevo wrapper (migrated from Resend 2026-05-11, commit `166a8ec`). sendEmail() → transactionalEmails.sendTransacEmail; sendEmailBatch() → Promise.allSettled loop over sendTransacEmail, binary ok/fail semantics preserved (any per-item failure marks the batch failed; ids[] only populated when ok=true).
 │   ├── sendTemplatedEmail.ts         # CMS-template email sender (placeholder replacement, batching)
 │   └── templates/
 │       _base, accountConfirmation, certificateIssued, confirmEmail,
 │       deviceVerification, lockedOut, otpVerification, passwordReset,
 │       liveSessionNotification, quizResult, registrationConfirmation, resendRegistrationId,
 │       newsletter (custom baseLayoutNewsletter())
-│       # All template functions are async (use baseLayoutBranded), callers must await
+│       # All template functions are async (use baseLayoutBranded), callers must await.
+│       # quizResult is now FINAL-EXAM-ONLY (per-session quiz emails removed 2026-05-11,
+│       # commit `166a8ec`; per-session pass/fail visible on the dashboard); lockedOut still
+│       # fires for per-session quizzes that exhaust attempts.
 ├── hooks/
 │   ├── useInactivityLogout.ts
 │   ├── useProject.ts
@@ -558,7 +561,7 @@ src/features/
 ```
 src/integrations/
 ├── anthropic/                        # (currently empty, direct SDK use today; centralize here when reused across features)
-├── resend/                           # (currently empty, direct SDK use today, see @shared/email)
+├── resend/                           # (currently empty; vestigial folder, kept until ARCHITECTURE.md tree is swept. Brevo SDK is used directly from @shared/email/sendEmail.ts as of 2026-05-11, commit `166a8ec`.)
 ├── teams/teamsMeetings.ts            # Microsoft Graph client. createCalendarEventWithMeeting / updateCalendarEvent / deleteCalendarEvent + legacy onlineMeetings fallback. Requires AZURE_TENANT_ID, AZURE_CLIENT_ID, AZURE_CLIENT_SECRET, TEAMS_HOST_USER_EMAIL.
 └── youtube/                          # (currently empty, direct fetch today; centralize when reused)
 ```

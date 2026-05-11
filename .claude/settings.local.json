@@ -172,7 +172,9 @@
       "Bash(mkdir -p \"app/api/platforms/[platformSlug]/modules/[moduleSlug]\")",
       "Bash(mkdir -p \"app/api/admin/platform-module-pages/[id]\")",
       "PowerShell(Get-Content *)",
-      "Bash(echo \"tsc exit=$?\")"
+      "Bash(echo \"tsc exit=$?\")",
+      "Bash(gh --version)",
+      "PowerShell(Get-Command *)"
     ]
   }
 }

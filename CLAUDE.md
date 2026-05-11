@@ -37,7 +37,7 @@ The codebase has 2,221 existing em-dashes (M1.11 audit). They are being swept ou
 | Modeling Hub auth | `app/modeling/signin/` `app/modeling/confirm-email/` `app/api/auth/` `src/lib/shared/auth.ts` `src/lib/shared/deviceTrust.ts` `src/lib/shared/emailConfirmation.ts` `src/lib/shared/captcha.ts` |
 | Modeling Hub platform (REFM) | `app/refm/` `app/modeling/` `src/components/refm/` `src/lib/modeling/` |
 | Admin panel | `app/admin/` `src/components/admin/` `app/api/admin/` |
-| Email system | `src/lib/email/` |
+| Email system | `src/shared/email/` |
 | Shared utilities | `src/lib/shared/` `src/core/` |
 | Navbar / layout | `src/components/layout/` |
 | Landing pages / CMS | `app/(portal)/` `app/about/` `app/articles/` `app/pricing/` `src/components/landing/` `app/api/cms/` |
@@ -59,7 +59,7 @@ The codebase has 2,221 existing em-dashes (M1.11 audit). They are being swept ou
 - `vercel.json`, deployment config is live
 - `supabase/migrations/`, never edit existing migrations; create new ones only
 - Any feature marked Complete unless explicitly asked by the user
-- Cross-feature shared files (`src/lib/shared/`, `src/lib/email/`) without explicit instruction
+- Cross-feature shared files (`src/lib/shared/`, `src/shared/email/`) without explicit instruction
 
 ---
 
@@ -93,7 +93,7 @@ The codebase has 2,221 existing em-dashes (M1.11 audit). They are being swept ou
 | Icons | lucide-react | ^0.577.0 |
 | Utilities | clsx, tailwind-merge |, |
 | AI | @anthropic-ai/sdk | ^0.78.0 |
-| Email | Resend | ^6.10.0 |
+| Email | Brevo (`@getbrevo/brevo`) | ^5.0.4 |
 | Export | exceljs + @react-pdf/renderer | ^4.4.0 / ^4.3.2 |
 | Captcha | @hcaptcha/react-hcaptcha | ^2.0.2 |
 | QR Codes | qrcode | ^1.5.4 |
@@ -114,7 +114,7 @@ The codebase has 2,221 existing em-dashes (M1.11 audit). They are being swept ou
 | Service | Purpose | Config |
 |---------|---------|--------|
 | **Supabase** | Database | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` |
-| **Resend** | Transactional email | `RESEND_API_KEY`, `EMAIL_FROM_TRAINING`, `EMAIL_FROM_NOREPLY` |
+| **Brevo** | Transactional email (migrated from Resend 2026-05-11, commit `166a8ec`) | `BREVO_API_KEY`, `EMAIL_FROM_TRAINING`, `EMAIL_FROM_NOREPLY` |
 | **Google Apps Script** | Training registration + attendance source of truth | URL in `training_settings` table |
 | **hCaptcha** | Spam protection on signup forms (both hubs) | `HCAPTCHA_SECRET_KEY`, `NEXT_PUBLIC_HCAPTCHA_SITE_KEY` |
 | **Anthropic Claude API** | AI market research + contextual help agents | `ANTHROPIC_API_KEY` |
@@ -208,7 +208,7 @@ Use `/signin`, `/register`, `/forgot` for all training/modeling auth links.
 | `NEXT_PUBLIC_LEARN_URL` | `https://learn.financialmodelerpro.com` |
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase URL (client-safe) |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key (client-safe) |
-| `RESEND_API_KEY` | Resend email service key |
+| `BREVO_API_KEY` | Brevo email service key (replaced `RESEND_API_KEY` on 2026-05-11) |
 | `EMAIL_FROM_TRAINING` | Training sender address |
 | `EMAIL_FROM_NOREPLY` | No-reply sender address |
 | `HCAPTCHA_SECRET_KEY` | hCaptcha server-side secret |
