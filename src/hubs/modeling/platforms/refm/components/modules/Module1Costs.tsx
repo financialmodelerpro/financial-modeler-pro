@@ -2279,10 +2279,9 @@ export default function Module1Costs(): React.JSX.Element {
   // surfaces a helpful message + keeps the filter interactive so the
   // user can switch to a populated phase.
   const [inputsPhaseFilter, setInputsPhaseFilter] = useState<string>('');
-  // M2.0L (2026-05-11): Results sub-tab filter pill bar. null = Combined
-  // (all assets in the Capex by Period table). Specific asset id filters
-  // the table rows to that asset only.
-  const [resultsAssetFilter, setResultsAssetFilter] = useState<string | null>(null);
+  // P8-Fix 8 (2026-05-12): Results filter state replaced by
+  // project.resultsViewMode + resultsSelectedAssetId (persisted on
+  // the project so the choice survives reload).
   // M2.0h Fix 6: runtime view granularity for Results sub-tab.
   // Defaults to project.outputGranularity ('annual' on new projects).
   // User toggles persist via setProject so the next session opens the
@@ -2678,75 +2677,86 @@ export default function Module1Costs(): React.JSX.Element {
               Inputs are entered annually; sub-period view distributes via cost line phasing.
             </span>
           </div>
-          {/* M2.0L (2026-05-11): Results filter pill bar. Combined +
-              one pill per visible asset. Picking an asset narrows the
-              Capex by Period table to that asset only. */}
-          {allVisibleAssets.length > 0 && (
-            <div
-              style={{
-                display: 'flex',
-                gap: 'var(--sp-1)',
-                flexWrap: 'wrap',
-                padding: 'var(--sp-1) var(--sp-2)',
-                marginBottom: 'var(--sp-2)',
-                background: 'var(--color-grey-pale)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-sm)',
-                alignItems: 'center',
-              }}
-              data-testid="costs-results-asset-filter"
-            >
-              <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', marginRight: 'var(--sp-1)' }}>Filter:</strong>
-              <button
-                type="button"
-                onClick={() => setResultsAssetFilter(null)}
-                data-testid="costs-results-filter-combined"
-                style={{
-                  fontSize: 11, fontWeight: 700, padding: '6px 14px', borderRadius: 999,
-                  border: resultsAssetFilter === null ? 'none' : '1px solid var(--color-border)',
-                  background: resultsAssetFilter === null ? 'var(--color-navy)' : 'var(--color-surface)',
-                  color: resultsAssetFilter === null ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
-                  cursor: 'pointer',
-                }}
-              >
-                Combined
-              </button>
-              {allVisibleAssets.map((a) => {
-                const isActive = resultsAssetFilter === a.id;
-                return (
-                  <button
-                    key={a.id}
-                    type="button"
-                    onClick={() => setResultsAssetFilter(a.id)}
-                    data-testid={`costs-results-filter-${a.id}`}
-                    style={{
-                      fontSize: 11, fontWeight: 700, padding: '6px 14px', borderRadius: 999,
-                      border: isActive ? 'none' : '1px solid var(--color-border)',
-                      background: isActive ? 'var(--color-navy)' : 'var(--color-surface)',
-                      color: isActive ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {a.name}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-          {/* M2.0j Fix 11: key forces a remount on granularity change so
-              the per-period table refreshes immediately. */}
-          <SummaryTables
-            key={`summary-${granularity}-${resultsAssetFilter ?? 'all'}`}
-            phaseAssets={resultsAssetFilter ? allVisibleAssets.filter((a) => a.id === resultsAssetFilter) : allVisibleAssets}
-            perPhaseBreakdowns={perPhaseBreakdowns}
-            parcelsByPhase={new Map()}
-            metricsByAsset={metricsByAsset}
-            project={{ currency: project.currency, startDate: project.startDate, modelType: project.modelType, displayScale: scale, displayDecimals: decimals }}
-            totalConstructionPeriods={totalConstructionPeriods}
-            costLines={costLines}
-            granularity={granularity}
-            phases={phases}
-          />
+          {/* P8-Fix 8 (2026-05-12): Combined / Single Asset toggle.
+              Replaces the M2.0L filter pill bar with an explicit radio
+              toggle per brief. Combined view shows all visible assets;
+              Single Asset surfaces an asset picker dropdown beside the
+              radio. State persists to project.resultsViewMode +
+              resultsSelectedAssetId so it survives reload. */}
+          {(() => {
+            const resultsView: 'combined' | 'single_asset' = project.resultsViewMode ?? 'combined';
+            const resultsAssetId = project.resultsSelectedAssetId
+              ?? (resultsView === 'single_asset' ? allVisibleAssets[0]?.id : undefined);
+            const filteredAssets = resultsView === 'single_asset' && resultsAssetId
+              ? allVisibleAssets.filter((a) => a.id === resultsAssetId)
+              : allVisibleAssets;
+            return (
+              <>
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 'var(--sp-2)',
+                    flexWrap: 'wrap',
+                    padding: 'var(--sp-1) var(--sp-2)',
+                    marginBottom: 'var(--sp-2)',
+                    background: 'var(--color-grey-pale)',
+                    border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius-sm)',
+                    alignItems: 'center',
+                  }}
+                  data-testid="costs-results-view-toggle"
+                >
+                  <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>View:</strong>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="results-view-mode"
+                      value="combined"
+                      data-testid="costs-results-view-combined"
+                      checked={resultsView === 'combined'}
+                      onChange={() => setProject({ resultsViewMode: 'combined', resultsSelectedAssetId: undefined })}
+                    />
+                    Combined
+                  </label>
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, cursor: 'pointer' }}>
+                    <input
+                      type="radio"
+                      name="results-view-mode"
+                      value="single_asset"
+                      data-testid="costs-results-view-single"
+                      checked={resultsView === 'single_asset'}
+                      onChange={() => setProject({ resultsViewMode: 'single_asset', resultsSelectedAssetId: allVisibleAssets[0]?.id })}
+                    />
+                    Single Asset
+                  </label>
+                  {resultsView === 'single_asset' && (
+                    <select
+                      value={resultsAssetId ?? ''}
+                      onChange={(e) => setProject({ resultsSelectedAssetId: e.target.value })}
+                      style={{ ...inputStyle, width: 'auto', minWidth: 200 }}
+                      data-testid="costs-results-single-asset-select"
+                    >
+                      {allVisibleAssets.map((a) => (
+                        <option key={a.id} value={a.id}>{a.name}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+                <SummaryTables
+                  key={`summary-${granularity}-${resultsView}-${resultsAssetId ?? 'all'}`}
+                  phaseAssets={filteredAssets}
+                  perPhaseBreakdowns={perPhaseBreakdowns}
+                  parcelsByPhase={new Map()}
+                  metricsByAsset={metricsByAsset}
+                  project={{ currency: project.currency, startDate: project.startDate, modelType: project.modelType, displayScale: scale, displayDecimals: decimals }}
+                  totalConstructionPeriods={totalConstructionPeriods}
+                  costLines={costLines}
+                  granularity={granularity}
+                  phases={phases}
+                />
+              </>
+            );
+          })()}
         </>
       )}
       {subTab === 'results' && allVisibleAssets.length === 0 && (
