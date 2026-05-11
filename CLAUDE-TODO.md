@@ -4,6 +4,31 @@
 
 ---
 
+## Recently Completed, M2.0L Pass 5 - Category + Driver + auto-derived Type (2026-05-11, 5 commits)
+
+Extends Pass 4 inheritance with cost category + driver semantics. Schema
+v8 additive. Verifier 31 pass / 0 fail.
+
+| # | Commit | What changed |
+|---|--------|--------------|
+| 1 | `39abb27` | Design note `docs/m20L-final-architecture.md`. |
+| 2 | `5729471` | Schema: `CostCategory` ('direct' \| 'allocated'), `CostDriver` ('bua_share' \| 'land_share' \| 'value_share'), `CostType` ('hard' \| 'soft' \| 'land_cash' \| 'land_in_kind' \| 'operating'). `CostLine` gains optional `costCategory` + `costDriver`. `migrateM20Pass5Categories` defaults legacy lines to `costCategory='direct'`; `PASS5_MIGRATION_NOTICE` banner. Helpers `deriveCostType` / `resolveCostCategory` / `resolveCostDriver`. |
+| 3 | `6247d9e` | Calc engine: Allocated lines compute pool against `aggregatePhaseMetrics(phaseAssets, metricsByAsset)`, then `resolveDriverFactor(driver, asset, ...)` distributes per asset. Direct lines preserve Pass 3 semantics. `value_share` defers to `bua_share` until M2.1 Revenue lands. |
+| 4 | `b61144c` | UI: master CostRow gains Category + Driver dropdowns stacked under Method cell. Per-asset replicas show "Allocated · {driver}" badge next to the cost line name. Sub-unit Units-mode area moves from cell to caption row below ("Derived area: 120 units × 95 sqm = 11,400 sqm"). |
+| 5 | (this commit) | Verifier `scripts/verify-m20L-pass5.ts` (31 pass / 0 fail). CLAUDE.md + CLAUDE-TODO.md updates. |
+
+**Deferred:**
+- `value_share` driver: full per-asset projected value requires M2.1 Revenue. Currently falls back to `bua_share`.
+- Per-asset override of category/driver: not exposed in UI (semantic doesn't fit — an Allocated pool can't be Direct for one asset).
+- Playwright e2e for Category + Driver flow.
+
+**Pattern decisions:**
+- **Direct vs Allocated** is the canonical cost categorization for any future module. M2.1 Revenue can mirror with `revenueCategory` (direct = asset-specific revenue; allocated = pooled management fee or platform fee split by driver).
+- **Auto-derived classifications** (CostType from method+stage, costScope from allocationBasis) are NEVER user-input fields. Stored only if the user explicitly overrides on a custom line; otherwise derived at compute time.
+- **Driver factor** abstraction lets Allocated lines share a single distribution math layer regardless of method. Future drivers (rentable area, key count, etc.) plug in to `resolveDriverFactor` without touching `computeAssetCost`.
+
+---
+
 ## Recently Completed, M2.0L Pass 4 - Parent/Child Inheritance Cost Engine (2026-05-11, 6 commits)
 
 Architectural rewrite. The "Same vs Individual" cost input mode toggle is
