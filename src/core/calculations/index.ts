@@ -2342,11 +2342,34 @@ export function costLineCaption(input: CostLineCaptionInput): string {
     case 'percent_of_construction':
       return `${fmt(value, 2)}% x construction subtotal ${eq}`;
     case 'percent_of_total_land':
+      if (metrics.landValue <= 0) {
+        return metrics.landSqm > 0
+          ? noArea('parcel rate')
+          : noArea('land allocation');
+      }
       return `${fmt(value, 2)}% x ${fmtMoney(metrics.landValue)} (land value) ${eq}`;
-    case 'percent_of_cash_land':
-      return `${fmt(value, 2)}% x ${fmtMoney(metrics.cashLandValue)} (cash land) ${eq}`;
-    case 'percent_of_inkind_land':
-      return `${fmt(value, 2)}% x ${fmtMoney(metrics.inKindLandValue)} (in-kind land) ${eq}`;
+    case 'percent_of_cash_land': {
+      // M2.0M Pass 6 Fix 5 (2026-05-11): show derivation chain so the
+      // user sees WHY the total is what it is. landSqm x effectiveCashRate
+      // (cashLandValue / landSqm) gives an intuitive per-sqm view; when
+      // landSqm=0 or cashLandValue=0 we surface a pointed warning.
+      if (metrics.cashLandValue <= 0) {
+        if (metrics.landSqm <= 0) return noArea('land allocation to this asset');
+        if (metrics.landValue <= 0) return noArea('parcel rate');
+        return `${fmt(value, 2)}% x ${fmtMoney(0)} (cash portion = 0; check parcel cashPct) = 0`;
+      }
+      const effRate = metrics.landSqm > 0 ? metrics.cashLandValue / metrics.landSqm : 0;
+      return `${fmtArea(metrics.landSqm)} sqm x ${fmtMoney(effRate)}/sqm (cash) ${eq}`;
+    }
+    case 'percent_of_inkind_land': {
+      if (metrics.inKindLandValue <= 0) {
+        if (metrics.landSqm <= 0) return noArea('land allocation to this asset');
+        if (metrics.landValue <= 0) return noArea('parcel rate');
+        return `${fmt(value, 2)}% x ${fmtMoney(0)} (in-kind portion = 0; check parcel inKindPct) = 0`;
+      }
+      const effRate = metrics.landSqm > 0 ? metrics.inKindLandValue / metrics.landSqm : 0;
+      return `${fmtArea(metrics.landSqm)} sqm x ${fmtMoney(effRate)}/sqm (in-kind) ${eq}`;
+    }
     default:
       return `${fmtMoney(resolvedTotal)}`;
   }
