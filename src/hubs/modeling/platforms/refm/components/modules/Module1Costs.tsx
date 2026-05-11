@@ -712,7 +712,7 @@ function CostRow({
       </td>
       <td style={{ padding: '4px', minWidth: 110, textAlign: 'right' }}>
         <div style={calcOutputStyle} data-testid={`cost-${asset.id}-${line.id}-total`}>
-          {formatScaled(total, scale, decimals)}
+          {formatAccounting(total, scale, decimals)}
         </div>
       </td>
       {/* P7-Fix 4: Toggle column = On/Off checkbox + (optional) reset. */}
@@ -846,7 +846,7 @@ function CostRow({
                   <span
                     key={i}
                     data-testid={`cost-${asset.id}-${line.id}-money-${i}`}
-                    title={`${periodLabel(periodIdx)}: ${formatScaled(money, scale, decimals)}`}
+                    title={`${periodLabel(periodIdx)}: ${formatAccounting(money, scale, decimals)}`}
                     style={{
                       display: 'inline-flex',
                       flexDirection: 'column',
@@ -863,7 +863,7 @@ function CostRow({
                     }}
                   >
                     <span style={{ fontSize: 9, color: 'var(--color-meta)', fontWeight: 400 }}>{periodLabel(periodIdx)}</span>
-                    <span>{formatScaled(money, scale, decimals)}</span>
+                    <span>{formatAccounting(money, scale, decimals)}</span>
                   </span>
                 );
               })}
@@ -906,7 +906,7 @@ function CostRow({
                   <span
                     key={idx}
                     data-testid={`cost-${asset.id}-${line.id}-chip-${idx}`}
-                    title={`${periodLabel(idx)}: ${formatScaled(amount, scale, decimals)}`}
+                    title={`${periodLabel(idx)}: ${formatAccounting(amount, scale, decimals)}`}
                     style={{
                       display: 'inline-flex',
                       flexDirection: 'column',
@@ -923,7 +923,7 @@ function CostRow({
                     }}
                   >
                     <span style={{ fontSize: 9, color: 'var(--color-meta)', fontWeight: 400 }}>{periodLabel(idx)}</span>
-                    <span>{formatScaled(amount, scale, decimals)}</span>
+                    <span>{formatAccounting(amount, scale, decimals)}</span>
                   </span>
                 );
               })}
@@ -989,7 +989,7 @@ function CostRow({
                       />
                     </td>
                     <td style={{ padding: '4px 8px', textAlign: 'right' }} data-testid={`cost-${asset.id}-${line.id}-per-subunit-${r.key}-total`}>
-                      {formatScaled(r.total, scale, decimals)}
+                      {formatAccounting(r.total, scale, decimals)}
                     </td>
                   </tr>
                 ))}
@@ -1005,7 +1005,7 @@ function CostRow({
                 <tr style={{ background: 'color-mix(in srgb, var(--color-navy) 8%, transparent)', fontWeight: 700 }}>
                   <td colSpan={3} style={{ padding: '4px 8px', textAlign: 'right' }}>Sub-row total</td>
                   <td style={{ padding: '4px 8px', textAlign: 'right' }} data-testid={`cost-${asset.id}-${line.id}-per-subunit-total`}>
-                    {formatScaled(breakdown.totalCost, scale, decimals)}
+                    {formatAccounting(breakdown.totalCost, scale, decimals)}
                   </td>
                 </tr>
               </tfoot>
@@ -1260,7 +1260,7 @@ function AssetCostSection({
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 12, color: 'var(--color-meta)' }}>Subtotal</span>
           <strong style={{ fontSize: 14 }} data-testid={`asset-section-${asset.id}-subtotal`}>
-            {formatScaled(subtotal, scale, decimals)}
+            {formatAccounting(subtotal, scale, decimals)}
           </strong>
           <span style={{ fontSize: 14, color: 'var(--color-meta)' }}>{collapsed ? '▶' : '▼'}</span>
         </div>
@@ -1333,7 +1333,7 @@ function AssetCostSection({
                   Asset Subtotal
                 </td>
                 <td style={{ padding: '6px', textAlign: 'right', fontWeight: 700 }} data-testid={`asset-section-${asset.id}-tfoot-subtotal`}>
-                  {formatScaled(subtotal, scale, decimals)}
+                  {formatAccounting(subtotal, scale, decimals)}
                 </td>
                 <td colSpan={2}></td>
               </tr>
@@ -1928,7 +1928,7 @@ function SameModeCostTable({
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <span style={{ fontSize: 12, color: 'var(--color-meta)' }}>Phase Subtotal</span>
           <strong style={{ fontSize: 14 }} data-testid={`costs-same-phase-${phaseId}-subtotal`}>
-            {formatScaled(phaseSubtotal, scale, decimals)}
+            {formatAccounting(phaseSubtotal, scale, decimals)}
           </strong>
         </div>
       </div>
@@ -1992,7 +1992,7 @@ function SameModeCostTable({
                   Phase Subtotal
                 </td>
                 <td style={{ padding: '6px', textAlign: 'right', fontWeight: 700 }}>
-                  {formatScaled(phaseSubtotal, scale, decimals)}
+                  {formatAccounting(phaseSubtotal, scale, decimals)}
                 </td>
                 <td></td>
               </tr>
@@ -2053,7 +2053,7 @@ function SameModeCostTable({
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                     <strong style={{ fontSize: 12 }}>{a.name}</strong>
                     <span style={{ fontSize: 12, fontWeight: 700 }} data-testid={`costs-same-replica-${a.id}-subtotal`}>
-                      {formatScaled(assetSubtotal, scale, decimals)}
+                      {formatAccounting(assetSubtotal, scale, decimals)}
                     </span>
                   </div>
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
@@ -2171,7 +2171,7 @@ function SameModeCostTable({
                               </span>
                             </td>
                             <td style={{ padding: '4px', textAlign: 'right', fontSize: 10, color: 'var(--color-meta)' }} title={cap}>{cap}</td>
-                            <td style={{ padding: '4px', textAlign: 'right', fontWeight: 600 }}>{formatScaled(lineTotal, scale, decimals)}</td>
+                            <td style={{ padding: '4px', textAlign: 'right', fontWeight: 600 }}>{formatAccounting(lineTotal, scale, decimals)}</td>
                             <td style={{ padding: '4px', textAlign: 'center' }}>
                               {isLockedLine ? (
                                 <span
@@ -2431,7 +2431,7 @@ export default function Module1Costs(): React.JSX.Element {
               {COST_STAGE_LABELS[s]}
             </div>
             <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>
-              {formatScaled(stageTotals[s], scale, decimals)}
+              {formatAccounting(stageTotals[s], scale, decimals)}
             </div>
           </div>
         ))}
@@ -2583,7 +2583,7 @@ export default function Module1Costs(): React.JSX.Element {
                 <span>BUA: <strong>{Math.round(assetMetrics.bua).toLocaleString()}</strong> sqm</span>
                 <span>NSA: <strong>{Math.round(assetMetrics.nsa).toLocaleString()}</strong> sqm</span>
                 <span>Land: <strong>{Math.round(assetMetrics.landSqm).toLocaleString()}</strong> sqm</span>
-                <span>Land Cost: <strong>{formatScaled(assetMetrics.landValue, scale, decimals)}</strong></span>
+                <span>Land Cost: <strong>{formatAccounting(assetMetrics.landValue, scale, decimals)}</strong></span>
               </div>
             )}
 
@@ -2773,7 +2773,7 @@ export default function Module1Costs(): React.JSX.Element {
         data-testid="costs-project-total"
       >
         <strong style={{ fontSize: 14, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Project Total</strong>
-        <strong style={{ fontSize: 18 }}>{formatScaled(projectTotal, scale, decimals)}</strong>
+        <strong style={{ fontSize: 18 }}>{formatAccounting(projectTotal, scale, decimals)}</strong>
       </div>
 
       {popupAssetId && (

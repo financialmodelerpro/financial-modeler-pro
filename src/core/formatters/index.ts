@@ -80,8 +80,13 @@ export function formatScaled(num: number | null | undefined, scale: DisplayScale
   return formatScaledRaw(num as number, scale, decimals);
 }
 
+// M2.0M Pass 9 Fix 4 (2026-05-12): currency cells now follow accounting
+// format (zero -> "-", negative -> parens, no K/M suffix). Scale is
+// communicated once via the tab header line (currencyHeaderLine).
 export function formatScaledCurrency(num: number | null | undefined, currency: string, scale: DisplayScale = 'full', decimals?: number): string {
-  return `${formatScaled(num, scale, decimals)} ${currency}`;
+  if (num === null || num === undefined || isNaN(num as number)) return '';
+  if (num === 0) return '-';
+  return `${formatAccounting(num, scale, decimals)} ${currency}`;
 }
 
 // Compact formatter for sub-unit area, parking bays, etc. (integer

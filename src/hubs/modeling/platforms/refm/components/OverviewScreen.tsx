@@ -16,7 +16,7 @@
 import React from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import type { PermissionMap } from '@/src/core/types/settings.types';
-import { currencyHeaderLine, formatScaled, formatNumber } from '@/src/core/formatters';
+import { currencyHeaderLine, formatScaled, formatNumber, formatAccounting } from '@/src/core/formatters';
 import { computeLandAggregate, computePhaseCost } from '@/src/core/calculations';
 import type { StorageShape } from './RealEstatePlatform';
 import { useModule1Store } from '../lib/state/module1-store';
@@ -89,7 +89,7 @@ export default function OverviewScreen({
   // M2.0i Fix 3 (2026-05-07): respect project displayScale + displayDecimals.
   const scale = project.displayScale ?? 'full';
   const decimals = project.displayDecimals ?? 2;
-  const fmtMoney = (n: number): string => formatScaled(n, scale, decimals);
+  const fmtMoney = (n: number): string => formatAccounting(n, scale, decimals);
 
   const quickLinks = [
     { icon: '📅', label: '1. Project & Phases', tab: 'project-phases', desc: 'Project meta and per-phase timing' },

@@ -69,7 +69,7 @@ import {
   resolveUsefulLifeYears,
   validateLandAllocation,
 } from '@/src/core/calculations';
-import { currencyHeaderLine, formatArea, formatScaled, formatScaledCurrency } from '@/src/core/formatters';
+import { currencyHeaderLine, formatArea, formatScaled, formatScaledCurrency, formatAccounting } from '@/src/core/formatters';
 import { AccountingNumberInput } from '../ui/AccountingNumberInput';
 import InputLabel from '../ui/InputLabel';
 
@@ -144,7 +144,7 @@ const fmtCurrency = (
   _currency: string,
   scale: import('../../lib/state/module1-types').DisplayScale = 'full',
   decimals: import('../../lib/state/module1-types').DisplayDecimals = 2,
-): string => formatScaled(n, scale, decimals);
+): string => formatAccounting(n, scale, decimals);
 const fmtCurrencyWithCode = (
   n: number,
   currency: string,
@@ -467,10 +467,10 @@ export default function Module1Assets(): React.JSX.Element {
             <tr style={{ background: 'var(--color-grey-pale)', fontWeight: 'var(--fw-bold)' }}>
               <td style={{ padding: 'var(--sp-1)' }}>Totals</td>
               <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-area">{formatArea(aggregate.totalAreaSqm, project.displayDecimals ?? 2)} sqm</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-weighted-rate">{formatScaled(aggregate.weightedRate, project.displayScale ?? 'full', project.displayDecimals ?? 2)} /sqm</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-cash-value">{formatScaled(aggregate.cashValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-inkind-value">{formatScaled(aggregate.inKindValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
-              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-value">{formatScaled(aggregate.totalValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-weighted-rate">{formatAccounting(aggregate.weightedRate, project.displayScale ?? 'full', project.displayDecimals ?? 2)} /sqm</td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-cash-value">{formatAccounting(aggregate.cashValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-inkind-value">{formatAccounting(aggregate.inKindValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
+              <td style={{ padding: 'var(--sp-1)' }} data-testid="parcels-total-value">{formatAccounting(aggregate.totalValue, project.displayScale ?? 'full', project.displayDecimals ?? 2)}</td>
               <td></td>
             </tr>
           </tfoot>
@@ -763,7 +763,7 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove, scale, decimals }: P
         />
         {/* M2.0j Fix 5: rate respects Display Scale + Decimals (informational caption when scaled). */}
         {scale !== 'full' && (
-          <div style={{ fontSize: 10, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`parcel-${parcel.id}-rate-fmt`}>{formatScaled(parcel.rate, scale, decimals)}</div>
+          <div style={{ fontSize: 10, color: 'var(--color-meta)', textAlign: 'right' }} data-testid={`parcel-${parcel.id}-rate-fmt`}>{formatAccounting(parcel.rate, scale, decimals)}</div>
         )}
       </td>
       <td style={{ padding: 'var(--sp-1)' }}>
@@ -791,7 +791,7 @@ function ParcelRow({ parcel, onUpdate, onRemove, canRemove, scale, decimals }: P
       {/* P7-Fix 1: NDA checkbox + Roads % + Parks % + NDA (sqm) +
           effective NDA rate cells dropped. The project-level NDA card
           below the parcels totals row owns these inputs now. */}
-      <td style={{ padding: 'var(--sp-1)', color: 'var(--color-heading)' }} data-testid={`parcel-${parcel.id}-total`}>{formatScaled(total, scale, decimals)}</td>
+      <td style={{ padding: 'var(--sp-1)', color: 'var(--color-heading)' }} data-testid={`parcel-${parcel.id}-total`}>{formatAccounting(total, scale, decimals)}</td>
       <td style={{ padding: 'var(--sp-1)', textAlign: 'right' }}>
         {canRemove && (
           <button type="button" onClick={onRemove} data-testid={`parcel-${parcel.id}-remove`} style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}>Remove</button>
@@ -1731,7 +1731,7 @@ function SubUnitRow({ subUnit, assetMetric, currency, onUpdate, onRemove, decima
         )}
       </td>
       <td style={{ padding: '4px 6px', textAlign: 'right', color: 'var(--color-heading)' }} data-testid={`subunit-${subUnit.id}-total-revenue`}>
-        {formatScaled(totalRevenueNoIdx, scale, decimals)}
+        {formatAccounting(totalRevenueNoIdx, scale, decimals)}
       </td>
       <td style={{ padding: '4px 6px' }}>
         <button type="button" onClick={onRemove} data-testid={`subunit-${subUnit.id}-remove`} style={{ background: 'transparent', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: '2px 6px', cursor: 'pointer', fontSize: 'var(--font-micro)' }}>x</button>
