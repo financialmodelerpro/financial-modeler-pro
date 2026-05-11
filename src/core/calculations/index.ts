@@ -622,25 +622,25 @@ export function resolveAssetAreaMetrics(
   // GFA = BUA + Parking. Replaces the M2.0g convention where BUA
   // included Parking. asset.gfaSqm input still wins when > 0; when
   // blank, GFA derives from the hierarchy.
-  // M2.0L Fix 4 (2026-05-11): when an asset has no sub-units yet, fall
-  // back to the legacy asset-level area inputs (asset.buaSqm /
-  // asset.sellableBuaSqm) so cost lines using rate_per_bua / rate_per_nsa
-  // still compute against the user's entered area. Mirrors the existing
-  // GFA fallback to asset.gfaSqm. This is what unblocks legacy projects
-  // (no sub-units configured) from getting 0 totals on every area-driven
-  // cost line.
+  // M2.0L Fix 4 (2026-05-11) + Pass 3 widening (2026-05-11): area
+  // metrics ALWAYS fall back to the asset-level legacy inputs when the
+  // sub-unit-derived value is zero, regardless of whether sub-units
+  // exist. Reason: users frequently add a stub sub-unit (placeholder
+  // row from "Add sub-unit") and forget to fill unitArea / count,
+  // leaving hierarchy.bua = 0 while asset.buaSqm carries the real
+  // entered area. The narrow Pass 2 fallback only fired when the asset
+  // had ZERO sub-units, which left these stubbed projects with x 0
+  // multipliers across every rate_per_X cost line.
   const hierarchy = computeAssetAreaHierarchy(asset, subUnits);
-  const assetSubUnitCount = subUnits.filter((u) => u.assetId === asset.id).length;
-  const sellableSubUnitCount = subUnits.filter(
-    (u) => u.assetId === asset.id && u.category !== 'Support',
-  ).length;
   const bua = hierarchy.bua > 0
     ? hierarchy.bua
-    : (assetSubUnitCount === 0 ? Math.max(0, asset.buaSqm ?? 0) : 0);
+    : Math.max(0, asset.buaSqm ?? 0);
   const nsa = hierarchy.nsa > 0
     ? hierarchy.nsa
-    : (sellableSubUnitCount === 0 ? Math.max(0, asset.sellableBuaSqm ?? 0) : 0);
-  const gfa = asset.gfaSqm > 0 ? asset.gfaSqm : (hierarchy.gfa > 0 ? hierarchy.gfa : bua);
+    : Math.max(0, asset.sellableBuaSqm ?? 0);
+  const gfa = asset.gfaSqm > 0
+    ? asset.gfaSqm
+    : (hierarchy.gfa > 0 ? hierarchy.gfa : bua);
   const unitCount = computeAssetUnitCount(asset, subUnits);
 
   let cashLandValue = 0;
