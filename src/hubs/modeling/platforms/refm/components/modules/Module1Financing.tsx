@@ -1313,6 +1313,45 @@ export default function Module1Financing(): React.JSX.Element {
             </div>
           </div>
 
+          {/* P4-Fix 2 (2026-05-12): Funding Basis block. Read-only summary
+              of what feeds the drawdown curve given the selected method.
+              Method 1 + 2: full capex (excl Land In-Kind). Method 3: capex
+              net of pre-sales + OCF + existing cash. Method 4: period-by-
+              period cash deficit. Lets the user verify the basis number
+              matches Tab 3 Inputs Summary before sizing facilities. */}
+          <div style={sectionCardStyle} data-testid="financing-funding-basis">
+            <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>Funding Basis</strong>
+            {(() => {
+              const m = financingConfig.fundingMethod;
+              const basisLabel =
+                m === 1 ? 'Total Capex (excl Land In-Kind)' :
+                m === 2 ? 'Total Capex (excl Land In-Kind), allocated per cost-line ratio' :
+                m === 3 ? 'Net Funding (Capex - Pre-Sales - OCF - Existing Cash)' :
+                'Cash Deficit (period-by-period fill to minimum cash reserve)';
+              const totalCapex = inputsSummary.totals.reduce((s, v) => s + v, 0);
+              return (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--sp-2)', fontSize: 11 }}>
+                  <div data-testid="funding-basis-method">
+                    <div style={{ color: 'var(--color-meta)' }}>Method</div>
+                    <div style={{ fontWeight: 700 }}>Method {m}: {FUNDING_METHOD_LABELS[m]}</div>
+                  </div>
+                  <div data-testid="funding-basis-source">
+                    <div style={{ color: 'var(--color-meta)' }}>Drawdown Basis</div>
+                    <div style={{ fontWeight: 700 }}>{basisLabel}</div>
+                  </div>
+                  <div data-testid="funding-basis-capex">
+                    <div style={{ color: 'var(--color-meta)' }}>Total Capex (excl Land In-Kind)</div>
+                    <div style={{ fontWeight: 700 }}>{formatAccounting(totalCapex, scale, decimals)}</div>
+                  </div>
+                  <div data-testid="funding-basis-need">
+                    <div style={{ color: 'var(--color-meta)' }}>Total Funding Need</div>
+                    <div style={{ fontWeight: 700 }}>{formatAccounting(funding.totalNeed, scale, decimals)}</div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
+
           {/* M2.0M: Land Funding (per parcel) */}
           <div style={sectionCardStyle} data-testid="financing-land-funding">
             <strong style={{ fontSize: 13, display: 'block', marginBottom: 'var(--sp-1)' }}>Land Funding (per parcel)</strong>
