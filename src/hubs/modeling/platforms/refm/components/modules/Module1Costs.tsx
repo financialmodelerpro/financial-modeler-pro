@@ -1065,7 +1065,14 @@ function PercentOfSelectedPicker({
   isLocked: boolean;
   onChangeSelected: (ids: string[]) => void;
 }): React.JSX.Element {
+  // M2.0M Pass 6 Fix 6 (2026-05-11): rebuilt as a dropdown button +
+  // chip strip. The button shows "{N} lines selected"; clicking opens
+  // a popover with the full sibling list as checkboxes (scrolls to
+  // 240px). Apply persists; click outside closes. Selected lines also
+  // render as small chips beneath the button so the user sees what's
+  // chosen without opening the picker.
   const costLines = useModule1Store(useShallow((s) => s.costLines));
+  const [open, setOpen] = useState(false);
   // Sibling lines: same phase, NOT this line itself, NOT a
   // percent_of_selected (we don't allow recursive references), and
   // visible to this asset (project-wide OR targeted at this asset).
@@ -1082,63 +1089,135 @@ function PercentOfSelectedPicker({
     else next.add(id);
     onChangeSelected(Array.from(next));
   };
+  const selectedLines = siblings.filter((s) => selected.has(s.id));
+
   return (
     <tr data-testid={`cost-row-${asset.id}-${line.id}-pct-picker`} style={{ background: 'var(--color-grey-pale)' }}>
       <td colSpan={8} style={{ padding: '8px 12px' }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 }}>
-          <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)' }}>
-            Apply to lines (base for the %)
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+          <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', paddingTop: 6 }}>
+            Apply to:
           </strong>
-          <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
-            {selected.size === 0 ? 'No base selected, totalling 0' : `${selected.size} line${selected.size === 1 ? '' : 's'} selected`}
-          </span>
-        </div>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-            gap: 4,
-            maxHeight: 160,
-            overflowY: 'auto',
-            border: '1px solid var(--color-border)',
-            padding: 6,
-            background: 'var(--color-surface)',
-            borderRadius: 4,
-          }}
-          data-testid={`cost-${asset.id}-${line.id}-pct-picker-list`}
-        >
-          {siblings.length === 0 && (
-            <div style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic', padding: 6 }}>
-              No eligible sibling lines in this phase. Add construction / soft / land cost lines first.
-            </div>
-          )}
-          {siblings.map((s) => {
-            const checked = selected.has(s.id);
-            return (
-              <label
-                key={s.id}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  fontSize: 11,
-                  cursor: isLocked ? 'not-allowed' : 'pointer',
-                  padding: '2px 4px',
-                  background: checked ? 'color-mix(in srgb, var(--color-navy) 8%, transparent)' : 'transparent',
-                  borderRadius: 3,
-                }}
-                data-testid={`cost-${asset.id}-${line.id}-pct-picker-${s.id}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  onChange={() => toggle(s.id)}
-                  disabled={isLocked}
+          <div style={{ position: 'relative', flex: 1, minWidth: 240 }}>
+            <button
+              type="button"
+              disabled={isLocked}
+              onClick={() => setOpen((o) => !o)}
+              data-testid={`cost-${asset.id}-${line.id}-pct-picker-button`}
+              style={{
+                fontSize: 11, padding: '6px 12px', borderRadius: 'var(--radius-sm)',
+                background: 'var(--color-surface)', color: 'var(--color-body)',
+                border: '1px solid var(--color-border)',
+                cursor: isLocked ? 'not-allowed' : 'pointer',
+                display: 'inline-flex', alignItems: 'center', gap: 6,
+              }}
+            >
+              <span>Select lines</span>
+              <span style={{ fontSize: 10, color: 'var(--color-meta)' }}>
+                ({selected.size} selected)
+              </span>
+              <span style={{ fontSize: 9, opacity: 0.6 }}>{open ? '▲' : '▼'}</span>
+            </button>
+            {open && (
+              <>
+                {/* Click-outside backdrop, transparent. */}
+                <div
+                  onClick={() => setOpen(false)}
+                  style={{ position: 'fixed', inset: 0, zIndex: 10 }}
+                  data-testid={`cost-${asset.id}-${line.id}-pct-picker-backdrop`}
                 />
-                <span>{s.name}</span>
-              </label>
-            );
-          })}
+                <div
+                  style={{
+                    position: 'absolute', top: 'calc(100% + 4px)', left: 0,
+                    minWidth: 320, maxWidth: 480,
+                    background: 'var(--color-surface)', border: '1px solid var(--color-border)',
+                    borderRadius: 'var(--radius)', boxShadow: '0 4px 12px rgba(0,0,0,0.10)',
+                    zIndex: 20, padding: 8,
+                  }}
+                  data-testid={`cost-${asset.id}-${line.id}-pct-picker-popover`}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <span>Base lines for the %</span>
+                    <button
+                      type="button"
+                      onClick={() => setOpen(false)}
+                      data-testid={`cost-${asset.id}-${line.id}-pct-picker-close`}
+                      style={{ fontSize: 10, padding: '2px 8px', background: 'var(--color-navy)', color: 'var(--color-on-primary-navy)', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer' }}
+                    >
+                      Done
+                    </button>
+                  </div>
+                  <div
+                    style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 240, overflowY: 'auto', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', padding: 4 }}
+                    data-testid={`cost-${asset.id}-${line.id}-pct-picker-list`}
+                  >
+                    {siblings.length === 0 && (
+                      <div style={{ fontSize: 11, color: 'var(--color-meta)', fontStyle: 'italic', padding: 6 }}>
+                        No eligible sibling lines in this phase. Add construction / soft / land cost lines first.
+                      </div>
+                    )}
+                    {siblings.map((s) => {
+                      const checked = selected.has(s.id);
+                      return (
+                        <label
+                          key={s.id}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: 6,
+                            fontSize: 11,
+                            cursor: isLocked ? 'not-allowed' : 'pointer',
+                            padding: '4px 6px',
+                            background: checked ? 'color-mix(in srgb, var(--color-navy) 8%, transparent)' : 'transparent',
+                            borderRadius: 3,
+                          }}
+                          data-testid={`cost-${asset.id}-${line.id}-pct-picker-${s.id}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggle(s.id)}
+                            disabled={isLocked}
+                          />
+                          <span>{s.name}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            )}
+            {/* Chip strip beneath the button. */}
+            {selectedLines.length > 0 && (
+              <div
+                style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}
+                data-testid={`cost-${asset.id}-${line.id}-pct-picker-chips`}
+              >
+                {selectedLines.map((s) => (
+                  <span
+                    key={s.id}
+                    style={{
+                      fontSize: 10, padding: '2px 8px', borderRadius: 12,
+                      background: 'color-mix(in srgb, var(--color-navy) 10%, transparent)',
+                      color: 'var(--color-navy)',
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                    }}
+                    data-testid={`cost-${asset.id}-${line.id}-pct-picker-chip-${s.id}`}
+                  >
+                    {s.name}
+                    {!isLocked && (
+                      <button
+                        type="button"
+                        onClick={() => toggle(s.id)}
+                        title="Remove from base"
+                        style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit', fontSize: 11, padding: 0, lineHeight: 1 }}
+                      >
+                        x
+                      </button>
+                    )}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </td>
     </tr>
