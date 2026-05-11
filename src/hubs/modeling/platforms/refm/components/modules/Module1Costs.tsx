@@ -1729,12 +1729,19 @@ interface SameModeCostTableProps {
   onUpdateLine: (lineId: string, patch: Partial<CostLine>) => void;
   onRemoveLine: (lineId: string) => void;
   onAddCustom: () => void;
+  // M2.0L Pass 4 (2026-05-11): per-asset override controls for the
+  // replicas section. Override toggle creates / updates an entry via
+  // onUpdateOverride; un-toggle calls onRemoveOverride to drop it
+  // (asset reverts to master).
+  onUpdateOverride: (override: CostOverride) => void;
+  onRemoveOverride: (assetId: string, lineId: string) => void;
 }
 
 function SameModeCostTable({
   phaseId, phaseName, constructionPeriods, phaseAssets,
   lines, costOverrides, breakdowns, currency, scale, decimals, periodLabel,
   subUnits, metricsByAsset, onUpdateLine, onRemoveLine, onAddCustom,
+  onUpdateOverride, onRemoveOverride,
 }: SameModeCostTableProps): React.JSX.Element {
   // M2.0L Pass2 Fix 4 + Fix 10 (2026-05-11): Same mode renders ONE
   // editable master cost table (top) + per-asset read-only replicas
@@ -1866,10 +1873,23 @@ function SameModeCostTable({
             </button>
           </div>
 
-          {/* M2.0L Pass2 Fix 10: per-asset read-only replicas */}
+          {/* M2.0L Pass 4 (2026-05-11): per-asset resolved replicas with
+              per-row Override toggle. Each row carries:
+                - Cost line name (read-only)
+                - Method label (read-only; switches to dropdown when
+                  override is on and method override is requested - kept
+                  simple for now via the master-only method)
+                - Rate input: disabled when inherited; editable when
+                  overridden. Reflects master value when inherited.
+                - Source badge: "Inherited" (gray) or "Override" (warning).
+                - Multiplier caption (asset-specific, costLineCaption).
+                - Total: asset's resolved contribution from breakdown.
+                - Override toggle: clicking when inherited creates an
+                  override entry seeded with the current master values;
+                  clicking when overridden removes the entry (revert). */}
           <div style={{ marginTop: 'var(--sp-3)' }} data-testid={`costs-same-phase-${phaseId}-replicas`}>
             <h4 style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 var(--sp-1) 0' }}>
-              Per-asset breakdown (read-only)
+              Per-asset resolved
             </h4>
             {phaseAssets.map((a) => {
               const m = metricsByAsset.get(a.id);
@@ -1899,28 +1919,108 @@ function SameModeCostTable({
                       <tr style={{ background: 'var(--color-surface)' }}>
                         <th style={{ padding: '4px', textAlign: 'left' }}>Cost Line</th>
                         <th style={{ padding: '4px', textAlign: 'left' }}>Method</th>
-                        <th style={{ padding: '4px', textAlign: 'right' }}>Value</th>
-                        <th style={{ padding: '4px', textAlign: 'right' }}>Multiplier (this asset)</th>
-                        <th style={{ padding: '4px', textAlign: 'right' }}>Total (this asset)</th>
+                        <th style={{ padding: '4px', textAlign: 'right' }}>Rate</th>
+                        <th style={{ padding: '4px', textAlign: 'center' }}>Source</th>
+                        <th style={{ padding: '4px', textAlign: 'right' }}>Multiplier</th>
+                        <th style={{ padding: '4px', textAlign: 'right' }}>Total</th>
+                        <th style={{ padding: '4px', textAlign: 'center' }}>Action</th>
                       </tr>
                     </thead>
                     <tbody>
                       {lines.map((line) => {
                         const lineTotal = bd.byLineId[line.id] ?? 0;
+                        const ov = costOverrides.find((o) => o.assetId === a.id && o.lineId === line.id);
+                        const isOverridden = ov !== undefined && ov.overridden !== false;
+                        const effMethod  = isOverridden ? (ov!.method  ?? line.method)  : line.method;
+                        const effValue   = isOverridden ? (ov!.value   ?? line.value)   : line.value;
+                        const effPhasing = isOverridden ? (ov!.phasing ?? line.phasing) : line.phasing;
                         const cap = costLineCaption({
                           line,
+                          override: isOverridden ? { method: ov!.method, value: ov!.value } : undefined,
                           asset: a,
                           metrics: m,
                           parkingBays: a.parkingBaysRequired ?? 0,
                           resolvedTotal: lineTotal,
                         });
+                        const toggleOverride = (): void => {
+                          if (isOverridden) {
+                            onRemoveOverride(a.id, line.id);
+                          } else {
+                            onUpdateOverride({
+                              assetId: a.id,
+                              lineId: line.id,
+                              method: line.method,
+                              value: line.value,
+                              phasing: line.phasing,
+                              distribution: line.distribution,
+                              overridden: true,
+                            });
+                          }
+                        };
+                        const writeOverrideValue = (val: number): void => {
+                          onUpdateOverride({
+                            assetId: a.id,
+                            lineId: line.id,
+                            method: effMethod,
+                            value: val,
+                            phasing: effPhasing,
+                            distribution: ov?.distribution,
+                            disabled: ov?.disabled,
+                            perSubUnitRates: ov?.perSubUnitRates,
+                            startPeriod: ov?.startPeriod,
+                            endPeriod: ov?.endPeriod,
+                            overridden: true,
+                          });
+                        };
                         return (
-                          <tr key={line.id} data-testid={`costs-same-replica-${a.id}-row-${line.id}`}>
+                          <tr key={line.id} data-testid={`costs-same-replica-${a.id}-row-${line.id}`} data-overridden={isOverridden}>
                             <td style={{ padding: '4px', textAlign: 'left' }}>{line.name}</td>
-                            <td style={{ padding: '4px', textAlign: 'left', color: 'var(--color-meta)', fontSize: 10 }}>{COST_METHOD_LABELS[line.method]}</td>
-                            <td style={{ padding: '4px', textAlign: 'right' }}>{line.value}</td>
+                            <td style={{ padding: '4px', textAlign: 'left', color: 'var(--color-meta)', fontSize: 10 }}>{COST_METHOD_LABELS[effMethod]}</td>
+                            <td style={{ padding: '4px', textAlign: 'right' }}>
+                              {isOverridden ? (
+                                <input
+                                  type="number"
+                                  min={0}
+                                  value={effValue}
+                                  onChange={(e) => writeOverrideValue(parseFloat(e.target.value) || 0)}
+                                  style={{ ...inputStyle, fontSize: 11, textAlign: 'right' }}
+                                  data-testid={`costs-same-replica-${a.id}-row-${line.id}-rate`}
+                                />
+                              ) : (
+                                <span style={{ fontSize: 11, color: 'var(--color-meta)' }} data-testid={`costs-same-replica-${a.id}-row-${line.id}-rate-readonly`}>{effValue}</span>
+                              )}
+                            </td>
+                            <td style={{ padding: '4px', textAlign: 'center' }}>
+                              <span
+                                style={{
+                                  padding: '2px 8px', borderRadius: 12, fontSize: 9, fontWeight: 700,
+                                  textTransform: 'uppercase', letterSpacing: '0.05em',
+                                  background: isOverridden ? 'color-mix(in srgb, var(--color-warning) 18%, transparent)' : 'color-mix(in srgb, var(--color-meta) 12%, transparent)',
+                                  color: isOverridden ? 'var(--color-warning)' : 'var(--color-meta)',
+                                }}
+                                data-testid={`costs-same-replica-${a.id}-row-${line.id}-source`}
+                              >
+                                {isOverridden ? 'Override' : 'Inherited'}
+                              </span>
+                            </td>
                             <td style={{ padding: '4px', textAlign: 'right', fontSize: 10, color: 'var(--color-meta)' }} title={cap}>{cap}</td>
                             <td style={{ padding: '4px', textAlign: 'right', fontWeight: 600 }}>{formatScaled(lineTotal, scale, decimals)}</td>
+                            <td style={{ padding: '4px', textAlign: 'center' }}>
+                              <button
+                                type="button"
+                                onClick={toggleOverride}
+                                style={{
+                                  fontSize: 10, padding: '2px 8px', borderRadius: 'var(--radius-sm)',
+                                  background: isOverridden ? 'var(--color-warning-bg)' : 'transparent',
+                                  color: isOverridden ? 'var(--color-warning)' : 'var(--color-body)',
+                                  border: '1px solid var(--color-border)', cursor: 'pointer',
+                                }}
+                                title={isOverridden ? 'Click to revert this asset+line to the master template value' : 'Click to break this asset+line from the master and edit independently'}
+                                data-testid={`costs-same-replica-${a.id}-row-${line.id}-toggle`}
+                              >
+                                {isOverridden ? '✓ Revert to master' : 'Override'}
+                              </button>
+                            </td>
                           </tr>
                         );
                       })}
@@ -1969,36 +2069,11 @@ export default function Module1Costs(): React.JSX.Element {
 
   const [stageFilter, setStageFilter] = useState<CostStage | 'all'>('all');
   const [popupAssetId, setPopupAssetId] = useState<string | null>(null);
-  // M2.0L Fix 2 (2026-05-11): cost input mode chooser state. The modal
-  // is open ONLY when project.costInputMode is undefined (first open on
-  // this project). The toggle at the top of Tab 3 calls handleSwitchMode
-  // afterwards.
-  const costInputMode: CostInputMode | undefined = project.costInputMode;
-  const showModeChooser = costInputMode === undefined;
-  const removeAllCostOverrides = useModule1Store((s) => s.costOverrides);
-  void removeAllCostOverrides;
-  const setCostOverrideAction = useModule1Store((s) => s.setCostOverride);
-  void setCostOverrideAction;
-  const handleSwitchMode = (next: CostInputMode): void => {
-    if (next === costInputMode) return;
-    // M2.0L: Individual -> Same clears per-asset overrides so the user
-    // sees a clean single-table experience. Confirm first since this
-    // is destructive of user input.
-    if (costInputMode === 'individual' && next === 'same' && costOverrides.length > 0) {
-      const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
-        ? window.confirm(
-            `Switching to Same-for-All clears ${costOverrides.length} per-asset cost override${costOverrides.length === 1 ? '' : 's'}. Continue?`,
-          )
-        : true;
-      if (!ok) return;
-      // Drop every override via the store action.
-      const overridesNow = useModule1Store.getState().costOverrides;
-      for (const o of overridesNow) {
-        useModule1Store.getState().removeCostOverride(o.assetId, o.lineId);
-      }
-    }
-    setProject({ costInputMode: next });
-  };
+  // M2.0L Pass 4 (2026-05-11): the Same vs Individual mode toggle is
+  // removed. Tab 3 now always renders the inheritance surface (master
+  // template on top, per-asset resolved replicas below). The legacy
+  // project.costInputMode field is stripped on hydrate; this component
+  // no longer reads it.
   // M2.0g Fix 7: sub-tab state. 'inputs' shows the per-asset cost
   // tables (editable surface). 'results' shows the 4 capex summary
   // tables (read-only).
@@ -2128,35 +2203,9 @@ export default function Module1Costs(): React.JSX.Element {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {/* M2.0L Fix 2 (2026-05-11): cost input mode toggle. Always
-              visible at the top of Tab 3 so the user can switch between
-              Same / Individual after the initial chooser. */}
-          {costInputMode && (
-            <div
-              style={{ display: 'inline-flex', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}
-              data-testid="cost-input-mode-toggle"
-            >
-              {(['same', 'individual'] as const).map((m) => (
-                <button
-                  key={m}
-                  type="button"
-                  onClick={() => handleSwitchMode(m)}
-                  data-testid={`cost-input-mode-toggle-${m}`}
-                  style={{
-                    padding: '4px 10px',
-                    fontSize: 11,
-                    fontWeight: 700,
-                    border: 'none',
-                    background: costInputMode === m ? 'var(--color-navy)' : 'var(--color-surface)',
-                    color: costInputMode === m ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {m === 'same' ? 'Same for All' : 'Individual'}
-                </button>
-              ))}
-            </div>
-          )}
+          {/* M2.0L Pass 4 (2026-05-11): cost-input-mode toggle removed.
+              Tab 3 now renders the parent/child inheritance surface
+              unconditionally (master template + per-asset replicas). */}
           <select
             value={currentPhase.id}
             onChange={(e) => setActivePhaseId(e.target.value)}
@@ -2225,9 +2274,12 @@ export default function Module1Costs(): React.JSX.Element {
         ))}
       </div>
 
-      {/* M2.0L Fix 2: Same-mode rendering replaces the per-asset
-          selector + sections with one cost table per phase. */}
-      {subTab === 'inputs' && costInputMode === 'same' && (
+      {/* M2.0L Pass 4 (2026-05-11): inheritance surface always rendered.
+          Master template per phase (editable; project-wide cost lines)
+          + per-asset resolved replicas (read-only by default; each row
+          carries an Override toggle that activates a CostOverride entry
+          for that asset+line). */}
+      {subTab === 'inputs' && (
         <>
           {perPhaseBreakdowns.map((pb) => {
             const phaseObj = phases.find((ph) => ph.id === pb.phaseId);
@@ -2236,9 +2288,7 @@ export default function Module1Costs(): React.JSX.Element {
               : project.startDate;
             const phaseScopedPeriodLabel = (idx: number): string =>
               getPeriodLabel(idx, phaseStart, project.modelType);
-            // Project-wide lines only (drop any per-asset custom-tagged lines
-            // since Same mode doesn't expose them).
-            const sameModeLines = costLines
+            const masterLines = costLines
               .filter((c) => c.phaseId === pb.phaseId)
               .filter((c) => !c.targetAssetId)
               .filter((c) => stageFilter === 'all' || deriveCostStage(c) === stageFilter)
@@ -2250,7 +2300,7 @@ export default function Module1Costs(): React.JSX.Element {
                 phaseName={pb.phaseName}
                 constructionPeriods={pb.cp}
                 phaseAssets={pb.phaseAssets}
-                lines={sameModeLines}
+                lines={masterLines}
                 costOverrides={costOverrides}
                 breakdowns={pb.assetTotals}
                 currency={project.currency}
@@ -2260,13 +2310,21 @@ export default function Module1Costs(): React.JSX.Element {
                 subUnits={subUnits}
                 metricsByAsset={metricsByAsset}
                 onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
-                onRemoveLine={removeCostLine}
+                onRemoveLine={(lineId) => {
+                  const line = costLines.find((c) => c.id === lineId);
+                  const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
+                    ? window.confirm(`Remove '${line?.name ?? 'cost line'}' from every asset? Per-asset overrides for this line will also be dropped.`)
+                    : true;
+                  if (!ok) return;
+                  // Drop matching overrides first, then the master line.
+                  for (const o of costOverrides) {
+                    if (o.lineId === lineId) removeCostOverride(o.assetId, lineId);
+                  }
+                  removeCostLine(lineId);
+                }}
+                onUpdateOverride={setCostOverride}
+                onRemoveOverride={removeCostOverride}
                 onAddCustom={() => {
-                  // In Same mode there is no per-asset target. Open the
-                  // custom popup against the first visible asset; the
-                  // resulting custom line is targeted but still rendered
-                  // in Individual mode. For Same mode, we instead seed
-                  // a project-wide custom line directly via the store.
                   const id = `custom-${Date.now()}`;
                   addCostLine({
                     id,
@@ -2288,182 +2346,6 @@ export default function Module1Costs(): React.JSX.Element {
         </>
       )}
 
-      {subTab === 'inputs' && costInputMode === 'individual' && (
-        <>
-          {/* M2.0j Fix 16 (2026-05-07): asset selector bar. "All Assets"
-              shows every asset section concatenated; picking a specific
-              asset filters the cost sections + the summary cards below
-              to only that asset. */}
-          {allVisibleAssets.length > 0 && (
-            <div
-              style={{
-                display: 'flex',
-                gap: 'var(--sp-1)',
-                flexWrap: 'wrap',
-                padding: 'var(--sp-1) var(--sp-2)',
-                marginBottom: 'var(--sp-2)',
-                background: 'var(--color-grey-pale)',
-                border: '1px solid var(--color-border)',
-                borderRadius: 'var(--radius-sm)',
-                alignItems: 'center',
-              }}
-              data-testid="costs-asset-selector"
-            >
-              <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', marginRight: 'var(--sp-1)' }}>Show:</strong>
-              <button
-                type="button"
-                onClick={() => setSelectedCostAssetId(null)}
-                data-testid="costs-asset-selector-all"
-                style={{
-                  fontSize: 11, fontWeight: 700, padding: '6px 14px', borderRadius: 6,
-                  border: selectedCostAssetId === null ? 'none' : '1px solid var(--color-border)',
-                  background: selectedCostAssetId === null ? 'var(--color-navy)' : 'var(--color-surface)',
-                  color: selectedCostAssetId === null ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
-                  cursor: 'pointer',
-                }}
-              >
-                All Assets
-              </button>
-              {allVisibleAssets.map((a) => {
-                const isActive = selectedCostAssetId === a.id;
-                return (
-                  <button
-                    key={a.id}
-                    type="button"
-                    onClick={() => setSelectedCostAssetId(a.id)}
-                    data-testid={`costs-asset-selector-${a.id}`}
-                    style={{
-                      fontSize: 11, fontWeight: 700, padding: '6px 14px', borderRadius: 6,
-                      border: isActive ? 'none' : '1px solid var(--color-border)',
-                      background: isActive ? 'var(--color-navy)' : 'var(--color-surface)',
-                      color: isActive ? 'var(--color-on-primary-navy)' : 'var(--color-body)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    {a.name}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-
-          {/* Per-phase, per-asset sections */}
-          {perPhaseBreakdowns.map((pb) => {
-            // M2.0j Fix 16: filter to selected asset (or show all).
-            const filteredPhaseAssets = selectedCostAssetId
-              ? pb.phaseAssets.filter((a) => a.id === selectedCostAssetId)
-              : pb.phaseAssets;
-            if (filteredPhaseAssets.length === 0) return null;
-            return (
-              <div key={pb.phaseId} data-testid={`costs-phase-${pb.phaseId}`}>
-                <div style={phaseHeaderStyle}>{pb.phaseName} · {filteredPhaseAssets.length} asset{filteredPhaseAssets.length === 1 ? '' : 's'}</div>
-                {(() => {
-                  // M2.0j Fix 10: cost line periods reference PHASE start
-                  // date, not project. periodLabelFn becomes phase-scoped
-                  // here so Y1 on Phase 2 (starts 2026) renders "Dec 2026"
-                  // not "Dec 2025".
-                  const phaseObj = phases.find((ph) => ph.id === pb.phaseId);
-                  const phaseStart = phaseObj?.startDate && phaseObj.startDate.length === 10
-                    ? phaseObj.startDate
-                    : project.startDate;
-                  const phaseScopedPeriodLabel = (idx: number): string =>
-                    getPeriodLabel(idx, phaseStart, project.modelType);
-                  return filteredPhaseAssets.map((a) => {
-                    const assetLines = linesForAsset(a, pb.phaseId);
-                    const breakdown = pb.assetTotals[a.id]!;
-                    const assetMetrics = metricsByAsset.get(a.id);
-                    if (!assetMetrics) return null;
-                    return (
-                      <AssetCostSection
-                        key={a.id}
-                        asset={a}
-                        lines={assetLines}
-                        costOverrides={costOverrides}
-                        breakdown={breakdown}
-                        currency={project.currency}
-                        scale={scale}
-                        decimals={decimals}
-                        periodLabel={phaseScopedPeriodLabel}
-                        constructionPeriods={pb.cp}
-                        subUnits={subUnits}
-                        metrics={assetMetrics}
-                        onUpdateLine={(lineId, patch) => updateCostLine(lineId, patch)}
-                        onUpdateOverride={setCostOverride}
-                        onRemoveOverride={removeCostOverride}
-                        onRemoveLine={removeCostLine}
-                        onAddCustom={() => handleAddCustom(a.id)}
-                      />
-                    );
-                  });
-                })()}
-              </div>
-            );
-          })}
-
-          {/* M2.0j Fix 16: 3 summary cards beneath the cost lines. When
-              "All Assets" is selected, cards aggregate across every
-              visible asset; when a single asset is selected, cards
-              reflect just that asset. */}
-          {allVisibleAssets.length > 0 && (() => {
-            const targetAssets = selectedCostAssetId
-              ? allVisibleAssets.filter((a) => a.id === selectedCostAssetId)
-              : allVisibleAssets;
-            const totals = { exclLand: 0, exclLandInKind: 0, inclLandInKind: 0 };
-            for (const a of targetAssets) {
-              const m = metricsByAsset.get(a.id);
-              if (!m) continue;
-              const byStage = { land: 0, hard: 0, soft: 0, operating: 0 } as Record<CostStage, number>;
-              for (const pb of perPhaseBreakdowns) {
-                const bd = pb.assetTotals[a.id];
-                if (!bd) continue;
-                byStage.land += bd.byStage.land;
-                byStage.hard += bd.byStage.hard;
-                byStage.soft += bd.byStage.soft;
-                byStage.operating += bd.byStage.operating;
-              }
-              const t = computeAssetCostSummaryFromBreakdown(byStage, m.cashLandValue, m.inKindLandValue);
-              totals.exclLand += t.exclLand;
-              totals.exclLandInKind += t.exclLandInKind;
-              totals.inclLandInKind += t.inclLandInKind;
-            }
-            const card: React.CSSProperties = {
-              flex: 1, minWidth: 220,
-              background: 'var(--color-surface)',
-              border: '1px solid var(--color-border)',
-              borderRadius: 'var(--radius-sm)',
-              padding: 'var(--sp-2)',
-            };
-            return (
-              <div
-                style={{ display: 'flex', gap: 'var(--sp-2)', marginTop: 'var(--sp-2)', flexWrap: 'wrap' }}
-                data-testid="costs-asset-summary-cards"
-              >
-                <div style={card} data-testid="costs-summary-excl-land">
-                  <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Excl. Land</div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-heading)', marginTop: 4 }}>{formatScaled(totals.exclLand, scale, decimals)}</div>
-                  <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>construction + soft + operating</div>
-                </div>
-                <div style={card} data-testid="costs-summary-excl-land-inkind">
-                  <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Excl. Land In-Kind</div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-heading)', marginTop: 4 }}>{formatScaled(totals.exclLandInKind, scale, decimals)}</div>
-                  <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>above + cash land (developer cash needed)</div>
-                </div>
-                <div style={card} data-testid="costs-summary-incl-land-inkind">
-                  <div style={{ fontSize: 10, color: 'var(--color-meta)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Incl. Land In-Kind</div>
-                  <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--color-heading)', marginTop: 4 }}>{formatScaled(totals.inclLandInKind, scale, decimals)}</div>
-                  <div style={{ fontSize: 10, color: 'var(--color-meta)', marginTop: 4 }}>above + in-kind land (total cost basis)</div>
-                </div>
-              </div>
-            );
-          })()}
-
-          {allVisibleAssets.length === 0 && (
-            <div style={{ ...sectionCardStyle, textAlign: 'center', color: 'var(--color-meta)', padding: 'var(--sp-3)' }} data-testid="costs-no-assets">
-              No visible assets yet. Add at least one asset (Tab 2) to configure costs.
-            </div>
-          )}
-        </>
-      )}
 
       {subTab === 'results' && allVisibleAssets.length > 0 && (
         <>
@@ -2596,11 +2478,8 @@ export default function Module1Costs(): React.JSX.Element {
           onSave={handleCustomSave}
         />
       )}
-      {/* M2.0L Fix 2: first-open chooser modal. Persists the pick via
-          Project.costInputMode, then never reopens for this project. */}
-      {showModeChooser && (
-        <CostInputModeModal onPick={(mode) => setProject({ costInputMode: mode })} />
-      )}
+      {/* M2.0L Pass 4: CostInputModeModal removed. The parent/child
+          inheritance surface is always rendered; no first-open chooser. */}
     </div>
   );
 }

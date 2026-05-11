@@ -178,7 +178,9 @@
       "Bash(echo \"---exit=$?\")",
       "PowerShell($env:BREVO_API_KEY = \"xkeysib-fake-key-for-diagnostic-1234567890\"; $env:EMAIL_FROM_TRAINING = \"training@financialmodelerpro.com\"; $env:EMAIL_FROM_NOREPLY = \"no-reply@financialmodelerpro.com\"; npx tsx scripts/testBrevoSend.ts diagnostic@example.com 2>&1 | Select-Object -First 60)",
       "Bash(awk 'NR < 401 || NR > 515' \"D:/FMP/financial-modeler-pro/CLAUDE.md\")",
-      "Bash(vercel --version)"
+      "Bash(vercel --version)",
+      "Bash(awk 'NR==2354,NR==2529' src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx)",
+      "Bash(awk 'NR==2528,NR==2532' src/hubs/modeling/platforms/refm/components/modules/Module1Costs.tsx)"
     ]
   }
 }
