@@ -268,6 +268,10 @@ function CustomCostPopup({ phaseId, assetId, constructionPeriods, onClose, onSav
 
   const handleSave = (): void => {
     const id = `custom-${Date.now()}`;
+    // P8-Fix 5 (2026-05-12): defaults Start=0, End=maxCp+1 (1 yr buffer).
+    // `constructionPeriods` is wired from the caller as the project-wide
+    // max so multi-phase projects get the longest construction window
+    // plus a buffer period for end-of-construction wrap-up.
     onSave({
       id,
       phaseId,
@@ -277,8 +281,8 @@ function CustomCostPopup({ phaseId, assetId, constructionPeriods, onClose, onSav
       stage,
       scope: 'direct',
       allocationBasis: 'per_asset',
-      startPeriod: 1,
-      endPeriod: Math.max(1, constructionPeriods),
+      startPeriod: 0,
+      endPeriod: Math.max(1, constructionPeriods + 1),
       phasing,
       targetAssetId: assetId,
     });
@@ -2597,7 +2601,11 @@ export default function Module1Costs(): React.JSX.Element {
                 }}
                 onAddCustom={() => {
                   const id = `custom-${Date.now()}__${activeAsset.phaseId}__${activeAsset.id}`;
-                  const cp = assetPhase?.constructionPeriods ?? 1;
+                  // P8-Fix 5 (2026-05-12): defaults Start=0, End=maxCp+1.
+                  // maxCp = max constructionPeriods across all phases so a
+                  // multi-phase project gets the longest construction window
+                  // plus a 1-period buffer.
+                  const maxCp = phases.reduce((m, p) => Math.max(m, p.constructionPeriods), 0);
                   addCostLine({
                     id,
                     phaseId: activeAsset.phaseId,
@@ -2608,8 +2616,8 @@ export default function Module1Costs(): React.JSX.Element {
                     stage: 'soft',
                     scope: 'direct',
                     allocationBasis: 'per_asset',
-                    startPeriod: 1,
-                    endPeriod: Math.max(1, cp),
+                    startPeriod: 0,
+                    endPeriod: Math.max(1, maxCp + 1),
                     phasing: 'even',
                     costCategory: 'direct',
                   });
@@ -2747,7 +2755,9 @@ export default function Module1Costs(): React.JSX.Element {
         <CustomCostPopup
           phaseId={currentPhase.id}
           assetId={popupAssetId}
-          constructionPeriods={currentPhase.constructionPeriods}
+          /* P8-Fix 5: pass project-wide max construction periods so the
+             popup's End-period default reflects the longest phase + 1 buffer. */
+          constructionPeriods={phases.reduce((m, p) => Math.max(m, p.constructionPeriods), 0)}
           onClose={() => setPopupAssetId(null)}
           onSave={handleCustomSave}
         />
