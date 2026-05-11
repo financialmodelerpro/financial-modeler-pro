@@ -1,5 +1,5 @@
 ﻿# Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-11 (M2.0M Financing definitive rewrite ships: parameter-named hook architecture (`FinancingDataHooks` reads `getCapexExclLandInKind` / `getCapexInclLandInKind` / `getCapexExclTotalLand` / `getLandInKindValue` from current Costs engine + zero-stubs for `getPreSalesCollections` / `getOperatingCashFlow` / `getDepreciationSchedule` / `getRevenueSchedule` / `getOperatingExpenses` + local-sim `getClosingCashBalance`). `Project.financing: ProjectFinancingConfig` adds funding method radio (4 options: Fixed Ratio / Line-Item / Net Funding / Cash Deficit) + per-parcel `ParcelFundingConfig` (5 types: 100% equity / 100% debt / custom split / in-kind / deferred payment) + asset-level view toggle (combined vs single asset). `CostOverride` gains `debtPctOverride` + `equityPctOverride` for Method 2 per-asset ratios. `migrateM20MFinancing` stamps default Method-1 / 70-30 / combined-view wrapper on legacy snapshots; M20M_FINANCING_NOTICE banner. Tab 4 Inputs sub-tab adds 3 new cards above Capital Structure: View toggle, Funding Method radio (with per-method input panel), Land Funding (per parcel). Verifier 67/67, Schema stays v8 additive)**
+**Last updated: 2026-05-11 (M2.0M Pass 6 Costs cleanup ships: 9 targeted fixes. (1) Sub-unit table renders per-row count-unit caption beneath Count cell adapting to category + asset strategy + asset type (units / keys / beds / bays / tenants / items). (2) Default `displayScale='thousands'` + `displayDecimals=0` on new projects with smart migration preserving explicit user customisation. (3) Roads/Parks NDA moves to project level via new `Project.projectNdaEnabled` + `projectParksPct` schema fields; calc engine reads project-level first; per-parcel toggles kept for back-compat; migration weighted-averages legacy. (4) Master + replica Method columns constrained to 200px via colgroup + ellipsis. (5) Land cost captions show derivation chain "{landSqm} sqm x {effRate}/sqm (cash) = {total}" with pointed warnings on zero-land / zero-rate / zero-cashPct paths. (6) `PercentOfSelectedPicker` rebuilt as dropdown button + chip strip + popover with backdrop click-outside. (7) Override toggle hidden on locked Land / Auto-IDC lines, replaced with "Locked" chip + tooltip pointing to source tab. (8) Period column reducer reads phaseStartYear offsets so multi-phase projects render columns through the last phase end (no spill, no truncation). (9) Results cells use `formatScaledForExport` so K/M suffix appears only in the header line, not per cell. Verifier verify-m20costsCleanup.ts 36/36. Schema stays v8 additive)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -225,7 +225,8 @@ npm run verify       # type-check + lint + build
 npx tsx scripts/module1-v5-diff.ts              # 47.8 KB baseline (sha256 824ef8e1706d)
 
 # Per-phase verifier (5 sections: schema/types / calc / state / source markers / Playwright UI)
-# Canonical green for current state: verify-m20M.ts (latest Financing surface)
+# Canonical green for current state: verify-m20costsCleanup.ts (latest Costs surface)
+npx tsx scripts/verify-m20costsCleanup.ts       # M2.0M Pass 6 Costs cleanup (9 fixes: count caption, defaults, NDA, method col, land captions, dropdown, locked override, period reducer, plain cells, 36 pass / 0 fail)
 npx tsx scripts/verify-m20M.ts                  # M2.0M Financing (schema + migration + hook layer + UI markers, 67 pass / 0 fail / 0 skip)
 npx tsx scripts/verify-m20L-pass5.ts            # Category + Driver + auto-derived CostType (31 pass / 0 fail / 0 skip)
 npx tsx scripts/verify-m20L-pass4.ts            # parent/child inheritance cost engine (30 pass / 0 fail / 0 skip)
@@ -272,6 +273,93 @@ Full commit-by-commit narrative archived in **CLAUDE-FEATURES.md** if needed.
 - **Page-sections are jsonb, not normalized.** Each marketing section's `content_blocks` holds its own typed shape (`HeroContent` / `FeaturesContent` / `HowItWorksContent` / `CtaContent` / `TestimonialsContent`). Admin edits via JSON textarea.
 - **Legacy `modules` table stays** as platforms-storage despite name predating the platform/module distinction. Rename cost > benefit.
 - **RLS:** anon role never reads `status='hidden'` modules or `visible=false` page sections. Service-role bypasses for admin writes. No write policies needed for anon.
+
+### Module 1 status (2026-05-11, **M2.0M Pass 6 Costs cleanup**)
+
+**M2.0M Pass 6 (current, ships):** 9 targeted Costs fixes layered
+on M2.0M. Schema stays v8 additive (`Project.projectParksPct?` +
+`Project.projectNdaEnabled?` are the only new fields).
+
+- **Fix 1, dynamic count caption (Tab 2 sub-units).** New
+  `countUnitLabel(category, strategy, assetType)` helper renders a
+  small caption beneath each Count cell adapting to context: Sellable
+  -> "units", Operable + Operate -> "keys", Operable + healthcare-
+  tagged type -> "beds", Leasable -> "tenants", Support -> "items".
+  Header stays "Count"; only the caption swaps.
+
+- **Fix 2, default Display Scale + Decimals.**
+  `makeDefaultProject()` seeds `displayScale='thousands'` +
+  `displayDecimals=0`. New `migrateM20mPass6DisplayDefaults` runs at
+  the tail of every hydrate chain: ONLY flips snapshots that carry
+  the exact pre-Pass-6 default combo (`full` + 2) -> (`thousands` +
+  0). Any explicit user customisation (e.g. millions+1, full+1) is
+  preserved verbatim. Percentages stay at 2 decimals via
+  `formatPercent` default.
+
+- **Fix 3, project-level Roads/Parks NDA.** New
+  `Project.projectNdaEnabled` + `projectParksPct` (additive).
+  `Project.projectRoadsPct` was already on schema; Pass 6 wires the
+  toggle. Calc engine `resolveAssetAreaMetrics` reads project-level
+  first: when `projectNdaEnabled=true`, applies
+  `(projectRoadsPct + projectParksPct)` uniformly to phase land
+  area; per-parcel `hasNdaDeduction` is ignored. Schema fields stay
+  on `Parcel` for back-compat. `migrateM20mPass6NdaToProject` rolls
+  up legacy per-parcel toggles into the project-level fields via
+  area-weighted average. Tab 1 gains a "Roads + Parks Deduction
+  (NDA)" card; Tab 2 surfaces a notice when project-level is on
+  ("Per-parcel NDA toggles are kept for reference but do not affect
+  calculations").
+
+- **Fix 4, Method column width.** Master cost table now uses
+  `tableLayout='fixed'` with `<colgroup>` widths; Method column
+  capped at 200px. Per-asset replica Method cell uses
+  `maxWidth: 200 + textOverflow: ellipsis + whiteSpace: nowrap`
+  with `title={methodLabel}` hover tooltip on truncation.
+
+- **Fix 5, Land cost derivation captions.**
+  `costLineCaption` rewrites for `percent_of_cash_land` /
+  `percent_of_inkind_land` / `percent_of_total_land`. Healthy
+  path: `"{landSqm} sqm x {cashLandValue/landSqm}/sqm (cash) =
+  {total}"`. Pointed warnings on zero-land (`"no land allocation
+  to this asset defined yet"`), zero-rate (`"no parcel rate defined
+  yet"`), zero cashPct edge case. Master Total cell already
+  renders the right number when parcels carry value (autoByBua
+  fallback at `computeAssetLandSqm:191-195` verified working).
+
+- **Fix 6, `PercentOfSelectedPicker` dropdown.** Replaces the inline
+  checkbox grid with a compact dropdown button
+  `"Select lines (X selected)"`. Click opens a 320-480px popover
+  containing the sibling list (240px scroll cap); transparent
+  backdrop click-outside closes; explicit Done button. Selected
+  lines also render as removable chips beneath the button.
+  Scales to any number of sibling lines.
+
+- **Fix 7, Locked-line override block.** Per-asset replica rows for
+  any line with `isLocked=true` (Land Cash / Land In-Kind /
+  Auto-IDC) render a non-interactive "Locked" chip instead of the
+  Override button; `toggleOverride` short-circuits. Tooltip
+  explains where the underlying value comes from.
+
+- **Fix 8, Period column reducer.** Replaces the legacy
+  `constructionStart - 1 + cp` reducer (which ignored phase
+  startDate offsets) with a phaseStartYear-aware reducer:
+  `Math.max(offset + cp)` where `offset = phaseStartYear -
+  projectStartYear`. Aligns with the per-phase offset that the
+  render path at `Module1Costs.tsx:1485-1494` applies, so columns
+  extend exactly to the latest phase end (no spill, no truncation).
+
+- **Fix 9, Plain numbers in Results cells.** `SummaryTables fmt`
+  switches from `formatScaled` to `formatScaledForExport`, dropping
+  the K / M suffix per cell. The Results sub-tab header line
+  (`currencyHeaderLine`) still carries the scale indicator
+  ("All figures in SAR '000"). Inputs sub-tab unaffected.
+
+- **Verifier**: `scripts/verify-m20costsCleanup.ts` 36 pass / 0
+  fail across 9 sections (one per fix). Asserts schema additions,
+  migration smart-detection (3 scenarios per Fix 2; 3 scenarios
+  for Fix 3 NDA migration), UI source markers, calc correctness
+  (autoByBua fallback returns non-zero, project-NDA produces
+  correct deduction), and caption derivation.
 
 ### Module 1 status (2026-05-11, **M2.0M Financing definitive rewrite**)
 
