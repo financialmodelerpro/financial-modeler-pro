@@ -1065,7 +1065,11 @@ function PercentOfSelectedPicker({
 
   return (
     <tr data-testid={`cost-row-${asset.id}-${line.id}-pct-picker`} style={{ background: 'var(--color-grey-pale)' }}>
-      <td colSpan={11} style={{ padding: '8px 12px' }}>
+      {/* P8-Fix 6 (2026-05-12): colSpan synced to 9 cols (Pass 8 dropped
+          Category + Driver). Previously stale at 11 causing the picker
+          to render misaligned and occasionally hidden when the row was
+          clipped by overflow:hidden cells. */}
+      <td colSpan={9} style={{ padding: '8px 12px' }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
           <strong style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--color-meta)', paddingTop: 6 }}>
             Apply to:
