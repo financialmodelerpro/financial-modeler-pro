@@ -1,5 +1,5 @@
 ﻿# Financial Modeler Pro, Claude Code Project Brief
-**Last updated: 2026-05-12 (M2.0M Pass 4 Financing Cleanup ships: 10 fixes after the Pass 3 diagnostic revealed UI was rendering zero despite unit-tested hooks. Mandatory diagnostic in docs/m20M-pass4-diagnostic.md identified root cause (UI never called createFinancingHooks; computeCapitalStack read deprecated tranche.ltvPct + principal that Pass 3 hid from UI; Pass 3 migration cleared equityContributions[] but stack still walked them). Fixes: (10) force fix zero-rendering, route computeFunding through inputsSummary.totals (project-wide capex aggregate, all phases); bypass computeCapitalStack entirely, derive stack from funding + equity. (9) assetFilter replaces phaseFilter on Tab 4: __combined__ sentinel default; asset dropdown filters Inputs Summary + Schedules. (6) formatAccounting universal helper: zero -> "-", negative -> (n), null/undef -> "", positive -> "1,234,567"; applied across Module1Financing + Module1Costs. (1) Method 2 line-item editable table: dedupe composed line ids via deriveLineBaseId; per-row Debt% input + Equity% auto-derived; replaces "next sub-pass" placeholder. (2) Funding Basis block above facilities: 4 read-only fields (Method, Drawdown Basis, Total Capex, Total Funding Need). (3) Capital Structure Overview restructured: Total Funding lead card + Sources (Total Debt + Equity Cash + Equity In-Kind) + Uses (Total Capex + LTV + match chip). (4) TrancheCard compact 2-per-row grids replacing 4-per-row (Tenor/Availability/Grace/Repayment + output cards). (5) Drawdown periods only: drop period columns where total = 0; bottom row label simplified from "TOTAL Total Funding Required" to just "Total". (7) Schedules restructure: drop standalone Drawdown; replace Repayment with Debt Movement (Opening + Drawdown + Interest Cap + Principal Repaid + Closing); add Finance Cost per facility (Interest Accrued + Paid + IDC Cap + Expensed); renumber 1-7. (8) Equity Schedule -> Equity Movement (Opening + Cash + In-Kind + Closing, mirrors Debt Movement). migrateM20mPass4Financing idempotent (stamps assetFilter='__combined__' on legacy snapshots). M20M_PASS4_NOTICE banner takes priority in resolveBanner cascade. Verifier verify-m20M-pass4.ts 61/0/0 across 12 sections. Schema stays v8 additive.)**
+**Last updated: 2026-05-12 (M2.0 Costs Cleanup Pass 9 ships: 8 fixes after a mandatory diagnostic identified that the Land zero rendering survived 4 prior passes because computeAssetBua had a narrower fallback than resolveAssetAreaMetrics. When an asset carried stub sub-units with metricValue=0, computeAssetBua returned 0 without trying asset.buaSqm; resolveAssetAreaMetrics had the fallback already (M2.0L Fix 4). autoByBua land allocation walks computeAssetBua directly via computeAssetLandSqm, so landSqm=0 -> cashLandValue=0 -> Land cost = 0. Fix 8 patches both computeAssetBua + computeAssetSellableBua to fall back to asset.buaSqm / sellableBuaSqm when sub-units sum to 0; MAAD fixture now renders Land (Cash) 1,737M + Land (In-Kind) 434M end-to-end. Fix 1: derived Count rounds to integer via Math.round; Total Revenue uses rounded count. Fix 2: NDA Recon walk in LandReconciliationBlock when projectNdaEnabled=true (Total - Roads - Parks = NDA + per-asset allocations sum to NDA with ✓ chip). Fix 3: End period max cap dropped; informational warning chip when End > maxCp, blocking error chip only when End < Start; HTML5 max + Clamp button gone. Fix 4: universal K/M suffix strip across cells; formatScaled replaced with formatAccounting at every cell site in Module1Costs + Module1Assets + Dashboard + OverviewScreen; formatScaledCurrency now delegates to formatAccounting. Fix 5: costLineCaption drops trailing "= result" part; Total column already shows the number. Fix 6: collapsible cost line rows with per-row chevron + localStorage persistence (key m20-cost-row-collapsed-{lineId}) + Expand all/Collapse all bulk buttons + m20-cost-row-collapse-bulk window event. Fix 7: Phase 3 click crash guard - activeAsset undefined when no visible assets in selected phase now correctly returns undefined to downstream consumers, empty-phase render block already in place from Pass 8. Mandatory diagnostic at docs/m20costs-pass9-land-zero-diagnostic.md (commit first). Verifier verify-m20costsCleanup-pass9.ts 37/0/0 across 10 sections. Schema stays v8 additive.)**
 
 > **See also:**
 > - [CLAUDE-DB.md](CLAUDE-DB.md), Database tables, storage buckets, migrations log
@@ -274,6 +274,103 @@ Full commit-by-commit narrative archived in **CLAUDE-FEATURES.md** if needed.
 - **Page-sections are jsonb, not normalized.** Each marketing section's `content_blocks` holds its own typed shape (`HeroContent` / `FeaturesContent` / `HowItWorksContent` / `CtaContent` / `TestimonialsContent`). Admin edits via JSON textarea.
 - **Legacy `modules` table stays** as platforms-storage despite name predating the platform/module distinction. Rename cost > benefit.
 - **RLS:** anon role never reads `status='hidden'` modules or `visible=false` page sections. Service-role bypasses for admin writes. No write policies needed for anon.
+
+### Module 1 status (2026-05-12, **M2.0 Costs Cleanup Pass 9**)
+
+**M2.0 Pass 9 (current, ships):** 8 fixes + mandatory diagnostic.
+Schema stays v8 additive (no new fields).
+
+- **Mandatory diagnostic** at `docs/m20costs-pass9-land-zero-diagnostic.md`
+  (commit first). Identifies root cause of the Land Cash / Land
+  In-Kind cost lines rendering zero across 4 prior passes:
+  `computeAssetBua` at `src/core/calculations/index.ts:136-140` has
+  a narrower fallback than `resolveAssetAreaMetrics`. When an asset
+  carries stub sub-units (`metricValue=0`), `computeAssetBua`
+  returns 0 without trying `asset.buaSqm`. `resolveAssetAreaMetrics`
+  was patched in M2.0L Fix 4 / Pass 3 widening; `computeAssetBua`
+  was never patched. The autoByBua land allocation path walks
+  `computeAssetBua` directly via `computeAssetLandSqm`, so
+  `landSqm=0 -> landValue=0 -> cashLandValue=0 -> Land cost = 0`.
+
+- **Fix 8 (Land zero forced fix)**: patch `computeAssetBua` +
+  `computeAssetSellableBua` to fall back to `asset.buaSqm` /
+  `asset.sellableBuaSqm` when sub-units exist but sum to zero. MAAD
+  fixture (parcel 22,066 sqm x 98,450 SAR, 80% cash, asset with
+  `buaSqm=130,874` + stub sub-unit) now renders Land (Cash) 1,737M +
+  Land (In-Kind) 434M in `byLineId` end-to-end (verified by Section
+  2 of the Pass 9 verifier).
+
+- **Fix 1 (round derived Count)**: `SubUnitRow` rounds the derived
+  Count to a whole number via `Math.round(area / unitSize)`. Total
+  Revenue uses the rounded count when in Units mode (so the
+  displayed math stays self-consistent: `Total = roundedCount x
+  Rate`). Applies to all category labels via `countUnitLabel` (Units
+  / Keys / Beds / Bays / Tenants / Items).
+
+- **Fix 2 (NDA Recon walk)**: `LandReconciliationBlock` gains a new
+  walk + per-asset allocation block when `projectNdaEnabled=true`:
+  Total Parcel Land - Roads% - Parks% = Net Developable Area, then
+  asset allocations sum to NDA with `✓ matches NDA` chip when
+  balanced. New data-testids: `land-reconciliation-nda-walk`,
+  `recon-total-land`, `recon-roads`, `recon-parks`, `recon-nda`,
+  `recon-asset-{id}-sqm`, `recon-allocated`.
+
+- **Fix 3 (End period drop max cap)**: End input on cost line rows
+  drops HTML5 max + JS clamp. User can enter any value.
+  Informational chip "extends into operations period" when End >
+  maxCp (does not block). Blocking error chip "End must be on or
+  after Start" + red border + `aria-invalid` when End < Start. The
+  "Clamp to maxCp" button (Pass 8) is gone.
+
+- **Fix 4 (universal K/M strip)**: `formatScaledCurrency` now
+  delegates to `formatAccounting` internally (zero -> "-", parens
+  for negative, no K/M suffix). Every cell-rendering site in
+  Module1Costs (16 sites) + Module1Assets (8 sites) + Dashboard +
+  OverviewScreen swapped `formatScaled` -> `formatAccounting`.
+  Scale indicator stays once in tab header via `currencyHeaderLine`.
+  `formatScaled` remains exported for `AccountingNumberInput` which
+  always uses `scale="full"` on raw editable inputs.
+
+- **Fix 5 (caption drops = result)**: `costLineCaption` returns just
+  the formula (e.g. `"4,500 x 130,874 sqm BUA"`); the trailing
+  `"= 588,933,450"` part is gone. Total column to the right already
+  shows the number. `CostLineCaptionInput.resolvedTotal` retained on
+  the interface for API stability but ignored by the helper.
+
+- **Fix 6 (collapsible cost line rows)**: `CostRow` gains per-row
+  collapse state. Collapsed (default) shows Name + Method + dashes
+  in Value / Start / End / Phasing + Total + Toggle + Delete.
+  Expanded shows the full input surface. Chevron (▶/▼) at the start
+  of the Cost Line cell toggles. localStorage persistence keyed
+  `m20-cost-row-collapsed-{lineId}`. AssetCostSection header gains
+  Expand all / Collapse all bulk buttons that rewrite localStorage
+  for every visible line id and broadcast `m20-cost-row-collapse-bulk`;
+  each row listens and re-reads its key.
+
+- **Fix 7 (Phase 3 click crash guard)**: Tab 3 Inputs sub-tab no
+  longer crashes with TypeError when the user clicks a phase with
+  zero visible assets. Guards added at every downstream `activeAsset`
+  dereference (`assetPhase`, `assetLines`, `assetBreakdown`,
+  `assetMetrics`). The empty-phase render block (P8-Fix 3) was
+  already in place; only the data-derivation lines above it were
+  unguarded.
+
+- **No migration**: every fix is in display / calc layer or input
+  validation; no schema change, no banner.
+
+- **Verifier**: `scripts/verify-m20costsCleanup-pass9.ts` 37 pass / 0
+  fail / 0 skip across 10 sections (diagnostic file presence + Fix 8
+  end-to-end MAAD fixture + Fix 1 source markers + Fix 2 walk
+  test-ids + Fix 3 chip markers + Fix 4 formatScaled-removed sweep
+  + Fix 5 caption contract via direct call + Fix 6 chevron + bulk
+  buttons + listener + Fix 7 guard markers + em-dash sweep).
+
+Commits (9): `56bdff4` (mandatory diagnostic) - `d107937` (Fix 8 Land
+zero forced fix) - `9872a8e` (Fix 1 round Count) - `aeffe46` (Fix 2
+NDA walk) - `037b5c5` (Fix 3 End cap drop) - `1434571` (Fix 4 K/M
+strip) - `30e31f3` (Fix 5 caption no = result) - `72a56e7` (Fix 6
+collapsible rows) - `8abb129` (Fix 7 Phase 3 guard) - closure
+(verifier + CLAUDE.md). Type-check clean on every commit.
 
 ### Module 1 status (2026-05-12, **M2.0 Costs Cleanup Pass 8**)
 
