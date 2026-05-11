@@ -189,7 +189,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   // strip deprecated Project.costInputMode.
   // M2.0L Pass 5: default every CostLine.costCategory to 'direct' when
   // unset.
-  return migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -207,7 +207,7 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ));
+  )));
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -220,7 +220,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   // M2.0L Pass 4 inheritance migration, then the M2.0L Pass 5
   // category defaulting, then the M2.0M financing wrapper, then the
   // M2.0M Pass 6 display defaults flip, M2.0M Pass 2 / Pass 7 / Pass 3 / Pass 8.
-  return migrateM20costsPass8(migrateM20mPass3Financing(
+  return migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -238,7 +238,7 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
         ),
       ),
     ),
-  ));
+  )));
 };
 
 // M2.0M Pass 7 (2026-05-11): Costs Architecture rewrite. Pass 4
@@ -477,6 +477,34 @@ function migrateM20costsPass8(snap: HydrateSnapshot): HydrateSnapshot {
 
 export const M20_PASS8_NOTICE =
   "Costs UI refined, sub-unit metric now per-asset and NDA placement updated. Review Tab 2 + Tab 3.";
+
+// M2.0M Pass 4 (2026-05-12): Financing Pass 4 migration.
+//   Fix 9: phaseFilter -> assetFilter (defaults '__combined__').
+// Idempotent.
+function migrateM20mPass4Financing(snap: HydrateSnapshot): HydrateSnapshot {
+  const project = snap.project as Project;
+  if (!project.financing) return snap;
+  const f = project.financing;
+  if (f.assetFilter !== undefined) return snap;
+  return {
+    ...snap,
+    project: {
+      ...project,
+      financing: { ...f, assetFilter: '__combined__' },
+    },
+  };
+}
+
+export const M20M_PASS4_NOTICE =
+  "Financing Pass 4: project-wide capex feeds the Capital Structure Overview + schedules; phase filter replaced by asset filter.";
+
+export function snapshotNeedsPass4FinancingMigration(s: unknown): boolean {
+  if (s === null || typeof s !== 'object') return false;
+  const snap = s as Partial<HydrateSnapshot>;
+  const project = snap.project as Project | undefined;
+  if (!project?.financing) return false;
+  return project.financing.assetFilter === undefined;
+}
 
 export function snapshotNeedsPass8Migration(s: unknown): boolean {
   if (s === null || typeof s !== 'object') return false;
@@ -1143,7 +1171,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
   // Parking sub-units, normalise phasing, dedupe phase-scoped ids,
   // apply Pass 4 / Pass 5 / M2.0M wrapper migrations, then Pass 6
   // display defaults.
-  snap = migrateM20costsPass8(migrateM20mPass3Financing(
+  snap = migrateM20mPass4Financing(migrateM20costsPass8(migrateM20mPass3Financing(
     migrateM20costsPass7PerAsset(
       migrateM20mPass2Financing(
         migrateM20mPass6NdaToProject(
@@ -1161,7 +1189,7 @@ function migrateLegacyToV8(input: unknown): HydrateSnapshot {
         ),
       ),
     ),
-  ));
+  )));
   return snap;
 }
 
@@ -1229,6 +1257,7 @@ function snapshotNeedsM20MMigration(s: unknown): boolean {
 // then Pass 5; then Pass 4; else the loose / M2.0h v7 -> v8 banner
 // upstream.
 function resolveBanner(s: unknown): string | undefined {
+  if (snapshotNeedsPass4FinancingMigration(s)) return M20M_PASS4_NOTICE;
   if (snapshotNeedsPass8Migration(s)) return M20_PASS8_NOTICE;
   if (snapshotNeedsPass3Migration(s)) return M20M_PASS3_NOTICE;
   if (snapshotNeedsPass7Migration(s)) return M20COSTS_PASS7_NOTICE;

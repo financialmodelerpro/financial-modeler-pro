@@ -1109,27 +1109,24 @@ export default function Module1Financing(): React.JSX.Element {
             {currencyHeaderLine(project.currency, project.displayScale ?? 'full')}
           </div>
         </div>
-        {/* P2-Fix 10 (2026-05-11): Phase Filter with "All Phases" option.
-            When the filter is '__all__' (default), Schedules aggregate
-            across phases; when a specific phase is picked, schedules
-            narrow to that phase. The Inputs editor still operates on
-            activePhaseId (set via the dropdown when not 'all'). */}
+        {/* P4-Fix 9 (2026-05-12): Asset Filter replaces Phase Filter.
+            'Combined' aggregates all assets; specific asset id narrows
+            the Inputs Summary tables + Schedules to that asset's
+            portion (allocated by capex share within scoped facilities).
+            phaseFilter retained on schema; migration converts to
+            assetFilter='__combined__'. */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <label style={{ fontSize: 11, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Phase Filter</label>
+          <label style={{ fontSize: 11, color: 'var(--color-meta)', textTransform: 'uppercase' }}>Asset Filter</label>
           <select
-            value={financingConfig.phaseFilter ?? PHASE_FILTER_ALL}
-            onChange={(e) => {
-              const v = e.target.value;
-              setFinancingConfig({ phaseFilter: v });
-              if (v !== PHASE_FILTER_ALL) {
-                setActivePhaseId(v);
-              }
-            }}
+            value={financingConfig.assetFilter ?? '__combined__'}
+            onChange={(e) => setFinancingConfig({ assetFilter: e.target.value })}
             style={inputStyle}
-            data-testid="financing-phase-filter"
+            data-testid="financing-asset-filter"
           >
-            <option value={PHASE_FILTER_ALL} data-testid="financing-phase-filter-all">All Phases</option>
-            {phases.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            <option value="__combined__" data-testid="financing-asset-filter-combined">Combined</option>
+            {assets.filter((a) => a.visible).map((a) => (
+              <option key={a.id} value={a.id}>{a.name}</option>
+            ))}
           </select>
         </div>
       </div>

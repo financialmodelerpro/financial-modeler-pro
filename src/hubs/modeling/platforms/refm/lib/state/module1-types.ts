@@ -1388,8 +1388,17 @@ export interface ProjectFinancingConfig {
   minimumCashReserve?: number;
   // P2-Fix 10 (2026-05-11): phase filter for schedules. '__all__' = aggregate
   // across phases. Specific phase id narrows the views. Defaults to '__all__'.
+  // P4-Fix 9 (2026-05-12): superseded by assetFilter below. Retained on
+  // schema for back-compat; migration converts to assetFilter='__combined__'.
   phaseFilter?: string;
+  // P4-Fix 9 (2026-05-12): asset filter replaces phase filter on Tab 4
+  // Schedules. '__combined__' aggregates across all assets;
+  // specific asset id narrows every table (Inputs Summary + Schedules)
+  // to that asset's portion.
+  assetFilter?: string;
 }
+
+export const ASSET_FILTER_COMBINED = '__combined__';
 
 export const PHASE_FILTER_ALL = '__all__';
 
