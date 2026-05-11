@@ -71,6 +71,7 @@ import {
   DEFAULT_USEFUL_LIFE_YEARS,
   PER_SUBUNIT_RATE_KEY_SUPPORT,
   PER_SUBUNIT_RATE_KEY_PARKING,
+  deriveLineBaseId,
 } from '@/src/hubs/modeling/platforms/refm/lib/state/module1-types';
 
 // ── Land aggregates ────────────────────────────────────────────────────────
@@ -1216,7 +1217,11 @@ const STANDARD_STAGE_BY_ID: Record<string, CostStage> = {
 export function deriveCostStage(line: CostLine): CostStage {
   // Standard line -> id-derived. Custom line -> user-picked stage on
   // the line (set when the popup added it). Fallback: stored stage.
-  return STANDARD_STAGE_BY_ID[line.id] ?? line.stage;
+  // M2.0L (2026-05-11): ids are now phase-scoped (`baseId__phaseId`);
+  // strip the suffix before looking up the stage map. Legacy bare ids
+  // still resolve via the same map.
+  const baseId = deriveLineBaseId(line.id);
+  return STANDARD_STAGE_BY_ID[baseId] ?? STANDARD_STAGE_BY_ID[line.id] ?? line.stage;
 }
 
 export function deriveCostScope(line: CostLine): CostScope {

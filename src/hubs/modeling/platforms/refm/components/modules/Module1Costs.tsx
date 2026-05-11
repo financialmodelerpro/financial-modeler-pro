@@ -1138,7 +1138,14 @@ function SummaryTables({
                 const assetRow = transformAnnualSeries(assetRowAnnual);
                 // Per-line per-period: distribute each line's total
                 // across periods using the line's own phasing curve.
-                const linesForThisAsset = costLines.filter((c) => c.targetAssetId === undefined || c.targetAssetId === a.id);
+                // M2.0L (2026-05-11): scope by phaseId so multi-phase
+                // projects don't render the other phases' lines (which
+                // would all fall through to lineTotal=0 + cause React
+                // key collisions on legacy snapshots).
+                const linesForThisAsset = costLines.filter((c) =>
+                  c.phaseId === a.phaseId &&
+                  (c.targetAssetId === undefined || c.targetAssetId === a.id)
+                );
                 return (
                   <React.Fragment key={a.id}>
                     <tr style={{ background: 'color-mix(in srgb, var(--color-navy) 8%, transparent)', fontWeight: 700 }} data-testid={`capex-period-asset-${a.id}`}>

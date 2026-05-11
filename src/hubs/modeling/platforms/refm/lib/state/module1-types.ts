@@ -1180,22 +1180,58 @@ export const STANDARD_COST_LINE_IDS = [
 ] as const;
 export type StandardCostLineId = typeof STANDARD_COST_LINE_IDS[number];
 
+// M2.0L (2026-05-11): cost line ids are now phase-scoped to keep them
+// globally unique across multi-phase projects. Pre-M2.0L snapshots
+// stored hardcoded base ids ('land-cash', etc.) per phase, so a
+// 2-phase project produced 20 lines whose ids collided across phases.
+// The store updateCostLine / removeCostLine mutated every line with
+// the matching id (silently corrupting the other phase), and the
+// Results page filter at Module1Costs.tsx ignored phaseId and walked
+// duplicates. Composing the id with the phaseId fixes both at the
+// storage layer; migrateM20lDedupeCostLineIds in module1-migrate
+// retrofits legacy snapshots on hydrate.
+//
+// Format: `${baseId}__${phaseId}` (double underscore separator,
+// distinct from the single underscore in default phase ids like
+// 'phase_1'). Custom user lines use `custom-${timestamp}` and don't
+// need scoping since they're already unique.
+const PHASE_ID_SEPARATOR = '__';
+
+export function composeLineId(baseId: string, phaseId: string): string {
+  if (!phaseId) return baseId;
+  if (baseId.includes(PHASE_ID_SEPARATOR)) return baseId; // already scoped
+  return `${baseId}${PHASE_ID_SEPARATOR}${phaseId}`;
+}
+
+export function deriveLineBaseId(lineId: string): string {
+  const idx = lineId.indexOf(PHASE_ID_SEPARATOR);
+  return idx === -1 ? lineId : lineId.slice(0, idx);
+}
+
+export function isStandardCostLineBaseId(baseId: string): baseId is StandardCostLineId {
+  return (STANDARD_COST_LINE_IDS as readonly string[]).includes(baseId);
+}
+
 // constructionPeriods is read so endPeriod can default to the phase
 // duration. If 0 (no phase yet), endPeriod defaults to 24 to match
 // makeDefaultPhase.
 export function makeDefaultCostLines(phaseId: string, constructionPeriods = 24): CostLine[] {
   const cp = Math.max(1, constructionPeriods);
+  // M2.0L (2026-05-11): every seed line id is composed with phaseId
+  // so a multi-phase project produces globally unique ids.
+  // selectedLineIds reference the phase-scoped peer ids in the SAME phase.
+  const id = (baseId: StandardCostLineId): string => composeLineId(baseId, phaseId);
   return [
     // ── Land (cash + in-kind, both locked: derive from parcels) ─────────
     {
-      id: 'land-cash', phaseId, name: 'Land (Cash)',
+      id: id('land-cash'), phaseId, name: 'Land (Cash)',
       method: 'percent_of_cash_land', value: 100,
       stage: 'land', scope: 'direct', allocationBasis: 'land_share',
       startPeriod: 0, endPeriod: 0, phasing: 'even',
       isLocked: true,
     },
     {
-      id: 'land-inkind', phaseId, name: 'Land (In-Kind)',
+      id: id('land-inkind'), phaseId, name: 'Land (In-Kind)',
       method: 'percent_of_inkind_land', value: 100,
       stage: 'land', scope: 'direct', allocationBasis: 'land_share',
       startPeriod: 0, endPeriod: 0, phasing: 'even',
@@ -1203,63 +1239,63 @@ export function makeDefaultCostLines(phaseId: string, constructionPeriods = 24):
     },
     // ── Construction (BUA + Parking) ────────────────────────────────────
     {
-      id: 'construction-bua', phaseId, name: 'Construction (BUA)',
+      id: id('construction-bua'), phaseId, name: 'Construction (BUA)',
       method: 'rate_per_bua', value: 4500,
       stage: 'hard', scope: 'direct', allocationBasis: 'bua_share',
-      startPeriod: 1, endPeriod: cp, phasing: 'sCurve',
+      startPeriod: 1, endPeriod: cp, phasing: 'even',
     },
     {
-      id: 'construction-parking', phaseId, name: 'Construction (Parking)',
+      id: id('construction-parking'), phaseId, name: 'Construction (Parking)',
       method: 'rate_per_parking_bay', value: 25000,
       stage: 'hard', scope: 'direct', allocationBasis: 'per_asset',
-      startPeriod: 1, endPeriod: cp, phasing: 'sCurve',
+      startPeriod: 1, endPeriod: cp, phasing: 'even',
     },
     // ── Infrastructure / Landscaping ────────────────────────────────────
     {
-      id: 'infrastructure', phaseId, name: 'Infrastructure',
+      id: id('infrastructure'), phaseId, name: 'Infrastructure',
       method: 'rate_per_nda', value: 250,
       stage: 'hard', scope: 'direct', allocationBasis: 'land_share',
-      startPeriod: 1, endPeriod: cp, phasing: 'frontloaded',
+      startPeriod: 1, endPeriod: cp, phasing: 'even',
     },
     {
-      id: 'landscaping', phaseId, name: 'Landscaping',
+      id: id('landscaping'), phaseId, name: 'Landscaping',
       method: 'rate_per_nda', value: 75,
       stage: 'hard', scope: 'direct', allocationBasis: 'land_share',
-      startPeriod: Math.max(1, Math.floor(cp / 2)), endPeriod: cp, phasing: 'backloaded',
+      startPeriod: Math.max(1, Math.floor(cp / 2)), endPeriod: cp, phasing: 'even',
     },
     // ── Pre-operating (% of Construction + Infra + Landscaping) ─────────
     {
-      id: 'pre-operating', phaseId, name: 'Pre-operating',
+      id: id('pre-operating'), phaseId, name: 'Pre-operating',
       method: 'percent_of_selected', value: 3,
       stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
-      startPeriod: Math.max(1, cp - 6), endPeriod: cp, phasing: 'backloaded',
-      selectedLineIds: ['construction-bua', 'construction-parking', 'infrastructure', 'landscaping'],
+      startPeriod: Math.max(1, cp - 6), endPeriod: cp, phasing: 'even',
+      selectedLineIds: [id('construction-bua'), id('construction-parking'), id('infrastructure'), id('landscaping')],
     },
     // ── Professional Fee (% of Construction BUA + Parking) ──────────────
     {
-      id: 'professional-fee', phaseId, name: 'Professional Fee',
+      id: id('professional-fee'), phaseId, name: 'Professional Fee',
       method: 'percent_of_selected', value: 6,
       stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
       startPeriod: 1, endPeriod: cp, phasing: 'even',
-      selectedLineIds: ['construction-bua', 'construction-parking'],
+      selectedLineIds: [id('construction-bua'), id('construction-parking')],
     },
     // ── Commission (% of Revenue) ───────────────────────────────────────
     // Sell + Sell+Manage only; calc engine zeroes out for non-Sell strategies.
     // Revenue source ships in Module 2.1; for now value × 0 (revenue stub) = 0.
     {
-      id: 'commission', phaseId, name: 'Commission',
+      id: id('commission'), phaseId, name: 'Commission',
       method: 'percent_of_selected', value: 4,
       stage: 'soft', scope: 'indirect', allocationBasis: 'per_asset',
-      startPeriod: Math.max(1, Math.floor(cp / 2)), endPeriod: cp, phasing: 'backloaded',
+      startPeriod: Math.max(1, Math.floor(cp / 2)), endPeriod: cp, phasing: 'even',
       selectedLineIds: [],
     },
     // ── Contingency (% of Construction BUA + Parking) ───────────────────
     {
-      id: 'contingency', phaseId, name: 'Contingency',
+      id: id('contingency'), phaseId, name: 'Contingency',
       method: 'percent_of_selected', value: 5,
       stage: 'soft', scope: 'indirect', allocationBasis: 'bua_share',
       startPeriod: 1, endPeriod: cp, phasing: 'even',
-      selectedLineIds: ['construction-bua', 'construction-parking'],
+      selectedLineIds: [id('construction-bua'), id('construction-parking')],
     },
   ];
 }

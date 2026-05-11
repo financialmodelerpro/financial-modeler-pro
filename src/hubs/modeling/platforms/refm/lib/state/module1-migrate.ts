@@ -32,7 +32,8 @@
 import type { HydrateSnapshot } from './module1-store';
 import { DEFAULT_MODULE1_STATE } from './module1-store';
 import { computeSubUnitArea } from '@/src/core/calculations';
-import type { SubUnit, Asset, Project, Phase } from './module1-types';
+import type { SubUnit, Asset, Project, Phase, CostLine, CostOverride } from './module1-types';
+import { STANDARD_COST_LINE_IDS, composeLineId, deriveLineBaseId } from './module1-types';
 
 export const SCHEMA_VERSION = 8;
 
@@ -165,9 +166,11 @@ const stripV8Wrapper = (s: NewV8Snapshot): HydrateSnapshot => {
   const out: Partial<NewV8Snapshot> = { ...s };
   delete out.version;
   delete out.savedAt;
-  // M2.0j Fix 9: also fold any legacy phasing values to 'even' so the
-  // saved shape stays clean.
-  return migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot));
+  // M2.0j Fix 9: fold any legacy phasing values to 'even'.
+  // M2.0L: dedupe cost line ids across phases by composing with phaseId.
+  return migrateM20lDedupeCostLineIds(
+    migrateM20jPhasing(migrateM20gParkingSubUnits(out as HydrateSnapshot)),
+  );
 };
 
 const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
@@ -176,9 +179,66 @@ const stripWrapper = (s: NewV7Snapshot): HydrateSnapshot => {
   delete out.savedAt;
   // M2.0g v8: v7 -> v8 migration runs first (aggregate monthly,
   // stamp outputGranularity), then the M2.0g Parking-subunit fold,
-  // then the M2.0j phasing fold.
-  return migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot)));
+  // then the M2.0j phasing fold, then the M2.0L id dedupe.
+  return migrateM20lDedupeCostLineIds(
+    migrateM20jPhasing(migrateM20gParkingSubUnits(migrateV7ToV8(out as HydrateSnapshot))),
+  );
 };
+
+// M2.0L (2026-05-11): legacy snapshots seeded cost lines with hardcoded
+// ids ('land-cash', 'construction-bua', etc.) per phase, so a 2-phase
+// project produced 20 lines whose ids collided across phases. This
+// migration rescopes every standard-catalog id with `__${phaseId}` and
+// rewrites cross-references (selectedLineIds, costOverrides.lineId) to
+// match. Idempotent: lines whose ids already contain `__` are left
+// alone. Custom user lines (id starts with 'custom-') are untouched.
+function migrateM20lDedupeCostLineIds(snap: HydrateSnapshot): HydrateSnapshot {
+  const standardIdSet = new Set<string>(STANDARD_COST_LINE_IDS as readonly string[]);
+  // Build per-phase rename map: baseId -> composed id
+  const renameByPhase = new Map<string, Map<string, string>>();
+  const costLines = snap.costLines as CostLine[];
+  let touched = false;
+  for (const c of costLines) {
+    const baseId = deriveLineBaseId(c.id);
+    // Only rescope STANDARD catalog ids; custom-${timestamp} stays alone.
+    if (!standardIdSet.has(baseId)) continue;
+    // Already scoped (contains '__')? Skip.
+    if (c.id !== baseId) continue;
+    if (!renameByPhase.has(c.phaseId)) {
+      renameByPhase.set(c.phaseId, new Map());
+    }
+    const m = renameByPhase.get(c.phaseId)!;
+    m.set(c.id, composeLineId(c.id, c.phaseId));
+    touched = true;
+  }
+  if (!touched) return snap;
+  const rewriteId = (lineId: string, phaseId: string): string => {
+    const m = renameByPhase.get(phaseId);
+    if (!m) return lineId;
+    return m.get(lineId) ?? lineId;
+  };
+  const newCostLines: CostLine[] = costLines.map((c) => {
+    const id = rewriteId(c.id, c.phaseId);
+    if (id === c.id && !c.selectedLineIds) return c;
+    const next: CostLine = { ...c, id };
+    if (next.selectedLineIds && next.selectedLineIds.length > 0) {
+      next.selectedLineIds = next.selectedLineIds.map((ref) => rewriteId(ref, c.phaseId));
+    }
+    return next;
+  });
+  const newCostOverrides: CostOverride[] = (snap.costOverrides as CostOverride[]).map((o) => {
+    // Override.lineId refers to the cost line. We need to know which
+    // phase the override targeted; look it up via the original (pre-
+    // rename) line in costLines whose id matches o.lineId and whose
+    // asset is in any phase. Since overrides are scoped by asset and
+    // the asset has a phaseId, derive phase from o.assetId.
+    const asset = (snap.assets as Asset[]).find((a) => a.id === o.assetId);
+    if (!asset) return o;
+    const id = rewriteId(o.lineId, asset.phaseId);
+    return id === o.lineId ? o : { ...o, lineId: id };
+  });
+  return { ...snap, costLines: newCostLines, costOverrides: newCostOverrides };
+}
 
 // M2.0h Fix 1 (2026-05-07): v7 -> v8 migration detector. Returns true
 // when stripWrapper would actually transform the input (i.e. source
